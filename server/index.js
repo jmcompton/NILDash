@@ -277,48 +277,18 @@ app.post('/api/ai/team-match', requireAuth, async (req, res) => {
   const athlete = store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
-  const prompt = `You are a NIL recruitment analyst. Rank the top 6 college programs for this athlete as a recruitment target.
+  const prompt = `You are an elite NCAA transfer portal analyst. Find the 6 best landing spots for this athlete.
 
-ATHLETE PROFILE:
-- Name: ${athlete.name}
-- Sport: ${athlete.sport} (${athlete.position || ''})
-- Instagram: ${athlete.instagram.toLocaleString()} followers
-- TikTok: ${athlete.tiktok.toLocaleString()} followers
-- Engagement: ${athlete.engagement}%
-- Notes: ${athlete.notes || 'None'}
+ATHLETE: ${athlete.name} | ${athlete.sport} | ${athlete.position || 'Unknown position'} | Year: ${athlete.year || 'Unknown'} | School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'Unknown tier'})
+STATS: ${athlete.stats || athlete.notes || 'Not provided'}
+PORTAL STATUS: ${athlete.transferReason || 'Unknown'}
+SOCIAL: ${athlete.instagram || 0} IG followers, ${athlete.tiktok || 0} TikTok, ${athlete.engagement || 0}% engagement
+FILTERS: Conference: ${conference || 'Any'} | Min NIL: $${(minNil||0).toLocaleString()} | Sort: ${sortBy || 'fit'}
 
-FILTERS:
-- Conference preference: ${conference || 'Any'}
-- Minimum NIL value: $${(minNil || 0).toLocaleString()}/year
-- Sort by: ${sortBy || 'fit score'}
+Rules: Use real NIL collective budgets. Mix 2 reach, 2 best-fit, 2 safe options. Be specific to this athlete stats.
 
-For each program return a JSON array item:
-{
-  "rank": 1,
-  "name": "School Name",
-  "conference": "ACC",
-  "confLabel": "ACC",
-  "why": "2-sentence explanation of why this school fits THIS athlete specifically",
-  "nilLow": 250000,
-  "nilHigh": 400000,
-  "nilBreakdown": [
-    {"label": "Collective guarantee", "val": "$200K"},
-    {"label": "Brand deals (est.)", "val": "$120K+"},
-    {"label": "Apparel bonus", "val": "$20K"}
-  ],
-  "fitScore": 88,
-  "metrics": [
-    {"label": "Collective strength", "val": "Strong"},
-    {"label": "NBA/Pro draft picks (3yr)", "val": "3"},
-    {"label": "Avg brand partners", "val": "4 per player"},
-    {"label": "Market size", "val": "City / Regional"},
-    {"label": "Playing time likelihood", "val": "High"},
-    {"label": "Academic support", "val": "Good"}
-  ]
-}
-
-Base NIL estimates on real collective sizes and market data for each school.
-Return ONLY the JSON array. No markdown. No explanation.`;
+Return ONLY a JSON array:
+[{"rank":1,"name":"School","conference":"ACC","confLabel":"ACC","tier":"reach or best-fit or safe","why":"2 sentences specific to this athlete stats and this school roster need","nilLow":150000,"nilHigh":300000,"nilBreakdown":[{"label":"Collective","val":"$150K"},{"label":"Brand deals","val":"$100K+"}],"fitScore":88,"playingTimeOutlook":"Immediate starter","rosterNeed":"Lost starter to NBA","metrics":[{"label":"Collective strength","val":"Strong"},{"label":"Pro picks 3yr","val":"4"},{"label":"Avg NIL/player","val":"$180K"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"},{"label":"Academics","val":"Strong"}]}]`;
 
   try {
     const raw = await ai.oneShot(prompt, `You are a precise NIL recruitment analyst. Return only valid JSON arrays.`);
