@@ -223,6 +223,24 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
 });
 
 
+
+// -- Player Lookup --
+app.post('/api/ai/player-lookup', requireAuth, async (req, res) => {
+  const { name, school, sport } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const prompt = 'Look up college athlete: ' + name + (school ? ' at ' + school : '') + (sport ? ' (' + sport + ')' : '') + '. Return this JSON with found:true always, estimate anything unknown: {"found":true,"name":"full name","school":"school name","sport":"sport","position":"position abbrev","year":"Freshman or Sophomore or Junior or Senior or Grad Transfer","stats":"stats est. if unsure","height":"height","weight":"weight","hometown":"city state","instagram":5000,"tiktok":2000,"engagement":4.2,"schoolTier":"p4-top10 or p4-top25 or p4-mid or p4-lower or highmajor-top or mid-top or mid-mid or mid-lower or lowmajor-top or lowmajor-lower or d2-elite or d2-mid or d2-lower","notes":"2-3 sentences"}. Return ONLY JSON no markdown.';
+  try {
+    const raw = await ai.oneShot(prompt, 'You are a college sports database D1 through D2. Return only valid JSON.');
+    const cleaned = raw.replace(/`/g, '').replace(/json/g, '').trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.json({ found: false });
+    res.json(JSON.parse(jsonMatch[0]));
+  } catch (err) {
+    console.error('Lookup error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Team Match endpoint ────────────────────────────────────────
 app.post('/api/ai/team-match', requireAuth, async (req, res) => {
   const { athleteId, conference, minNil, sortBy } = req.body;
