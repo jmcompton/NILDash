@@ -95,7 +95,7 @@ app.get('/api/athletes', requireAuth, (req, res) => {
 
 app.post('/api/athletes', requireAuth, (req, res) => {
   const user = store.getUser(req.session.userId);
-  const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes } = req.body;
+  const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
   const id = 'ath-' + Date.now();
   const athlete = store.saveAthlete(id, {
@@ -105,6 +105,10 @@ app.post('/api/athletes', requireAuth, (req, res) => {
     tiktok: parseInt(tiktok) || 0,
     engagement: parseFloat(engagement) || 3.0,
     notes: notes || '',
+    year: year || '',
+    stats: stats || '',
+    transferReason: transferReason || '',
+    gpa: gpa || '',
     createdAt: new Date().toISOString(),
   });
   res.status(201).json(athlete);

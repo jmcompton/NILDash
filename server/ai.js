@@ -27,23 +27,35 @@ function buildSystemPrompt(athlete, role = 'agent') {
     ? 'You are NILDash, an AI advisor helping a college athlete understand their NIL value and opportunities.'
     : 'You are NILDash, a senior NIL deal intelligence analyst working exclusively for sports agents.';
 
+  const totalReach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+  const brandAwareness = totalReach > 500000 ? 'High (500K+ reach)' :
+                         totalReach > 100000 ? 'Growing (100K-500K reach)' :
+                         totalReach > 25000  ? 'Emerging (25K-100K reach)' : 'Early stage (<25K reach)';
+
   return `${persona}
 
 CLIENT PROFILE:
   Name: ${athlete.name}
-  Sport: ${athlete.sport} (${athlete.position || ''})
-  School: ${athlete.school} (tier: ${athlete.schoolTier})
-  Instagram: ${athlete.instagram.toLocaleString()} followers
-  TikTok: ${athlete.tiktok.toLocaleString()} followers
-  Combined reach: ${(athlete.instagram + athlete.tiktok).toLocaleString()}
-  Engagement: ${athlete.engagement}%
-  Notes: ${athlete.notes || 'None'}
+  Sport: ${athlete.sport}
+  Position: ${athlete.position || 'Not specified'}
+  Year: ${athlete.year || 'Not specified'}
+  School: ${athlete.school || 'Unknown'} (Tier: ${athlete.schoolTier || 'Unknown'})
+  Key Stats: ${athlete.stats || 'Not provided'}
+  Portal Status: ${athlete.transferReason || 'Not in portal'}
 
-MARKET DATA:
+SOCIAL & BRAND PROFILE:
+  Instagram: ${(athlete.instagram || 0).toLocaleString()} followers
+  TikTok: ${(athlete.tiktok || 0).toLocaleString()} followers
+  Combined reach: ${totalReach.toLocaleString()}
+  Engagement rate: ${athlete.engagement || 0}% (industry avg: ${MARKET_RATES.industryAvgEngagement.combined}%)
+  Brand awareness level: ${brandAwareness}
+  Engagement multiplier: ${engMult}× vs market
+
+NIL MARKET DATA:
   Base rate: $${MARKET_RATES.basePer1kReach}/1K reach at 3% engagement
   Sport multiplier: ${sportMult}× (${athlete.sport})
-  School multiplier: ${schoolMult}× (${athlete.schoolTier})
-  Engagement multiplier: ${engMult}× (industry avg: ${MARKET_RATES.industryAvgEngagement.combined}%)
+  School multiplier: ${schoolMult}× (${athlete.schoolTier || 'unknown'})
+  Estimated rate range: $${Math.round((totalReach/1000) * MARKET_RATES.basePer1kReach * sportMult * schoolMult * engMult * 0.85 / 100) * 100} - $${Math.round((totalReach/1000) * MARKET_RATES.basePer1kReach * sportMult * schoolMult * engMult * 1.25 / 100) * 100} per post
 
 COMPARABLE DEALS:
 ${comps || '  No direct comps — use general market rates'}
@@ -51,10 +63,15 @@ ${comps || '  No direct comps — use general market rates'}
 BRAND BUDGET WINDOWS:
 ${Object.entries(BRAND_WINDOWS).slice(0,4).map(([b,n]) => `  - ${b}: ${n}`).join('\n')}
 
+ADDITIONAL CONTEXT:
+  ${athlete.notes || 'None'}
+
 RULES:
-- Be direct and specific. Use real dollar amounts.
-- When recommending deals: rank them, explain why THIS athlete
-- When giving pricing: show the math, give a range
+- Use ALL profile data above — stats, year, school tier, social reach, engagement
+- Be direct and specific. Use real dollar amounts based on their actual reach and engagement
+- Factor in brand awareness level when recommending deals
+- When recommending deals: explain why THIS athlete specifically based on their stats and profile
+- When giving pricing: show the math using their actual numbers
 - When giving negotiation scripts: word-for-word language only
 - Max 400 words unless asked for more`;
 }
