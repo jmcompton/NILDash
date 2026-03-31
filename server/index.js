@@ -224,6 +224,36 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
 
 
 
+
+// -- Player URL Fetch --
+app.post('/api/ai/player-fetch', requireAuth, async (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'url required' });
+  try {
+    const https = require('https');
+    const http = require('http');
+    const client = url.startsWith('https') ? https : http;
+    const pageText = await new Promise((resolve, reject) => {
+      client.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } }, (res) => {
+        let data = '';
+        res.on('data', d => data += d);
+        res.on('end', () => resolve(data));
+      }).on('error', reject);
+    });
+    // Strip HTML tags and limit length
+    const text = pageText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').substring(0, 8000);
+    const prompt = 'Extract college athlete info from this page text and return as JSON. Page: ' + text + '. Return this JSON: {"found":true,"name":"full name","school":"school","sport":"sport","position":"position","year":"year","stats":"key stats","height":"height","weight":"weight","hometown":"city state","notes":"bio and achievements"}. Return ONLY JSON.';
+    const raw = await ai.oneShot(prompt, 'You extract structured athlete data from web pages. Return only valid JSON.');
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.json({ found: false });
+    res.json(JSON.parse(jsonMatch[0]));
+  } catch (err) {
+    console.error('Fetch error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // -- Player Lookup --
 app.post('/api/ai/player-lookup', requireAuth, async (req, res) => {
   const { name, school, sport } = req.body;
