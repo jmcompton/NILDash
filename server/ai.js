@@ -87,7 +87,7 @@ async function oneShot(prompt, system) {
   const ai = getClient();
   const msg = await ai.messages.create({
     model: 'claude-opus-4-5',
-    max_tokens: 1000,
+    max_tokens: 8000,
     system: system || 'You are a precise NIL deal analyst.',
     messages: [{ role: 'user', content: prompt }],
   });
