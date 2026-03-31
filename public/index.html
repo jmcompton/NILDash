@@ -491,6 +491,50 @@ tbody td{padding:11px 14px;vertical-align:middle}
   </main>
 </div>
 
+
+      <!-- ── TEAM MATCH ── -->
+      <div id="view-team-match" class="view">
+        <div class="page-title">Team Match</div>
+        <div class="page-sub">Find the best college programs for your client — and what they should be making</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px">
+          <div><label class="form-label-sm">Conference</label>
+            <select class="select-sm" id="tm-conf">
+              <option value="any">Any conference</option>
+              <option value="ACC">ACC</option><option value="SEC">SEC</option>
+              <option value="Big 12">Big 12</option><option value="Big Ten">Big Ten</option>
+            </select>
+          </div>
+          <div><label class="form-label-sm">Min NIL / year</label>
+            <select class="select-sm" id="tm-minnil">
+              <option value="0">Any amount</option>
+              <option value="100000">$100K+</option>
+              <option value="250000" selected>$250K+</option>
+              <option value="500000">$500K+</option>
+              <option value="1000000">$1M+</option>
+            </select>
+          </div>
+          <div><label class="form-label-sm">Sort by</label>
+            <select class="select-sm" id="tm-sort">
+              <option value="fit">Fit score</option>
+              <option value="nil">NIL value</option>
+              <option value="exposure">Pro exposure</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <button class="run-btn" style="width:100%" id="tm-run-btn" onclick="runTeamMatch()">Scan Teams →</button>
+          </div>
+        </div>
+        <div id="tm-summary" style="display:none"></div>
+        <div id="tm-results"></div>
+        <div class="ai-block" id="tm-playbook-block">
+          <div class="ai-header">
+            <div class="spinner" id="tm-spinner"></div>
+            <div class="ai-label" id="tm-playbook-label">Negotiation Playbook</div>
+          </div>
+          <div class="ai-content" id="tm-playbook-text"></div>
+        </div>
+      </div>
+
 <!-- ADD DEAL MODAL -->
 <div class="modal-overlay" id="addDealModal">
   <div class="modal">
@@ -727,9 +771,9 @@ function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', roster:'My Roster', 'add-athlete':'Add Client' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', roster:'My Roster', 'add-athlete':'Add Client' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
-  const showBar = ['command','deals','rate','negotiate'].includes(id);
+  const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
   if (id === 'roster') renderRoster();
@@ -742,29 +786,23 @@ async function runCommand() {
   const msg = document.getElementById('commandInput').value.trim();
   if (!msg) return;
   const btn = document.getElementById('runCmdBtn');
-  btn.disabled = true; btn.textContent = '…';
+  btn.disabled = true; btn.textContent = 'Thinking...';
   const out = document.getElementById('commandOutput');
   const txt = document.getElementById('commandText');
-  out.classList.add('visible'); txt.textContent = '';
+  out.classList.add('visible');
+  txt.textContent = 'NILDash is thinking...';
   document.getElementById('cmdSpinner').style.display = 'block';
   try {
-    const r = await fetch(`${API_BASE}/api/ai/command`, {
+    const r = await fetch(`${API_BASE}/api/ai/ask`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ athleteId: selectedAthleteId, message: msg }),
     });
-    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
-    while(true) {
-      const {done,value} = await reader.read(); if(done) break;
-      buf += dec.decode(value); const lines = buf.split('\n'); buf = lines.pop();
-      for(const line of lines) {
-        if(!line.startsWith('data:')) continue;
-        const d = line.slice(5).trim(); if(d==='[DONE]') break;
-        try { const p=JSON.parse(d); if(p.text) txt.textContent+=p.text; } catch{}
-      }
-    }
-  } catch(e) { txt.textContent = '❌ ' + e.message; }
+    const data = await r.json();
+    if (data.error) { txt.textContent = '\u274c ' + data.error; }
+    else { txt.textContent = data.response || 'No response received.'; }
+  } catch(e) { txt.textContent = '\u274c ' + e.message; }
   document.getElementById('cmdSpinner').style.display = 'none';
-  btn.disabled = false; btn.textContent = 'Run →';
+  btn.disabled = false; btn.textContent = 'Run \u2192';
 }
 
 // ── AI: DEALS ────────────────────────────────────────────────
@@ -851,20 +889,13 @@ async function getRateScript() {
   try {
     const ath = athletes.find(a=>a.id===selectedAthleteId);
     const msg = `Write a 5-sentence script the agent reads aloud to justify $${rate.mid||10000} for a ${type} deal with ${ath?.name||'this athlete'}. Include engagement rate vs industry average, school premium, CPM comparison to paid digital ads, and close with a question. Use quotation marks. Be confident and factual.`;
-    const r = await fetch(`${API_BASE}/api/ai/command`, {
+    const r2 = await fetch(`${API_BASE}/api/ai/ask`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ athleteId: selectedAthleteId, message: msg }),
     });
-    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
-    while(true) {
-      const {done,value} = await reader.read(); if(done) break;
-      buf += dec.decode(value); const lines = buf.split('\n'); buf = lines.pop();
-      for(const line of lines) {
-        if(!line.startsWith('data:')) continue;
-        const d = line.slice(5).trim(); if(d==='[DONE]') break;
-        try { const p=JSON.parse(d); if(p.text) txt.textContent+=p.text; } catch{}
-      }
-    }
+    const data = await r2.json();
+    if (data.error) { txt.textContent = '❌ ' + data.error; }
+    else { txt.textContent = data.response || 'No response.'; }
   } catch(e) { txt.textContent = '❌ ' + e.message; }
   spinner.style.display = 'none';
 }
@@ -959,6 +990,136 @@ function showToast(msg) {
 }
 
 // ── INIT ─────────────────────────────────────────────────────
+
+// ── TEAM MATCH ───────────────────────────────────────────────
+async function runTeamMatch() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const btn = document.getElementById('tm-run-btn');
+  btn.disabled = true; btn.textContent = 'Scanning...';
+  document.getElementById('tm-results').innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Scanning college programs with AI...</div>';
+  document.getElementById('tm-summary').style.display = 'none';
+  document.getElementById('tm-playbook-block').classList.remove('visible');
+  document.getElementById('tm-playbook-text').textContent = '';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/ai/team-match`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        athleteId: selectedAthleteId,
+        conference: document.getElementById('tm-conf').value,
+        minNil: parseInt(document.getElementById('tm-minnil').value),
+        sortBy: document.getElementById('tm-sort').value,
+      }),
+    });
+    const data = await r.json();
+    if (data.error) { document.getElementById('tm-results').innerHTML = '<div style="color:var(--red);padding:20px">❌ ' + data.error + '</div>'; return; }
+    renderTeamMatch(data.teams);
+  } catch(e) {
+    document.getElementById('tm-results').innerHTML = '<div style="color:var(--red);padding:20px">❌ ' + e.message + '</div>';
+  }
+  btn.disabled = false; btn.textContent = 'Scan Teams →';
+}
+
+function fmtNil(n) {
+  if (n >= 1000000) return '$' + (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return '$' + Math.round(n/1000) + 'K';
+  return '$' + n;
+}
+
+function renderTeamMatch(teams) {
+  if (!teams || !teams.length) {
+    document.getElementById('tm-results').innerHTML = '<div style="color:var(--muted);padding:20px">No matching programs found. Try adjusting your filters.</div>';
+    return;
+  }
+
+  const best = teams[0];
+  const avgNil = Math.round(teams.reduce((s,t) => s + (t.nilHigh||0), 0) / teams.length);
+  const sumEl = document.getElementById('tm-summary');
+  sumEl.style.display = 'grid';
+  sumEl.style.gridTemplateColumns = 'repeat(auto-fit,minmax(120px,1fr))';
+  sumEl.style.gap = '10px';
+  sumEl.style.marginBottom = '20px';
+  sumEl.innerHTML = `
+    <div class="kpi"><div class="kpi-label">Programs found</div><div class="kpi-val" style="font-size:24px">${teams.length}</div></div>
+    <div class="kpi"><div class="kpi-label">Best NIL offer</div><div class="kpi-val" style="font-size:22px">${fmtNil(best.nilHigh||0)}</div></div>
+    <div class="kpi"><div class="kpi-label">Top fit score</div><div class="kpi-val" style="font-size:24px">${best.fitScore||'-'}</div></div>
+    <div class="kpi"><div class="kpi-label">Avg NIL / yr</div><div class="kpi-val" style="font-size:22px">${fmtNil(avgNil)}</div></div>
+  `;
+
+  document.getElementById('tm-results').innerHTML = teams.map((t, i) => `
+    <div class="card" style="margin-bottom:10px;cursor:pointer;border:${i===0?'1px solid rgba(200,241,53,0.4)':'1px solid var(--border)'}" onclick="toggleTmDetail('tm-detail-${i}')">
+      <div style="display:grid;grid-template-columns:28px 1fr auto;gap:0 16px;align-items:start">
+        <div style="font-size:18px;font-weight:500;color:var(--muted);padding-top:2px">${i+1}</div>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            <span style="font-size:15px;font-weight:500">${t.name||'Unknown'}</span>
+            <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--surface2);color:var(--muted)">${t.confLabel||t.conference||''}</span>
+            ${i===0?'<span class="chip chip-green">Best fit</span>':''}
+          </div>
+          <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:8px">${t.why||''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${(t.nilBreakdown||[]).map(b=>`<span style="font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">${b.label}: <strong style="color:var(--text)">${b.val}</strong></span>`).join('')}
+          </div>
+          <div id="tm-detail-${i}" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px">
+              ${(t.metrics||[]).map(m=>`<div style="background:var(--surface2);border-radius:6px;padding:8px 10px"><div style="font-size:10px;color:var(--muted);margin-bottom:3px">${m.label}</div><div style="font-size:13px;font-weight:500">${m.val}</div></div>`).join('')}
+            </div>
+            <button class="run-btn" style="font-size:12px;padding:8px 16px" onclick="event.stopPropagation();buildTmPlaybook('${(t.name||'').replace(/'/g,"\'")}','${fmtNil(t.nilHigh||0)}')">Build negotiation playbook for ${t.name||'this school'} →</button>
+          </div>
+        </div>
+        <div style="text-align:right;min-width:100px">
+          <div style="font-size:18px;font-weight:500;color:var(--accent)">${fmtNil(t.nilLow||0)}&ndash;${fmtNil(t.nilHigh||0)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">NIL / year</div>
+          <div style="display:flex;align-items:center;gap:5px;justify-content:flex-end;margin-top:6px">
+            <div style="width:60px;height:4px;border-radius:2px;background:var(--surface2);overflow:hidden">
+              <div style="width:${t.fitScore||0}%;height:100%;background:var(--accent);border-radius:2px"></div>
+            </div>
+            <span style="font-size:11px;color:var(--muted)">${t.fitScore||0}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleTmDetail(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function buildTmPlaybook(schoolName, targetNil) {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const ath = athletes.find(a => a.id === selectedAthleteId);
+  const block = document.getElementById('tm-playbook-block');
+  const txt = document.getElementById('tm-playbook-text');
+  const spinner = document.getElementById('tm-spinner');
+  const label = document.getElementById('tm-playbook-label');
+  block.classList.add('visible');
+  label.textContent = 'Negotiation Playbook — ' + schoolName;
+  spinner.style.display = 'block';
+  txt.textContent = 'Building playbook...';
+
+  const msg = `Build a complete NIL recruitment negotiation playbook for ${ath ? ath.name : 'this athlete'} to sign with ${schoolName}. Target NIL: ${targetNil}/year.
+Give:
+1. OPENING LINE — exact words the agent says to open negotiation
+2. KEY LEVERAGE POINTS — 3 specific data points the agent should cite
+3. PUSHBACK RESPONSE — what to say when ${schoolName} says they cannot meet the target
+4. CONCESSION MOVE — what non-cash thing to offer to bridge the gap
+5. WALK-AWAY LINE — exact sentence if they won't move
+Be word-for-word specific. This is for a real negotiation call.`;
+
+  try {
+    const r = await fetch(`${API_BASE}/api/ai/ask`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ athleteId: selectedAthleteId, message: msg }),
+    });
+    const data = await r.json();
+    txt.textContent = data.response || 'No response.';
+  } catch(e) { txt.textContent = '❌ ' + e.message; }
+  spinner.style.display = 'none';
+  block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 window.addEventListener('DOMContentLoaded', checkSession);
 </script>
 </body>

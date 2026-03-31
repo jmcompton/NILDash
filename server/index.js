@@ -206,6 +206,82 @@ Include 3 KEY DATA POINTS to quote. Word-for-word scripts only.`;
   }
 });
 
+// ── AI ask (non-streaming, works on all hosting) ──────────────
+app.post('/api/ai/ask', requireAuth, async (req, res) => {
+  const { athleteId, message } = req.body;
+  if (!message) return res.status(400).json({ error: 'message required' });
+  const athlete = athleteId ? store.getAthlete(athleteId) : null;
+  const eff = athlete || { name:'General', sport:'basketball', position:'',
+    school:'Unknown', schoolTier:'p4-mid', instagram:0, tiktok:0, engagement:4.0, notes:'' };
+  const user = store.getUser(req.session.userId);
+  try {
+    const response = await ai.oneShot(message, ai.buildSystemPrompt(eff, user.role));
+    res.json({ response });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ── Team Match endpoint ────────────────────────────────────────
+app.post('/api/ai/team-match', requireAuth, async (req, res) => {
+  const { athleteId, conference, minNil, sortBy } = req.body;
+  const athlete = store.getAthlete(athleteId);
+  if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+
+  const prompt = `You are a NIL recruitment analyst. Rank the top 6 college programs for this athlete as a recruitment target.
+
+ATHLETE PROFILE:
+- Name: ${athlete.name}
+- Sport: ${athlete.sport} (${athlete.position || ''})
+- Instagram: ${athlete.instagram.toLocaleString()} followers
+- TikTok: ${athlete.tiktok.toLocaleString()} followers
+- Engagement: ${athlete.engagement}%
+- Notes: ${athlete.notes || 'None'}
+
+FILTERS:
+- Conference preference: ${conference || 'Any'}
+- Minimum NIL value: $${(minNil || 0).toLocaleString()}/year
+- Sort by: ${sortBy || 'fit score'}
+
+For each program return a JSON array item:
+{
+  "rank": 1,
+  "name": "School Name",
+  "conference": "ACC",
+  "confLabel": "ACC",
+  "why": "2-sentence explanation of why this school fits THIS athlete specifically",
+  "nilLow": 250000,
+  "nilHigh": 400000,
+  "nilBreakdown": [
+    {"label": "Collective guarantee", "val": "$200K"},
+    {"label": "Brand deals (est.)", "val": "$120K+"},
+    {"label": "Apparel bonus", "val": "$20K"}
+  ],
+  "fitScore": 88,
+  "metrics": [
+    {"label": "Collective strength", "val": "Strong"},
+    {"label": "NBA/Pro draft picks (3yr)", "val": "3"},
+    {"label": "Avg brand partners", "val": "4 per player"},
+    {"label": "Market size", "val": "City / Regional"},
+    {"label": "Playing time likelihood", "val": "High"},
+    {"label": "Academic support", "val": "Good"}
+  ]
+}
+
+Base NIL estimates on real collective sizes and market data for each school.
+Return ONLY the JSON array. No markdown. No explanation.`;
+
+  try {
+    const raw = await ai.oneShot(prompt, `You are a precise NIL recruitment analyst. Return only valid JSON arrays.`);
+    const cleaned = raw.replace(/\`\`\`json|\`\`\`/g, '').trim();
+    const teams = JSON.parse(cleaned);
+    res.json({ teams });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Catch-all → frontend ───────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
