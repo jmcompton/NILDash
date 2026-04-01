@@ -270,6 +270,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('team-match',this)">
         <span class="nav-icon">🤝</span>Team Match
       </button>
+      <button class="nav-item" onclick="showView('outreach',this)">
+        <span class="nav-icon">📣</span>Outreach
+      </button>
       <button class="nav-item" onclick="showView('pipeline',this)">
         <span class="nav-icon">📋</span>Pipeline
       </button>
@@ -561,6 +564,59 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
 
     </div>
+      <!-- OUTREACH -->
+      <div id="view-outreach" class="view">
+        <div class="page-title">Brand Outreach</div>
+        <div class="page-sub">AI writes your cold outreach — email, Instagram DM, and LinkedIn — then tracks every contact</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+          <div><label class="form-label-sm">Brand Name *</label><input class="input-sm" id="or-brand" placeholder="e.g. Nike, Gatorade, Cash App"></div>
+          <div><label class="form-label-sm">Brand Category</label>
+            <select class="select-sm" id="or-category">
+              <option value="footwear">Footwear</option><option value="apparel">Apparel</option>
+              <option value="beverage">Beverage / Nutrition</option><option value="tech">Tech / Gaming</option>
+              <option value="finance">Finance / Banking</option><option value="food">Food / Restaurant</option>
+              <option value="automotive">Automotive</option><option value="health">Health / Wellness</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div><label class="form-label-sm">Contact Name (optional)</label><input class="input-sm" id="or-contact" placeholder="e.g. Sarah Johnson, Brand Partnerships"></div>
+          <div><label class="form-label-sm">Deal Goal ($)</label><input class="input-sm" id="or-goal" type="number" placeholder="e.g. 15000"></div>
+        </div>
+        <button class="run-btn" id="or-run-btn" onclick="runOutreach()" style="margin-bottom:24px">Write Outreach</button>
+        <div id="or-results" style="display:none">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <div style="font-size:12px;font-weight:700">Email</div>
+                <button onclick="copyText('or-email-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+              </div>
+              <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Subject:</div>
+              <div id="or-email-subject" style="font-size:11px;font-weight:600;margin-bottom:8px"></div>
+              <div id="or-email-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <div style="font-size:12px;font-weight:700">Instagram DM</div>
+                <button onclick="copyText('or-ig-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+              </div>
+              <div id="or-ig-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <div style="font-size:12px;font-weight:700">LinkedIn</div>
+                <button onclick="copyText('or-li-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+              </div>
+              <div id="or-li-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+            </div>
+          </div>
+          <button onclick="saveOutreach()" class="run-btn" style="margin-bottom:24px">Save to Tracker</button>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:12px">Outreach Tracker</div>
+          <div id="or-tracker" style="color:var(--muted);font-size:12px">No outreach logged yet.</div>
+        </div>
+      </div>
+
 <!-- ── TEAM MATCH ── -->
       <div id="view-team-match" class="view">
         <div class="page-title">Team Match</div>
