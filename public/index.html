@@ -273,6 +273,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('outreach',this)">
         <span class="nav-icon">📣</span>Outreach
       </button>
+      <button class="nav-item" onclick="showView('calendar',this)">
+        <span class="nav-icon">📅</span>Calendar
+      </button>
       <button class="nav-item" onclick="showView('pipeline',this)">
         <span class="nav-icon">📋</span>Pipeline
       </button>
@@ -614,6 +617,30 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div>
           <div style="font-size:13px;font-weight:700;margin-bottom:12px">Outreach Tracker</div>
           <div id="or-tracker" style="color:var(--muted);font-size:12px">No outreach logged yet.</div>
+        </div>
+      </div>
+
+      <!-- CALENDAR -->
+      <div id="view-calendar" class="view">
+        <div class="page-title">Deal Calendar</div>
+        <div class="page-sub">All deadlines, follow-ups, and campaign dates — color-coded by close probability</div>
+
+        <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:#4ade80;border-radius:50%;display:inline-block"></span>Closing</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:var(--accent);border-radius:50%;display:inline-block"></span>Negotiating</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:#60a5fa;border-radius:50%;display:inline-block"></span>Outreach Sent</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:var(--muted);border-radius:50%;display:inline-block"></span>Prospecting</div>
+          <button class="run-btn" onclick="loadCalendar()" style="margin-left:auto;padding:7px 16px;font-size:11px">Refresh</button>
+        </div>
+
+        <div id="cal-upcoming" style="margin-bottom:28px">
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">Upcoming Deadlines</div>
+          <div id="cal-deadlines" style="color:var(--muted);font-size:12px">Load your deals to see deadlines.</div>
+        </div>
+
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">All Active Deals</div>
+          <div id="cal-deals" style="color:var(--muted);font-size:12px">No deals yet — add deals in Pipeline.</div>
         </div>
       </div>
 
@@ -971,11 +998,12 @@ function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', roster:'My Roster', 'add-athlete':'Add Client' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', roster:'My Roster', 'add-athlete':'Add Client' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
+  if (id === 'calendar') loadCalendar();
   if (id === 'roster') renderRoster();
 }
 
@@ -1252,6 +1280,125 @@ async function lookupPlayer() {
     status.textContent = 'Lookup failed: ' + e.message;
   }
   btn.disabled = false; btn.textContent = 'Lookup';
+}
+
+// ── SMART CALENDAR ───────────────────────────────────────────
+const stageColors = {
+  'Closing': '#4ade80',
+  'Negotiating': '#C8F135',
+  'Outreach Sent': '#60a5fa',
+  'Prospecting': '#6b7280'
+};
+
+const stageProb = {
+  'Closing': 80,
+  'Negotiating': 50,
+  'Outreach Sent': 25,
+  'Prospecting': 10
+};
+
+function getDaysFromCreated(createdAt, offsetDays) {
+  const d = new Date(createdAt || Date.now());
+  d.setDate(d.getDate() + offsetDays);
+  return d;
+}
+
+function formatDeadlineDate(d) {
+  const now = new Date();
+  const diff = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+  const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diff < 0) return { label: dateStr, urgency: 'overdue', badge: 'Overdue' };
+  if (diff === 0) return { label: dateStr, urgency: 'today', badge: 'Today' };
+  if (diff <= 2) return { label: dateStr, urgency: 'urgent', badge: diff + 'd left' };
+  if (diff <= 7) return { label: dateStr, urgency: 'soon', badge: diff + 'd left' };
+  return { label: dateStr, urgency: 'future', badge: diff + 'd left' };
+}
+
+function makeGoogleCalLink(title, date, description) {
+  const start = date.toISOString().replace(/-|:|\.\d{3}/g, '').slice(0, 15) + '00Z';
+  const end = new Date(date.getTime() + 60 * 60 * 1000).toISOString().replace(/-|:|\.\d{3}/g, '').slice(0, 15) + '00Z';
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+    '&text=' + encodeURIComponent(title) +
+    '&dates=' + start + '/' + end +
+    '&details=' + encodeURIComponent(description) +
+    '&sf=true&output=xml';
+}
+
+async function loadCalendar() {
+  const allDeals = [];
+  for (const ath of athletes) {
+    try {
+      const r = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`);
+      const deals = await r.json();
+      deals.forEach(d => { d._athleteName = ath.name; allDeals.push(d); });
+    } catch(e) {}
+  }
+
+  if (!allDeals.length) {
+    document.getElementById('cal-deadlines').innerHTML = '<div style="color:var(--muted);font-size:12px">No deals yet — add deals in Pipeline.</div>';
+    document.getElementById('cal-deals').innerHTML = '';
+    return;
+  }
+
+  // Generate deadlines based on stage
+  const deadlines = [];
+  allDeals.forEach(deal => {
+    const color = stageColors[deal.stage] || '#6b7280';
+    const prob = stageProb[deal.stage] || 10;
+    if (deal.stage === 'Negotiating') {
+      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 2), label: 'Counter offer deadline', color, prob });
+      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 7), label: 'Follow-up call', color, prob });
+    } else if (deal.stage === 'Closing') {
+      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 3), label: 'Contract due', color, prob });
+    } else if (deal.stage === 'Outreach Sent') {
+      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 7), label: 'Follow-up if no response', color, prob });
+    }
+  });
+
+  deadlines.sort((a, b) => a.date - b.date);
+
+  const urgencyColors = { overdue: 'var(--red)', today: '#f97316', urgent: '#f97316', soon: 'var(--accent)', future: 'var(--muted)' };
+
+  const deadlineHtml = deadlines.slice(0, 8).map(({ deal, date, label, color, prob }) => {
+    const { label: dateLabel, urgency, badge } = formatDeadlineDate(date);
+    const gcLink = makeGoogleCalLink(
+      label + ' — ' + deal.brand + ' (' + deal._athleteName + ')',
+      date,
+      deal.stage + ' deal worth $' + (deal.value || 0).toLocaleString() + '. Close probability: ' + prob + '%.'
+    );
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:600;color:var(--text)">${label}</div>
+        <div style="font-size:11px;color:var(--muted)">${deal._athleteName} · ${deal.brand} · ${deal.stage} · ${prob}% close probability</div>
+      </div>
+      <div style="text-align:right;min-width:80px">
+        <div style="font-size:11px;color:${urgencyColors[urgency]};font-weight:600">${badge}</div>
+        <div style="font-size:10px;color:var(--muted)">${dateLabel}</div>
+      </div>
+      <a href="${gcLink}" target="_blank" style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:10px;padding:4px 8px;text-decoration:none;white-space:nowrap">+ Google Cal</a>
+    </div>`;
+  }).join('');
+
+  document.getElementById('cal-deadlines').innerHTML = deadlineHtml || '<div style="color:var(--muted);font-size:12px">No upcoming deadlines.</div>';
+
+  // All deals
+  const dealsHtml = allDeals.map(deal => {
+    const color = stageColors[deal.stage] || '#6b7280';
+    const prob = stageProb[deal.stage] || 10;
+    const created = new Date(deal.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:600;color:var(--text)">${deal.brand} — ${deal.campaign || 'No campaign set'}</div>
+        <div style="font-size:11px;color:var(--muted)">${deal._athleteName} · Added ${created}</div>
+      </div>
+      <div style="text-align:right;min-width:100px">
+        <div style="font-size:12px;font-weight:600;color:${color}">${deal.stage}</div>
+        <div style="font-size:11px;color:var(--muted)">$${(deal.value||0).toLocaleString()} · ${prob}% close</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('cal-deals').innerHTML = dealsHtml;
 }
 
 // ── INIT ─────────────────────────────────────────────────────
