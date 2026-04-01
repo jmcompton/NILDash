@@ -229,6 +229,32 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
 
 
 
+
+// ── Brand Outreach ─────────────────────────────────────────────
+app.post('/api/ai/outreach', requireAuth, async (req, res) => {
+  const { athleteId, brand, category, contact, goal } = req.body;
+  const athlete = store.getAthlete(athleteId);
+  if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+  const prompt = 'You are a sports agent writing cold outreach to ' + brand + ' for athlete ' + athlete.name + '.' +
+    ' Athlete: ' + athlete.sport + ', ' + (athlete.position||'') + ', ' + (athlete.school||'') +
+    ', ' + (athlete.instagram||0).toLocaleString() + ' Instagram, ' + (athlete.tiktok||0).toLocaleString() + ' TikTok, ' + (athlete.engagement||0) + '% engagement.' +
+    ' Stats: ' + (athlete.stats||'not provided') + '.' +
+    (contact ? ' Contact: ' + contact + '.' : '') +
+    (goal ? ' Deal goal: $' + parseInt(goal).toLocaleString() + '.' : '') +
+    ' Category: ' + (category||'general') + '.' +
+    ' Return ONLY JSON: {"emailSubject":"subject","email":"full email","instagram":"DM under 150 chars","linkedin":"message under 200 chars"}' +
+    ' Be specific to this athlete. Confident, not salesy. No placeholders.';
+  try {
+    const raw = await ai.oneShot(prompt, ai.buildSystemPrompt(athlete, 'agent'));
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) return res.status(500).json({ error: 'Generation failed' });
+    res.json(JSON.parse(match[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // -- Player URL Fetch --
 app.post('/api/ai/player-fetch', requireAuth, async (req, res) => {
   const { url } = req.body;

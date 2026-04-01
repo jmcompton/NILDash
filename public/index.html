@@ -1282,6 +1282,88 @@ async function lookupPlayer() {
   btn.disabled = false; btn.textContent = 'Lookup';
 }
 
+// ── BRAND OUTREACH ───────────────────────────────────────────
+let outreachLog = [];
+let currentOutreach = null;
+
+function copyText(id) {
+  const el = document.getElementById(id);
+  if (el) navigator.clipboard.writeText(el.textContent).then(() => showToast('Copied!'));
+}
+
+async function runOutreach() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const brand = document.getElementById('or-brand').value.trim();
+  if (!brand) { showToast('Enter a brand name'); return; }
+  const btn = document.getElementById('or-run-btn');
+  btn.disabled = true; btn.textContent = 'Writing...';
+  document.getElementById('or-results').style.display = 'none';
+  try {
+    const r = await fetch(`${API_BASE}/api/ai/outreach`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        athleteId: selectedAthleteId,
+        brand,
+        category: document.getElementById('or-category').value,
+        contact: document.getElementById('or-contact').value,
+        goal: document.getElementById('or-goal').value,
+      })
+    });
+    const data = await r.json();
+    if (data.error) { showToast('Error: ' + data.error); btn.disabled = false; btn.textContent = 'Write Outreach'; return; }
+    document.getElementById('or-email-subject').textContent = data.emailSubject || '';
+    document.getElementById('or-email-body').textContent = data.email || '';
+    document.getElementById('or-ig-body').textContent = data.instagram || '';
+    document.getElementById('or-li-body').textContent = data.linkedin || '';
+    document.getElementById('or-results').style.display = 'block';
+    currentOutreach = { brand, category: document.getElementById('or-category').value, athleteId: selectedAthleteId };
+    showToast('Outreach generated!');
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = 'Write Outreach';
+}
+
+function saveOutreach() {
+  if (!currentOutreach) return;
+  const athlete = athletes.find(a => a.id === currentOutreach.athleteId);
+  outreachLog.unshift({
+    id: Date.now(),
+    brand: currentOutreach.brand,
+    category: currentOutreach.category,
+    athlete: athlete ? athlete.name : 'Unknown',
+    date: new Date().toLocaleDateString(),
+    status: 'Sent',
+  });
+  renderOutreachTracker();
+  showToast('Saved to tracker!');
+}
+
+function updateOutreachStatus(id, status) {
+  const e = outreachLog.find(x => x.id === id);
+  if (e) { e.status = status; renderOutreachTracker(); }
+}
+
+function renderOutreachTracker() {
+  const el = document.getElementById('or-tracker');
+  if (!el) return;
+  if (!outreachLog.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">No outreach logged yet.</div>'; return; }
+  const colors = { Sent: 'var(--muted)', Replied: '#4ade80', 'No Response': 'var(--accent)', Declined: 'var(--red)' };
+  el.innerHTML = outreachLog.map(e => `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${e.brand}</div>
+        <div style="font-size:11px;color:var(--muted)">${e.athlete} · ${e.category} · ${e.date}</div>
+      </div>
+      <select onchange="updateOutreachStatus(${e.id},this.value)" style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:${colors[e.status]||'var(--muted)'};font-size:11px;padding:4px 8px">
+        <option ${e.status==='Sent'?'selected':''}>Sent</option>
+        <option ${e.status==='Replied'?'selected':''}>Replied</option>
+        <option ${e.status==='No Response'?'selected':''}>No Response</option>
+        <option ${e.status==='Declined'?'selected':''}>Declined</option>
+      </select>
+    </div>`).join('');
+}
+
 // ── SMART CALENDAR ───────────────────────────────────────────
 const stageColors = {
   'Closing': '#4ade80',
