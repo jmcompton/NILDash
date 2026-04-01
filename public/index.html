@@ -776,10 +776,15 @@ function renderRoster() {
     const reach = (a.instagram + a.tiktok).toLocaleString();
     return `<div class="athlete-card ${a.id===selectedAthleteId?'selected':''}" onclick="selectAthlete('${a.id}')">
       <div class="ac-name">${a.name}</div>
-      <div class="ac-meta">${a.sport} · ${a.school || 'School not set'}</div>
+      <div class="ac-meta">${a.sport} · ${a.position || ''} · ${a.school || 'School not set'}</div>
+      <div class="ac-meta" style="font-size:10px;margin-top:2px">${a.year || ''} ${a.stats ? '· ' + a.stats : ''}</div>
       <div class="ac-stats">
         <div class="ac-stat"><span>${reach}</span> reach</div>
         <div class="ac-stat"><span>${a.engagement}%</span> eng</div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button onclick="event.stopPropagation();editAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;padding:5px;cursor:pointer">✏️ Edit</button>
+        <button onclick="event.stopPropagation();deleteAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--red);font-size:11px;padding:5px;cursor:pointer">🗑 Delete</button>
       </div>
     </div>`;
   }).join('');
@@ -793,6 +798,72 @@ function selectAthlete(id) {
   renderRoster();
   onAthleteChange();
   showToast(ath.name + ' selected as active client');
+}
+
+async function deleteAthlete(id) {
+  if (!confirm('Delete this client? This cannot be undone.')) return;
+  await fetch(`${API_BASE}/api/athletes/${id}`, { method: 'DELETE' });
+  athletes = athletes.filter(a => a.id !== id);
+  if (selectedAthleteId === id) { selectedAthleteId = null; }
+  renderRoster(); populateAthleteSelect();
+  showToast('Client deleted');
+}
+
+function editAthlete(id) {
+  const a = athletes.find(x => x.id === id);
+  if (!a) return;
+  // Switch to Add Client view and pre-fill
+  showView('add-athlete', document.getElementById('addAthleteNavBtn'));
+  document.getElementById('a_name').value = a.name || '';
+  document.getElementById('a_sport').value = a.sport || 'Basketball';
+  document.getElementById('a_pos').value = a.position || '';
+  document.getElementById('a_school').value = a.school || '';
+  document.getElementById('a_tier').value = a.schoolTier || 'p4-mid';
+  document.getElementById('a_ig').value = a.instagram || '';
+  document.getElementById('a_tt').value = a.tiktok || '';
+  document.getElementById('a_eng').value = a.engagement || '';
+  document.getElementById('a_notes').value = a.notes || '';
+  const yearEl = document.getElementById('a_year');
+  if (yearEl && a.year) { for (let o of yearEl.options) { if (o.value === a.year) { yearEl.value = a.year; break; } } }
+  const statsEl = document.getElementById('a_stats');
+  if (statsEl) statsEl.value = a.stats || '';
+  const trEl = document.getElementById('a_transfer_reason');
+  if (trEl && a.transferReason) trEl.value = a.transferReason;
+  // Change save button to update mode
+  const btn = document.querySelector('#view-add-athlete .run-btn:last-of-type') || document.querySelector('[onclick="addAthlete()"]');
+  if (btn) { btn.textContent = 'Update Client →'; btn.setAttribute('onclick', `updateAthlete('${id}')`); }
+  document.getElementById('addAthleteError').textContent = '';
+  showToast('Editing ' + a.name + ' — make changes and click Update');
+}
+
+async function updateAthlete(id) {
+  const name = document.getElementById('a_name').value.trim();
+  if (!name) return;
+  const data = {
+    name,
+    sport: document.getElementById('a_sport').value,
+    position: document.getElementById('a_pos').value,
+    school: document.getElementById('a_school').value,
+    schoolTier: document.getElementById('a_tier').value,
+    instagram: parseInt(document.getElementById('a_ig').value) || 0,
+    tiktok: parseInt(document.getElementById('a_tt').value) || 0,
+    engagement: parseFloat(document.getElementById('a_eng').value) || 3.0,
+    notes: document.getElementById('a_notes').value,
+    year: document.getElementById('a_year') ? document.getElementById('a_year').value : '',
+    stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
+    transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
+  };
+  const r = await fetch(`${API_BASE}/api/athletes/${id}`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+  });
+  const updated = await r.json();
+  athletes = athletes.map(a => a.id === id ? updated : a);
+  renderRoster(); populateAthleteSelect();
+  // Reset save button
+  const btn = document.querySelector('[onclick*="updateAthlete"]');
+  if (btn) { btn.textContent = 'Save Client →'; btn.setAttribute('onclick', 'addAthlete()'); }
+  showView('roster', document.querySelectorAll('.nav-item')[5]);
+  showToast(name + ' updated!');
 }
 
 async function addAthlete() {
