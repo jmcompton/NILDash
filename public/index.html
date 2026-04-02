@@ -937,12 +937,66 @@ function populateAthleteSelect() {
   if (cur) sel.value = cur;
 }
 
+function clearAllResults() {
+  // Command center
+  const cmdOut = document.getElementById('cmdOutput');
+  if (cmdOut) cmdOut.innerHTML = '';
+  const cmdBox = document.querySelector('.cmd-output');
+  if (cmdBox) cmdBox.classList.remove('visible');
+
+  // Deal scan
+  const dealAI = document.getElementById('dealAI');
+  if (dealAI) { dealAI.classList.remove('visible'); dealAI.innerHTML = ''; }
+  const dealTable = document.getElementById('dealScanTable');
+  if (dealTable) dealTable.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">Run a deal scan to see recommendations</td></tr>';
+
+  // Rate calculator
+  const rateAI = document.getElementById('rateAI');
+  if (rateAI) rateAI.classList.remove('visible');
+
+  // Negotiate
+  const negAI = document.getElementById('negAI');
+  if (negAI) { negAI.classList.remove('visible'); }
+  const negText = document.getElementById('negText');
+  if (negText) negText.textContent = '';
+  const negBrand = document.getElementById('negBrand');
+  if (negBrand) negBrand.value = '';
+  const negOffer = document.getElementById('negOffer');
+  if (negOffer) negOffer.value = '';
+  const negTarget = document.getElementById('negTarget');
+  if (negTarget) negTarget.value = '';
+
+  // Team match
+  const tmResults = document.getElementById('tm-results');
+  if (tmResults) tmResults.innerHTML = '';
+
+  // Outreach
+  const orResults = document.getElementById('or-results');
+  if (orResults) orResults.style.display = 'none';
+  const orBrand = document.getElementById('or-brand');
+  if (orBrand) orBrand.value = '';
+  const orContact = document.getElementById('or-contact');
+  if (orContact) orContact.value = '';
+  const orGoal = document.getElementById('or-goal');
+  if (orGoal) orGoal.value = '';
+
+  // Compliance
+  const compResults = document.getElementById('comp-results');
+  if (compResults) compResults.style.display = 'none';
+  lastComplianceResult = null;
+
+  // Quick counter scripts in negotiate
+  const qcs = document.getElementById('quickCounters');
+  if (qcs) qcs.innerHTML = '';
+}
+
 function onAthleteChange() {
   selectedAthleteId = document.getElementById('activeAthlete').value;
   const ath = athletes.find(a => a.id === selectedAthleteId);
   if (ath) {
     document.getElementById('cmdClientLabel').textContent = ath.name;
     loadKPIs();
+    clearAllResults();
   }
 }
 
