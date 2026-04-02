@@ -255,6 +255,27 @@ app.post('/api/ai/outreach', requireAuth, async (req, res) => {
   }
 });
 
+
+// -- NIL Compliance --
+app.post('/api/ai/compliance', requireAuth, async (req, res) => {
+  const { state, dealType, brand, value, description, athleteName, sport, school, schoolTier } = req.body;
+  const prompt = 'Analyze this NIL deal for compliance in ' + state + ':\n' +
+    'Athlete: ' + (athleteName||'Unknown') + ', ' + (sport||'Unknown') + ', ' + (school||'Unknown') + ' (' + (schoolTier||'unknown') + ')\n' +
+    'Deal: ' + dealType + ' with ' + (brand||'unknown brand') + ' worth $' + (parseInt(value)||0) + '\n' +
+    'Description: ' + (description||'not provided') + '\n\n' +
+    'Check: 1) Is this deal restricted in ' + state + '? 2) Disclosure requirements? 3) Does $' + (parseInt(value)||0) + ' trigger NIL Go $600 reporting? 4) Agent licensing? 5) Category restrictions (alcohol/gambling/tobacco/supplements/crypto)?\n\n' +
+    'Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","sourceNote":"what laws this is based on"}';
+  try {
+    const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with current knowledge of all 50 state NIL laws and NCAA/CSC rules as of 2026. Return only valid JSON.');
+    const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) return res.status(500).json({ error: 'Failed to parse result' });
+    res.json(JSON.parse(match[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // -- Player URL Fetch --
 app.post('/api/ai/player-fetch', requireAuth, async (req, res) => {
   const { url } = req.body;

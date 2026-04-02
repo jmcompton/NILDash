@@ -276,6 +276,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('calendar',this)">
         <span class="nav-icon">📅</span>Calendar
       </button>
+      <button class="nav-item" onclick="showView('compliance',this)">
+        <span class="nav-icon">⚖️</span>Compliance
+      </button>
       <button class="nav-item" onclick="showView('pipeline',this)">
         <span class="nav-icon">📋</span>Pipeline
       </button>
@@ -644,6 +647,100 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div>
       </div>
 
+      <!-- COMPLIANCE -->
+      <div id="view-compliance" class="view">
+        <div class="page-title">NIL Compliance Checker</div>
+        <div class="page-sub">Check any deal against current state NIL laws — flags issues, generates required disclosure language, and saves to deal notes</div>
+
+        <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:20px;font-size:11px;color:#fbbf24">
+          ⚠️ This tool uses AI + live web search to find current NIL rules. Always verify with a licensed attorney before executing deals. NIL laws change frequently.
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div>
+            <label class="form-label-sm">Athlete State *</label>
+            <select class="select-sm" id="comp-state">
+              <option value="">Select state...</option>
+              <option>Alabama</option><option>Alaska</option><option>Arizona</option><option>Arkansas</option>
+              <option>California</option><option>Colorado</option><option>Connecticut</option><option>Delaware</option>
+              <option>Florida</option><option>Georgia</option><option>Hawaii</option><option>Idaho</option>
+              <option>Illinois</option><option>Indiana</option><option>Iowa</option><option>Kansas</option>
+              <option>Kentucky</option><option>Louisiana</option><option>Maine</option><option>Maryland</option>
+              <option>Massachusetts</option><option>Michigan</option><option>Minnesota</option><option>Mississippi</option>
+              <option>Missouri</option><option>Montana</option><option>Nebraska</option><option>Nevada</option>
+              <option>New Hampshire</option><option>New Jersey</option><option>New Mexico</option><option>New York</option>
+              <option>North Carolina</option><option>North Dakota</option><option>Ohio</option><option>Oklahoma</option>
+              <option>Oregon</option><option>Pennsylvania</option><option>Rhode Island</option><option>South Carolina</option>
+              <option>South Dakota</option><option>Tennessee</option><option>Texas</option><option>Utah</option>
+              <option>Vermont</option><option>Virginia</option><option>Washington</option><option>West Virginia</option>
+              <option>Wisconsin</option><option>Wyoming</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label-sm">Deal Type *</label>
+            <select class="select-sm" id="comp-deal-type">
+              <option value="social media endorsement">Social Media Endorsement</option>
+              <option value="apparel deal">Apparel Deal</option>
+              <option value="beverage/alcohol sponsorship">Beverage / Alcohol Sponsorship</option>
+              <option value="sports betting/gambling">Sports Betting / Gambling</option>
+              <option value="pharmaceutical/supplement">Pharmaceutical / Supplement</option>
+              <option value="financial services">Financial Services</option>
+              <option value="autograph signing">Autograph Signing</option>
+              <option value="camp/clinic appearance">Camp / Clinic Appearance</option>
+              <option value="cryptocurrency">Cryptocurrency</option>
+              <option value="general brand partnership">General Brand Partnership</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label-sm">Brand Name</label>
+            <input class="input-sm" id="comp-brand" placeholder="e.g. Nike, DraftKings, Red Bull">
+          </div>
+          <div>
+            <label class="form-label-sm">Deal Value ($)</label>
+            <input class="input-sm" id="comp-value" type="number" placeholder="e.g. 15000">
+          </div>
+        </div>
+        <div style="margin-bottom:16px">
+          <label class="form-label-sm">Deal Description</label>
+          <input class="input-sm" id="comp-description" placeholder="e.g. 3 Instagram posts promoting energy drink over 60 days">
+        </div>
+
+        <button class="run-btn" id="comp-btn" onclick="runCompliance()" style="margin-bottom:24px">⚖️ Check Compliance →</button>
+
+        <div id="comp-results" style="display:none">
+          <!-- Status Banner -->
+          <div id="comp-status-banner" style="border-radius:var(--r-sm);padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700"></div>
+
+          <!-- Flags -->
+          <div id="comp-flags-section" style="margin-bottom:20px">
+            <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">Issues Found</div>
+            <div id="comp-flags"></div>
+          </div>
+
+          <!-- Requirements -->
+          <div id="comp-reqs-section" style="margin-bottom:20px">
+            <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">Requirements to Proceed</div>
+            <div id="comp-reqs"></div>
+          </div>
+
+          <!-- Disclosure Language -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <div style="font-size:12px;font-weight:700;color:var(--text)">📋 Required Disclosure Language</div>
+              <button onclick="copyText('comp-disclosure')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+            </div>
+            <div id="comp-disclosure" style="font-size:11px;color:var(--text);line-height:1.7;white-space:pre-wrap"></div>
+          </div>
+
+          <!-- Save to notes -->
+          <button onclick="saveComplianceToNotes()" class="run-btn" style="margin-bottom:8px">💾 Save to Deal Notes →</button>
+          <div id="comp-save-status" style="font-size:11px;color:var(--muted);margin-bottom:24px"></div>
+
+          <!-- Source note -->
+          <div id="comp-sources" style="font-size:10px;color:var(--muted);line-height:1.6"></div>
+        </div>
+      </div>
+
 <!-- ── TEAM MATCH ── -->
       <div id="view-team-match" class="view">
         <div class="page-title">Team Match</div>
@@ -998,7 +1095,7 @@ function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', roster:'My Roster', 'add-athlete':'Add Client' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', roster:'My Roster', 'add-athlete':'Add Client' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -1289,6 +1386,88 @@ let currentOutreach = null;
 function copyText(id) {
   const el = document.getElementById(id);
   if (el) navigator.clipboard.writeText(el.textContent).then(() => showToast('Copied!'));
+}
+
+let lastComplianceResult = null;
+
+async function runCompliance() {
+  const state = document.getElementById('comp-state').value;
+  const dealType = document.getElementById('comp-deal-type').value;
+  const brand = document.getElementById('comp-brand').value.trim();
+  const value = document.getElementById('comp-value').value;
+  const description = document.getElementById('comp-description').value.trim();
+  if (!state) { showToast('Select a state'); return; }
+  const btn = document.getElementById('comp-btn');
+  btn.disabled = true; btn.textContent = 'Checking...';
+  document.getElementById('comp-results').style.display = 'none';
+  const athlete = selectedAthleteId ? athletes.find(a => a.id === selectedAthleteId) : null;
+  try {
+    const r = await fetch(API_BASE + '/api/ai/compliance', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ state, dealType, brand, value, description,
+        athleteName: athlete ? athlete.name : '',
+        sport: athlete ? athlete.sport : '',
+        school: athlete ? athlete.school : '',
+        schoolTier: athlete ? athlete.schoolTier : '' })
+    });
+    const data = await r.json();
+    if (data.error) { showToast('Error: ' + data.error); btn.disabled = false; btn.textContent = 'Check Compliance'; return; }
+    lastComplianceResult = data;
+    renderComplianceResults(data);
+    document.getElementById('comp-results').style.display = 'block';
+    showToast('Compliance check complete');
+  } catch(e) { showToast('Error: ' + e.message); }
+  btn.disabled = false; btn.textContent = 'Check Compliance';
+}
+
+function renderComplianceResults(data) {
+  const banner = document.getElementById('comp-status-banner');
+  const styles = {
+    clear: 'border-radius:6px;padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80',
+    warning: 'border-radius:6px;padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24',
+    blocked: 'border-radius:6px;padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444'
+  };
+  const msgs = { clear: 'No major compliance issues found for this deal in ' + data.state, warning: 'Compliance warnings found - review before proceeding', blocked: 'Deal has compliance issues that must be resolved' };
+  banner.style.cssText = styles[data.status] || styles.warning;
+  banner.textContent = msgs[data.status] || msgs.warning;
+  const flagsSection = document.getElementById('comp-flags-section');
+  const flagsEl = document.getElementById('comp-flags');
+  if (data.flags && data.flags.length) {
+    flagsSection.style.display = 'block';
+    flagsEl.innerHTML = data.flags.map(f => '<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + (f.severity==="high"?"#ef4444":"#fbbf24") + ';border-radius:6px;padding:12px 16px;margin-bottom:8px"><div style="font-size:12px;font-weight:600;margin-bottom:4px">' + (f.severity==="high"?"Blocked: ":"Warning: ") + f.issue + '</div><div style="font-size:11px;color:var(--muted)">' + f.detail + '</div></div>').join('');
+  } else { flagsSection.style.display = 'none'; }
+  const reqsSection = document.getElementById('comp-reqs-section');
+  const reqsEl = document.getElementById('comp-reqs');
+  if (data.requirements && data.requirements.length) {
+    reqsSection.style.display = 'block';
+    reqsEl.innerHTML = data.requirements.map(r => '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 16px;margin-bottom:6px;font-size:11px;color:var(--text)">-> ' + r + '</div>').join('');
+  } else { reqsSection.style.display = 'none'; }
+  document.getElementById('comp-disclosure').textContent = data.disclosure || 'No specific disclosure language required.';
+  const s = document.getElementById('comp-sources');
+  if (s) s.textContent = data.sourceNote ? 'Source: ' + data.sourceNote : '';
+}
+
+async function saveComplianceToNotes() {
+  if (!lastComplianceResult || !selectedAthleteId) { showToast('Select a client first'); return; }
+  const state = document.getElementById('comp-state').value;
+  const dealType = document.getElementById('comp-deal-type').value;
+  const sl = lastComplianceResult.status === 'clear' ? 'CLEAR' : lastComplianceResult.status === 'warning' ? 'WARNING' : 'ISSUES FOUND';
+  const note = 'COMPLIANCE CHECK (' + state + ' / ' + dealType + ') - ' + sl +
+    '\nDisclosure: ' + (lastComplianceResult.disclosure || 'None') +
+    (lastComplianceResult.flags && lastComplianceResult.flags.length ? '\nFlags: ' + lastComplianceResult.flags.map(f => f.issue).join(', ') : '') +
+    '\nChecked: ' + new Date().toLocaleDateString();
+  const athlete = athletes.find(a => a.id === selectedAthleteId);
+  if (athlete) {
+    const updatedNotes = (athlete.notes ? athlete.notes + '\n\n' : '') + note;
+    await fetch(API_BASE + '/api/athletes/' + selectedAthleteId, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({...athlete, notes: updatedNotes})
+    });
+    athlete.notes = updatedNotes;
+    const ss = document.getElementById('comp-save-status');
+    if (ss) ss.textContent = 'Saved to ' + athlete.name + ' notes';
+    showToast('Compliance notes saved!');
+  }
 }
 
 async function runOutreach() {
