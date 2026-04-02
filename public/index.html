@@ -971,6 +971,7 @@ function clearAllResults() {
   if (tmResults) tmResults.innerHTML = '';
 
   // Outreach
+  renderOutreachTracker();
   const orResults = document.getElementById('or-results');
   if (orResults) orResults.style.display = 'none';
   const orBrand = document.getElementById('or-brand');
@@ -1434,7 +1435,7 @@ async function lookupPlayer() {
 }
 
 // ── BRAND OUTREACH ───────────────────────────────────────────
-let outreachLog = [];
+let outreachLogByAthlete = {};
 let currentOutreach = null;
 
 function copyText(id) {
@@ -1560,7 +1561,9 @@ async function runOutreach() {
 function saveOutreach() {
   if (!currentOutreach) return;
   const athlete = athletes.find(a => a.id === currentOutreach.athleteId);
-  outreachLog.unshift({
+  const aid = currentOutreach.athleteId;
+  if (!outreachLogByAthlete[aid]) outreachLogByAthlete[aid] = [];
+  outreachLogByAthlete[aid].unshift({
     id: Date.now(),
     brand: currentOutreach.brand,
     category: currentOutreach.category,
@@ -1573,13 +1576,15 @@ function saveOutreach() {
 }
 
 function updateOutreachStatus(id, status) {
-  const e = outreachLog.find(x => x.id === id);
+  const log = selectedAthleteId ? (outreachLogByAthlete[selectedAthleteId] || []) : [];
+  const e = log.find(x => x.id === id);
   if (e) { e.status = status; renderOutreachTracker(); }
 }
 
 function renderOutreachTracker() {
   const el = document.getElementById('or-tracker');
   if (!el) return;
+  const outreachLog = selectedAthleteId ? (outreachLogByAthlete[selectedAthleteId] || []) : [];
   if (!outreachLog.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">No outreach logged yet.</div>'; return; }
   const colors = { Sent: 'var(--muted)', Replied: '#4ade80', 'No Response': 'var(--accent)', Declined: 'var(--red)' };
   el.innerHTML = outreachLog.map(e => `
