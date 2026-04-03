@@ -351,7 +351,7 @@ Return ONLY a JSON array:
 [{"rank":1,"name":"School","conference":"ACC","confLabel":"ACC","tier":"reach or best-fit or safe","why":"2 sentences specific to this athlete stats and this school roster need","nilLow":150000,"nilHigh":300000,"nilBreakdown":[{"label":"Collective","val":"$150K"},{"label":"Brand deals","val":"$100K+"}],"fitScore":88,"playingTimeOutlook":"Immediate starter","rosterNeed":"Lost starter to NBA","metrics":[{"label":"Collective strength","val":"Strong"},{"label":"Pro picks 3yr","val":"4"},{"label":"Avg NIL/player","val":"$180K"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"},{"label":"Academics","val":"Strong"}]}]`;
 
   try {
-    const raw = await ai.oneShotWithSearch(prompt, 'You are a precise NIL recruitment analyst with access to current 2026 NIL data via web search. Search for live collective budgets and portal activity before recommending. Return only valid JSON arrays.');
+    const raw = await ai.oneShotWithSearch(prompt, 'You are a NIL recruitment analyst. Return ONLY a valid JSON array. No markdown, no explanation, no text before or after the array. Start your response with [ and end with ].');
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\[[\s\S]*\]/);
     if (!match) throw new Error('No JSON array found');
