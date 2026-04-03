@@ -111,6 +111,58 @@ async function oneShot(prompt, system) {
   return msg.content[0].text;
 }
 
+async function oneShotWithSearch(prompt, systemPrompt) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 8000,
+      system: systemPrompt,
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  const data = await response.json();
+  if (data.error) throw new Error(data.error.message);
+  const textBlocks = (data.content || []).filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; });
+  return textBlocks.join('\n');
+}
+
+async function calculateRateLive(athlete, deliverableType) {
+  const sport = athlete.sport || 'basketball';
+  const tier = athlete.schoolTier || 'p4-mid';
+  const ig = athlete.instagram || 0;
+  const tt = athlete.tiktok || 0;
+  const eng = athlete.engagement || 3.0;
+  const prompt = 'Search for current 2026 NIL market rates for college athletes. Find: '
+    + '1) Current average NIL deal rates for ' + sport + ' athletes at ' + tier + ' schools '
+    + '2) Current CPM rates for college athlete Instagram posts '
+    + '3) Recent reported NIL deal amounts for athletes with ' + ig.toLocaleString() + ' Instagram and ' + tt.toLocaleString() + ' TikTok followers '
+    + '4) On3 NIL valuation benchmarks for ' + tier + ' ' + sport + ' athletes in 2026 '
+    + '\n\nBased on this live data, calculate the rate for a ' + deliverableType + ' deal for:\n'
+    + 'Sport: ' + sport + '\nSchool tier: ' + tier + '\nInstagram: ' + ig.toLocaleString() + ' followers\n'
+    + 'TikTok: ' + tt.toLocaleString() + ' followers\nEngagement: ' + eng + '%\n'
+    + 'Stats: ' + (athlete.stats || 'not provided') + '\n\n'
+    + 'Return ONLY this JSON (no markdown):\n'
+    + '{"low":0,"mid":0,"high":0,"marketContext":"2 sentences on live data found","breakdown":{"reach":0,"sportMult":0,"schoolMult":0,"engMult":0,"delivMult":0,"cpm":"0.00"}}';
+  try {
+    const raw = await oneShotWithSearch(prompt, 'You are a NIL market analyst. Use web search for real 2026 NIL market rates. Return only valid JSON.');
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON found');
+    return JSON.parse(match[0]);
+  } catch (err) {
+    console.error('Live rate error, falling back:', err.message);
+    return null;
+  }
+}
+
 function calculateRate(athlete, deliverableType) {
   const reach    = athlete.instagram + athlete.tiktok * 0.75;
   const sport    = MARKET_RATES.sportMultiplier[athlete.sport] || 1.0;
@@ -155,4 +207,4 @@ Return ONLY a JSON array, no markdown:
   }
 }
 
-module.exports = { streamResponse, oneShot, calculateRate, getDealRecommendations, buildSystemPrompt };
+module.exports = { streamResponse, oneShot, oneShotWithSearch, calculateRate, calculateRateLive, getDealRecommendations, buildSystemPrompt };

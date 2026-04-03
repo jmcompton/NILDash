@@ -183,10 +183,19 @@ app.post('/api/ai/deals', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/ai/rate', requireAuth, (req, res) => {
+app.post('/api/ai/rate', requireAuth, async (req, res) => {
   const athlete = store.getAthlete(req.body.athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-  res.json(ai.calculateRate(athlete, req.body.deliverableType || 'ig-reel'));
+  const deliverableType = req.body.deliverableType || 'ig-reel';
+  try {
+    const liveRate = await ai.calculateRateLive(athlete, deliverableType);
+    if (liveRate && liveRate.mid) {
+      return res.json({ ...liveRate, liveData: true });
+    }
+  } catch (err) {
+    console.error('Live rate failed:', err.message);
+  }
+  res.json({ ...ai.calculateRate(athlete, deliverableType), liveData: false });
 });
 
 app.post('/api/ai/negotiate', requireAuth, async (req, res) => {
@@ -328,7 +337,13 @@ app.post('/api/ai/team-match', requireAuth, async (req, res) => {
   const athlete = store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
-  const prompt = `You are an elite NCAA transfer portal analyst. Find the 6 best landing spots for this athlete.
+  const prompt = `Search the web for current 2026 NIL collective budgets and transfer portal activity for ${athlete.sport} programs. Find:
+1) Current collective guarantee amounts at ${conference !== 'any' && conference ? conference : 'major'} conference schools for ${athlete.sport} in 2026
+2) Recent transfer portal activity for ${athlete.position || athlete.sport} players - which schools are actively recruiting
+3) On3 NIL valuations for comparable ${athlete.sport} athletes at this level
+4) Collective sizes and recent payout amounts for ${conference !== 'any' && conference ? conference : 'top'} programs
+
+Now use that live data to find the 6 best landing spots for this athlete.
 
 ATHLETE: ${athlete.name} | ${athlete.sport} | ${athlete.position || 'Unknown position'} | Year: ${athlete.year || 'Unknown'} | School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'Unknown tier'})
 STATS: ${athlete.stats || athlete.notes || 'Not provided'}
@@ -342,10 +357,12 @@ Return ONLY a JSON array:
 [{"rank":1,"name":"School","conference":"ACC","confLabel":"ACC","tier":"reach or best-fit or safe","why":"2 sentences specific to this athlete stats and this school roster need","nilLow":150000,"nilHigh":300000,"nilBreakdown":[{"label":"Collective","val":"$150K"},{"label":"Brand deals","val":"$100K+"}],"fitScore":88,"playingTimeOutlook":"Immediate starter","rosterNeed":"Lost starter to NBA","metrics":[{"label":"Collective strength","val":"Strong"},{"label":"Pro picks 3yr","val":"4"},{"label":"Avg NIL/player","val":"$180K"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"},{"label":"Academics","val":"Strong"}]}]`;
 
   try {
-    const raw = await ai.oneShot(prompt, `You are a precise NIL recruitment analyst. Return only valid JSON arrays.`);
-    const cleaned = raw.replace(/\`\`\`json|\`\`\`/g, '').trim();
-    const teams = JSON.parse(cleaned);
-    res.json({ teams });
+    const raw = await ai.oneShotWithSearch(prompt, 'You are a precise NIL recruitment analyst with access to current 2026 NIL data via web search. Search for live collective budgets and portal activity before recommending. Return only valid JSON arrays.');
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\[[\s\S]*\]/);
+    if (!match) throw new Error('No JSON array found');
+    const teams = JSON.parse(match[0]);
+    res.json({ teams, liveData: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
