@@ -385,12 +385,46 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div class="form-group-sm">
               <label class="form-label-sm">Type</label>
               <select class="select-sm" id="rateDeliverable">
-                <option value="ig-post">Single IG Post</option>
-                <option value="tiktok">TikTok Video</option>
-                <option value="ig-reel" selected>IG Reel</option>
-                <option value="stories">Story Set (3-5)</option>
-                <option value="bundle">Full Bundle</option>
-                <option value="retainer">Monthly Retainer</option>
+                <optgroup label="Social Media">
+                  <option value="ig-reel" selected>IG Reel</option>
+                  <option value="ig-post">Single IG Post</option>
+                  <option value="tiktok">TikTok Video</option>
+                  <option value="stories">Story Set (3-5)</option>
+                  <option value="youtube-long">YouTube (dedicated)</option>
+                  <option value="newsletter">Newsletter / Email Feature</option>
+                  <option value="podcast-host">Podcast Host Read</option>
+                  <option value="twitter-campaign">Twitter/X Campaign</option>
+                  <option value="bundle">Full Social Bundle</option>
+                  <option value="retainer">Monthly Retainer</option>
+                </optgroup>
+                <optgroup label="Appearances &amp; Events">
+                  <option value="appearance-inperson">In-Person Appearance</option>
+                  <option value="appearance-speaking">Speaking / Panel</option>
+                  <option value="appearance-meetgreet">Meet &amp; Greet</option>
+                  <option value="appearance-campus">Campus Appearance</option>
+                </optgroup>
+                <optgroup label="Content &amp; Media">
+                  <option value="media-podcast">Podcast Guest Spot</option>
+                  <option value="media-youtube">YouTube Integration</option>
+                  <option value="media-twitch">Twitch / Livestream</option>
+                  <option value="media-pressday">Press Interview / Media Day</option>
+                </optgroup>
+                <optgroup label="Licensing &amp; Brand">
+                  <option value="license-jersey">Jersey Licensing</option>
+                  <option value="license-merch">Merchandise Collab</option>
+                  <option value="license-codesign">Product Co-Design</option>
+                  <option value="license-autograph">Autograph Signing (Bulk)</option>
+                </optgroup>
+                <optgroup label="Collective / School">
+                  <option value="collective-roster">Collective Roster Deal (Monthly)</option>
+                  <option value="collective-ambassador">School Ambassador</option>
+                  <option value="collective-booster">Booster Event Appearance</option>
+                </optgroup>
+                <optgroup label="Camps &amp; Clinics">
+                  <option value="camp-skills">Skills Camp Appearance</option>
+                  <option value="camp-clinic">Youth Clinic Host</option>
+                  <option value="camp-training">Training Facility Partnership</option>
+                </optgroup>
               </select>
             </div>
             <button class="run-btn" style="width:100%" onclick="calcRate()">Calculate Rate</button>

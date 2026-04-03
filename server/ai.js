@@ -121,8 +121,8 @@ async function oneShotWithSearch(prompt, systemPrompt) {
       'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8000,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
       system: systemPrompt,
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
       messages: [{ role: 'user', content: prompt }]
@@ -164,6 +164,26 @@ async function calculateRateLive(athlete, deliverableType) {
 }
 
 function calculateRate(athlete, deliverableType) {
+  const flatFees = MARKET_RATES.appearanceFees;
+  if (flatFees && flatFees[deliverableType]) {
+    const fees = flatFees[deliverableType];
+    const tier = athlete.schoolTier || 'mid-lower';
+    let range;
+    if (tier === 'p4-top10') range = fees.p4top;
+    else if (tier === 'p4-mid') range = fees.p4mid;
+    else if (tier === 'p4-lower') range = fees.p4low;
+    else range = fees.mid;
+    const sportPremium = (athlete.sport === 'basketball' || athlete.sport === 'football') ? 1.25 : 1.0;
+    const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+    const reachBonus = reach > 500000 ? 1.20 : reach > 100000 ? 1.12 : reach > 25000 ? 1.06 : 1.0;
+    return {
+      low:  Math.round(range[0] * sportPremium * reachBonus / 100) * 100,
+      mid:  Math.round(((range[0] + range[1]) / 2) * sportPremium * reachBonus / 100) * 100,
+      high: Math.round(range[1] * sportPremium * reachBonus / 100) * 100,
+      breakdown: { reach: Math.round(reach), pricingModel: 'flat-fee', tier: tier, sportPremium: sportPremium, reachBonus: reachBonus },
+      pricingNote: 'Flat-fee rate based on school tier, sport, and social reach.',
+    };
+  }
   const reach    = athlete.instagram + athlete.tiktok * 0.75;
   const sport    = MARKET_RATES.sportMultiplier[athlete.sport] || 1.0;
   const school   = MARKET_RATES.schoolMultiplier[athlete.schoolTier] || 1.0;
@@ -174,12 +194,7 @@ function calculateRate(athlete, deliverableType) {
     low:  Math.round(raw * 0.85 / 100) * 100,
     mid:  Math.round(raw / 100) * 100,
     high: Math.round(raw * 1.25 / 100) * 100,
-    breakdown: {
-      reach: Math.round(reach),
-      sportMult: sport, schoolMult: school,
-      engMult: eng, delivMult: deliv,
-      cpm: ((raw / reach) * 1000).toFixed(2),
-    },
+    breakdown: { reach: Math.round(reach), pricingModel: 'reach-based', sportMult: sport, schoolMult: school, engMult: eng, delivMult: deliv, cpm: ((raw / reach) * 1000).toFixed(2) },
   };
 }
 
