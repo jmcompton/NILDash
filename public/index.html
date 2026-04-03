@@ -1239,17 +1239,21 @@ async function calcRate() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ athleteId: selectedAthleteId, deliverableType: type }),
     }).then(r=>r.json());
+    if (rate.error) { showToast('Error: ' + rate.error); return; }
     const result = document.getElementById('rateResult');
     result.classList.add('visible');
-    document.getElementById('rateRange').textContent = `$${rate.low.toLocaleString()} – $${rate.high.toLocaleString()}`;
+    document.getElementById('rateRange').textContent = '$' + (rate.low||0).toLocaleString() + ' – $' + (rate.high||0).toLocaleString();
     document.getElementById('ratePer').textContent = 'per ' + type.replace('-',' ');
-    const b = rate.breakdown;
-    document.getElementById('rateBreakdown').innerHTML = `
-      <div class="rb-row"><span class="rb-label">Effective reach</span><span class="rb-val">${b.reach.toLocaleString()}</span></div>
-      <div class="rb-row"><span class="rb-label">Sport multiplier</span><span class="rb-val">${b.sportMult}×</span></div>
-      <div class="rb-row"><span class="rb-label">School multiplier</span><span class="rb-val">${b.schoolMult}×</span></div>
-      <div class="rb-row"><span class="rb-label">Engagement multiplier</span><span class="rb-val">${b.engMult}×</span></div>
-      <div class="rb-row"><span class="rb-label">Implied CPM</span><span class="rb-val">$${b.cpm}</span></div>`;
+    const b = rate.breakdown || {};
+    const liveTag = rate.liveData ? '<div class="rb-row" style="color:var(--accent);font-size:10px;margin-bottom:4px">Live market data used</div>' : '';
+    const contextRow = rate.marketContext ? '<div class="rb-row" style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:4px">' + rate.marketContext + '</div>' : '';
+    document.getElementById('rateBreakdown').innerHTML = liveTag +
+      (b.reach ? '<div class="rb-row"><span class="rb-label">Effective reach</span><span class="rb-val">' + b.reach.toLocaleString() + '</span></div>' : '') +
+      (b.sportMult ? '<div class="rb-row"><span class="rb-label">Sport multiplier</span><span class="rb-val">' + b.sportMult + '×</span></div>' : '') +
+      (b.schoolMult ? '<div class="rb-row"><span class="rb-label">School multiplier</span><span class="rb-val">' + b.schoolMult + '×</span></div>' : '') +
+      (b.engMult ? '<div class="rb-row"><span class="rb-label">Engagement multiplier</span><span class="rb-val">' + b.engMult + '×</span></div>' : '') +
+      (b.cpm ? '<div class="rb-row"><span class="rb-label">Implied CPM</span><span class="rb-val">$' + b.cpm + '</span></div>' : '') +
+      contextRow;
     document.getElementById('rateAI').classList.add('visible');
   } catch(e) { showToast('Error: ' + e.message); }
 }
