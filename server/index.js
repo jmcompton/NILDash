@@ -337,13 +337,7 @@ app.post('/api/ai/team-match', requireAuth, async (req, res) => {
   const athlete = store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
-  const prompt = `Search the web for current 2026 NIL collective budgets and transfer portal activity for ${athlete.sport} programs. Find:
-1) Current collective guarantee amounts at ${conference !== 'any' && conference ? conference : 'major'} conference schools for ${athlete.sport} in 2026
-2) Recent transfer portal activity for ${athlete.position || athlete.sport} players - which schools are actively recruiting
-3) On3 NIL valuations for comparable ${athlete.sport} athletes at this level
-4) Collective sizes and recent payout amounts for ${conference !== 'any' && conference ? conference : 'top'} programs
-
-Now use that live data to find the 6 best landing spots for this athlete.
+  const prompt = `Search for current 2026 NIL collective budgets for ${athlete.sport} at ${conference !== 'any' && conference ? conference : 'major'} conference schools. Then find the 6 best transfer portal landing spots for this athlete.
 
 ATHLETE: ${athlete.name} | ${athlete.sport} | ${athlete.position || 'Unknown position'} | Year: ${athlete.year || 'Unknown'} | School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'Unknown tier'})
 STATS: ${athlete.stats || athlete.notes || 'Not provided'}

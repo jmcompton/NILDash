@@ -124,7 +124,7 @@ async function oneShotWithSearch(prompt, systemPrompt) {
       model: 'claude-sonnet-4-20250514',
       max_tokens: 8000,
       system: systemPrompt,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
       messages: [{ role: 'user', content: prompt }]
     })
   });
