@@ -200,25 +200,41 @@ function calculateRate(athlete, deliverableType) {
 
 async function getDealRecommendations(athlete, role) {
   const rate = calculateRate(athlete, 'ig-reel');
-  const prompt = `Rank the top 6 NIL brand deals for this athlete right now.
-Return ONLY a JSON array, no markdown:
+  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+  const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
+  const prompt = `Search for brands actively doing NIL deals with ${athlete.sport} athletes in 2025-2026. Find brands that:
+1) Have active NIL programs or college athlete partnerships RIGHT NOW
+2) Match this athlete's profile: ${athlete.sport}, ${tier}-influencer (${reach.toLocaleString()} total reach), ${athlete.schoolTier || 'college'} tier, ${athlete.school || 'college'} market
+3) Are NOT just the obvious big names — include regional brands, local businesses near ${athlete.school || 'their school'}, brands specific to ${athlete.sport}, and emerging brands actively recruiting college athletes
+
+Think beyond Nike/Adidas. Consider: sports nutrition brands, local restaurants/chains near campus, energy drinks, clothing brands targeting college demos, financial apps, gaming companies, automotive brands, insurance companies, hair/grooming brands, food delivery apps, streaming services, supplement companies.
+
+ATHLETE: ${athlete.name} | ${athlete.sport} | ${athlete.position || ''} | ${athlete.year || ''} | ${athlete.school || 'Unknown'} (${athlete.schoolTier || ''})
+REACH: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Engagement: ${athlete.engagement||0}%
+STATS/NOTES: ${athlete.stats || athlete.notes || 'Not provided'}
+
+Return ONLY a JSON array of 6 deals ranked by fit:
 [{
   "rank": 1,
-  "brand": "Brand Name",
-  "campaign": "Specific concept",
-  "category": "footwear|beverage|tech|apparel|finance|gaming",
-  "rationale": "Why this brand fits THIS athlete (2 sentences)",
+  "brand": "Exact Brand Name",
+  "campaign": "Specific realistic campaign concept for THIS athlete",
+  "category": "nutrition|apparel|tech|finance|food|beverage|gaming|auto|grooming|local",
+  "rationale": "Why this specific brand fits THIS athlete's sport, market, and audience — be specific",
   "suggestedRate": { "low": 0, "high": 0 },
-  "timingNote": "Urgent/seasonal/open",
-  "fitScore": 90
+  "timingNote": "Why now — seasonal, budget cycle, or recent brand activity",
+  "fitScore": 90,
+  "dealType": "post|reel|ambassador|appearance|licensing"
 }]`;
   try {
-    const raw = await oneShot(prompt, buildSystemPrompt(athlete, role));
-    return JSON.parse(raw.replace(/```json|```/g, '').trim());
+    const raw = await oneShotWithSearch(prompt, 'You are a NIL deal scout who finds real brand partnerships. Search for brands actively doing NIL deals. Prioritize accuracy and variety over big names. Never just list Nike/Adidas/Gatorade unless they truly fit. Return only valid JSON.');
+    const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const si = c.indexOf('['), ei = c.lastIndexOf(']');
+    if (si === -1 || ei <= si) throw new Error('No array');
+    return JSON.parse(c.substring(si, ei + 1));
   } catch {
-    return [{ rank:1, brand:'Nike', campaign:'Brand Ambassador', category:'footwear',
-      rationale:'Strong fit for this athlete profile.', fitScore:85,
-      suggestedRate:{ low: rate.low, high: rate.high }, timingNote:'Open' }];
+    return [{ rank:1, brand:'Local Brand', campaign:'Brand Ambassador', category:'apparel',
+      rationale:'Strong fit for this athlete profile.', fitScore:75,
+      suggestedRate:{ low: rate.low, high: rate.high }, timingNote:'Open', dealType:'post' }];
   }
 }
 
