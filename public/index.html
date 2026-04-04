@@ -1432,7 +1432,8 @@ async function fetchFromUrl() {
     status.innerHTML = 'Stats imported: ' + summary;
     showToast('Real stats imported!');
   } catch(e) {
-    status.textContent = 'Import failed: ' + e.message;
+    const msg = e.message && e.message.includes('blocks') ? e.message : 'ESPN/247Sports block server imports. Use the ⚡ Lookup button instead.';
+    status.textContent = msg;
   }
   btn.disabled = false; btn.textContent = 'Import';
 }
