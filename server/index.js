@@ -256,106 +256,13 @@ app.post('/api/ai/outreach', requireAuth, async (req, res) => {
   try {
     const raw = await ai.oneShot(prompt, ai.buildSystemPrompt(athlete, 'agent'));
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (!match) return res.status(500).json({ error: 'Generation failed' });
-    res.json(JSON.parse(match[0]));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-
-// -- NIL Compliance --
-app.post('/api/ai/compliance', requireAuth, async (req, res) => {
-  const { state, dealType, brand, value, description, athleteName, sport, school, schoolTier } = req.body;
-  const prompt = 'Analyze this NIL deal for compliance in ' + state + ':\n' +
-    'Athlete: ' + (athleteName||'Unknown') + ', ' + (sport||'Unknown') + ', ' + (school||'Unknown') + ' (' + (schoolTier||'unknown') + ')\n' +
-    'Deal: ' + dealType + ' with ' + (brand||'unknown brand') + ' worth $' + (parseInt(value)||0) + '\n' +
-    'Description: ' + (description||'not provided') + '\n\n' +
-    'Check: 1) Is this deal restricted in ' + state + '? 2) Disclosure requirements? 3) Does $' + (parseInt(value)||0) + ' trigger NIL Go $600 reporting? 4) Agent licensing? 5) Category restrictions (alcohol/gambling/tobacco/supplements/crypto)?\n\n' +
-    'Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","sourceNote":"what laws this is based on"}';
-  try {
-    const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with current knowledge of all 50 state NIL laws and NCAA/CSC rules as of 2026. Return only valid JSON.');
-    const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    if (!match) return res.status(500).json({ error: 'Failed to parse result' });
-    res.json(JSON.parse(match[0]));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// -- Player URL Fetch --
-app.post('/api/ai/player-fetch', requireAuth, async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'url required' });
-  try {
-    const https = require('https');
-    const http = require('http');
-    const client = url.startsWith('https') ? https : http;
-    const pageText = await new Promise((resolve, reject) => {
-      client.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } }, (res) => {
-        let data = '';
-        res.on('data', d => data += d);
-        res.on('end', () => resolve(data));
-      }).on('error', reject);
-    });
-    // Strip HTML tags and limit length
-    const text = pageText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').substring(0, 8000);
-    const prompt = 'Extract college athlete info from this page text and return as JSON. Page: ' + text + '. Return this JSON: {"found":true,"name":"full name","school":"school","sport":"sport","position":"position","year":"year","stats":"key stats","height":"height","weight":"weight","hometown":"city state","notes":"bio and achievements"}. Return ONLY JSON.';
-    const raw = await ai.oneShot(prompt, 'You extract structured athlete data from web pages. Return only valid JSON.');
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.json({ found: false });
-    res.json(JSON.parse(jsonMatch[0]));
-  } catch (err) {
-    console.error('Fetch error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// -- Player Lookup --
-app.post('/api/ai/player-lookup', requireAuth, async (req, res) => {
-  const { name, school, sport } = req.body;
-  if (!name) return res.status(400).json({ error: 'name required' });
-  const prompt = 'Look up college athlete: ' + name + (school ? ' at ' + school : '') + (sport ? ' (' + sport + ')' : '') + '. Return this JSON with found:true always, estimate anything unknown: {"found":true,"name":"full name","school":"school name","sport":"sport","position":"position abbrev","year":"Freshman or Sophomore or Junior or Senior or Grad Transfer","stats":"stats est. if unsure","height":"height","weight":"weight","hometown":"city state","instagram":5000,"tiktok":2000,"engagement":4.2,"schoolTier":"p4-top10 or p4-top25 or p4-mid or p4-lower or highmajor-top or mid-top or mid-mid or mid-lower or lowmajor-top or lowmajor-lower or d2-elite or d2-mid or d2-lower","notes":"2-3 sentences"}. Return ONLY JSON no markdown.';
-  try {
-    const raw = await ai.oneShot(prompt, 'You are a college sports database D1 through D2. Return only valid JSON.');
-    const cleaned = raw.replace(/`/g, '').replace(/json/g, '').trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.json({ found: false });
-    res.json(JSON.parse(jsonMatch[0]));
-  } catch (err) {
-    console.error('Lookup error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Team Match endpoint ────────────────────────────────────────
-app.post('/api/ai/team-match', requireAuth, async (req, res) => {
-  const { athleteId, conference, minNil, sortBy } = req.body;
-  const athlete = store.getAthlete(athleteId);
-  if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-
-  const prompt = `Search for current 2026 NIL collective budgets for ${athlete.sport} at ${conference !== 'any' && conference ? conference : 'major'} conference schools. Then find the 6 best transfer portal landing spots for this athlete.
-
-ATHLETE: ${athlete.name} | ${athlete.sport} | ${athlete.position || 'Unknown position'} | Year: ${athlete.year || 'Unknown'} | School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'Unknown tier'})
-STATS: ${athlete.stats || athlete.notes || 'Not provided'}
-PORTAL STATUS: ${athlete.transferReason || 'Unknown'}
-SOCIAL: ${athlete.instagram || 0} IG followers, ${athlete.tiktok || 0} TikTok, ${athlete.engagement || 0}% engagement
-FILTERS: Conference: ${conference || 'Any'} | Min NIL: $${(minNil||0).toLocaleString()} | Sort: ${sortBy || 'fit'}
-
-Rules: Use real NIL collective budgets. Mix 2 reach, 2 best-fit, 2 safe options. Be specific to this athlete stats.
-
-Return ONLY a JSON array:
-[{"rank":1,"name":"School","conference":"ACC","confLabel":"ACC","tier":"reach or best-fit or safe","why":"2 sentences specific to this athlete stats and this school roster need","nilLow":150000,"nilHigh":300000,"nilBreakdown":[{"label":"Collective","val":"$150K"},{"label":"Brand deals","val":"$100K+"}],"fitScore":88,"playingTimeOutlook":"Immediate starter","rosterNeed":"Lost starter to NBA","metrics":[{"label":"Collective strength","val":"Strong"},{"label":"Pro picks 3yr","val":"4"},{"label":"Avg NIL/player","val":"$180K"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"},{"label":"Academics","val":"Strong"}]}]`;
-
-  try {
-    const raw = await ai.oneShotWithSearch(prompt, 'You are a NIL recruitment analyst. Return ONLY a valid JSON array. No markdown, no explanation, no text before or after the array. Start your response with [ and end with ].');
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\[[\s\S]*\]/);
-    if (!match) throw new Error('No JSON array found');
-    const teams = JSON.parse(match[0]);
+    const start = cleaned.indexOf('[');
+    const end = cleaned.lastIndexOf(']');
+    if (start === -1 || end === -1 || end <= start) {
+      console.error('Team match raw:', raw.substring(0, 300));
+      throw new Error('No JSON array found');
+    }
+    const teams = JSON.parse(cleaned.substring(start, end + 1));
     res.json({ teams, liveData: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
