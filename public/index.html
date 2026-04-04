@@ -503,18 +503,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="form-group-sm"><label class="form-label-sm">Full Name *</label>
             <div style="display:flex;gap:8px">
               <input class="input-sm" id="a_name" placeholder="e.g. Marcus Johnson" style="flex:1">
-              <button class="run-btn" onclick="lookupPlayer()" id="lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">🔍 Lookup</button>
+              <button class="run-btn" onclick="lookupPlayer()" id="lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">⚡ AI Lookup</button>
             </div>
             <div id="lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
           </div>
-          <div class="form-group-sm">
-            <label class="form-label-sm">📥 Import from URL (ESPN, 247Sports, school bio — most accurate)</label>
-            <div style="display:flex;gap:8px">
-              <input class="input-sm" id="a_url" placeholder="e.g. https://espn.com/college-basketball/player/..." style="flex:1">
-              <button class="run-btn" onclick="fetchFromUrl()" id="fetch-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">📥 Import</button>
-            </div>
-            <div id="fetch-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
-          </div>
+
           <div class="form-row" style="margin-bottom:12px">
             <div><label class="form-label-sm">Sport *</label>
               <select class="select-sm" id="a_sport">
@@ -584,7 +577,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </select>
           </div>
           <div class="form-group-sm"><label class="form-label-sm">Key Stats</label>
-            <input class="input-sm" id="a_stats" placeholder="Auto-filled by Lookup or Import, or enter manually"></div>
+            <input class="input-sm" id="a_stats" placeholder="Auto-filled by AI Lookup, or enter manually"></div>
           <div class="form-group-sm"><label class="form-label-sm">Portal Status</label>
             <select class="select-sm" id="a_transfer_reason">
               <option value="not in portal - freshman">Not in portal — Incoming Freshman</option>
@@ -1464,9 +1457,11 @@ async function lookupPlayer() {
     if (data.engagement) document.getElementById('a_eng').value = data.engagement;
     if (data.notes) document.getElementById('a_notes').value = data.notes;
     if (data.schoolTier) { const s = document.getElementById('a_tier'); for (let o of s.options) { if (o.value === data.schoolTier) { s.value = o.value; break; } } }
-    const summary = [data.position, data.year, data.stats, data.height].filter(Boolean).join(' - ');
-    status.innerHTML = 'Player found - verify stats before saving - ' + summary;
-    showToast('Player data loaded!');
+    if (data.sport) { const s = document.getElementById('a_sport'); for (let o of s.options) { if (o.value === data.sport) { s.value = o.value; break; } } }
+    if (data.hometown) { const n = document.getElementById('a_notes'); if (!n.value) n.value = data.hometown; }
+    const summary = [data.school, data.position, data.year, data.stats].filter(Boolean).join(' · ');
+    status.innerHTML = '<span style="color:var(--accent)">✓ Loaded — review and save</span> · ' + summary;
+    showToast('Player data loaded — please verify before saving!');
   } catch(e) {
     status.textContent = 'Lookup failed: ' + e.message;
   }
