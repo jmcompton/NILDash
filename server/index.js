@@ -87,16 +87,16 @@ app.get('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   let athletes;
   if (user.role === 'agent') {
-    athletes = store.getAthletesByAgent(user.id);
+    athletes = await store.getAthletesByAgent(user.id);
   } else {
     // Athlete sees only their own profile
-    athletes = store.getAthletesByAgent(user.id); // athleteId stored under their userId
+    athletes = await store.getAthletesByAgent(user.id); // athleteId stored under their userId
   }
   res.json(athletes);
 });
 
 app.post('/api/athletes', requireAuth, async (req, res) => {
-  const user = store.getUser(req.session.userId);
+  const user = await store.getUser(req.session.userId);
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
   const id = 'ath-' + Date.now();
@@ -119,7 +119,7 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
 app.put('/api/athletes/:id', requireAuth, async (req, res) => {
   const existing = await store.getAthlete(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
-  const updated = store.saveAthlete(req.params.id, { ...existing, ...req.body });
+  const updated = await store.saveAthlete(req.params.id, { ...existing, ...req.body });
   res.json(updated);
 });
 
@@ -129,14 +129,14 @@ app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
 });
 
 // ── Deals ──────────────────────────────────────────────────────
-app.get('/api/athletes/:id/deals', requireAuth, (req, res) => {
-  res.json(store.getDealsByAthlete(req.params.id));
+app.get('/api/athletes/:id/deals', requireAuth, async (req, res) => {
+  res.json(await store.getDealsByAthlete(req.params.id));
 });
 
-app.post('/api/athletes/:id/deals', requireAuth, (req, res) => {
+app.post('/api/athletes/:id/deals', requireAuth, async (req, res) => {
   const { brand, campaign, stage, value, offeredValue } = req.body;
   const id = 'deal-' + Date.now();
-  const deal = store.saveDeal(id, {
+  const deal = await store.saveDeal(id, {
     id, athleteId: req.params.id,
     brand: brand || '', campaign: campaign || '',
     stage: stage || 'Prospecting',
