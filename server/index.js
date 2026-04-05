@@ -3,6 +3,7 @@ require('dotenv').config();
 
 const express  = require('express');
 const session  = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
 const bcrypt   = require('bcryptjs');
 const cors     = require('cors');
 const path     = require('path');
@@ -16,6 +17,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.use(session({
+  store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
   secret: process.env.SESSION_SECRET || 'nildash-dev-secret',
   resave: false,
   saveUninitialized: false,
@@ -41,12 +43,12 @@ app.post('/api/auth/signup', async (req, res) => {
     return res.status(400).json({ error: 'All fields required' });
   if (!['agent', 'athlete'].includes(role))
     return res.status(400).json({ error: 'Role must be agent or athlete' });
-  if (store.getUserByEmail(email))
+  if (await store.getUserByEmail(email))
     return res.status(400).json({ error: 'Email already registered' });
 
   const hash = await bcrypt.hash(password, 10);
   const id   = 'user-' + Date.now();
-  const user = store.saveUser(id, {
+  const user = await store.saveUser(id, {
     id, name, email, password: hash, role,
     createdAt: new Date().toISOString(),
   });
@@ -58,7 +60,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  const user = store.getUserByEmail(email);
+  const user = await store.getUserByEmail(email);
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
   const ok = await bcrypt.compare(password, user.password);
@@ -74,15 +76,15 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/auth/me', requireAuth, (req, res) => {
-  const user = store.getUser(req.session.userId);
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Not found' });
   res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
 });
 
 // ── Athletes ───────────────────────────────────────────────────
-app.get('/api/athletes', requireAuth, (req, res) => {
-  const user = store.getUser(req.session.userId);
+app.get('/api/athletes', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
   let athletes;
   if (user.role === 'agent') {
     athletes = store.getAthletesByAgent(user.id);
@@ -93,12 +95,12 @@ app.get('/api/athletes', requireAuth, (req, res) => {
   res.json(athletes);
 });
 
-app.post('/api/athletes', requireAuth, (req, res) => {
+app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = store.getUser(req.session.userId);
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
   const id = 'ath-' + Date.now();
-  const athlete = store.saveAthlete(id, {
+  const athlete = await store.saveAthlete(id, {
     id, agentId: user.id, name, sport, position: position || '',
     school: school || '', schoolTier: schoolTier || 'p4-mid',
     instagram: parseInt(instagram) || 0,
@@ -114,15 +116,15 @@ app.post('/api/athletes', requireAuth, (req, res) => {
   res.status(201).json(athlete);
 });
 
-app.put('/api/athletes/:id', requireAuth, (req, res) => {
-  const existing = store.getAthlete(req.params.id);
+app.put('/api/athletes/:id', requireAuth, async (req, res) => {
+  const existing = await store.getAthlete(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
   const updated = store.saveAthlete(req.params.id, { ...existing, ...req.body });
   res.json(updated);
 });
 
-app.delete('/api/athletes/:id', requireAuth, (req, res) => {
-  store.deleteAthlete(req.params.id);
+app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
+  await store.deleteAthlete(req.params.id);
   res.json({ ok: true });
 });
 
@@ -200,7 +202,7 @@ app.post('/api/ai/rate', requireAuth, async (req, res) => {
 
 app.post('/api/ai/negotiate', requireAuth, async (req, res) => {
   const { athleteId, brand, theirOffer, agentTarget } = req.body;
-  const athlete = store.getAthlete(athleteId);
+  const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const user = store.getUser(req.session.userId);
   const prompt = `The ${user.role} has a call in 30 minutes negotiating with ${brand}.
@@ -242,7 +244,7 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
 // ── Brand Outreach ─────────────────────────────────────────────
 app.post('/api/ai/outreach', requireAuth, async (req, res) => {
   const { athleteId, brand, category, contact, goal } = req.body;
-  const athlete = store.getAthlete(athleteId);
+  const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const prompt = 'You are a sports agent writing cold outreach to ' + brand + ' for athlete ' + athlete.name + '.' +
     ' Athlete: ' + athlete.sport + ', ' + (athlete.position||'') + ', ' + (athlete.school||'') +
@@ -338,7 +340,7 @@ app.post('/api/ai/player-lookup', requireAuth, async (req, res) => {
 // ── Team Match endpoint ────────────────────────────────────────
 app.post('/api/ai/team-match', requireAuth, async (req, res) => {
   const { athleteId, conference, minNil, sortBy } = req.body;
-  const athlete = store.getAthlete(athleteId);
+  const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
   const prompt = `Search the web for current 2026 NIL collective budgets and transfer portal activity for ${athlete.sport} programs. Find:
