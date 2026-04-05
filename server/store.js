@@ -10,6 +10,7 @@ async function init() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
+      name TEXT,
       email TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
       role TEXT DEFAULT 'agent',
@@ -32,6 +33,8 @@ async function init() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  // Add name column if missing (migration for existing DBs)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT`).catch(() => {});
   console.log('Database tables ready');
 }
 
@@ -46,12 +49,12 @@ async function getUserByEmail(email) {
 }
 async function saveUser(id, data) {
   await pool.query(`
-    INSERT INTO users (id, email, password, role, updated_at)
-    VALUES ($1,$2,$3,$4,NOW())
+    INSERT INTO users (id, name, email, password, role, updated_at)
+    VALUES ($1,$2,$3,$4,$5,NOW())
     ON CONFLICT (id) DO UPDATE SET
-      email=EXCLUDED.email, password=EXCLUDED.password,
+      name=EXCLUDED.name, email=EXCLUDED.email, password=EXCLUDED.password,
       role=EXCLUDED.role, updated_at=NOW()
-  `, [id, data.email, data.password, data.role || 'agent']);
+  `, [id, data.name || '', data.email, data.password, data.role || 'agent']);
   return getUser(id);
 }
 async function getAllUsers() {
