@@ -147,14 +147,14 @@ app.post('/api/athletes/:id/deals', requireAuth, async (req, res) => {
   res.status(201).json(deal);
 });
 
-app.patch('/api/deals/:id', requireAuth, (req, res) => {
-  const existing = store.getDeal(req.params.id);
+app.patch('/api/deals/:id', requireAuth, async (req, res) => {
+  const existing = await store.getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
-  res.json(store.saveDeal(req.params.id, { ...existing, ...req.body }));
+  res.json(await store.saveDeal(req.params.id, { ...existing, ...req.body }));
 });
 
-app.delete('/api/deals/:id', requireAuth, (req, res) => {
-  store.deleteDeal(req.params.id);
+app.delete('/api/deals/:id', requireAuth, async (req, res) => {
+  await store.deleteDeal(req.params.id);
   res.json({ ok: true });
 });
 
@@ -162,7 +162,7 @@ app.delete('/api/deals/:id', requireAuth, (req, res) => {
 app.post('/api/ai/command', requireAuth, async (req, res) => {
   const { athleteId, message } = req.body;
   if (!message) return res.status(400).json({ error: 'message required' });
-  const athlete = athleteId ? store.getAthlete(athleteId) : null;
+  const athlete = athleteId ? await store.getAthlete(athleteId) : null;
   const eff = athlete || { name:'General', sport:'basketball', position:'',
     school:'Unknown', schoolTier:'p4-mid', instagram:0, tiktok:0, engagement:4.0, notes:'' };
   const user = await store.getUser(req.session.userId);
@@ -174,7 +174,7 @@ app.post('/api/ai/command', requireAuth, async (req, res) => {
 });
 
 app.post('/api/ai/deals', requireAuth, async (req, res) => {
-  const athlete = store.getAthlete(req.body.athleteId);
+  const athlete = await store.getAthlete(req.body.athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const user = await store.getUser(req.session.userId);
   try {
@@ -186,7 +186,7 @@ app.post('/api/ai/deals', requireAuth, async (req, res) => {
 });
 
 app.post('/api/ai/rate', requireAuth, async (req, res) => {
-  const athlete = store.getAthlete(req.body.athleteId);
+  const athlete = await store.getAthlete(req.body.athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const deliverableType = req.body.deliverableType || 'ig-reel';
   try {
@@ -225,7 +225,7 @@ Include 3 KEY DATA POINTS to quote. Word-for-word scripts only.`;
 app.post('/api/ai/ask', requireAuth, async (req, res) => {
   const { athleteId, message } = req.body;
   if (!message) return res.status(400).json({ error: 'message required' });
-  const athlete = athleteId ? store.getAthlete(athleteId) : null;
+  const athlete = athleteId ? await store.getAthlete(athleteId) : null;
   const eff = athlete || { name:'General', sport:'basketball', position:'',
     school:'Unknown', schoolTier:'p4-mid', instagram:0, tiktok:0, engagement:4.0, notes:'' };
   const user = await store.getUser(req.session.userId);
