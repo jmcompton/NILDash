@@ -165,7 +165,7 @@ app.post('/api/ai/command', requireAuth, async (req, res) => {
   const athlete = athleteId ? store.getAthlete(athleteId) : null;
   const eff = athlete || { name:'General', sport:'basketball', position:'',
     school:'Unknown', schoolTier:'p4-mid', instagram:0, tiktok:0, engagement:4.0, notes:'' };
-  const user = store.getUser(req.session.userId);
+  const user = await store.getUser(req.session.userId);
   try {
     await ai.streamResponse(eff, message, user.role, res);
   } catch (err) {
@@ -176,7 +176,7 @@ app.post('/api/ai/command', requireAuth, async (req, res) => {
 app.post('/api/ai/deals', requireAuth, async (req, res) => {
   const athlete = store.getAthlete(req.body.athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-  const user = store.getUser(req.session.userId);
+  const user = await store.getUser(req.session.userId);
   try {
     const recommendations = await ai.getDealRecommendations(athlete, user.role);
     res.json({ recommendations });
@@ -204,7 +204,7 @@ app.post('/api/ai/negotiate', requireAuth, async (req, res) => {
   const { athleteId, brand, theirOffer, agentTarget } = req.body;
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-  const user = store.getUser(req.session.userId);
+  const user = await store.getUser(req.session.userId);
   const prompt = `The ${user.role} has a call in 30 minutes negotiating with ${brand}.
 Their offer: ${theirOffer} | Target: ${agentTarget}
 Give a 4-part playbook:
@@ -228,7 +228,7 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
   const athlete = athleteId ? store.getAthlete(athleteId) : null;
   const eff = athlete || { name:'General', sport:'basketball', position:'',
     school:'Unknown', schoolTier:'p4-mid', instagram:0, tiktok:0, engagement:4.0, notes:'' };
-  const user = store.getUser(req.session.userId);
+  const user = await store.getUser(req.session.userId);
   try {
     const response = await ai.oneShot(message, ai.buildSystemPrompt(eff, user.role));
     res.json({ response });
