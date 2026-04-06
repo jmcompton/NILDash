@@ -234,7 +234,7 @@ Return ONLY a JSON array of 6 deals:
   "timingNote": "Why now — seasonal, budget cycle, or confirmed recent NIL activity",
   "fitScore": 90,
   "dealType": "post|reel|ambassador|appearance|licensing"
-}]`
+}]`;
   try {
     const raw = await oneShotWithSearch(prompt, 'You are a NIL deal scout with web search access. You MUST run multiple searches before answering. Search for real documented NIL deals for this specific sport, school tier, and market. Be specific — cite actual brands you find evidence for. Return only valid JSON array, no markdown.');
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
