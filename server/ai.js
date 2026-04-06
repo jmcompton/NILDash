@@ -202,29 +202,39 @@ async function getDealRecommendations(athlete, role) {
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
-  const prompt = `Search for brands actively doing NIL deals with ${athlete.sport} athletes in 2025-2026. Find brands that:
-1) Have active NIL programs or college athlete partnerships RIGHT NOW
-2) Match this athlete's profile: ${athlete.sport}, ${tier}-influencer (${reach.toLocaleString()} total reach), ${athlete.schoolTier || 'college'} tier, ${athlete.school || 'college'} market
-3) Are NOT just the obvious big names — include regional brands, local businesses near ${athlete.school || 'their school'}, brands specific to ${athlete.sport}, and emerging brands actively recruiting college athletes
+  const market = (athlete.school || 'college').replace('University','').replace('College','').trim();
+  const prompt = `You are researching NIL brand deals. Search the web for these specific queries:
+1. "${athlete.sport} NIL deal brand partnership 2025 2026" — find brands with proven track records
+2. "NIL sponsorship ${athlete.schoolTier} ${athlete.sport} 2026" — find tier-appropriate sponsors  
+3. "college ${athlete.sport} athlete brand ambassador 2026" — find active programs
+4. "${market} local business NIL college athlete" — find regional/local angle
 
-Think beyond Nike/Adidas. Consider: sports nutrition brands, local restaurants/chains near campus, energy drinks, clothing brands targeting college demos, financial apps, gaming companies, automotive brands, insurance companies, hair/grooming brands, food delivery apps, streaming services, supplement companies.
+ATHLETE PROFILE:
+Name: ${athlete.name} | Sport: ${athlete.sport} | Position: ${athlete.position || 'N/A'} | Year: ${athlete.year || 'N/A'}
+School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'college'})
+Reach: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Engagement: ${athlete.engagement||0}% | Tier: ${tier}
+Stats: ${athlete.stats || 'N/A'} | Notes: ${athlete.notes || 'N/A'}
 
-ATHLETE: ${athlete.name} | ${athlete.sport} | ${athlete.position || ''} | ${athlete.year || ''} | ${athlete.school || 'Unknown'} (${athlete.schoolTier || ''})
-REACH: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Engagement: ${athlete.engagement||0}%
-STATS/NOTES: ${athlete.stats || athlete.notes || 'Not provided'}
+Using your search results, recommend 6 brands ranked by realistic fit:
+- Prioritize brands with DOCUMENTED NIL activity found in your search
+- Include 1+ local/regional brand near ${market}
+- Include 1+ sport-specific brand for ${athlete.sport}
+- Include 1+ non-obvious emerging brand matching this athlete's audience
+- Rate ranges by tier: nano $50-500/post, micro $200-2000, mid $1000-8000, macro $5000+
+- Only recommend Nike/Adidas/Gatorade if search confirms active NIL programs for ${athlete.schoolTier} level
 
-Return ONLY a JSON array of 6 deals ranked by fit:
+Return ONLY a JSON array of 6 deals:
 [{
   "rank": 1,
   "brand": "Exact Brand Name",
   "campaign": "Specific realistic campaign concept for THIS athlete",
   "category": "nutrition|apparel|tech|finance|food|beverage|gaming|auto|grooming|local",
-  "rationale": "Why this specific brand fits THIS athlete's sport, market, and audience — be specific",
+  "rationale": "Why this brand — cite known NIL activity or specific audience match",
   "suggestedRate": { "low": 0, "high": 0 },
-  "timingNote": "Why now — seasonal, budget cycle, or recent brand activity",
+  "timingNote": "Why now — seasonal, budget cycle, or confirmed recent NIL activity",
   "fitScore": 90,
   "dealType": "post|reel|ambassador|appearance|licensing"
-}]`;
+}]`
   try {
     const raw = await oneShotWithSearch(prompt, 'You are a NIL deal scout who finds real brand partnerships. Search for brands actively doing NIL deals. Prioritize accuracy and variety over big names. Never just list Nike/Adidas/Gatorade unless they truly fit. Return only valid JSON.');
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
