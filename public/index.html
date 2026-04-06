@@ -1,53 +1,1892 @@
-# NILDash — NIL Intelligence Platform
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NILDash — NIL Intelligence Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0A0A08;--surface:#111110;--surface2:#1A1A18;
+  --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
+  --text:#F0EDE6;--muted:rgba(240,237,230,0.45);
+  --accent:#C8F135;--blue:#35C8F1;--red:#F13535;
+  --head:'Syne',sans-serif;--mono:'DM Mono',monospace;
+  --r:10px;--r-sm:6px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;line-height:1.6;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.012) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
 
-AI-powered NIL deal intelligence for sports agents and athletes.
+/* ── AUTH ── */
+#authScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:100;padding:20px}
+#authScreen.hidden{display:none}
+.auth-box{background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:40px;width:100%;max-width:420px;position:relative;z-index:1}
+.auth-logo{font-family:var(--head);font-size:32px;font-weight:800;color:var(--accent);margin-bottom:4px;letter-spacing:-0.03em}
+.auth-sub{font-size:12px;color:var(--muted);margin-bottom:32px;letter-spacing:0.04em}
+.auth-tabs{display:flex;gap:4px;margin-bottom:28px;background:var(--surface2);border-radius:8px;padding:4px}
+.auth-tab{flex:1;padding:8px;border:none;background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;border-radius:6px;cursor:pointer;transition:all 0.15s}
+.auth-tab.active{background:var(--accent);color:#0A0A08;font-weight:500}
+.form-group{margin-bottom:16px}
+.form-label{display:block;font-size:11px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px}
+.form-input,.form-select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-family:var(--mono);font-size:13px;padding:11px 14px;outline:none;transition:border-color 0.15s}
+.form-input:focus,.form-select:focus{border-color:var(--accent)}
+.form-select option{background:var(--surface)}
+.role-selector{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+.role-btn{padding:14px;border:1px solid var(--border);border-radius:var(--r);background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer;transition:all 0.15s;text-align:center}
+.role-btn .role-icon{font-size:22px;display:block;margin-bottom:6px}
+.role-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(200,241,53,0.08)}
+.btn-primary{width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:13px;border-radius:40px;border:none;cursor:pointer;transition:all 0.2s;margin-top:8px}
+.btn-primary:hover{opacity:0.9;transform:translateY(-1px)}
+.btn-primary:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+.auth-error{color:var(--red);font-size:12px;margin-top:10px;text-align:center;min-height:18px}
 
-## Setup
+/* ── APP ── */
+#appScreen{display:none;min-height:100vh}
+#appScreen.visible{display:flex}
+.sidebar{width:220px;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);position:fixed;left:0;top:0;bottom:0;display:flex;flex-direction:column;z-index:50}
+.sidebar-logo{padding:20px 18px;border-bottom:1px solid var(--border)}
+.logo-text{font-family:var(--head);font-size:20px;font-weight:800;color:var(--accent);letter-spacing:-0.02em}
+.logo-sub{font-size:10px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-top:2px}
+.sidebar-nav{padding:12px;flex:1}
+.nav-section-label{font-size:9px;color:rgba(240,237,230,0.25);letter-spacing:0.14em;text-transform:uppercase;padding:0 8px;margin:12px 0 6px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r-sm);cursor:pointer;color:var(--muted);font-size:12px;transition:all 0.15s;margin-bottom:2px;border:none;background:none;width:100%;text-align:left}
+.nav-item:hover{background:rgba(255,255,255,0.06);color:var(--text)}
+.nav-item.active{background:rgba(255,255,255,0.1);color:var(--text);font-weight:500}
+.nav-icon{font-size:14px;width:18px;flex-shrink:0}
+.sidebar-bottom{padding:12px;border-top:1px solid var(--border)}
+.user-card{display:flex;align-items:center;gap:9px;padding:8px;border-radius:var(--r-sm)}
+.user-avatar{width:30px;height:30px;border-radius:50%;background:rgba(200,241,53,0.15);color:var(--accent);display:flex;align-items:center;justify-content:center;font-family:var(--head);font-size:11px;font-weight:700;flex-shrink:0}
+.user-name{font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-role{font-size:10px;color:var(--muted);text-transform:capitalize}
+.logout-btn{width:100%;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px;font-family:var(--mono);font-size:11px;cursor:pointer;transition:all 0.15s;margin-top:8px}
+.logout-btn:hover{border-color:var(--red);color:var(--red)}
 
-### 1. Install dependencies
-```bash
-npm install
-```
+.main{margin-left:220px;flex:1;min-height:100vh;position:relative;z-index:1}
+.topbar{position:sticky;top:0;z-index:40;background:rgba(10,10,8,0.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:0 28px;height:52px;display:flex;align-items:center;justify-content:space-between}
+.breadcrumb{font-size:11px;color:var(--muted);letter-spacing:0.04em}
+.breadcrumb span{color:var(--text);font-weight:500}
+.ai-status{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent);padding:5px 12px;border-radius:40px;border:1px solid rgba(200,241,53,0.2);background:rgba(200,241,53,0.05)}
+.ai-status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
-### 2. Add environment variables
-Create a `.env` file:
-```
-ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
-SESSION_SECRET=any-random-string-here
-PORT=3000
-```
+.content{padding:28px}
 
-### 3. Run locally
-```bash
-npm start
-```
+/* ── VIEWS ── */
+.view{display:none}.view.active{display:block}
 
-Open http://localhost:3000
+/* ── SHARED ── */
+.page-title{font-family:var(--head);font-size:28px;font-weight:800;letter-spacing:-0.03em;margin-bottom:4px}
+.page-sub{font-size:12px;color:var(--muted);margin-bottom:24px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px 22px}
+.card-title{font-size:10px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
+.kpi-label{font-size:10px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px}
+.kpi-val{font-family:var(--head);font-size:26px;font-weight:800;letter-spacing:-0.03em;color:var(--accent)}
+.kpi-sub{font-size:10px;color:var(--muted);margin-top:3px}
 
-## Deploy to Railway
+/* AI block */
+.ai-block{background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--r);padding:18px 22px;display:none}
+.ai-block.visible{display:block}
+.ai-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.ai-label{font-size:10px;color:var(--accent);letter-spacing:0.1em;text-transform:uppercase;font-weight:500}
+.spinner{width:12px;height:12px;border:1.5px solid rgba(200,241,53,0.3);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ai-content{font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap}
 
-1. Push this repo to GitHub
-2. Go to railway.app → New Project → Deploy from GitHub
-3. Select this repo
-4. Add environment variables in Railway dashboard:
-   - `ANTHROPIC_API_KEY`
-   - `SESSION_SECRET`
-5. Deploy — Railway gives you a live URL automatically
+/* Command */
+.cmd-wrap{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);overflow:hidden;margin-bottom:16px}
+.cmd-top{padding:10px 16px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.cmd-top-label{font-size:10px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase}
+textarea.cmd-input{width:100%;padding:14px 16px;background:var(--surface);color:var(--text);font-family:var(--mono);font-size:13px;border:none;outline:none;resize:vertical;min-height:90px;line-height:1.6}
+.cmd-footer{padding:10px 12px;background:var(--surface2);border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px}
+.quick-btns{display:flex;gap:6px;flex-wrap:wrap}
+.qb{font-size:10px;padding:5px 10px;border-radius:4px;background:var(--surface);color:var(--muted);border:1px solid var(--border2);cursor:pointer;transition:all 0.12s}
+.qb:hover{background:var(--accent);color:#0A0A08;border-color:var(--accent)}
+.run-btn{background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:9px 20px;border-radius:40px;border:none;cursor:pointer;transition:all 0.15s;flex-shrink:0}
+.run-btn:hover{opacity:0.9}
+.run-btn:disabled{opacity:0.5;cursor:not-allowed}
 
-## Connect your domain (mynildash.com)
+/* Roster */
+.roster-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.athlete-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;cursor:pointer;transition:all 0.15s}
+.athlete-card:hover{border-color:var(--border2);transform:translateY(-2px)}
+.athlete-card.selected{border-color:rgba(200,241,53,0.5)}
+.ac-name{font-family:var(--head);font-size:16px;font-weight:700;margin-bottom:4px;letter-spacing:-0.02em}
+.ac-meta{font-size:11px;color:var(--muted);margin-bottom:12px}
+.ac-stats{display:flex;gap:8px;flex-wrap:wrap}
+.ac-stat{background:var(--surface2);border-radius:4px;padding:4px 8px;font-size:11px}
+.ac-stat span{color:var(--accent);font-weight:500}
 
-1. In Railway: go to your project → Settings → Domains → Add Custom Domain
-2. Type: `mynildash.com`
-3. Railway gives you DNS records to add
-4. Go to Namecheap → Manage mynildash.com → Advanced DNS
-5. Add the records Railway gave you
-6. Wait 10-30 minutes → your site is live at mynildash.com
+/* Table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{text-align:left;padding:9px 14px;font-size:10px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap}
+tbody tr{border-bottom:1px solid var(--border);transition:background 0.12s}
+tbody tr:last-child{border:none}
+tbody tr:hover{background:var(--surface2)}
+tbody td{padding:11px 14px;vertical-align:middle}
+.score-high{color:var(--accent);font-weight:500}
+.score-mid{color:#F1C835;font-weight:500}
+.chip{display:inline-flex;align-items:center;font-size:10px;padding:3px 8px;border-radius:4px;font-weight:500;letter-spacing:0.03em}
+.chip-green{background:rgba(200,241,53,0.12);color:var(--accent)}
+.chip-blue{background:rgba(53,200,241,0.12);color:var(--blue)}
+.chip-red{background:rgba(241,53,53,0.1);color:var(--red)}
+.chip-neutral{background:var(--surface2);color:var(--muted)}
+.action-link{font-size:11px;color:var(--blue);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
 
-## Features
+/* Form */
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form-group-sm{margin-bottom:12px}
+.form-label-sm{display:block;font-size:10px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:5px}
+.input-sm,.select-sm{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-family:var(--mono);font-size:12px;padding:9px 12px;outline:none;transition:border-color 0.15s}
+.input-sm:focus,.select-sm:focus{border-color:var(--accent)}
+.select-sm option{background:var(--surface)}
 
-- Agent and Athlete accounts
-- AI Command Center — ask anything about your client
-- Deal Scan — AI-ranked brand opportunities  
-- Rate Calculator — what to charge with full math
-- Negotiation Intel — word-for-word playbooks
-- Deal Pipeline — track all deals across your roster
+/* Pipeline */
+.pipeline{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.pipe-col-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.pipe-col-name{font-size:10px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)}
+.pipe-count{font-size:10px;background:var(--surface2);padding:2px 7px;border-radius:40px;color:var(--muted)}
+.pipe-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:all 0.15s}
+.pipe-card:hover{border-color:var(--border2)}
+.pipe-brand{font-weight:500;font-size:13px;margin-bottom:2px}
+.pipe-athlete{font-size:10px;color:var(--muted);margin-bottom:8px}
+.pipe-amount{font-size:12px;font-weight:500;color:var(--accent)}
+.pipe-footer{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);z-index:200;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:28px;max-width:480px;width:100%;max-height:85vh;overflow-y:auto}
+.modal-title{font-family:var(--head);font-size:20px;font-weight:800;letter-spacing:-0.03em;margin-bottom:4px}
+.modal-sub{font-size:12px;color:var(--muted);margin-bottom:20px}
+.modal-close{float:right;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;margin-top:-4px}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;right:20px;z-index:999;background:var(--surface);color:var(--text);border:1px solid var(--accent);border-radius:var(--r-sm);padding:12px 18px;font-size:12px;max-width:300px;opacity:0;transform:translateY(6px);transition:all 0.25s;pointer-events:none}
+.toast.show{opacity:1;transform:none}
+
+/* Rate result */
+.rate-result{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-top:16px;display:none}
+.rate-result.visible{display:block}
+.rate-range{font-family:var(--head);font-size:32px;font-weight:800;color:var(--accent);letter-spacing:-0.04em;margin-bottom:4px}
+.rate-breakdown{margin-top:14px;display:grid;gap:6px}
+.rb-row{display:flex;justify-content:space-between;font-size:11px}
+.rb-label{color:var(--muted)}
+.rb-val{font-weight:500}
+
+@media(max-width:768px){
+  .sidebar{width:180px}.main{margin-left:180px}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .pipeline{grid-template-columns:1fr 1fr}
+  .form-row{grid-template-columns:1fr}
+  .content{padding:16px}
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ AUTH SCREEN ═══ -->
+<div id="authScreen">
+  <div class="auth-box">
+    <div class="auth-logo">NILDash</div>
+    <div class="auth-sub">NIL INTELLIGENCE PLATFORM</div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
+      <button class="auth-tab" onclick="switchTab('signup')">Create Account</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="loginForm">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input class="form-input" id="loginEmail" type="email" placeholder="you@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" id="loginPassword" type="password" placeholder="••••••••">
+      </div>
+      <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign In →</button>
+      <div class="auth-error" id="loginError"></div>
+    </div>
+
+    <!-- SIGNUP -->
+    <div id="signupForm" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Full Name</label>
+        <input class="form-input" id="signupName" placeholder="Your name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input class="form-input" id="signupEmail" type="email" placeholder="you@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" id="signupPassword" type="password" placeholder="Min 6 characters">
+      </div>
+      <div class="form-group">
+        <label class="form-label">I am a...</label>
+        <div class="role-selector">
+          <button class="role-btn active" id="roleAgent" onclick="selectRole('agent')">
+            <span class="role-icon">🤝</span>Sports Agent
+          </button>
+          <button class="role-btn" id="roleAthlete" onclick="selectRole('athlete')">
+            <span class="role-icon">🏀</span>Athlete
+          </button>
+        </div>
+      </div>
+      <button class="btn-primary" id="signupBtn" onclick="doSignup()">Create Account →</button>
+      <div class="auth-error" id="signupError"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ APP SCREEN ═══ -->
+<div id="appScreen">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-text">NILDash</div>
+      <div class="logo-sub" id="sidebarRoleLabel">Agent Portal</div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Command</div>
+      <button class="nav-item active" onclick="showView('command',this)">
+        <span class="nav-icon">⚡</span>AI Command
+      </button>
+      <button class="nav-item" onclick="showView('deals',this)">
+        <span class="nav-icon">🎯</span>Deal Scan
+      </button>
+      <button class="nav-item" onclick="showView('rate',this)">
+        <span class="nav-icon">💰</span>Rate Calculator
+      </button>
+      <button class="nav-item" onclick="showView('negotiate',this)">
+        <span class="nav-icon">⚖️</span>Negotiate
+      </button>
+      <button class="nav-item" onclick="showView('team-match',this)">
+        <span class="nav-icon">🤝</span>Team Match
+      </button>
+      <button class="nav-item" onclick="showView('outreach',this)">
+        <span class="nav-icon">📣</span>Outreach
+      </button>
+      <button class="nav-item" onclick="showView('calendar',this)">
+        <span class="nav-icon">📅</span>Calendar
+      </button>
+      <button class="nav-item" onclick="showView('compliance',this)">
+        <span class="nav-icon">⚖️</span>Compliance
+      </button>
+      <button class="nav-item" onclick="showView('pipeline',this)">
+        <span class="nav-icon">📋</span>Pipeline
+      </button>
+      <div class="nav-section-label">Roster</div>
+      <button class="nav-item" onclick="showView('roster',this)">
+        <span class="nav-icon">👥</span>My Roster
+      </button>
+      <button class="nav-item" onclick="showView('add-athlete',this)" id="addAthleteNavBtn">
+        <span class="nav-icon">＋</span>Add Client
+      </button>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="user-card">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <div>
+          <div class="user-name" id="userName">Loading...</div>
+          <div class="user-role" id="userRole">agent</div>
+        </div>
+      </div>
+      <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="main">
+    <div class="topbar">
+      <div class="breadcrumb">NILDash / <span id="breadcrumb">Command Center</span></div>
+      <div class="ai-status" id="aiStatus">AI READY</div>
+    </div>
+
+    <div class="content">
+
+      <!-- SELECT ATHLETE BAR (shown on AI views) -->
+      <div id="athleteBar" style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase">Active client:</span>
+        <select class="select-sm" id="activeAthlete" onchange="onAthleteChange()" style="width:220px">
+          <option value="">Select a client...</option>
+        </select>
+      </div>
+
+      <!-- ── COMMAND ── -->
+      <div id="view-command" class="view active">
+        <div class="page-title">Command Center</div>
+        <div class="page-sub">Ask anything about your client — deals, pricing, leverage, strategy</div>
+
+        <div class="kpi-grid">
+          <div class="kpi"><div class="kpi-label">Pipeline Value</div><div class="kpi-val" id="kpi-pipeline">$0</div><div class="kpi-sub">Active deals</div></div>
+          <div class="kpi"><div class="kpi-label">Active Deals</div><div class="kpi-val" id="kpi-deals">0</div><div class="kpi-sub">In progress</div></div>
+          <div class="kpi"><div class="kpi-label">Clients</div><div class="kpi-val" id="kpi-clients">0</div><div class="kpi-sub">On roster</div></div>
+          <div class="kpi"><div class="kpi-label">AI</div><div class="kpi-val" id="kpi-ai" style="font-size:20px">✅</div><div class="kpi-sub" id="kpi-ai-sub">Connected</div></div>
+        </div>
+
+        <div class="cmd-wrap">
+          <div class="cmd-top">
+            <span class="cmd-top-label">Ask about <span id="cmdClientLabel" style="color:var(--text)">your client</span></span>
+            <span style="font-size:10px;color:var(--muted)">LIVE AI</span>
+          </div>
+          <textarea class="cmd-input" id="commandInput" placeholder="e.g. 'What are the 10 best deals for my client?' or 'What should I charge Nike?' or 'Give me negotiation leverage for today's call'"></textarea>
+          <div class="cmd-footer">
+            <div class="quick-btns">
+              <span class="qb" onclick="setPrompt('What are the 10 best NIL deals for my client right now and what should I charge?')">10 Best Deals</span>
+              <span class="qb" onclick="setPrompt('What should I charge for a Nike reel deal?')">What To Charge</span>
+              <span class="qb" onclick="setPrompt('Give me word-for-word negotiation leverage for a call today')">Get Leverage</span>
+              <span class="qb" onclick="setPrompt('Which deals should I walk away from and why?')">Walk Away Analysis</span>
+            </div>
+            <button class="run-btn" id="runCmdBtn" onclick="runCommand()">Run →</button>
+          </div>
+        </div>
+
+        <div class="ai-block" id="commandOutput">
+          <div class="ai-header"><div class="spinner" id="cmdSpinner"></div><div class="ai-label">NILDash Intelligence</div></div>
+          <div class="ai-content" id="commandText"></div>
+        </div>
+      </div>
+
+      <!-- ── DEALS ── -->
+      <div id="view-deals" class="view">
+        <div class="page-title">Deal Scan</div>
+        <div class="page-sub">AI-ranked brand opportunities for your selected client</div>
+        <div style="margin-bottom:16px">
+          <button class="run-btn" onclick="runDealScan()">⚡ Scan Deals with AI</button>
+        </div>
+        <div class="ai-block" id="dealsAI" style="margin-bottom:16px">
+          <div class="ai-header"><div class="spinner" id="dealsSpinner"></div><div class="ai-label">AI Deal Scan</div></div>
+          <div class="ai-content" id="dealsText">Select a client and click Scan Deals to get AI-ranked recommendations.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Ranked Opportunities</div>
+          <div class="table-wrap">
+            <table><thead><tr><th>#</th><th>Brand</th><th>Campaign</th><th>Category</th><th>Rate Range</th><th>Score</th><th>Timing</th><th>Action</th></tr></thead>
+            <tbody id="dealsTbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px">Run a deal scan to see recommendations</td></tr></tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── RATE ── -->
+      <div id="view-rate" class="view">
+        <div class="page-title">Rate Calculator</div>
+        <div class="page-sub">Calculate exactly what to charge — with the math to back it up</div>
+        <div style="display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start">
+          <div class="card">
+            <div class="card-title">Deliverable</div>
+            <div class="form-group-sm">
+              <label class="form-label-sm">Type</label>
+              <select class="select-sm" id="rateDeliverable">
+                <optgroup label="Social Media">
+                  <option value="ig-reel" selected>IG Reel</option>
+                  <option value="ig-post">Single IG Post</option>
+                  <option value="tiktok">TikTok Video</option>
+                  <option value="stories">Story Set (3-5)</option>
+                  <option value="youtube-long">YouTube (dedicated)</option>
+                  <option value="newsletter">Newsletter / Email Feature</option>
+                  <option value="podcast-host">Podcast Host Read</option>
+                  <option value="twitter-campaign">Twitter/X Campaign</option>
+                  <option value="bundle">Full Social Bundle</option>
+                  <option value="retainer">Monthly Retainer</option>
+                </optgroup>
+                <optgroup label="Appearances &amp; Events">
+                  <option value="appearance-inperson">In-Person Appearance</option>
+                  <option value="appearance-speaking">Speaking / Panel</option>
+                  <option value="appearance-meetgreet">Meet &amp; Greet</option>
+                  <option value="appearance-campus">Campus Appearance</option>
+                </optgroup>
+                <optgroup label="Content &amp; Media">
+                  <option value="media-podcast">Podcast Guest Spot</option>
+                  <option value="media-youtube">YouTube Integration</option>
+                  <option value="media-twitch">Twitch / Livestream</option>
+                  <option value="media-pressday">Press Interview / Media Day</option>
+                </optgroup>
+                <optgroup label="Licensing &amp; Brand">
+                  <option value="license-jersey">Jersey Licensing</option>
+                  <option value="license-merch">Merchandise Collab</option>
+                  <option value="license-codesign">Product Co-Design</option>
+                  <option value="license-autograph">Autograph Signing (Bulk)</option>
+                </optgroup>
+                <optgroup label="Collective / School">
+                  <option value="collective-roster">Collective Roster Deal (Monthly)</option>
+                  <option value="collective-ambassador">School Ambassador</option>
+                  <option value="collective-booster">Booster Event Appearance</option>
+                </optgroup>
+                <optgroup label="Camps &amp; Clinics">
+                  <option value="camp-skills">Skills Camp Appearance</option>
+                  <option value="camp-clinic">Youth Clinic Host</option>
+                  <option value="camp-training">Training Facility Partnership</option>
+                </optgroup>
+              </select>
+            </div>
+            <button class="run-btn" style="width:100%" onclick="calcRate()">Calculate Rate</button>
+            <button class="run-btn" style="width:100%;margin-top:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border)" onclick="getRateScript()">Get Justification Script</button>
+          </div>
+          <div>
+            <div class="rate-result" id="rateResult">
+              <div style="font-size:11px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px">Recommended Rate</div>
+              <div class="rate-range" id="rateRange">—</div>
+              <div style="font-size:11px;color:var(--muted)" id="ratePer">per deliverable</div>
+              <div class="rate-breakdown" id="rateBreakdown"></div>
+            </div>
+            <div class="ai-block" id="rateAI" style="margin-top:16px">
+              <div class="ai-header"><div class="spinner" id="rateSpinner"></div><div class="ai-label">Rate Justification Script</div></div>
+              <div class="ai-content" id="rateText">Calculate a rate above then click "Get Justification Script" for word-for-word language to defend your price on a call.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── NEGOTIATE ── -->
+      <div id="view-negotiate" class="view">
+        <div class="page-title">Negotiation Intel</div>
+        <div class="page-sub">Get a full playbook for any deal — opening line, pushback, walk-away</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;margin-bottom:16px">
+          <div><label class="form-label-sm">Brand / Deal</label><input class="input-sm" id="negBrand" placeholder="e.g. Nike Air Max"></div>
+          <div><label class="form-label-sm">Their offer</label><input class="input-sm" id="negOffer" placeholder="e.g. $6,500"></div>
+          <div><label class="form-label-sm">Your target</label><input class="input-sm" id="negTarget" placeholder="e.g. $11,000"></div>
+          <button class="run-btn" onclick="runNegotiate()">Build Playbook →</button>
+        </div>
+        <div class="ai-block" id="negAI">
+          <div class="ai-header"><div class="spinner" id="negSpinner"></div><div class="ai-label">Negotiation Playbook</div></div>
+          <div class="ai-content" id="negText"></div>
+        </div>
+        <div style="margin-top:16px">
+          <div class="card-title" style="margin-bottom:10px">Quick Counter Scripts — click to copy</div>
+          <div id="counterScripts" style="display:flex;flex-direction:column;gap:8px">
+            <div class="card" style="cursor:pointer;padding:12px 16px;font-size:12px;line-height:1.7" onclick="copyText(this)">"I appreciate the offer. Based on current comps for athletes at this engagement tier, we're at $11,000. That's actually below what we're seeing for comparable athletes right now."</div>
+            <div class="card" style="cursor:pointer;padding:12px 16px;font-size:12px;line-height:1.7" onclick="copyText(this)">"Can you get to $9,500 with a performance kicker? If the campaign clears 2M impressions we'd add $2,000. Aligns your incentives with ours."</div>
+            <div class="card" style="cursor:pointer;padding:12px 16px;font-size:12px;line-height:1.7" onclick="copyText(this)">"At that level we're pricing below our floor. Let's revisit when your Q3 budget opens. I'd hate for scheduling to be the blocker when the fit is this strong."</div>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:8px">Click any script to copy</div>
+        </div>
+      </div>
+
+      <!-- ── PIPELINE ── -->
+      <div id="view-pipeline" class="view">
+        <div class="page-title">Deal Pipeline</div>
+        <div class="page-sub">Every deal, every client, every stage</div>
+        <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="kpi"><div class="kpi-label">Total Pipeline</div><div class="kpi-val" id="pipe-total">$0</div></div>
+          <div class="kpi"><div class="kpi-label">Deals Active</div><div class="kpi-val" id="pipe-count">0</div></div>
+          <div class="kpi"><div class="kpi-label">Closing Soon</div><div class="kpi-val" id="pipe-closing">0</div></div>
+        </div>
+        <div class="pipeline" id="pipelineBoard"></div>
+        <div style="margin-top:20px">
+          <button class="run-btn" onclick="document.getElementById('addDealModal').classList.add('open')">+ Add Deal</button>
+        </div>
+      </div>
+
+      <!-- ── ROSTER ── -->
+      <div id="view-roster" class="view">
+        <div class="page-title">My Roster</div>
+        <div class="page-sub">Your clients — click any card to make them active</div>
+        <div class="roster-grid" id="rosterGrid">
+          <div style="color:var(--muted);padding:40px;text-align:center">No clients yet. Add your first client!</div>
+        </div>
+      </div>
+
+      <!-- ── ADD ATHLETE ── -->
+      <div id="view-add-athlete" class="view">
+        <div class="page-title">Add Client</div>
+        <div class="page-sub">Add a new athlete to your roster</div>
+        <div class="card" style="max-width:540px">
+          <div class="card-title">Client Details</div>
+          <div class="form-group-sm"><label class="form-label-sm">Full Name *</label>
+            <div style="display:flex;gap:8px">
+              <input class="input-sm" id="a_name" placeholder="e.g. Marcus Johnson" style="flex:1">
+              <button class="run-btn" onclick="lookupPlayer()" id="lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">⚡ AI Lookup</button>
+            </div>
+            <div id="lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+          </div>
+
+          <div class="form-row" style="margin-bottom:12px">
+            <div><label class="form-label-sm">Sport *</label>
+              <select class="select-sm" id="a_sport">
+                <option value="basketball">Basketball</option><option value="football">Football</option>
+                <option value="baseball">Baseball</option><option value="soccer">Soccer</option>
+                <option value="swimming">Swimming</option><option value="track">Track & Field</option>
+                <option value="volleyball">Volleyball</option>
+              </select>
+            </div>
+            <div><label class="form-label-sm">Position</label><input class="input-sm" id="a_pos" placeholder="e.g. PG, WR"></div>
+          </div>
+          <div class="form-group-sm"><label class="form-label-sm">School</label><input class="input-sm" id="a_school" placeholder="e.g. Duke University"></div>
+          <div class="form-group-sm"><label class="form-label-sm">School Tier</label>
+            <select class="select-sm" id="a_tier">
+              <optgroup label="Power 4 — D1">
+                <option value="p4-top10">P4 — Elite (Alabama, Ohio State, Duke)</option>
+                <option value="p4-top25">P4 — Top 25 Program</option>
+                <option value="p4-mid">P4 — Mid Tier</option>
+                <option value="p4-lower">P4 — Lower Tier</option>
+              </optgroup>
+              <optgroup label="High Major — D1">
+                <option value="highmajor-top">High Major — Top (Gonzaga, Memphis)</option>
+                <option value="highmajor-mid">High Major — Mid Tier</option>
+              </optgroup>
+              <optgroup label="Mid-Major — D1">
+                <option value="mid-top">Mid-Major — Top Program</option>
+                <option value="mid-mid">Mid-Major — Mid Tier</option>
+                <option value="mid-lower">Mid-Major — Lower Tier</option>
+              </optgroup>
+              <optgroup label="Low Major — D1">
+                <option value="lowmajor-top">Low Major — Top (SoCon, Big South)</option>
+                <option value="lowmajor-lower">Low Major — Lower Tier</option>
+              </optgroup>
+              <optgroup label="Division 2">
+                <option value="d2-elite">D2 — Elite Program</option>
+                <option value="d2-top">D2 — Top Program</option>
+                <option value="d2-mid">D2 — Mid Tier</option>
+                <option value="d2-lower">D2 — Lower Tier</option>
+              </optgroup>
+              <optgroup label="Division 3">
+                <option value="d3-top">D3 — Top Program</option>
+                <option value="d3-mid">D3 — Mid Tier</option>
+                <option value="d3-lower">D3 — Lower Tier</option>
+              </optgroup>
+              <optgroup label="NAIA / JUCO">
+                <option value="naia-top">NAIA — Top Program</option>
+                <option value="naia-mid">NAIA — Mid Tier</option>
+                <option value="juco-d1">JUCO — Division 1</option>
+                <option value="juco-d2">JUCO — Division 2</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <div><label class="form-label-sm">Instagram Followers</label><input class="input-sm" id="a_ig" type="number" placeholder="45000"></div>
+            <div><label class="form-label-sm">TikTok Followers</label><input class="input-sm" id="a_tt" type="number" placeholder="120000"></div>
+          </div>
+          <div class="form-group-sm"><label class="form-label-sm">Engagement Rate (%)</label><input class="input-sm" id="a_eng" type="number" step="0.1" placeholder="6.2"></div>
+          <div class="form-group-sm"><label class="form-label-sm">Notes</label><input class="input-sm" id="a_notes" placeholder="Draft year, brand restrictions, etc."></div>
+          <div class="form-group-sm"><label class="form-label-sm">Year</label>
+            <select class="select-sm" id="a_year">
+              <option value="">Unknown</option>
+              <option value="Freshman">Freshman</option>
+              <option value="Sophomore">Sophomore</option>
+              <option value="Junior">Junior</option>
+              <option value="Senior">Senior</option>
+              <option value="Grad Transfer">Grad Transfer</option>
+            </select>
+          </div>
+          <div class="form-group-sm"><label class="form-label-sm">Key Stats</label>
+            <input class="input-sm" id="a_stats" placeholder="Auto-filled by AI Lookup, or enter manually"></div>
+          <div class="form-group-sm"><label class="form-label-sm">Portal Status</label>
+            <select class="select-sm" id="a_transfer_reason">
+              <option value="not in portal - freshman">Not in portal — Incoming Freshman</option>
+              <option value="not in portal - current player">Not in portal — Current Player</option>
+              <option value="in portal - seeking more playing time">In Portal — Seeking more playing time</option>
+              <option value="in portal - seeking higher NIL value">In Portal — Seeking higher NIL value</option>
+              <option value="in portal - seeking better pro exposure">In Portal — Better pro exposure</option>
+              <option value="in portal - coaching staff change">In Portal — Coaching staff change</option>
+              <option value="in portal - personal reasons">In Portal — Personal reasons</option>
+              <option value="in portal - seeking stronger program">In Portal — Seeking stronger program</option>
+              <option value="in portal - seeking lower competition">In Portal — Seeking lower competition</option>
+            </select>
+          </div>
+          <button class="run-btn" style="width:100%;margin-top:8px" onclick="addAthlete()">Save Client →</button>
+          <div id="addAthleteError" style="color:var(--red);font-size:12px;margin-top:8px;text-align:center"></div>
+        </div>
+      </div>
+
+    </div>
+      <!-- OUTREACH -->
+      <div id="view-outreach" class="view">
+        <div class="page-title">Brand Outreach</div>
+        <div class="page-sub">AI writes your cold outreach — email, Instagram DM, and LinkedIn — then tracks every contact</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+          <div><label class="form-label-sm">Brand Name *</label><input class="input-sm" id="or-brand" placeholder="e.g. Nike, Gatorade, Cash App"></div>
+          <div><label class="form-label-sm">Brand Category</label>
+            <select class="select-sm" id="or-category">
+              <option value="footwear">Footwear</option><option value="apparel">Apparel</option>
+              <option value="beverage">Beverage / Nutrition</option><option value="tech">Tech / Gaming</option>
+              <option value="finance">Finance / Banking</option><option value="food">Food / Restaurant</option>
+              <option value="automotive">Automotive</option><option value="health">Health / Wellness</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div><label class="form-label-sm">Contact Name (optional)</label><input class="input-sm" id="or-contact" placeholder="e.g. Sarah Johnson, Brand Partnerships"></div>
+          <div><label class="form-label-sm">Deal Goal ($)</label><input class="input-sm" id="or-goal" type="number" placeholder="e.g. 15000"></div>
+        </div>
+        <button class="run-btn" id="or-run-btn" onclick="runOutreach()" style="margin-bottom:24px">Write Outreach</button>
+        <div id="or-results" style="display:none">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <div style="font-size:12px;font-weight:700">Email</div>
+                <button onclick="copyText('or-email-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+              </div>
+              <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Subject:</div>
+              <div id="or-email-subject" style="font-size:11px;font-weight:600;margin-bottom:8px"></div>
+              <div id="or-email-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <div style="font-size:12px;font-weight:700">Instagram DM</div>
+                <button onclick="copyText('or-ig-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+              </div>
+              <div id="or-ig-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <div style="font-size:12px;font-weight:700">LinkedIn</div>
+                <button onclick="copyText('or-li-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+              </div>
+              <div id="or-li-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+            </div>
+          </div>
+          <button onclick="saveOutreach()" class="run-btn" style="margin-bottom:24px">Save to Tracker</button>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:12px">Outreach Tracker</div>
+          <div id="or-tracker" style="color:var(--muted);font-size:12px">No outreach logged yet.</div>
+        </div>
+      </div>
+
+      <!-- CALENDAR -->
+      <div id="view-calendar" class="view">
+        <div class="page-title">Deal Calendar</div>
+        <div class="page-sub">All deadlines, follow-ups, and campaign dates — color-coded by close probability</div>
+
+        <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:#4ade80;border-radius:50%;display:inline-block"></span>Closing</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:var(--accent);border-radius:50%;display:inline-block"></span>Negotiating</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:#60a5fa;border-radius:50%;display:inline-block"></span>Outreach Sent</div>
+          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:var(--muted);border-radius:50%;display:inline-block"></span>Prospecting</div>
+          <button class="run-btn" onclick="loadCalendar()" style="margin-left:auto;padding:7px 16px;font-size:11px">Refresh</button>
+        </div>
+
+        <div id="cal-upcoming" style="margin-bottom:28px">
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">Upcoming Deadlines</div>
+          <div id="cal-deadlines" style="color:var(--muted);font-size:12px">Load your deals to see deadlines.</div>
+        </div>
+
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">All Active Deals</div>
+          <div id="cal-deals" style="color:var(--muted);font-size:12px">No deals yet — add deals in Pipeline.</div>
+        </div>
+      </div>
+
+      <!-- COMPLIANCE -->
+      <div id="view-compliance" class="view">
+        <div class="page-title">NIL Compliance Checker</div>
+        <div class="page-sub">Check any deal against current state NIL laws — flags issues, generates required disclosure language, and saves to deal notes</div>
+
+        <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:20px;font-size:11px;color:#fbbf24">
+          ⚠️ This tool uses AI + live web search to find current NIL rules. Always verify with a licensed attorney before executing deals. NIL laws change frequently.
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div>
+            <label class="form-label-sm">Athlete State *</label>
+            <select class="select-sm" id="comp-state">
+              <option value="">Select state...</option>
+              <option>Alabama</option><option>Alaska</option><option>Arizona</option><option>Arkansas</option>
+              <option>California</option><option>Colorado</option><option>Connecticut</option><option>Delaware</option>
+              <option>Florida</option><option>Georgia</option><option>Hawaii</option><option>Idaho</option>
+              <option>Illinois</option><option>Indiana</option><option>Iowa</option><option>Kansas</option>
+              <option>Kentucky</option><option>Louisiana</option><option>Maine</option><option>Maryland</option>
+              <option>Massachusetts</option><option>Michigan</option><option>Minnesota</option><option>Mississippi</option>
+              <option>Missouri</option><option>Montana</option><option>Nebraska</option><option>Nevada</option>
+              <option>New Hampshire</option><option>New Jersey</option><option>New Mexico</option><option>New York</option>
+              <option>North Carolina</option><option>North Dakota</option><option>Ohio</option><option>Oklahoma</option>
+              <option>Oregon</option><option>Pennsylvania</option><option>Rhode Island</option><option>South Carolina</option>
+              <option>South Dakota</option><option>Tennessee</option><option>Texas</option><option>Utah</option>
+              <option>Vermont</option><option>Virginia</option><option>Washington</option><option>West Virginia</option>
+              <option>Wisconsin</option><option>Wyoming</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label-sm">Deal Type *</label>
+            <select class="select-sm" id="comp-deal-type">
+              <option value="social media endorsement">Social Media Endorsement</option>
+              <option value="apparel deal">Apparel Deal</option>
+              <option value="beverage/alcohol sponsorship">Beverage / Alcohol Sponsorship</option>
+              <option value="sports betting/gambling">Sports Betting / Gambling</option>
+              <option value="pharmaceutical/supplement">Pharmaceutical / Supplement</option>
+              <option value="financial services">Financial Services</option>
+              <option value="autograph signing">Autograph Signing</option>
+              <option value="camp/clinic appearance">Camp / Clinic Appearance</option>
+              <option value="cryptocurrency">Cryptocurrency</option>
+              <option value="general brand partnership">General Brand Partnership</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label-sm">Brand Name</label>
+            <input class="input-sm" id="comp-brand" placeholder="e.g. Nike, DraftKings, Red Bull">
+          </div>
+          <div>
+            <label class="form-label-sm">Deal Value ($)</label>
+            <input class="input-sm" id="comp-value" type="number" placeholder="e.g. 15000">
+          </div>
+        </div>
+        <div style="margin-bottom:16px">
+          <label class="form-label-sm">Deal Description</label>
+          <input class="input-sm" id="comp-description" placeholder="e.g. 3 Instagram posts promoting energy drink over 60 days">
+        </div>
+
+        <button class="run-btn" id="comp-btn" onclick="runCompliance()" style="margin-bottom:24px">⚖️ Check Compliance →</button>
+
+        <div id="comp-results" style="display:none">
+          <!-- Status Banner -->
+          <div id="comp-status-banner" style="border-radius:var(--r-sm);padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700"></div>
+
+          <!-- Flags -->
+          <div id="comp-flags-section" style="margin-bottom:20px">
+            <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">Issues Found</div>
+            <div id="comp-flags"></div>
+          </div>
+
+          <!-- Requirements -->
+          <div id="comp-reqs-section" style="margin-bottom:20px">
+            <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">Requirements to Proceed</div>
+            <div id="comp-reqs"></div>
+          </div>
+
+          <!-- Disclosure Language -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <div style="font-size:12px;font-weight:700;color:var(--text)">📋 Required Disclosure Language</div>
+              <button onclick="copyText('comp-disclosure')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+            </div>
+            <div id="comp-disclosure" style="font-size:11px;color:var(--text);line-height:1.7;white-space:pre-wrap"></div>
+          </div>
+
+          <!-- Save to notes -->
+          <button onclick="saveComplianceToNotes()" class="run-btn" style="margin-bottom:8px">💾 Save to Deal Notes →</button>
+          <div id="comp-save-status" style="font-size:11px;color:var(--muted);margin-bottom:24px"></div>
+
+          <!-- Source note -->
+          <div id="comp-sources" style="font-size:10px;color:var(--muted);line-height:1.6"></div>
+        </div>
+      </div>
+
+<!-- ── TEAM MATCH ── -->
+      <div id="view-team-match" class="view">
+        <div class="page-title">Team Match</div>
+        <div class="page-sub">Find the best college programs for your client — and what they should be making</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px">
+          <div><label class="form-label-sm">Conference</label>
+            <select class="select-sm" id="tm-conf">
+              <option value="any">Any conference</option>
+              <option value="ACC">ACC</option><option value="SEC">SEC</option>
+              <option value="Big 12">Big 12</option><option value="Big Ten">Big Ten</option>
+            </select>
+          </div>
+          <div><label class="form-label-sm">Min NIL / year</label>
+            <select class="select-sm" id="tm-minnil">
+              <option value="0">Any amount</option>
+              <option value="100000">$100K+</option>
+              <option value="250000" selected>$250K+</option>
+              <option value="500000">$500K+</option>
+              <option value="1000000">$1M+</option>
+            </select>
+          </div>
+          <div><label class="form-label-sm">Sort by</label>
+            <select class="select-sm" id="tm-sort">
+              <option value="fit">Fit score</option>
+              <option value="nil">NIL value</option>
+              <option value="exposure">Pro exposure</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:flex-end">
+            <button class="run-btn" style="width:100%" id="tm-run-btn" onclick="runTeamMatch()">Scan Teams →</button>
+          </div>
+        </div>
+        <div id="tm-summary" style="display:none"></div>
+        <div id="tm-results"></div>
+        <div class="ai-block" id="tm-playbook-block">
+          <div class="ai-header">
+            <div class="spinner" id="tm-spinner"></div>
+            <div class="ai-label" id="tm-playbook-label">Negotiation Playbook</div>
+          </div>
+          <div class="ai-content" id="tm-playbook-text"></div>
+        </div>
+      </div>
+
+  </main>
+</div>
+
+
+      <!-- ADD DEAL MODAL -->
+<div class="modal-overlay" id="addDealModal">
+  <div class="modal">
+    <button class="modal-close" onclick="document.getElementById('addDealModal').classList.remove('open')">×</button>
+    <div class="modal-title">Add Deal</div>
+    <div class="modal-sub">Track a new deal in your pipeline</div>
+    <div class="form-group-sm"><label class="form-label-sm">Brand</label><input class="input-sm" id="d_brand" placeholder="e.g. Nike"></div>
+    <div class="form-group-sm"><label class="form-label-sm">Campaign</label><input class="input-sm" id="d_campaign" placeholder="e.g. Air Max 2026"></div>
+    <div class="form-group-sm"><label class="form-label-sm">Deal Value ($)</label><input class="input-sm" id="d_value" type="number" placeholder="10000"></div>
+    <div class="form-group-sm"><label class="form-label-sm">Stage</label>
+      <select class="select-sm" id="d_stage">
+        <option>Prospecting</option><option>Outreach Sent</option>
+        <option>Negotiating</option><option>Closing</option>
+      </select>
+    </div>
+    <button class="run-btn" style="width:100%;margin-top:12px" onclick="addDeal()">Save Deal →</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API_BASE = window.location.origin;
+let currentUser = null;
+let athletes = [];
+let selectedAthleteId = null;
+let selectedRole = 'agent';
+
+// ── AUTH ──────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach((t,i) => t.classList.toggle('active', (i===0&&tab==='login')||(i===1&&tab==='signup')));
+  document.getElementById('loginForm').style.display  = tab==='login'  ? 'block' : 'none';
+  document.getElementById('signupForm').style.display = tab==='signup' ? 'block' : 'none';
+}
+function selectRole(role) {
+  selectedRole = role;
+  document.getElementById('roleAgent').classList.toggle('active', role==='agent');
+  document.getElementById('roleAthlete').classList.toggle('active', role==='athlete');
+}
+
+async function doLogin() {
+  const btn = document.getElementById('loginBtn');
+  const err = document.getElementById('loginError');
+  err.textContent = '';
+  btn.disabled = true; btn.textContent = 'Signing in...';
+  try {
+    const r = await fetch(`${API_BASE}/api/auth/login`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email: document.getElementById('loginEmail').value, password: document.getElementById('loginPassword').value }),
+    });
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error; return; }
+    currentUser = data;
+    bootApp();
+  } catch(e) { err.textContent = 'Connection error. Is the server running?'; }
+  finally { btn.disabled = false; btn.textContent = 'Sign In →'; }
+}
+
+async function doSignup() {
+  const btn = document.getElementById('signupBtn');
+  const err = document.getElementById('signupError');
+  err.textContent = '';
+  btn.disabled = true; btn.textContent = 'Creating account...';
+  try {
+    const r = await fetch(`${API_BASE}/api/auth/signup`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name: document.getElementById('signupName').value,
+        email: document.getElementById('signupEmail').value,
+        password: document.getElementById('signupPassword').value,
+        role: selectedRole,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error; return; }
+    currentUser = data;
+    bootApp();
+  } catch(e) { err.textContent = 'Connection error.'; }
+  finally { btn.disabled = false; btn.textContent = 'Create Account →'; }
+}
+
+async function doLogout() {
+  await fetch(`${API_BASE}/api/auth/logout`, { method:'POST' });
+  currentUser = null; athletes = []; selectedAthleteId = null;
+  document.getElementById('authScreen').classList.remove('hidden');
+  document.getElementById('appScreen').classList.remove('visible');
+}
+
+// ── BOOT ─────────────────────────────────────────────────────
+async function bootApp() {
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('appScreen').classList.add('visible');
+  document.getElementById('userName').textContent = currentUser.name;
+  document.getElementById('userRole').textContent = currentUser.role;
+  document.getElementById('userAvatar').textContent = currentUser.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  document.getElementById('sidebarRoleLabel').textContent = currentUser.role === 'agent' ? 'Agent Portal' : 'Athlete Portal';
+
+  // Hide "Add Client" for athletes
+  if (currentUser.role === 'athlete') {
+    document.getElementById('addAthleteNavBtn').style.display = 'none';
+  }
+
+  await loadAthletes();
+  loadKPIs();
+
+  // Check AI status
+  const health = await fetch(`${API_BASE}/api/health`).then(r=>r.json()).catch(()=>({aiReady:false}));
+  const aiEl = document.getElementById('aiStatus');
+  if (!health.aiReady) { aiEl.textContent = '⚠️ AI KEY MISSING'; aiEl.style.color = 'var(--red)'; aiEl.style.borderColor = 'rgba(241,53,53,0.3)'; }
+  document.getElementById('kpi-ai').textContent = health.aiReady ? '✅' : '⚠️';
+  document.getElementById('kpi-ai-sub').textContent = health.aiReady ? 'Connected' : 'Key missing';
+}
+
+// ── SESSION CHECK ─────────────────────────────────────────────
+async function checkSession() {
+  try {
+    const r = await fetch(`${API_BASE}/api/auth/me`);
+    if (r.ok) { currentUser = await r.json(); bootApp(); }
+  } catch {}
+}
+
+// ── ATHLETES ─────────────────────────────────────────────────
+async function loadAthletes() {
+  try {
+    const r = await fetch(`${API_BASE}/api/athletes`);
+    athletes = await r.json();
+    renderRoster();
+    populateAthleteSelect();
+    document.getElementById('kpi-clients').textContent = athletes.length;
+    if (athletes.length > 0 && !selectedAthleteId) {
+      selectedAthleteId = athletes[0].id;
+      document.getElementById('activeAthlete').value = selectedAthleteId;
+      onAthleteChange();
+    }
+  } catch(e) { console.error(e); }
+}
+
+function populateAthleteSelect() {
+  const sel = document.getElementById('activeAthlete');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Select a client...</option>';
+  athletes.forEach(a => {
+    const opt = document.createElement('option');
+    opt.value = a.id; opt.textContent = a.name;
+    sel.appendChild(opt);
+  });
+  if (cur) sel.value = cur;
+}
+
+function clearAllResults() {
+  // Command center
+  const cmdOut = document.getElementById('cmdOutput');
+  if (cmdOut) cmdOut.innerHTML = '';
+  const cmdBox = document.querySelector('.cmd-output');
+  if (cmdBox) cmdBox.classList.remove('visible');
+
+  // Deal scan
+  const dealAI = document.getElementById('dealAI');
+  if (dealAI) { dealAI.classList.remove('visible'); dealAI.innerHTML = ''; }
+  const dealTable = document.getElementById('dealScanTable');
+  if (dealTable) dealTable.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">Run a deal scan to see recommendations</td></tr>';
+
+  // Rate calculator
+  const rateAI = document.getElementById('rateAI');
+  if (rateAI) rateAI.classList.remove('visible');
+
+  // Negotiate
+  const negAI = document.getElementById('negAI');
+  if (negAI) { negAI.classList.remove('visible'); }
+  const negText = document.getElementById('negText');
+  if (negText) negText.textContent = '';
+  const negBrand = document.getElementById('negBrand');
+  if (negBrand) negBrand.value = '';
+  const negOffer = document.getElementById('negOffer');
+  if (negOffer) negOffer.value = '';
+  const negTarget = document.getElementById('negTarget');
+  if (negTarget) negTarget.value = '';
+
+  // Team match
+  const tmResults = document.getElementById('tm-results');
+  if (tmResults) tmResults.innerHTML = '';
+
+  // Outreach
+  renderOutreachTracker();
+  const orResults = document.getElementById('or-results');
+  if (orResults) orResults.style.display = 'none';
+  const orBrand = document.getElementById('or-brand');
+  if (orBrand) orBrand.value = '';
+  const orContact = document.getElementById('or-contact');
+  if (orContact) orContact.value = '';
+  const orGoal = document.getElementById('or-goal');
+  if (orGoal) orGoal.value = '';
+
+  // Compliance
+  const compResults = document.getElementById('comp-results');
+  if (compResults) compResults.style.display = 'none';
+  lastComplianceResult = null;
+
+  // Quick counter scripts in negotiate
+  const qcs = document.getElementById('quickCounters');
+  if (qcs) qcs.innerHTML = '';
+}
+
+function onAthleteChange() {
+  selectedAthleteId = document.getElementById('activeAthlete').value;
+  const ath = athletes.find(a => a.id === selectedAthleteId);
+  if (ath) {
+    document.getElementById('cmdClientLabel').textContent = ath.name;
+    loadKPIs();
+    clearAllResults();
+  }
+}
+
+function renderRoster() {
+  const grid = document.getElementById('rosterGrid');
+  if (!athletes.length) {
+    grid.innerHTML = '<div style="color:var(--muted);padding:40px;text-align:center">No clients yet. Use "Add Client" to add your first athlete.</div>';
+    return;
+  }
+  grid.innerHTML = athletes.map(a => {
+    const reach = (a.instagram + a.tiktok).toLocaleString();
+    return `<div class="athlete-card ${a.id===selectedAthleteId?'selected':''}" onclick="selectAthlete('${a.id}')">
+      <div class="ac-name">${a.name}</div>
+      <div class="ac-meta">${a.sport} · ${a.position || ''} · ${a.school || 'School not set'}</div>
+      <div class="ac-meta" style="font-size:10px;margin-top:2px">${a.year || ''} ${a.stats ? '· ' + a.stats : ''}</div>
+      <div class="ac-stats">
+        <div class="ac-stat"><span>${reach}</span> reach</div>
+        <div class="ac-stat"><span>${a.engagement}%</span> eng</div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button onclick="event.stopPropagation();editAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;padding:5px;cursor:pointer">✏️ Edit</button>
+        <button onclick="event.stopPropagation();deleteAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--red);font-size:11px;padding:5px;cursor:pointer">🗑 Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function selectAthlete(id) {
+  selectedAthleteId = id;
+  document.getElementById('activeAthlete').value = id;
+  const ath = athletes.find(a => a.id === id);
+  if (ath) document.getElementById('cmdClientLabel').textContent = ath.name;
+  renderRoster();
+  onAthleteChange();
+  showToast(ath.name + ' selected as active client');
+}
+
+async function deleteAthlete(id) {
+  if (!confirm('Delete this client? This cannot be undone.')) return;
+  await fetch(`${API_BASE}/api/athletes/${id}`, { method: 'DELETE' });
+  athletes = athletes.filter(a => a.id !== id);
+  if (selectedAthleteId === id) { selectedAthleteId = null; }
+  renderRoster(); populateAthleteSelect();
+  showToast('Client deleted');
+}
+
+function editAthlete(id) {
+  const a = athletes.find(x => x.id === id);
+  if (!a) return;
+  // Switch to Add Client view and pre-fill
+  showView('add-athlete', document.getElementById('addAthleteNavBtn'));
+  document.getElementById('a_name').value = a.name || '';
+  document.getElementById('a_sport').value = a.sport || 'Basketball';
+  document.getElementById('a_pos').value = a.position || '';
+  document.getElementById('a_school').value = a.school || '';
+  document.getElementById('a_tier').value = a.schoolTier || 'p4-mid';
+  document.getElementById('a_ig').value = a.instagram || '';
+  document.getElementById('a_tt').value = a.tiktok || '';
+  document.getElementById('a_eng').value = a.engagement || '';
+  document.getElementById('a_notes').value = a.notes || '';
+  const yearEl = document.getElementById('a_year');
+  if (yearEl && a.year) { for (let o of yearEl.options) { if (o.value === a.year) { yearEl.value = a.year; break; } } }
+  const statsEl = document.getElementById('a_stats');
+  if (statsEl) statsEl.value = a.stats || '';
+  const trEl = document.getElementById('a_transfer_reason');
+  if (trEl && a.transferReason) trEl.value = a.transferReason;
+  // Change save button to update mode
+  const btn = document.querySelector('#view-add-athlete .run-btn:last-of-type') || document.querySelector('[onclick="addAthlete()"]');
+  if (btn) { btn.textContent = 'Update Client →'; btn.setAttribute('onclick', `updateAthlete('${id}')`); }
+  document.getElementById('addAthleteError').textContent = '';
+  showToast('Editing ' + a.name + ' — make changes and click Update');
+}
+
+async function updateAthlete(id) {
+  const name = document.getElementById('a_name').value.trim();
+  if (!name) return;
+  const data = {
+    name,
+    sport: document.getElementById('a_sport').value,
+    position: document.getElementById('a_pos').value,
+    school: document.getElementById('a_school').value,
+    schoolTier: document.getElementById('a_tier').value,
+    instagram: parseInt(document.getElementById('a_ig').value) || 0,
+    tiktok: parseInt(document.getElementById('a_tt').value) || 0,
+    engagement: parseFloat(document.getElementById('a_eng').value) || 3.0,
+    notes: document.getElementById('a_notes').value,
+    year: document.getElementById('a_year') ? document.getElementById('a_year').value : '',
+    stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
+    transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
+  };
+  const r = await fetch(`${API_BASE}/api/athletes/${id}`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+  });
+  const updated = await r.json();
+  athletes = athletes.map(a => a.id === id ? updated : a);
+  renderRoster(); populateAthleteSelect();
+  // Reset save button
+  const btn = document.querySelector('[onclick*="updateAthlete"]');
+  if (btn) { btn.textContent = 'Save Client →'; btn.setAttribute('onclick', 'addAthlete()'); }
+  showView('roster', document.querySelectorAll('.nav-item')[5]);
+  showToast(name + ' updated!');
+}
+
+async function addAthlete() {
+  const name = document.getElementById('a_name').value.trim();
+  const err  = document.getElementById('addAthleteError');
+  if (!name) { err.textContent = 'Name is required'; return; }
+  err.textContent = '';
+  try {
+    const r = await fetch(`${API_BASE}/api/athletes`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name, sport: document.getElementById('a_sport').value,
+        position: document.getElementById('a_pos').value,
+        school: document.getElementById('a_school').value,
+        schoolTier: document.getElementById('a_tier').value,
+        instagram: document.getElementById('a_ig').value,
+        tiktok: document.getElementById('a_tt').value,
+        engagement: document.getElementById('a_eng').value,
+        notes: document.getElementById('a_notes').value,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error; return; }
+    athletes.push(data);
+    renderRoster(); populateAthleteSelect();
+    selectAthlete(data.id);
+    document.getElementById('kpi-clients').textContent = athletes.length;
+    showToast('✅ ' + data.name + ' added to roster!');
+    ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes'].forEach(id => document.getElementById(id).value = '');
+    showView('roster', document.querySelectorAll('.nav-item')[5]);
+  } catch(e) { err.textContent = 'Error: ' + e.message; }
+}
+
+// ── KPIS ─────────────────────────────────────────────────────
+async function loadKPIs() {
+  if (!selectedAthleteId) return;
+  try {
+    const deals = await fetch(`${API_BASE}/api/athletes/${selectedAthleteId}/deals`).then(r=>r.json());
+    const total = deals.reduce((s,d) => s + (d.value||0), 0);
+    document.getElementById('kpi-pipeline').textContent = '$' + (total/1000).toFixed(0) + 'K';
+    document.getElementById('kpi-deals').textContent = deals.filter(d=>d.stage!=='Closed').length;
+  } catch {}
+}
+
+// ── VIEWS ────────────────────────────────────────────────────
+function showView(id, btn) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('view-' + id).classList.add('active');
+  if (btn) btn.classList.add('active');
+  const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', roster:'My Roster', 'add-athlete':'Add Client' };
+  document.getElementById('breadcrumb').textContent = labels[id] || id;
+  const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
+  document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
+  if (id === 'pipeline') loadPipeline();
+  if (id === 'calendar') loadCalendar();
+  if (id === 'roster') renderRoster();
+}
+
+// ── AI: COMMAND ──────────────────────────────────────────────
+function setPrompt(text) { document.getElementById('commandInput').value = text; document.getElementById('commandInput').focus(); }
+
+async function runCommand() {
+  const msg = document.getElementById('commandInput').value.trim();
+  if (!msg) return;
+  const btn = document.getElementById('runCmdBtn');
+  btn.disabled = true; btn.textContent = 'Thinking...';
+  const out = document.getElementById('commandOutput');
+  const txt = document.getElementById('commandText');
+  out.classList.add('visible');
+  txt.textContent = 'NILDash is thinking...';
+  document.getElementById('cmdSpinner').style.display = 'block';
+  try {
+    const r = await fetch(`${API_BASE}/api/ai/ask`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ athleteId: selectedAthleteId, message: msg }),
+    });
+    const data = await r.json();
+    if (data.error) { txt.textContent = '\u274c ' + data.error; }
+    else { txt.textContent = data.response || 'No response received.'; }
+  } catch(e) { txt.textContent = '\u274c ' + e.message; }
+  document.getElementById('cmdSpinner').style.display = 'none';
+  btn.disabled = false; btn.textContent = 'Run \u2192';
+}
+
+// ── AI: DEALS ────────────────────────────────────────────────
+async function runDealScan() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const box = document.getElementById('dealsAI');
+  const txt = document.getElementById('dealsText');
+  box.classList.add('visible'); txt.textContent = 'Scanning...';
+  document.getElementById('dealsSpinner').style.display = 'block';
+  try {
+    const {recommendations, error} = await fetch(`${API_BASE}/api/ai/deals`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ athleteId: selectedAthleteId }),
+    }).then(r=>r.json());
+    if(error) throw new Error(error);
+    renderDealsTable(recommendations);
+    txt.textContent = `Found ${recommendations.length} ranked opportunities. Top pick: ${recommendations[0]?.brand}.`;
+  } catch(e) { txt.textContent = '❌ ' + e.message; }
+  document.getElementById('dealsSpinner').style.display = 'none';
+}
+
+function renderDealsTable(recs) {
+  if (!recs || !recs.length) return;
+  const tbody = document.getElementById('dealsTbody');
+  tbody.innerHTML = recs.map((d,i) => {
+    const score = d.fitScore || 80;
+    const cls = score >= 85 ? 'score-high' : 'score-mid';
+    const rate = d.suggestedRate ? `$${(d.suggestedRate.low||0).toLocaleString()}–$${(d.suggestedRate.high||0).toLocaleString()}` : '—';
+    return `<tr>
+      <td style="font-size:11px;color:var(--muted)">${d.rank||i+1}</td>
+      <td style="font-weight:500">${d.brand}</td>
+      <td style="font-size:11px;color:var(--muted)">${d.campaign}</td>
+      <td><span class="chip chip-neutral">${d.category||'—'}</span></td>
+      <td style="color:var(--accent);font-weight:500">${rate}</td>
+      <td class="${cls}">${score}</td>
+      <td style="font-size:11px;color:var(--muted)">${d.timingNote||'—'}</td>
+      <td><span class="action-link" onclick="prefillNeg('${d.brand}','${rate}')">Negotiate →</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function prefillNeg(brand, rate) {
+  document.getElementById('negBrand').value = brand;
+  if (rate && rate.includes('–')) document.getElementById('negTarget').value = rate.split('–')[1].trim();
+  showView('negotiate', document.querySelectorAll('.nav-item')[3]);
+}
+
+// ── AI: RATE ─────────────────────────────────────────────────
+async function calcRate() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const type = document.getElementById('rateDeliverable').value;
+  try {
+    const rate = await fetch(`${API_BASE}/api/ai/rate`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ athleteId: selectedAthleteId, deliverableType: type }),
+    }).then(r=>r.json());
+    if (rate.error) { showToast('Error: ' + rate.error); return; }
+    const result = document.getElementById('rateResult');
+    result.classList.add('visible');
+    document.getElementById('rateRange').textContent = '$' + (rate.low||0).toLocaleString() + ' – $' + (rate.high||0).toLocaleString();
+    document.getElementById('ratePer').textContent = 'per ' + type.replace('-',' ');
+    const b = rate.breakdown || {};
+    const liveTag = rate.liveData ? '<div class="rb-row" style="color:var(--accent);font-size:10px;margin-bottom:4px">Live market data used</div>' : '';
+    const contextRow = rate.marketContext ? '<div class="rb-row" style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:4px">' + rate.marketContext + '</div>' : '';
+    document.getElementById('rateBreakdown').innerHTML = liveTag +
+      (b.reach ? '<div class="rb-row"><span class="rb-label">Effective reach</span><span class="rb-val">' + b.reach.toLocaleString() + '</span></div>' : '') +
+      (b.sportMult ? '<div class="rb-row"><span class="rb-label">Sport multiplier</span><span class="rb-val">' + b.sportMult + '×</span></div>' : '') +
+      (b.schoolMult ? '<div class="rb-row"><span class="rb-label">School multiplier</span><span class="rb-val">' + b.schoolMult + '×</span></div>' : '') +
+      (b.engMult ? '<div class="rb-row"><span class="rb-label">Engagement multiplier</span><span class="rb-val">' + b.engMult + '×</span></div>' : '') +
+      (b.cpm ? '<div class="rb-row"><span class="rb-label">Implied CPM</span><span class="rb-val">$' + b.cpm + '</span></div>' : '') +
+      contextRow;
+    document.getElementById('rateAI').classList.add('visible');
+  } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function getRateScript() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const type = document.getElementById('rateDeliverable').value;
+  const rate = await fetch(`${API_BASE}/api/ai/rate`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ athleteId: selectedAthleteId, deliverableType: type }),
+  }).then(r=>r.json()).catch(()=>({mid:10000}));
+
+  const txt = document.getElementById('rateText');
+  const spinner = document.getElementById('rateSpinner');
+  document.getElementById('rateAI').classList.add('visible');
+  spinner.style.display = 'block'; txt.textContent = '';
+  try {
+    const ath = athletes.find(a=>a.id===selectedAthleteId);
+    const msg = `Write a 5-sentence script the agent reads aloud to justify $${rate.mid||10000} for a ${type} deal with ${ath?.name||'this athlete'}. Include engagement rate vs industry average, school premium, CPM comparison to paid digital ads, and close with a question. Use quotation marks. Be confident and factual.`;
+    const r2 = await fetch(`${API_BASE}/api/ai/ask`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ athleteId: selectedAthleteId, message: msg }),
+    });
+    const data = await r2.json();
+    if (data.error) { txt.textContent = '❌ ' + data.error; }
+    else { txt.textContent = data.response || 'No response.'; }
+  } catch(e) { txt.textContent = '❌ ' + e.message; }
+  spinner.style.display = 'none';
+}
+
+// ── AI: NEGOTIATE ────────────────────────────────────────────
+async function runNegotiate() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const brand = document.getElementById('negBrand').value;
+  if (!brand) { showToast('Enter a brand name'); return; }
+  const box = document.getElementById('negAI');
+  const txt = document.getElementById('negText');
+  box.classList.add('visible'); txt.textContent = '';
+  document.getElementById('negSpinner').style.display = 'block';
+  try {
+    const {playbook,error} = await fetch(`${API_BASE}/api/ai/negotiate`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        athleteId: selectedAthleteId, brand,
+        theirOffer: document.getElementById('negOffer').value,
+        agentTarget: document.getElementById('negTarget').value,
+      }),
+    }).then(r=>r.json());
+    if(error) throw new Error(error);
+    txt.textContent = playbook;
+  } catch(e) { txt.textContent = '❌ ' + e.message; }
+  document.getElementById('negSpinner').style.display = 'none';
+}
+
+// ── PIPELINE ─────────────────────────────────────────────────
+async function loadPipeline() {
+  const stages = ['Prospecting','Outreach Sent','Negotiating','Closing'];
+  let allDeals = [];
+  for (const ath of athletes) {
+    const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
+    deals.forEach(d => allDeals.push({...d, athleteName: ath.name}));
+  }
+  const total = allDeals.reduce((s,d)=>s+(d.value||0),0);
+  document.getElementById('pipe-total').textContent = '$'+(total/1000).toFixed(0)+'K';
+  document.getElementById('pipe-count').textContent = allDeals.filter(d=>d.stage!=='Closed').length;
+  document.getElementById('pipe-closing').textContent = allDeals.filter(d=>d.stage==='Closing').length;
+
+  const board = document.getElementById('pipelineBoard');
+  board.innerHTML = stages.map(stage => {
+    const stagDeals = allDeals.filter(d=>d.stage===stage);
+    return `<div>
+      <div class="pipe-col-header">
+        <div class="pipe-col-name">${stage}</div>
+        <div class="pipe-count">${stagDeals.length}</div>
+      </div>
+      ${stagDeals.map(d=>`
+        <div class="pipe-card">
+          <div class="pipe-brand">${d.brand}</div>
+          <div class="pipe-athlete">${d.athleteName}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div class="pipe-amount">$${(d.value||0).toLocaleString()}</div>
+            <span class="chip ${stage==='Closing'?'chip-green':stage==='Negotiating'?'chip-blue':'chip-neutral'}">${stage.split(' ')[0]}</span>
+          </div>
+          <div class="pipe-footer">
+            <span class="action-link" onclick="prefillNeg('${d.brand}','')">Negotiate →</span>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
+}
+
+async function addDeal() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const brand = document.getElementById('d_brand').value.trim();
+  if (!brand) { showToast('Brand name required'); return; }
+  await fetch(`${API_BASE}/api/athletes/${selectedAthleteId}/deals`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      brand, campaign: document.getElementById('d_campaign').value,
+      value: document.getElementById('d_value').value,
+      stage: document.getElementById('d_stage').value,
+    }),
+  });
+  document.getElementById('addDealModal').classList.remove('open');
+  showToast('✅ Deal added!');
+  loadKPIs(); loadPipeline();
+}
+
+// ── UTILS ────────────────────────────────────────────────────
+function copyText(el) {
+  navigator.clipboard.writeText(el.textContent.trim());
+  showToast('Copied to clipboard!');
+}
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ── PLAYER URL FETCH ─────────────────────────────────────────
+async function fetchFromUrl() {
+  const url = document.getElementById('a_url').value.trim();
+  if (!url) { showToast('Paste a player profile URL first'); return; }
+  const btn = document.getElementById('fetch-btn');
+  const status = document.getElementById('fetch-status');
+  btn.disabled = true; btn.textContent = 'Importing...';
+  status.textContent = 'Fetching real stats from URL...';
+  try {
+    const r = await fetch(`${API_BASE}/api/ai/player-fetch`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ url })
+    });
+    const data = await r.json();
+    if (!data.found) { status.textContent = 'Could not extract data - try a different URL'; btn.disabled = false; btn.textContent = 'Import'; return; }
+    if (data.name) document.getElementById('a_name').value = data.name;
+    if (data.school) document.getElementById('a_school').value = data.school;
+    if (data.position) document.getElementById('a_pos').value = data.position;
+    if (data.year) { const s = document.getElementById('a_year'); for (let o of s.options) { if (o.value.toLowerCase() === data.year.toLowerCase()) { s.value = o.value; break; } } }
+    if (data.stats) document.getElementById('a_stats').value = data.stats;
+    if (data.notes) document.getElementById('a_notes').value = data.notes;
+    const summary = [data.position, data.year, data.stats].filter(Boolean).join(' - ');
+    status.innerHTML = 'Stats imported: ' + summary;
+    showToast('Real stats imported!');
+  } catch(e) {
+    const msg = e.message && e.message.includes('blocks') ? e.message : 'ESPN/247Sports block server imports. Use the ⚡ Lookup button instead.';
+    status.textContent = msg;
+  }
+  btn.disabled = false; btn.textContent = 'Import';
+}
+
+// ── PLAYER LOOKUP ─────────────────────────────────────────────
+async function lookupPlayer() {
+  const name = document.getElementById('a_name').value.trim();
+  if (!name) { showToast('Enter a player name first'); return; }
+  const school = document.getElementById('a_school').value.trim();
+  const sport = document.getElementById('a_sport').value;
+  const btn = document.getElementById('lookup-btn');
+  const status = document.getElementById('lookup-status');
+  btn.disabled = true; btn.textContent = 'Looking up...';
+  status.textContent = 'Searching for player data...';
+  try {
+    const r = await fetch(`${API_BASE}/api/ai/player-lookup`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name, school, sport })
+    });
+    const data = await r.json();
+    if (!data.found) { status.textContent = 'Player not found - fill in manually'; btn.disabled = false; btn.textContent = 'Lookup'; return; }
+    if (data.school) document.getElementById('a_school').value = data.school;
+    if (data.position) document.getElementById('a_pos').value = data.position;
+    if (data.year) { const s = document.getElementById('a_year'); for (let o of s.options) { if (o.value.toLowerCase() === data.year.toLowerCase()) { s.value = o.value; break; } } }
+    if (data.stats) document.getElementById('a_stats').value = data.stats;
+    if (data.instagram) document.getElementById('a_ig').value = data.instagram;
+    if (data.tiktok) document.getElementById('a_tt').value = data.tiktok;
+    if (data.engagement) document.getElementById('a_eng').value = data.engagement;
+    if (data.notes) document.getElementById('a_notes').value = data.notes;
+    if (data.schoolTier) { const s = document.getElementById('a_tier'); for (let o of s.options) { if (o.value === data.schoolTier) { s.value = o.value; break; } } }
+    if (data.sport) { const s = document.getElementById('a_sport'); for (let o of s.options) { if (o.value === data.sport) { s.value = o.value; break; } } }
+    if (data.hometown) { const n = document.getElementById('a_notes'); if (!n.value) n.value = data.hometown; }
+    const summary = [data.school, data.position, data.year, data.stats].filter(Boolean).join(' · ');
+    status.innerHTML = '<span style="color:var(--accent)">✓ Loaded — review and save</span> · ' + summary;
+    showToast('Player data loaded — please verify before saving!');
+  } catch(e) {
+    status.textContent = 'Lookup failed: ' + e.message;
+  }
+  btn.disabled = false; btn.textContent = 'Lookup';
+}
+
+// ── BRAND OUTREACH ───────────────────────────────────────────
+let outreachLogByAthlete = {};
+let currentOutreach = null;
+
+function copyText(id) {
+  const el = document.getElementById(id);
+  if (el) navigator.clipboard.writeText(el.textContent).then(() => showToast('Copied!'));
+}
+
+let lastComplianceResult = null;
+
+async function runCompliance() {
+  const state = document.getElementById('comp-state').value;
+  const dealType = document.getElementById('comp-deal-type').value;
+  const brand = document.getElementById('comp-brand').value.trim();
+  const value = document.getElementById('comp-value').value;
+  const description = document.getElementById('comp-description').value.trim();
+  if (!state) { showToast('Select a state'); return; }
+  const btn = document.getElementById('comp-btn');
+  btn.disabled = true; btn.textContent = 'Checking...';
+  document.getElementById('comp-results').style.display = 'none';
+  const athlete = selectedAthleteId ? athletes.find(a => a.id === selectedAthleteId) : null;
+  try {
+    const r = await fetch(API_BASE + '/api/ai/compliance', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ state, dealType, brand, value, description,
+        athleteName: athlete ? athlete.name : '',
+        sport: athlete ? athlete.sport : '',
+        school: athlete ? athlete.school : '',
+        schoolTier: athlete ? athlete.schoolTier : '' })
+    });
+    const data = await r.json();
+    if (data.error) { showToast('Error: ' + data.error); btn.disabled = false; btn.textContent = 'Check Compliance'; return; }
+    lastComplianceResult = data;
+    renderComplianceResults(data);
+    document.getElementById('comp-results').style.display = 'block';
+    showToast('Compliance check complete');
+  } catch(e) { showToast('Error: ' + e.message); }
+  btn.disabled = false; btn.textContent = 'Check Compliance';
+}
+
+function renderComplianceResults(data) {
+  const banner = document.getElementById('comp-status-banner');
+  const styles = {
+    clear: 'border-radius:6px;padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80',
+    warning: 'border-radius:6px;padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24',
+    blocked: 'border-radius:6px;padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444'
+  };
+  const msgs = { clear: 'No major compliance issues found for this deal in ' + data.state, warning: 'Compliance warnings found - review before proceeding', blocked: 'Deal has compliance issues that must be resolved' };
+  banner.style.cssText = styles[data.status] || styles.warning;
+  banner.textContent = msgs[data.status] || msgs.warning;
+  const flagsSection = document.getElementById('comp-flags-section');
+  const flagsEl = document.getElementById('comp-flags');
+  if (data.flags && data.flags.length) {
+    flagsSection.style.display = 'block';
+    flagsEl.innerHTML = data.flags.map(f => '<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + (f.severity==="high"?"#ef4444":"#fbbf24") + ';border-radius:6px;padding:12px 16px;margin-bottom:8px"><div style="font-size:12px;font-weight:600;margin-bottom:4px">' + (f.severity==="high"?"Blocked: ":"Warning: ") + f.issue + '</div><div style="font-size:11px;color:var(--muted)">' + f.detail + '</div></div>').join('');
+  } else { flagsSection.style.display = 'none'; }
+  const reqsSection = document.getElementById('comp-reqs-section');
+  const reqsEl = document.getElementById('comp-reqs');
+  if (data.requirements && data.requirements.length) {
+    reqsSection.style.display = 'block';
+    reqsEl.innerHTML = data.requirements.map(r => '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 16px;margin-bottom:6px;font-size:11px;color:var(--text)">-> ' + r + '</div>').join('');
+  } else { reqsSection.style.display = 'none'; }
+  document.getElementById('comp-disclosure').textContent = data.disclosure || 'No specific disclosure language required.';
+  const s = document.getElementById('comp-sources');
+  if (s) s.textContent = data.sourceNote ? 'Source: ' + data.sourceNote : '';
+}
+
+async function saveComplianceToNotes() {
+  if (!lastComplianceResult || !selectedAthleteId) { showToast('Select a client first'); return; }
+  const state = document.getElementById('comp-state').value;
+  const dealType = document.getElementById('comp-deal-type').value;
+  const sl = lastComplianceResult.status === 'clear' ? 'CLEAR' : lastComplianceResult.status === 'warning' ? 'WARNING' : 'ISSUES FOUND';
+  const note = 'COMPLIANCE CHECK (' + state + ' / ' + dealType + ') - ' + sl +
+    '\nDisclosure: ' + (lastComplianceResult.disclosure || 'None') +
+    (lastComplianceResult.flags && lastComplianceResult.flags.length ? '\nFlags: ' + lastComplianceResult.flags.map(f => f.issue).join(', ') : '') +
+    '\nChecked: ' + new Date().toLocaleDateString();
+  const athlete = athletes.find(a => a.id === selectedAthleteId);
+  if (athlete) {
+    const updatedNotes = (athlete.notes ? athlete.notes + '\n\n' : '') + note;
+    await fetch(API_BASE + '/api/athletes/' + selectedAthleteId, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({...athlete, notes: updatedNotes})
+    });
+    athlete.notes = updatedNotes;
+    const ss = document.getElementById('comp-save-status');
+    if (ss) ss.textContent = 'Saved to ' + athlete.name + ' notes';
+    showToast('Compliance notes saved!');
+  }
+}
+
+async function runOutreach() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const brand = document.getElementById('or-brand').value.trim();
+  if (!brand) { showToast('Enter a brand name'); return; }
+  const btn = document.getElementById('or-run-btn');
+  btn.disabled = true; btn.textContent = 'Writing...';
+  document.getElementById('or-results').style.display = 'none';
+  try {
+    const r = await fetch(`${API_BASE}/api/ai/outreach`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        athleteId: selectedAthleteId,
+        brand,
+        category: document.getElementById('or-category').value,
+        contact: document.getElementById('or-contact').value,
+        goal: document.getElementById('or-goal').value,
+      })
+    });
+    const data = await r.json();
+    if (data.error) { showToast('Error: ' + data.error); btn.disabled = false; btn.textContent = 'Write Outreach'; return; }
+    document.getElementById('or-email-subject').textContent = data.emailSubject || '';
+    document.getElementById('or-email-body').textContent = data.email || '';
+    document.getElementById('or-ig-body').textContent = data.instagram || '';
+    document.getElementById('or-li-body').textContent = data.linkedin || '';
+    document.getElementById('or-results').style.display = 'block';
+    currentOutreach = { brand, category: document.getElementById('or-category').value, athleteId: selectedAthleteId };
+    showToast('Outreach generated!');
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = 'Write Outreach';
+}
+
+function saveOutreach() {
+  if (!currentOutreach) return;
+  const athlete = athletes.find(a => a.id === currentOutreach.athleteId);
+  const aid = currentOutreach.athleteId;
+  if (!outreachLogByAthlete[aid]) outreachLogByAthlete[aid] = [];
+  outreachLogByAthlete[aid].unshift({
+    id: Date.now(),
+    brand: currentOutreach.brand,
+    category: currentOutreach.category,
+    athlete: athlete ? athlete.name : 'Unknown',
+    date: new Date().toLocaleDateString(),
+    status: 'Sent',
+  });
+  renderOutreachTracker();
+  showToast('Saved to tracker!');
+}
+
+function updateOutreachStatus(id, status) {
+  const log = selectedAthleteId ? (outreachLogByAthlete[selectedAthleteId] || []) : [];
+  const e = log.find(x => x.id === id);
+  if (e) { e.status = status; renderOutreachTracker(); }
+}
+
+function renderOutreachTracker() {
+  const el = document.getElementById('or-tracker');
+  if (!el) return;
+  const outreachLog = selectedAthleteId ? (outreachLogByAthlete[selectedAthleteId] || []) : [];
+  if (!outreachLog.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">No outreach logged yet.</div>'; return; }
+  const colors = { Sent: 'var(--muted)', Replied: '#4ade80', 'No Response': 'var(--accent)', Declined: 'var(--red)' };
+  el.innerHTML = outreachLog.map(e => `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${e.brand}</div>
+        <div style="font-size:11px;color:var(--muted)">${e.athlete} · ${e.category} · ${e.date}</div>
+      </div>
+      <select onchange="updateOutreachStatus(${e.id},this.value)" style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:${colors[e.status]||'var(--muted)'};font-size:11px;padding:4px 8px">
+        <option ${e.status==='Sent'?'selected':''}>Sent</option>
+        <option ${e.status==='Replied'?'selected':''}>Replied</option>
+        <option ${e.status==='No Response'?'selected':''}>No Response</option>
+        <option ${e.status==='Declined'?'selected':''}>Declined</option>
+      </select>
+    </div>`).join('');
+}
+
+// ── SMART CALENDAR ───────────────────────────────────────────
+const stageColors = {
+  'Closing': '#4ade80',
+  'Negotiating': '#C8F135',
+  'Outreach Sent': '#60a5fa',
+  'Prospecting': '#6b7280'
+};
+
+const stageProb = {
+  'Closing': 80,
+  'Negotiating': 50,
+  'Outreach Sent': 25,
+  'Prospecting': 10
+};
+
+function getDaysFromCreated(createdAt, offsetDays) {
+  const d = new Date(createdAt || Date.now());
+  d.setDate(d.getDate() + offsetDays);
+  return d;
+}
+
+function formatDeadlineDate(d) {
+  const now = new Date();
+  const diff = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
+  const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diff < 0) return { label: dateStr, urgency: 'overdue', badge: 'Overdue' };
+  if (diff === 0) return { label: dateStr, urgency: 'today', badge: 'Today' };
+  if (diff <= 2) return { label: dateStr, urgency: 'urgent', badge: diff + 'd left' };
+  if (diff <= 7) return { label: dateStr, urgency: 'soon', badge: diff + 'd left' };
+  return { label: dateStr, urgency: 'future', badge: diff + 'd left' };
+}
+
+function makeGoogleCalLink(title, date, description) {
+  const start = date.toISOString().replace(/-|:|\.\d{3}/g, '').slice(0, 15) + '00Z';
+  const end = new Date(date.getTime() + 60 * 60 * 1000).toISOString().replace(/-|:|\.\d{3}/g, '').slice(0, 15) + '00Z';
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
+    '&text=' + encodeURIComponent(title) +
+    '&dates=' + start + '/' + end +
+    '&details=' + encodeURIComponent(description) +
+    '&sf=true&output=xml';
+}
+
+async function loadCalendar() {
+  const allDeals = [];
+  for (const ath of athletes) {
+    try {
+      const r = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`);
+      const deals = await r.json();
+      deals.forEach(d => { d._athleteName = ath.name; allDeals.push(d); });
+    } catch(e) {}
+  }
+
+  if (!allDeals.length) {
+    document.getElementById('cal-deadlines').innerHTML = '<div style="color:var(--muted);font-size:12px">No deals yet — add deals in Pipeline.</div>';
+    document.getElementById('cal-deals').innerHTML = '';
+    return;
+  }
+
+  // Generate deadlines based on stage
+  const deadlines = [];
+  allDeals.forEach(deal => {
+    const color = stageColors[deal.stage] || '#6b7280';
+    const prob = stageProb[deal.stage] || 10;
+    if (deal.stage === 'Negotiating') {
+      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 2), label: 'Counter offer deadline', color, prob });
+      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 7), label: 'Follow-up call', color, prob });
+    } else if (deal.stage === 'Closing') {
+      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 3), label: 'Contract due', color, prob });
+    } else if (deal.stage === 'Outreach Sent') {
+      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 7), label: 'Follow-up if no response', color, prob });
+    }
+  });
+
+  deadlines.sort((a, b) => a.date - b.date);
+
+  const urgencyColors = { overdue: 'var(--red)', today: '#f97316', urgent: '#f97316', soon: 'var(--accent)', future: 'var(--muted)' };
+
+  const deadlineHtml = deadlines.slice(0, 8).map(({ deal, date, label, color, prob }) => {
+    const { label: dateLabel, urgency, badge } = formatDeadlineDate(date);
+    const gcLink = makeGoogleCalLink(
+      label + ' — ' + deal.brand + ' (' + deal._athleteName + ')',
+      date,
+      deal.stage + ' deal worth $' + (deal.value || 0).toLocaleString() + '. Close probability: ' + prob + '%.'
+    );
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:600;color:var(--text)">${label}</div>
+        <div style="font-size:11px;color:var(--muted)">${deal._athleteName} · ${deal.brand} · ${deal.stage} · ${prob}% close probability</div>
+      </div>
+      <div style="text-align:right;min-width:80px">
+        <div style="font-size:11px;color:${urgencyColors[urgency]};font-weight:600">${badge}</div>
+        <div style="font-size:10px;color:var(--muted)">${dateLabel}</div>
+      </div>
+      <a href="${gcLink}" target="_blank" style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:10px;padding:4px 8px;text-decoration:none;white-space:nowrap">+ Google Cal</a>
+    </div>`;
+  }).join('');
+
+  document.getElementById('cal-deadlines').innerHTML = deadlineHtml || '<div style="color:var(--muted);font-size:12px">No upcoming deadlines.</div>';
+
+  // All deals
+  const dealsHtml = allDeals.map(deal => {
+    const color = stageColors[deal.stage] || '#6b7280';
+    const prob = stageProb[deal.stage] || 10;
+    const created = new Date(deal.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
+      <div style="flex:1">
+        <div style="font-size:12px;font-weight:600;color:var(--text)">${deal.brand} — ${deal.campaign || 'No campaign set'}</div>
+        <div style="font-size:11px;color:var(--muted)">${deal._athleteName} · Added ${created}</div>
+      </div>
+      <div style="text-align:right;min-width:100px">
+        <div style="font-size:12px;font-weight:600;color:${color}">${deal.stage}</div>
+        <div style="font-size:11px;color:var(--muted)">$${(deal.value||0).toLocaleString()} · ${prob}% close</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('cal-deals').innerHTML = dealsHtml;
+}
+
+// ── INIT ─────────────────────────────────────────────────────
+
+// ── TEAM MATCH ───────────────────────────────────────────────
+async function runTeamMatch() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const btn = document.getElementById('tm-run-btn');
+  btn.disabled = true; btn.textContent = 'Scanning...';
+  document.getElementById('tm-results').innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center">Scanning college programs with AI...</div>';
+  document.getElementById('tm-summary').style.display = 'none';
+  document.getElementById('tm-playbook-block').classList.remove('visible');
+  document.getElementById('tm-playbook-text').textContent = '';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/ai/team-match`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        athleteId: selectedAthleteId,
+        conference: document.getElementById('tm-conf').value,
+        minNil: parseInt(document.getElementById('tm-minnil').value),
+        sortBy: document.getElementById('tm-sort').value,
+      }),
+    });
+    const data = await r.json();
+    if (data.error) { document.getElementById('tm-results').innerHTML = '<div style="color:var(--red);padding:20px">❌ ' + data.error + '</div>'; return; }
+    renderTeamMatch(data.teams);
+  } catch(e) {
+    document.getElementById('tm-results').innerHTML = '<div style="color:var(--red);padding:20px">❌ ' + e.message + '</div>';
+  }
+  btn.disabled = false; btn.textContent = 'Scan Teams →';
+}
+
+function fmtNil(n) {
+  if (n >= 1000000) return '$' + (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return '$' + Math.round(n/1000) + 'K';
+  return '$' + n;
+}
+
+function renderTeamMatch(teams) {
+  if (!teams || !teams.length) {
+    document.getElementById('tm-results').innerHTML = '<div style="color:var(--muted);padding:20px">No matching programs found. Try adjusting your filters.</div>';
+    return;
+  }
+
+  const best = teams[0];
+  const avgNil = Math.round(teams.reduce((s,t) => s + (t.nilHigh||0), 0) / teams.length);
+  const sumEl = document.getElementById('tm-summary');
+  sumEl.style.display = 'grid';
+  sumEl.style.gridTemplateColumns = 'repeat(auto-fit,minmax(120px,1fr))';
+  sumEl.style.gap = '10px';
+  sumEl.style.marginBottom = '20px';
+  sumEl.innerHTML = `
+    <div class="kpi"><div class="kpi-label">Programs found</div><div class="kpi-val" style="font-size:24px">${teams.length}</div></div>
+    <div class="kpi"><div class="kpi-label">Best NIL offer</div><div class="kpi-val" style="font-size:22px">${fmtNil(best.nilHigh||0)}</div></div>
+    <div class="kpi"><div class="kpi-label">Top fit score</div><div class="kpi-val" style="font-size:24px">${best.fitScore||'-'}</div></div>
+    <div class="kpi"><div class="kpi-label">Avg NIL / yr</div><div class="kpi-val" style="font-size:22px">${fmtNil(avgNil)}</div></div>
+  `;
+
+  document.getElementById('tm-results').innerHTML = teams.map((t, i) => `
+    <div class="card" style="margin-bottom:10px;cursor:pointer;border:${i===0?'1px solid rgba(200,241,53,0.4)':'1px solid var(--border)'}" onclick="toggleTmDetail('tm-detail-${i}')">
+      <div style="display:grid;grid-template-columns:28px 1fr auto;gap:0 16px;align-items:start">
+        <div style="font-size:18px;font-weight:500;color:var(--muted);padding-top:2px">${i+1}</div>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            <span style="font-size:15px;font-weight:500">${t.name||'Unknown'}</span>
+            <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:var(--surface2);color:var(--muted)">${t.confLabel||t.conference||''}</span>
+            ${i===0?'<span class="chip chip-green">Best fit</span>':''}
+          </div>
+          <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:8px">${t.why||''}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${(t.nilBreakdown||[]).map(b=>`<span style="font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">${b.label}: <strong style="color:var(--text)">${b.val}</strong></span>`).join('')}
+          </div>
+          <div id="tm-detail-${i}" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px">
+              ${(t.metrics||[]).map(m=>`<div style="background:var(--surface2);border-radius:6px;padding:8px 10px"><div style="font-size:10px;color:var(--muted);margin-bottom:3px">${m.label}</div><div style="font-size:13px;font-weight:500">${m.val}</div></div>`).join('')}
+            </div>
+            <button class="run-btn" style="font-size:12px;padding:8px 16px" onclick="event.stopPropagation();buildTmPlaybook('${(t.name||'').replace(/'/g,"\'")}','${fmtNil(t.nilHigh||0)}')">Build negotiation playbook for ${t.name||'this school'} →</button>
+          </div>
+        </div>
+        <div style="text-align:right;min-width:100px">
+          <div style="font-size:18px;font-weight:500;color:var(--accent)">${fmtNil(t.nilLow||0)}&ndash;${fmtNil(t.nilHigh||0)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">NIL / year</div>
+          <div style="display:flex;align-items:center;gap:5px;justify-content:flex-end;margin-top:6px">
+            <div style="width:60px;height:4px;border-radius:2px;background:var(--surface2);overflow:hidden">
+              <div style="width:${t.fitScore||0}%;height:100%;background:var(--accent);border-radius:2px"></div>
+            </div>
+            <span style="font-size:11px;color:var(--muted)">${t.fitScore||0}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleTmDetail(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+async function buildTmPlaybook(schoolName, targetNil) {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const ath = athletes.find(a => a.id === selectedAthleteId);
+  const block = document.getElementById('tm-playbook-block');
+  const txt = document.getElementById('tm-playbook-text');
+  const spinner = document.getElementById('tm-spinner');
+  const label = document.getElementById('tm-playbook-label');
+  block.classList.add('visible');
+  label.textContent = 'Negotiation Playbook — ' + schoolName;
+  spinner.style.display = 'block';
+  txt.textContent = 'Building playbook...';
+
+  const msg = `Build a complete NIL recruitment negotiation playbook for ${ath ? ath.name : 'this athlete'} to sign with ${schoolName}. Target NIL: ${targetNil}/year.
+Give:
+1. OPENING LINE — exact words the agent says to open negotiation
+2. KEY LEVERAGE POINTS — 3 specific data points the agent should cite
+3. PUSHBACK RESPONSE — what to say when ${schoolName} says they cannot meet the target
+4. CONCESSION MOVE — what non-cash thing to offer to bridge the gap
+5. WALK-AWAY LINE — exact sentence if they won't move
+Be word-for-word specific. This is for a real negotiation call.`;
+
+  try {
+    const r = await fetch(`${API_BASE}/api/ai/ask`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ athleteId: selectedAthleteId, message: msg }),
+    });
+    const data = await r.json();
+    txt.textContent = data.response || 'No response.';
+  } catch(e) { txt.textContent = '❌ ' + e.message; }
+  spinner.style.display = 'none';
+  block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+window.addEventListener('DOMContentLoaded', checkSession);
+</script>
+</body>
+</html>
