@@ -124,7 +124,7 @@ async function oneShotWithSearch(prompt, systemPrompt) {
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 3000,
       system: systemPrompt,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 1 }],
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
       messages: [{ role: 'user', content: prompt }]
     })
   });
@@ -236,7 +236,7 @@ Return ONLY a JSON array of 6 deals:
   "dealType": "post|reel|ambassador|appearance|licensing"
 }]`
   try {
-    const raw = await oneShotWithSearch(prompt, 'You are a NIL deal scout who finds real brand partnerships. Search for brands actively doing NIL deals. Prioritize accuracy and variety over big names. Never just list Nike/Adidas/Gatorade unless they truly fit. Return only valid JSON.');
+    const raw = await oneShotWithSearch(prompt, 'You are a NIL deal scout with web search access. You MUST run multiple searches before answering. Search for real documented NIL deals for this specific sport, school tier, and market. Be specific — cite actual brands you find evidence for. Return only valid JSON array, no markdown.');
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('['), ei = c.lastIndexOf(']');
     if (si === -1 || ei <= si) throw new Error('No array');
