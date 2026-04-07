@@ -236,12 +236,16 @@ Return ONLY a JSON array of 6 deals:
   "dealType": "post|reel|ambassador|appearance|licensing"
 }]`;
   try {
-    const raw = await oneShotWithSearch(prompt, 'You are a NIL deal scout with web search access. You MUST run multiple searches before answering. Search for real documented NIL deals for this specific sport, school tier, and market. Be specific — cite actual brands you find evidence for. Return only valid JSON array, no markdown.');
+    const raw = await oneShotWithSearch(prompt, 'You are a JSON-only API. Search the web for NIL deals, then output ONLY a valid JSON array starting with [ and ending with ]. No explanation text, no markdown, no preamble. Your entire response must be parseable JSON.');
     console.log('Deal scan raw (first 300):', raw.substring(0, 300));
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const si = c.indexOf('['), ei = c.lastIndexOf(']');
+    const si = c.indexOf('[');
+    const ei = c.lastIndexOf(']');
     if (si === -1 || ei <= si) throw new Error('No array');
-    return JSON.parse(c.substring(si, ei + 1));
+    const jsonStr = c.substring(si, ei + 1);
+    const parsed = JSON.parse(jsonStr);
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
+    return parsed;
   } catch (err) {
     console.error('Deal scan error:', err.message);
     console.error('Deal scan raw response:', err.raw || 'no raw');
