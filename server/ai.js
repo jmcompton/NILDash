@@ -241,7 +241,9 @@ Return ONLY a JSON array of 6 deals:
     const si = c.indexOf('['), ei = c.lastIndexOf(']');
     if (si === -1 || ei <= si) throw new Error('No array');
     return JSON.parse(c.substring(si, ei + 1));
-  } catch {
+  } catch (err) {
+    console.error('Deal scan error:', err.message);
+    console.error('Deal scan raw response:', err.raw || 'no raw');
     return [{ rank:1, brand:'Local Brand', campaign:'Brand Ambassador', category:'apparel',
       rationale:'Strong fit for this athlete profile.', fitScore:75,
       suggestedRate:{ low: rate.low, high: rate.high }, timingNote:'Open', dealType:'post' }];
