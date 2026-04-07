@@ -237,13 +237,11 @@ Return ONLY a JSON array of 6 deals:
 }]`;
   try {
     const raw = await oneShotWithSearch(prompt, 'You are a JSON-only API. Search the web for NIL deals, then output ONLY a valid JSON array starting with [ and ending with ]. No explanation text, no markdown, no preamble. Your entire response must be parseable JSON.');
-    console.log('Deal scan raw (first 300):', raw.substring(0, 300));
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
     if (si === -1 || ei <= si) throw new Error('No array');
-    const jsonStr = c.substring(si, ei + 1);
-    const parsed = JSON.parse(jsonStr);
+    const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     return parsed;
   } catch (err) {

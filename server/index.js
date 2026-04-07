@@ -214,7 +214,7 @@ Give a 4-part playbook:
 4. WALK-AWAY LINE — exact sentence
 Include 3 KEY DATA POINTS to quote. Word-for-word scripts only.`;
   try {
-    const playbook = await ai.oneShot(prompt, ai.buildSystemPrompt(athlete, user.role));
+    const playbook = await ai.oneShotWithSearch(prompt, 'You are an elite sports agent negotiation coach. Search for recent NIL deal rates and brand spending data to inform your negotiation strategy. Return practical word-for-word scripts.');
     res.json({ playbook });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -256,7 +256,7 @@ app.post('/api/ai/outreach', requireAuth, async (req, res) => {
     ' Return ONLY JSON: {"emailSubject":"subject","email":"full email","instagram":"DM under 150 chars","linkedin":"message under 200 chars"}' +
     ' Be specific to this athlete. Confident, not salesy. No placeholders.';
   try {
-    const raw = await ai.oneShot(prompt, ai.buildSystemPrompt(athlete, 'agent'));
+    const raw = await ai.oneShotWithSearch(prompt, "You are a sports agent writing brand outreach. Search for this brand's recent NIL activity and marketing campaigns to personalize the outreach. Return only valid JSON.");
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Generation failed' });
@@ -277,7 +277,7 @@ app.post('/api/ai/compliance', requireAuth, async (req, res) => {
     'Check: 1) Is this deal restricted in ' + state + '? 2) Disclosure requirements? 3) Does $' + (parseInt(value)||0) + ' trigger NIL Go $600 reporting? 4) Agent licensing? 5) Category restrictions (alcohol/gambling/tobacco/supplements/crypto)?\n\n' +
     'Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","sourceNote":"what laws this is based on"}';
   try {
-    const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with current knowledge of all 50 state NIL laws and NCAA/CSC rules as of 2026. Return only valid JSON.');
+    const result = await ai.oneShotWithSearch(prompt, 'You are a NIL compliance expert. Search for current 2026 NIL laws for this state before answering. Laws change frequently — always use the most current information. Return only valid JSON.');
     const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Failed to parse result' });
