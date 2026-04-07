@@ -1,6 +1,6 @@
 // server/ai.js
 const Anthropic = require('@anthropic-ai/sdk');
-const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS } = require('./benchmarks');
+const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal } = require('./benchmarks');
 
 let client = null;
 
@@ -164,38 +164,7 @@ async function calculateRateLive(athlete, deliverableType) {
 }
 
 function calculateRate(athlete, deliverableType) {
-  const flatFees = MARKET_RATES.appearanceFees;
-  if (flatFees && flatFees[deliverableType]) {
-    const fees = flatFees[deliverableType];
-    const tier = athlete.schoolTier || 'mid-lower';
-    let range;
-    if (tier === 'p4-top10') range = fees.p4top;
-    else if (tier === 'p4-mid') range = fees.p4mid;
-    else if (tier === 'p4-lower') range = fees.p4low;
-    else range = fees.mid;
-    const sportPremium = (athlete.sport === 'basketball' || athlete.sport === 'football') ? 1.25 : 1.0;
-    const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
-    const reachBonus = reach > 500000 ? 1.20 : reach > 100000 ? 1.12 : reach > 25000 ? 1.06 : 1.0;
-    return {
-      low:  Math.round(range[0] * sportPremium * reachBonus / 100) * 100,
-      mid:  Math.round(((range[0] + range[1]) / 2) * sportPremium * reachBonus / 100) * 100,
-      high: Math.round(range[1] * sportPremium * reachBonus / 100) * 100,
-      breakdown: { reach: Math.round(reach), pricingModel: 'flat-fee', tier: tier, sportPremium: sportPremium, reachBonus: reachBonus },
-      pricingNote: 'Flat-fee rate based on school tier, sport, and social reach.',
-    };
-  }
-  const reach    = athlete.instagram + athlete.tiktok * 0.75;
-  const sport    = MARKET_RATES.sportMultiplier[athlete.sport] || 1.0;
-  const school   = MARKET_RATES.schoolMultiplier[athlete.schoolTier] || 1.0;
-  const eng      = MARKET_RATES.engagementMultiplier(athlete.engagement);
-  const deliv    = MARKET_RATES.deliverableMultiplier[deliverableType] || 1.0;
-  const raw      = (reach / 1000) * MARKET_RATES.basePer1kReach * sport * school * eng * deliv;
-  return {
-    low:  Math.round(raw * 0.85 / 100) * 100,
-    mid:  Math.round(raw / 100) * 100,
-    high: Math.round(raw * 1.25 / 100) * 100,
-    breakdown: { reach: Math.round(reach), pricingModel: 'reach-based', sportMult: sport, schoolMult: school, engMult: eng, delivMult: deliv, cpm: ((raw / reach) * 1000).toFixed(2) },
-  };
+  return nilViewVal(athlete, deliverableType || 'ig-reel');
 }
 
 async function getDealRecommendations(athlete, role) {
