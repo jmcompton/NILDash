@@ -237,6 +237,7 @@ Return ONLY a JSON array of 6 deals:
 }]`;
   try {
     const raw = await oneShotWithSearch(prompt, 'You are a NIL deal scout with web search access. You MUST run multiple searches before answering. Search for real documented NIL deals for this specific sport, school tier, and market. Be specific — cite actual brands you find evidence for. Return only valid JSON array, no markdown.');
+    console.log('Deal scan raw (first 300):', raw.substring(0, 300));
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('['), ei = c.lastIndexOf(']');
     if (si === -1 || ei <= si) throw new Error('No array');
@@ -244,6 +245,7 @@ Return ONLY a JSON array of 6 deals:
   } catch (err) {
     console.error('Deal scan error:', err.message);
     console.error('Deal scan raw response:', err.raw || 'no raw');
+    console.error('Deal scan full raw:', typeof raw !== 'undefined' ? raw.substring(0, 500) : 'raw undefined');
     return [{ rank:1, brand:'Local Brand', campaign:'Brand Ambassador', category:'apparel',
       rationale:'Strong fit for this athlete profile.', fitScore:75,
       suggestedRate:{ low: rate.low, high: rate.high }, timingNote:'Open', dealType:'post' }];
