@@ -343,24 +343,8 @@ app.post('/api/ai/team-match', requireAuth, async (req, res) => {
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
-  const prompt = `Search the web for current 2026 NIL collective budgets and transfer portal activity for ${athlete.sport} programs. Find:
-1) Current collective guarantee amounts at ${conference !== 'any' && conference ? conference : 'major'} conference schools for ${athlete.sport} in 2026
-2) Recent transfer portal activity for ${athlete.position || athlete.sport} players - which schools are actively recruiting
-3) On3 NIL valuations for comparable ${athlete.sport} athletes at this level
-4) Collective sizes and recent payout amounts for ${conference !== 'any' && conference ? conference : 'top'} programs
-
-Now use that live data to find the 6 best landing spots for this athlete.
-
-ATHLETE: ${athlete.name} | ${athlete.sport} | ${athlete.position || 'Unknown position'} | Year: ${athlete.year || 'Unknown'} | School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'Unknown tier'})
-STATS: ${athlete.stats || athlete.notes || 'Not provided'}
-PORTAL STATUS: ${athlete.transferReason || 'Unknown'}
-SOCIAL: ${athlete.instagram || 0} IG followers, ${athlete.tiktok || 0} TikTok, ${athlete.engagement || 0}% engagement
-FILTERS: Conference: ${conference || 'Any'} | Min NIL: $${(minNil||0).toLocaleString()} | Sort: ${sortBy || 'fit'}
-
-Rules: Use real NIL collective budgets. Mix 2 reach, 2 best-fit, 2 safe options. Be specific to this athlete stats.
-
-Return ONLY a JSON array:
-[{"rank":1,"name":"School","conference":"ACC","confLabel":"ACC","tier":"reach or best-fit or safe","why":"2 sentences specific to this athlete stats and this school roster need","nilLow":150000,"nilHigh":300000,"nilBreakdown":[{"label":"Collective","val":"$150K"},{"label":"Brand deals","val":"$100K+"}],"fitScore":88,"playingTimeOutlook":"Immediate starter","rosterNeed":"Lost starter to NBA","metrics":[{"label":"Collective strength","val":"Strong"},{"label":"Pro picks 3yr","val":"4"},{"label":"Avg NIL/player","val":"$180K"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"},{"label":"Academics","val":"Strong"}]}]`;
+  const conf = conference && conference !== 'any' ? conference : 'major';
+  const prompt = `Find 6 best transfer destinations for ${athlete.name}, ${athlete.sport} ${athlete.position||''}, ${athlete.year||''}, from ${athlete.school||'unknown'}, stats: ${(athlete.stats||athlete.notes||'N/A').substring(0,80)}, portal: ${athlete.transferReason||'unknown'}, conf: ${conf}, min NIL: $${(minNil||0).toLocaleString()}. Search for 2026 NIL collective budgets. Return ONLY JSON array: [{"rank":1,"name":"School","conference":"ACC","confLabel":"ACC","tier":"reach or best-fit or safe","why":"2 sentences","nilLow":150000,"nilHigh":300000,"nilBreakdown":[{"label":"Collective","val":"$150K"}],"fitScore":88,"playingTimeOutlook":"Starter","rosterNeed":"need","metrics":[{"label":"Collective strength","val":"Strong"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"}]}]`;
 
   try {
     const raw = await ai.oneShotWithSearch(prompt, 'You are a precise NIL recruitment analyst with access to current 2026 NIL data via web search. Search for live collective budgets and portal activity before recommending. Return only valid JSON arrays.');
