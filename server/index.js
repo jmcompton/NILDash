@@ -6,6 +6,8 @@ const session  = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
 const bcrypt   = require('bcryptjs');
 const cors     = require('cors');
+const helmet   = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path     = require('path');
 const store    = require('./store');
 const ai       = require('./ai');
@@ -13,9 +15,45 @@ const ai       = require('./ai');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
-app.use(express.json());
+// Security headers
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// Restrict CORS to your domain only
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://mynildash.com', 'https://www.mynildash.com']
+    : 'http://localhost:3000',
+  credentials: true
+}));
+
+// Rate limiting — login/register: 10 attempts per 15 min
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many attempts. Try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// AI tools: 30 requests per minute per user
+const aiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  message: { error: 'Too many AI requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General API: 100 requests per minute
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: { error: 'Too many requests. Please slow down.' },
+});
+
+app.use(express.json({ limit: '50kb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+app.set('trust proxy', 1);
 app.use(session({
   store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
   secret: process.env.SESSION_SECRET || 'nildash-dev-secret',
@@ -58,7 +96,7 @@ app.post('/api/auth/signup', async (req, res) => {
   res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   const user = await store.getUserByEmail(email);
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
@@ -124,6 +162,9 @@ app.put('/api/athletes/:id', requireAuth, async (req, res) => {
 });
 
 app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
+  const athlete = await store.getAthlete(req.params.id);
+  if (!athlete) return res.status(404).json({ error: 'Not found' });
+  if (athlete.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
   await store.deleteAthlete(req.params.id);
   res.json({ ok: true });
 });
@@ -154,12 +195,15 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
 });
 
 app.delete('/api/deals/:id', requireAuth, async (req, res) => {
+  const deal = await store.getDeal(req.params.id);
+  if (!deal) return res.status(404).json({ error: 'Not found' });
+  if (deal.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
   await store.deleteDeal(req.params.id);
   res.json({ ok: true });
 });
 
 // ── AI endpoints ───────────────────────────────────────────────
-app.post('/api/ai/command', requireAuth, async (req, res) => {
+app.post('/api/ai/command', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, message } = req.body;
   if (!message) return res.status(400).json({ error: 'message required' });
   const athlete = athleteId ? await store.getAthlete(athleteId) : null;
@@ -173,7 +217,7 @@ app.post('/api/ai/command', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/ai/deals', requireAuth, async (req, res) => {
+app.post('/api/ai/deals', requireAuth, aiLimiter, async (req, res) => {
   const athlete = await store.getAthlete(req.body.athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const user = await store.getUser(req.session.userId);
@@ -185,7 +229,7 @@ app.post('/api/ai/deals', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/api/ai/rate', requireAuth, async (req, res) => {
+app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
   const athlete = await store.getAthlete(req.body.athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const deliverableType = req.body.deliverableType || 'ig-reel';
@@ -200,7 +244,7 @@ app.post('/api/ai/rate', requireAuth, async (req, res) => {
   res.json({ ...ai.calculateRate(athlete, deliverableType), liveData: false });
 });
 
-app.post('/api/ai/negotiate', requireAuth, async (req, res) => {
+app.post('/api/ai/negotiate', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, brand, theirOffer, agentTarget } = req.body;
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
@@ -242,7 +286,7 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
 
 
 // ── Brand Outreach ─────────────────────────────────────────────
-app.post('/api/ai/outreach', requireAuth, async (req, res) => {
+app.post('/api/ai/outreach', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, brand, category, contact, goal } = req.body;
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
@@ -268,7 +312,7 @@ app.post('/api/ai/outreach', requireAuth, async (req, res) => {
 
 
 // -- NIL Compliance --
-app.post('/api/ai/compliance', requireAuth, async (req, res) => {
+app.post('/api/ai/compliance', requireAuth, aiLimiter, async (req, res) => {
   const { state, dealType, brand, value, description, athleteName, sport, school, schoolTier } = req.body;
   const prompt = 'Analyze this NIL deal for compliance in ' + state + ':\n' +
     'Athlete: ' + (athleteName||'Unknown') + ', ' + (sport||'Unknown') + ', ' + (school||'Unknown') + ' (' + (schoolTier||'unknown') + ')\n' +
@@ -321,7 +365,7 @@ app.post('/api/ai/player-fetch', requireAuth, async (req, res) => {
 });
 
 // -- Player Lookup --
-app.post('/api/ai/player-lookup', requireAuth, async (req, res) => {
+app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
   const { name, school, sport } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const prompt = 'Look up college athlete: ' + name + (school ? ' at ' + school : '') + (sport ? ' (' + sport + ')' : '') + '. Search ESPN, 247Sports, On3, and school athletic websites for their current 2025-26 stats. Also search for their Instagram and TikTok accounts. Return this JSON - use real verified data where available, and your training knowledge as fallback for anything you cannot find via search. Always return found:true. {"found":true,"name":"full name","school":"school name","sport":"sport","position":"position abbrev","year":"Freshman or Sophomore or Junior or Senior or Grad Transfer","stats":"current season stats if found, or career highlights","height":"height","weight":"weight","hometown":"city state","instagram":0,"tiktok":0,"engagement":0,"schoolTier":"p4-top10 or p4-mid or p4-lower or mid-top or mid-lower or highmajor-top","notes":"bio, awards, rankings"}. Return ONLY JSON no markdown.';
@@ -338,7 +382,7 @@ app.post('/api/ai/player-lookup', requireAuth, async (req, res) => {
 });
 
 // ── Team Match endpoint ────────────────────────────────────────
-app.post('/api/ai/team-match', requireAuth, async (req, res) => {
+app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, conference, minNil, sortBy } = req.body;
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
