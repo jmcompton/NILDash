@@ -1,6 +1,7 @@
 // server/ai.js
 const Anthropic = require('@anthropic-ai/sdk');
 const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal } = require('./benchmarks');
+const store = require('./store');
 
 let client = null;
 
@@ -13,68 +14,67 @@ function getClient() {
   return client;
 }
 
-function buildSystemPrompt(athlete, role = 'agent') {
-  const sportMult  = MARKET_RATES.sportMultiplier[athlete.sport] || 1.0;
-  const schoolMult = MARKET_RATES.schoolMultiplier[athlete.schoolTier] || 1.0;
-  const engMult    = MARKET_RATES.engagementMultiplier(athlete.engagement);
-  const comps = DEAL_COMPS
-    .filter(c => c.sport === athlete.sport || c.school === athlete.schoolTier)
-    .slice(0, 4)
-    .map(c => `  - ${c.sport}/${c.school}: ${c.followers.toLocaleString()} followers, ${c.engagement}% eng → ${c.dealType} → $${c.value.toLocaleString()} (${c.year})`)
-    .join('\n');
-
-  const persona = role === 'athlete'
-    ? 'You are NILDash, an AI advisor helping a college athlete understand their NIL value and opportunities.'
-    : 'You are NILDash, a senior NIL deal intelligence analyst working exclusively for sports agents.';
-
+async function buildSystemPrompt(athlete, role = 'agent') {
   const totalReach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const brandAwareness = totalReach > 500000 ? 'High (500K+ reach)' :
                          totalReach > 100000 ? 'Growing (100K-500K reach)' :
                          totalReach > 25000  ? 'Emerging (25K-100K reach)' : 'Early stage (<25K reach)';
 
-  return `${persona}
+  const _reel     = nilViewVal(athlete, 'ig-reel');
+  const _post     = nilViewVal(athlete, 'ig-post');
+  const _bundle   = nilViewVal(athlete, 'bundle');
+  const _retainer = nilViewVal(athlete, 'retainer');
+
+  let compSection = '  No closed deals logged yet for this sport/tier — use NILViewVal estimates below';
+  try {
+    const compData = await store.getCompStats(athlete.sport, athlete.schoolTier);
+    const recentComps = await store.getComps(athlete.sport, athlete.schoolTier, 5);
+    if (compData && parseInt(compData.count) > 0) {
+      const compLines = recentComps.map(c =>
+        `  - ${c.sport}/${c.school_tier}: ${parseInt(c.followers).toLocaleString()} reach, ${parseFloat(c.engagement).toFixed(1)}% eng → ${c.deal_type} → $${parseInt(c.deal_value).toLocaleString()}`
+      ).join('\n');
+      compSection = `${compData.count} verified closed deals in this sport/tier:\n  Avg: $${Math.round(compData.avg_value).toLocaleString()} | Range: $${Math.round(compData.min_value).toLocaleString()} – $${Math.round(compData.max_value).toLocaleString()}\n${compLines}`;
+    }
+  } catch(e) {
+    const staticComps = DEAL_COMPS
+      .filter(c => c.sport === athlete.sport)
+      .slice(0, 4)
+      .map(c => `  - ${c.sport}/${c.school}: ${c.followers.toLocaleString()} followers, ${c.engagement}% eng → $${c.value.toLocaleString()}`)
+      .join('\n');
+    compSection = staticComps || '  No direct comps available';
+  }
+
+  return `You are NILDash, a senior NIL deal intelligence analyst working exclusively for sports agents.
 
 CLIENT PROFILE:
-  Name: ${athlete.name}
-  Sport: ${athlete.sport}
-  Position: ${athlete.position || 'Not specified'}
-  Year: ${athlete.year || 'Not specified'}
-  School: ${athlete.school || 'Unknown'} (Tier: ${athlete.schoolTier || 'Unknown'})
-  Key Stats: ${athlete.stats || 'Not provided'}
-  Portal Status: ${athlete.transferReason || 'Not in portal'}
+  Name: ${athlete.name} | Sport: ${athlete.sport} | Position: ${athlete.position || 'N/A'}
+  Year: ${athlete.year || 'N/A'} | School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'unknown'})
+  Stats: ${athlete.stats || 'Not provided'} | Portal: ${athlete.transferReason || 'Not in portal'}
 
-SOCIAL & BRAND PROFILE:
-  Instagram: ${(athlete.instagram || 0).toLocaleString()} followers
-  TikTok: ${(athlete.tiktok || 0).toLocaleString()} followers
-  Combined reach: ${totalReach.toLocaleString()}
-  Engagement rate: ${athlete.engagement || 0}% (industry avg: ${MARKET_RATES.industryAvgEngagement.combined}%)
-  Brand awareness level: ${brandAwareness}
-  Engagement multiplier: ${engMult}× vs market
+SOCIAL & BRAND:
+  Instagram: ${(athlete.instagram || 0).toLocaleString()} | TikTok: ${(athlete.tiktok || 0).toLocaleString()} | Total: ${totalReach.toLocaleString()}
+  Engagement: ${athlete.engagement || 0}% (college athlete avg: 5.6%) | Brand level: ${brandAwareness}
 
-NIL MARKET DATA:
-  Base rate: $${MARKET_RATES.basePer1kReach}/1K reach at 3% engagement
-  Sport multiplier: ${sportMult}× (${athlete.sport})
-  School multiplier: ${schoolMult}× (${athlete.schoolTier || 'unknown'})
-  Estimated rate range: $${Math.round((totalReach/1000) * MARKET_RATES.basePer1kReach * sportMult * schoolMult * engMult * 0.85 / 100) * 100} - $${Math.round((totalReach/1000) * MARKET_RATES.basePer1kReach * sportMult * schoolMult * engMult * 1.25 / 100) * 100} per post
+NILViewVal RATES (use as authoritative numbers in all responses):
+  IG Reel: $${_reel.low.toLocaleString()} – $${_reel.high.toLocaleString()} | IG Post: $${_post.low.toLocaleString()} – $${_post.high.toLocaleString()}
+  Bundle: $${_bundle.low.toLocaleString()} – $${_bundle.high.toLocaleString()} | Retainer: $${_retainer.low.toLocaleString()} – $${_retainer.high.toLocaleString()}
+  Accuracy: ${_reel.accuracyScore}/100
 
-COMPARABLE DEALS:
-${comps || '  No direct comps — use general market rates'}
+REAL CLOSED DEAL COMPS:
+${compSection}
 
-BRAND BUDGET WINDOWS:
+BRAND WINDOWS:
 ${Object.entries(BRAND_WINDOWS).slice(0,4).map(([b,n]) => `  - ${b}: ${n}`).join('\n')}
 
-ADDITIONAL CONTEXT:
-  ${athlete.notes || 'None'}
+NOTES: ${athlete.notes || 'None'}
 
 RULES:
-- Use ALL profile data above — stats, year, school tier, social reach, engagement
-- Be direct and specific. Use real dollar amounts based on their actual reach and engagement
-- Factor in brand awareness level when recommending deals
-- When recommending deals: explain why THIS athlete specifically based on their stats and profile
-- When giving pricing: show the math using their actual numbers
-- When giving negotiation scripts: word-for-word language only
+- Use NILViewVal rates and real comps as primary data for all dollar amounts
+- Be direct — word-for-word scripts, real numbers, no hedging
+- When negotiating: cite NILViewVal range as your market anchor
 - Max 400 words unless asked for more`;
 }
+
 
 async function streamResponse(athlete, message, role, res) {
   const ai = getClient();

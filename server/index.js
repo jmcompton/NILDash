@@ -188,9 +188,25 @@ app.post('/api/athletes/:id/deals', requireAuth, async (req, res) => {
   res.status(201).json(deal);
 });
 
+// Get deal comps for rate accuracy
+app.get('/api/comps', requireAuth, async (req, res) => {
+  const { sport, schoolTier } = req.query;
+  const comps = await store.getComps(sport, schoolTier, 20);
+  const stats = await store.getCompStats(sport, schoolTier);
+  res.json({ comps, stats, count: comps.length });
+});
+
 app.patch('/api/deals/:id', requireAuth, async (req, res) => {
   const existing = await store.getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
+  // Auto-save to deal comps when a deal is closed with a real value
+  if (req.body.status === 'closed' && existing.status !== 'closed' && parseInt(req.body.value || existing.value) > 0) {
+    const athlete = await store.getAthlete(existing.athleteId);
+    if (athlete) {
+      await store.saveComp({ ...existing, ...req.body }, athlete);
+      console.log('Deal comp saved:', athlete.sport, athlete.schoolTier, req.body.value || existing.value);
+    }
+  }
   res.json(await store.saveDeal(req.params.id, { ...existing, ...req.body }));
 });
 
@@ -274,7 +290,7 @@ app.post('/api/ai/ask', requireAuth, async (req, res) => {
     school:'Unknown', schoolTier:'p4-mid', instagram:0, tiktok:0, engagement:4.0, notes:'' };
   const user = await store.getUser(req.session.userId);
   try {
-    const response = await ai.oneShot(message, ai.buildSystemPrompt(eff, user.role));
+    const response = await ai.oneShot(message, await ai.buildSystemPrompt(eff, user.role));
     res.json({ response });
   } catch (err) {
     res.status(500).json({ error: err.message });

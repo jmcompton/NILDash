@@ -87,6 +87,78 @@ async function deleteAthlete(id) {
 }
 
 // DEALS
+// DEAL COMPS — anonymized closed deals that improve NILViewVal accuracy
+async function saveComp(dealData, athleteData) {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS deal_comps (
+        id SERIAL PRIMARY KEY,
+        sport TEXT,
+        school_tier TEXT,
+        followers INTEGER,
+        engagement NUMERIC,
+        deal_type TEXT,
+        deal_value INTEGER,
+        year_in_school TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      INSERT INTO deal_comps (sport, school_tier, followers, engagement, deal_type, deal_value, year_in_school)
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+    `, [
+      athleteData.sport || 'unknown',
+      athleteData.schoolTier || 'mid-mid',
+      (parseInt(athleteData.instagram) || 0) + (parseInt(athleteData.tiktok) || 0),
+      parseFloat(athleteData.engagement) || 3.0,
+      dealData.type || 'ig-post',
+      parseInt(dealData.value) || 0,
+      athleteData.year || 'unknown'
+    ]);
+  } catch(e) {
+    console.error('saveComp error:', e.message);
+  }
+}
+
+async function getComps(sport, schoolTier, limit = 20) {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS deal_comps (id SERIAL PRIMARY KEY, sport TEXT, school_tier TEXT, followers INTEGER, engagement NUMERIC, deal_type TEXT, deal_value INTEGER, year_in_school TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`);
+    const r = await pool.query(`
+      SELECT * FROM deal_comps
+      WHERE deal_value > 0
+        AND ($1::text IS NULL OR sport = $1)
+        AND ($2::text IS NULL OR school_tier = $2)
+      ORDER BY created_at DESC
+      LIMIT $3
+    `, [sport || null, schoolTier || null, limit]);
+    return r.rows;
+  } catch(e) {
+    return [];
+  }
+}
+
+async function getCompStats(sport, schoolTier) {
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS deal_comps (id SERIAL PRIMARY KEY, sport TEXT, school_tier TEXT, followers INTEGER, engagement NUMERIC, deal_type TEXT, deal_value INTEGER, year_in_school TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`);
+    const r = await pool.query(`
+      SELECT
+        COUNT(*) as count,
+        AVG(deal_value) as avg_value,
+        MIN(deal_value) as min_value,
+        MAX(deal_value) as max_value,
+        AVG(engagement) as avg_engagement,
+        AVG(followers) as avg_followers
+      FROM deal_comps
+      WHERE deal_value > 0
+        AND ($1::text IS NULL OR sport = $1)
+        AND ($2::text IS NULL OR school_tier = $2)
+    `, [sport || null, schoolTier || null]);
+    return r.rows[0];
+  } catch(e) {
+    return null;
+  }
+}
+
 async function getDeal(id) {
   const r = await pool.query('SELECT * FROM deals WHERE id=$1', [id]);
   if (!r.rows[0]) return null;
@@ -120,5 +192,6 @@ module.exports = {
   getUser, getUserByEmail, saveUser, getAllUsers,
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
   getDeal, getDealsByAthlete, getDealsByAgent, saveDeal, deleteDeal,
+  saveComp, getComps, getCompStats,
   pool
 };
