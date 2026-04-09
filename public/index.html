@@ -279,6 +279,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('contract',this)">
         <span class="nav-icon">📄</span>Contract
       </button>
+      <button class="nav-item" onclick="showView('commission',this)">
+        <span class="nav-icon">💰</span>Commission
+      </button>
       <button class="nav-item" onclick="showView('pipeline',this)">
         <span class="nav-icon">📋</span>Pipeline
       </button>
@@ -575,6 +578,79 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
           </div>
           <div id="con-text" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:20px;font-size:11px;line-height:1.8;white-space:pre-wrap;max-height:600px;overflow-y:auto;font-family:var(--mono)"></div>
+        </div>
+      </div>
+
+      <!-- ── COMMISSION TRACKER ── -->
+      <div id="view-commission" class="view">
+        <div class="page-title">Commission Tracker</div>
+        <div class="page-sub">Your earnings across all clients and deals</div>
+
+        <!-- Commission Rate Setting -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <div style="font-size:11px;color:var(--muted)">My Commission Rate:</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="number" id="comm-rate" value="15" min="1" max="50" style="width:60px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;font-weight:700;text-align:center" onchange="renderCommission()">
+            <span style="font-size:13px;font-weight:700;color:var(--text)">%</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-left:8px">Applied to all closed deals</div>
+        </div>
+
+        <!-- KPI Row -->
+        <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:24px">
+          <div class="kpi">
+            <div class="kpi-label">Total Earned</div>
+            <div class="kpi-val" id="comm-total-earned">$0</div>
+            <div class="kpi-sub">From closed deals</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Pending Commission</div>
+            <div class="kpi-val" id="comm-pending">$0</div>
+            <div class="kpi-sub">Deals in progress</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Deals Closed</div>
+            <div class="kpi-val" id="comm-closed-count">0</div>
+            <div class="kpi-sub">This year</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Top Earner</div>
+            <div class="kpi-val" id="comm-top-athlete" style="font-size:14px">—</div>
+            <div class="kpi-sub">By commission</div>
+          </div>
+        </div>
+
+        <!-- By Athlete Breakdown -->
+        <div style="margin-bottom:24px">
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">By Athlete</div>
+          <div id="comm-by-athlete"></div>
+        </div>
+
+        <!-- All Deals Table -->
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">All Deals</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <button onclick="setCommFilter('all')" id="cf-all" style="padding:5px 12px;border-radius:40px;border:1px solid var(--accent);background:var(--accent);color:#000;font-size:11px;font-weight:700;cursor:pointer">All</button>
+            <button onclick="setCommFilter('Closed')" id="cf-closed" style="padding:5px 12px;border-radius:40px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;cursor:pointer">Closed</button>
+            <button onclick="setCommFilter('active')" id="cf-active" style="padding:5px 12px;border-radius:40px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;cursor:pointer">Active</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.05em">
+                  <th style="padding:8px 12px;text-align:left">Athlete</th>
+                  <th style="padding:8px 12px;text-align:left">Brand</th>
+                  <th style="padding:8px 12px;text-align:left">Stage</th>
+                  <th style="padding:8px 12px;text-align:right">Deal Value</th>
+                  <th style="padding:8px 12px;text-align:right">Commission</th>
+                  <th style="padding:8px 12px;text-align:left">Status</th>
+                </tr>
+              </thead>
+              <tbody id="comm-table-body">
+                <tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No deals found</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -1303,12 +1379,13 @@ async function loadKPIs() {
 
 // ── VIEWS ────────────────────────────────────────────────────
 function showView(id, btn) {
+      if (id === 'commission') setTimeout(renderCommission, 100);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', roster:'My Roster', 'add-athlete':'Add Client' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -1611,6 +1688,178 @@ function copyText(id) {
 let lastComplianceResult = null;
 
 let lastContract = '';
+    let commFilter = 'all';
+
+    function setCommFilter(f) {
+      commFilter = f;
+      ['all','Closed','active'].forEach(x => {
+        const el = document.getElementById('cf-' + x);
+        if (!el) return;
+        if (x === f) { el.style.background = 'var(--accent)'; el.style.color = '#000'; el.style.borderColor = 'var(--accent)'; }
+        else { el.style.background = 'transparent'; el.style.color = 'var(--muted)'; el.style.borderColor = 'var(--border)'; }
+      });
+      renderCommission();
+    }
+
+    async function renderCommission() {
+      const rate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
+
+      // Gather all deals across all athletes
+      const allDeals = [];
+      for (const ath of athletes) {
+        const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
+        deals.forEach(d => allDeals.push({ ...d, athleteName: ath.name, athleteId: ath.id }));
+      }
+
+      // Filter
+      let filtered = allDeals;
+      if (commFilter === 'Closed') filtered = allDeals.filter(d => d.stage === 'Closed');
+      else if (commFilter === 'active') filtered = allDeals.filter(d => d.stage !== 'Closed');
+
+      // KPIs
+      const closedDeals = allDeals.filter(d => d.stage === 'Closed');
+      const activeDeals = allDeals.filter(d => d.stage !== 'Closed');
+      const totalEarned = closedDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0) * rate;
+      const totalPending = activeDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0) * rate;
+
+      document.getElementById('comm-total-earned').textContent = '$' + Math.round(totalEarned).toLocaleString();
+      document.getElementById('comm-pending').textContent = '$' + Math.round(totalPending).toLocaleString();
+      document.getElementById('comm-closed-count').textContent = closedDeals.length;
+
+      // Top earner by athlete
+      const byAthlete = {};
+      closedDeals.forEach(d => {
+        if (!byAthlete[d.athleteName]) byAthlete[d.athleteName] = 0;
+        byAthlete[d.athleteName] += (parseInt(d.value) || 0) * rate;
+      });
+      const topAthlete = Object.entries(byAthlete).sort((a,b) => b[1]-a[1])[0];
+      document.getElementById('comm-top-athlete').textContent = topAthlete ? topAthlete[0].split(' ')[0] : '—';
+
+      // By athlete breakdown
+      const athEl = document.getElementById('comm-by-athlete');
+      if (Object.keys(byAthlete).length === 0) {
+        athEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px">No closed deals yet. Close a deal in the Pipeline to see commissions.</div>';
+      } else {
+        const maxVal = Math.max(...Object.values(byAthlete));
+        athEl.innerHTML = Object.entries(byAthlete).sort((a,b)=>b[1]-a[1]).map(([name, comm]) => `
+          <div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="font-size:12px;font-weight:500">${name}</span>
+              <span style="font-size:12px;font-weight:700;color:var(--accent)">$${Math.round(comm).toLocaleString()}</span>
+            </div>
+            <div style="background:var(--surface2);border-radius:40px;height:6px">
+              <div style="background:var(--accent);border-radius:40px;height:6px;width:${Math.round(comm/maxVal*100)}%"></div>
+            </div>
+          </div>`).join('');
+      }
+
+      // Deals table
+      const tbody = document.getElementById('comm-table-body');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No deals found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered.sort((a,b) => (parseInt(b.value)||0) - (parseInt(a.value)||0)).map(d => {
+        const val = parseInt(d.value) || 0;
+        const comm = Math.round(val * rate);
+        const isClosed = d.stage === 'Closed';
+        const statusColor = isClosed ? '#4ade80' : d.stage === 'Negotiating' ? 'var(--accent)' : 'var(--muted)';
+        return `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:10px 12px;font-weight:500">${d.athleteName}</td>
+          <td style="padding:10px 12px">${d.brand || '—'}</td>
+          <td style="padding:10px 12px;color:var(--muted);font-size:11px">${d.stage || '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:500">${val ? '$'+val.toLocaleString() : '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:${isClosed ? 'var(--accent)' : 'var(--muted)'}">${comm ? '$'+comm.toLocaleString() : '—'}</td>
+          <td style="padding:10px 12px"><span style="font-size:10px;padding:3px 8px;border-radius:40px;background:${statusColor}22;color:${statusColor};font-weight:700">${isClosed ? 'EARNED' : 'PENDING'}</span></td>
+        </tr>`;
+      }).join('');
+    }
+    let commFilter = 'all';
+
+    function setCommFilter(f) {
+      commFilter = f;
+      ['all','Closed','active'].forEach(x => {
+        const el = document.getElementById('cf-' + x);
+        if (!el) return;
+        if (x === f) { el.style.background = 'var(--accent)'; el.style.color = '#000'; el.style.borderColor = 'var(--accent)'; }
+        else { el.style.background = 'transparent'; el.style.color = 'var(--muted)'; el.style.borderColor = 'var(--border)'; }
+      });
+      renderCommission();
+    }
+
+    async function renderCommission() {
+      const rate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
+
+      // Gather all deals across all athletes
+      const allDeals = [];
+      for (const ath of athletes) {
+        const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
+        deals.forEach(d => allDeals.push({ ...d, athleteName: ath.name, athleteId: ath.id }));
+      }
+
+      // Filter
+      let filtered = allDeals;
+      if (commFilter === 'Closed') filtered = allDeals.filter(d => d.stage === 'Closed');
+      else if (commFilter === 'active') filtered = allDeals.filter(d => d.stage !== 'Closed');
+
+      // KPIs
+      const closedDeals = allDeals.filter(d => d.stage === 'Closed');
+      const activeDeals = allDeals.filter(d => d.stage !== 'Closed');
+      const totalEarned = closedDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0) * rate;
+      const totalPending = activeDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0) * rate;
+
+      document.getElementById('comm-total-earned').textContent = '$' + Math.round(totalEarned).toLocaleString();
+      document.getElementById('comm-pending').textContent = '$' + Math.round(totalPending).toLocaleString();
+      document.getElementById('comm-closed-count').textContent = closedDeals.length;
+
+      // Top earner by athlete
+      const byAthlete = {};
+      closedDeals.forEach(d => {
+        if (!byAthlete[d.athleteName]) byAthlete[d.athleteName] = 0;
+        byAthlete[d.athleteName] += (parseInt(d.value) || 0) * rate;
+      });
+      const topAthlete = Object.entries(byAthlete).sort((a,b) => b[1]-a[1])[0];
+      document.getElementById('comm-top-athlete').textContent = topAthlete ? topAthlete[0].split(' ')[0] : '—';
+
+      // By athlete breakdown
+      const athEl = document.getElementById('comm-by-athlete');
+      if (Object.keys(byAthlete).length === 0) {
+        athEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px">No closed deals yet. Close a deal in the Pipeline to see commissions.</div>';
+      } else {
+        const maxVal = Math.max(...Object.values(byAthlete));
+        athEl.innerHTML = Object.entries(byAthlete).sort((a,b)=>b[1]-a[1]).map(([name, comm]) => `
+          <div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="font-size:12px;font-weight:500">${name}</span>
+              <span style="font-size:12px;font-weight:700;color:var(--accent)">$${Math.round(comm).toLocaleString()}</span>
+            </div>
+            <div style="background:var(--surface2);border-radius:40px;height:6px">
+              <div style="background:var(--accent);border-radius:40px;height:6px;width:${Math.round(comm/maxVal*100)}%"></div>
+            </div>
+          </div>`).join('');
+      }
+
+      // Deals table
+      const tbody = document.getElementById('comm-table-body');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No deals found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered.sort((a,b) => (parseInt(b.value)||0) - (parseInt(a.value)||0)).map(d => {
+        const val = parseInt(d.value) || 0;
+        const comm = Math.round(val * rate);
+        const isClosed = d.stage === 'Closed';
+        const statusColor = isClosed ? '#4ade80' : d.stage === 'Negotiating' ? 'var(--accent)' : 'var(--muted)';
+        return `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:10px 12px;font-weight:500">${d.athleteName}</td>
+          <td style="padding:10px 12px">${d.brand || '—'}</td>
+          <td style="padding:10px 12px;color:var(--muted);font-size:11px">${d.stage || '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:500">${val ? '$'+val.toLocaleString() : '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:${isClosed ? 'var(--accent)' : 'var(--muted)'}">${comm ? '$'+comm.toLocaleString() : '—'}</td>
+          <td style="padding:10px 12px"><span style="font-size:10px;padding:3px 8px;border-radius:40px;background:${statusColor}22;color:${statusColor};font-weight:700">${isClosed ? 'EARNED' : 'PENDING'}</span></td>
+        </tr>`;
+      }).join('');
+    }
 
     async function generateContract() {
       const brand = document.getElementById('con-brand').value.trim();
