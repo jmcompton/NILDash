@@ -1059,7 +1059,8 @@ function switchTab(tab) {
 function selectRole(role) {
   selectedRole = role;
   document.getElementById('roleAgent').classList.toggle('active', role==='agent');
-  document.getElementById('roleAthlete').classList.toggle('active', role==='athlete');
+  const athleteBtn = document.getElementById('roleAthlete');
+  if (athleteBtn) athleteBtn.classList.toggle('active', role==='athlete');
 }
 
 async function doLogin() {
