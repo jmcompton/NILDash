@@ -729,11 +729,35 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <input class="input-sm" id="comp-description" placeholder="e.g. 3 Instagram posts promoting energy drink over 60 days">
         </div>
 
+        <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;color:#60a5fa;margin-bottom:8px">⚡ SPARTA 72-Hour Compliance</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Federal law requires agents to notify the university within 72 hours of signing any NIL agreement. Enter the signing date to track your deadline.</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <label class="form-label-sm">Contract Signing Date</label>
+              <input class="input-sm" id="comp-signing-date" type="date">
+            </div>
+            <div id="sparta-timer-box" style="display:none;padding:10px;background:var(--surface);border-radius:var(--r-sm);border:1px solid var(--border)">
+              <div style="font-size:10px;color:var(--muted);margin-bottom:4px">72-HR DEADLINE</div>
+              <div id="sparta-deadline-display" style="font-size:12px;font-weight:700;color:var(--text)"></div>
+              <div id="sparta-hours-display" style="font-size:11px;margin-top:2px"></div>
+            </div>
+          </div>
+        </div>
+
         <button class="run-btn" id="comp-btn" onclick="runCompliance()" style="margin-bottom:24px">⚖️ Check Compliance →</button>
 
         <div id="comp-results" style="display:none">
           <!-- Status Banner -->
           <div id="comp-status-banner" style="border-radius:var(--r-sm);padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700"></div>
+
+          <!-- SPARTA Notice -->
+          <div id="comp-sparta-section" style="display:none;margin-bottom:20px">
+            <div style="font-size:12px;font-weight:700;color:#60a5fa;margin-bottom:10px">⚡ SPARTA — University Notification Required</div>
+            <div id="comp-sparta-timer" style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:12px;font-size:12px"></div>
+            <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px">NOTIFICATION LETTER (copy and send to university athletic department)</div>
+            <div id="comp-sparta-notice" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;font-size:11px;line-height:1.7;white-space:pre-wrap;cursor:pointer" onclick="copyText(this)" title="Click to copy"></div>
+          </div>
 
           <!-- Flags -->
           <div id="comp-flags-section" style="margin-bottom:20px">
@@ -1488,9 +1512,10 @@ async function runCompliance() {
   document.getElementById('comp-results').style.display = 'none';
   const athlete = selectedAthleteId ? athletes.find(a => a.id === selectedAthleteId) : null;
   try {
+    const signingDate = document.getElementById('comp-signing-date').value;
     const r = await fetch(API_BASE + '/api/ai/compliance', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ state, dealType, brand, value, description,
+      body: JSON.stringify({ state, dealType, brand, value, description, signingDate,
         athleteName: athlete ? athlete.name : '',
         sport: athlete ? athlete.sport : '',
         school: athlete ? athlete.school : '',
@@ -1516,6 +1541,22 @@ function renderComplianceResults(data) {
   const msgs = { clear: 'No major compliance issues found for this deal in ' + data.state, warning: 'Compliance warnings found - review before proceeding', blocked: 'Deal has compliance issues that must be resolved' };
   banner.style.cssText = styles[data.status] || styles.warning;
   banner.textContent = msgs[data.status] || msgs.warning;
+  // SPARTA section
+  const spartaSection = document.getElementById('comp-sparta-section');
+  if (data.sparta) {
+    spartaSection.style.display = 'block';
+    const s = data.sparta;
+    const color = s.status === 'overdue' ? '#ef4444' : s.status === 'urgent' ? '#fbbf24' : '#60a5fa';
+    const label = s.status === 'overdue' ? '🚨 DEADLINE PASSED' : s.status === 'urgent' ? '⚠️ NOTIFY TODAY' : '✅ On Track';
+    document.getElementById('comp-sparta-timer').innerHTML =
+      '<div style="font-weight:700;color:' + color + ';margin-bottom:4px">' + label + '</div>' +
+      '<div>72-hour deadline: <strong>' + s.deadlineFormatted + '</strong></div>' +
+      '<div style="color:var(--muted);margin-top:2px">' + (s.hoursLeft > 0 ? s.hoursLeft + ' hours remaining' : Math.abs(s.hoursLeft) + ' hours overdue') + '</div>';
+    document.getElementById('comp-sparta-notice').textContent = data.spartaNotice || 'No notification letter generated.';
+  } else {
+    spartaSection.style.display = 'none';
+  }
+
   const flagsSection = document.getElementById('comp-flags-section');
   const flagsEl = document.getElementById('comp-flags');
   if (data.flags && data.flags.length) {

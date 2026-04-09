@@ -329,19 +329,51 @@ app.post('/api/ai/outreach', requireAuth, aiLimiter, async (req, res) => {
 
 // -- NIL Compliance --
 app.post('/api/ai/compliance', requireAuth, aiLimiter, async (req, res) => {
-  const { state, dealType, brand, value, description, athleteName, sport, school, schoolTier } = req.body;
+  const { state, dealType, brand, value, description, athleteName, sport, school, schoolTier, signingDate } = req.body;
+
+  // SPARTA 72-hour calculation
+  let spartaSection = '';
+  if (signingDate) {
+    const signed = new Date(signingDate);
+    const deadline = new Date(signed.getTime() + 72 * 60 * 60 * 1000);
+    const now = new Date();
+    const hoursLeft = Math.round((deadline - now) / (1000 * 60 * 60));
+    const deadlineStr = deadline.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    spartaSection = `SPARTA COMPLIANCE:
+- Signed: ${signed.toLocaleDateString()}
+- 72-hour university notification deadline: ${deadlineStr}
+- Hours remaining: ${hoursLeft > 0 ? hoursLeft + ' hours' : 'OVERDUE by ' + Math.abs(hoursLeft) + ' hours'}
+- Status: ${hoursLeft > 24 ? 'On track' : hoursLeft > 0 ? 'URGENT - notify today' : 'DEADLINE PASSED'}`;
+  }
+
   const prompt = 'Analyze this NIL deal for compliance in ' + state + ':\n' +
     'Athlete: ' + (athleteName||'Unknown') + ', ' + (sport||'Unknown') + ', ' + (school||'Unknown') + ' (' + (schoolTier||'unknown') + ')\n' +
     'Deal: ' + dealType + ' with ' + (brand||'unknown brand') + ' worth $' + (parseInt(value)||0) + '\n' +
-    'Description: ' + (description||'not provided') + '\n\n' +
-    'Check: 1) Is this deal restricted in ' + state + '? 2) Disclosure requirements? 3) Does $' + (parseInt(value)||0) + ' trigger NIL Go $600 reporting? 4) Agent licensing? 5) Category restrictions (alcohol/gambling/tobacco/supplements/crypto)?\n\n' +
-    'Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","sourceNote":"what laws this is based on"}';
+    'Description: ' + (description||'not provided') + '\n' +
+    (signingDate ? 'Signing Date: ' + signingDate + '\n' : '') + '\n' +
+    'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Agent licensing requirements in ' + state + ' 5) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 6) SPARTA compliance - agent must notify ' + (school||'the university') + ' within 72 hours of signing 7) School-specific NIL policies\n\n' +
+    'Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text agent must send to university athletic department within 72 hours","sourceNote":"what laws this is based on"}';
   try {
     const result = await ai.oneShotWithSearch(prompt, 'You are a NIL compliance expert. Search for current 2026 NIL laws for this state before answering. Laws change frequently — always use the most current information. Return only valid JSON.');
     const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Failed to parse result' });
-    res.json(JSON.parse(match[0]));
+    const parsed = JSON.parse(match[0]);
+    // Inject SPARTA timing data
+    if (signingDate) {
+      const signed = new Date(signingDate);
+      const deadline = new Date(signed.getTime() + 72 * 60 * 60 * 1000);
+      const hoursLeft = Math.round((deadline - new Date()) / (1000 * 60 * 60));
+      parsed.sparta = {
+        required: true,
+        signingDate,
+        deadline: deadline.toISOString(),
+        deadlineFormatted: deadline.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }),
+        hoursLeft,
+        status: hoursLeft > 24 ? 'on-track' : hoursLeft > 0 ? 'urgent' : 'overdue'
+      };
+    }
+    res.json(parsed);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
