@@ -450,6 +450,58 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   }
 });
 
+// ── Contract Generator ────────────────────────────────────────
+app.post('/api/ai/contract', requireAuth, aiLimiter, async (req, res) => {
+  const { athleteId, dealId, brand, value, deliverables, startDate, endDate,
+          exclusivity, state, agentName, agentEmail, dealType, paymentTerms, usageRights } = req.body;
+
+  const athlete = athleteId ? await store.getAthlete(athleteId) : null;
+  if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+
+  const prompt = `Generate a professional NIL representation contract with these exact details:
+
+PARTIES:
+- Athlete: ${athlete.name}, ${athlete.sport} athlete at ${athlete.school || 'their university'}
+- Agent/Manager: ${agentName || 'Agent'} (${agentEmail || 'agent@email.com'})
+- Brand/Company: ${brand}
+
+DEAL TERMS:
+- Deal Type: ${dealType || 'Social Media Endorsement'}
+- Total Value: $${parseInt(value || 0).toLocaleString()}
+- Deliverables: ${deliverables || '3 Instagram posts, 2 Instagram stories'}
+- Start Date: ${startDate || 'TBD'}
+- End Date: ${endDate || 'TBD'}
+- Exclusivity: ${exclusivity || 'Non-exclusive'}
+- Payment Terms: ${paymentTerms || '50% upfront, 50% on completion'}
+- Usage Rights: ${usageRights || 'Social media and digital only'}
+- Governing State: ${state || athlete.school || 'Georgia'}
+
+Generate a complete, professional NIL contract with these sections:
+1. PARTIES AND RECITALS
+2. SCOPE OF SERVICES (specific deliverables, posting schedule, content requirements)
+3. COMPENSATION (payment amount, schedule, method, late payment penalties)
+4. TERM AND TERMINATION (start/end dates, early termination clause, 30-day notice)
+5. EXCLUSIVITY AND COMPETING BRANDS
+6. CONTENT APPROVAL PROCESS (brand approval timeline, revision rounds)
+7. USAGE RIGHTS (platforms, duration, geographic scope)
+8. ATHLETE OBLIGATIONS (FTC disclosure requirements, NCAA/school compliance)
+9. BRAND OBLIGATIONS (payment timeline, content brief delivery)
+10. REPRESENTATIONS AND WARRANTIES
+11. INDEMNIFICATION
+12. DISPUTE RESOLUTION (arbitration in ${state || 'Georgia'})
+13. GOVERNING LAW
+14. SIGNATURES (with date lines for both parties)
+
+Use professional legal language. Include specific dollar amounts and dates. Add FTC disclosure language. Make it ready to sign.`;
+
+  try {
+    const contract = await ai.oneShot(prompt, 'You are a sports attorney specializing in NIL contracts. Generate complete, professional, legally sound NIL contracts ready for signature. Use precise legal language. Include all standard contract clauses.');
+    res.json({ contract, athleteName: athlete.name, brand, value });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Catch-all → frontend ───────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));

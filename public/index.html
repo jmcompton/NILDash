@@ -276,6 +276,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('compliance',this)">
         <span class="nav-icon">⚖️</span>Compliance
       </button>
+      <button class="nav-item" onclick="showView('contract',this)">
+        <span class="nav-icon">📄</span>Contract
+      </button>
       <button class="nav-item" onclick="showView('pipeline',this)">
         <span class="nav-icon">📋</span>Pipeline
       </button>
@@ -468,6 +471,113 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
 
       <!-- ── PIPELINE ── -->
+      <!-- ── CONTRACT GENERATOR ── -->
+      <div id="view-contract" class="view">
+        <div class="page-title">Contract Generator</div>
+        <div class="page-sub">Generate a professional NIL contract ready for signature — powered by AI</div>
+
+        <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:20px;font-size:11px;color:#fbbf24">
+          ⚠️ AI-generated contracts are a starting point. Always have a licensed attorney review before signing.
+        </div>
+
+        <div class="card" style="max-width:640px;margin-bottom:20px">
+          <div class="card-title" style="margin-bottom:16px">Deal Information</div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div>
+              <label class="form-label-sm">Brand / Company *</label>
+              <input class="input-sm" id="con-brand" placeholder="e.g. Nike, Red Bull, DraftKings">
+            </div>
+            <div>
+              <label class="form-label-sm">Deal Value ($) *</label>
+              <input class="input-sm" id="con-value" type="number" placeholder="e.g. 15000">
+            </div>
+            <div>
+              <label class="form-label-sm">Deal Type</label>
+              <select class="select-sm" id="con-deal-type">
+                <option value="Social Media Endorsement">Social Media Endorsement</option>
+                <option value="Brand Ambassador">Brand Ambassador</option>
+                <option value="Apparel Deal">Apparel Deal</option>
+                <option value="Appearance Fee">Appearance Fee</option>
+                <option value="Licensing Agreement">Licensing Agreement</option>
+                <option value="Camp/Clinic Sponsorship">Camp / Clinic Sponsorship</option>
+                <option value="General Brand Partnership">General Brand Partnership</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label-sm">Governing State</label>
+              <input class="input-sm" id="con-state" placeholder="e.g. Georgia, Alabama">
+            </div>
+            <div>
+              <label class="form-label-sm">Start Date</label>
+              <input class="input-sm" id="con-start" type="date">
+            </div>
+            <div>
+              <label class="form-label-sm">End Date</label>
+              <input class="input-sm" id="con-end" type="date">
+            </div>
+          </div>
+
+          <div style="margin-bottom:12px">
+            <label class="form-label-sm">Deliverables *</label>
+            <input class="input-sm" id="con-deliverables" placeholder="e.g. 3 Instagram posts, 2 stories, 1 TikTok over 60 days">
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+            <div>
+              <label class="form-label-sm">Payment Terms</label>
+              <select class="select-sm" id="con-payment">
+                <option value="50% upfront, 50% on completion">50% upfront, 50% on completion</option>
+                <option value="100% upfront before first post">100% upfront before first post</option>
+                <option value="100% on completion">100% on completion</option>
+                <option value="Net 30 after completion">Net 30 after completion</option>
+                <option value="Monthly installments">Monthly installments</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label-sm">Exclusivity</label>
+              <select class="select-sm" id="con-exclusivity">
+                <option value="Non-exclusive">Non-exclusive</option>
+                <option value="Category exclusive (no competing brands)">Category exclusive</option>
+                <option value="Fully exclusive">Fully exclusive</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-bottom:12px">
+            <label class="form-label-sm">Usage Rights</label>
+            <input class="input-sm" id="con-usage" placeholder="e.g. Social media and digital only, no TV or print">
+          </div>
+
+          <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+            <div class="card-title" style="margin-bottom:12px;font-size:11px">Agent Information</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <label class="form-label-sm">Agent Name</label>
+                <input class="input-sm" id="con-agent-name" placeholder="Your full name">
+              </div>
+              <div>
+                <label class="form-label-sm">Agent Email</label>
+                <input class="input-sm" id="con-agent-email" placeholder="your@email.com">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button class="run-btn" id="con-btn" onclick="generateContract()" style="margin-bottom:24px">📄 Generate Contract →</button>
+
+        <div id="con-result" style="display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-size:12px;font-weight:700;color:var(--text)">Generated Contract</div>
+            <div style="display:flex;gap:8px">
+              <button onclick="copyContract()" style="padding:7px 14px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;cursor:pointer">📋 Copy</button>
+              <button onclick="downloadContract()" style="padding:7px 14px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-size:11px;font-weight:700;cursor:pointer">⬇ Download .txt</button>
+            </div>
+          </div>
+          <div id="con-text" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:20px;font-size:11px;line-height:1.8;white-space:pre-wrap;max-height:600px;overflow-y:auto;font-family:var(--mono)"></div>
+        </div>
+      </div>
+
       <div id="view-pipeline" class="view">
         <div class="page-title">Deal Pipeline</div>
         <div class="page-sub">Every deal, every client, every stage</div>
@@ -1198,7 +1308,7 @@ function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', roster:'My Roster', 'add-athlete':'Add Client' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', roster:'My Roster', 'add-athlete':'Add Client' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -1499,6 +1609,64 @@ function copyText(id) {
 }
 
 let lastComplianceResult = null;
+
+let lastContract = '';
+
+    async function generateContract() {
+      const brand = document.getElementById('con-brand').value.trim();
+      const value = document.getElementById('con-value').value;
+      if (!brand || !value) { showToast('Brand and value are required'); return; }
+      if (!selectedAthleteId) { showToast('Select an athlete first'); return; }
+
+      const btn = document.getElementById('con-btn');
+      btn.disabled = true; btn.textContent = 'Generating...';
+      document.getElementById('con-result').style.display = 'none';
+
+      try {
+        const r = await fetch(API_BASE + '/api/ai/contract', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            athleteId: selectedAthleteId,
+            brand,
+            value: parseInt(value),
+            dealType: document.getElementById('con-deal-type').value,
+            deliverables: document.getElementById('con-deliverables').value.trim(),
+            startDate: document.getElementById('con-start').value,
+            endDate: document.getElementById('con-end').value,
+            exclusivity: document.getElementById('con-exclusivity').value,
+            state: document.getElementById('con-state').value.trim(),
+            paymentTerms: document.getElementById('con-payment').value,
+            usageRights: document.getElementById('con-usage').value.trim(),
+            agentName: document.getElementById('con-agent-name').value.trim(),
+            agentEmail: document.getElementById('con-agent-email').value.trim(),
+          })
+        });
+        const data = await r.json();
+        if (data.error) { showToast('Error: ' + data.error); return; }
+        lastContract = data.contract;
+        document.getElementById('con-text').textContent = data.contract;
+        document.getElementById('con-result').style.display = 'block';
+        showToast('Contract generated successfully');
+      } catch(e) { showToast('Error: ' + e.message); }
+      btn.disabled = false; btn.textContent = '📄 Generate Contract →';
+    }
+
+    function copyContract() {
+      navigator.clipboard.writeText(lastContract);
+      showToast('Contract copied to clipboard');
+    }
+
+    function downloadContract() {
+      const athlete = athletes.find(a => a.id === selectedAthleteId);
+      const brand = document.getElementById('con-brand').value.trim();
+      const filename = (athlete ? athlete.name.replace(/\s+/g,'-') : 'athlete') + '-' + brand.replace(/\s+/g,'-') + '-NIL-contract.txt';
+      const blob = new Blob([lastContract], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+      showToast('Contract downloaded');
+    }
 
 async function runCompliance() {
   const state = document.getElementById('comp-state').value;
