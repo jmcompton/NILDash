@@ -1690,8 +1690,7 @@ let lastComplianceResult = null;
 
 let lastContract = '';
     let commFilter = 'all';
-
-    function setCommFilter(f) {
+function setCommFilter(f) {
       commFilter = f;
       ['all','Closed','active'].forEach(x => {
         const el = document.getElementById('cf-' + x);
@@ -1775,7 +1774,6 @@ let lastContract = '';
         </tr>`;
       }).join('');
     }
-    let commFilter = 'all';
 
     function setCommFilter(f) {
       commFilter = f;
