@@ -1611,23 +1611,29 @@ async function addDeal() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const brand = document.getElementById('d_brand').value.trim();
   if (!brand) { showToast('Brand name required'); return; }
-  await fetch(`${API_BASE}/api/athletes/${selectedAthleteId}/deals`, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
-      brand, campaign: document.getElementById('d_campaign').value,
-      value: document.getElementById('d_value').value,
-      stage: document.getElementById('d_stage').value,
-    }),
-  });
-  document.getElementById('addDealModal').classList.remove('open');
-  // Clear form
-  document.getElementById('d_brand').value = '';
-  document.getElementById('d_campaign').value = '';
-  document.getElementById('d_value').value = '';
-  showToast('✅ Deal added!');
-  await loadKPIs();
-  await loadPipeline();
-  setTimeout(renderCommission, 200);
+  try {
+    const r = await fetch(`${API_BASE}/api/athletes/${selectedAthleteId}/deals`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        brand,
+        campaign: document.getElementById('d_campaign').value,
+        value: document.getElementById('d_value').value,
+        stage: document.getElementById('d_stage').value,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) { showToast('Error: ' + (data.error || 'Failed to save deal')); return; }
+    document.getElementById('addDealModal').classList.remove('open');
+    document.getElementById('d_brand').value = '';
+    document.getElementById('d_campaign').value = '';
+    document.getElementById('d_value').value = '';
+    showToast('✅ Deal added!');
+    await loadKPIs();
+    await loadPipeline();
+    setTimeout(renderCommission, 200);
+  } catch(e) {
+    showToast('Error: ' + e.message);
+  }
 }
 
 // ── UTILS ────────────────────────────────────────────────────

@@ -175,17 +175,26 @@ app.get('/api/athletes/:id/deals', requireAuth, async (req, res) => {
 });
 
 app.post('/api/athletes/:id/deals', requireAuth, async (req, res) => {
-  const { brand, campaign, stage, value, offeredValue } = req.body;
-  const id = 'deal-' + Date.now();
-  const deal = await store.saveDeal(id, {
-    id, athleteId: req.params.id,
-    brand: brand || '', campaign: campaign || '',
-    stage: stage || 'Prospecting',
-    value: parseInt(value) || 0,
-    offeredValue: parseInt(offeredValue) || 0,
-    createdAt: new Date().toISOString(),
-  });
-  res.status(201).json(deal);
+  try {
+    const { brand, campaign, stage, value, offeredValue } = req.body;
+    if (!brand) return res.status(400).json({ error: 'Brand is required' });
+    const athlete = await store.getAthlete(req.params.id);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    const id = 'deal-' + Date.now();
+    const deal = await store.saveDeal(id, {
+      id, athleteId: req.params.id,
+      agentId: req.session.userId,
+      brand: brand || '', campaign: campaign || '',
+      stage: stage || 'Prospecting',
+      value: parseInt(value) || 0,
+      offeredValue: parseInt(offeredValue) || 0,
+      createdAt: new Date().toISOString(),
+    });
+    res.status(201).json(deal);
+  } catch(err) {
+    console.error('Save deal error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get deal comps for rate accuracy
