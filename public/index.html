@@ -1034,7 +1034,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="form-group-sm"><label class="form-label-sm">Stage</label>
       <select class="select-sm" id="d_stage">
         <option>Prospecting</option><option>Outreach Sent</option>
-        <option>Negotiating</option><option>Closing</option>
+        <option>Negotiating</option><option>Closing</option><option>Closed</option>
       </select>
     </div>
     <button class="run-btn" style="width:100%;margin-top:12px" onclick="addDeal()">Save Deal →</button>
@@ -1546,7 +1546,7 @@ async function runNegotiate() {
 
 // ── PIPELINE ─────────────────────────────────────────────────
 async function loadPipeline() {
-  const stages = ['Prospecting','Outreach Sent','Negotiating','Closing'];
+  const stages = ['Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
   let allDeals = [];
   for (const ath of athletes) {
     const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
@@ -1565,20 +1565,46 @@ async function loadPipeline() {
         <div class="pipe-col-name">${stage}</div>
         <div class="pipe-count">${stagDeals.length}</div>
       </div>
-      ${stagDeals.map(d=>`
-        <div class="pipe-card">
+      ${stagDeals.map(d=>{
+        const stagesJson = JSON.stringify(stages).replace(/'/g,"\'");
+        return `<div class="pipe-card">
           <div class="pipe-brand">${d.brand}</div>
           <div class="pipe-athlete">${d.athleteName}</div>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <div class="pipe-amount">$${(d.value||0).toLocaleString()}</div>
-            <span class="chip ${stage==='Closing'?'chip-green':stage==='Negotiating'?'chip-blue':'chip-neutral'}">${stage.split(' ')[0]}</span>
+            <span class="chip ${stage==='Closed'?'chip-green':stage==='Negotiating'?'chip-blue':'chip-neutral'}">${stage.split(' ')[0]}</span>
           </div>
           <div class="pipe-footer">
             <span class="action-link" onclick="prefillNeg('${d.brand}','')">Negotiate →</span>
+            <div style="display:flex;gap:8px">
+              <span class="action-link" onclick="moveDeal('${d.id}','${d.athleteId}','${stage}',${stagesJson})" style="color:var(--muted)">Move →</span>
+              <span class="action-link" onclick="deleteDealCard('${d.id}','${d.athleteId}')" style="color:#ef4444">✕</span>
+            </div>
           </div>
-        </div>`).join('')}
+        </div>`;}).join('')}
     </div>`;
   }).join('');
+}
+
+async function moveDeal(dealId, athleteId, currentStage, stages) {
+  const idx = stages.indexOf(currentStage);
+  const nextStage = stages[idx + 1];
+  if (!nextStage) { showToast('Already at final stage'); return; }
+  await fetch(`${API_BASE}/api/deals/${dealId}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ stage: nextStage })
+  });
+  showToast('Moved to ' + nextStage);
+  loadKPIs(); loadPipeline();
+  if (nextStage === 'Closed') setTimeout(renderCommission, 200);
+}
+
+async function deleteDealCard(dealId, athleteId) {
+  if (!confirm('Delete this deal?')) return;
+  await fetch(`${API_BASE}/api/deals/${dealId}`, { method:'DELETE' });
+  showToast('Deal deleted');
+  loadKPIs(); loadPipeline();
+  setTimeout(renderCommission, 200);
 }
 
 async function addDeal() {
@@ -1594,8 +1620,14 @@ async function addDeal() {
     }),
   });
   document.getElementById('addDealModal').classList.remove('open');
+  // Clear form
+  document.getElementById('d_brand').value = '';
+  document.getElementById('d_campaign').value = '';
+  document.getElementById('d_value').value = '';
   showToast('✅ Deal added!');
-  loadKPIs(); loadPipeline();
+  await loadKPIs();
+  await loadPipeline();
+  setTimeout(renderCommission, 200);
 }
 
 // ── UTILS ────────────────────────────────────────────────────
