@@ -1063,14 +1063,25 @@ tbody td{padding:11px 14px;vertical-align:middle}
     </div>
 
     <!-- Step 2: Add First Athlete -->
-    <div class="ob-step" id="ob-step-2" style="display:none;padding:40px">
+    <div class="ob-step" id="ob-step-2" style="display:none;padding:32px;max-height:85vh;overflow-y:auto">
       <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px">Step 1 of 3</div>
-      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:8px">Add your first client</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:24px">Add a real athlete or use our sample client to explore the platform.</div>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
-        <input class="input-sm" id="ob-athlete-name" placeholder="Athlete full name *" style="padding:12px 14px">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <select class="select-sm" id="ob-athlete-sport" style="padding:12px 14px">
+      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Add your first client</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:20px">Add a real athlete or use our sample client to explore the platform.</div>
+
+      <!-- AI Lookup -->
+      <div class="form-group-sm" style="margin-bottom:12px">
+        <label class="form-label-sm">Full Name *</label>
+        <div style="display:flex;gap:8px">
+          <input class="input-sm" id="ob-athlete-name" placeholder="e.g. Marcus Johnson" style="flex:1">
+          <button onclick="obLookupPlayer()" id="ob-lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px;background:var(--accent);color:#000;border:none;border-radius:var(--r-sm);font-family:var(--mono);cursor:pointer;font-weight:700">⚡ AI Lookup</button>
+        </div>
+        <div id="ob-lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div>
+          <label class="form-label-sm">Sport *</label>
+          <select class="select-sm" id="ob-athlete-sport">
             <option value="basketball">Basketball</option>
             <option value="football">Football</option>
             <option value="baseball">Baseball</option>
@@ -1080,16 +1091,101 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <option value="track">Track & Field</option>
             <option value="volleyball">Volleyball</option>
           </select>
-          <input class="input-sm" id="ob-athlete-school" placeholder="School (e.g. Alabama)" style="padding:12px 14px">
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <input class="input-sm" id="ob-athlete-ig" placeholder="Instagram followers" type="number" style="padding:12px 14px">
-          <input class="input-sm" id="ob-athlete-eng" placeholder="Engagement % (e.g. 5.6)" type="number" step="0.1" style="padding:12px 14px">
+        <div>
+          <label class="form-label-sm">Position</label>
+          <input class="input-sm" id="ob-athlete-pos" placeholder="e.g. PG, WR">
         </div>
       </div>
+
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">School</label>
+        <input class="input-sm" id="ob-athlete-school" placeholder="e.g. Duke University">
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">School Tier</label>
+        <select class="select-sm" id="ob-athlete-tier">
+          <optgroup label="Power 4 — D1">
+            <option value="p4-top10">P4 — Elite (Alabama, Ohio State, Duke)</option>
+            <option value="p4-top25">P4 — Top 25 Program</option>
+            <option value="p4-mid" selected>P4 — Mid Tier</option>
+            <option value="p4-lower">P4 — Lower Tier</option>
+          </optgroup>
+          <optgroup label="High Major — D1">
+            <option value="highmajor-top">High Major — Top (Gonzaga, Memphis)</option>
+            <option value="highmajor-mid">High Major — Mid Tier</option>
+          </optgroup>
+          <optgroup label="Mid-Major — D1">
+            <option value="mid-top">Mid-Major — Top Program</option>
+            <option value="mid-mid">Mid-Major — Mid Tier</option>
+            <option value="mid-lower">Mid-Major — Lower Tier</option>
+          </optgroup>
+          <optgroup label="Low Major — D1">
+            <option value="lowmajor-top">Low Major — Top</option>
+            <option value="lowmajor-lower">Low Major — Lower Tier</option>
+          </optgroup>
+          <optgroup label="Division 2">
+            <option value="d2-elite">D2 — Elite Program</option>
+            <option value="d2-top">D2 — Top Program</option>
+            <option value="d2-mid">D2 — Mid Tier</option>
+            <option value="d2-lower">D2 — Lower Tier</option>
+          </optgroup>
+          <optgroup label="Division 3">
+            <option value="d3-top">D3 — Top Program</option>
+            <option value="d3-mid">D3 — Mid Tier</option>
+            <option value="d3-lower">D3 — Lower Tier</option>
+          </optgroup>
+          <optgroup label="NAIA / JUCO">
+            <option value="naia-top">NAIA — Top Program</option>
+            <option value="naia-mid">NAIA — Mid Tier</option>
+            <option value="juco-d1">JUCO — Division 1</option>
+            <option value="juco-d2">JUCO — Division 2</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div>
+          <label class="form-label-sm">Instagram Followers</label>
+          <input class="input-sm" id="ob-athlete-ig" type="number" placeholder="45000">
+        </div>
+        <div>
+          <label class="form-label-sm">TikTok Followers</label>
+          <input class="input-sm" id="ob-athlete-tt" type="number" placeholder="120000">
+        </div>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">Engagement Rate (%)</label>
+        <input class="input-sm" id="ob-athlete-eng" type="number" step="0.1" placeholder="6.2">
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">Year</label>
+        <select class="select-sm" id="ob-athlete-year">
+          <option value="">Unknown</option>
+          <option value="Freshman">Freshman</option>
+          <option value="Sophomore">Sophomore</option>
+          <option value="Junior">Junior</option>
+          <option value="Senior">Senior</option>
+          <option value="Grad Transfer">Grad Transfer</option>
+        </select>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">Key Stats</label>
+        <input class="input-sm" id="ob-athlete-stats" placeholder="Auto-filled by AI Lookup, or enter manually">
+      </div>
+
+      <div style="margin-bottom:20px">
+        <label class="form-label-sm">Notes</label>
+        <input class="input-sm" id="ob-athlete-notes" placeholder="Draft year, brand restrictions, etc.">
+      </div>
+
       <div style="display:flex;gap:10px">
-        <button onclick="obAddSample()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer">Use Sample Athlete</button>
-        <button onclick="obAddAthlete()" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Add Athlete →</button>
+        <button onclick="obAddSample()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer">Use Sample</button>
+        <button onclick="obAddAthlete()" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Save Client →</button>
       </div>
     </div>
 
@@ -2500,12 +2596,49 @@ window.addEventListener('DOMContentLoaded', checkSession);
       if (step) step.style.display = 'block';
     }
 
+    async function obLookupPlayer() {
+      const name = document.getElementById('ob-athlete-name').value.trim();
+      if (!name) { showToast('Enter athlete name first'); return; }
+      const btn = document.getElementById('ob-lookup-btn');
+      const status = document.getElementById('ob-lookup-status');
+      btn.disabled = true; btn.textContent = 'Looking up...';
+      status.textContent = 'Searching for ' + name + '...';
+      try {
+        const r = await fetch(`${API_BASE}/api/ai/player-lookup`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ name })
+        });
+        const data = await r.json();
+        if (data.found) {
+          if (data.school) document.getElementById('ob-athlete-school').value = data.school;
+          if (data.sport) document.getElementById('ob-athlete-sport').value = data.sport;
+          if (data.position) document.getElementById('ob-athlete-pos').value = data.position;
+          if (data.year) document.getElementById('ob-athlete-year').value = data.year;
+          if (data.stats) document.getElementById('ob-athlete-stats').value = data.stats;
+          if (data.instagram) document.getElementById('ob-athlete-ig').value = data.instagram;
+          if (data.tiktok) document.getElementById('ob-athlete-tt').value = data.tiktok;
+          if (data.engagement) document.getElementById('ob-athlete-eng').value = data.engagement;
+          if (data.schoolTier) document.getElementById('ob-athlete-tier').value = data.schoolTier;
+          status.textContent = '✅ Found! Review and save.';
+          status.style.color = 'var(--accent)';
+        } else {
+          status.textContent = 'Not found — fill in manually.';
+        }
+      } catch(e) { status.textContent = 'Lookup failed — fill in manually.'; }
+      btn.disabled = false; btn.textContent = '⚡ AI Lookup';
+    }
+
     async function obAddSample() {
       document.getElementById('ob-athlete-name').value = 'Marcus Johnson';
-      document.getElementById('ob-athlete-school').value = 'Alabama';
+      document.getElementById('ob-athlete-school').value = 'University of Alabama';
       document.getElementById('ob-athlete-sport').value = 'football';
+      document.getElementById('ob-athlete-pos').value = 'WR';
+      document.getElementById('ob-athlete-tier').value = 'p4-top10';
       document.getElementById('ob-athlete-ig').value = '45000';
+      document.getElementById('ob-athlete-tt').value = '28000';
       document.getElementById('ob-athlete-eng').value = '6.2';
+      document.getElementById('ob-athlete-year').value = 'Junior';
+      document.getElementById('ob-athlete-stats').value = '42 rec, 680 yds, 7 TD';
       await obAddAthlete();
     }
 
@@ -2518,10 +2651,15 @@ window.addEventListener('DOMContentLoaded', checkSession);
           body: JSON.stringify({
             name,
             sport: document.getElementById('ob-athlete-sport').value,
+            position: document.getElementById('ob-athlete-pos').value,
             school: document.getElementById('ob-athlete-school').value,
-            schoolTier: 'p4-mid',
+            schoolTier: document.getElementById('ob-athlete-tier').value || 'p4-mid',
             instagram: parseInt(document.getElementById('ob-athlete-ig').value) || 0,
+            tiktok: parseInt(document.getElementById('ob-athlete-tt').value) || 0,
             engagement: parseFloat(document.getElementById('ob-athlete-eng').value) || 3.0,
+            year: document.getElementById('ob-athlete-year').value,
+            stats: document.getElementById('ob-athlete-stats').value,
+            notes: document.getElementById('ob-athlete-notes').value,
           })
         });
         const data = await r.json();
