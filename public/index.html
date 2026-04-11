@@ -2391,6 +2391,40 @@ Be word-for-word specific. This is for a real negotiation call.`;
 }
 
 window.addEventListener('DOMContentLoaded', checkSession);
+
+    function applyThemeUI() {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const icon = document.getElementById('theme-icon');
+      const label = document.getElementById('theme-label');
+      if (icon) icon.textContent = isLight ? '🌙' : '☀️';
+      if (label) label.textContent = isLight ? 'Dark Mode' : 'Light Mode';
+    }
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      const isLight = html.getAttribute('data-theme') === 'light';
+      if (isLight) {
+        html.removeAttribute('data-theme');
+        document.getElementById('theme-icon').textContent = '☀️';
+        document.getElementById('theme-label').textContent = 'Light Mode';
+        localStorage.setItem('nildasTheme', 'dark');
+      } else {
+        html.setAttribute('data-theme', 'light');
+        document.getElementById('theme-icon').textContent = '🌙';
+        document.getElementById('theme-label').textContent = 'Dark Mode';
+        localStorage.setItem('nildasTheme', 'light');
+      }
+    }
+
+    // Apply saved theme immediately
+    (function() {
+      const saved = localStorage.getItem('nildasTheme');
+      if (saved === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+      document.addEventListener('DOMContentLoaded', applyThemeUI);
+    })();
+
 </script>
 </body>
 </html>
