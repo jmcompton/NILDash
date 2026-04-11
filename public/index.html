@@ -14,6 +14,15 @@
   --head:'Syne',sans-serif;--mono:'DM Mono',monospace;
   --r:10px;--r-sm:6px;
 }
+[data-theme="light"] {
+  --bg:#F5F4F0;--surface:#FFFFFF;--surface2:#EEEDE9;
+  --border:rgba(0,0,0,0.08);--border2:rgba(0,0,0,0.14);
+  --text:#1A1A18;--muted:rgba(26,26,24,0.5);
+  --accent:#7DB100;--blue:#0090B8;--red:#C82020;
+}
+[data-theme="light"] body::before {
+  background-image:linear-gradient(rgba(0,0,0,0.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,0,0,0.025) 1px,transparent 1px);
+}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;line-height:1.6;min-height:100vh}
 body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.012) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
@@ -302,6 +311,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="user-role" id="userRole">agent</div>
         </div>
       </div>
+      <button onclick="toggleTheme()" id="theme-toggle-btn" style="width:100%;padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;gap:8px;transition:all 0.15s">
+        <span id="theme-icon">☀️</span><span id="theme-label">Light Mode</span>
+      </button>
       <button class="logout-btn" onclick="doLogout()">Sign Out</button>
     </div>
   </aside>
