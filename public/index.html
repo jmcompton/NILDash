@@ -1035,6 +1035,103 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
 
       <!-- ADD DEAL MODAL -->
+<!-- ── ONBOARDING ── -->
+<div id="onboardingOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--surface);border:1px solid var(--border2);border-radius:16px;width:100%;max-width:520px;overflow:hidden">
+
+    <!-- Step 1: Welcome -->
+    <div class="ob-step" id="ob-step-1" style="padding:40px">
+      <div style="font-family:var(--head);font-size:28px;font-weight:800;color:var(--accent);margin-bottom:4px">NILDash</div>
+      <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:28px">NIL Intelligence Platform</div>
+      <div style="font-family:var(--head);font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px">Welcome, <span id="ob-name"></span> 👋</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:28px;line-height:1.7">You're set up as a sports agent. NILDash gives you AI-powered tools to close more NIL deals, faster.</div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:32px">
+        <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--surface2);border-radius:var(--r-sm)">
+          <span style="font-size:20px">💰</span>
+          <div><div style="font-size:12px;font-weight:700;color:var(--text)">Rate Calculator</div><div style="font-size:11px;color:var(--muted)">AI-calculated NIL rates anchored to real CPM data</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--surface2);border-radius:var(--r-sm)">
+          <span style="font-size:20px">🔍</span>
+          <div><div style="font-size:12px;font-weight:700;color:var(--text)">Deal Scan</div><div style="font-size:11px;color:var(--muted)">AI finds real brands actively doing NIL deals</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--surface2);border-radius:var(--r-sm)">
+          <span style="font-size:20px">📄</span>
+          <div><div style="font-size:12px;font-weight:700;color:var(--text)">Contract Generator</div><div style="font-size:11px;color:var(--muted)">Generate professional NIL contracts in seconds</div></div>
+        </div>
+      </div>
+      <button onclick="obStep(2)" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:14px;border-radius:40px;border:none;cursor:pointer">Get Started →</button>
+    </div>
+
+    <!-- Step 2: Add First Athlete -->
+    <div class="ob-step" id="ob-step-2" style="display:none;padding:40px">
+      <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px">Step 1 of 3</div>
+      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:8px">Add your first client</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:24px">Add a real athlete or use our sample client to explore the platform.</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
+        <input class="input-sm" id="ob-athlete-name" placeholder="Athlete full name *" style="padding:12px 14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <select class="select-sm" id="ob-athlete-sport" style="padding:12px 14px">
+            <option value="basketball">Basketball</option>
+            <option value="football">Football</option>
+            <option value="baseball">Baseball</option>
+            <option value="soccer">Soccer</option>
+            <option value="golf">Golf</option>
+            <option value="swimming">Swimming</option>
+            <option value="track">Track & Field</option>
+            <option value="volleyball">Volleyball</option>
+          </select>
+          <input class="input-sm" id="ob-athlete-school" placeholder="School (e.g. Alabama)" style="padding:12px 14px">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <input class="input-sm" id="ob-athlete-ig" placeholder="Instagram followers" type="number" style="padding:12px 14px">
+          <input class="input-sm" id="ob-athlete-eng" placeholder="Engagement % (e.g. 5.6)" type="number" step="0.1" style="padding:12px 14px">
+        </div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button onclick="obAddSample()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer">Use Sample Athlete</button>
+        <button onclick="obAddAthlete()" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Add Athlete →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Add First Deal -->
+    <div class="ob-step" id="ob-step-3" style="display:none;padding:40px">
+      <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px">Step 2 of 3</div>
+      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:8px">Add your first deal</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:24px">Track every deal in your pipeline and see your commission in real time.</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
+        <input class="input-sm" id="ob-deal-brand" placeholder="Brand name (e.g. Nike, Red Bull)" style="padding:12px 14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <input class="input-sm" id="ob-deal-value" placeholder="Deal value ($)" type="number" style="padding:12px 14px">
+          <select class="select-sm" id="ob-deal-stage" style="padding:12px 14px">
+            <option>Prospecting</option>
+            <option>Outreach Sent</option>
+            <option>Negotiating</option>
+            <option>Closing</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button onclick="obSkipDeal()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer">Skip for now</button>
+        <button onclick="obAddDeal()" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Add Deal →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Done -->
+    <div class="ob-step" id="ob-step-4" style="display:none;padding:40px;text-align:center">
+      <div style="font-size:48px;margin-bottom:16px">🎉</div>
+      <div style="font-family:var(--head);font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px">You're all set!</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:28px;line-height:1.7">NILDash is ready. Start with the Rate Calculator to see what your athlete is worth, or run a Deal Scan to find the best brand opportunities.</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:28px;text-align:left">
+        <div id="ob-check-1" style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)"><span style="color:var(--accent);font-weight:700">✓</span> Account created</div>
+        <div id="ob-check-2" style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)"><span style="color:var(--accent);font-weight:700">✓</span> First client added</div>
+        <div id="ob-check-3" style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)"><span id="ob-deal-check-icon">✓</span> First deal added</div>
+      </div>
+      <button onclick="obFinish()" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:14px;border-radius:40px;border:none;cursor:pointer">Enter NILDash →</button>
+    </div>
+
+  </div>
+</div>
+
 <div class="modal-overlay" id="addDealModal">
   <div class="modal">
     <button class="modal-close" onclick="document.getElementById('addDealModal').classList.remove('open')">×</button>
@@ -1146,6 +1243,8 @@ async function bootApp() {
   if (!health.aiReady) { aiEl.textContent = '⚠️ AI KEY MISSING'; aiEl.style.color = 'var(--red)'; aiEl.style.borderColor = 'rgba(241,53,53,0.3)'; }
   document.getElementById('kpi-ai').textContent = health.aiReady ? '✅' : '⚠️';
   document.getElementById('kpi-ai-sub').textContent = health.aiReady ? 'Connected' : 'Key missing';
+  // Check if new user needs onboarding
+  setTimeout(checkOnboarding, 500);
 }
 
 // ── SESSION CHECK ─────────────────────────────────────────────
@@ -2391,6 +2490,92 @@ Be word-for-word specific. This is for a real negotiation call.`;
 }
 
 window.addEventListener('DOMContentLoaded', checkSession);
+
+    // ── ONBOARDING ─────────────────────────────────────────────
+    let obAthleteId = null;
+
+    function obStep(n) {
+      document.querySelectorAll('.ob-step').forEach(s => s.style.display = 'none');
+      const step = document.getElementById('ob-step-' + n);
+      if (step) step.style.display = 'block';
+    }
+
+    async function obAddSample() {
+      document.getElementById('ob-athlete-name').value = 'Marcus Johnson';
+      document.getElementById('ob-athlete-school').value = 'Alabama';
+      document.getElementById('ob-athlete-sport').value = 'football';
+      document.getElementById('ob-athlete-ig').value = '45000';
+      document.getElementById('ob-athlete-eng').value = '6.2';
+      await obAddAthlete();
+    }
+
+    async function obAddAthlete() {
+      const name = document.getElementById('ob-athlete-name').value.trim();
+      if (!name) { showToast('Please enter an athlete name'); return; }
+      try {
+        const r = await fetch(`${API_BASE}/api/athletes`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            name,
+            sport: document.getElementById('ob-athlete-sport').value,
+            school: document.getElementById('ob-athlete-school').value,
+            schoolTier: 'p4-mid',
+            instagram: parseInt(document.getElementById('ob-athlete-ig').value) || 0,
+            engagement: parseFloat(document.getElementById('ob-athlete-eng').value) || 3.0,
+          })
+        });
+        const data = await r.json();
+        if (!r.ok) { showToast('Error: ' + data.error); return; }
+        obAthleteId = data.id;
+        await loadAthletes();
+        selectedAthleteId = data.id;
+        document.getElementById('activeAthlete').value = data.id;
+        obStep(3);
+      } catch(e) { showToast('Error: ' + e.message); }
+    }
+
+    async function obAddDeal() {
+      const brand = document.getElementById('ob-deal-brand').value.trim();
+      if (!brand || !obAthleteId) { obSkipDeal(); return; }
+      try {
+        await fetch(`${API_BASE}/api/athletes/${obAthleteId}/deals`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            brand,
+            value: parseInt(document.getElementById('ob-deal-value').value) || 0,
+            stage: document.getElementById('ob-deal-stage').value,
+          })
+        });
+        document.getElementById('ob-deal-check-icon').textContent = '✓';
+        document.getElementById('ob-deal-check-icon').style.color = 'var(--accent)';
+        document.getElementById('ob-deal-check-icon').style.fontWeight = '700';
+      } catch(e) {}
+      obStep(4);
+    }
+
+    function obSkipDeal() {
+      document.getElementById('ob-deal-check-icon').textContent = '–';
+      obStep(4);
+    }
+
+    async function obFinish() {
+      document.getElementById('onboardingOverlay').style.display = 'none';
+      localStorage.setItem('nildash-onboarded-' + currentUser.id, '1');
+      await loadAthletes();
+      await loadKPIs();
+      await loadPipeline();
+      showView('rate', document.querySelector('.nav-item'));
+      showToast('Welcome to NILDash! 🎉');
+    }
+
+    function checkOnboarding() {
+      const key = 'nildash-onboarded-' + currentUser.id;
+      if (!localStorage.getItem(key) && athletes.length === 0) {
+        document.getElementById('ob-name').textContent = currentUser.name.split(' ')[0];
+        document.getElementById('onboardingOverlay').style.display = 'flex';
+        obStep(1);
+      }
+    }
 
     function applyThemeUI() {
       const isLight = document.documentElement.getAttribute('data-theme') === 'light';
