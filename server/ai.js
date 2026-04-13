@@ -86,7 +86,7 @@ async function streamResponse(athlete, message, role, res) {
   const stream = ai.messages.stream({
     model: 'claude-opus-4-5',
     max_tokens: 1024,
-    system: buildSystemPrompt(athlete, role),
+    system: await buildSystemPrompt(athlete, role),
     messages: [{ role: 'user', content: message }],
   });
 
