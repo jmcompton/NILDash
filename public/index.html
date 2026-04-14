@@ -1108,9 +1108,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
     <!-- Step 2: Add First Athlete -->
     <div class="ob-step" id="ob-step-2" style="display:none;padding:32px;max-height:85vh;overflow-y:auto">
+      <!-- Progress bar -->
+      <div style="display:flex;gap:4px;margin-bottom:20px">
+        <div style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></div>
+        <div style="flex:1;height:3px;border-radius:2px;background:var(--border)"></div>
+        <div style="flex:1;height:3px;border-radius:2px;background:var(--border)"></div>
+      </div>
       <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px">Step 1 of 3</div>
       <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Add your first client</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:20px">Add a real athlete or use our sample client to explore the platform.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Add a real athlete or use our sample client to explore the platform.</div>
+      <div style="font-size:11px;color:var(--accent);margin-bottom:16px">💡 The more detail you add, the more accurate your AI rate calculations will be.</div>
 
       <!-- AI Lookup -->
       <div class="form-group-sm" style="margin-bottom:12px">
@@ -1235,9 +1242,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
     <!-- Step 3: Add First Deal -->
     <div class="ob-step" id="ob-step-3" style="display:none;padding:40px">
+      <!-- Progress bar -->
+      <div style="display:flex;gap:4px;margin-bottom:20px">
+        <div style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></div>
+        <div style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></div>
+        <div style="flex:1;height:3px;border-radius:2px;background:var(--border)"></div>
+      </div>
       <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px">Step 2 of 3</div>
       <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:8px">Add your first deal</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:24px">Track every deal in your pipeline and see your commission in real time.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Track every deal in your pipeline and see your commission in real time.</div>
+      <div style="font-size:11px;color:var(--accent);margin-bottom:20px">💡 Even a deal in early prospecting counts — your pipeline value updates instantly.</div>
       <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
         <input class="input-sm" id="ob-deal-brand" placeholder="Brand name (e.g. Nike, Red Bull)" style="padding:12px 14px">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -1258,6 +1272,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
     <!-- Step 4: Done -->
     <div class="ob-step" id="ob-step-4" style="display:none;padding:40px;text-align:center">
+      <!-- Progress bar -->
+      <div style="display:flex;gap:4px;margin-bottom:24px">
+        <div style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></div>
+        <div style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></div>
+        <div style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></div>
+      </div>
       <div style="font-size:48px;margin-bottom:16px">🎉</div>
       <div style="font-family:var(--head);font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px">You're all set!</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:28px;line-height:1.7">NILDash is ready. Start with the Rate Calculator to see what your athlete is worth, or run a Deal Scan to find the best brand opportunities.</div>
@@ -1266,7 +1286,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div id="ob-check-2" style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)"><span style="color:var(--accent);font-weight:700">✓</span> First client added</div>
         <div id="ob-check-3" style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)"><span id="ob-deal-check-icon">✓</span> First deal added</div>
       </div>
-      <button onclick="obFinish()" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:14px;border-radius:40px;border:none;cursor:pointer">Enter NILDash →</button>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button onclick="obFinishRate()" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:14px;border-radius:40px;border:none;cursor:pointer">💰 Calculate Your Athlete's Rate →</button>
+        <button onclick="obFinishScan()" style="width:100%;background:transparent;color:var(--text);font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:1px solid var(--border);cursor:pointer">🎯 Run a Deal Scan Instead</button>
+        <button onclick="obFinish()" style="background:transparent;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:4px">Skip — take me to the dashboard</button>
+      </div>
     </div>
 
   </div>
@@ -2741,7 +2765,15 @@ window.addEventListener('DOMContentLoaded', checkSession);
       obStep(4);
     }
 
-    async function obFinish() {
+    async function obFinishRate() {
+  obFinish();
+  setTimeout(function() { showView('rate', document.querySelector('.nav-item[onclick*="rate"]')); }, 300);
+}
+function obFinishScan() {
+  obFinish();
+  setTimeout(function() { showView('deals', document.querySelector('.nav-item[onclick*="deals"]')); }, 300);
+}
+function obFinish() {
       document.getElementById('onboardingOverlay').style.display = 'none';
       localStorage.setItem('nildash-onboarded-' + currentUser.id, '1');
       await loadAthletes();
