@@ -205,6 +205,20 @@ app.get('/api/comps', requireAuth, async (req, res) => {
   res.json({ comps, stats, count: comps.length });
 });
 
+app.post('/api/deals', requireAuth, async (req, res) => {
+  const { id, athleteId, agentId, brand, campaign, value, stage, notes, source } = req.body;
+  if (!id || !athleteId || !brand || !value) return res.status(400).json({ error: 'Missing required fields' });
+  const deal = await store.saveDeal(id, {
+    athleteId, agentId: req.session.userId,
+    brand, campaign: campaign || 'Manual Entry',
+    value: parseInt(value), stage: stage || 'Closed',
+    notes: notes || '', source: source || 'manual',
+    status: stage === 'Closed' ? 'closed' : 'active',
+    createdAt: new Date().toISOString()
+  });
+  res.json(deal);
+});
+
 app.patch('/api/deals/:id', requireAuth, async (req, res) => {
   const existing = await store.getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
