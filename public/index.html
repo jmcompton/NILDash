@@ -190,8 +190,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .mobile-topbar{display:none;position:fixed;top:0;left:0;right:0;height:52px;background:var(--surface);border-bottom:1px solid var(--border);z-index:100;align-items:center;padding:0 16px;gap:12px}
 .mobile-topbar .mob-logo{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);flex:1}
 .hamburger{background:transparent;border:1px solid var(--border);border-radius:6px;padding:6px 10px;cursor:pointer;color:var(--text);font-size:16px;line-height:1}
-.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:98;backdrop-filter:blur(2px)}
-.sidebar-overlay.open{display:block}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:98;backdrop-filter:blur(2px);pointer-events:none}
+.sidebar-overlay.open{display:block;pointer-events:all}
 @media(max-width:768px){
   .mobile-topbar{display:flex}
   .sidebar{transform:translateX(-100%);transition:transform 0.25s ease;z-index:99;width:260px;top:0}
