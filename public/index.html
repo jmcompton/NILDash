@@ -663,7 +663,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
         <!-- All Deals Table -->
         <div>
-          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">All Deals</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-size:12px;font-weight:700;color:var(--text)">All Deals</div>
+            <button onclick="openManualDealModal()" style="padding:6px 14px;border-radius:40px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer">+ Add Manual Deal</button>
+          </div>
           <div style="display:flex;gap:8px;margin-bottom:12px">
             <button onclick="setCommFilter('all')" id="cf-all" style="padding:5px 12px;border-radius:40px;border:1px solid var(--accent);background:var(--accent);color:#000;font-size:11px;font-weight:700;cursor:pointer">All</button>
             <button onclick="setCommFilter('Closed')" id="cf-closed" style="padding:5px 12px;border-radius:40px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;cursor:pointer">Closed</button>
@@ -2773,5 +2776,76 @@ window.addEventListener('DOMContentLoaded', checkSession);
     })();
 
 </script>
+
+<!-- Manual Deal Modal -->
+<div id="manual-deal-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);z-index:500;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:32px;width:100%;max-width:480px">
+    <div style="font-size:16px;font-weight:700;margin-bottom:20px">Add Manual Deal</div>
+    <div style="display:grid;gap:14px">
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">ATHLETE *</label>
+        <select id="md-athlete" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px"></select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">BRAND *</label>
+        <input id="md-brand" type="text" placeholder="e.g. Nike, Gatorade" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;box-sizing:border-box">
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">DEAL VALUE ($) *</label>
+          <input id="md-value" type="number" placeholder="e.g. 5000" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">STAGE</label>
+          <select id="md-stage" style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px">
+            <option>Closed</option>
+            <option>Negotiating</option>
+            <option>Outreach Sent</option>
+            <option>Prospecting</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">NOTES</label>
+        <input id="md-notes" type="text" placeholder="Optional — cash deal, legacy deal, etc." style="width:100%;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;box-sizing:border-box">
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:24px">
+      <button onclick="closeManualDealModal()" style="flex:1;padding:12px;border-radius:var(--r-sm);border:1px solid var(--border);background:transparent;color:var(--muted);font-size:13px;cursor:pointer">Cancel</button>
+      <button onclick="saveManualDeal()" style="flex:1;padding:12px;border-radius:var(--r-sm);border:none;background:var(--accent);color:#000;font-size:13px;font-weight:700;cursor:pointer">Save Deal</button>
+    </div>
+  </div>
+</div>
+<script>
+function openManualDealModal(){
+  var modal=document.getElementById('manual-deal-modal');
+  var sel=document.getElementById('md-athlete');
+  sel.innerHTML=athletes.map(function(a){return '<option value="'+a.id+'">'+a.name+'</option>';}).join('');
+  modal.style.display='flex';
+}
+function closeManualDealModal(){
+  document.getElementById('manual-deal-modal').style.display='none';
+}
+async function saveManualDeal(){
+  var athleteId=document.getElementById('md-athlete').value;
+  var brand=document.getElementById('md-brand').value.trim();
+  var value=parseInt(document.getElementById('md-value').value);
+  var stage=document.getElementById('md-stage').value;
+  var notes=document.getElementById('md-notes').value.trim();
+  if(!athleteId||!brand||!value){showToast('Athlete, brand and value are required');return;}
+  var id='deal-manual-'+Date.now();
+  await fetch(API_BASE+'/api/deals',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id,athleteId,agentId:currentUser.id,brand,campaign:'Manual Entry',value,stage,notes,source:'manual'})
+  });
+  closeManualDealModal();
+  document.getElementById('md-brand').value='';
+  document.getElementById('md-value').value='';
+  document.getElementById('md-notes').value='';
+  showToast('Deal added');
+  await renderCommission();
+}
+</script>
+
 </body>
 </html>
