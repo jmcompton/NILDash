@@ -1,59 +1,107 @@
-// server/benchmarks.js — NILViewVal Model v2 (no On3 required)
-// Anchored to: engagement rate, school tier, sport, social reach, 2026 CPM data
+// server/benchmarks.js — NILViewVal Model v3
+// Upgrades: position multipliers, market size factors, seasonal CPM, position-aware sport multipliers
 
 const MARKET_RATES = {
-  // 2026 base CPM for college athlete NIL posts ($8-18 range; athletes premium)
+  // 2026 base CPM — varies by season
+  // Football peaks Sept-Jan, Basketball peaks Nov-Apr
   baseCPM: 12.0,
 
-  // College athletes average 5.6% ER — nearly 3x regular influencers
-  athleteAvgEngagement: 5.6,
+  seasonalCPM(sport) {
+    const month = new Date().getMonth(); // 0-11
+    if (sport === 'football') {
+      // Peak: Sept(8)-Jan(0)
+      return [14.5,14.0,11.5,11.0,10.5,10.5,11.0,11.5,14.5,15.0,14.0,13.5][month];
+    }
+    if (sport === 'basketball') {
+      // Peak: Nov(10)-Apr(3)
+      return [13.0,11.0,11.0,13.0,12.5,11.5,11.0,11.0,11.5,12.0,13.5,14.0][month];
+    }
+    return 12.0;
+  },
 
-  // Market multiplier (bump quarterly if NIL market heats up)
+  athleteAvgEngagement: 5.6,
   marketFactor: 1.05,
+
+  // Position multipliers — research shows QB/WR/edge premium is real
+  positionMultiplier: {
+    // Football
+    'qb': 1.85, 'quarterback': 1.85,
+    'wr': 1.40, 'wide receiver': 1.40,
+    'cb': 1.25, 'cornerback': 1.25,
+    'rb': 1.20, 'running back': 1.20,
+    'edge': 1.30, 'de': 1.25, 'defensive end': 1.25,
+    'lb': 1.10, 'linebacker': 1.10,
+    'safety': 1.10, 's': 1.10,
+    'te': 1.15, 'tight end': 1.15,
+    'ol': 0.75, 'offensive line': 0.75, 'ot': 0.78, 'og': 0.75, 'c': 0.75,
+    'dl': 0.85, 'defensive line': 0.85, 'dt': 0.82,
+    'k': 0.70, 'kicker': 0.70, 'p': 0.68, 'punter': 0.68,
+    // Basketball
+    'pg': 1.50, 'point guard': 1.50,
+    'sg': 1.35, 'shooting guard': 1.35,
+    'sf': 1.20, 'small forward': 1.20,
+    'pf': 1.05, 'power forward': 1.05,
+    'c': 1.00, 'center': 1.00,
+    // Baseball
+    'sp': 1.30, 'starting pitcher': 1.30,
+    'ss': 1.25, 'shortstop': 1.25,
+    'cf': 1.20, 'center field': 1.20,
+    '1b': 1.10, 'catcher': 1.15,
+    // Soccer
+    'forward': 1.30, 'striker': 1.30,
+    'midfielder': 1.10, 'goalkeeper': 1.05, 'defender': 0.95,
+    // Default
+    'default': 1.00,
+  },
+
+  // Market size multiplier — school city media market
+  // Based on Nielsen DMA rankings + NIL collective activity
+  marketMultiplier: {
+    // Tier 1 — Top 10 DMA + massive NIL markets
+    'los angeles': 1.45, 'new york': 1.45, 'chicago': 1.40,
+    'dallas': 1.38, 'houston': 1.35, 'atlanta': 1.32,
+    'miami': 1.30, 'seattle': 1.28, 'boston': 1.28,
+    // Tier 2 — Major college towns with strong collectives
+    'columbus': 1.35, 'tuscaloosa': 1.30, 'baton rouge': 1.28,
+    'austin': 1.32, 'ann arbor': 1.25, 'norman': 1.22,
+    'gainesville': 1.20, 'knoxville': 1.20, 'athens': 1.22,
+    'durham': 1.25, 'chapel hill': 1.22, 'raleigh': 1.20,
+    'south bend': 1.25, 'provo': 1.18, 'fort worth': 1.20,
+    'nashville': 1.25, 'louisville': 1.15, 'lexington': 1.18,
+    'clemson': 1.15, 'auburn': 1.15, 'starkville': 1.05,
+    'columbia': 1.12, 'fayetteville': 1.15, 'stillwater': 1.10,
+    'manhattan': 1.05, 'ames': 1.05, 'lincoln': 1.08,
+    // Tier 3 — Mid-major college towns
+    'birmingham': 1.08, 'memphis': 1.08, 'salt lake city': 1.12,
+    'denver': 1.18, 'phoenix': 1.20, 'san diego': 1.22,
+    'portland': 1.15, 'minneapolis': 1.15, 'detroit': 1.12,
+    'pittsburgh': 1.12, 'baltimore': 1.15, 'washington': 1.25,
+    'default': 1.00,
+  },
 
   sportMultiplier: {
     basketball: 1.40, football: 1.35, baseball: 1.10,
     soccer: 1.05, swimming: 0.95, track: 1.00,
     volleyball: 1.05, wrestling: 0.90, tennis: 1.00,
+    'track & field': 1.00, golf: 0.95,
   },
 
-  // School tier multipliers (updated for 2026 collective market)
   schoolMultiplier: {
-    'p4-top10':      1.50,
-    'p4-top25':      1.38,
-    'p4-mid':        1.25,
-    'p4-lower':      1.10,
-    'highmajor-top': 1.05,
-    'highmajor-mid': 0.98,
-    'mid-top':       0.90,
-    'mid-mid':       0.82,
-    'mid-lower':     0.75,
-    'lowmajor-top':  0.70,
-    'lowmajor-lower':0.65,
-    'd2-elite':      0.60,
-    'd2-top':        0.55,
-    'd2-mid':        0.50,
-    'd2-lower':      0.45,
-    'd3-top':        0.40,
-    'd3-mid':        0.35,
-    'd3-lower':      0.30,
-    'naia-top':      0.38,
-    'naia-mid':      0.32,
-    'juco-d1':       0.35,
-    'juco-d2':       0.28,
+    'p4-top10': 1.50, 'p4-top25': 1.38, 'p4-mid': 1.25, 'p4-lower': 1.10,
+    'highmajor-top': 1.05, 'highmajor-mid': 0.98,
+    'mid-top': 0.90, 'mid-mid': 0.82, 'mid-lower': 0.75,
+    'lowmajor-top': 0.70, 'lowmajor-lower': 0.65,
+    'd2-elite': 0.60, 'd2-top': 0.55, 'd2-mid': 0.50, 'd2-lower': 0.45,
+    'd3-top': 0.40, 'd3-mid': 0.35, 'd3-lower': 0.30,
+    'naia-top': 0.38, 'naia-mid': 0.32,
+    'juco-d1': 0.35, 'juco-d2': 0.28,
   },
 
   deliverableMultiplier: {
-    'ig-post':        1.00,
-    'tiktok':         0.90,
-    'ig-reel':        1.30,
-    'stories':        0.45,
-    'bundle':         2.40,
-    'retainer':       4.20,
-    'youtube-long':   2.20,
-    'newsletter':     0.80,
-    'podcast-host':   1.10,
-    'twitter-campaign':0.70,
+    'ig-post': 1.00, 'tiktok': 0.90, 'ig-reel': 1.30,
+    'stories': 0.45, 'bundle': 2.40, 'retainer': 4.20,
+    'youtube-long': 2.20, 'newsletter': 0.80,
+    'podcast-host': 1.10, 'twitter-campaign': 0.70,
   },
 
   appearanceFees: {
@@ -79,14 +127,29 @@ const MARKET_RATES = {
 
   industryAvgEngagement: { instagram: 2.58, tiktok: 4.10, combined: 3.20 },
 
-  // NILViewVal engagement multiplier (clamped 0.7-1.8)
   engagementMultiplier(rate) {
-    const ratio = (rate || 0) / 5.6; // divide by athlete avg
+    const ratio = (rate || 0) / 5.6;
     return Math.max(0.7, Math.min(1.8, ratio));
+  },
+
+  getPositionMultiplier(position) {
+    if (!position) return 1.0;
+    const key = position.toLowerCase().trim();
+    return this.positionMultiplier[key] || this.positionMultiplier['default'];
+  },
+
+  getMarketMultiplier(school) {
+    if (!school) return 1.0;
+    const s = school.toLowerCase();
+    for (const [city, mult] of Object.entries(this.marketMultiplier)) {
+      if (city === 'default') continue;
+      if (s.includes(city)) return mult;
+    }
+    return this.marketMultiplier['default'];
   },
 };
 
-// NILViewVal core calculation — replaces flat basePer1kReach
+// NILViewVal v3 — adds position + market + seasonal CPM
 function nilViewVal(athlete, deliverableType) {
   const ig = athlete.instagram || 0;
   const tt = athlete.tiktok || 0;
@@ -94,20 +157,30 @@ function nilViewVal(athlete, deliverableType) {
   const er = parseFloat(athlete.engagement) || 3.0;
   const sport = (athlete.sport || 'basketball').toLowerCase();
   const tier = athlete.schoolTier || 'mid-mid';
+  const position = athlete.position || '';
+  const school = athlete.school || '';
 
-  // 1. Engagement multiplier vs college athlete avg (5.6%)
+  // 1. Seasonal CPM
+  const cpm = MARKET_RATES.seasonalCPM(sport);
+
+  // 2. Engagement multiplier
   const erMult = MARKET_RATES.engagementMultiplier(er);
 
-  // 2. School tier multiplier
+  // 3. School tier multiplier
   const schoolMult = MARKET_RATES.schoolMultiplier[tier] || 0.75;
 
-  // 3. Sport multiplier
+  // 4. Sport multiplier
   const sportMult = MARKET_RATES.sportMultiplier[sport] || 1.0;
 
-  // 4. Reach tier multiplier (replaces On3 anchor)
-  // Nano <10k, Micro 10-50k, Mid 50-200k, Macro 200k+
+  // 5. Position multiplier (NEW)
+  const posMult = MARKET_RATES.getPositionMultiplier(position);
+
+  // 6. Market size multiplier (NEW)
+  const marketMult = MARKET_RATES.getMarketMultiplier(school);
+
+  // 7. Reach tier multiplier
   let reachMult;
-  if (totalReach >= 500000)     reachMult = 1.80;
+  if (totalReach >= 500000)      reachMult = 1.80;
   else if (totalReach >= 200000) reachMult = 1.50;
   else if (totalReach >= 100000) reachMult = 1.25;
   else if (totalReach >= 50000)  reachMult = 1.05;
@@ -115,31 +188,60 @@ function nilViewVal(athlete, deliverableType) {
   else if (totalReach >= 10000)  reachMult = 0.75;
   else                           reachMult = 0.60;
 
-  // 5. Deliverable multiplier
+  // 8. Deliverable multiplier
   const delivMult = MARKET_RATES.deliverableMultiplier[deliverableType] || 1.0;
 
-  // 6. Combined multiplier
-  const totalMult = erMult * schoolMult * sportMult * reachMult * delivMult * MARKET_RATES.marketFactor;
+  // 9. Combined multiplier
+  const totalMult = erMult * schoolMult * sportMult * posMult * marketMult * reachMult * delivMult * MARKET_RATES.marketFactor;
 
-  // Value per view in dollars (CPM / 1000)
-  const valuePerView = (MARKET_RATES.baseCPM * totalMult) / 1000;
+  // Value per view
+  const valuePerView = (cpm * totalMult) / 1000;
 
-  // Estimated avg views (~25-35% of followers for reels/TT)
-  const avgViews = totalReach > 0 ? totalReach * 0.30 : 5000;
+  // Platform-weighted view rate
+  let viewRate = 0.30;
+  if (deliverableType === 'ig-reel') viewRate = 0.35;
+  else if (deliverableType === 'tiktok') viewRate = 0.40;
+  else if (deliverableType === 'stories') viewRate = 0.15;
+  else if (deliverableType === 'ig-post') viewRate = 0.25;
 
-  // Value per post
+  const avgViews = totalReach > 0 ? totalReach * viewRate : 5000;
   const valuePerPost = valuePerView * avgViews;
 
-  // Accuracy score
-  const dataScore = (ig > 0 ? 25 : 0) + (tt > 0 ? 15 : 0) + (er > 0 ? 20 : 0) + (tier !== 'mid-mid' ? 20 : 10) + 10;
-  const accuracyScore = Math.max(50, Math.min(95, dataScore));
+  // Accuracy score — more inputs = more accurate
+  const dataScore =
+    (ig > 0 ? 20 : 0) +
+    (tt > 0 ? 12 : 0) +
+    (er > 0 ? 18 : 0) +
+    (tier !== 'mid-mid' ? 18 : 8) +
+    (position ? 15 : 0) +
+    (school ? 12 : 0) +
+    5;
+  const accuracyScore = Math.max(50, Math.min(97, dataScore));
 
   return {
     low: Math.round(valuePerPost * 0.75),
+    mid: Math.round(valuePerPost),
     high: Math.round(valuePerPost * 1.35),
     valuePerView: valuePerView.toFixed(5),
     accuracyScore,
-    multipliers: { er: erMult.toFixed(2), school: schoolMult, sport: sportMult, reach: reachMult, total: totalMult.toFixed(2) }
+    breakdown: {
+      reach: totalReach,
+      sportMult: sportMult.toFixed(2),
+      schoolMult: schoolMult.toFixed(2),
+      posMult: posMult.toFixed(2),
+      marketMult: marketMult.toFixed(2),
+      engMult: erMult.toFixed(2),
+      cpm: cpm.toFixed(2),
+    },
+    multipliers: {
+      er: erMult.toFixed(2),
+      school: schoolMult,
+      sport: sportMult,
+      position: posMult,
+      market: marketMult,
+      reach: reachMult,
+      total: totalMult.toFixed(2)
+    }
   };
 }
 
@@ -152,6 +254,10 @@ const DEAL_COMPS = [
   { sport:'football',   school:'p4-top10', followers:125000, engagement:5.5, dealType:'ig-post',  value:9500,  year:2024 },
   { sport:'football',   school:'p4-mid',   followers:88000,  engagement:4.7, dealType:'retainer', value:18500, year:2025 },
   { sport:'basketball', school:'p4-top10', followers:155000, engagement:7.1, dealType:'ig-reel',  value:16800, year:2025 },
+  { sport:'football',   school:'p4-mid',   followers:42000,  engagement:5.9, dealType:'ig-post',  value:3800,  year:2026 },
+  { sport:'basketball', school:'highmajor-top', followers:38000, engagement:6.2, dealType:'ig-reel', value:3200, year:2026 },
+  { sport:'football',   school:'p4-lower',  followers:28000, engagement:4.8, dealType:'ig-post',  value:2100,  year:2026 },
+  { sport:'basketball', school:'mid-top',   followers:22000, engagement:7.1, dealType:'ig-reel',  value:1800,  year:2026 },
 ];
 
 const BRAND_WINDOWS = {
@@ -161,6 +267,10 @@ const BRAND_WINDOWS = {
   'new balance': 'Holiday campaign Q4. Campus drops Q3.',
   beats:         'Back to school electronics peak Q3. Holiday Q4.',
   'cash app':    'Tax season (Q1) and summer spending pushes.',
+  'prime hydration': 'Year-round. Heavy college football push Q3.',
+  'fanatics':    'Championship windows (March, Bowl season). Q4 peak.',
+  'draftkings':  'Football season Q3-Q1. March Madness Q1.',
+  'celsius':     'Summer Q2-Q3. Year-round digital.',
 };
 
 module.exports = { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal };
