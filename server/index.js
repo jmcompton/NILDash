@@ -557,8 +557,7 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
   doc.moveDown(1);
 
   doc.fillColor('#000000').fontSize(10).font('Helvetica');
-  const lines = contract.split('
-');
+  const lines = contract.split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) { doc.moveDown(0.4); continue; }
