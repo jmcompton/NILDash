@@ -466,7 +466,6 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   }
   if (!teams) return res.status(200).json({ teams: [], error: 'Try again — AI returned unexpected format.', raw: lastError });
   res.json({ teams, liveData: true });
-  }
 });
 
 // ── Contract Generator ────────────────────────────────────────
