@@ -447,15 +447,25 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const conf = conference && conference !== 'any' ? conference : 'major';
   const prompt = `Find 6 best transfer destinations for ${athlete.name}, ${athlete.sport} ${athlete.position||''}, ${athlete.year||''}, from ${athlete.school||'unknown'}, stats: ${(athlete.stats||athlete.notes||'N/A').substring(0,80)}, portal: ${athlete.transferReason||'unknown'}, conf: ${conf}, min NIL: $${(minNil||0).toLocaleString()}. Search for 2026 NIL collective budgets. Return ONLY JSON array: [{"rank":1,"name":"School","conference":"ACC","confLabel":"ACC","tier":"reach or best-fit or safe","why":"2 sentences","nilLow":150000,"nilHigh":300000,"nilBreakdown":[{"label":"Collective","val":"$150K"}],"fitScore":88,"playingTimeOutlook":"Starter","rosterNeed":"need","metrics":[{"label":"Collective strength","val":"Strong"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"}]}]`;
 
-  try {
-    const raw = await ai.oneShotWithSearch(prompt, 'You are a precise NIL recruitment analyst with access to current 2026 NIL data via web search. Search for live collective budgets and portal activity before recommending. Return only valid JSON arrays.');
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const match = cleaned.match(/\[[\s\S]*\]/);
-    if (!match) throw new Error('No JSON array found');
-    const teams = JSON.parse(match[0]);
-    res.json({ teams, liveData: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  let teams = null;
+  let lastError = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const raw = await ai.oneShotWithSearch(prompt, 'Return ONLY a valid JSON array starting with [ and ending with ]. No markdown, no preamble. Just the JSON array.');
+      const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+      const si = cleaned.indexOf('[');
+      const ei = cleaned.lastIndexOf(']');
+      if (si === -1 || ei <= si) throw new Error('No JSON array found');
+      const parsed = JSON.parse(cleaned.substring(si, ei + 1));
+      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
+      teams = parsed;
+      break;
+    } catch (err) {
+      lastError = err.message;
+    }
+  }
+  if (!teams) return res.status(200).json({ teams: [], error: 'Try again — AI returned unexpected format.', raw: lastError });
+  res.json({ teams, liveData: true });
   }
 });
 
