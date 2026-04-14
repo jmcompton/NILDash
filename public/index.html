@@ -236,7 +236,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <label class="form-label">Password</label>
         <input class="form-input" id="loginPassword" type="password" placeholder="••••••••">
       </div>
-      <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign In →</button>
+      <button class="btn-primary" id="loginBtn">Sign In →</button>
       <div class="auth-error" id="loginError"></div>
     </div>
 
@@ -1291,6 +1291,12 @@ function selectRole(role) {
   if (athleteBtn) athleteBtn.classList.toggle('active', role==='athlete');
 }
 
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('loginBtn').addEventListener('click', doLogin);
+  document.getElementById('loginPassword').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') doLogin();
+  });
+});
 async function doLogin() {
   const btn = document.getElementById('loginBtn');
   const err = document.getElementById('loginError');
