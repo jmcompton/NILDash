@@ -1300,18 +1300,20 @@ document.addEventListener('DOMContentLoaded', function() {
 async function doLogin() {
   const btn = document.getElementById('loginBtn');
   const err = document.getElementById('loginError');
-  err.textContent = '';
+  err.textContent = 'Tapped!';
   btn.disabled = true; btn.textContent = 'Signing in...';
   try {
-    const r = await fetch(`${API_BASE}/api/auth/login`, {
+    err.textContent = 'Connecting to ' + API_BASE;
+    const r = await fetch(API_BASE + '/api/auth/login', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ email: document.getElementById('loginEmail').value, password: document.getElementById('loginPassword').value }),
     });
+    err.textContent = 'Got response: ' + r.status;
     const data = await r.json();
     if (!r.ok) { err.textContent = data.error; return; }
     currentUser = data;
     bootApp();
-  } catch(e) { err.textContent = 'Connection error. Is the server running?'; }
+  } catch(e) { err.textContent = 'Error: ' + e.message; }
   finally { btn.disabled = false; btn.textContent = 'Sign In →'; }
 }
 
