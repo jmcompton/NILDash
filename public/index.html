@@ -211,6 +211,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:98;pointer-events:none}
 .sidebar-overlay.open{display:block;pointer-events:all}
 @media(max-width:768px){.mobile-topbar{display:flex}}
+.notif-bell{position:relative;cursor:pointer;background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:14px}
+.notif-badge{position:absolute;top:-6px;right:-6px;background:#ef4444;color:#fff;border-radius:50%;width:16px;height:16px;font-size:9px;font-weight:700;display:none;align-items:center;justify-content:center}
+.notif-panel{display:none;position:fixed;top:60px;right:16px;width:300px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:0 8px 32px rgba(0,0,0,0.3);z-index:150;max-height:380px;overflow-y:auto}
+.notif-panel.open{display:block}
+.notif-item{padding:12px 16px;border-bottom:1px solid var(--border)}
+.notif-empty{padding:24px;text-align:center;color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
@@ -276,7 +282,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
 <!-- ═══ APP SCREEN ═══ -->
 <div id="appScreen">
   <!-- Sidebar -->
-  <aside class="sidebar">
+  <div class="notif-panel" id="notifPanel">
+  <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--muted);display:flex;justify-content:space-between;align-items:center">
+    <span>NOTIFICATIONS</span>
+    <button onclick="clearNotifications()" style="background:transparent;border:none;color:var(--muted);font-size:10px;cursor:pointer">Clear all</button>
+  </div>
+  <div id="notifList"><div class="notif-empty">No urgent deadlines</div></div>
+</div>
+<aside class="sidebar">
     <div class="sidebar-logo">
       <div class="logo-text">NILDash</div>
       <div class="logo-sub" id="sidebarRoleLabel">Agent Portal</div>
@@ -345,7 +358,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
   <main class="main">
     <div class="topbar">
       <div class="breadcrumb">NILDash / <span id="breadcrumb">Command Center</span></div>
-      <div class="ai-status" id="aiStatus">AI READY</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()">🔔<span class="notif-badge" id="notifBadge"></span></button>
+        <div class="ai-status" id="aiStatus">AI READY</div>
+      </div>
     </div>
 
     <div class="content">
@@ -2867,7 +2883,69 @@ async function saveManualDeal(){
   showToast('Deal added');
   await renderCommission();
 }
-</script>
 
+
+function toggleNotifPanel() {
+  document.getElementById('notifPanel').classList.toggle('open');
+}
+document.addEventListener('click', function(e) {
+  var panel = document.getElementById('notifPanel');
+  var bell = document.getElementById('notifBell');
+  if (panel && bell && !panel.contains(e.target) && !bell.contains(e.target)) {
+    panel.classList.remove('open');
+  }
+});
+function clearNotifications() {
+  localStorage.setItem('nildash-notifs', '[]');
+  renderNotifPanel();
+}
+function renderNotifPanel() {
+  var notifs = JSON.parse(localStorage.getItem('nildash-notifs') || '[]');
+  var badge = document.getElementById('notifBadge');
+  var list = document.getElementById('notifList');
+  if (!badge || !list) return;
+  var urgent = notifs.filter(function(n){ return n.urgency==='overdue'||n.urgency==='today'||n.urgency==='urgent'; });
+  badge.style.display = urgent.length > 0 ? 'flex' : 'none';
+  badge.textContent = urgent.length > 9 ? '9+' : urgent.length;
+  list.innerHTML = notifs.length ? notifs.map(function(n) {
+    var colors = {overdue:'#ef4444',today:'#f97316',urgent:'#f97316',soon:'#c8f135'};
+    var labels = {overdue:'OVERDUE',today:'TODAY',urgent:'URGENT',soon:'SOON'};
+    return '<div class="notif-item"><div style="font-size:12px;font-weight:600;color:var(--text)">' +
+      (labels[n.urgency] ? '<span style="background:'+colors[n.urgency]+';color:'+(n.urgency==='soon'?'#000':'#fff')+';font-size:9px;padding:2px 5px;border-radius:3px;margin-right:6px">'+labels[n.urgency]+'</span>' : '') +
+      n.title+'</div><div style="font-size:11px;color:var(--muted)">'+n.sub+'</div></div>';
+  }).join('') : '<div class="notif-empty">No urgent deadlines</div>';
+}
+function addNotification(id, title, sub, urgency) {
+  var notifs = JSON.parse(localStorage.getItem('nildash-notifs') || '[]');
+  if (notifs.find(function(n){ return n.id===id; })) return;
+  notifs.unshift({id:id,title:title,sub:sub,urgency:urgency,time:Date.now()});
+  if (notifs.length > 20) notifs = notifs.slice(0,20);
+  localStorage.setItem('nildash-notifs', JSON.stringify(notifs));
+  renderNotifPanel();
+}
+async function checkDeadlineNotifications() {
+  if (!athletes || athletes.length===0) return;
+  for (var i=0; i<athletes.length; i++) {
+    var ath = athletes[i];
+    try {
+      var r = await fetch(API_BASE+'/api/athletes/'+ath.id+'/deals');
+      var deals = await r.json();
+      deals.forEach(function(deal) {
+        var created = new Date(deal.updatedAt||deal.createdAt||Date.now());
+        var deadlineDate = null, label = '';
+        if (deal.stage==='Negotiating') { deadlineDate=new Date(created.getTime()+2*864e5); label='Counter offer deadline'; }
+        else if (deal.stage==='Closing') { deadlineDate=new Date(created.getTime()+3*864e5); label='Contract due'; }
+        else if (deal.stage==='Outreach Sent') { deadlineDate=new Date(created.getTime()+7*864e5); label='Follow-up if no response'; }
+        if (!deadlineDate) return;
+        var diff = Math.ceil((deadlineDate-new Date())/864e5);
+        var urgency = diff<0?'overdue':diff===0?'today':diff<=2?'urgent':diff<=7?'soon':'future';
+        if (urgency!=='future') addNotification(label+deal.id, label+' — '+(deal.brand||'Deal'), ath.name+' · '+deal.stage+(diff<0?' · '+Math.abs(diff)+'d overdue':diff===0?' · Due today':' · '+diff+'d left'), urgency);
+      });
+    } catch(e) {}
+  }
+  renderNotifPanel();
+}
+setTimeout(function(){ checkDeadlineNotifications(); setInterval(checkDeadlineNotifications, 30*60*1000); }, 3000);
+renderNotifPanel();
+</script>
 </body>
-</html>
