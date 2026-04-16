@@ -168,6 +168,7 @@ function calculateRate(athlete, deliverableType) {
 }
 
 async function getDealRecommendations(athlete, role) {
+  const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
   const school = athlete.school || 'Unknown';
