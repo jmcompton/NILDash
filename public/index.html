@@ -1697,28 +1697,61 @@ async function runDealScan() {
 
 function renderDealsTable(recs) {
   if (!recs || !recs.length) return;
-  const tbody = document.getElementById('dealsTbody');
-  tbody.innerHTML = recs.map((d,i) => {
-    const score = d.fitScore || 80;
-    const cls = score >= 85 ? 'score-high' : 'score-mid';
-    const rate = d.suggestedRate ? `$${(d.suggestedRate.low||0).toLocaleString()}–$${(d.suggestedRate.high||0).toLocaleString()}` : '—';
-    return `<tr>
-      <td style="font-size:11px;color:var(--muted)">${d.rank||i+1}</td>
-      <td style="font-weight:500">${d.brand}</td>
-      <td style="font-size:11px;color:var(--muted)">${d.campaign}</td>
-      <td><span class="chip chip-neutral">${d.category||'—'}</span></td>
-      <td style="color:var(--accent);font-weight:500">${rate}</td>
-      <td class="${cls}">${score}</td>
-      <td style="font-size:11px;color:var(--muted)">${d.timingNote||'—'}</td>
-      <td><span class="action-link" onclick="prefillNeg('${d.brand}','${rate}')">Negotiate →</span></td>
-    </tr>`;
+  var container = document.getElementById('dealsTbody');
+  container.innerHTML = recs.map(function(d,i) {
+    var score = d.fitScore || 80;
+    var scoreColor = score >= 85 ? 'var(--accent)' : score >= 70 ? '#f59e0b' : 'var(--muted)';
+    var low = d.suggestedRate ? (d.suggestedRate.low||0).toLocaleString() : '0';
+    var high = d.suggestedRate ? (d.suggestedRate.high||0).toLocaleString() : '0';
+    var rate = d.suggestedRate ? '$'+low+'--$'+high : '--';
+    var isTop = i === 0;
+    var timingUrgent = d.timingNote && (d.timingNote.toLowerCase().indexOf('now')!==-1 || d.timingNote.toLowerCase().indexOf('open')!==-1 || d.timingNote.toLowerCase().indexOf('peak')!==-1);
+    var brandSafe = (d.brand||'').replace(/'/g, "\\'");
+    var rateSafe = rate.replace(/'/g, "\\'");
+    var timingTag = d.timingNote ? (timingUrgent ? '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);color:#f59e0b">'+d.timingNote+'</span>' : '<span style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">'+d.timingNote+'</span>') : '';
+    return '<div style="background:var(--surface2);border:1px solid '+(isTop?'rgba(200,241,53,0.3)':'var(--border)')+';border-radius:var(--r);padding:16px 20px">' +
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:200px">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+            '<span style="font-size:11px;color:var(--muted)">#'+(d.rank||i+1)+'</span>' +
+            '<span style="font-size:14px;font-weight:600;color:var(--text)">'+(d.brand||'Brand')+'</span>' +
+            (isTop?'<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(200,241,53,0.15);color:var(--accent);font-weight:700">BEST FIT</span>':'') +
+          '</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">'+(d.campaign||'')+'</div>' +
+          '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">'+(d.rationale||'')+'</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+            '<span style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">'+(d.category||'')+'</span>' +
+            '<span style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">'+(d.dealType||'post')+'</span>' +
+            timingTag +
+          '</div>' +
+        '</div>' +
+        '<div style="text-align:right;min-width:130px">' +
+          '<div style="font-size:18px;font-weight:600;color:var(--accent);margin-bottom:2px">'+rate+'</div>' +
+          '<div style="font-size:10px;color:var(--muted);margin-bottom:10px">suggested rate</div>' +
+          '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-bottom:10px">' +
+            '<div style="width:50px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden"><div style="width:'+score+'%;height:100%;background:'+scoreColor+';border-radius:2px"></div></div>' +
+            '<span style="font-size:11px;color:'+scoreColor+';font-weight:600">'+score+'</span>' +
+          '</div>' +
+          '<div style="display:flex;flex-direction:column;gap:6px">' +
+            '<button onclick="prefillOutreach(\''+brandSafe+'\')" style="padding:6px 12px;background:var(--accent);color:#000;border:none;border-radius:40px;font-size:10px;font-weight:700;cursor:pointer">Write Outreach</button>' +
+            '<button onclick="prefillNeg(\''+brandSafe+'\',\''+rateSafe+'\')" style="padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:40px;font-size:10px;cursor:pointer">Negotiate</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
   }).join('');
 }
-
+function prefillOutreach(brand) {
+  var el = document.getElementById('orBrand');
+  if (el) el.value = brand;
+  showView('outreach', document.querySelectorAll('.nav-item')[5]);
+  showToast('Brand pre-filled — write your outreach');
+}
 function prefillNeg(brand, rate) {
   document.getElementById('negBrand').value = brand;
-  if (rate && rate.includes('–')) document.getElementById('negTarget').value = rate.split('–')[1].trim();
+  if (rate && rate.includes('--')) document.getElementById('negTarget').value = rate.split('--')[1].replace('$','').trim();
   showView('negotiate', document.querySelectorAll('.nav-item')[3]);
+}
 }
 
 // ── AI: RATE ─────────────────────────────────────────────────
