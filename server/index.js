@@ -273,14 +273,7 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
   const athlete = await store.getAthlete(req.body.athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const deliverableType = req.body.deliverableType || 'ig-reel';
-  try {
-    const liveRate = await ai.calculateRateLive(athlete, deliverableType);
-    if (liveRate && liveRate.mid) {
-      return res.json({ ...liveRate, liveData: true });
-    }
-  } catch (err) {
-    console.error('Live rate failed:', err.message);
-  }
+  // Use static calculation only — live rate was causing 502s
   res.json({ ...ai.calculateRate(athlete, deliverableType), liveData: false });
 });
 
