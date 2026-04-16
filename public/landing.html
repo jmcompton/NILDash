@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NILDash — NIL Intelligence Platform for Sports Agents</title>
+<meta name="description" content="AI-powered NIL deal intelligence for sports agents. Track deals, value athletes, manage compliance, generate contracts — all in one command center.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0A0A08;
+  --surface: #111110;
+  --surface2: #1A1A18;
+  --border: rgba(255,255,255,0.08);
+  --border2: rgba(255,255,255,0.14);
+  --text: #F0EDE6;
+  --muted: rgba(240,237,230,0.45);
+  --accent: #C8F135;
+  --blue: #35C8F1;
+  --red: #F13535;
+  --head: 'Syne', sans-serif;
+  --mono: 'DM Mono', monospace;
+  --r: 10px;
+  --r-sm: 6px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ── NOISE TEXTURE OVERLAY ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.6;
+}
+
+/* ── NAV ── */
+nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 40px;
+  height: 64px;
+  background: rgba(10,10,8,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-logo {
+  font-family: var(--head);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.5px;
+  text-decoration: none;
+}
+.nav-logo .nil { color: var(--accent); }
+.nav-logo .dash { color: var(--text); }
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  list-style: none;
+}
+
+.nav-links a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  transition: color 0.2s;
+}
+.nav-links a:hover { color: var(--text); }
+
+.nav-cta {
+  background: var(--accent);
+  color: var(--bg) !important;
+  font-weight: 500;
+  padding: 8px 20px;
+  border-radius: var(--r-sm);
+  text-decoration: none;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  transition: opacity 0.2s;
+}
+.nav-cta:hover { opacity: 0.85; }
+
+/* ── HERO ── */
+.hero {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 120px 40px 80px;
+  text-align: center;
+  overflow: hidden;
+}
+
+/* Grid background */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 100%);
+  pointer-events: none;
+}
+
+/* Accent glow */
+.hero-glow {
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 300px;
+  background: radial-gradient(ellipse, rgba(200,241,53,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 32px;
+  position: relative;
+  z-index: 1;
+  animation: fadeUp 0.6s ease both;
+}
+.hero-badge .dot {
+  width: 6px; height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.hero-title {
+  font-family: var(--head);
+  font-weight: 800;
+  font-size: clamp(52px, 8vw, 96px);
+  line-height: 1.0;
+  letter-spacing: -3px;
+  position: relative;
+  z-index: 1;
+  animation: fadeUp 0.6s 0.1s ease both;
+  max-width: 900px;
+}
+
+.hero-title .accent { color: var(--accent); }
+.hero-title .dim { color: var(--muted); }
+
+.hero-sub {
+  font-size: 15px;
+  color: var(--muted);
+  max-width: 520px;
+  margin: 24px auto 0;
+  line-height: 1.75;
+  position: relative;
+  z-index: 1;
+  animation: fadeUp 0.6s 0.2s ease both;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 48px;
+  position: relative;
+  z-index: 1;
+  animation: fadeUp 0.6s 0.3s ease both;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 13px;
+  padding: 14px 32px;
+  border-radius: var(--r-sm);
+  text-decoration: none;
+  letter-spacing: 0.03em;
+  transition: opacity 0.2s, transform 0.2s;
+  border: none;
+  cursor: pointer;
+}
+.btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
+
+.btn-secondary {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 14px 24px;
+  border-radius: var(--r-sm);
+  text-decoration: none;
+  border: 1px solid var(--border2);
+  transition: color 0.2s, border-color 0.2s;
+}
+.btn-secondary:hover { color: var(--text); border-color: rgba(255,255,255,0.25); }
+
+/* Stats row */
+.hero-stats {
+  display: flex;
+  gap: 48px;
+  margin-top: 72px;
+  padding-top: 48px;
+  border-top: 1px solid var(--border);
+  position: relative;
+  z-index: 1;
+  animation: fadeUp 0.6s 0.4s ease both;
+}
+
+.stat-item { text-align: center; }
+.stat-num {
+  font-family: var(--head);
+  font-weight: 700;
+  font-size: 36px;
+  color: var(--accent);
+  line-height: 1;
+  margin-bottom: 6px;
+}
+.stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── SECTION COMMON ── */
+section {
+  padding: 100px 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.section-label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.section-label::before {
+  content: '';
+  display: inline-block;
+  width: 24px; height: 1px;
+  background: var(--accent);
+}
+
+.section-title {
+  font-family: var(--head);
+  font-weight: 700;
+  font-size: clamp(32px, 4vw, 48px);
+  letter-spacing: -1px;
+  line-height: 1.1;
+  margin-bottom: 16px;
+}
+
+.section-sub {
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 480px;
+  line-height: 1.75;
+  margin-bottom: 60px;
+}
+
+/* ── FEATURES GRID ── */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.feature-card {
+  background: var(--surface);
+  padding: 32px 28px;
+  transition: background 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.feature-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+.feature-card:hover::before { transform: scaleX(1); }
+.feature-card:hover { background: var(--surface2); }
+
+.feature-icon {
+  font-size: 22px;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.feature-name {
+  font-family: var(--head);
+  font-weight: 600;
+  font-size: 16px;
+  margin-bottom: 10px;
+  color: var(--text);
+}
+
+.feature-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.feature-tag {
+  display: inline-block;
+  background: rgba(200,241,53,0.1);
+  color: var(--accent);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-top: 14px;
+  letter-spacing: 0.05em;
+}
+
+/* ── HOW IT WORKS ── */
+.how-section {
+  border-top: 1px solid var(--border);
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  background: var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.step {
+  background: var(--bg);
+  padding: 40px 32px;
+  position: relative;
+}
+
+.step-num {
+  font-family: var(--head);
+  font-weight: 800;
+  font-size: 56px;
+  color: var(--surface2);
+  line-height: 1;
+  margin-bottom: 20px;
+  user-select: none;
+}
+
+.step-title {
+  font-family: var(--head);
+  font-weight: 600;
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+
+.step-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.75;
+}
+
+.step-arrow {
+  position: absolute;
+  right: -12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--border2);
+  font-size: 20px;
+  z-index: 2;
+}
+
+/* ── TOOLS SHOWCASE ── */
+.tools-section {
+  border-top: 1px solid var(--border);
+}
+
+.tools-list {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.tool-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 20px 24px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.tool-row:hover {
+  border-color: var(--border2);
+  background: var(--surface2);
+}
+
+.tool-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.tool-info { flex: 1; }
+
+.tool-name {
+  font-family: var(--head);
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.tool-desc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* ── CTA SECTION ── */
+.cta-section {
+  border-top: 1px solid var(--border);
+  text-align: center;
+  padding: 120px 40px;
+}
+
+.cta-box {
+  max-width: 640px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: var(--r);
+  padding: 64px 48px;
+  position: relative;
+  overflow: hidden;
+}
+
+.cta-box::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--accent);
+}
+
+.cta-glow {
+  position: absolute;
+  top: -60px; left: 50%;
+  transform: translateX(-50%);
+  width: 300px; height: 200px;
+  background: radial-gradient(ellipse, rgba(200,241,53,0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.cta-title {
+  font-family: var(--head);
+  font-weight: 800;
+  font-size: 40px;
+  letter-spacing: -1px;
+  margin-bottom: 16px;
+}
+
+.cta-sub {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.75;
+  margin-bottom: 40px;
+}
+
+.cta-form {
+  display: flex;
+  gap: 10px;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.cta-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  border-radius: var(--r-sm);
+  padding: 12px 16px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.cta-input::placeholder { color: var(--muted); }
+.cta-input:focus { border-color: var(--accent); }
+
+.cta-note {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 16px;
+}
+
+/* ── FOOTER ── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.footer-logo {
+  font-family: var(--head);
+  font-weight: 800;
+  font-size: 16px;
+  text-decoration: none;
+}
+.footer-logo .nil { color: var(--accent); }
+.footer-logo .dash { color: var(--text); }
+
+.footer-meta {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+  line-height: 1.6;
+}
+
+/* ── SCROLL REVEAL ── */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.reveal.visible {
+  opacity: 1;
+  transform: none;
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo"><span class="nil">NIL</span><span class="dash">Dash</span></a>
+  <ul class="nav-links">
+    <li><a href="#features">Features</a></li>
+    <li><a href="#how">How It Works</a></li>
+    <li><a href="#tools">AI Tools</a></li>
+    <li><a href="/app" class="nav-cta">Agent Login →</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-glow"></div>
+
+  <div class="hero-badge">
+    <span class="dot"></span>
+    NOW IN EARLY ACCESS — SELECT AGENTS ONLY
+  </div>
+
+  <h1 class="hero-title">
+    The NIL command<br>center for <span class="accent">serious</span><br>agents.
+  </h1>
+
+  <p class="hero-sub">
+    AI-powered deal intelligence, athlete valuation, compliance tracking, and contract generation — built exclusively for sports agents navigating the NIL era.
+  </p>
+
+  <div class="hero-actions">
+    <a href="#access" class="btn-primary">Request Early Access</a>
+    <a href="#features" class="btn-secondary">See what's inside →</a>
+  </div>
+
+  <div class="hero-stats">
+    <div class="stat-item">
+      <div class="stat-num">7</div>
+      <div class="stat-label">AI tools</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">0</div>
+      <div class="stat-label">Spreadsheets needed</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">1</div>
+      <div class="stat-label">Platform for everything</div>
+    </div>
+    <div class="stat-item">
+      <div class="stat-num">50+</div>
+      <div class="stat-label">NIL deal types tracked</div>
+    </div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="reveal">
+    <div class="section-label">What you get</div>
+    <h2 class="section-title">Everything an agent<br>actually needs.</h2>
+    <p class="section-sub">No bloated enterprise software. No guesswork. Just the tools that move deals forward.</p>
+  </div>
+
+  <div class="features-grid reveal">
+    <div class="feature-card">
+      <span class="feature-icon">⚡</span>
+      <div class="feature-name">AI Command Center</div>
+      <div class="feature-desc">Ask anything about your client — deals, pricing, leverage, strategy. AI answers instantly with NIL-specific context.</div>
+      <span class="feature-tag">Powered by Claude</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">📊</span>
+      <div class="feature-name">Valuation Engine</div>
+      <div class="feature-desc">CPM-based AI valuations for every athlete on your roster. Know what a deal is worth before you walk into the room.</div>
+      <span class="feature-tag">Rate Calculator</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">🎯</span>
+      <div class="feature-name">Deal Scan</div>
+      <div class="feature-desc">AI-ranked brand opportunities for each client. Surfaces the right deals at the right time based on their profile.</div>
+      <span class="feature-tag">AI-Ranked</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">⚖️</span>
+      <div class="feature-name">SPARTA Compliance</div>
+      <div class="feature-desc">Automated compliance tracking across all 50 states. Flags issues before they become problems. Generates required disclosure language.</div>
+      <span class="feature-tag">All 50 States</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">📝</span>
+      <div class="feature-name">Contract Generator</div>
+      <div class="feature-desc">Professional NIL contracts generated in seconds — built around the specific deal type, state, and terms. Review-ready from day one.</div>
+      <span class="feature-tag">Opus-Powered</span>
+    </div>
+    <div class="feature-card">
+      <span class="feature-icon">💰</span>
+      <div class="feature-name">Commission Tracker</div>
+      <div class="feature-desc">Your earnings across every client and deal in real time. Never manually calculate commissions again.</div>
+      <span class="feature-tag">Auto-Calculated</span>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" class="how-section">
+  <div class="reveal">
+    <div class="section-label">How it works</div>
+    <h2 class="section-title">Set up in minutes.<br>Close deals faster.</h2>
+    <p class="section-sub">NILDash is built for agents, not developers. No onboarding call required.</p>
+  </div>
+
+  <div class="steps reveal">
+    <div class="step">
+      <div class="step-num">01</div>
+      <div class="step-title">Add your clients</div>
+      <div class="step-desc">Build your roster with athlete profiles — sport, school tier, social following, engagement rate. AI Lookup fills in the gaps automatically.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">02</div>
+      <div class="step-title">Let AI do the work</div>
+      <div class="step-desc">Run a deal scan. Get valuations. Check compliance. Ask the AI command center anything. All 7 tools work together around each athlete's profile.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">03</div>
+      <div class="step-title">Close with confidence</div>
+      <div class="step-desc">Walk into every negotiation knowing your number, your leverage, and your walk-away point. Generate a contract the moment you hit agreement.</div>
+    </div>
+  </div>
+</section>
+
+<!-- AI TOOLS -->
+<section id="tools" class="tools-section">
+  <div class="reveal">
+    <div class="section-label">AI Tools</div>
+    <h2 class="section-title">Seven tools.<br>One platform.</h2>
+    <p class="section-sub">Each tool is purpose-built for a specific part of the NIL agent workflow — not a generic AI wrapper.</p>
+  </div>
+
+  <div class="tools-list reveal">
+    <div class="tool-row">
+      <span class="tool-icon">⚡</span>
+      <div class="tool-info">
+        <div class="tool-name">AI Command Center</div>
+        <div class="tool-desc">Live AI assistant with full context on your client — deals, comps, negotiation history, and market rates.</div>
+      </div>
+    </div>
+    <div class="tool-row">
+      <span class="tool-icon">🎯</span>
+      <div class="tool-info">
+        <div class="tool-name">Deal Scan</div>
+        <div class="tool-desc">Surfaces ranked brand opportunities based on athlete profile, sport, school tier, and audience fit.</div>
+      </div>
+    </div>
+    <div class="tool-row">
+      <span class="tool-icon">💵</span>
+      <div class="tool-info">
+        <div class="tool-name">Rate Calculator</div>
+        <div class="tool-desc">Calculates exact rates for 25+ deliverable types with a justification script you can use on the call.</div>
+      </div>
+    </div>
+    <div class="tool-row">
+      <span class="tool-icon">🧠</span>
+      <div class="tool-info">
+        <div class="tool-name">Negotiation Intel</div>
+        <div class="tool-desc">Full playbook for any deal — opening line, pushback responses, and walk-away language, ready to copy.</div>
+      </div>
+    </div>
+    <div class="tool-row">
+      <span class="tool-icon">📋</span>
+      <div class="tool-info">
+        <div class="tool-name">Contract Generator</div>
+        <div class="tool-desc">AI-drafted NIL contracts structured around deal type, state law, exclusivity, and payment terms.</div>
+      </div>
+    </div>
+    <div class="tool-row">
+      <span class="tool-icon">⚖️</span>
+      <div class="tool-info">
+        <div class="tool-name">SPARTA Compliance</div>
+        <div class="tool-desc">Checks any deal against state NIL laws, generates required disclosure language, tracks 72-hour SPARTA deadlines.</div>
+      </div>
+    </div>
+    <div class="tool-row">
+      <span class="tool-icon">🏫</span>
+      <div class="tool-info">
+        <div class="tool-name">Team Match</div>
+        <div class="tool-desc">Finds the best college program fit for athletes in the portal — ranked by NIL value, pro exposure, and fit score.</div>
+      </div>
+    </div>
+    <div class="tool-row">
+      <span class="tool-icon">📣</span>
+      <div class="tool-info">
+        <div class="tool-name">Brand Outreach</div>
+        <div class="tool-desc">AI writes your cold outreach emails, Instagram DMs, and LinkedIn messages — then tracks every contact.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<div class="cta-section" id="access">
+  <div class="cta-box reveal">
+    <div class="cta-glow"></div>
+    <div class="cta-title">Ready to close more deals?</div>
+    <p class="cta-sub">We're onboarding a select group of agents who want to shape the future of NIL deal management. Early access is free — we just want your honest feedback.</p>
+    <div class="cta-form">
+      <input type="email" class="cta-input" id="quick-email" placeholder="your@email.com">
+      <button onclick="openRequestModal()" class="btn-primary">Request Access</button>
+    </div>
+    <p class="cta-note">Beta access is invite-only. We review every request within 24 hours.</p>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <a href="#" class="footer-logo"><span class="nil">NIL</span><span class="dash">Dash</span></a>
+  <div class="footer-meta">
+    Built by Compton Group LLC · Birmingham, AL<br>
+    mynildash.com · Sports Business MBA, Samford University
+  </div>
+</footer>
+
+<script>
+// Scroll reveal
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      observer.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// Smooth anchor scrolling with nav offset
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) {
+      e.preventDefault();
+      window.scrollTo({ top: target.offsetTop - 80, behavior: 'smooth' });
+    }
+  });
+});
+</script>
+
+<div id="req-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:999;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(8px)">
+  <div style="background:#111110;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:40px;width:100%;max-width:440px;position:relative">
+    <button onclick="closeRequestModal()" style="position:absolute;top:16px;right:16px;background:transparent;border:none;color:rgba(240,237,230,0.4);font-size:20px;cursor:pointer">x</button>
+    <div id="req-form-view">
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:#C8F135;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:12px">Beta Access</div>
+      <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#F0EDE6;margin-bottom:8px">Request Access</div>
+      <div style="font-size:13px;color:rgba(240,237,230,0.45);margin-bottom:28px;line-height:1.6">NILDash is invite-only during beta. Tell us about yourself and we will send your credentials within 24 hours.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <div><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">First Name *</div><input id="req-first" type="text" placeholder="John" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>
+        <div><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">Last Name *</div><input id="req-last" type="text" placeholder="Smith" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>
+      </div>
+      <div style="margin-bottom:14px"><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">Email *</div><input id="req-email" type="email" placeholder="john@agency.com" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>
+      <div style="margin-bottom:14px"><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">Agency / Company</div><input id="req-agency" type="text" placeholder="Smith Sports Agency" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>
+      <div style="margin-bottom:24px"><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">Athletes Represented</div><select id="req-athletes" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"><option value="">Select range...</option><option value="1-5">1-5 athletes</option><option value="6-15">6-15 athletes</option><option value="16-30">16-30 athletes</option><option value="30+">30+ athletes</option></select></div>
+      <div id="req-error" style="color:#ef4444;font-size:12px;margin-bottom:12px;display:none"></div>
+      <button onclick="submitRequest()" id="req-submit" style="width:100%;padding:14px;background:#C8F135;color:#000;border:none;border-radius:40px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Mono',monospace">Request Access</button>
+    </div>
+    <div id="req-success-view" style="display:none;text-align:center;padding:20px 0">
+      <div style="font-size:48px;margin-bottom:20px">&#10003;</div>
+      <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#F0EDE6;margin-bottom:12px">You are on the list</div>
+      <div style="font-size:13px;color:rgba(240,237,230,0.45);line-height:1.7;margin-bottom:28px">We will review your request and send your login credentials within 24 hours.</div>
+      <a href="/app" style="color:#C8F135;font-size:12px;font-family:'DM Mono',monospace;text-decoration:none">Already have credentials? Sign in</a>
+    </div>
+  </div>
+</div>
+<script>
+function openRequestModal(){var e=document.getElementById('quick-email');if(e&&e.value)document.getElementById('req-email').value=e.value;document.getElementById('req-modal').style.display='flex';}
+function closeRequestModal(){document.getElementById('req-modal').style.display='none';}
+document.addEventListener('click',function(e){if(e.target.id==='req-modal')closeRequestModal();});
+async function submitRequest(){
+  var first=document.getElementById('req-first').value.trim();
+  var last=document.getElementById('req-last').value.trim();
+  var email=document.getElementById('req-email').value.trim();
+  var agency=document.getElementById('req-agency').value.trim();
+  var athletes=document.getElementById('req-athletes').value;
+  var errEl=document.getElementById('req-error');
+  errEl.style.display='none';
+  if(!first||!last||!email){errEl.textContent='Please fill in your name and email.';errEl.style.display='block';return;}
+  var btn=document.getElementById('req-submit');
+  btn.textContent='Submitting...';btn.disabled=true;
+  try{
+    var r=await fetch('/api/request-access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:first,lastName:last,email:email,agency:agency,athletes:athletes})});
+    var data=await r.json();
+    if(data.ok){document.getElementById('req-form-view').style.display='none';document.getElementById('req-success-view').style.display='block';}
+    else{errEl.textContent=data.error||'Something went wrong.';errEl.style.display='block';btn.textContent='Request Access';btn.disabled=false;}
+  }catch(e){errEl.textContent='Connection error. Try again.';errEl.style.display='block';btn.textContent='Request Access';btn.disabled=false;}
+}
+</script>
+</body>
+</html>

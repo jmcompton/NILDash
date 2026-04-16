@@ -576,6 +576,25 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
 });
 
 // ── Catch-all → frontend ───────────────────────────────────────
+// ── Request Access ───────────────────────────────────────────
+app.post('/api/request-access', async (req, res) => {
+  const { firstName, lastName, email, agency, athletes } = req.body;
+  if (!firstName || !lastName || !email) return res.status(400).json({ error: 'Name and email required' });
+  try {
+    await store.pool.query(`CREATE TABLE IF NOT EXISTS access_requests (id SERIAL PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, agency TEXT, athletes TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`);
+    await store.pool.query('INSERT INTO access_requests (first_name, last_name, email, agency, athletes) VALUES ($1,$2,$3,$4,$5)', [firstName, lastName, email, agency||'', athletes||'']);
+    console.log('ACCESS REQUEST:', firstName, lastName, email, agency, athletes);
+    res.json({ ok: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Landing page ──────────────────────────────────────────────
+app.get('/landing', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'landing.html'));
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
