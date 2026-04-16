@@ -1766,7 +1766,9 @@ async function calcRate() {
       (b.posMult && b.posMult !== '1.00' ? '<div class="rb-row"><span class="rb-label">Position multiplier</span><span class="rb-val">' + b.posMult + '×</span></div>' : '') +
       (b.marketMult && b.marketMult !== '1.00' ? '<div class="rb-row"><span class="rb-label">Market size multiplier</span><span class="rb-val">' + b.marketMult + '×</span></div>' : '') +
       (b.engMult ? '<div class="rb-row"><span class="rb-label">Engagement multiplier</span><span class="rb-val">' + b.engMult + '×</span></div>' : '') +
-      (b.cpm ? '<div class="rb-row"><span class="rb-label">Seasonal CPM</span><span class="rb-val">
+      (b.cpm ? '<div class="rb-row"><span class="rb-label">Seasonal CPM</span><span class="rb-val">$' + b.cpm + '</span></div>' : '') +
+    document.getElementById('rateAI').classList.add('visible');
+      contextRow;
   } catch(e) { showToast('Error: ' + e.message); }
 }
 
