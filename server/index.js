@@ -595,6 +595,34 @@ app.get('/landing', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'landing.html'));
 });
 
+// ── Admin ────────────────────────────────────────────────────
+app.get('/admin', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).send('Forbidden');
+  res.sendFile(path.join(__dirname, '..', 'public', 'admin.html'));
+});
+app.get('/api/admin/requests', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    await store.pool.query(`CREATE TABLE IF NOT EXISTS access_requests (id SERIAL PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, agency TEXT, athletes TEXT, status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW())`);
+    const r = await store.pool.query('SELECT * FROM access_requests ORDER BY created_at DESC');
+    res.json({ requests: r.rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/requests/:id/approve', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+  await store.pool.query('UPDATE access_requests SET status=$1 WHERE id=$2', ['approved', req.params.id]);
+  res.json({ ok: true });
+});
+app.post('/api/admin/requests/:id/deny', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+  await store.pool.query('UPDATE access_requests SET status=$1 WHERE id=$2', ['denied', req.params.id]);
+  res.json({ ok: true });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
