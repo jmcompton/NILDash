@@ -222,12 +222,7 @@ Return ONLY a JSON array of 6 deals:
     if (si === -1 || ei <= si) throw new Error('No array');
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-    // Recalculate suggested rates using correct deliverable type per deal
-    return parsed.map(d => {
-      const delivType = dealTypeToDeliverable(d.dealType);
-      const recalc = calculateRate(athlete, delivType);
-      return { ...d, suggestedRate: { low: recalc.low, high: recalc.high }, deliverableUsed: delivType };
-    });
+    return parsed;
   } catch (err) {
     console.error('Deal scan error:', err.message);
     console.error('Deal scan raw response:', err.raw || 'no raw');
