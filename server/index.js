@@ -53,7 +53,7 @@ const apiLimiter = rateLimit({
 });
 
 app.use(express.json({ limit: '50kb' }));
-app.use(express.static(path.join(__dirname, '..', 'public')));
+app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
 app.set('trust proxy', 1);
 app.use(session({
   store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
