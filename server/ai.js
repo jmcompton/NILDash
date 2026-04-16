@@ -168,54 +168,43 @@ function calculateRate(athlete, deliverableType) {
 }
 
 async function getDealRecommendations(athlete, role) {
-  // Map AI deal types to NILViewVal deliverable types
-  function dealTypeToDeliverable(dealType) {
-    var map = {
-      'post': 'ig-post', 'reel': 'ig-reel', 'tiktok': 'tiktok',
-      'ambassador': 'retainer', 'retainer': 'retainer',
-      'appearance': 'appearance-inperson', 'licensing': 'license-jersey',
-      'youtube': 'youtube-long', 'podcast': 'podcast-host'
-    };
-    return map[dealType] || 'ig-reel';
-  }
-  const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
-  const market = (athlete.school || 'college').replace('University','').replace('College','').trim();
-  const prompt = `You are researching NIL brand deals. Search the web for these specific queries:
-1. "${athlete.sport} NIL deal brand partnership 2025 2026" — find brands with proven track records
-2. "NIL sponsorship ${athlete.schoolTier} ${athlete.sport} 2026" — find tier-appropriate sponsors  
-3. "college ${athlete.sport} athlete brand ambassador 2026" — find active programs
-4. "best local businesses ${market} city sponsor college athlete NIL 2026" — find SPECIFIC named local restaurants, gyms, dealerships, banks, or retailers near the school that have done or would do NIL deals
+  const school = athlete.school || 'Unknown';
+  const city = school.replace('University','').replace('College','').replace('of','').trim();
+  const sport = athlete.sport || 'football';
 
-ATHLETE PROFILE:
-Name: ${athlete.name} | Sport: ${athlete.sport} | Position: ${athlete.position || 'N/A'} | Year: ${athlete.year || 'N/A'}
-School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'college'})
-Reach: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Engagement: ${athlete.engagement||0}% | Tier: ${tier}
-Stats: ${athlete.stats || 'N/A'} | Notes: ${athlete.notes || 'N/A'}
+  const prompt = `You are a NIL deal researcher. Find 6 real brand opportunities for this athlete.
 
-Using your search results, recommend 6 brands ranked by realistic fit:
-- Prioritize brands with DOCUMENTED NIL activity found in your search
-- Include 2+ SPECIFIC named local businesses near ${market} (restaurants, gyms, car dealerships, local banks, regional chains) — use their actual business name, not generic "local brand"
-- Include 1+ sport-specific brand for ${athlete.sport}
-- Include 1+ non-obvious emerging brand matching this athlete's audience
-- Rate ranges by tier: nano $50-500/post, micro $200-2000, mid $1000-8000, macro $5000+
-- Only recommend Nike/Adidas/Gatorade if search confirms active NIL programs for ${athlete.schoolTier} level
+ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${school} (${athlete.schoolTier||'college'})
+SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | ${athlete.engagement||0}% engagement | Tier: ${tier}
+STATS: ${athlete.stats||'N/A'}
+
+Search for:
+1. Real local businesses in ${city} that sponsor college athletes — restaurants, gyms, car dealerships, banks, local chains
+2. Brands with DOCUMENTED NIL deals for ${sport} athletes at ${athlete.schoolTier||'college'} level in 2025-2026
+3. Regional brands active in college ${sport} NIL
+
+RULES:
+- At least 3 of the 6 must be REAL named local businesses near ${city} (use actual business names like "Guthrie's Chicken", "Jim Hudson Toyota", "Gate Petroleum" — not generic "local restaurant")
+- Do NOT include Nike, Adidas, Gatorade unless you have confirmed they do NIL at this tier
+- Each brand must have a specific reason why they fit THIS athlete
 
 Return ONLY a JSON array of 6 deals:
 [{
   "rank": 1,
-  "brand": "Exact Brand Name",
-  "campaign": "Specific realistic campaign concept for THIS athlete",
-  "category": "nutrition|apparel|tech|finance|food|beverage|gaming|auto|grooming|local|restaurant|gym|dealership|bank",
-  "rationale": "Why this brand — cite known NIL activity or specific audience match",
-  "suggestedRate": { "low": 0, "high": 0 },
-  "timingNote": "Why now — seasonal, budget cycle, or confirmed recent NIL activity",
-  "fitScore": 90,
-  "dealType": "post|reel|ambassador|appearance|licensing"
+  "brand": "Exact Real Business Name",
+  "campaign": "Specific campaign concept for this athlete in 1-2 sentences",
+  "category": "local|nutrition|apparel|tech|finance|food|beverage|gaming|auto|grooming",
+  "dealType": "post|reel|ambassador|appearance|licensing",
+  "rationale": "Why this brand fits — cite NIL history or specific audience/location match",
+  "timingNote": "Best time to reach out and why — be specific",
+  "fitScore": 85,
+  "isLocal": true
 }]`;
+
   try {
-    const raw = await oneShotWithSearch(prompt, 'You are a JSON-only API. Search the web for NIL deals, then output ONLY a valid JSON array starting with [ and ending with ]. No explanation text, no markdown, no preamble. Your entire response must be parseable JSON.');
+    const raw = await oneShotWithSearch(prompt, 'You are a JSON-only API. Search the web for real local businesses and NIL deals, then output ONLY a valid JSON array starting with [ and ending with ]. No explanation text, no markdown, no preamble. Your entire response must be parseable JSON.');
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');

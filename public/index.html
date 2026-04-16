@@ -1698,42 +1698,38 @@ function renderDealsTable(recs) {
   container.innerHTML = recs.map(function(d,i) {
     var score = d.fitScore || 80;
     var scoreColor = score >= 85 ? 'var(--accent)' : score >= 70 ? '#f59e0b' : 'var(--muted)';
-    var low = d.suggestedRate ? (d.suggestedRate.low||0).toLocaleString() : '0';
-    var high = d.suggestedRate ? (d.suggestedRate.high||0).toLocaleString() : '0';
-    var rate = d.suggestedRate ? '$'+low+' – $'+high : '–';
     var isTop = i === 0;
-    var timingUrgent = d.timingNote && (d.timingNote.toLowerCase().indexOf('now')!==-1 || d.timingNote.toLowerCase().indexOf('open')!==-1 || d.timingNote.toLowerCase().indexOf('peak')!==-1);
+    var isLocal = d.isLocal || (d.category && d.category.toLowerCase() === 'local');
+    var timingUrgent = d.timingNote && (d.timingNote.toLowerCase().indexOf('now') !== -1 || d.timingNote.toLowerCase().indexOf('open') !== -1 || d.timingNote.toLowerCase().indexOf('peak') !== -1 || d.timingNote.toLowerCase().indexOf('spring') !== -1);
+    var timingShort = d.timingNote && d.timingNote.length > 70 ? d.timingNote.substring(0,70)+'...' : (d.timingNote||'');
     var brandSafe = (d.brand||'').replace(/'/g, "\\'");
-    var rateSafe = rate.replace(/'/g, "\\'");
-    var timingShort = d.timingNote && d.timingNote.length > 80 ? d.timingNote.substring(0,80)+'...' : d.timingNote;
-    var timingTag = d.timingNote ? (timingUrgent ? '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);color:#f59e0b">'+timingShort+'</span>' : '<span style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">'+d.timingNote+'</span>') : '';
-    return '<div style="background:var(--surface2);border:1px solid '+(isTop?'rgba(200,241,53,0.3)':'var(--border)')+';border-radius:var(--r);padding:16px 20px">' +
+    var dealTypeLabel = {'post':'IG Post','reel':'IG Reel','ambassador':'Ambassador','appearance':'Appearance','licensing':'Licensing','tiktok':'TikTok','youtube':'YouTube'}[d.dealType] || d.dealType || 'Post';
+    var catColors = {'local':'rgba(200,241,53,0.15);color:var(--accent)','food':'rgba(245,158,11,0.15);color:#f59e0b','restaurant':'rgba(245,158,11,0.15);color:#f59e0b','auto':'rgba(59,130,246,0.15);color:#60a5fa','gym':'rgba(239,68,68,0.15);color:#f87171','finance':'rgba(16,185,129,0.15);color:#34d399','bank':'rgba(16,185,129,0.15);color:#34d399'};
+    var catStyle = catColors[d.category] || 'rgba(255,255,255,0.06);color:var(--muted)';
+    return '<div style="background:var(--surface2);border:1px solid '+(isTop?'rgba(200,241,53,0.3)':'var(--border)')+';border-radius:var(--r);padding:18px 20px">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
-        '<div style="flex:1;min-width:200px">' +
-          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:220px">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:11px;color:var(--muted)">#'+(d.rank||i+1)+'</span>' +
-            '<span style="font-size:14px;font-weight:600;color:var(--text)">'+(d.brand||'Brand')+'</span>' +
-            (isTop?'<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(200,241,53,0.15);color:var(--accent);font-weight:700">BEST FIT</span>':'') +
+            '<span style="font-size:15px;font-weight:700;color:var(--text)">'+(d.brand||'Brand')+'</span>' +
+            (isLocal ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(200,241,53,0.15);color:var(--accent);font-weight:700">LOCAL</span>' : '') +
+            (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(200,241,53,0.08);color:var(--accent);border:1px solid rgba(200,241,53,0.2)">BEST FIT</span>' : '') +
           '</div>' +
-          '<div style="font-size:12px;color:var(--muted);margin-bottom:6px">'+(d.campaign||'')+'</div>' +
-          '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">'+(d.rationale||'')+'</div>' +
-          '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-            '<span style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">'+(d.category||'')+'</span>' +
-            '<span style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">'+(d.dealType||'post')+'</span>' +
-            timingTag +
+          '<div style="font-size:12px;color:var(--text);margin-bottom:8px;line-height:1.5;font-weight:500">'+(d.campaign||'')+'</div>' +
+          '<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">'+(d.rationale||'')+'</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
+            '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:'+catStyle+'">'+(d.category||'brand')+'</span>' +
+            '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.06);color:var(--muted)">'+dealTypeLabel+'</span>' +
+            (timingShort ? (timingUrgent ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#f59e0b">'+timingShort+'</span>' : '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--muted)">'+timingShort+'</span>') : '') +
           '</div>' +
         '</div>' +
-        '<div style="text-align:right;min-width:130px">' +
-          '<div style="font-size:18px;font-weight:600;color:var(--accent);margin-bottom:2px">'+rate+'</div>' +
-          '<div style="font-size:10px;color:var(--muted);margin-bottom:10px">suggested rate</div>' +
-          '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-bottom:10px">' +
-            '<div style="width:50px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden"><div style="width:'+score+'%;height:100%;background:'+scoreColor+';border-radius:2px"></div></div>' +
-            '<span style="font-size:11px;color:'+scoreColor+';font-weight:600">'+score+'</span>' +
+        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:120px">' +
+          '<div style="display:flex;align-items:center;gap:5px">' +
+            '<div style="width:52px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden"><div style="width:'+score+'%;height:100%;background:'+scoreColor+';border-radius:2px"></div></div>' +
+            '<span style="font-size:12px;color:'+scoreColor+';font-weight:700">'+score+'</span>' +
           '</div>' +
-          '<div style="display:flex;flex-direction:column;gap:6px">' +
-            '<button onclick="prefillOutreach(\''+brandSafe+'\')" style="padding:6px 12px;background:var(--accent);color:#000;border:none;border-radius:40px;font-size:10px;font-weight:700;cursor:pointer">Write Outreach</button>' +
-            '<button onclick="prefillNeg(\''+brandSafe+'\',\''+rateSafe+'\')" style="padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:40px;font-size:10px;cursor:pointer">Negotiate</button>' +
-          '</div>' +
+          '<button onclick="prefillOutreach(''+brandSafe+'')" style="padding:8px 14px;background:var(--accent);color:#000;border:none;border-radius:40px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Write Outreach</button>' +
+          '<button onclick="prefillNeg(''+brandSafe+'','')" style="padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap">Negotiate</button>' +
         '</div>' +
       '</div>' +
     '</div>';
