@@ -176,7 +176,7 @@ async function getDealRecommendations(athlete, role) {
 1. "${athlete.sport} NIL deal brand partnership 2025 2026" — find brands with proven track records
 2. "NIL sponsorship ${athlete.schoolTier} ${athlete.sport} 2026" — find tier-appropriate sponsors  
 3. "college ${athlete.sport} athlete brand ambassador 2026" — find active programs
-4. "${market} local business NIL college athlete" — find regional/local angle
+4. "best local businesses ${market} city sponsor college athlete NIL 2026" — find SPECIFIC named local restaurants, gyms, dealerships, banks, or retailers near the school that have done or would do NIL deals
 
 ATHLETE PROFILE:
 Name: ${athlete.name} | Sport: ${athlete.sport} | Position: ${athlete.position || 'N/A'} | Year: ${athlete.year || 'N/A'}
@@ -186,7 +186,7 @@ Stats: ${athlete.stats || 'N/A'} | Notes: ${athlete.notes || 'N/A'}
 
 Using your search results, recommend 6 brands ranked by realistic fit:
 - Prioritize brands with DOCUMENTED NIL activity found in your search
-- Include 1+ local/regional brand near ${market}
+- Include 2+ SPECIFIC named local businesses near ${market} (restaurants, gyms, car dealerships, local banks, regional chains) — use their actual business name, not generic "local brand"
 - Include 1+ sport-specific brand for ${athlete.sport}
 - Include 1+ non-obvious emerging brand matching this athlete's audience
 - Rate ranges by tier: nano $50-500/post, micro $200-2000, mid $1000-8000, macro $5000+
@@ -197,7 +197,7 @@ Return ONLY a JSON array of 6 deals:
   "rank": 1,
   "brand": "Exact Brand Name",
   "campaign": "Specific realistic campaign concept for THIS athlete",
-  "category": "nutrition|apparel|tech|finance|food|beverage|gaming|auto|grooming|local",
+  "category": "nutrition|apparel|tech|finance|food|beverage|gaming|auto|grooming|local|restaurant|gym|dealership|bank",
   "rationale": "Why this brand — cite known NIL activity or specific audience match",
   "suggestedRate": { "low": 0, "high": 0 },
   "timingNote": "Why now — seasonal, budget cycle, or confirmed recent NIL activity",

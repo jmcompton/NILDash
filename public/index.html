@@ -1703,12 +1703,13 @@ function renderDealsTable(recs) {
     var scoreColor = score >= 85 ? 'var(--accent)' : score >= 70 ? '#f59e0b' : 'var(--muted)';
     var low = d.suggestedRate ? (d.suggestedRate.low||0).toLocaleString() : '0';
     var high = d.suggestedRate ? (d.suggestedRate.high||0).toLocaleString() : '0';
-    var rate = d.suggestedRate ? '$'+low+'--$'+high : '--';
+    var rate = d.suggestedRate ? '$'+low+' – $'+high : '–';
     var isTop = i === 0;
     var timingUrgent = d.timingNote && (d.timingNote.toLowerCase().indexOf('now')!==-1 || d.timingNote.toLowerCase().indexOf('open')!==-1 || d.timingNote.toLowerCase().indexOf('peak')!==-1);
     var brandSafe = (d.brand||'').replace(/'/g, "\\'");
     var rateSafe = rate.replace(/'/g, "\\'");
-    var timingTag = d.timingNote ? (timingUrgent ? '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);color:#f59e0b">'+d.timingNote+'</span>' : '<span style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">'+d.timingNote+'</span>') : '';
+    var timingShort = d.timingNote && d.timingNote.length > 80 ? d.timingNote.substring(0,80)+'...' : d.timingNote;
+    var timingTag = d.timingNote ? (timingUrgent ? '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);color:#f59e0b">'+timingShort+'</span>' : '<span style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);color:var(--muted)">'+d.timingNote+'</span>') : '';
     return '<div style="background:var(--surface2);border:1px solid '+(isTop?'rgba(200,241,53,0.3)':'var(--border)')+';border-radius:var(--r);padding:16px 20px">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
         '<div style="flex:1;min-width:200px">' +
@@ -1749,7 +1750,7 @@ function prefillOutreach(brand) {
 }
 function prefillNeg(brand, rate) {
   document.getElementById('negBrand').value = brand;
-  if (rate && rate.includes('--')) document.getElementById('negTarget').value = rate.split('--')[1].replace('$','').trim();
+  if (rate && rate.includes('–')) document.getElementById('negTarget').value = rate.split('–')[1].replace('$','').trim();
   showView('negotiate', document.querySelectorAll('.nav-item')[3]);
 }
 
