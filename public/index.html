@@ -609,7 +609,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div style="font-size:12px;font-weight:700;color:var(--text)">Generated Contract</div>
             <div style="display:flex;gap:8px">
               <button onclick="copyContract()" style="padding:7px 14px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;cursor:pointer">📋 Copy</button>
-              <button onclick="downloadContract()" style="padding:7px 14px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-size:11px;font-weight:700;cursor:pointer">⬇ Download .txt</button>
+              <button onclick="downloadContract()" style="padding:7px 14px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;font-weight:700;cursor:pointer">⬇ .txt</button>
+              <button onclick="downloadContractPDF()" style="padding:7px 14px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-size:11px;font-weight:700;cursor:pointer">⬇ Download PDF</button>
             </div>
           </div>
           <div id="con-text" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:20px;font-size:11px;line-height:1.8;white-space:pre-wrap;max-height:600px;overflow-y:auto;font-family:var(--mono)"></div>
@@ -2186,6 +2187,27 @@ function setCommFilter(f) {
       a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);
       showToast('Contract downloaded');
+    }
+    async function downloadContractPDF() {
+      if (!lastContract) { showToast('Generate a contract first'); return; }
+      const athlete = athletes.find(a => a.id === selectedAthleteId);
+      const brand = document.getElementById('con-brand').value.trim();
+      showToast('Generating PDF...');
+      try {
+        const r = await fetch(API_BASE + '/api/ai/contract/pdf', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ contract: lastContract, athleteName: athlete ? athlete.name : 'Athlete', brand })
+        });
+        if (!r.ok) { showToast('PDF generation failed'); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = (athlete ? athlete.name.replace(/\s+/g,'-') : 'athlete') + '-' + brand.replace(/\s+/g,'-') + '-NIL-contract.pdf';
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('PDF downloaded');
+      } catch(e) { showToast('Error: ' + e.message); }
     }
 
 async function runCompliance() {
