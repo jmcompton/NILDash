@@ -575,6 +575,11 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
   doc.end();
 });
 
+// ── Landing page ──────────────────────────────────────────────
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'landing.html'));
+});
+
 // ── Catch-all → frontend ───────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
