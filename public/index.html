@@ -830,7 +830,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <option value="in portal - seeking lower competition">In Portal — Seeking lower competition</option>
             </select>
           </div>
-          <button class="run-btn" style="width:100%;margin-top:8px" onclick="addAthlete()">Save Client →</button>
+          <button class="run-btn" style="width:100%;margin-top:8px" id="saveAthleteBtn" onclick="addAthlete()">Save Client →</button>
           <div id="addAthleteError" style="color:var(--red);font-size:12px;margin-top:8px;text-align:center"></div>
         </div>
       </div>
@@ -1551,7 +1551,7 @@ function editAthlete(id) {
   const trEl = document.getElementById('a_transfer_reason');
   if (trEl && a.transferReason) trEl.value = a.transferReason;
   // Change save button to update mode
-  const btn = document.querySelector('#view-add-athlete .run-btn:last-of-type') || document.querySelector('[onclick="addAthlete()"]');
+  const btn = document.getElementById('saveAthleteBtn');
   if (btn) { btn.textContent = 'Update Client →'; btn.setAttribute('onclick', `updateAthlete('${id}')`); }
   document.getElementById('addAthleteError').textContent = '';
   showToast('Editing ' + a.name + ' — make changes and click Update');
@@ -1582,7 +1582,7 @@ async function updateAthlete(id) {
   renderRoster(); populateAthleteSelect();
   // Reset save button
   const btn = document.querySelector('[onclick*="updateAthlete"]');
-  if (btn) { btn.textContent = 'Save Client →'; btn.setAttribute('onclick', 'addAthlete()'); }
+  const btn2 = document.getElementById('saveAthleteBtn'); if (btn2) { btn2.textContent = 'Save Client →'; btn2.setAttribute('onclick', 'addAthlete()'); }
   showView('roster', document.querySelectorAll('.nav-item')[5]);
   showToast(name + ' updated!');
 }
