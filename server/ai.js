@@ -168,6 +168,16 @@ function calculateRate(athlete, deliverableType) {
 }
 
 async function getDealRecommendations(athlete, role) {
+  // Map AI deal types to NILViewVal deliverable types
+  function dealTypeToDeliverable(dealType) {
+    var map = {
+      'post': 'ig-post', 'reel': 'ig-reel', 'tiktok': 'tiktok',
+      'ambassador': 'retainer', 'retainer': 'retainer',
+      'appearance': 'appearance-inperson', 'licensing': 'license-jersey',
+      'youtube': 'youtube-long', 'podcast': 'podcast-host'
+    };
+    return map[dealType] || 'ig-reel';
+  }
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
@@ -212,7 +222,12 @@ Return ONLY a JSON array of 6 deals:
     if (si === -1 || ei <= si) throw new Error('No array');
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-    return parsed;
+    // Recalculate suggested rates using correct deliverable type per deal
+    return parsed.map(d => {
+      const delivType = dealTypeToDeliverable(d.dealType);
+      const recalc = calculateRate(athlete, delivType);
+      return { ...d, suggestedRate: { low: recalc.low, high: recalc.high }, deliverableUsed: delivType };
+    });
   } catch (err) {
     console.error('Deal scan error:', err.message);
     console.error('Deal scan raw response:', err.raw || 'no raw');
