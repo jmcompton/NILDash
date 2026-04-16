@@ -1752,7 +1752,6 @@ function prefillNeg(brand, rate) {
   if (rate && rate.includes('--')) document.getElementById('negTarget').value = rate.split('--')[1].replace('$','').trim();
   showView('negotiate', document.querySelectorAll('.nav-item')[3]);
 }
-}
 
 // ── AI: RATE ─────────────────────────────────────────────────
 async function calcRate() {
