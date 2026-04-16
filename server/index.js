@@ -601,3 +601,4 @@ app.listen(PORT, () => {
 ║  AI Key: ${hasKey ? '✅ Ready' : '⚠️  Add to .env'}              ║
 ╚════════════════════════════════════╝`);
 });
+// cache bust Thu Apr 16 09:42:56 CDT 2026
