@@ -89,12 +89,12 @@ const MARKET_RATES = {
     // Women's sports — Livvy Dunne effect, brand demand growing fast
     // Women's gymnastics and volleyball outperform follower counts
     gymnastics: 1.35, volleyball: 1.28, softball: 1.10,
-    'womens basketball': 1.25, 'women's basketball': 1.25,
-    'womens soccer': 1.10, 'women's soccer': 1.10,
-    'womens swimming': 1.05, 'women's swimming': 1.05,
-    'womens tennis': 1.02, 'women's tennis': 1.02,
-    'womens golf': 1.00, 'women's golf': 1.00,
-    'womens track': 1.00, 'women's track': 1.00,
+    'womens basketball': 1.25,
+    'womens soccer': 1.10,
+    'womens swimming': 1.05,
+    'womens tennis': 1.02,
+    'womens golf': 1.00,
+    'womens track': 1.00,
   },
 
   schoolMultiplier: {
