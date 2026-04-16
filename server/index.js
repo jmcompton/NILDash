@@ -590,16 +590,9 @@ app.get('/app', (req, res) => {
 app.get('*', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+});
 
 app.listen(PORT, () => {
   const hasKey = !!(process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.includes('YOUR_KEY'));
-  console.log(`
-╔════════════════════════════════════╗
-║   NILDash  v1.0.0                  ║
-╠════════════════════════════════════╣
-║  URL:    http://localhost:${PORT}      ║
-║  AI Key: ${hasKey ? '✅ Ready' : '⚠️  Add to .env'}              ║
-╚════════════════════════════════════╝`);
+  console.log('NILDash running on port ' + PORT);
 });
-// cache bust Thu Apr 16 09:42:56 CDT 2026
-// cache bust Thu Apr 16 09:53:23 CDT 2026
