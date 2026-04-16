@@ -80,10 +80,21 @@ const MARKET_RATES = {
   },
 
   sportMultiplier: {
-    basketball: 1.40, football: 1.35, baseball: 1.10,
-    soccer: 1.05, swimming: 0.95, track: 1.00,
-    volleyball: 1.05, wrestling: 0.90, tennis: 1.00,
-    'track & field': 1.00, golf: 0.95,
+    // Men's revenue sports — highest brand demand
+    football: 1.45, basketball: 1.40,
+    // Men's non-revenue
+    baseball: 1.15, soccer: 1.05, lacrosse: 1.00,
+    wrestling: 0.92, swimming: 0.90, track: 0.95,
+    'track & field': 0.95, golf: 0.95, tennis: 0.92,
+    // Women's sports — Livvy Dunne effect, brand demand growing fast
+    // Women's gymnastics and volleyball outperform follower counts
+    gymnastics: 1.35, volleyball: 1.28, softball: 1.10,
+    'womens basketball': 1.25, 'women's basketball': 1.25,
+    'womens soccer': 1.10, 'women's soccer': 1.10,
+    'womens swimming': 1.05, 'women's swimming': 1.05,
+    'womens tennis': 1.02, 'women's tennis': 1.02,
+    'womens golf': 1.00, 'women's golf': 1.00,
+    'womens track': 1.00, 'women's track': 1.00,
   },
 
   schoolMultiplier: {
