@@ -53,7 +53,12 @@ const apiLimiter = rateLimit({
 });
 
 app.use(express.json({ limit: '50kb' }));
-app.use(express.static(path.join(__dirname, '..', 'public'), { index: false }));
+// ── Landing page (must be before static middleware) ──────────
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'landing.html'));
+});
+
+app.use(express.static(path.join(__dirname, '..', 'public')));
 app.set('trust proxy', 1);
 app.use(session({
   store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
@@ -575,10 +580,6 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
   doc.end();
 });
 
-// ── Landing page ──────────────────────────────────────────────
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'public', 'landing.html'));
-});
 
 // ── Catch-all → frontend ───────────────────────────────────────
 // ── App ────────────────────────────────────────────────────────
