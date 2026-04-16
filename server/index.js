@@ -585,11 +585,11 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
 // ── App ────────────────────────────────────────────────────────
 app.get('/app', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
 });
 app.get('*', (req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '..', 'public', 'app.html'));
 });
 
 app.listen(PORT, () => {
