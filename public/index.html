@@ -2496,68 +2496,6 @@ async function loadCalendar() {
   await NILCal.load(athletes, API_BASE);
 }
 
-
-  // Generate deadlines based on stage
-  const deadlines = [];
-  allDeals.forEach(deal => {
-    const color = stageColors[deal.stage] || '#6b7280';
-    const prob = stageProb[deal.stage] || 10;
-    if (deal.stage === 'Negotiating') {
-      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 2), label: 'Counter offer deadline', color, prob });
-      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 7), label: 'Follow-up call', color, prob });
-    } else if (deal.stage === 'Closing') {
-      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 3), label: 'Contract due', color, prob });
-    } else if (deal.stage === 'Outreach Sent') {
-      deadlines.push({ deal, date: getDaysFromCreated(deal.updatedAt || deal.createdAt, 7), label: 'Follow-up if no response', color, prob });
-    }
-  });
-
-  deadlines.sort((a, b) => a.date - b.date);
-
-  const urgencyColors = { overdue: 'var(--red)', today: '#f97316', urgent: '#f97316', soon: 'var(--accent)', future: 'var(--muted)' };
-
-  const deadlineHtml = deadlines.slice(0, 8).map(({ deal, date, label, color, prob }) => {
-    const { label: dateLabel, urgency, badge } = formatDeadlineDate(date);
-    const gcLink = makeGoogleCalLink(
-      label + ' — ' + deal.brand + ' (' + deal._athleteName + ')',
-      date,
-      deal.stage + ' deal worth $' + (deal.value || 0).toLocaleString() + '. Close probability: ' + prob + '%.'
-    );
-    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
-      <div style="flex:1">
-        <div style="font-size:12px;font-weight:600;color:var(--text)">${label}</div>
-        <div style="font-size:11px;color:var(--muted)">${deal._athleteName} · ${deal.brand} · ${deal.stage} · ${prob}% close probability</div>
-      </div>
-      <div style="text-align:right;min-width:80px">
-        <div style="font-size:11px;color:${urgencyColors[urgency]};font-weight:600">${badge}</div>
-        <div style="font-size:10px;color:var(--muted)">${dateLabel}</div>
-      </div>
-      <a href="${gcLink}" target="_blank" style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:10px;padding:4px 8px;text-decoration:none;white-space:nowrap">+ Google Cal</a>
-    </div>`;
-  }).join('');
-
-  document.getElementById('cal-deadlines').innerHTML = deadlineHtml || '<div style="color:var(--muted);font-size:12px">No upcoming deadlines.</div>';
-
-  // All deals
-  const dealsHtml = allDeals.map(deal => {
-    const color = stageColors[deal.stage] || '#6b7280';
-    const prob = stageProb[deal.stage] || 10;
-    const created = new Date(deal.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${color};border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">
-      <div style="flex:1">
-        <div style="font-size:12px;font-weight:600;color:var(--text)">${deal.brand} — ${deal.campaign || 'No campaign set'}</div>
-        <div style="font-size:11px;color:var(--muted)">${deal._athleteName} · Added ${created}</div>
-      </div>
-      <div style="text-align:right;min-width:100px">
-        <div style="font-size:12px;font-weight:600;color:${color}">${deal.stage}</div>
-        <div style="font-size:11px;color:var(--muted)">$${(deal.value||0).toLocaleString()} · ${prob}% close</div>
-      </div>
-    </div>`;
-  }).join('');
-
-  document.getElementById('cal-deals').innerHTML = dealsHtml;
-}
-
 // ── INIT ─────────────────────────────────────────────────────
 
 // ── TEAM MATCH ───────────────────────────────────────────────
