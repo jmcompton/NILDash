@@ -205,11 +205,11 @@ Return ONLY a JSON array of 6 deals:
 }]`;
 
   try {
-    const raw = await oneShotWithSearch(prompt, 'You are a JSON-only API. Search the web for real local businesses and NIL deals, then output ONLY a valid JSON array starting with [ and ending with ]. No explanation text, no markdown, no preamble. Your entire response must be parseable JSON.');
+    const raw = await oneShot(prompt, 'You are a JSON-only API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation text, no markdown, no preamble. Your entire response must be parseable JSON.');
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
-    if (si === -1 || ei <= si) throw new Error('No array');
+    if (si === -1 || ei <= si) { console.error('Deal scan: no array found in:', c.substring(0,200)); throw new Error('No array'); }
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     return parsed;
