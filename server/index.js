@@ -174,7 +174,11 @@ app.put('/api/athletes/:id', requireAuth, async (req, res) => {
 app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
   const athlete = await store.getAthlete(req.params.id);
   if (!athlete) return res.status(404).json({ error: 'Not found' });
-  if (athlete.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+  const user = await store.getUser(req.session.userId);
+  // Allow admin or owner to delete
+  if (athlete.agent_id !== req.session.userId && user.email !== 'johnmarkcompton@gmail.com') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   await store.deleteAthlete(req.params.id);
   res.json({ ok: true });
 });
