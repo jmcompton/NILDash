@@ -175,10 +175,10 @@ var NILCal = (function() {
     var notes = document.getElementById('cal-ev-notes').value.trim();
     if (!title) { alert('Please enter an event title'); return; }
     try {
+      var reminderEl = document.getElementById('cal-ev-reminder');
+      var reminderDays = reminderEl ? reminderEl.value : '';
       var r = await fetch(apiBase + '/api/calendar/events', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        var reminderEl = document.getElementById('cal-ev-reminder');
-        var reminderDays = reminderEl ? reminderEl.value : '';
         body: JSON.stringify({ title: title, date: key, notes: notes, reminderDays: reminderDays })
       });
       var data = await r.json();
