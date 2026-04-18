@@ -11,6 +11,8 @@ const rateLimit = require('express-rate-limit');
 const path     = require('path');
 const PDFDocument = require('pdfkit');
 const store    = require('./store');
+const { Resend } = require('resend');
+const resend = new Resend(process.env.RESEND_API_KEY);
 const ai       = require('./ai');
 
 const app  = express();
@@ -600,6 +602,50 @@ app.delete('/api/calendar/events/:id', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Password Reset ───────────────────────────────────────────
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email required' });
+  try {
+    const user = await store.getUserByEmail(email);
+    if (!user) return res.json({ ok: true }); // Don't reveal if email exists
+    const token = require('crypto').randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 3600000).toISOString(); // 1 hour
+    await store.pool.query('CREATE TABLE IF NOT EXISTS password_resets (id SERIAL PRIMARY KEY, email TEXT, token TEXT, expires_at TIMESTAMPTZ, used BOOLEAN DEFAULT FALSE)');
+    await store.pool.query('INSERT INTO password_resets (email, token, expires_at) VALUES ($1,$2,$3)', [email, token, expires]);
+    const resetUrl = (process.env.APP_URL || 'https://mynildash.com') + '/reset?token=' + token;
+    await resend.emails.send({
+      from: 'NILDash <noreply@mynildash.com>',
+      to: email,
+      subject: 'Reset your NILDash password',
+      html: '<div style="font-family:monospace;max-width:500px;margin:0 auto;padding:40px">' +
+        '<h2 style="color:#C8F135">NILDash</h2>' +
+        '<p>You requested a password reset. Click the link below to set a new password:</p>' +
+        '<a href="' + resetUrl + '" style="display:inline-block;margin:20px 0;padding:12px 24px;background:#C8F135;color:#000;text-decoration:none;border-radius:40px;font-weight:700">Reset Password</a>' +
+        '<p style="color:#666;font-size:12px">This link expires in 1 hour. If you did not request this, ignore this email.</p>' +
+        '</div>'
+    });
+    res.json({ ok: true });
+  } catch(e) { console.error('Reset error:', e.message); res.status(500).json({ error: 'Failed to send reset email' }); }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
+  try {
+    await store.pool.query('CREATE TABLE IF NOT EXISTS password_resets (id SERIAL PRIMARY KEY, email TEXT, token TEXT, expires_at TIMESTAMPTZ, used BOOLEAN DEFAULT FALSE)');
+    const r = await store.pool.query('SELECT * FROM password_resets WHERE token=$1 AND used=FALSE AND expires_at > NOW()', [token]);
+    if (!r.rows.length) return res.status(400).json({ error: 'Invalid or expired reset link' });
+    const { email } = r.rows[0];
+    const hash = await bcrypt.hash(password, 10);
+    const user = await store.getUserByEmail(email);
+    if (!user) return res.status(400).json({ error: 'User not found' });
+    await store.pool.query("UPDATE users SET data = jsonb_set(data, '{password}', $1) WHERE id=$2", [JSON.stringify(hash), user.id]);
+    await store.pool.query('UPDATE password_resets SET used=TRUE WHERE token=$1', [token]);
+    res.json({ ok: true });
+  } catch(e) { console.error('Reset password error:', e.message); res.status(500).json({ error: 'Failed to reset password' }); }
+});
+
 // ── Request Access ───────────────────────────────────────────
 app.post('/api/request-access', async (req, res) => {
   const { firstName, lastName, email, agency, athletes } = req.body;
@@ -612,6 +658,11 @@ app.post('/api/request-access', async (req, res) => {
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Reset page ──────────────────────────────────────────────
+app.get('/reset', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'reset.html'));
 });
 
 // ── Landing page ──────────────────────────────────────────────
