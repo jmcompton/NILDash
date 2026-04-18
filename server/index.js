@@ -660,6 +660,19 @@ app.post('/api/request-access', async (req, res) => {
   }
 });
 
+// ── Help AI ──────────────────────────────────────────────────
+app.post('/api/ai/help', requireAuth, async (req, res) => {
+  const { messages, system } = req.body;
+  if (!messages) return res.status(400).json({ error: 'messages required' });
+  try {
+    const response = await ai.oneShot(
+      messages.map(m => m.role + ': ' + m.content).join('\n'),
+      system || 'You are a helpful NILDash support assistant.'
+    );
+    res.json({ response });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Reset page ──────────────────────────────────────────────
 app.get('/reset', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'reset.html'));
