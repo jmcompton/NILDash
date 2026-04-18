@@ -576,6 +576,30 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
 });
 
 // ── Catch-all → frontend ───────────────────────────────────────
+// ── Calendar Events ───────────────────────────────────────────
+app.get('/api/calendar/events', requireAuth, async (req, res) => {
+  try {
+    await store.pool.query('CREATE TABLE IF NOT EXISTS calendar_events (id SERIAL PRIMARY KEY, agent_id TEXT, title TEXT, date TEXT, notes TEXT, reminderdays INTEGER, created_at TIMESTAMPTZ DEFAULT NOW())');
+    const r = await store.pool.query('SELECT * FROM calendar_events WHERE agent_id=$1 ORDER BY date ASC', [req.session.userId]);
+    res.json({ events: r.rows });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/calendar/events', requireAuth, async (req, res) => {
+  const { title, date, notes, reminderDays } = req.body;
+  if (!title || !date) return res.status(400).json({ error: 'title and date required' });
+  try {
+    await store.pool.query('CREATE TABLE IF NOT EXISTS calendar_events (id SERIAL PRIMARY KEY, agent_id TEXT, title TEXT, date TEXT, notes TEXT, reminderdays INTEGER, created_at TIMESTAMPTZ DEFAULT NOW())');
+    const r = await store.pool.query('INSERT INTO calendar_events (agent_id, title, date, notes, reminderdays) VALUES ($1,$2,$3,$4,$5) RETURNING *', [req.session.userId, title, date, notes||'', reminderDays !== '' && reminderDays !== undefined ? parseInt(reminderDays) : null]);
+    res.json({ event: r.rows[0] });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/calendar/events/:id', requireAuth, async (req, res) => {
+  try {
+    await store.pool.query('DELETE FROM calendar_events WHERE id=$1 AND agent_id=$2', [req.params.id, req.session.userId]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Request Access ───────────────────────────────────────────
 app.post('/api/request-access', async (req, res) => {
   const { firstName, lastName, email, agency, athletes } = req.body;
