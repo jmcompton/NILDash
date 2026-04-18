@@ -660,6 +660,29 @@ app.post('/api/request-access', async (req, res) => {
   }
 });
 
+// ── Admin cleanup ────────────────────────────────────────────
+app.post('/api/admin/cleanup-duplicates', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const r = await store.pool.query('SELECT id, data FROM athletes WHERE agent_id=$1 ORDER BY updated_at ASC', [req.session.userId]);
+    const seen = {};
+    const toDelete = [];
+    for (const row of r.rows) {
+      const name = (row.data.name || '').toLowerCase().trim();
+      if (seen[name]) {
+        toDelete.push(row.id);
+      } else {
+        seen[name] = true;
+      }
+    }
+    for (const id of toDelete) {
+      await store.pool.query('DELETE FROM athletes WHERE id=$1', [id]);
+    }
+    res.json({ deleted: toDelete.length, ids: toDelete });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Help AI ──────────────────────────────────────────────────
 app.post('/api/ai/help', requireAuth, async (req, res) => {
   const { messages, system } = req.body;
