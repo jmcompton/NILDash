@@ -155,6 +155,14 @@ var NILCal = (function() {
       '<input id="cal-ev-title" type="text" placeholder="e.g. Call with Nike rep" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>' +
       '<div style="margin-bottom:20px"><label style="font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.1em;display:block;margin-bottom:6px">Notes</label>' +
       '<input id="cal-ev-notes" type="text" placeholder="Optional notes" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>' +
+      '<div style="margin-bottom:20px"><label style="font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.1em;display:block;margin-bottom:6px">Alert Reminder</label>' +
+      '<select id="cal-ev-reminder" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box">' +
+      '<option value="">No reminder</option>' +
+      '<option value="0">On the day</option>' +
+      '<option value="1">1 day before</option>' +
+      '<option value="2">2 days before</option>' +
+      '<option value="7">1 week before</option>' +
+      '</select></div>' +
       '<button onclick="NILCal.saveEvent(\'' + key + '\')" style="width:100%;padding:13px;background:#C8F135;color:#000;border:none;border-radius:40px;font-size:13px;font-weight:700;cursor:pointer">Add Event</button>' +
     '</div>';
     document.body.appendChild(modal);
@@ -169,7 +177,9 @@ var NILCal = (function() {
     try {
       var r = await fetch(apiBase + '/api/calendar/events', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ title: title, date: key, notes: notes })
+        var reminderEl = document.getElementById('cal-ev-reminder');
+        var reminderDays = reminderEl ? reminderEl.value : '';
+        body: JSON.stringify({ title: title, date: key, notes: notes, reminderDays: reminderDays })
       });
       var data = await r.json();
       if (data.event) {
@@ -177,6 +187,7 @@ var NILCal = (function() {
         buildEventsByDate();
         renderGrid();
         document.getElementById('cal-add-modal').remove();
+        checkCalendarNotifications();
       }
     } catch(e) { alert('Error saving event'); }
   }
@@ -190,6 +201,24 @@ var NILCal = (function() {
       renderGrid();
       document.getElementById('cal-selected-events').style.display = 'none';
     } catch(e) { alert('Error deleting event'); }
+  }
+
+  function checkCalendarNotifications() {
+    var now = new Date();
+    customEvents.forEach(function(ev) {
+      if (!ev.reminderdays && ev.reminderdays !== 0) return;
+      var parts = ev.date.split('-');
+      var eventDate = new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]));
+      var reminderDate = new Date(eventDate.getTime() - parseInt(ev.reminderdays) * 86400000);
+      var diff = Math.ceil((eventDate - now) / 86400000);
+      var reminderDiff = Math.ceil((reminderDate - now) / 86400000);
+      if (reminderDiff <= 0 && diff >= 0) {
+        var urgency = diff === 0 ? 'today' : diff <= 2 ? 'urgent' : 'soon';
+        if (typeof addNotification === 'function') {
+          addNotification('cal-' + ev.id, ev.title, diff === 0 ? 'Today' : diff + ' days away', urgency);
+        }
+      }
+    });
   }
 
   return {
@@ -214,6 +243,7 @@ var NILCal = (function() {
       buildEventsByDate();
       renderGrid();
       renderDeadlines();
+      checkCalendarNotifications();
     },
     prevMonth: function() { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderGrid(); },
     nextMonth: function() { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderGrid(); },
