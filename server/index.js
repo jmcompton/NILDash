@@ -483,13 +483,18 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
     c + ': $' + Math.round(v.nilLow/1000) + 'K-$' + Math.round(v.nilHigh/1000) + 'K typical'
   ).join(' | ');
 
+  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+  const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
+  const tierPct = reach > 500000 ? '3-8%' : reach > 100000 ? '1-3%' : reach > 25000 ? '0.5-1.5%' : '0.2-0.8%';
   const prompt = 'Find the 6 best transfer portal destinations for this athlete.\n' +
     'Athlete: ' + athlete.name + ' | ' + athlete.sport + ' ' + (athlete.position||'') + ' | ' + (athlete.year||'') + '\n' +
     'Current school: ' + (athlete.school||'Unknown') + ' (' + (athlete.schoolTier||'') + ')\n' +
     'Stats: ' + (athlete.stats||athlete.notes||'N/A').substring(0,100) + '\n' +
     'Transfer reason: ' + (athlete.transferReason||'Not specified') + '\n' +
     'Filters: Conf=' + (conf||'any') + ', Min NIL=$' + minNil.toLocaleString() + ', Sort=' + (sortBy||'fit') + '\n\n' +
-    'REAL NIL DATA — USE THESE EXACT NUMBERS:\n' + collectiveContext + '\n\n' +
+    'REAL NIL DATA (total collective budgets):\n' + collectiveContext + '\n\n' +
+    'Athlete social tier: ' + tier + ' (' + reach.toLocaleString() + ' total reach). This athlete would realistically earn ' + tierPct + ' of a school collective budget.\n' +
+    'CRITICAL: nilLow and nilHigh must show ATHLETE EARNINGS (not total budget). Example: Georgia $9M collective x 0.5% = $45K for nano athlete.\n' +
     'Conference averages for unlisted schools:\n' + confContext + '\n\n' +
     'Consider ALL FBS programs. For schools not listed above, use conference averages.\n' +
     'Return ONLY JSON array of 6 schools:\n' +
