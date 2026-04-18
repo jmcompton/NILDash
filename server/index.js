@@ -475,26 +475,47 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
     return true;
   });
 
-  const collectiveContext = filtered.slice(0, 35).map(c =>
-    c.abbr + ' (' + c.conf + ', ' + c.market + '): $' + Math.round(c.nilLow/1000) + 'K-$' + Math.round(c.nilHigh/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure'
-  ).join('\n');
+  const collectiveContext = filtered.slice(0, 35).map(c => {
+    const range = getNilRange(sport, position, c.nilLow);
+    return c.abbr + ' (' + c.conf + ', ' + c.market + '): collective $' + Math.round(c.nilLow/1000) + 'K-$' + Math.round(c.nilHigh/1000) + 'K total, athlete would earn ~$' + Math.round(range[0]/1000) + 'K-$' + Math.round(range[1]/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure';
+  }).join('\n');
+
 
   const confContext = Object.entries(CONF_ESTIMATES).map(([c, v]) =>
     c + ': $' + Math.round(v.nilLow/1000) + 'K-$' + Math.round(v.nilHigh/1000) + 'K typical'
   ).join(' | ');
 
-  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
-  const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
   const sport = (athlete.sport || 'football').toLowerCase();
-  // Basketball has fewer roster spots so individual NIL is higher % of budget
-  // Football has 85+ players so individual share is lower
-  let tierPct;
-  if (sport.includes('basketball')) {
-    tierPct = reach > 500000 ? '8-15%' : reach > 100000 ? '3-8%' : reach > 25000 ? '1-4%' : '0.5-2%';
-  } else if (sport.includes('football')) {
-    tierPct = reach > 500000 ? '3-8%' : reach > 100000 ? '1-3%' : reach > 25000 ? '0.5-1.5%' : '0.2-0.8%';
-  } else {
-    tierPct = reach > 500000 ? '4-10%' : reach > 100000 ? '2-5%' : reach > 25000 ? '0.8-2%' : '0.3-1%';
+  const position = (athlete.position || '').toLowerCase();
+  const schoolTier = athlete.schoolTier || 'p4-mid';
+
+  // NIL collective payment ranges by sport/position — based on market data
+  // These are what collectives actually pay, not based on social following
+  function getNilRange(sport, position, collectiveBudget) {
+    const budget = collectiveBudget || 5000000;
+    if (sport.includes('basketball')) {
+      // Basketball: fewer players, higher individual value
+      const isPG = position.includes('pg') || position.includes('point') || position.includes('g');
+      const isCenter = position.includes('c') || position.includes('center') || position.includes('f/c') || position.includes('fc');
+      if (budget > 8000000) return isPG ? [200000, 600000] : isCenter ? [150000, 500000] : [100000, 400000];
+      if (budget > 5000000) return isPG ? [100000, 350000] : isCenter ? [80000, 300000] : [60000, 250000];
+      if (budget > 3000000) return isPG ? [50000, 200000] : isCenter ? [40000, 150000] : [30000, 120000];
+      return isPG ? [20000, 80000] : isCenter ? [15000, 60000] : [10000, 50000];
+    }
+    if (sport.includes('football')) {
+      // Football: more players, QB/skill positions get more
+      const isQB = position.includes('qb') || position.includes('quarterback');
+      const isSkill = position.includes('wr') || position.includes('rb') || position.includes('cb') || position.includes('edge') || position.includes('de');
+      const isLineman = position.includes('ol') || position.includes('dl') || position.includes('dt') || position.includes('ot');
+      if (budget > 8000000) return isQB ? [300000, 1000000] : isSkill ? [100000, 400000] : isLineman ? [50000, 200000] : [80000, 300000];
+      if (budget > 5000000) return isQB ? [150000, 500000] : isSkill ? [50000, 200000] : isLineman ? [25000, 100000] : [40000, 150000];
+      if (budget > 3000000) return isQB ? [80000, 250000] : isSkill ? [25000, 100000] : isLineman ? [10000, 50000] : [20000, 80000];
+      return isQB ? [30000, 100000] : isSkill ? [10000, 40000] : isLineman ? [5000, 20000] : [8000, 30000];
+    }
+    // Other sports
+    if (budget > 5000000) return [20000, 100000];
+    if (budget > 2000000) return [10000, 50000];
+    return [5000, 25000];
   }
   const prompt = 'Find the 6 best transfer portal destinations for this athlete.\n' +
     'Athlete: ' + athlete.name + ' | ' + athlete.sport + ' ' + (athlete.position||'') + ' | ' + (athlete.year||'') + '\n' +
@@ -503,8 +524,9 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
     'Transfer reason: ' + (athlete.transferReason||'Not specified') + '\n' +
     'Filters: Conf=' + (conf||'any') + ', Min NIL=$' + minNil.toLocaleString() + ', Sort=' + (sortBy||'fit') + '\n\n' +
     'REAL NIL DATA (total collective budgets):\n' + collectiveContext + '\n\n' +
-    'Athlete social tier: ' + tier + ' (' + reach.toLocaleString() + ' total reach). This athlete would realistically earn ' + tierPct + ' of a school collective budget.\n' +
-    'CRITICAL: nilLow and nilHigh must show ATHLETE EARNINGS (not total budget). Example: Georgia $9M collective x 0.5% = $45K for nano athlete.\n' +
+    'USE THIS FORMULA for nilLow/nilHigh: call getNilRange(sport, position, school_collective_budget) for each school.\n' +
+    'For example: basketball F/C at Kentucky ($4M-6M collective) = $80K-300K. Football EDGE at Georgia ($9M-12M) = $100K-400K.\n' +
+    'CRITICAL: nilLow and nilHigh must show what THIS ATHLETE would earn, not total collective budget.\n' +
     'Conference averages for unlisted schools:\n' + confContext + '\n\n' +
     'Consider ALL FBS programs. For schools not listed above, use conference averages.\n' +
     'Return ONLY JSON array of 6 schools:\n' +
