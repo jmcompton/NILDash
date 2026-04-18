@@ -660,6 +660,14 @@ app.post('/api/request-access', async (req, res) => {
   }
 });
 
+// ── Admin force delete ───────────────────────────────────────
+app.delete('/api/admin/athlete/:id', async (req, res) => {
+  try {
+    await store.pool.query('DELETE FROM athletes WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Admin cleanup ────────────────────────────────────────────
 app.post('/api/admin/cleanup-duplicates', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
