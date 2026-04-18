@@ -485,7 +485,17 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
 
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
-  const tierPct = reach > 500000 ? '3-8%' : reach > 100000 ? '1-3%' : reach > 25000 ? '0.5-1.5%' : '0.2-0.8%';
+  const sport = (athlete.sport || 'football').toLowerCase();
+  // Basketball has fewer roster spots so individual NIL is higher % of budget
+  // Football has 85+ players so individual share is lower
+  let tierPct;
+  if (sport.includes('basketball')) {
+    tierPct = reach > 500000 ? '8-15%' : reach > 100000 ? '3-8%' : reach > 25000 ? '1-4%' : '0.5-2%';
+  } else if (sport.includes('football')) {
+    tierPct = reach > 500000 ? '3-8%' : reach > 100000 ? '1-3%' : reach > 25000 ? '0.5-1.5%' : '0.2-0.8%';
+  } else {
+    tierPct = reach > 500000 ? '4-10%' : reach > 100000 ? '2-5%' : reach > 25000 ? '0.8-2%' : '0.3-1%';
+  }
   const prompt = 'Find the 6 best transfer portal destinations for this athlete.\n' +
     'Athlete: ' + athlete.name + ' | ' + athlete.sport + ' ' + (athlete.position||'') + ' | ' + (athlete.year||'') + '\n' +
     'Current school: ' + (athlete.school||'Unknown') + ' (' + (athlete.schoolTier||'') + ')\n' +
