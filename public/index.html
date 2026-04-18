@@ -2555,7 +2555,7 @@ function renderCalGrid() {
     var isToday = (calYear === today.getFullYear() && calMonth === today.getMonth() && d === today.getDate());
     var events = eventsByDate[key] || [];
     var evHtml = events.slice(0, 2).map(function(ev) {
-      return '<div onclick="calShowEvents('' + key + '')" style="font-size:9px;padding:2px 5px;border-radius:3px;background:' + ev.color + ';color:#000;margin-top:2px;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:600">' + ev.label + '</div>';
+      return '<div onclick="calShowEvents(" + key + ")" style="font-size:9px;padding:2px 5px;border-radius:3px;background:' + ev.color + ';color:#000;margin-top:2px;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:600">' + ev.label + '</div>';
     }).join('');
     if (events.length > 2) evHtml += '<div style="font-size:9px;color:var(--muted);margin-top:2px">+' + (events.length-2) + ' more</div>';
     html += '<div style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:6px;' + (isToday ? 'background:rgba(200,241,53,0.05)' : '') + '">' +
