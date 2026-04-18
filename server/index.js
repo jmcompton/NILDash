@@ -461,34 +461,57 @@ app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
 
 // ── Team Match endpoint ────────────────────────────────────────
 app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
-  const { athleteId, conference, minNil, sortBy } = req.body;
+  const { athleteId, sortBy } = req.body;
+  const conf = req.body.conference && req.body.conference !== 'any' ? req.body.conference : null;
+  const minNil = parseInt(req.body.minNil) || 0;
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
-  const conf = conference && conference !== 'any' ? conference : 'major';
-  const prompt = `Find 6 best transfer destinations for ${athlete.name}, ${athlete.sport} ${athlete.position||''}, ${athlete.year||''}, from ${athlete.school||'unknown'}, stats: ${(athlete.stats||athlete.notes||'N/A').substring(0,80)}, portal: ${athlete.transferReason||'unknown'}, conf: ${conf}, min NIL: $${(minNil||0).toLocaleString()}. Search for 2026 NIL collective budgets. Return ONLY JSON array: [{"rank":1,"name":"School","conference":"ACC","confLabel":"ACC","tier":"reach or best-fit or safe","why":"2 sentences","nilLow":150000,"nilHigh":300000,"nilBreakdown":[{"label":"Collective","val":"$150K"}],"fitScore":88,"playingTimeOutlook":"Starter","rosterNeed":"need","metrics":[{"label":"Collective strength","val":"Strong"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"}]}]`;
+  const { COLLECTIVES, CONF_ESTIMATES } = require('./collectives');
+
+  const filtered = COLLECTIVES.filter(c => {
+    if (conf && c.conf !== conf) return false;
+    if (minNil && c.nilHigh < minNil) return false;
+    return true;
+  });
+
+  const collectiveContext = filtered.slice(0, 35).map(c =>
+    c.abbr + ' (' + c.conf + ', ' + c.market + '): $' + Math.round(c.nilLow/1000) + 'K-$' + Math.round(c.nilHigh/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure'
+  ).join('\n');
+
+  const confContext = Object.entries(CONF_ESTIMATES).map(([c, v]) =>
+    c + ': $' + Math.round(v.nilLow/1000) + 'K-$' + Math.round(v.nilHigh/1000) + 'K typical'
+  ).join(' | ');
+
+  const prompt = 'Find the 6 best transfer portal destinations for this athlete.\n' +
+    'Athlete: ' + athlete.name + ' | ' + athlete.sport + ' ' + (athlete.position||'') + ' | ' + (athlete.year||'') + '\n' +
+    'Current school: ' + (athlete.school||'Unknown') + ' (' + (athlete.schoolTier||'') + ')\n' +
+    'Stats: ' + (athlete.stats||athlete.notes||'N/A').substring(0,100) + '\n' +
+    'Transfer reason: ' + (athlete.transferReason||'Not specified') + '\n' +
+    'Filters: Conf=' + (conf||'any') + ', Min NIL=$' + minNil.toLocaleString() + ', Sort=' + (sortBy||'fit') + '\n\n' +
+    'REAL NIL DATA — USE THESE EXACT NUMBERS:\n' + collectiveContext + '\n\n' +
+    'Conference averages for unlisted schools:\n' + confContext + '\n\n' +
+    'Consider ALL FBS programs. For schools not listed above, use conference averages.\n' +
+    'Return ONLY JSON array of 6 schools:\n' +
+    '[{"rank":1,"name":"Full School Name","conference":"SEC","confLabel":"SEC","tier":"reach|best-fit|safe","why":"2 sentences specific to this athlete","nilLow":5000000,"nilHigh":8000000,"nilBreakdown":[{"label":"Collective","val":"$5M-8M"}],"fitScore":88,"playingTimeOutlook":"Projected starter","rosterNeed":"Needs EDGE depth","metrics":[{"label":"Collective","val":"Elite"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"}]}]';
 
   let teams = null;
-  let lastError = '';
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await ai.oneShotWithSearch(prompt, 'Return ONLY a valid JSON array starting with [ and ending with ]. No markdown, no preamble. Just the JSON array.');
+      const raw = await ai.oneShot(prompt, 'Return ONLY a valid JSON array starting with [ and ending with ]. No markdown. Just the JSON array.');
       const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
       const si = cleaned.indexOf('[');
       const ei = cleaned.lastIndexOf(']');
-      if (si === -1 || ei <= si) throw new Error('No JSON array found');
+      if (si === -1 || ei <= si) throw new Error('No JSON array');
       const parsed = JSON.parse(cleaned.substring(si, ei + 1));
       if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
       teams = parsed;
       break;
-    } catch (err) {
-      lastError = err.message;
-    }
+    } catch(err) { console.error('Team match error:', err.message); }
   }
-  if (!teams) return res.status(200).json({ teams: [], error: 'Try again — AI returned unexpected format.', raw: lastError });
+  if (!teams) return res.json({ teams: [], error: 'Try again — AI returned unexpected format.' });
   res.json({ teams, liveData: true });
 });
-
 // ── Contract Generator ────────────────────────────────────────
 app.post('/api/ai/contract', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, dealId, brand, value, deliverables, startDate, endDate,
