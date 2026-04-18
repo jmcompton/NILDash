@@ -892,24 +892,44 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <!-- CALENDAR -->
       <div id="view-calendar" class="view">
         <div class="page-title">Deal Calendar</div>
-        <div class="page-sub">All deadlines, follow-ups, and campaign dates — color-coded by close probability</div>
+        <div class="page-sub">All deadlines, follow-ups, and campaign dates</div>
 
-        <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:#4ade80;border-radius:50%;display:inline-block"></span>Closing</div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:var(--accent);border-radius:50%;display:inline-block"></span>Negotiating</div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:#60a5fa;border-radius:50%;display:inline-block"></span>Outreach Sent</div>
-          <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)"><span style="width:12px;height:12px;background:var(--muted);border-radius:50%;display:inline-block"></span>Prospecting</div>
-          <button class="run-btn" onclick="loadCalendar()" style="margin-left:auto;padding:7px 16px;font-size:11px">Refresh</button>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <button onclick="calPrevMonth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">&#8592;</button>
+            <div id="cal-month-label" style="font-size:15px;font-weight:700;color:var(--text);min-width:140px;text-align:center"></div>
+            <button onclick="calNextMonth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">&#8594;</button>
+            <button onclick="calGoToday()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px;margin-left:4px">Today</button>
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:10px;height:10px;background:#4ade80;border-radius:50%;display:inline-block"></span>Closing</div>
+            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:10px;height:10px;background:var(--accent);border-radius:50%;display:inline-block"></span>Negotiating</div>
+            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:10px;height:10px;background:#60a5fa;border-radius:50%;display:inline-block"></span>Outreach</div>
+            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:10px;height:10px;background:var(--muted);border-radius:50%;display:inline-block"></span>Prospecting</div>
+          </div>
         </div>
 
-        <div id="cal-upcoming" style="margin-bottom:28px">
-          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">Upcoming Deadlines</div>
-          <div id="cal-deadlines" style="color:var(--muted);font-size:12px">Load your deals to see deadlines.</div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:20px">
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--surface2);border-bottom:1px solid var(--border)">
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Sun</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Mon</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Tue</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Wed</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Thu</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Fri</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Sat</div>
+          </div>
+          <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr)"></div>
+        </div>
+
+        <div id="cal-selected-events" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px">
+          <div id="cal-selected-label" style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px"></div>
+          <div id="cal-selected-list"></div>
         </div>
 
         <div>
-          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">All Active Deals</div>
-          <div id="cal-deals" style="color:var(--muted);font-size:12px">No deals yet — add deals in Pipeline.</div>
+          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">Upcoming Deadlines</div>
+          <div id="cal-deadlines" style="color:var(--muted);font-size:12px">Load your deals to see deadlines.</div>
         </div>
       </div>
 
@@ -2476,17 +2496,133 @@ async function loadCalendar() {
   const allDeals = [];
   for (const ath of athletes) {
     try {
-      const r = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`);
+      const r = await fetch(API_BASE + '/api/athletes/' + ath.id + '/deals');
       const deals = await r.json();
-      deals.forEach(d => { d._athleteName = ath.name; allDeals.push(d); });
+      deals.forEach(function(d) { d._athleteName = ath.name; allDeals.push(d); });
     } catch(e) {}
   }
+  calAllDeals = allDeals;
+  renderCalGrid();
+  renderCalDeadlines();
+}
 
-  if (!allDeals.length) {
-    document.getElementById('cal-deadlines').innerHTML = '<div style="color:var(--muted);font-size:12px">No deals yet — add deals in Pipeline.</div>';
-    document.getElementById('cal-deals').innerHTML = '';
-    return;
+var calYear = new Date().getFullYear();
+var calMonth = new Date().getMonth();
+var calAllDeals = [];
+
+function calGoToday() { calYear = new Date().getFullYear(); calMonth = new Date().getMonth(); renderCalGrid(); }
+function calPrevMonth() { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalGrid(); }
+function calNextMonth() { calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; } renderCalGrid(); }
+
+function renderCalGrid() {
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('cal-month-label').textContent = months[calMonth] + ' ' + calYear;
+  var firstDay = new Date(calYear, calMonth, 1).getDay();
+  var daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  var today = new Date();
+  var todayStr = today.getFullYear() + '-' + (today.getMonth()+1) + '-' + today.getDate();
+
+  // Build events map by date
+  var eventsByDate = {};
+  calAllDeals.forEach(function(deal) {
+    var stageColors = { Closing: '#4ade80', Negotiating: '#C8F135', 'Outreach Sent': '#60a5fa', Prospecting: '#6b7280' };
+    var color = stageColors[deal.stage] || '#6b7280';
+    var created = new Date(deal.updatedAt || deal.createdAt);
+    var deadlines = [];
+    if (deal.stage === 'Negotiating') {
+      deadlines.push({ days: 2, label: 'Counter offer: ' + deal.brand, color: color });
+      deadlines.push({ days: 7, label: 'Follow-up: ' + deal.brand, color: color });
+    } else if (deal.stage === 'Closing') {
+      deadlines.push({ days: 3, label: 'Contract due: ' + deal.brand, color: color });
+    } else if (deal.stage === 'Outreach Sent') {
+      deadlines.push({ days: 7, label: 'Follow-up: ' + deal.brand, color: color });
+    }
+    deadlines.forEach(function(dl) {
+      var d = new Date(created.getTime() + dl.days * 86400000);
+      var key = d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
+      if (!eventsByDate[key]) eventsByDate[key] = [];
+      eventsByDate[key].push({ label: dl.label, color: dl.color, deal: deal });
+    });
+  });
+
+  var html = '';
+  // Empty cells before first day
+  for (var i = 0; i < firstDay; i++) {
+    html += '<div style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2);opacity:0.4"></div>';
   }
+  for (var d = 1; d <= daysInMonth; d++) {
+    var key = calYear + '-' + (calMonth+1) + '-' + d;
+    var isToday = (calYear === today.getFullYear() && calMonth === today.getMonth() && d === today.getDate());
+    var events = eventsByDate[key] || [];
+    var evHtml = events.slice(0, 2).map(function(ev) {
+      return '<div onclick="calShowEvents('' + key + '')" style="font-size:9px;padding:2px 5px;border-radius:3px;background:' + ev.color + ';color:#000;margin-top:2px;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-weight:600">' + ev.label + '</div>';
+    }).join('');
+    if (events.length > 2) evHtml += '<div style="font-size:9px;color:var(--muted);margin-top:2px">+' + (events.length-2) + ' more</div>';
+    html += '<div style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:6px;' + (isToday ? 'background:rgba(200,241,53,0.05)' : '') + '">' +
+      '<div style="font-size:11px;font-weight:' + (isToday?'700':'400') + ';color:' + (isToday?'var(--accent)':'var(--muted)') + ';margin-bottom:2px">' + d + '</div>' +
+      evHtml +
+    '</div>';
+  }
+  // Fill remaining cells
+  var total = firstDay + daysInMonth;
+  var remaining = total % 7 === 0 ? 0 : 7 - (total % 7);
+  for (var i = 0; i < remaining; i++) {
+    html += '<div style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2);opacity:0.4"></div>';
+  }
+
+  document.getElementById('cal-grid').innerHTML = html;
+  // Store events map for click handler
+  window._calEventsByDate = eventsByDate;
+}
+
+function calShowEvents(key) {
+  var events = (window._calEventsByDate || {})[key] || [];
+  if (!events.length) return;
+  var parts = key.split('-');
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var label = months[parseInt(parts[1])-1] + ' ' + parts[2] + ', ' + parts[0];
+  document.getElementById('cal-selected-label').textContent = label;
+  document.getElementById('cal-selected-list').innerHTML = events.map(function(ev) {
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">' +
+      '<span style="width:10px;height:10px;border-radius:50%;background:' + ev.color + ';flex-shrink:0"></span>' +
+      '<div><div style="font-size:12px;font-weight:600;color:var(--text)">' + ev.label + '</div>' +
+      '<div style="font-size:11px;color:var(--muted)">' + ev.deal._athleteName + ' · ' + ev.deal.stage + ' · $' + (ev.deal.value||0).toLocaleString() + '</div></div>' +
+    '</div>';
+  }).join('');
+  document.getElementById('cal-selected-events').style.display = 'block';
+}
+
+function renderCalDeadlines() {
+  var stageColors = { Closing: '#4ade80', Negotiating: '#C8F135', 'Outreach Sent': '#60a5fa', Prospecting: '#6b7280' };
+  var stageProb = { Closing: 85, Negotiating: 50, 'Outreach Sent': 25, Prospecting: 10 };
+  var deadlines = [];
+  calAllDeals.forEach(function(deal) {
+    var color = stageColors[deal.stage] || '#6b7280';
+    var prob = stageProb[deal.stage] || 10;
+    var created = new Date(deal.updatedAt || deal.createdAt);
+    if (deal.stage === 'Negotiating') {
+      deadlines.push({ deal: deal, date: new Date(created.getTime()+2*86400000), label: 'Counter offer deadline', color: color, prob: prob });
+      deadlines.push({ deal: deal, date: new Date(created.getTime()+7*86400000), label: 'Follow-up call', color: color, prob: prob });
+    } else if (deal.stage === 'Closing') {
+      deadlines.push({ deal: deal, date: new Date(created.getTime()+3*86400000), label: 'Contract due', color: color, prob: prob });
+    } else if (deal.stage === 'Outreach Sent') {
+      deadlines.push({ deal: deal, date: new Date(created.getTime()+7*86400000), label: 'Follow-up', color: color, prob: prob });
+    }
+  });
+  deadlines.sort(function(a,b) { return a.date - b.date; });
+  var now = new Date();
+  var html = deadlines.slice(0, 8).map(function(dl) {
+    var diff = Math.ceil((dl.date - now) / 86400000);
+    var urgColor = diff < 0 ? '#ef4444' : diff === 0 ? '#f97316' : diff <= 2 ? '#f97316' : '#C8F135';
+    var urgLabel = diff < 0 ? Math.abs(diff) + 'd overdue' : diff === 0 ? 'Today' : diff + 'd left';
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + dl.color + ';border-radius:var(--r-sm);padding:12px 16px;margin-bottom:8px;display:flex;align-items:center;gap:12px">' +
+      '<div style="flex:1"><div style="font-size:12px;font-weight:600;color:var(--text)">' + dl.label + '</div>' +
+      '<div style="font-size:11px;color:var(--muted)">' + dl.deal._athleteName + ' · ' + dl.deal.brand + ' · ' + dl.deal.stage + '</div></div>' +
+      '<div style="font-size:11px;font-weight:700;color:' + urgColor + '">' + urgLabel + '</div>' +
+    '</div>';
+  }).join('');
+  document.getElementById('cal-deadlines').innerHTML = html || '<div style="color:var(--muted);font-size:12px">No upcoming deadlines.</div>';
+}
 
   // Generate deadlines based on stage
   const deadlines = [];
