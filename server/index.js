@@ -746,6 +746,41 @@ app.post('/api/ai/help', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Athlete Report ───────────────────────────────────────────
+app.post('/api/reports/generate', requireAuth, async (req, res) => {
+  const { athleteId, agentMessage } = req.body;
+  if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
+  const athlete = await store.getAthlete(athleteId);
+  if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+  const agent = await store.getUser(req.session.userId);
+  try {
+    await store.pool.query('CREATE TABLE IF NOT EXISTS athlete_reports (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, agent_message TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)');
+    const token = require('crypto').randomBytes(16).toString('hex');
+    const expires = new Date(Date.now() + 7 * 86400000).toISOString();
+    await store.pool.query('INSERT INTO athlete_reports (id, athlete_id, agent_id, agent_message, expires_at) VALUES ($1,$2,$3,$4,$5)', [token, athleteId, req.session.userId, agentMessage||'', expires]);
+    res.json({ ok: true, token, url: (process.env.APP_URL || 'https://mynildash.com') + '/report/' + token });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/report/:token', async (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'report.html'));
+});
+
+app.get('/api/reports/:token', async (req, res) => {
+  try {
+    await store.pool.query('CREATE TABLE IF NOT EXISTS athlete_reports (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, agent_message TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)');
+    const r = await store.pool.query('SELECT * FROM athlete_reports WHERE id=$1 AND expires_at > NOW()', [req.params.token]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Report not found or expired' });
+    const report = r.rows[0];
+    const athlete = await store.getAthlete(report.athlete_id);
+    const agent = await store.getUser(report.agent_id);
+    const deals = await store.getDealsByAthlete(report.athlete_id);
+    const { calculateRate } = require('./ai');
+    const rate = calculateRate(athlete, 'ig-reel');
+    res.json({ athlete, agent: { name: agent?.name, email: agent?.email }, deals, rate, agentMessage: report.agent_message, createdAt: report.created_at, expiresAt: report.expires_at });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Reset page ──────────────────────────────────────────────
 app.get('/reset', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'reset.html'));

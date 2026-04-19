@@ -157,3 +157,40 @@ window.loadAnalytics = function() {
     NILAnalytics.load(window.athletes || [], window.API_BASE || '');
   }
 };
+
+// Generate athlete report
+window.generateReport = async function(athleteId) {
+  var msg = prompt('Optional message to your athlete (leave blank to skip):');
+  if (msg === null) return; // cancelled
+  try {
+    var r = await fetch('/api/reports/generate', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ athleteId: athleteId, agentMessage: msg })
+    });
+    var data = await r.json();
+    if (data.ok) {
+      // Show copy link modal
+      var modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;display:flex;align-items:center;justify-content:center;padding:20px';
+      modal.innerHTML = '<div style="background:#111110;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:32px;width:100%;max-width:440px">' +
+        '<div style="font-size:18px;font-weight:700;color:#F0EDE6;margin-bottom:8px">Report Generated!</div>' +
+        '<div style="font-size:12px;color:rgba(240,237,230,0.45);margin-bottom:20px">Share this link with your athlete. It expires in 7 days.</div>' +
+        '<div style="display:flex;gap:8px;margin-bottom:20px">' +
+          '<input id="report-link-input" value="' + data.url + '" readonly style="flex:1;padding:10px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:11px;font-family:monospace">' +
+          '<button onclick="navigator.clipboard.writeText(document.getElementById(\'report-link-input\').value);this.textContent=\'Copied!\'" style="padding:10px 16px;background:#C8F135;color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;font-size:12px;white-space:nowrap">Copy Link</button>' +
+        '</div>' +
+        '<div style="display:flex;gap:8px">' +
+          '<button onclick="window.open(\'' + data.url + '\',\'_blank\')" style="flex:1;padding:10px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);color:#C8F135;border-radius:8px;cursor:pointer;font-size:12px">Preview Report</button>' +
+          '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="flex:1;padding:10px;background:transparent;border:1px solid rgba(255,255,255,0.1);color:rgba(240,237,230,0.5);border-radius:8px;cursor:pointer;font-size:12px">Close</button>' +
+        '</div>' +
+      '</div>';
+      document.body.appendChild(modal);
+      modal.addEventListener('click', function(e) { if (e.target === modal) modal.remove(); });
+    } else {
+      alert(data.error || 'Error generating report');
+    }
+  } catch(e) {
+    alert('Error generating report: ' + e.message);
+  }
+};
