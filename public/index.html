@@ -1902,32 +1902,7 @@ async function loadPipeline() {
   document.getElementById('pipe-closing').textContent = allDeals.filter(d=>d.stage==='Closing').length;
 
   const board = document.getElementById('pipelineBoard');
-  board.innerHTML = stages.map(stage => {
-    const stagDeals = allDeals.filter(d=>d.stage===stage);
-    return `<div>
-      <div class="pipe-col-header">
-        <div class="pipe-col-name">${stage}</div>
-        <div class="pipe-count">${stagDeals.length}</div>
-      </div>
-      ${stagDeals.map(d=>{
-        const stagesJson = JSON.stringify(stages).replace(/'/g,"\'");
-        return `<div class="pipe-card">
-          <div class="pipe-brand">${d.brand}</div>
-          <div class="pipe-athlete">${d.athleteName}</div>
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <div class="pipe-amount">$${(d.value||0).toLocaleString()}</div>
-            <span class="chip ${stage==='Closed'?'chip-green':stage==='Negotiating'?'chip-blue':'chip-neutral'}">${stage.split(' ')[0]}</span>
-          </div>
-          <div class="pipe-footer">
-            <span class="action-link" onclick="prefillNeg('${d.brand}','')">Negotiate →</span>
-            <div style="display:flex;gap:8px">
-              <span class="action-link" onclick="moveDeal('${d.id}','${d.athleteId}','${stage}',${stagesJson})" style="color:var(--muted)">Move →</span>
-              <span class="action-link" onclick="deleteDealCard('${d.id}','${d.athleteId}')" style="color:#ef4444">✕</span>
-            </div>
-          </div>
-        </div>`;}).join('')}
-    </div>`;
-  }).join('');
+  if (window.NILPipeline) { NILPipeline.render(allDeals, board); }
 }
 
 async function moveDeal(dealId, athleteId, currentStage, stages) {
