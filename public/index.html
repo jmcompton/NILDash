@@ -1927,6 +1927,7 @@ async function loadPipeline() {
   for (const ath of athletes) {
     const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
     deals.forEach(d => allDeals.push({...d, athleteName: ath.name}));
+    window._pipelineDeals = allDeals;
   }
   const total = allDeals.reduce((s,d)=>s+(d.value||0),0);
   document.getElementById('pipe-total').textContent = '$'+(total/1000).toFixed(0)+'K';
