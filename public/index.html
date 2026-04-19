@@ -493,6 +493,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div style="font-size:11px;color:var(--muted)" id="ratePer">per deliverable</div>
               <div class="rate-breakdown" id="rateBreakdown"></div>
             </div>
+            <div id="rate-client-context" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-top:16px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Data Used For This Calculation</div>
+              <div id="rate-context-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
+            </div>
             <div class="ai-block" id="rateAI" style="margin-top:16px">
               <div class="ai-header"><div class="spinner" id="rateSpinner"></div><div class="ai-label">Rate Justification Script</div></div>
               <div class="ai-content" id="rateText">Calculate a rate above then click "Get Justification Script" for word-for-word language to defend your price on a call.</div>
@@ -1834,6 +1838,33 @@ async function calcRate() {
       (b.engMult ? '<div class="rb-row"><span class="rb-label">Engagement multiplier</span><span class="rb-val">' + b.engMult + '×</span></div>' : '') +
       (b.cpm ? '<div class="rb-row"><span class="rb-label">Implied CPM</span><span class="rb-val">$' + b.cpm + '</span></div>' : '') +
       contextRow;
+    // Show client context panel
+    const ath = athletes.find(a => a.id === selectedAthleteId);
+    if (ath) {
+      const ctx = document.getElementById('rate-client-context');
+      const body = document.getElementById('rate-context-body');
+      if (ctx && body) {
+        const reach = (ath.instagram||0) + (ath.tiktok||0);
+        const tier = reach > 500000 ? 'Macro' : reach > 100000 ? 'Mid' : reach > 25000 ? 'Micro' : 'Nano';
+        const items = [
+          ['Athlete', ath.name],
+          ['Sport', ath.sport + (ath.position ? ' · ' + ath.position : '')],
+          ['School', (ath.school||'—') + ' (' + (ath.schoolTier||'—') + ')'],
+          ['IG Followers', (ath.instagram||0).toLocaleString()],
+          ['TikTok Followers', (ath.tiktok||0).toLocaleString()],
+          ['Engagement Rate', (ath.engagement||0) + '%'],
+          ['Social Tier', tier],
+          ['Total Reach', reach.toLocaleString()],
+        ];
+        body.innerHTML = items.map(function(item) {
+          return '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:8px 10px">' +
+            '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">' + item[0] + '</div>' +
+            '<div style="font-size:12px;font-weight:600;color:var(--text)">' + item[1] + '</div>' +
+          '</div>';
+        }).join('');
+        ctx.style.display = 'block';
+      }
+    }
     document.getElementById('rateAI').classList.add('visible');
   } catch(e) { showToast('Error: ' + e.message); }
 }
