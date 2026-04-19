@@ -13,13 +13,13 @@
   window.NILPipeline = {
     render: function(allDeals, board) {
       if (!board) return;
-      board.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:start';
+      board.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:stretch';
 
       board.innerHTML = STAGES.map(function(stage) {
         var stageDeals = allDeals.filter(function(d) { return d.stage === stage; });
         var color = STAGE_COLORS[stage] || '#6b7280';
         var colHtml = '<div class="nil-pipe-col" data-stage="' + stage + '" ' +
-          'style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);min-height:200px;' +
+          'style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);min-height:300px;' +
           'transition:background 0.15s" ' +
           'ondragover="NILPipeline.onDragOver(event)" ' +
           'ondrop="NILPipeline.onDrop(event)" ' +
@@ -37,7 +37,7 @@
           colHtml += '<div class="nil-pipe-card" draggable="true" data-deal-id="' + d.id + '" data-athlete-id="' + d.athleteId + '" data-stage="' + stage + '" ' +
             'ondragstart="NILPipeline.onDragStart(event)" ' +
             'ondragend="NILPipeline.onDragEnd(event)" ' +
-            'style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;cursor:grab;transition:opacity 0.15s;user-select:none">' +
+            'style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;cursor:grab;transition:opacity 0.15s;user-select:none">' +
             '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px">' + (d.brand||'Unknown') + '</div>' +
             '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">' + (d.athleteName||'') + '</div>' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
@@ -114,7 +114,8 @@
 
     updateStage: async function(dealId, athleteId, newStage) {
       try {
-        await fetch(window.API_BASE + '/api/deals/' + dealId, {
+        var base = window.API_BASE || '';
+        await fetch(base + '/api/deals/' + dealId, {
           method: 'PATCH',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({stage: newStage})
@@ -133,7 +134,8 @@
     deleteCard: async function(dealId, athleteId) {
       if (!confirm('Delete this deal?')) return;
       try {
-        await fetch(window.API_BASE + '/api/deals/' + dealId, {method:'DELETE'});
+        var base = window.API_BASE || '';
+        await fetch(base + '/api/deals/' + dealId, {method:'DELETE'});
         if (typeof showToast === 'function') showToast('Deal deleted');
         if (typeof loadKPIs === 'function') loadKPIs();
         if (typeof loadPipeline === 'function') loadPipeline();
