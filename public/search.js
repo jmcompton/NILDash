@@ -42,7 +42,9 @@
     if (!query || query.length < 2) { dropdown.style.display = 'none'; return; }
     var q = query.toLowerCase();
     var hits = [];
-    var athletes = window.athletes || [];
+    var athletes = window.athletes || (typeof athletes !== 'undefined' ? athletes : []);
+    // Try to get athletes from the app scope if not on window
+    if (!athletes.length && typeof getAthletes === 'function') athletes = getAthletes();
 
     athletes.forEach(function(a) {
       if ((a.name||'').toLowerCase().includes(q) ||

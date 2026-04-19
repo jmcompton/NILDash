@@ -1456,6 +1456,7 @@ async function loadAthletes() {
   try {
     const r = await fetch(`${API_BASE}/api/athletes`);
     athletes = await r.json();
+    window.athletes = athletes;
     renderRoster();
     populateAthleteSelect();
     document.getElementById('kpi-clients').textContent = athletes.length;
