@@ -329,6 +329,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('contract',this)">
         <span class="nav-icon">📄</span>Contract
       </button>
+      <button class="nav-item" onclick="showView('analytics',this)">
+        <span>&#128202;</span> Analytics
+      </button>
       <button class="nav-item" onclick="showView('commission',this)">
         <span class="nav-icon">💰</span>Commission
       </button>
@@ -528,6 +531,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
           </div>
           <div style="font-size:10px;color:var(--muted);margin-top:8px">Click any script to copy</div>
         </div>
+      </div>
+
+      <!-- ── ANALYTICS ── -->
+      <div id="view-analytics" class="view">
+        <div class="page-title">Analytics</div>
+        <div class="page-sub">Deal performance, pipeline trends, and commission tracking</div>
+        <div id="analytics-body"><div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">Click refresh to load analytics</div></div>
+        <div style="margin-top:16px;text-align:right"><button class="run-btn" onclick="loadAnalytics()" style="padding:8px 20px;font-size:12px">&#8635; Refresh</button></div>
       </div>
 
       <!-- ── PIPELINE ── -->
@@ -1717,6 +1728,7 @@ function showView(id, btn) {
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
   if (id === 'calendar') loadCalendar();
+  if (id === 'analytics') loadAnalytics();
   if (id === 'roster') renderRoster();
   if (id === 'contract') prefillContract();
 }
@@ -2995,5 +3007,6 @@ renderNotifPanel();
 <script src="/calendar.js"></script>
 <script src="/pipeline.js"></script>
 <script src="/search.js"></script>
+<script src="/analytics.js"></script>
 <script src="/help.js"></script>
 </body>

@@ -150,3 +150,10 @@ setTimeout(function() {
   }
   updateDynamicPrompts();
 }, 1000);
+
+// Analytics loader
+window.loadAnalytics = function() {
+  if (window.NILAnalytics) {
+    NILAnalytics.load(window.athletes || [], window.API_BASE || '');
+  }
+};
