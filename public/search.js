@@ -106,7 +106,7 @@ function updateDynamicPrompts() {
   var container = document.getElementById('dynamic-prompts');
   if (!container) return;
   var athletes = window.athletes || [];
-  var athleteId = window.selectedAthleteId;
+  var athleteId = window.selectedAthleteId || (document.getElementById('activeAthlete') ? document.getElementById('activeAthlete').value : null);
   var ath = athletes.find(function(a) { return a.id === athleteId; });
   if (!ath) return;
 
