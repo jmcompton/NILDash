@@ -1061,8 +1061,38 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div><label class="form-label-sm">Conference</label>
             <select class="select-sm" id="tm-conf">
               <option value="any">Any conference</option>
-              <option value="ACC">ACC</option><option value="SEC">SEC</option>
-              <option value="Big 12">Big 12</option><option value="Big Ten">Big Ten</option>
+              <optgroup label="Power 4">
+              <option value="SEC">SEC</option>
+              <option value="Big Ten">Big Ten</option>
+              <option value="ACC">ACC</option>
+              <option value="Big 12">Big 12</option>
+              </optgroup>
+              <optgroup label="High Major">
+              <option value="AAC">AAC (American)</option>
+              <option value="Mountain West">Mountain West</option>
+              <option value="Pac-12">Pac-12</option>
+              <option value="Independent">Independent</option>
+              </optgroup>
+              <optgroup label="Mid Major">
+              <option value="Sun Belt">Sun Belt</option>
+              <option value="MAC">MAC</option>
+              <option value="CUSA">Conference USA</option>
+              <option value="Big East">Big East</option>
+              <option value="Atlantic 10">Atlantic 10</option>
+              <option value="MVC">Missouri Valley</option>
+              <option value="WCC">West Coast</option>
+              <option value="SoCon">Southern Conference</option>
+              <option value="Big South">Big South</option>
+              <option value="OVC">Ohio Valley</option>
+              <option value="Ivy">Ivy League</option>
+              </optgroup>
+              <optgroup label="FCS">
+              <option value="MEAC">MEAC</option>
+              <option value="SWAC">SWAC</option>
+              <option value="CAA">CAA</option>
+              <option value="Big Sky">Big Sky</option>
+              <option value="Pioneer">Pioneer League</option>
+              </optgroup>
             </select>
           </div>
           <div><label class="form-label-sm">Min NIL / year</label>
@@ -1667,6 +1697,17 @@ function showView(id, btn) {
   if (id === 'pipeline') loadPipeline();
   if (id === 'calendar') loadCalendar();
   if (id === 'roster') renderRoster();
+  if (id === 'contract') prefillContract();
+}
+function prefillContract() {
+  if (!selectedAthleteId) return;
+  const ath = athletes.find(a => a.id === selectedAthleteId);
+  if (!ath) return;
+  // Pre-fill agent info from session if available
+  const agentName = document.getElementById('con-agent-name');
+  const agentEmail = document.getElementById('con-agent-email');
+  if (agentName && !agentName.value) agentName.value = currentUser ? (currentUser.name || '') : '';
+  if (agentEmail && !agentEmail.value) agentEmail.value = currentUser ? (currentUser.email || '') : '';
 }
 
 // ── AI: COMMAND ──────────────────────────────────────────────
