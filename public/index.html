@@ -1991,6 +1991,50 @@ function copyText(el) {
   navigator.clipboard.writeText(el.textContent.trim());
   showToast('Copied to clipboard!');
 }
+function globalSearch(query) {
+  var results = document.getElementById('search-results');
+  if (!query || query.length < 2) { results.style.display = 'none'; return; }
+  var q = query.toLowerCase();
+  var hits = [];
+  (athletes || []).forEach(function(a) {
+    if ((a.name||'').toLowerCase().includes(q) || (a.sport||'').toLowerCase().includes(q) || (a.school||'').toLowerCase().includes(q)) {
+      hits.push({ type: 'athlete', label: a.name, sub: a.sport + ' · ' + (a.school||''), id: a.id });
+    }
+  });
+  if (window._pipelineDeals) {
+    window._pipelineDeals.forEach(function(d) {
+      if ((d.brand||'').toLowerCase().includes(q) || (d.athleteName||'').toLowerCase().includes(q)) {
+        hits.push({ type: 'deal', label: d.brand + ' - ' + d.athleteName, sub: d.stage + ' · $' + (d.value||0).toLocaleString() });
+      }
+    });
+  }
+  if (!hits.length) {
+    results.innerHTML = '<div style="padding:16px;font-size:12px;color:var(--muted);text-align:center">No results</div>';
+    results.style.display = 'block';
+    return;
+  }
+  results.innerHTML = hits.slice(0, 8).map(function(h, i) {
+    var icon = h.type === 'athlete' ? '&#128100;' : '&#128188;';
+    return '<div id="sr-' + i + '" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''"><span>' + icon + '</span><div><div style="font-size:12px;font-weight:600;color:var(--text)">' + h.label + '</div><div style="font-size:10px;color:var(--muted)">' + h.sub + '</div></div></div>';
+  }).join('');
+  hits.slice(0, 8).forEach(function(h, i) {
+    var el = document.getElementById('sr-' + i);
+    if (!el) return;
+    el.addEventListener('click', function() {
+      results.style.display = 'none';
+      document.getElementById('global-search').value = '';
+      if (h.type === 'athlete' && h.id) setActiveAthlete(h.id);
+      else showView('pipeline', document.querySelectorAll('.nav-item')[4]);
+    });
+  });
+  results.style.display = 'block';
+}
+document.addEventListener('click', function(e) {
+  var r = document.getElementById('search-results');
+  var inp = document.getElementById('global-search');
+  if (r && inp && !r.contains(e.target) && e.target !== inp) r.style.display = 'none';
+});
+
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
