@@ -467,84 +467,62 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
-  const { COLLECTIVES, CONF_ESTIMATES } = require('./collectives');
+  const { COLLECTIVES } = require('./collectives');
+  const sport = (athlete.sport || 'football').toLowerCase();
+  const position = (athlete.position || '').toLowerCase();
+
+  // Calculate realistic per-athlete NIL based on sport, position, and collective budget
+  function athleteNil(collectiveBudget) {
+    const b = collectiveBudget || 3000000;
+    if (sport.includes('basketball')) {
+      const isPG = position.includes('pg') || position.includes('guard');
+      const isC = position.includes('c') || position.includes('center') || position.includes('f/c');
+      if (b > 8000000) return [isPG ? 200000 : isC ? 150000 : 100000, isPG ? 600000 : isC ? 500000 : 400000];
+      if (b > 4000000) return [isPG ? 80000 : isC ? 60000 : 40000, isPG ? 300000 : isC ? 250000 : 200000];
+      return [isPG ? 20000 : isC ? 15000 : 10000, isPG ? 100000 : isC ? 80000 : 60000];
+    }
+    const isQB = position.includes('qb');
+    const isSkill = position.includes('wr') || position.includes('rb') || position.includes('cb') || position.includes('edge') || position.includes('de');
+    if (b > 8000000) return [isQB ? 300000 : isSkill ? 80000 : 30000, isQB ? 1000000 : isSkill ? 300000 : 150000];
+    if (b > 4000000) return [isQB ? 100000 : isSkill ? 30000 : 10000, isQB ? 400000 : isSkill ? 120000 : 60000];
+    return [isQB ? 30000 : isSkill ? 10000 : 5000, isQB ? 150000 : isSkill ? 50000 : 25000];
+  }
 
   const filtered = COLLECTIVES.filter(c => {
     if (conf && c.conf !== conf) return false;
-    if (minNil && c.nilHigh < minNil) return false;
+    if (minNil > 0) {
+      const range = athleteNil(c.nilLow);
+      if (range[1] < minNil) return false;
+    }
     return true;
   });
 
-  const collectiveContext = filtered.slice(0, 35).map(c => {
-    const range = getNilRange(sport, position, c.nilLow);
-    return c.abbr + ' (' + c.conf + ', ' + c.market + '): collective $' + Math.round(c.nilLow/1000) + 'K-$' + Math.round(c.nilHigh/1000) + 'K total, athlete would earn ~$' + Math.round(range[0]/1000) + 'K-$' + Math.round(range[1]/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure';
+  const context = filtered.slice(0, 25).map(c => {
+    const range = athleteNil(c.nilLow);
+    return c.abbr + ' (' + c.conf + '): athlete earns $' + Math.round(range[0]/1000) + 'K-$' + Math.round(range[1]/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure, ' + c.market + ' market';
   }).join('\n');
 
-
-  const confContext = Object.entries(CONF_ESTIMATES).map(([c, v]) =>
-    c + ': $' + Math.round(v.nilLow/1000) + 'K-$' + Math.round(v.nilHigh/1000) + 'K typical'
-  ).join(' | ');
-
-  const sport = (athlete.sport || 'football').toLowerCase();
-  const position = (athlete.position || '').toLowerCase();
-  const schoolTier = athlete.schoolTier || 'p4-mid';
-
-  // NIL collective payment ranges by sport/position — based on market data
-  // These are what collectives actually pay, not based on social following
-  function getNilRange(sport, position, collectiveBudget) {
-    const budget = collectiveBudget || 5000000;
-    if (sport.includes('basketball')) {
-      // Basketball: fewer players, higher individual value
-      const isPG = position.includes('pg') || position.includes('point') || position.includes('g');
-      const isCenter = position.includes('c') || position.includes('center') || position.includes('f/c') || position.includes('fc');
-      if (budget > 8000000) return isPG ? [200000, 600000] : isCenter ? [150000, 500000] : [100000, 400000];
-      if (budget > 5000000) return isPG ? [100000, 350000] : isCenter ? [80000, 300000] : [60000, 250000];
-      if (budget > 3000000) return isPG ? [50000, 200000] : isCenter ? [40000, 150000] : [30000, 120000];
-      return isPG ? [20000, 80000] : isCenter ? [15000, 60000] : [10000, 50000];
-    }
-    if (sport.includes('football')) {
-      // Football: more players, QB/skill positions get more
-      const isQB = position.includes('qb') || position.includes('quarterback');
-      const isSkill = position.includes('wr') || position.includes('rb') || position.includes('cb') || position.includes('edge') || position.includes('de');
-      const isLineman = position.includes('ol') || position.includes('dl') || position.includes('dt') || position.includes('ot');
-      if (budget > 8000000) return isQB ? [300000, 1000000] : isSkill ? [100000, 400000] : isLineman ? [50000, 200000] : [80000, 300000];
-      if (budget > 5000000) return isQB ? [150000, 500000] : isSkill ? [50000, 200000] : isLineman ? [25000, 100000] : [40000, 150000];
-      if (budget > 3000000) return isQB ? [80000, 250000] : isSkill ? [25000, 100000] : isLineman ? [10000, 50000] : [20000, 80000];
-      return isQB ? [30000, 100000] : isSkill ? [10000, 40000] : isLineman ? [5000, 20000] : [8000, 30000];
-    }
-    // Other sports
-    if (budget > 5000000) return [20000, 100000];
-    if (budget > 2000000) return [10000, 50000];
-    return [5000, 25000];
-  }
-  const prompt = 'Find the 6 best transfer portal destinations for this athlete.\n' +
-    'Athlete: ' + athlete.name + ' | ' + athlete.sport + ' ' + (athlete.position||'') + ' | ' + (athlete.year||'') + '\n' +
-    'Current school: ' + (athlete.school||'Unknown') + ' (' + (athlete.schoolTier||'') + ')\n' +
-    'Stats: ' + (athlete.stats||athlete.notes||'N/A').substring(0,100) + '\n' +
-    'Transfer reason: ' + (athlete.transferReason||'Not specified') + '\n' +
-    'Filters: Conf=' + (conf||'any') + ', Min NIL=$' + minNil.toLocaleString() + ', Sort=' + (sortBy||'fit') + '\n\n' +
-    'REAL NIL DATA (total collective budgets):\n' + collectiveContext + '\n\n' +
-    'USE THIS FORMULA for nilLow/nilHigh: call getNilRange(sport, position, school_collective_budget) for each school.\n' +
-    'For example: basketball F/C at Kentucky ($4M-6M collective) = $80K-300K. Football EDGE at Georgia ($9M-12M) = $100K-400K.\n' +
-    'CRITICAL: nilLow and nilHigh must show what THIS ATHLETE would earn, not total collective budget.\n' +
-    'Conference averages for unlisted schools:\n' + confContext + '\n\n' +
-    'Consider ALL FBS programs. For schools not listed above, use conference averages.\n' +
-    'Return ONLY JSON array of 6 schools:\n' +
-    '[{"rank":1,"name":"Full School Name","conference":"SEC","confLabel":"SEC","tier":"reach|best-fit|safe","why":"2 sentences specific to this athlete","nilLow":5000000,"nilHigh":8000000,"nilBreakdown":[{"label":"Collective","val":"$5M-8M"}],"fitScore":88,"playingTimeOutlook":"Projected starter","rosterNeed":"Needs EDGE depth","metrics":[{"label":"Collective","val":"Elite"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"}]}]';
+  const prompt = 'Find 6 best transfer destinations for ' + athlete.name + ', ' + sport + ' ' + position + ', from ' + (athlete.school||'unknown') + '.\n' +
+    'Stats: ' + (athlete.stats||athlete.notes||'N/A').substring(0,80) + '\n' +
+    'Transfer reason: ' + (athlete.transferReason||'not specified') + '\n\n' +
+    'REAL NIL DATA (what this athlete earns, already calculated):\n' + context + '\n\n' +
+    'Use the exact dollar amounts above for nilLow/nilHigh. Rank by ' + (sortBy||'fit') + '.\n' +
+    'Return ONLY JSON array of 6:\n' +
+    '[{"rank":1,"name":"Full School Name","conference":"SEC","confLabel":"SEC","tier":"reach|best-fit|safe","why":"2 sentences specific to this athlete","nilLow":80000,"nilHigh":250000,"nilBreakdown":[{"label":"Collective pay","val":"$80K-250K"}],"fitScore":88,"playingTimeOutlook":"Projected starter","rosterNeed":"Needs depth at position","metrics":[{"label":"Collective","val":"Elite"},{"label":"Market","val":"Major"},{"label":"Playing time","val":"High"}]}]';
 
   let teams = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await ai.oneShot(prompt, 'Return ONLY a valid JSON array starting with [ and ending with ]. No markdown. Just the JSON array.');
+      const raw = await ai.oneShot(prompt, 'Return ONLY a valid JSON array starting with [ and ending with ]. No markdown. Just JSON.');
       const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
       const si = cleaned.indexOf('[');
       const ei = cleaned.lastIndexOf(']');
       if (si === -1 || ei <= si) throw new Error('No JSON array');
       const parsed = JSON.parse(cleaned.substring(si, ei + 1));
-      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
+      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty');
       teams = parsed;
       break;
-    } catch(err) { console.error('Team match error:', err.message); }
+    } catch(e) { console.error('Team match error:', e.message); }
   }
   if (!teams) return res.json({ teams: [], error: 'Try again — AI returned unexpected format.' });
   res.json({ teams, liveData: true });
