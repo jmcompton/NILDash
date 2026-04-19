@@ -100,3 +100,53 @@
     setTimeout(init, 500);
   }
 })();
+
+// Dynamic AI Command prompts based on active client
+function updateDynamicPrompts() {
+  var container = document.getElementById('dynamic-prompts');
+  if (!container) return;
+  var athletes = window.athletes || [];
+  var athleteId = window.selectedAthleteId;
+  var ath = athletes.find(function(a) { return a.id === athleteId; });
+  if (!ath) return;
+
+  var deals = (window._pipelineDeals || []).filter(function(d) { return d.athleteId === athleteId; });
+  var negotiating = deals.find(function(d) { return d.stage === 'Negotiating'; });
+  var closing = deals.find(function(d) { return d.stage === 'Closing'; });
+  var outreach = deals.find(function(d) { return d.stage === 'Outreach Sent'; });
+
+  var prompts = [];
+
+  // Context-aware prompts based on active deals
+  if (negotiating) {
+    prompts.push({ label: 'Counter ' + negotiating.brand, text: 'Give me word-for-word counter offer language for my ' + negotiating.brand + ' negotiation for ' + ath.name + '. Their offer is $' + (negotiating.value||0).toLocaleString() + '. What should I push back to?' });
+  }
+  if (closing) {
+    prompts.push({ label: 'Close ' + closing.brand, text: 'What are the key terms I need to verify before signing the ' + closing.brand + ' deal for ' + ath.name + '?' });
+  }
+  if (outreach) {
+    prompts.push({ label: 'Follow up ' + outreach.brand, text: 'Write a follow-up message to ' + outreach.brand + ' about ' + ath.name + '. We sent outreach and have not heard back.' });
+  }
+
+  // Always include sport-specific prompts
+  prompts.push({ label: '10 Best Deals', text: 'What are the 10 best NIL deals for ' + ath.name + ', a ' + (ath.sport||'athlete') + ' at ' + (ath.school||'their school') + '? Rank by realistic close probability.' });
+  prompts.push({ label: 'What To Charge', text: 'What should I charge for an IG Reel deal for ' + ath.name + '? They have ' + (ath.instagram||0).toLocaleString() + ' Instagram followers and ' + (ath.tiktok||0).toLocaleString() + ' TikTok followers with ' + (ath.engagement||0) + '% engagement.' });
+  prompts.push({ label: 'Get Leverage', text: 'Give me word-for-word negotiation leverage I can use on a call today for ' + ath.name + '. Sport: ' + (ath.sport||'') + ', School: ' + (ath.school||'') + '.' });
+  prompts.push({ label: 'Walk Away Analysis', text: 'Which deals should I walk away from for ' + ath.name + ' and why? Give me clear reasoning.' });
+
+  container.innerHTML = prompts.slice(0, 5).map(function(p) {
+    return '<span class="qb" onclick="setPrompt(' + JSON.stringify(p.text) + ')">' + p.label + '</span>';
+  }).join('');
+}
+
+// Update prompts when athlete changes
+var _origOnAthleteChange = window.onAthleteChange;
+setTimeout(function() {
+  var select = document.getElementById('activeAthlete');
+  if (select) {
+    select.addEventListener('change', function() {
+      setTimeout(updateDynamicPrompts, 300);
+    });
+  }
+  updateDynamicPrompts();
+}, 1000);
