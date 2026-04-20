@@ -524,7 +524,7 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
       break;
     } catch(e) { console.error('Team match error:', e.message); }
   }
-  if (!teams) return res.json({ teams: [], error: 'Try again — AI returned unexpected format.' });
+  if (!teams) return res.json({ teams: [], error: 'AI service busy — please try again in 15 seconds.' });
   res.json({ teams, liveData: true });
 });
 // ── Contract Generator ────────────────────────────────────────
@@ -572,10 +572,19 @@ Generate a complete, professional NIL contract with these sections:
 Use professional legal language. Include specific dollar amounts and dates. Add FTC disclosure language. Make it ready to sign.`;
 
   try {
-    const contract = await ai.oneShot(prompt, 'You are a sports attorney specializing in NIL contracts. Generate complete, professional, legally sound NIL contracts ready for signature. Use precise legal language. Include all standard contract clauses.');
+    const contract = await ai.oneShot(prompt, 'You are a sports attorney specializing in NIL contracts. Generate complete, professional, legally sound NIL contracts ready for signature. Use precise legal language. Include all standard contract clauses.', 4000);
+    if (!contract || contract.length < 100) throw new Error('Contract generation failed');
     res.json({ contract, athleteName: athlete.name, brand, value });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Contract error:', err.message);
+    // Retry with shorter prompt
+    try {
+      const shortPrompt = 'Generate a professional NIL contract between ' + athlete.name + ' (' + athlete.sport + ' at ' + (athlete.school||'university') + ') and ' + brand + ' for $' + parseInt(value||0).toLocaleString() + '. Deal type: ' + (dealType||'Social Media') + '. Deliverables: ' + (deliverables||'3 Instagram posts') + '. Include: parties, scope, compensation, term, exclusivity, usage rights, FTC disclosure, and signature lines. Use professional legal language.';
+      const contract = await ai.oneShot(shortPrompt, 'You are a sports attorney. Generate a complete NIL contract ready for signature.');
+      res.json({ contract, athleteName: athlete.name, brand, value });
+    } catch(err2) {
+      res.status(503).json({ error: 'Contract generation temporarily unavailable. Please try again in 30 seconds.' });
+    }
   }
 });
 

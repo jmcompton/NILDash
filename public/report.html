@@ -139,8 +139,7 @@ else {
     var tier = reach>500000?"Macro Influencer":reach>100000?"Mid-Tier":reach>25000?"Micro Influencer":"Nano Influencer";
     document.getElementById("r-tags").innerHTML =
       (ath.sport ? '<span class="tag tag-sport">'+ath.sport+'</span>' : "") +
-      (ath.schoolTier ? '<span class="tag tag-tier">'+ath.schoolTier+'</span>' : "") +
-      '<span class="tag tag-tier">'+tier+"</span>";
+      (ath.schoolTier ? '<span class="tag tag-tier">'+ath.schoolTier+'</span>' : '<span class="tag tag-tier">'+tier+"</span>");
 
     // Selling points
     var eng = parseFloat(ath.engagement||0);

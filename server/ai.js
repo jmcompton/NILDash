@@ -100,11 +100,11 @@ async function streamResponse(athlete, message, role, res) {
   res.end();
 }
 
-async function oneShot(prompt, system) {
+async function oneShot(prompt, system, maxTokens) {
   const ai = getClient();
   const msg = await ai.messages.create({
     model: 'claude-opus-4-5',
-    max_tokens: 8000,
+    max_tokens: maxTokens || 8000,
     system: system || 'You are a precise NIL deal analyst.',
     messages: [{ role: 'user', content: prompt }],
   });
