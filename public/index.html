@@ -729,6 +729,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <div id="view-pipeline" class="view">
         <div class="page-title">Deal Pipeline</div>
         <div class="page-sub">Every deal, every client, every stage</div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="pipe-filter-client" style="accent-color:var(--accent)" onchange="loadPipeline()">
+            Show active client only
+          </label>
+        </div>
         <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
           <div class="kpi"><div class="kpi-label">Total Pipeline</div><div class="kpi-val" id="pipe-total">$0</div></div>
           <div class="kpi"><div class="kpi-label">Deals Active</div><div class="kpi-val" id="pipe-count">0</div></div>
@@ -1953,7 +1959,10 @@ async function runNegotiate() {
 async function loadPipeline() {
   const stages = ['Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
   let allDeals = [];
-  for (const ath of athletes) {
+  var filterEl = document.getElementById('pipe-filter-client');
+  var filterActive = filterEl && filterEl.checked;
+  var athleteList = filterActive ? athletes.filter(a => a.id === selectedAthleteId) : athletes;
+  for (const ath of athleteList) {
     const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
     deals.forEach(d => allDeals.push({...d, athleteName: ath.name}));
     window._pipelineDeals = allDeals;
