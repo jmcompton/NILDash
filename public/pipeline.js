@@ -63,20 +63,23 @@
     },
 
     onDragStart: function(e) {
+      var card = e.target.closest('.nil-pipe-card') || e.target;
       draggedDeal = {
-        id: e.target.dataset.dealId,
-        athleteId: e.target.dataset.athleteId,
-        stage: e.target.dataset.stage
+        id: card.dataset.dealId,
+        athleteId: card.dataset.athleteId,
+        stage: card.dataset.stage
       };
-      e.target.style.opacity = '0.4';
+      card.style.opacity = '0.4';
       e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.dataset.dealId);
     },
 
     onDragEnd: function(e) {
-      e.target.style.opacity = '1';
+      var card = e.target.closest('.nil-pipe-card') || e.target;
+      card.style.opacity = '1';
       document.querySelectorAll('.nil-pipe-col').forEach(function(col) {
         col.style.background = '';
-        col.style.borderColor = '';
+        col.style.border = '1px solid var(--border)';
       });
     },
 
