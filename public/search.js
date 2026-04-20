@@ -194,3 +194,69 @@ window.generateReport = async function(athleteId) {
     alert('Error generating report: ' + e.message);
   }
 };
+
+// Sync pipeline deals with Outreach Sent stage into outreach tracker
+async function syncOutreachFromDeals() {
+  var athletes = window.athletes || [];
+  var apiBase = window.API_BASE || '';
+  if (!athletes.length) return;
+
+  for (var i = 0; i < athletes.length; i++) {
+    var ath = athletes[i];
+    try {
+      var r = await fetch(apiBase + '/api/athletes/' + ath.id + '/deals');
+      var deals = await r.json();
+      var outreachDeals = deals.filter(function(d) {
+        return d.stage === 'Outreach Sent' || d.stage === 'Negotiating' || d.stage === 'Closing' || d.stage === 'Closed';
+      });
+
+      if (!outreachDeals.length) continue;
+
+      if (!window.outreachLogByAthlete) window.outreachLogByAthlete = {};
+      if (!window.outreachLogByAthlete[ath.id]) window.outreachLogByAthlete[ath.id] = [];
+
+      outreachDeals.forEach(function(d) {
+        // Only add if not already in tracker
+        var existing = window.outreachLogByAthlete[ath.id].find(function(e) {
+          return e.brand === d.brand && e._dealId === d.id;
+        });
+        if (!existing) {
+          var stageToStatus = {
+            'Outreach Sent': 'Sent',
+            'Negotiating': 'Replied',
+            'Closing': 'Replied',
+            'Closed': 'Replied'
+          };
+          var date = new Date(d.createdAt || Date.now());
+          var dateStr = date.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+          window.outreachLogByAthlete[ath.id].push({
+            id: Date.now() + Math.random(),
+            _dealId: d.id,
+            brand: d.brand || 'Unknown Brand',
+            athlete: ath.name,
+            category: d.campaign || 'NIL Deal',
+            date: dateStr,
+            status: stageToStatus[d.stage] || 'Sent'
+          });
+        }
+      });
+    } catch(e) {}
+  }
+
+  // Re-render if outreach view is active
+  if (typeof renderOutreachTracker === 'function') renderOutreachTracker();
+}
+
+// Run sync after athletes load
+setTimeout(function() {
+  var orig = window.onAthleteChange;
+  syncOutreachFromDeals();
+  // Also sync when switching to outreach view
+  var origShowView = window.showView;
+  if (origShowView) {
+    window.showView = function(id, el) {
+      origShowView(id, el);
+      if (id === 'outreach') setTimeout(syncOutreachFromDeals, 300);
+    };
+  }
+}, 2000);
