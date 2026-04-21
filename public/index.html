@@ -1957,7 +1957,8 @@ async function calcRate() {
     if (floorNotice) {
       if (rate.floorApplied) {
         floorNotice.style.display = 'block';
-        floorNotice.textContent = 'Minimum floor rate applied for ' + (athlete ? athlete.schoolTier : 'this school tier') + '. Raw model rate was below market minimum.';
+        const floorAth = athletes ? athletes.find(function(a){return a.id===selectedAthleteId;}) : null;
+        floorNotice.textContent = 'Minimum floor rate applied for ' + (floorAth ? floorAth.schoolTier : 'this school tier') + '. Raw model rate was below market minimum.';
       } else {
         floorNotice.style.display = 'none';
       }
