@@ -1968,7 +1968,7 @@ async function calcRate() {
     if (recBox) {
       if (rate.recommendation) {
         recBox.style.display = 'block';
-        recBox.querySelector('#rate-rec-text').textContent = rate.recommendation;
+        document.getElementById('rate-rec-text').textContent = rate.recommendation;
       } else {
         recBox.style.display = 'none';
       }
