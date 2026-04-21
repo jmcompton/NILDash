@@ -260,9 +260,9 @@ function nilViewVal(athlete, deliverableType) {
 
   // Recommendation for nano athletes
   let recommendation = null;
-  if (totalReach < 10000) {
+  if (totalReach < 5000) {
     recommendation = 'With under 10K followers, social media brand deals are limited. Focus on: (1) Collective roster deals ($300-1K/mo guaranteed), (2) Local business appearances ($150-400/event), (3) Campus ambassador roles ($200-600/mo). These are more realistic than per-post deals at this reach level.';
-  } else if (totalReach < 25000) {
+  } else if (totalReach < 15000) {
     recommendation = 'At this reach level, local and regional brands offer the best opportunities. Consider collective roster deals, local restaurant partnerships, and campus ambassador programs alongside social media deals.';
   }
 
