@@ -59,6 +59,10 @@
 [data-theme="light"] .btn-primary{background:#1a1a1a!important;color:#ffffff!important;font-family:'Inter',sans-serif!important}
 [data-theme="light"] .auth-tab.active{background:#1a1a1a!important;color:#ffffff!important}
 [data-theme="light"] #authScreen{background:#F8F7F4!important}
+.nav-dot-item{width:5px;height:5px;border-radius:50%;background:currentColor;display:inline-block;flex-shrink:0;opacity:0.4}
+.nav-item.active .nav-dot-item{opacity:1;background:#4ade80}
+[data-theme="light"] .nav-dot-item{background:rgba(255,255,255,0.4)}
+[data-theme="light"] .nav-item.active .nav-dot-item{background:#4ade80;opacity:1}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;line-height:1.6;min-height:100vh}
 body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.012) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
@@ -339,47 +343,47 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <nav class="sidebar-nav">
       <div class="nav-section-label">Command</div>
       <button class="nav-item active" onclick="showView('command',this)">
-        <span class="nav-icon">⚡</span>AI Command
+        <span class="nav-dot-item"></span>AI Command
       </button>
       <button class="nav-item" onclick="showView('deals',this)">
-        <span class="nav-icon">🎯</span>Deal Scan
+        <span class="nav-dot-item"></span>Deal Scan
       </button>
       <button class="nav-item" onclick="showView('rate',this)">
-        <span class="nav-icon">💰</span>Rate Calculator
+        <span class="nav-dot-item"></span>Rate Calculator
       </button>
       <button class="nav-item" onclick="showView('negotiate',this)">
-        <span class="nav-icon">⚖️</span>Negotiate
+        <span class="nav-dot-item"></span>Negotiate
       </button>
       <button class="nav-item" onclick="showView('team-match',this)">
-        <span class="nav-icon">🤝</span>Team Match
+        <span class="nav-dot-item"></span>Team Match
       </button>
       <button class="nav-item" onclick="showView('outreach',this)">
-        <span class="nav-icon">📣</span>Outreach
+        <span class="nav-dot-item"></span>Outreach
       </button>
       <button class="nav-item" onclick="showView('calendar',this)">
-        <span class="nav-icon">📅</span>Calendar
+        <span class="nav-dot-item"></span>Calendar
       </button>
       <button class="nav-item" onclick="showView('compliance',this)">
-        <span class="nav-icon">⚖️</span>Compliance
+        <span class="nav-dot-item"></span>Compliance
       </button>
       <button class="nav-item" onclick="showView('contract',this)">
-        <span class="nav-icon">📄</span>Contract
+        <span class="nav-dot-item"></span>Contract
       </button>
       <button class="nav-item" onclick="showView('analytics',this)">
-        <span>&#128202;</span> Analytics
+        <span class="nav-dot-item"></span>Analytics
       </button>
       <button class="nav-item" onclick="showView('commission',this)">
-        <span class="nav-icon">💰</span>Commission
+        <span class="nav-dot-item"></span>Commission
       </button>
       <button class="nav-item" onclick="showView('pipeline',this)">
-        <span class="nav-icon">📋</span>Pipeline
+        <span class="nav-dot-item"></span>Pipeline
       </button>
       <div class="nav-section-label">Roster</div>
       <button class="nav-item" onclick="showView('roster',this)">
-        <span class="nav-icon">👥</span>My Roster
+        <span class="nav-dot-item"></span>My Roster
       </button>
       <button class="nav-item" onclick="showView('add-athlete',this)" id="addAthleteNavBtn">
-        <span class="nav-icon">＋</span>Add Client
+        <span class="nav-dot-item"></span>Add Client
       </button>
     </nav>
 
