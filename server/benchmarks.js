@@ -229,10 +229,49 @@ function nilViewVal(athlete, deliverableType) {
     5;
   const accuracyScore = Math.max(50, Math.min(97, dataScore));
 
+  // Minimum floor rates by school tier — no college athlete deal should be below these
+  const floorRates = {
+    'p4-top10':   { low: 150, mid: 200, high: 300 },
+    'p4-top25':   { low: 100, mid: 150, high: 225 },
+    'p4-mid':     { low:  75, mid: 110, high: 165 },
+    'p4-lower':   { low:  50, mid:  75, high: 110 },
+    'highmajor-top': { low: 40, mid: 60, high: 90 },
+    'highmajor-mid': { low: 35, mid: 50, high: 75 },
+    'mid-top':    { low: 30, mid: 45, high: 65 },
+    'mid-mid':    { low: 25, mid: 35, high: 55 },
+    'mid-lower':  { low: 20, mid: 30, high: 45 },
+    'lowmajor-top': { low: 15, mid: 25, high: 35 },
+    'lowmajor-lower': { low: 12, mid: 18, high: 28 },
+    'd2-elite':   { low: 10, mid: 15, high: 25 },
+    'd2-top':     { low:  8, mid: 12, high: 20 },
+    'd2-mid':     { low:  5, mid:  8, high: 15 },
+  };
+  const floor = floorRates[tier] || { low: 15, mid: 22, high: 35 };
+  // Apply deliverable multiplier to floor too
+  const floorDelivMult = MARKET_RATES.deliverableMultiplier[deliverableType] || 1.0;
+  const floorLow  = Math.round(floor.low  * floorDelivMult);
+  const floorMid  = Math.round(floor.mid  * floorDelivMult);
+  const floorHigh = Math.round(floor.high * floorDelivMult);
+
+  const finalLow  = Math.max(Math.round(valuePerPost * 0.75), floorLow);
+  const finalMid  = Math.max(Math.round(valuePerPost), floorMid);
+  const finalHigh = Math.max(Math.round(valuePerPost * 1.35), floorHigh);
+  const floorApplied = finalLow > Math.round(valuePerPost * 0.75);
+
+  // Recommendation for nano athletes
+  let recommendation = null;
+  if (totalReach < 10000) {
+    recommendation = 'With under 10K followers, social media brand deals are limited. Focus on: (1) Collective roster deals ($300-1K/mo guaranteed), (2) Local business appearances ($150-400/event), (3) Campus ambassador roles ($200-600/mo). These are more realistic than per-post deals at this reach level.';
+  } else if (totalReach < 25000) {
+    recommendation = 'At this reach level, local and regional brands offer the best opportunities. Consider collective roster deals, local restaurant partnerships, and campus ambassador programs alongside social media deals.';
+  }
+
   return {
-    low: Math.round(valuePerPost * 0.75),
-    mid: Math.round(valuePerPost),
-    high: Math.round(valuePerPost * 1.35),
+    low: finalLow,
+    mid: finalMid,
+    high: finalHigh,
+    floorApplied,
+    recommendation,
     valuePerView: valuePerView.toFixed(5),
     accuracyScore,
     breakdown: {

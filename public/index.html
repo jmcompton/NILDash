@@ -545,6 +545,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Data Used For This Calculation</div>
               <div id="rate-context-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
             </div>
+            <div id="rate-floor-notice" style="display:none;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:var(--r-sm);padding:10px 14px;font-size:11px;color:var(--blue);margin-top:12px">
+            </div>
+            <div id="rate-recommendation" style="display:none;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:var(--r-sm);padding:14px;margin-top:12px">
+              <div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Agent Recommendation</div>
+              <div id="rate-rec-text" style="font-size:12px;color:var(--text);line-height:1.6"></div>
+            </div>
             <div class="ai-block" id="rateAI" style="margin-top:16px">
               <div class="ai-header"><div class="spinner" id="rateSpinner"></div><div class="ai-label">Rate Justification Script</div></div>
               <div class="ai-content" id="rateText">Calculate a rate above then click "Get Justification Script" for word-for-word language to defend your price on a call.</div>
@@ -1944,6 +1950,26 @@ async function calcRate() {
           '</div>';
         }).join('');
         ctx.style.display = 'block';
+      }
+    }
+    // Show floor notice if applied
+    var floorNotice = document.getElementById('rate-floor-notice');
+    if (floorNotice) {
+      if (rate.floorApplied) {
+        floorNotice.style.display = 'block';
+        floorNotice.textContent = 'Minimum floor rate applied for ' + (athlete ? athlete.schoolTier : 'this school tier') + '. Raw model rate was below market minimum.';
+      } else {
+        floorNotice.style.display = 'none';
+      }
+    }
+    // Show recommendation for small athletes
+    var recBox = document.getElementById('rate-recommendation');
+    if (recBox) {
+      if (rate.recommendation) {
+        recBox.style.display = 'block';
+        recBox.querySelector('#rate-rec-text').textContent = rate.recommendation;
+      } else {
+        recBox.style.display = 'none';
       }
     }
     document.getElementById('rateAI').classList.add('visible');
