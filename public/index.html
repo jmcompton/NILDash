@@ -436,7 +436,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="kpi"><div class="kpi-label">Pipeline Value</div><div class="kpi-val" id="kpi-pipeline">$0</div><div class="kpi-sub">Active deals</div></div>
           <div class="kpi"><div class="kpi-label">Active Deals</div><div class="kpi-val" id="kpi-deals">0</div><div class="kpi-sub">In progress</div></div>
           <div class="kpi"><div class="kpi-label">Clients</div><div class="kpi-val" id="kpi-clients">0</div><div class="kpi-sub">On roster</div></div>
-          <div class="kpi"><div class="kpi-label">AI</div><div class="kpi-val" id="kpi-ai" style="font-size:20px">✅</div><div class="kpi-sub" id="kpi-ai-sub">Connected</div></div>
+          <div class="kpi" style="cursor:pointer" onclick="showView('rate',document.querySelector('.nav-item:nth-child(3)'))"><div class="kpi-label">NIL Rate (IG Reel)</div><div class="kpi-val" id="kpi-nil-rate" style="color:var(--accent)">—</div><div class="kpi-sub" id="kpi-nil-sub">Click to calculate</div></div>
         </div>
 
         <div class="cmd-wrap">
@@ -1545,6 +1545,7 @@ async function loadAthletes() {
     renderRoster();
     populateAthleteSelect();
     document.getElementById('kpi-clients').textContent = athletes.length;
+    updateNilRateKpi();
     if (athletes.length > 0 && !selectedAthleteId) {
       selectedAthleteId = athletes[0].id;
       document.getElementById('activeAthlete').value = selectedAthleteId;
@@ -2130,6 +2131,21 @@ function copyText(el) {
   navigator.clipboard.writeText(el.textContent.trim());
   showToast('Copied to clipboard!');
 }
+async function updateNilRateKpi() {
+  const el = document.getElementById('kpi-nil-rate');
+  const sub = document.getElementById('kpi-nil-sub');
+  if (!el || !selectedAthleteId) return;
+  try {
+    const r = await fetch(API_BASE + '/api/rate/' + selectedAthleteId + '?type=ig-reel');
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data.low && data.high) {
+      el.textContent = '$' + data.low.toLocaleString() + ' - $' + data.high.toLocaleString();
+      if (sub) sub.textContent = 'NILViewVal v3 estimate';
+    }
+  } catch(e) {}
+}
+
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');

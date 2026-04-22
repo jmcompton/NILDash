@@ -833,6 +833,18 @@ app.get('/api/reports/:token', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Quick rate endpoint ──────────────────────────────────────
+app.get('/api/rate/:athleteId', requireAuth, async (req, res) => {
+  try {
+    const athlete = await store.getAthlete(req.params.athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Not found' });
+    const { nilViewVal } = require('./benchmarks');
+    const type = req.query.type || 'ig-reel';
+    const rate = nilViewVal(athlete, type);
+    res.json({ low: rate.low, mid: rate.mid, high: rate.high, archetypeScore: rate.archetypeScore });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Reset page ──────────────────────────────────────────────
 app.get('/reset', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'reset.html'));
