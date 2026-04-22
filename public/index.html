@@ -1687,6 +1687,14 @@ function editAthlete(id) {
   document.getElementById('a_tt').value = a.tiktok || '';
   document.getElementById('a_eng').value = a.engagement || '';
   document.getElementById('a_notes').value = a.notes || '';
+  const ppgEl = document.getElementById('a_ppg'); if (ppgEl) ppgEl.value = a.ppg || '';
+  const rpgEl = document.getElementById('a_rpg'); if (rpgEl) rpgEl.value = a.rpg || '';
+  const apgEl = document.getElementById('a_apg'); if (apgEl) apgEl.value = a.apg || '';
+  const fgEl = document.getElementById('a_fgpct'); if (fgEl) fgEl.value = a.fgPct || '';
+  const bpgEl = document.getElementById('a_bpg'); if (bpgEl) bpgEl.value = a.bpg || '';
+  const spgEl = document.getElementById('a_spg'); if (spgEl) spgEl.value = a.spg || '';
+  const perEl = document.getElementById('a_per'); if (perEl) perEl.value = a.per || '';
+  const draftEl = document.getElementById('a_draft'); if (draftEl) draftEl.value = a.draftStatus || '';
   const yearEl = document.getElementById('a_year');
   if (yearEl && a.year) { for (let o of yearEl.options) { if (o.value === a.year) { yearEl.value = a.year; break; } } }
   const statsEl = document.getElementById('a_stats');
