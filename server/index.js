@@ -472,21 +472,58 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const sport = (athlete.sport || 'football').toLowerCase();
   const position = (athlete.position || '').toLowerCase();
 
-  // Calculate per-athlete NIL for each collective
-  function athleteNil(collectiveBudget) {
+  // ROSTER VALUE model — what a collective pays an athlete to be on the team
+  // Based on real 2025-26 portal market data (On3, NIL Network, Sports Illustrated)
+  function athleteNil(collectiveBudget, athlete) {
     const b = collectiveBudget || 3000000;
-    if (sport.includes('basketball')) {
-      const isPG = position.includes('pg') || position.includes('guard');
-      const isC = position.includes('c') || position.includes('center') || position.includes('f/c');
-      if (b > 8000000) return [isPG ? 200000 : isC ? 150000 : 100000, isPG ? 600000 : isC ? 500000 : 400000];
-      if (b > 4000000) return [isPG ? 80000 : isC ? 60000 : 40000, isPG ? 300000 : isC ? 250000 : 200000];
-      return [isPG ? 20000 : isC ? 15000 : 10000, isPG ? 100000 : isC ? 80000 : 60000];
+    const ppg = parseFloat(athlete.ppg) || 0;
+    const rpg = parseFloat(athlete.rpg) || 0;
+    const apg = parseFloat(athlete.apg) || 0;
+    const fgPct = parseFloat(athlete.fgPct) || 0;
+    const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+    const draftStatus = (athlete.draftStatus || '').toLowerCase();
+    const year = (athlete.year || '').toLowerCase();
+
+    // Base roster value ranges by collective budget tier
+    let baseLow, baseHigh;
+    if (b >= 10000000)     { baseLow = 500000;  baseHigh = 5000000; }
+    else if (b >= 7000000) { baseLow = 300000;  baseHigh = 3000000; }
+    else if (b >= 5000000) { baseLow = 150000;  baseHigh = 1500000; }
+    else if (b >= 3000000) { baseLow = 75000;   baseHigh = 700000;  }
+    else if (b >= 1500000) { baseLow = 30000;   baseHigh = 300000;  }
+    else                   { baseLow = 10000;   baseHigh = 100000;  }
+
+    // Performance multiplier based on stats
+    let perfMult = 0.5; // default — no stats entered
+    if (ppg > 0 || rpg > 0) {
+      perfMult = 0.3;
+      if (sport.includes('basketball')) {
+        // Elite: 20+ PPG or 10+ RPG or 5+ APG
+        if (ppg >= 20 || (ppg >= 15 && rpg >= 8) || apg >= 5) perfMult = 1.0;
+        else if (ppg >= 15 || rpg >= 8 || apg >= 3) perfMult = 0.75;
+        else if (ppg >= 10 || rpg >= 6) perfMult = 0.55;
+        else perfMult = 0.35;
+        // Draft premium
+        if (draftStatus.includes('lottery') || draftStatus.includes('first')) perfMult *= 2.5;
+        else if (draftStatus.includes('second')) perfMult *= 1.5;
+        else if (draftStatus.includes('declared')) perfMult *= 2.0;
+      } else if (sport.includes('football')) {
+        const isQB = position.includes('qb');
+        const isSkill = position.includes('wr') || position.includes('rb') || position.includes('edge') || position.includes('cb');
+        if (isQB) perfMult = ppg >= 30 ? 1.0 : ppg >= 20 ? 0.75 : 0.55;
+        else if (isSkill) perfMult = ppg >= 15 ? 0.85 : ppg >= 8 ? 0.65 : 0.45;
+        else perfMult = 0.40;
+        if (draftStatus.includes('first') || draftStatus.includes('lottery')) perfMult *= 2.0;
+        else if (draftStatus.includes('second')) perfMult *= 1.4;
+      }
     }
-    const isQB = position.includes('qb');
-    const isSkill = position.includes('wr') || position.includes('rb') || position.includes('cb') || position.includes('edge') || position.includes('de');
-    if (b > 8000000) return [isQB ? 300000 : isSkill ? 80000 : 30000, isQB ? 1000000 : isSkill ? 300000 : 150000];
-    if (b > 4000000) return [isQB ? 100000 : isSkill ? 30000 : 10000, isQB ? 400000 : isSkill ? 120000 : 60000];
-    return [isQB ? 30000 : isSkill ? 10000 : 5000, isQB ? 150000 : isSkill ? 50000 : 25000];
+
+    // Social media adds brand value on top of roster value
+    const socialBonus = reach >= 500000 ? 1.3 : reach >= 100000 ? 1.15 : reach >= 25000 ? 1.05 : 1.0;
+
+    const finalLow = Math.round(baseLow * perfMult * socialBonus);
+    const finalHigh = Math.round(baseHigh * perfMult * socialBonus);
+    return [finalLow, finalHigh];
   }
 
   // NIL trajectory — project value over remaining eligibility
@@ -520,15 +557,15 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const filtered = COLLECTIVES.filter(c => {
     if (conf && c.conf !== conf) return false;
     if (minNil > 0) {
-      const range = athleteNil(c.nilLow);
+      const range = athleteNil(c.nilLow, athlete);
       if (range[1] < minNil) return false;
     }
     return true;
   });
 
   const context = filtered.slice(0, 25).map(c => {
-    const range = athleteNil(c.nilLow);
-    return c.abbr + ' (' + c.conf + '): athlete earns ~$' + Math.round(range[0]/1000) + 'K-$' + Math.round(range[1]/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure, ' + c.market + ' market';
+    const range = athleteNil(c.nilLow, athlete);
+    return c.abbr + ' (' + c.conf + '): roster value ~$' + Math.round(range[0]/1000) + 'K-$' + Math.round(range[1]/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure, ' + c.market + ' market';
   }).join('\n');
 
   const prompt = 'Find 6 best transfer destinations for ' + athlete.name + ', ' + sport + ' ' + position + ', from ' + (athlete.school||'unknown') + '.\n' +
