@@ -468,10 +468,11 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
   const { COLLECTIVES } = require('./collectives');
+  const { nilViewVal } = require('./benchmarks');
   const sport = (athlete.sport || 'football').toLowerCase();
   const position = (athlete.position || '').toLowerCase();
 
-  // Calculate realistic per-athlete NIL based on sport, position, and collective budget
+  // Calculate per-athlete NIL for each collective
   function athleteNil(collectiveBudget) {
     const b = collectiveBudget || 3000000;
     if (sport.includes('basketball')) {
@@ -488,6 +489,34 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
     return [isQB ? 30000 : isSkill ? 10000 : 5000, isQB ? 150000 : isSkill ? 50000 : 25000];
   }
 
+  // NIL trajectory — project value over remaining eligibility
+  function nilTrajectory(athlete, currentLow, currentHigh) {
+    const year = (athlete.year || '').toLowerCase();
+    const draftStatus = (athlete.draftStatus || '').toLowerCase();
+    if (draftStatus.includes('declared')) return { trend: 'Declared for draft', multiplier: 1.0, note: 'Pro transition imminent' };
+    if (year.includes('freshman') || year.includes('fr')) return { trend: 'High growth potential', multiplier: 1.8, note: '3+ years of eligibility to build NIL value' };
+    if (year.includes('sophomore') || year.includes('so')) return { trend: 'Growth phase', multiplier: 1.5, note: '2+ years remaining — value will increase with production' };
+    if (year.includes('junior') || year.includes('jr')) return { trend: 'Peak NIL window', multiplier: 1.2, note: '1-2 years remaining — maximize deals now' };
+    if (year.includes('senior') || year.includes('sr')) return { trend: 'Final year — act fast', multiplier: 1.0, note: 'Last eligibility year — prioritize multi-year deal structures' };
+    return { trend: 'Stable', multiplier: 1.1, note: 'Build brand consistency to maximize value' };
+  }
+
+  // Transfer portal comps from deal comps database
+  const { DEAL_COMPS } = require('./benchmarks');
+  const athleteRate = nilViewVal(athlete, 'ig-reel');
+  const similarComps = (DEAL_COMPS || []).filter(c => {
+    return c.sport === sport &&
+      Math.abs((c.followers || 0) - ((athlete.instagram || 0) + (athlete.tiktok || 0))) < 50000;
+  }).slice(0, 3);
+
+  const compContext = similarComps.length ?
+    'Portal comps for similar athletes: ' + similarComps.map(c =>
+      c.sport + ' at ' + c.school + ' (' + c.followers + ' followers, ' + c.engagement + '% ER): $' + c.value.toLocaleString() + ' for ' + c.dealType
+    ).join('; ') :
+    'Limited direct comps available — using model estimates';
+
+  const trajectory = nilTrajectory(athlete, athleteRate.low, athleteRate.high);
+
   const filtered = COLLECTIVES.filter(c => {
     if (conf && c.conf !== conf) return false;
     if (minNil > 0) {
@@ -499,21 +528,32 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
 
   const context = filtered.slice(0, 25).map(c => {
     const range = athleteNil(c.nilLow);
-    return c.abbr + ' (' + c.conf + '): athlete earns $' + Math.round(range[0]/1000) + 'K-$' + Math.round(range[1]/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure, ' + c.market + ' market';
+    return c.abbr + ' (' + c.conf + '): athlete earns ~$' + Math.round(range[0]/1000) + 'K-$' + Math.round(range[1]/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure, ' + c.market + ' market';
   }).join('\n');
 
   const prompt = 'Find 6 best transfer destinations for ' + athlete.name + ', ' + sport + ' ' + position + ', from ' + (athlete.school||'unknown') + '.\n' +
-    'Stats: ' + (athlete.stats||athlete.notes||'N/A').substring(0,80) + '\n' +
-    'Transfer reason: ' + (athlete.transferReason||'not specified') + '\n\n' +
-    'REAL NIL DATA (what this athlete earns, already calculated):\n' + context + '\n\n' +
-    'Use the exact dollar amounts above for nilLow/nilHigh. Rank by ' + (sortBy||'fit') + '.\n' +
+    'Stats: PPG=' + (athlete.ppg||'N/A') + ' RPG=' + (athlete.rpg||'N/A') + ' APG=' + (athlete.apg||'N/A') + ' FG%=' + (athlete.fgPct||'N/A') + ' BPG=' + (athlete.bpg||'N/A') + '\n' +
+    'Social: ' + ((athlete.instagram||0)+(athlete.tiktok||0)).toLocaleString() + ' total reach, ' + (athlete.engagement||0) + '% ER\n' +
+    'Year: ' + (athlete.year||'unknown') + ' | Draft status: ' + (athlete.draftStatus||'not declared') + '\n' +
+    'Transfer reason: ' + (athlete.transferReason||'not specified') + '\n' +
+    'NIL Trajectory: ' + trajectory.trend + ' — ' + trajectory.note + '\n' +
+    'Archetype score: ' + (athleteRate.archetypeScore || 'N/A') + '/99\n\n' +
+    'TRANSFER PORTAL COMPS:\n' + compContext + '\n\n' +
+    'REAL COLLECTIVE DATA (what this athlete earns per program):\n' + context + '\n\n' +
+    'For each school return:\n' +
+    '- nilLow/nilHigh: athlete earnings (not total budget)\n' +
+    '- rosterNeed: specific depth chart need at ' + position + ' (e.g. "Lost starter to draft, need immediate replacement")\n' +
+    '- collectiveDealHistory: what this collective has paid for similar ' + position + ' archetypes recently\n' +
+    '- trajectoryNote: how this program accelerates or limits the athlete NIL trajectory\n' +
+    '- portalComp: name one real portal player who took a similar path to this school\n\n' +
+    'Rank by: ' + (sortBy||'fit') + '\n' +
     'Return ONLY JSON array of 6:\n' +
-    '[{"rank":1,"name":"Full School Name","conference":"SEC","confLabel":"SEC","tier":"reach|best-fit|safe","why":"2 sentences specific to this athlete","nilLow":80000,"nilHigh":250000,"nilBreakdown":[{"label":"Collective pay","val":"$80K-250K"}],"fitScore":88,"playingTimeOutlook":"Projected starter","rosterNeed":"Needs depth at position","metrics":[{"label":"Collective","val":"Elite"},{"label":"Market","val":"Major"},{"label":"Playing time","val":"High"}]}]';
+    '[{"rank":1,"name":"Full School Name","conference":"SEC","confLabel":"SEC","tier":"reach|best-fit|safe","why":"2 sentences specific to this athlete stats and situation","nilLow":80000,"nilHigh":250000,"nilBreakdown":[{"label":"Collective pay","val":"$80K-250K"}],"fitScore":88,"playingTimeOutlook":"Projected starter","rosterNeed":"Lost starter EDGE to NFL draft — immediate need","collectiveDealHistory":"Paid $120K-200K for similar EDGE prospects in 2025 portal","trajectoryNote":"SEC exposure accelerates NIL value 40% by senior year","portalComp":"Similar to [Player Name] who signed for $150K in 2025 portal","metrics":[{"label":"Collective","val":"Elite"},{"label":"Market","val":"Major"},{"label":"Playing time","val":"High"}]}]';
 
   let teams = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await ai.oneShot(prompt, 'Return ONLY a valid JSON array starting with [ and ending with ]. No markdown. Just JSON.');
+      const raw = await ai.oneShot(prompt, 'You are an expert NIL agent and transfer portal analyst. Return ONLY valid JSON array. No markdown.');
       const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
       const si = cleaned.indexOf('[');
       const ei = cleaned.lastIndexOf(']');
@@ -524,8 +564,8 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
       break;
     } catch(e) { console.error('Team match error:', e.message); }
   }
-  if (!teams) return res.json({ teams: [], error: 'AI service busy — please try again in 15 seconds.' });
-  res.json({ teams, liveData: true });
+  if (!teams) return res.json({ teams: [], error: 'AI service busy — please try again.' });
+  res.json({ teams, liveData: true, trajectory, archetypeScore: athleteRate.archetypeScore });
 });
 // ── Contract Generator ────────────────────────────────────────
 app.post('/api/ai/contract', requireAuth, aiLimiter, async (req, res) => {
