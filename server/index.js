@@ -467,7 +467,7 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
-  const { COLLECTIVES } = require('./collectives');
+  const { COLLECTIVES, getSportBudget } = require('./collectives');
   const { nilViewVal } = require('./benchmarks');
   const sport = (athlete.sport || 'football').toLowerCase();
   const position = (athlete.position || '').toLowerCase();
@@ -557,15 +557,18 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const filtered = COLLECTIVES.filter(c => {
     if (conf && c.conf !== conf) return false;
     if (minNil > 0) {
-      const range = athleteNil(c.nilLow, athlete);
+      const sportBudget = getSportBudget(c, sport);
+      const range = athleteNil(sportBudget.high, athlete);
       if (range[1] < minNil) return false;
     }
     return true;
   });
 
   const context = filtered.slice(0, 25).map(c => {
-    const range = athleteNil(c.nilLow, athlete);
-    return c.abbr + ' (' + c.conf + '): roster value ~$' + Math.round(range[0]/1000) + 'K-$' + Math.round(range[1]/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure, ' + c.market + ' market';
+    const sportBudget = getSportBudget(c, sport);
+    const range = athleteNil(sportBudget.low, athlete);
+    const rangeHigh = athleteNil(sportBudget.high, athlete);
+    return c.abbr + ' (' + c.conf + '): ' + sport + ' collective budget ~$' + Math.round(sportBudget.low/1000) + 'K-$' + Math.round(sportBudget.high/1000) + 'K, roster value for this athlete ~$' + Math.round(range[0]/1000) + 'K-$' + Math.round(rangeHigh[1]/1000) + 'K, ' + c.strength + ' collective, ' + c.proExposure + ' pro exposure, ' + c.market + ' market';
   }).join('\n');
 
   const prompt = 'Find 6 best transfer destinations for ' + athlete.name + ', ' + sport + ' ' + position + ', from ' + (athlete.school||'unknown') + '.\n' +

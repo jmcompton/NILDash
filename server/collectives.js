@@ -1,6 +1,54 @@
 // Real NIL collective budget estimates — compiled from public reporting
 // Sources: On3, NIL Network, Sports Illustrated, 2026 estimates
 
+// Sport allocation percentages — how much of collective budget goes to each sport
+// Based on reported data from On3, NIL Network, Sports Illustrated 2025-26
+const SPORT_ALLOCATION = {
+  // Format: school_abbr: { basketball: 0.X, football: 0.X, other: 0.X }
+  // P4 basketball-first programs
+  'Kentucky':      { basketball: 0.55, football: 0.35, other: 0.10 },
+  'Duke':          { basketball: 0.60, football: 0.30, other: 0.10 },
+  'Kansas':        { basketball: 0.55, football: 0.35, other: 0.10 },
+  'UNC':           { basketball: 0.50, football: 0.38, other: 0.12 },
+  'Indiana':       { basketball: 0.52, football: 0.38, other: 0.10 },
+  'Michigan State':{ basketball: 0.45, football: 0.45, other: 0.10 },
+  // P4 football-first programs
+  'Alabama':       { basketball: 0.20, football: 0.68, other: 0.12 },
+  'Georgia':       { basketball: 0.22, football: 0.65, other: 0.13 },
+  'Ohio State':    { basketball: 0.25, football: 0.63, other: 0.12 },
+  'Texas':         { basketball: 0.22, football: 0.66, other: 0.12 },
+  'LSU':           { basketball: 0.28, football: 0.58, other: 0.14 },
+  'Michigan':      { basketball: 0.25, football: 0.62, other: 0.13 },
+  'Oregon':        { basketball: 0.25, football: 0.62, other: 0.13 },
+  'USC':           { basketball: 0.28, football: 0.58, other: 0.14 },
+  'Clemson':       { basketball: 0.22, football: 0.65, other: 0.13 },
+  'Florida':       { basketball: 0.30, football: 0.58, other: 0.12 },
+  'Tennessee':     { basketball: 0.32, football: 0.55, other: 0.13 },
+  'Auburn':        { basketball: 0.25, football: 0.62, other: 0.13 },
+  'Texas A&M':     { basketball: 0.20, football: 0.68, other: 0.12 },
+  'Oklahoma':      { basketball: 0.25, football: 0.62, other: 0.13 },
+  'Florida State': { basketball: 0.25, football: 0.62, other: 0.13 },
+  'Miami':         { basketball: 0.30, football: 0.55, other: 0.15 },
+  'Colorado':      { basketball: 0.30, football: 0.57, other: 0.13 },
+  'UCLA':          { basketball: 0.38, football: 0.48, other: 0.14 },
+  'Washington':    { basketball: 0.30, football: 0.57, other: 0.13 },
+  // Default allocation
+  'default':       { basketball: 0.35, football: 0.52, other: 0.13 },
+};
+
+function getSportBudget(collective, sport) {
+  const alloc = SPORT_ALLOCATION[collective.abbr] || SPORT_ALLOCATION['default'];
+  const sp = (sport || '').toLowerCase();
+  let pct = alloc.other / 2; // default
+  if (sp.includes('basketball') || sp.includes('womens basketball')) pct = alloc.basketball;
+  else if (sp.includes('football')) pct = alloc.football;
+  else pct = alloc.other;
+  return {
+    low: Math.round(collective.nilLow * pct),
+    high: Math.round(collective.nilHigh * pct)
+  };
+}
+
 const COLLECTIVES = [
   // SEC
   { school: "University of Alabama", abbr: "Alabama", conf: "SEC", market: "Tuscaloosa", nilLow: 10000000, nilHigh: 13000000, strength: "Elite", proExposure: "Very High" },
@@ -100,4 +148,4 @@ const CONF_ESTIMATES = {
   "FCS": { nilLow: 50000, nilHigh: 300000, strength: "Minimal", proExposure: "Very Low" },
 };
 
-module.exports = { COLLECTIVES, CONF_ESTIMATES };
+module.exports = { COLLECTIVES, CONF_ESTIMATES, getSportBudget };
