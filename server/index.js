@@ -511,6 +511,31 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
     'NIL Trajectory: ' + trajectoryNote + '\n' +
     'Conference filter: ' + (conf||'any') + ' | Min NIL: $' + minNil.toLocaleString() + '\n\n' +
     'IMPORTANT CONTEXT — Sport-specific collective budgets:\n' + collectiveContext + '\n\n' +
+    'REAL 2025-26 PORTAL ROSTER VALUE BENCHMARKS (use these as anchors):\n' +
+    'BASKETBALL:\n' +
+    '- Elite 5-star big/guard, lottery upside, P4: $2M-$5M+ (e.g. Aiden Sherrell $4M Indiana, Cooper Flagg $3M+ Duke)\n' +
+    '- High major starter, strong stats, P4 top program: $500K-$2M\n' +
+    '- Solid P4 starter, 10-15 PPG, mid-tier P4: $200K-$600K\n' +
+    '- Role player, P4 program: $80K-$200K\n' +
+    '- High major elite (Gonzaga, Dayton tier): $150K-$500K\n' +
+    '- Mid major starter: $30K-$150K\n' +
+    '- Mid major role player: $10K-$50K\n' +
+    'FOOTBALL:\n' +
+    '- Elite QB, P4 top 10 program: $1M-$4M\n' +
+    '- Starter QB, P4 mid: $300K-$1M\n' +
+    '- Elite skill (WR/RB/CB), P4 top 10: $300K-$1.5M\n' +
+    '- Starter skill, P4 mid: $100K-$400K\n' +
+    '- EDGE/DL starter, P4 top 10: $200K-$800K\n' +
+    '- EDGE/DL starter, P4 mid: $80K-$300K\n' +
+    '- OL starter, P4: $100K-$500K\n' +
+    '- Role player, P4: $30K-$100K\n' +
+    '- High major (AAC/MWC) starter: $20K-$100K\n' +
+    'KEY FACTORS that move values up or down:\n' +
+    '- Draft status: lottery/1st round = 2-3x multiplier\n' +
+    '- Position scarcity: elite PG/QB/OT command premium\n' +
+    '- Stat production: every 5 PPG above average = ~20% premium\n' +
+    '- Market size: LA/NYC/Dallas programs pay 20-40% more\n' +
+    '- Program prestige: top 10 programs pay premium to stay relevant\n\n' +
     'CRITICAL INSTRUCTIONS FOR NIL VALUATION:\n' +
     '1. Use ROSTER VALUE (what collectives pay athletes to be on the team) — NOT brand deal rates\n' +
     '2. Use your knowledge of real 2024-26 portal deals as anchors (e.g. Aiden Sherrell $4M Indiana, etc.)\n' +
