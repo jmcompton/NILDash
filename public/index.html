@@ -545,6 +545,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Data Used For This Calculation</div>
               <div id="rate-context-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
             </div>
+            <div id="rate-archetype" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
             <div id="rate-floor-notice" style="display:none;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:var(--r-sm);padding:10px 14px;font-size:11px;color:var(--blue);margin-top:12px">
             </div>
             <div id="rate-recommendation" style="display:none;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:var(--r-sm);padding:14px;margin-top:12px">
@@ -1972,6 +1973,24 @@ async function calcRate() {
       } else {
         recBox.style.display = 'none';
       }
+    }
+    // Show archetype score if available
+    var archBox = document.getElementById('rate-archetype');
+    if (archBox) {
+      if (rate.archetypeScore) {
+        archBox.style.display = 'block';
+        var score = rate.archetypeScore;
+        var tier = score >= 85 ? 'Elite' : score >= 70 ? 'Strong' : score >= 55 ? 'Developing' : 'Emerging';
+        var color = score >= 85 ? '#4ade80' : score >= 70 ? '#60a5fa' : score >= 55 ? '#f59e0b' : 'var(--muted)';
+        archBox.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
+          '<div style="font-size:10px;font-weight:700;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Archetype Score</div>' +
+          '<div style="font-size:18px;font-weight:700;color:' + color + '">' + score + '<span style="font-size:11px;color:var(--muted)">/99</span></div>' +
+        '</div>' +
+        '<div style="height:4px;background:var(--surface2);border-radius:2px;margin-bottom:8px"><div style="height:100%;width:' + score + '%;background:' + color + ';border-radius:2px"></div></div>' +
+        '<div style="font-size:11px;color:var(--muted)">Tier: <span style="color:' + color + ';font-weight:600">' + tier + '</span>' +
+        (rate.draftMult > 1.4 ? ' · <span style="color:#f59e0b">Draft premium (' + rate.draftMult.toFixed(1) + 'x)</span>' : '') +
+        (rate.statsMult > 1.2 ? ' · Stats boost (' + rate.statsMult.toFixed(2) + 'x)' : '') + '</div>';
+      } else { archBox.style.display = 'none'; }
     }
     document.getElementById('rateAI').classList.add('visible');
   } catch(e) { showToast('Error: ' + e.message); }

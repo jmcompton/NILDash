@@ -138,6 +138,73 @@ const MARKET_RATES = {
 
   industryAvgEngagement: { instagram: 2.58, tiktok: 4.10, combined: 3.20 },
 
+  // On-court stats multipliers (based on Scouting Ledger archetype model)
+  statsMultiplier(athlete) {
+    const sport = (athlete.sport || '').toLowerCase();
+    const ppg = parseFloat(athlete.ppg) || 0;
+    const rpg = parseFloat(athlete.rpg) || 0;
+    const apg = parseFloat(athlete.apg) || 0;
+    const fgPct = parseFloat(athlete.fgPct) || 0;
+    const bpg = parseFloat(athlete.bpg) || 0;
+    const spg = parseFloat(athlete.spg) || 0;
+    let mult = 1.0;
+    if (sport.includes('basketball')) {
+      // Scoring premium
+      if (ppg >= 20) mult += 0.40;
+      else if (ppg >= 15) mult += 0.25;
+      else if (ppg >= 10) mult += 0.10;
+      // Rebounding premium
+      if (rpg >= 9) mult += 0.20;
+      else if (rpg >= 7) mult += 0.10;
+      // Playmaking — rarest and most valuable differentiator
+      if (apg >= 5) mult += 0.35;
+      else if (apg >= 3) mult += 0.20;
+      else if (apg >= 1.5) mult += 0.08;
+      // Efficiency
+      if (fgPct >= 0.55) mult += 0.15;
+      else if (fgPct >= 0.50) mult += 0.08;
+      // Defense
+      if (bpg >= 2) mult += 0.15;
+      if (spg >= 1.5) mult += 0.10;
+    } else if (sport.includes('football')) {
+      // Football stats
+      if (ppg >= 15) mult += 0.30; // TD production proxy
+      if (rpg >= 100) mult += 0.20; // Yards proxy
+      if (apg >= 10) mult += 0.15; // Tackles/pressures proxy
+    }
+    return Math.min(mult, 2.5); // cap at 2.5x
+  },
+  // Draft status multiplier
+  draftMultiplier(draftStatus) {
+    if (!draftStatus) return 1.0;
+    const s = draftStatus.toLowerCase();
+    if (s.includes('declared') || s.includes('top 5') || s.includes('lottery')) return 2.8;
+    if (s.includes('first round') || s.includes('1st round')) return 2.2;
+    if (s.includes('second round') || s.includes('2nd round') || s.includes('prospect')) return 1.5;
+    if (s.includes('fringe') || s.includes('undrafted')) return 1.2;
+    return 1.0;
+  },
+  // Archetype score vs benchmark
+  archetypeScore(athlete) {
+    const sport = (athlete.sport || '').toLowerCase();
+    const ppg = parseFloat(athlete.ppg) || 0;
+    const rpg = parseFloat(athlete.rpg) || 0;
+    const apg = parseFloat(athlete.apg) || 0;
+    const fgPct = parseFloat(athlete.fgPct) || 0;
+    const bpg = parseFloat(athlete.bpg) || 0;
+    const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+    if (!ppg && !rpg && !apg) return null; // no stats entered
+    let score = 50; // base
+    if (sport.includes('basketball')) {
+      if (ppg >= 15) score += 15; else if (ppg >= 10) score += 8;
+      if (rpg >= 7) score += 12; else if (rpg >= 5) score += 6;
+      if (apg >= 3) score += 15; else if (apg >= 1.5) score += 7;
+      if (fgPct >= 0.50) score += 8; else if (fgPct >= 0.45) score += 4;
+      if (bpg >= 1.5) score += 8;
+      if (reach >= 100000) score += 10; else if (reach >= 25000) score += 5;
+    }
+    return Math.min(score, 99);
+  },
   engagementMultiplier(rate) {
     const ratio = (rate || 0) / 5.6;
     return Math.max(0.7, Math.min(1.8, ratio));
@@ -202,8 +269,12 @@ function nilViewVal(athlete, deliverableType) {
   // 8. Deliverable multiplier
   const delivMult = MARKET_RATES.deliverableMultiplier[deliverableType] || 1.0;
 
-  // 9. Combined multiplier
-  const totalMult = erMult * schoolMult * sportMult * posMult * marketMult * reachMult * delivMult * MARKET_RATES.marketFactor;
+  // 9. Stats multiplier (on-court performance)
+  const statsMult = MARKET_RATES.statsMultiplier(athlete);
+  // 10. Draft status multiplier
+  const draftMult = MARKET_RATES.draftMultiplier(athlete.draftStatus || '');
+  // 11. Combined multiplier
+  const totalMult = erMult * schoolMult * sportMult * posMult * marketMult * reachMult * delivMult * statsMult * draftMult * MARKET_RATES.marketFactor;
 
   // Value per view
   const valuePerView = (cpm * totalMult) / 1000;
@@ -257,6 +328,9 @@ function nilViewVal(athlete, deliverableType) {
   const finalMid  = Math.max(Math.round(valuePerPost), floorMid);
   const finalHigh = Math.max(Math.round(valuePerPost * 1.35), floorHigh);
   const floorApplied = finalLow > Math.round(valuePerPost * 0.75);
+  const archetypeScore = MARKET_RATES.archetypeScore(athlete);
+  const statsMul = MARKET_RATES.statsMultiplier(athlete);
+  const draftMul = MARKET_RATES.draftMultiplier(athlete.draftStatus || '');
 
   // Recommendation for nano athletes
   let recommendation = null;
@@ -272,6 +346,9 @@ function nilViewVal(athlete, deliverableType) {
     high: finalHigh,
     floorApplied,
     recommendation,
+    archetypeScore,
+    draftMult: draftMul,
+    statsMult: statsMul,
     valuePerView: valuePerView.toFixed(5),
     accuracyScore,
     breakdown: {
@@ -282,6 +359,8 @@ function nilViewVal(athlete, deliverableType) {
       marketMult: marketMult.toFixed(2),
       engMult: erMult.toFixed(2),
       cpm: cpm.toFixed(2),
+      statsMult: statsMul.toFixed(2),
+      draftMult: draftMul.toFixed(2),
     },
     multipliers: {
       er: erMult.toFixed(2),
