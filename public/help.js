@@ -3,13 +3,13 @@
   var btn = document.createElement('button');
   btn.id = 'help-btn';
   btn.innerHTML = '?';
-  btn.style.cssText = 'position:fixed;bottom:24px;right:24px;width:44px;height:44px;border-radius:50%;background:#C8F135;color:#000;border:none;font-size:18px;font-weight:700;cursor:pointer;z-index:800;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:all 0.2s';
+  btn.style.cssText = 'position:fixed;bottom:24px;right:24px;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.1);color:rgba(240,237,230,0.5);border:1px solid rgba(255,255,255,0.12);font-size:14px;font-weight:700;cursor:pointer;z-index:500;box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:all 0.2s;backdrop-filter:blur(8px)';
   document.body.appendChild(btn);
 
   // Create chat panel
   var panel = document.createElement('div');
   panel.id = 'help-panel';
-  panel.style.cssText = 'position:fixed;bottom:80px;right:24px;width:340px;max-height:500px;background:#111110;border:1px solid rgba(255,255,255,0.12);border-radius:16px;z-index:800;display:none;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.4)';
+  panel.style.cssText = 'position:fixed;bottom:72px;right:24px;width:320px;max-height:460px;background:#111110;border:1px solid rgba(255,255,255,0.12);border-radius:12px;z-index:500;display:none;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.4)';
   panel.innerHTML =
     '<div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">' +
       '<div>' +
