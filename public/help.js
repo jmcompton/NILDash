@@ -3,7 +3,7 @@
   var btn = document.createElement('button');
   btn.id = 'help-btn';
   btn.innerHTML = '?';
-  btn.style.cssText = 'position:fixed;bottom:24px;right:24px;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.1);color:rgba(240,237,230,0.5);border:1px solid rgba(255,255,255,0.12);font-size:14px;font-weight:700;cursor:pointer;z-index:500;box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:all 0.2s;backdrop-filter:blur(8px)';
+  btn.style.cssText = 'position:fixed;bottom:24px;right:24px;width:36px;height:36px;border-radius:50%;background:#4ade80;color:#000;border:none;font-size:14px;font-weight:700;cursor:pointer;z-index:500;box-shadow:0 2px 8px rgba(0,0,0,0.2);transition:all 0.2s';
   document.body.appendChild(btn);
 
   // Create chat panel
