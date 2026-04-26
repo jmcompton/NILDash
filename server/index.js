@@ -748,6 +748,24 @@ app.post('/api/request-access', async (req, res) => {
     await store.pool.query(`CREATE TABLE IF NOT EXISTS access_requests (id SERIAL PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, agency TEXT, athletes TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`);
     await store.pool.query('INSERT INTO access_requests (first_name, last_name, email, agency, athletes) VALUES ($1,$2,$3,$4,$5)', [firstName, lastName, email, agency||'', athletes||'']);
     console.log('ACCESS REQUEST:', firstName, lastName, email, agency, athletes);
+    // Email notification to admin
+    try {
+      const { Resend } = require('resend');
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      await resend.emails.send({
+        from: 'noreply@mynildash.com',
+        to: 'johnmarkcompton@gmail.com',
+        subject: 'New NILDash Access Request — ' + firstName + ' ' + lastName,
+        html: '<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">' +
+          '<h2 style="color:#15803d">New Access Request</h2>' +
+          '<p><strong>Name:</strong> ' + firstName + ' ' + lastName + '</p>' +
+          '<p><strong>Email:</strong> ' + email + '</p>' +
+          '<p><strong>Agency:</strong> ' + (agency||'Not specified') + '</p>' +
+          '<p><strong>Athletes:</strong> ' + (athletes||'Not specified') + '</p>' +
+          '<br><a href="https://mynildash.com/admin" style="background:#15803d;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600">Approve in Admin Dashboard</a>' +
+        '</div>'
+      });
+    } catch(emailErr) { console.error('Email notification failed:', emailErr.message); }
     res.json({ ok: true });
   } catch(e) {
     res.status(500).json({ error: e.message });
