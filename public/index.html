@@ -439,6 +439,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="kpi" style="cursor:pointer" onclick="showView('rate',document.querySelector('.nav-item:nth-child(3)'))"><div class="kpi-label">NIL Rate (IG Reel)</div><div class="kpi-val" id="kpi-nil-rate" style="color:var(--accent)">—</div><div class="kpi-sub" id="kpi-nil-sub">Click to calculate</div></div>
         </div>
 
+        <div id="onboarding-checklist" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:2px">Welcome to NILDash</div>
+              <div style="font-size:11px;color:var(--muted)">Complete these steps to get started</div>
+            </div>
+            <button onclick="document.getElementById('onboarding-checklist').style.display='none';localStorage.setItem('nil-onboarding-dismissed','1')" style="font-size:10px;color:var(--muted);background:transparent;border:none;cursor:pointer;padding:4px 8px">Dismiss</button>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px" id="onboarding-steps"></div>
+        </div>
         <div class="cmd-wrap">
           <div class="cmd-top">
             <span class="cmd-top-label">Ask about <span id="cmdClientLabel" style="color:var(--text)">your client</span></span>
