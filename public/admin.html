@@ -155,7 +155,7 @@ async function setPlan(userId, plan) {
   const data = await r.json();
   if (data.ok) {
     showToast('Plan updated to ' + plan);
-    loadUsers();
+    setTimeout(loadUsers, 500);
   }
 }
 
@@ -167,7 +167,7 @@ function showToast(msg) {
   setTimeout(function() { t.remove(); }, 3000);
 }
 
-loadUsers();
+setTimeout(loadUsers, 500);
 </script>
 </body>
 </html>
