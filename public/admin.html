@@ -137,7 +137,7 @@ async function loadUsers() {
         (trialDays !== null ? '<span style="font-size:10px;color:rgba(240,237,230,0.4);margin-left:6px">' + trialDays + 'd left</span>' : '') +
       '</td>' +
       '<td style="padding:10px 12px">' +
-        '<select onchange="setPlan('' + u.id + '', this.value)" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;font-size:11px;padding:4px 8px">' +
+        '<select onchange="setPlan(\'' + u.id + '\', this.value)" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;font-size:11px;padding:4px 8px">' +
           ['beta','trial','starter','pro','suspended'].map(p => '<option value="' + p + '"' + (u.plan===p?' selected':'') + '>' + p + '</option>').join('') +
         '</select>' +
       '</td>' +
