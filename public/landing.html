@@ -4,883 +4,298 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NILDash — NIL Intelligence Platform for Sports Agents</title>
-<meta name="description" content="AI-powered NIL deal intelligence for sports agents. Track deals, value athletes, manage compliance, generate contracts — all in one command center.">
+<meta name="description" content="AI-powered NIL deal intelligence for sports agents. Track deals, value athletes, manage compliance, generate contracts — all in one place.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root {
-  --bg: #0A0A08;
-  --surface: #111110;
-  --surface2: #1A1A18;
-  --border: rgba(255,255,255,0.08);
-  --border2: rgba(255,255,255,0.14);
-  --text: #F0EDE6;
-  --muted: rgba(240,237,230,0.45);
-  --accent: #C8F135;
-  --blue: #35C8F1;
-  --red: #F13535;
-  --head: 'Syne', sans-serif;
-  --mono: 'DM Mono', monospace;
-  --r: 10px;
-  --r-sm: 6px;
-}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:#0c0c0b;color:#f0ede6;font-family:'Inter',system-ui,sans-serif;font-size:14px;line-height:1.6;overflow-x:hidden}
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* NAV */
+.nav{display:flex;align-items:center;justify-content:space-between;padding:18px 64px;border-bottom:1px solid rgba(255,255,255,0.06);position:sticky;top:0;background:#0c0c0b;z-index:100}
+.logo{font-size:17px;font-weight:700;color:#fff;letter-spacing:-0.02em}
+.logo span{color:#4ade80}
+.nav-links{display:flex;align-items:center;gap:32px}
+.nav-link{font-size:13px;color:rgba(240,237,230,0.45);text-decoration:none;font-weight:400;cursor:pointer}
+.nav-link:hover{color:rgba(240,237,230,0.8)}
+.nav-cta{font-size:13px;font-weight:500;padding:8px 18px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;cursor:pointer;text-decoration:none}
+.nav-cta:hover{background:rgba(255,255,255,0.1)}
 
-html { scroll-behavior: smooth; }
+/* HERO */
+.hero{padding:96px 64px 80px;max-width:900px;margin:0 auto;text-align:center}
+.hero-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:rgba(240,237,230,0.45);border:1px solid rgba(255,255,255,0.1);border-radius:40px;padding:5px 14px;margin-bottom:32px;letter-spacing:0.04em;font-weight:500}
+.badge-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;flex-shrink:0}
+.hero h1{font-size:58px;font-weight:700;line-height:1.08;letter-spacing:-0.035em;color:#f0ede6;margin-bottom:22px}
+.hero h1 em{color:#4ade80;font-style:normal}
+.hero-sub{font-size:17px;color:rgba(240,237,230,0.5);line-height:1.65;margin-bottom:40px;max-width:560px;margin-left:auto;margin-right:auto;font-weight:400}
+.hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.btn-primary{font-size:14px;font-weight:600;padding:13px 28px;background:#4ade80;color:#000;border:none;border-radius:6px;cursor:pointer;font-family:inherit}
+.btn-primary:hover{background:#86efac}
+.btn-ghost{font-size:14px;font-weight:400;padding:13px 24px;background:transparent;color:rgba(240,237,230,0.55);border:1px solid rgba(255,255,255,0.1);border-radius:6px;cursor:pointer;font-family:inherit}
+.btn-ghost:hover{background:rgba(255,255,255,0.04);color:rgba(240,237,230,0.8)}
 
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 14px;
-  line-height: 1.6;
-  overflow-x: hidden;
-}
+/* STATS */
+.stats-wrap{margin:0 64px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid rgba(255,255,255,0.07);border-radius:8px;overflow:hidden}
+.stat{padding:28px 24px;text-align:center;border-right:1px solid rgba(255,255,255,0.07)}
+.stat:last-child{border-right:none}
+.stat-val{font-size:30px;font-weight:700;color:#4ade80;letter-spacing:-0.02em;margin-bottom:5px}
+.stat-lbl{font-size:11px;color:rgba(240,237,230,0.35);letter-spacing:0.05em;text-transform:uppercase;font-weight:500}
 
-/* ── NOISE TEXTURE OVERLAY ── */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.6;
-}
+/* SECTION */
+.section{padding:80px 64px}
+.section-eyebrow{font-size:11px;font-weight:600;color:#4ade80;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:14px}
+.section-title{font-size:36px;font-weight:700;color:#f0ede6;letter-spacing:-0.025em;margin-bottom:14px;line-height:1.15}
+.section-sub{font-size:15px;color:rgba(240,237,230,0.45);line-height:1.65;max-width:480px;font-weight:400}
+.divider{height:1px;background:rgba(255,255,255,0.06);margin:0 64px}
 
-/* ── NAV ── */
-nav {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 40px;
-  height: 64px;
-  background: rgba(10,10,8,0.85);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
-}
+/* FEATURES */
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;margin-top:48px}
+.feature{background:#0f0f0e;padding:32px 28px}
+.feature-icon{width:36px;height:36px;border-radius:7px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.15);display:flex;align-items:center;justify-content:center;margin-bottom:18px}
+.feature-icon svg{width:16px;height:16px;stroke:#4ade80;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.feature h3{font-size:14px;font-weight:600;color:#f0ede6;margin-bottom:8px;letter-spacing:-0.01em}
+.feature p{font-size:12px;color:rgba(240,237,230,0.4);line-height:1.65;font-weight:400}
+.feature-tag{font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(74,222,128,0.08);color:rgba(74,222,128,0.7);border:1px solid rgba(74,222,128,0.12);margin-top:14px;display:inline-block;font-weight:500;letter-spacing:0.03em}
 
-.nav-logo {
-  font-family: var(--head);
-  font-weight: 800;
-  font-size: 22px;
-  letter-spacing: -0.5px;
-  text-decoration: none;
-}
-.nav-logo .nil { color: var(--accent); }
-.nav-logo .dash { color: var(--text); }
+/* HOW IT WORKS */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:48px}
+.step{position:relative}
+.step-num{font-size:11px;font-weight:600;color:#4ade80;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:12px}
+.step h3{font-size:16px;font-weight:600;color:#f0ede6;margin-bottom:8px;letter-spacing:-0.01em}
+.step p{font-size:13px;color:rgba(240,237,230,0.45);line-height:1.65}
 
-.nav-links {
-  display: flex;
-  align-items: center;
-  gap: 32px;
-  list-style: none;
-}
+/* CTA FORM */
+.cta-section{padding:80px 64px}
+.cta-inner{background:#111110;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:56px;display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center}
+.cta-left h2{font-size:30px;font-weight:700;color:#f0ede6;letter-spacing:-0.025em;line-height:1.2;margin-bottom:12px}
+.cta-left p{font-size:14px;color:rgba(240,237,230,0.45);line-height:1.65}
+.cta-checks{margin-top:24px;display:flex;flex-direction:column;gap:8px}
+.cta-check{display:flex;align-items:center;gap:10px;font-size:13px;color:rgba(240,237,230,0.55)}
+.cta-check::before{content:"";width:5px;height:5px;border-radius:50%;background:#4ade80;flex-shrink:0}
+.form-group{margin-bottom:12px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.form-input{width:100%;padding:11px 14px;background:#1a1a18;border:1px solid rgba(255,255,255,0.09);border-radius:6px;color:#f0ede6;font-size:13px;font-family:inherit;outline:none;transition:border-color 0.15s}
+.form-input:focus{border-color:rgba(74,222,128,0.4)}
+.form-input::placeholder{color:rgba(240,237,230,0.25)}
+.form-select{width:100%;padding:11px 14px;background:#1a1a18;border:1px solid rgba(255,255,255,0.09);border-radius:6px;color:#f0ede6;font-size:13px;font-family:inherit;outline:none;cursor:pointer;appearance:none}
+.form-btn{width:100%;padding:13px;background:#4ade80;color:#000;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px;transition:background 0.15s}
+.form-btn:hover{background:#86efac}
+.form-note{font-size:11px;color:rgba(240,237,230,0.25);text-align:center;margin-top:10px}
+.success-msg{display:none;text-align:center;padding:24px}
+.success-msg h3{font-size:18px;font-weight:600;color:#4ade80;margin-bottom:8px}
+.success-msg p{font-size:13px;color:rgba(240,237,230,0.45)}
 
-.nav-links a {
-  color: var(--muted);
-  text-decoration: none;
-  font-size: 12px;
-  letter-spacing: 0.05em;
-  transition: color 0.2s;
-}
-.nav-links a:hover { color: var(--text); }
+/* FOOTER */
+footer{padding:28px 64px;border-top:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between}
+.footer-logo{font-size:14px;font-weight:600;color:rgba(240,237,230,0.35);letter-spacing:-0.01em}
+.footer-logo span{color:rgba(74,222,128,0.6)}
+.footer-note{font-size:11px;color:rgba(240,237,230,0.2)}
 
-.nav-cta {
-  background: var(--accent);
-  color: var(--bg) !important;
-  font-weight: 500;
-  padding: 8px 20px;
-  border-radius: var(--r-sm);
-  text-decoration: none;
-  font-size: 12px;
-  letter-spacing: 0.05em;
-  transition: opacity 0.2s;
-}
-.nav-cta:hover { opacity: 0.85; }
-
-/* ── HERO ── */
-.hero {
-  position: relative;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 120px 40px 80px;
-  text-align: center;
-  overflow: hidden;
-}
-
-/* Grid background */
-.hero::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(var(--border) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border) 1px, transparent 1px);
-  background-size: 60px 60px;
-  mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 100%);
-  pointer-events: none;
-}
-
-/* Accent glow */
-.hero-glow {
-  position: absolute;
-  top: 20%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 600px;
-  height: 300px;
-  background: radial-gradient(ellipse, rgba(200,241,53,0.08) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-.hero-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--surface2);
-  border: 1px solid var(--border2);
-  border-radius: 20px;
-  padding: 6px 16px;
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-  margin-bottom: 32px;
-  position: relative;
-  z-index: 1;
-  animation: fadeUp 0.6s ease both;
-}
-.hero-badge .dot {
-  width: 6px; height: 6px;
-  background: var(--accent);
-  border-radius: 50%;
-  animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.hero-title {
-  font-family: var(--head);
-  font-weight: 800;
-  font-size: clamp(52px, 8vw, 96px);
-  line-height: 1.0;
-  letter-spacing: -3px;
-  position: relative;
-  z-index: 1;
-  animation: fadeUp 0.6s 0.1s ease both;
-  max-width: 900px;
-}
-
-.hero-title .accent { color: var(--accent); }
-.hero-title .dim { color: var(--muted); }
-
-.hero-sub {
-  font-size: 15px;
-  color: var(--muted);
-  max-width: 520px;
-  margin: 24px auto 0;
-  line-height: 1.75;
-  position: relative;
-  z-index: 1;
-  animation: fadeUp 0.6s 0.2s ease both;
-}
-
-.hero-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-top: 48px;
-  position: relative;
-  z-index: 1;
-  animation: fadeUp 0.6s 0.3s ease both;
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: var(--bg);
-  font-family: var(--mono);
-  font-weight: 500;
-  font-size: 13px;
-  padding: 14px 32px;
-  border-radius: var(--r-sm);
-  text-decoration: none;
-  letter-spacing: 0.03em;
-  transition: opacity 0.2s, transform 0.2s;
-  border: none;
-  cursor: pointer;
-}
-.btn-primary:hover { opacity: 0.88; transform: translateY(-1px); }
-
-.btn-secondary {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 13px;
-  padding: 14px 24px;
-  border-radius: var(--r-sm);
-  text-decoration: none;
-  border: 1px solid var(--border2);
-  transition: color 0.2s, border-color 0.2s;
-}
-.btn-secondary:hover { color: var(--text); border-color: rgba(255,255,255,0.25); }
-
-/* Stats row */
-.hero-stats {
-  display: flex;
-  gap: 48px;
-  margin-top: 72px;
-  padding-top: 48px;
-  border-top: 1px solid var(--border);
-  position: relative;
-  z-index: 1;
-  animation: fadeUp 0.6s 0.4s ease both;
-}
-
-.stat-item { text-align: center; }
-.stat-num {
-  font-family: var(--head);
-  font-weight: 700;
-  font-size: 36px;
-  color: var(--accent);
-  line-height: 1;
-  margin-bottom: 6px;
-}
-.stat-label {
-  font-size: 11px;
-  color: var(--muted);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* ── SECTION COMMON ── */
-section {
-  padding: 100px 40px;
-  max-width: 1100px;
-  margin: 0 auto;
-}
-
-.section-label {
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  color: var(--accent);
-  text-transform: uppercase;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.section-label::before {
-  content: '';
-  display: inline-block;
-  width: 24px; height: 1px;
-  background: var(--accent);
-}
-
-.section-title {
-  font-family: var(--head);
-  font-weight: 700;
-  font-size: clamp(32px, 4vw, 48px);
-  letter-spacing: -1px;
-  line-height: 1.1;
-  margin-bottom: 16px;
-}
-
-.section-sub {
-  font-size: 14px;
-  color: var(--muted);
-  max-width: 480px;
-  line-height: 1.75;
-  margin-bottom: 60px;
-}
-
-/* ── FEATURES GRID ── */
-.features-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  overflow: hidden;
-}
-
-.feature-card {
-  background: var(--surface);
-  padding: 32px 28px;
-  transition: background 0.2s;
-  position: relative;
-  overflow: hidden;
-}
-
-.feature-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: var(--accent);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 0.3s ease;
-}
-.feature-card:hover::before { transform: scaleX(1); }
-.feature-card:hover { background: var(--surface2); }
-
-.feature-icon {
-  font-size: 22px;
-  margin-bottom: 16px;
-  display: block;
-}
-
-.feature-name {
-  font-family: var(--head);
-  font-weight: 600;
-  font-size: 16px;
-  margin-bottom: 10px;
-  color: var(--text);
-}
-
-.feature-desc {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.7;
-}
-
-.feature-tag {
-  display: inline-block;
-  background: rgba(200,241,53,0.1);
-  color: var(--accent);
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  margin-top: 14px;
-  letter-spacing: 0.05em;
-}
-
-/* ── HOW IT WORKS ── */
-.how-section {
-  border-top: 1px solid var(--border);
-}
-
-.steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-  background: var(--border);
-  border-radius: var(--r);
-  overflow: hidden;
-}
-
-.step {
-  background: var(--bg);
-  padding: 40px 32px;
-  position: relative;
-}
-
-.step-num {
-  font-family: var(--head);
-  font-weight: 800;
-  font-size: 56px;
-  color: var(--surface2);
-  line-height: 1;
-  margin-bottom: 20px;
-  user-select: none;
-}
-
-.step-title {
-  font-family: var(--head);
-  font-weight: 600;
-  font-size: 18px;
-  margin-bottom: 10px;
-}
-
-.step-desc {
-  font-size: 12px;
-  color: var(--muted);
-  line-height: 1.75;
-}
-
-.step-arrow {
-  position: absolute;
-  right: -12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--border2);
-  font-size: 20px;
-  z-index: 2;
-}
-
-/* ── TOOLS SHOWCASE ── */
-.tools-section {
-  border-top: 1px solid var(--border);
-}
-
-.tools-list {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.tool-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  padding: 20px 24px;
-  transition: border-color 0.2s, background 0.2s;
-}
-.tool-row:hover {
-  border-color: var(--border2);
-  background: var(--surface2);
-}
-
-.tool-icon {
-  font-size: 20px;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.tool-info { flex: 1; }
-
-.tool-name {
-  font-family: var(--head);
-  font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 4px;
-  color: var(--text);
-}
-
-.tool-desc {
-  font-size: 11px;
-  color: var(--muted);
-  line-height: 1.6;
-}
-
-/* ── CTA SECTION ── */
-.cta-section {
-  border-top: 1px solid var(--border);
-  text-align: center;
-  padding: 120px 40px;
-}
-
-.cta-box {
-  max-width: 640px;
-  margin: 0 auto;
-  background: var(--surface);
-  border: 1px solid var(--border2);
-  border-radius: var(--r);
-  padding: 64px 48px;
-  position: relative;
-  overflow: hidden;
-}
-
-.cta-box::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: var(--accent);
-}
-
-.cta-glow {
-  position: absolute;
-  top: -60px; left: 50%;
-  transform: translateX(-50%);
-  width: 300px; height: 200px;
-  background: radial-gradient(ellipse, rgba(200,241,53,0.12) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-.cta-title {
-  font-family: var(--head);
-  font-weight: 800;
-  font-size: 40px;
-  letter-spacing: -1px;
-  margin-bottom: 16px;
-}
-
-.cta-sub {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.75;
-  margin-bottom: 40px;
-}
-
-.cta-form {
-  display: flex;
-  gap: 10px;
-  max-width: 400px;
-  margin: 0 auto;
-}
-
-.cta-input {
-  flex: 1;
-  background: var(--bg);
-  border: 1px solid var(--border2);
-  border-radius: var(--r-sm);
-  padding: 12px 16px;
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-.cta-input::placeholder { color: var(--muted); }
-.cta-input:focus { border-color: var(--accent); }
-
-.cta-note {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 16px;
-}
-
-/* ── FOOTER ── */
-footer {
-  border-top: 1px solid var(--border);
-  padding: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  max-width: 1180px;
-  margin: 0 auto;
-}
-
-.footer-logo {
-  font-family: var(--head);
-  font-weight: 800;
-  font-size: 16px;
-  text-decoration: none;
-}
-.footer-logo .nil { color: var(--accent); }
-.footer-logo .dash { color: var(--text); }
-
-.footer-meta {
-  font-size: 11px;
-  color: var(--muted);
-  text-align: right;
-  line-height: 1.6;
-}
-
-/* ── SCROLL REVEAL ── */
-.reveal {
-  opacity: 0;
-  transform: translateY(24px);
-  transition: opacity 0.7s ease, transform 0.7s ease;
-}
-.reveal.visible {
-  opacity: 1;
-  transform: none;
-}
+/* SVG ICONS */
+.icon-lightning{stroke:#4ade80}
 </style>
 </head>
 <body>
 
-<!-- NAV -->
-<nav>
-  <a href="#" class="nav-logo"><span class="nil">NIL</span><span class="dash">Dash</span></a>
-  <ul class="nav-links">
-    <li><a href="#features">Features</a></li>
-    <li><a href="#how">How It Works</a></li>
-    <li><a href="#tools">AI Tools</a></li>
-    <li><a href="/app" class="nav-cta">Agent Login →</a></li>
-  </ul>
+<nav class="nav">
+  <div class="logo">NIL<span>Dash</span></div>
+  <div class="nav-links">
+    <a class="nav-link" href="#features">Features</a>
+    <a class="nav-link" href="#how-it-works">How It Works</a>
+    <a class="nav-link" href="#access">Get Access</a>
+    <a class="nav-cta" href="/">Agent Login &rarr;</a>
+  </div>
 </nav>
 
 <!-- HERO -->
-<div class="hero">
-  <div class="hero-glow"></div>
-
-  <div class="hero-badge">
-    <span class="dot"></span>
-    NOW IN EARLY ACCESS — SELECT AGENTS ONLY
+<section class="hero">
+  <div class="hero-badge"><div class="badge-dot"></div>Early Access &mdash; Select Agents Only</div>
+  <h1>The NIL platform<br>built for <em>agents</em></h1>
+  <p class="hero-sub">Know exactly what to charge. Find the right deals. Close faster. NILDash gives sports agents AI-powered intelligence across every client &mdash; in one place.</p>
+  <div class="hero-btns">
+    <button class="btn-primary" onclick="document.getElementById('access').scrollIntoView({behavior:'smooth'})">Request Early Access</button>
+    <button class="btn-ghost" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">See what&apos;s inside &rarr;</button>
   </div>
+</section>
 
-  <h1 class="hero-title">
-    The NIL command<br>center for <span class="accent">serious</span><br>agents.
-  </h1>
-
-  <p class="hero-sub">
-    AI-powered deal intelligence, athlete valuation, compliance tracking, and contract generation — built exclusively for sports agents navigating the NIL era.
-  </p>
-
-  <div class="hero-actions">
-    <a href="#access" class="btn-primary">Request Early Access</a>
-    <a href="#features" class="btn-secondary">See what's inside →</a>
-  </div>
-
-  <div class="hero-stats">
-    <div class="stat-item">
-      <div class="stat-num">7</div>
-      <div class="stat-label">AI tools</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-num">0</div>
-      <div class="stat-label">Spreadsheets needed</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-num">1</div>
-      <div class="stat-label">Platform for everything</div>
-    </div>
-    <div class="stat-item">
-      <div class="stat-num">50+</div>
-      <div class="stat-label">NIL deal types tracked</div>
-    </div>
+<!-- STATS -->
+<div class="stats-wrap">
+  <div class="stats">
+    <div class="stat"><div class="stat-val">70+</div><div class="stat-lbl">Real Collective Budgets</div></div>
+    <div class="stat"><div class="stat-val">362</div><div class="stat-lbl">D1 Programs Covered</div></div>
+    <div class="stat"><div class="stat-val">12</div><div class="stat-lbl">Valuation Inputs</div></div>
+    <div class="stat"><div class="stat-val">6</div><div class="stat-lbl">AI-Powered Tools</div></div>
   </div>
 </div>
 
 <!-- FEATURES -->
-<section id="features">
-  <div class="reveal">
-    <div class="section-label">What you get</div>
-    <h2 class="section-title">Everything an agent<br>actually needs.</h2>
-    <p class="section-sub">No bloated enterprise software. No guesswork. Just the tools that move deals forward.</p>
-  </div>
+<section class="section" id="features">
+  <div class="section-eyebrow">Features</div>
+  <div class="section-title">Everything an agent needs</div>
+  <p class="section-sub">Stop using spreadsheets and guesswork. NILDash replaces every manual process in your NIL workflow.</p>
 
-  <div class="features-grid reveal">
-    <div class="feature-card">
-      <span class="feature-icon">⚡</span>
-      <div class="feature-name">AI Command Center</div>
-      <div class="feature-desc">Ask anything about your client — deals, pricing, leverage, strategy. AI answers instantly with NIL-specific context.</div>
+  <div class="features-grid">
+    <div class="feature">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <h3>AI Command Center</h3>
+      <p>Ask anything about your clients &mdash; deals, pricing, leverage, strategy. AI answers instantly with NIL-specific context and live market data.</p>
       <span class="feature-tag">Powered by Claude</span>
     </div>
-    <div class="feature-card">
-      <span class="feature-icon">📊</span>
-      <div class="feature-name">Valuation Engine</div>
-      <div class="feature-desc">CPM-based AI valuations for every athlete on your roster. Know what a deal is worth before you walk into the room.</div>
-      <span class="feature-tag">Rate Calculator</span>
+    <div class="feature">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      </div>
+      <h3>NILViewVal&trade; Rate Calculator</h3>
+      <p>Know exactly what to charge. Our proprietary model uses 12 inputs &mdash; including on-court stats, draft status, and real collective data &mdash; to produce accurate brand deal rates.</p>
+      <span class="feature-tag">NILViewVal v3</span>
     </div>
-    <div class="feature-card">
-      <span class="feature-icon">🎯</span>
-      <div class="feature-name">Deal Scan</div>
-      <div class="feature-desc">AI-ranked brand opportunities for each client. Surfaces the right deals at the right time based on their profile.</div>
+    <div class="feature">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </div>
+      <h3>Deal Scan</h3>
+      <p>AI scans hundreds of brands and surfaces the best opportunities for each client &mdash; ranked by fit score, close probability, and market timing.</p>
       <span class="feature-tag">AI-Ranked</span>
     </div>
-    <div class="feature-card">
-      <span class="feature-icon">⚖️</span>
-      <div class="feature-name">SPARTA Compliance</div>
-      <div class="feature-desc">Automated compliance tracking across all 50 states. Flags issues before they become problems. Generates required disclosure language.</div>
-      <span class="feature-tag">All 50 States</span>
+    <div class="feature">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <h3>Team Match</h3>
+      <p>Find the best transfer destinations with real roster value estimates from 70+ collective budgets. Includes roster need analysis, portal comps, and NIL trajectory scoring.</p>
+      <span class="feature-tag">Real Collective Data</span>
     </div>
-    <div class="feature-card">
-      <span class="feature-icon">📝</span>
-      <div class="feature-name">Contract Generator</div>
-      <div class="feature-desc">Professional NIL contracts generated in seconds — built around the specific deal type, state, and terms. Review-ready from day one.</div>
+    <div class="feature">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      </div>
+      <h3>Contract Generator</h3>
+      <p>Professional NIL contracts generated in seconds &mdash; built around the specific deal type, state law, deliverables, and payment terms. PDF-ready to sign.</p>
       <span class="feature-tag">Opus-Powered</span>
     </div>
-    <div class="feature-card">
-      <span class="feature-icon">💰</span>
-      <div class="feature-name">Commission Tracker</div>
-      <div class="feature-desc">Your earnings across every client and deal in real time. Never manually calculate commissions again.</div>
-      <span class="feature-tag">Auto-Calculated</span>
+    <div class="feature">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </div>
+      <h3>Deal Pipeline</h3>
+      <p>A full Kanban CRM for every deal across every client. Drag and drop between stages, track pipeline value, and monitor commission in real time.</p>
+      <span class="feature-tag">Kanban CRM</span>
     </div>
   </div>
 </section>
+
+<div class="divider"></div>
 
 <!-- HOW IT WORKS -->
-<section id="how" class="how-section">
-  <div class="reveal">
-    <div class="section-label">How it works</div>
-    <h2 class="section-title">Set up in minutes.<br>Close deals faster.</h2>
-    <p class="section-sub">NILDash is built for agents, not developers. No onboarding call required.</p>
-  </div>
-
-  <div class="steps reveal">
+<section class="section" id="how-it-works">
+  <div class="section-eyebrow">How It Works</div>
+  <div class="section-title">From roster to closed deal</div>
+  <p class="section-sub">A complete workflow built around how agents actually operate &mdash; not how a product manager thinks they do.</p>
+  <div class="steps">
     <div class="step">
-      <div class="step-num">01</div>
-      <div class="step-title">Add your clients</div>
-      <div class="step-desc">Build your roster with athlete profiles — sport, school tier, social following, engagement rate. AI Lookup fills in the gaps automatically.</div>
+      <div class="step-num">Step 01</div>
+      <h3>Add your clients</h3>
+      <p>Import your roster in minutes. Add social stats, school info, position, on-court stats, and draft status. NILDash builds a valuation profile for each athlete automatically.</p>
     </div>
     <div class="step">
-      <div class="step-num">02</div>
-      <div class="step-title">Let AI do the work</div>
-      <div class="step-desc">Run a deal scan. Get valuations. Check compliance. Ask the AI command center anything. All 7 tools work together around each athlete's profile.</div>
+      <div class="step-num">Step 02</div>
+      <h3>Run the intelligence tools</h3>
+      <p>Use Deal Scan to find brand opportunities, Rate Calculator to set your floor price, Team Match to find the best transfer destination, and AI Command to strategize in real time.</p>
     </div>
     <div class="step">
-      <div class="step-num">03</div>
-      <div class="step-title">Close with confidence</div>
-      <div class="step-desc">Walk into every negotiation knowing your number, your leverage, and your walk-away point. Generate a contract the moment you hit agreement.</div>
+      <div class="step-num">Step 03</div>
+      <h3>Close and track</h3>
+      <p>Generate contracts, manage deals through your pipeline, send brand pitch reports to prospects, and track commissions &mdash; all in one platform.</p>
     </div>
   </div>
 </section>
 
-<!-- AI TOOLS -->
-<section id="tools" class="tools-section">
-  <div class="reveal">
-    <div class="section-label">AI Tools</div>
-    <h2 class="section-title">Seven tools.<br>One platform.</h2>
-    <p class="section-sub">Each tool is purpose-built for a specific part of the NIL agent workflow — not a generic AI wrapper.</p>
-  </div>
+<div class="divider"></div>
 
-  <div class="tools-list reveal">
-    <div class="tool-row">
-      <span class="tool-icon">⚡</span>
-      <div class="tool-info">
-        <div class="tool-name">AI Command Center</div>
-        <div class="tool-desc">Live AI assistant with full context on your client — deals, comps, negotiation history, and market rates.</div>
+<!-- REQUEST ACCESS -->
+<section class="cta-section" id="access">
+  <div class="cta-inner">
+    <div class="cta-left">
+      <h2>Request Early Access</h2>
+      <p>NILDash is currently invite-only. We review every application and respond within 24 hours. Early access agents receive priority onboarding and direct feedback sessions.</p>
+      <div class="cta-checks">
+        <div class="cta-check">Full platform access during beta</div>
+        <div class="cta-check">All AI tools included</div>
+        <div class="cta-check">Direct line to the founding team</div>
+        <div class="cta-check">Shape the product roadmap</div>
       </div>
     </div>
-    <div class="tool-row">
-      <span class="tool-icon">🎯</span>
-      <div class="tool-info">
-        <div class="tool-name">Deal Scan</div>
-        <div class="tool-desc">Surfaces ranked brand opportunities based on athlete profile, sport, school tier, and audience fit.</div>
+    <div class="cta-right">
+      <div id="request-form">
+        <div class="form-row">
+          <input class="form-input" id="r-first" placeholder="First name" type="text">
+          <input class="form-input" id="r-last" placeholder="Last name" type="text">
+        </div>
+        <div class="form-group">
+          <input class="form-input" id="r-email" placeholder="Email address" type="email">
+        </div>
+        <div class="form-group">
+          <input class="form-input" id="r-agency" placeholder="Agency name" type="text">
+        </div>
+        <div class="form-group">
+          <select class="form-select" id="r-athletes">
+            <option value="" disabled selected>How many athletes do you represent?</option>
+            <option value="1-5">1&ndash;5 athletes</option>
+            <option value="6-15">6&ndash;15 athletes</option>
+            <option value="16-30">16&ndash;30 athletes</option>
+            <option value="30+">30+ athletes</option>
+          </select>
+        </div>
+        <button class="form-btn" onclick="submitRequest()">Request Access &rarr;</button>
+        <p class="form-note">No credit card required. We&apos;ll reach out within 24 hours.</p>
       </div>
-    </div>
-    <div class="tool-row">
-      <span class="tool-icon">💵</span>
-      <div class="tool-info">
-        <div class="tool-name">Rate Calculator</div>
-        <div class="tool-desc">Calculates exact rates for 25+ deliverable types with a justification script you can use on the call.</div>
-      </div>
-    </div>
-    <div class="tool-row">
-      <span class="tool-icon">🧠</span>
-      <div class="tool-info">
-        <div class="tool-name">Negotiation Intel</div>
-        <div class="tool-desc">Full playbook for any deal — opening line, pushback responses, and walk-away language, ready to copy.</div>
-      </div>
-    </div>
-    <div class="tool-row">
-      <span class="tool-icon">📋</span>
-      <div class="tool-info">
-        <div class="tool-name">Contract Generator</div>
-        <div class="tool-desc">AI-drafted NIL contracts structured around deal type, state law, exclusivity, and payment terms.</div>
-      </div>
-    </div>
-    <div class="tool-row">
-      <span class="tool-icon">⚖️</span>
-      <div class="tool-info">
-        <div class="tool-name">SPARTA Compliance</div>
-        <div class="tool-desc">Checks any deal against state NIL laws, generates required disclosure language, tracks 72-hour SPARTA deadlines.</div>
-      </div>
-    </div>
-    <div class="tool-row">
-      <span class="tool-icon">🏫</span>
-      <div class="tool-info">
-        <div class="tool-name">Team Match</div>
-        <div class="tool-desc">Finds the best college program fit for athletes in the portal — ranked by NIL value, pro exposure, and fit score.</div>
-      </div>
-    </div>
-    <div class="tool-row">
-      <span class="tool-icon">📣</span>
-      <div class="tool-info">
-        <div class="tool-name">Brand Outreach</div>
-        <div class="tool-desc">AI writes your cold outreach emails, Instagram DMs, and LinkedIn messages — then tracks every contact.</div>
+      <div class="success-msg" id="success-msg">
+        <div style="font-size:32px;margin-bottom:12px">&#10003;</div>
+        <h3>Request received</h3>
+        <p>We&apos;ll review your application and reach out to <span id="success-email"></span> within 24 hours.</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- CTA -->
-<div class="cta-section" id="access">
-  <div class="cta-box reveal">
-    <div class="cta-glow"></div>
-    <div class="cta-title">Ready to close more deals?</div>
-    <p class="cta-sub">We're onboarding a select group of agents who want to shape the future of NIL deal management. Early access is free — we just want your honest feedback.</p>
-    <div class="cta-form">
-      <input type="email" class="cta-input" id="quick-email" placeholder="your@email.com">
-      <button onclick="openRequestModal()" class="btn-primary">Request Access</button>
-    </div>
-    <p class="cta-note">Beta access is invite-only. We review every request within 24 hours.</p>
-  </div>
-</div>
-
-<!-- FOOTER -->
 <footer>
-  <a href="#" class="footer-logo"><span class="nil">NIL</span><span class="dash">Dash</span></a>
-  <div class="footer-meta">
-    Built by Compton Group LLC · Birmingham, AL<br>
-    mynildash.com · Sports Business MBA, Samford University
-  </div>
+  <div class="footer-logo">NIL<span>Dash</span></div>
+  <div class="footer-note">&copy; 2026 Compton Group LLC &nbsp;&middot;&nbsp; mynildash.com &nbsp;&middot;&nbsp; Built for agents, by agents.</div>
 </footer>
 
 <script>
-// Scroll reveal
-const observer = new IntersectionObserver((entries) => {
-  entries.forEach(e => {
-    if (e.isIntersecting) {
-      e.target.classList.add('visible');
-      observer.unobserve(e.target);
+async function submitRequest() {
+  const first = document.getElementById('r-first').value.trim();
+  const last = document.getElementById('r-last').value.trim();
+  const email = document.getElementById('r-email').value.trim();
+  const agency = document.getElementById('r-agency').value.trim();
+  const athletes = document.getElementById('r-athletes').value;
+  if (!first || !last || !email) { alert('Please fill in your name and email.'); return; }
+  const btn = document.querySelector('.form-btn');
+  btn.textContent = 'Submitting...'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/request-access', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({firstName:first, lastName:last, email, agency, athletes})
+    });
+    const data = await r.json();
+    if (data.ok) {
+      document.getElementById('request-form').style.display = 'none';
+      document.getElementById('success-msg').style.display = 'block';
+      document.getElementById('success-email').textContent = email;
+    } else {
+      alert(data.error || 'Something went wrong. Please try again.');
+      btn.textContent = 'Request Access →'; btn.disabled = false;
     }
-  });
-}, { threshold: 0.1 });
-
-document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
-
-// Smooth anchor scrolling with nav offset
-document.querySelectorAll('a[href^="#"]').forEach(a => {
-  a.addEventListener('click', e => {
-    const target = document.querySelector(a.getAttribute('href'));
-    if (target) {
-      e.preventDefault();
-      window.scrollTo({ top: target.offsetTop - 80, behavior: 'smooth' });
-    }
-  });
-});
-</script>
-
-<div id="req-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:999;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(8px)">
-  <div style="background:#111110;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:40px;width:100%;max-width:440px;position:relative">
-    <button onclick="closeRequestModal()" style="position:absolute;top:16px;right:16px;background:transparent;border:none;color:rgba(240,237,230,0.4);font-size:20px;cursor:pointer">x</button>
-    <div id="req-form-view">
-      <div style="font-family:'DM Mono',monospace;font-size:10px;color:#C8F135;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:12px">Beta Access</div>
-      <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#F0EDE6;margin-bottom:8px">Request Access</div>
-      <div style="font-size:13px;color:rgba(240,237,230,0.45);margin-bottom:28px;line-height:1.6">NILDash is invite-only during beta. Tell us about yourself and we will send your credentials within 24 hours.</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
-        <div><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">First Name *</div><input id="req-first" type="text" placeholder="John" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>
-        <div><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">Last Name *</div><input id="req-last" type="text" placeholder="Smith" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>
-      </div>
-      <div style="margin-bottom:14px"><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">Email *</div><input id="req-email" type="email" placeholder="john@agency.com" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>
-      <div style="margin-bottom:14px"><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">Agency / Company</div><input id="req-agency" type="text" placeholder="Smith Sports Agency" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"></div>
-      <div style="margin-bottom:24px"><div style="font-size:10px;color:rgba(240,237,230,0.4);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-family:'DM Mono',monospace">Athletes Represented</div><select id="req-athletes" style="width:100%;padding:10px 14px;background:#1A1A18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#F0EDE6;font-size:13px;box-sizing:border-box"><option value="">Select range...</option><option value="1-5">1-5 athletes</option><option value="6-15">6-15 athletes</option><option value="16-30">16-30 athletes</option><option value="30+">30+ athletes</option></select></div>
-      <div id="req-error" style="color:#ef4444;font-size:12px;margin-bottom:12px;display:none"></div>
-      <button onclick="submitRequest()" id="req-submit" style="width:100%;padding:14px;background:#C8F135;color:#000;border:none;border-radius:40px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Mono',monospace">Request Access</button>
-    </div>
-    <div id="req-success-view" style="display:none;text-align:center;padding:20px 0">
-      <div style="font-size:48px;margin-bottom:20px">&#10003;</div>
-      <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#F0EDE6;margin-bottom:12px">You are on the list</div>
-      <div style="font-size:13px;color:rgba(240,237,230,0.45);line-height:1.7;margin-bottom:28px">We will review your request and send your login credentials within 24 hours.</div>
-      <a href="/app" style="color:#C8F135;font-size:12px;font-family:'DM Mono',monospace;text-decoration:none">Already have credentials? Sign in</a>
-    </div>
-  </div>
-</div>
-<script>
-function openRequestModal(){var e=document.getElementById('quick-email');if(e&&e.value)document.getElementById('req-email').value=e.value;document.getElementById('req-modal').style.display='flex';}
-function closeRequestModal(){document.getElementById('req-modal').style.display='none';}
-document.addEventListener('click',function(e){if(e.target.id==='req-modal')closeRequestModal();});
-async function submitRequest(){
-  var first=document.getElementById('req-first').value.trim();
-  var last=document.getElementById('req-last').value.trim();
-  var email=document.getElementById('req-email').value.trim();
-  var agency=document.getElementById('req-agency').value.trim();
-  var athletes=document.getElementById('req-athletes').value;
-  var errEl=document.getElementById('req-error');
-  errEl.style.display='none';
-  if(!first||!last||!email){errEl.textContent='Please fill in your name and email.';errEl.style.display='block';return;}
-  var btn=document.getElementById('req-submit');
-  btn.textContent='Submitting...';btn.disabled=true;
-  try{
-    var r=await fetch('/api/request-access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({firstName:first,lastName:last,email:email,agency:agency,athletes:athletes})});
-    var data=await r.json();
-    if(data.ok){document.getElementById('req-form-view').style.display='none';document.getElementById('req-success-view').style.display='block';}
-    else{errEl.textContent=data.error||'Something went wrong.';errEl.style.display='block';btn.textContent='Request Access';btn.disabled=false;}
-  }catch(e){errEl.textContent='Connection error. Try again.';errEl.style.display='block';btn.textContent='Request Access';btn.disabled=false;}
+  } catch(e) {
+    alert('Connection error. Please try again.');
+    btn.textContent = 'Request Access →'; btn.disabled = false;
+  }
 }
 </script>
 </body>
