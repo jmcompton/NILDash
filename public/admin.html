@@ -34,6 +34,24 @@ a.back:hover{color:#C8F135}
 <body>
 <a href="/" class="back">← Back to app</a>
 <h1>NILDash Admin</h1>
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">
+    <div style="font-size:14px;font-weight:600;color:#f0ede6">User Plans</div>
+    <button onclick="loadUsers()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+  </div>
+  <table style="width:100%;border-collapse:collapse">
+    <thead>
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.08)">
+        <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Name</th>
+        <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Email</th>
+        <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Plan</th>
+        <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Change Plan</th>
+        <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Joined</th>
+      </tr>
+    </thead>
+    <tbody id="users-table"><tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3);font-size:12px">Loading...</td></tr></tbody>
+  </table>
+</div>
 <div class="sub">Access request management</div>
 <div class="stats">
   <div class="stat"><div class="stat-val" id="total">—</div><div class="stat-lbl">Total</div></div>
