@@ -772,6 +772,30 @@ app.post('/api/request-access', async (req, res) => {
   }
 });
 
+// ── Plan management ──────────────────────────────────────────
+app.post('/api/admin/set-plan', async (req, res) => {
+  try {
+    const { userId, plan } = req.body;
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+    let trialEndsAt = null;
+    if (plan === 'trial') {
+      trialEndsAt = new Date(Date.now() + 14 * 86400000).toISOString();
+    }
+    await store.pool.query('UPDATE users SET plan=$1, trial_ends_at=$2 WHERE id=$3', [plan, trialEndsAt, userId]);
+    res.json({ ok: true, plan, trialEndsAt });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/admin/users', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+    const r = await store.pool.query('SELECT id, name, email, plan, trial_ends_at, created_at FROM users ORDER BY created_at DESC');
+    res.json(r.rows);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Admin force delete ───────────────────────────────────────
 app.delete('/api/admin/athlete/:id', async (req, res) => {
   try {

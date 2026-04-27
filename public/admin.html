@@ -100,5 +100,56 @@ async function deny(id, btn) {
 }
 load();
 </script>
+<script>
+// Load users
+async function loadUsers() {
+  const r = await fetch('/api/admin/users');
+  if (!r.ok) return;
+  const users = await r.json();
+  const el = document.getElementById('users-table');
+  if (!el) return;
+  el.innerHTML = users.map(u => {
+    const trialDays = u.trial_ends_at ? Math.ceil((new Date(u.trial_ends_at) - new Date()) / 86400000) : null;
+    const planColor = u.plan === 'beta' ? '#4ade80' : u.plan === 'trial' ? '#f59e0b' : u.plan === 'starter' ? '#60a5fa' : u.plan === 'pro' ? '#a78bfa' : '#6b7280';
+    return '<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">' +
+      '<td style="padding:10px 12px;font-size:12px;color:#f0ede6">' + (u.name||'—') + '</td>' +
+      '<td style="padding:10px 12px;font-size:12px;color:rgba(240,237,230,0.5)">' + u.email + '</td>' +
+      '<td style="padding:10px 12px">' +
+        '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + planColor + '20;color:' + planColor + ';font-weight:700;text-transform:uppercase">' + (u.plan||'beta') + '</span>' +
+        (trialDays !== null ? '<span style="font-size:10px;color:rgba(240,237,230,0.4);margin-left:6px">' + trialDays + 'd left</span>' : '') +
+      '</td>' +
+      '<td style="padding:10px 12px">' +
+        '<select onchange="setPlan('' + u.id + '', this.value)" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;font-size:11px;padding:4px 8px">' +
+          ['beta','trial','starter','pro','suspended'].map(p => '<option value="' + p + '"' + (u.plan===p?' selected':'') + '>' + p + '</option>').join('') +
+        '</select>' +
+      '</td>' +
+      '<td style="padding:10px 12px;font-size:11px;color:rgba(240,237,230,0.4)">' + new Date(u.created_at).toLocaleDateString() + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+async function setPlan(userId, plan) {
+  const r = await fetch('/api/admin/set-plan', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ userId, plan })
+  });
+  const data = await r.json();
+  if (data.ok) {
+    showToast('Plan updated to ' + plan);
+    loadUsers();
+  }
+}
+
+function showToast(msg) {
+  var t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#4ade80;color:#000;padding:10px 16px;border-radius:6px;font-size:12px;font-weight:600;z-index:999';
+  document.body.appendChild(t);
+  setTimeout(function() { t.remove(); }, 3000);
+}
+
+loadUsers();
+</script>
 </body>
 </html>
