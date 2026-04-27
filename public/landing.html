@@ -11,18 +11,14 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{background:#0c0c0b;color:#f0ede6;font-family:'Inter',system-ui,sans-serif;font-size:14px;line-height:1.6;overflow-x:hidden}
-
-/* NAV */
 .nav{display:flex;align-items:center;justify-content:space-between;padding:18px 64px;border-bottom:1px solid rgba(255,255,255,0.06);position:sticky;top:0;background:#0c0c0b;z-index:100}
 .logo{font-size:17px;font-weight:700;color:#fff;letter-spacing:-0.02em}
 .logo span{color:#4ade80}
 .nav-links{display:flex;align-items:center;gap:32px}
-.nav-link{font-size:13px;color:rgba(240,237,230,0.45);text-decoration:none;font-weight:400;cursor:pointer}
+.nav-link{font-size:13px;color:rgba(240,237,230,0.45);text-decoration:none;cursor:pointer}
 .nav-link:hover{color:rgba(240,237,230,0.8)}
 .nav-cta{font-size:13px;font-weight:500;padding:8px 18px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;cursor:pointer;text-decoration:none}
 .nav-cta:hover{background:rgba(255,255,255,0.1)}
-
-/* HERO */
 .hero{padding:96px 64px 80px;max-width:900px;margin:0 auto;text-align:center}
 .hero-badge{display:inline-flex;align-items:center;gap:7px;font-size:11px;color:rgba(240,237,230,0.45);border:1px solid rgba(255,255,255,0.1);border-radius:40px;padding:5px 14px;margin-bottom:32px;letter-spacing:0.04em;font-weight:500}
 .badge-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;flex-shrink:0}
@@ -32,69 +28,66 @@ body{background:#0c0c0b;color:#f0ede6;font-family:'Inter',system-ui,sans-serif;f
 .hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
 .btn-primary{font-size:14px;font-weight:600;padding:13px 28px;background:#4ade80;color:#000;border:none;border-radius:6px;cursor:pointer;font-family:inherit}
 .btn-primary:hover{background:#86efac}
-.btn-ghost{font-size:14px;font-weight:400;padding:13px 24px;background:transparent;color:rgba(240,237,230,0.55);border:1px solid rgba(255,255,255,0.1);border-radius:6px;cursor:pointer;font-family:inherit}
-.btn-ghost:hover{background:rgba(255,255,255,0.04);color:rgba(240,237,230,0.8)}
-
-/* STATS */
+.btn-ghost{font-size:14px;padding:13px 24px;background:transparent;color:rgba(240,237,230,0.55);border:1px solid rgba(255,255,255,0.1);border-radius:6px;cursor:pointer;font-family:inherit}
+.btn-ghost:hover{background:rgba(255,255,255,0.04)}
 .stats-wrap{margin:0 64px}
 .stats{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid rgba(255,255,255,0.07);border-radius:8px;overflow:hidden}
 .stat{padding:28px 24px;text-align:center;border-right:1px solid rgba(255,255,255,0.07)}
 .stat:last-child{border-right:none}
 .stat-val{font-size:30px;font-weight:700;color:#4ade80;letter-spacing:-0.02em;margin-bottom:5px}
 .stat-lbl{font-size:11px;color:rgba(240,237,230,0.35);letter-spacing:0.05em;text-transform:uppercase;font-weight:500}
-
-/* SECTION */
 .section{padding:80px 64px}
 .section-eyebrow{font-size:11px;font-weight:600;color:#4ade80;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:14px}
 .section-title{font-size:36px;font-weight:700;color:#f0ede6;letter-spacing:-0.025em;margin-bottom:14px;line-height:1.15}
 .section-sub{font-size:15px;color:rgba(240,237,230,0.45);line-height:1.65;max-width:480px;font-weight:400}
 .divider{height:1px;background:rgba(255,255,255,0.06);margin:0 64px}
-
-/* FEATURES */
 .features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.06);border-radius:10px;overflow:hidden;margin-top:48px}
 .feature{background:#0f0f0e;padding:32px 28px}
 .feature-icon{width:36px;height:36px;border-radius:7px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.15);display:flex;align-items:center;justify-content:center;margin-bottom:18px}
 .feature-icon svg{width:16px;height:16px;stroke:#4ade80;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.feature h3{font-size:14px;font-weight:600;color:#f0ede6;margin-bottom:8px;letter-spacing:-0.01em}
-.feature p{font-size:12px;color:rgba(240,237,230,0.4);line-height:1.65;font-weight:400}
-.feature-tag{font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(74,222,128,0.08);color:rgba(74,222,128,0.7);border:1px solid rgba(74,222,128,0.12);margin-top:14px;display:inline-block;font-weight:500;letter-spacing:0.03em}
-
-/* HOW IT WORKS */
+.feature h3{font-size:14px;font-weight:600;color:#f0ede6;margin-bottom:8px}
+.feature p{font-size:12px;color:rgba(240,237,230,0.4);line-height:1.65}
+.feature-tag{font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(74,222,128,0.08);color:rgba(74,222,128,0.7);border:1px solid rgba(74,222,128,0.12);margin-top:14px;display:inline-block;font-weight:500}
+.proof{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:48px}
+.pc{background:#111110;border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:28px}
+.pv{font-size:24px;font-weight:700;color:#4ade80;letter-spacing:-0.02em;margin-bottom:6px}
+.pt{font-size:13px;font-weight:600;color:#f0ede6;margin-bottom:8px}
+.pd{font-size:12px;color:rgba(240,237,230,0.4);line-height:1.65}
 .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:48px}
-.step{position:relative}
 .step-num{font-size:11px;font-weight:600;color:#4ade80;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:12px}
-.step h3{font-size:16px;font-weight:600;color:#f0ede6;margin-bottom:8px;letter-spacing:-0.01em}
+.step h3{font-size:16px;font-weight:600;color:#f0ede6;margin-bottom:8px}
 .step p{font-size:13px;color:rgba(240,237,230,0.45);line-height:1.65}
-
-/* CTA FORM */
 .cta-section{padding:80px 64px}
-.cta-inner{background:#111110;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:56px;display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center}
+.cta-inner{background:#111110;border:1px solid rgba(255,255,255,0.07);border-radius:12px;padding:56px;display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:start}
 .cta-left h2{font-size:30px;font-weight:700;color:#f0ede6;letter-spacing:-0.025em;line-height:1.2;margin-bottom:12px}
 .cta-left p{font-size:14px;color:rgba(240,237,230,0.45);line-height:1.65}
 .cta-checks{margin-top:24px;display:flex;flex-direction:column;gap:8px}
 .cta-check{display:flex;align-items:center;gap:10px;font-size:13px;color:rgba(240,237,230,0.55)}
 .cta-check::before{content:"";width:5px;height:5px;border-radius:50%;background:#4ade80;flex-shrink:0}
-.form-group{margin-bottom:12px}
-.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
 .form-input{width:100%;padding:11px 14px;background:#1a1a18;border:1px solid rgba(255,255,255,0.09);border-radius:6px;color:#f0ede6;font-size:13px;font-family:inherit;outline:none;transition:border-color 0.15s}
 .form-input:focus{border-color:rgba(74,222,128,0.4)}
 .form-input::placeholder{color:rgba(240,237,230,0.25)}
-.form-select{width:100%;padding:11px 14px;background:#1a1a18;border:1px solid rgba(255,255,255,0.09);border-radius:6px;color:#f0ede6;font-size:13px;font-family:inherit;outline:none;cursor:pointer;appearance:none}
-.form-btn{width:100%;padding:13px;background:#4ade80;color:#000;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px;transition:background 0.15s}
+.form-select{width:100%;padding:11px 14px;background:#1a1a18;border:1px solid rgba(255,255,255,0.09);border-radius:6px;color:rgba(240,237,230,0.6);font-size:13px;font-family:inherit;outline:none;cursor:pointer;appearance:none;margin-bottom:10px}
+.form-btn{width:100%;padding:13px;background:#4ade80;color:#000;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;margin-top:4px}
 .form-btn:hover{background:#86efac}
 .form-note{font-size:11px;color:rgba(240,237,230,0.25);text-align:center;margin-top:10px}
-.success-msg{display:none;text-align:center;padding:24px}
-.success-msg h3{font-size:18px;font-weight:600;color:#4ade80;margin-bottom:8px}
-.success-msg p{font-size:13px;color:rgba(240,237,230,0.45)}
-
-/* FOOTER */
+.success-msg{display:none;text-align:center;padding:40px 24px}
+.success-msg h3{font-size:20px;font-weight:600;color:#4ade80;margin-bottom:8px}
+.success-msg p{font-size:13px;color:rgba(240,237,230,0.45);line-height:1.6}
 footer{padding:28px 64px;border-top:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:space-between}
-.footer-logo{font-size:14px;font-weight:600;color:rgba(240,237,230,0.35);letter-spacing:-0.01em}
+.footer-logo{font-size:14px;font-weight:600;color:rgba(240,237,230,0.35)}
 .footer-logo span{color:rgba(74,222,128,0.6)}
 .footer-note{font-size:11px;color:rgba(240,237,230,0.2)}
-
-/* SVG ICONS */
-.icon-lightning{stroke:#4ade80}
+@media(max-width:768px){
+  .nav{padding:16px 24px}.nav-links{display:none}
+  .hero{padding:60px 24px 48px}.hero h1{font-size:36px}
+  .stats-wrap{margin:0 24px}.stats{grid-template-columns:repeat(2,1fr)}
+  .section{padding:48px 24px}.features-grid{grid-template-columns:1fr}.proof{grid-template-columns:1fr}.steps{grid-template-columns:1fr;gap:24px}
+  .cta-inner{grid-template-columns:1fr;gap:32px;padding:32px}.divider{margin:0 24px}
+  .cta-section{padding:48px 24px}
+  footer{padding:20px 24px;flex-direction:column;gap:8px;text-align:center}
+}
 </style>
 </head>
 <body>
@@ -109,18 +102,16 @@ footer{padding:28px 64px;border-top:1px solid rgba(255,255,255,0.06);display:fle
   </div>
 </nav>
 
-<!-- HERO -->
 <section class="hero">
   <div class="hero-badge"><div class="badge-dot"></div>Early Access &mdash; Select Agents Only</div>
-  <h1>The NIL platform<br>built for <em>agents</em></h1>
-  <p class="hero-sub">Know exactly what to charge. Find the right deals. Close faster. NILDash gives sports agents AI-powered intelligence across every client &mdash; in one place.</p>
+  <h1>Stop leaving money<br>on the <em>table</em></h1>
+  <p class="hero-sub">Most agents are undercharging, missing deals, and losing leverage in negotiations &mdash; because they don&apos;t have the right data. NILDash fixes that.</p>
   <div class="hero-btns">
     <button class="btn-primary" onclick="document.getElementById('access').scrollIntoView({behavior:'smooth'})">Request Early Access</button>
     <button class="btn-ghost" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">See what&apos;s inside &rarr;</button>
   </div>
 </section>
 
-<!-- STATS -->
 <div class="stats-wrap">
   <div class="stats">
     <div class="stat"><div class="stat-val">70+</div><div class="stat-lbl">Real Collective Budgets</div></div>
@@ -130,59 +121,45 @@ footer{padding:28px 64px;border-top:1px solid rgba(255,255,255,0.06);display:fle
   </div>
 </div>
 
-<!-- FEATURES -->
 <section class="section" id="features">
   <div class="section-eyebrow">Features</div>
-  <div class="section-title">Everything an agent needs</div>
-  <p class="section-sub">Stop using spreadsheets and guesswork. NILDash replaces every manual process in your NIL workflow.</p>
-
+  <div class="section-title">Your unfair advantage</div>
+  <p class="section-sub">While other agents guess on rates and chase deals manually, NILDash agents walk into every negotiation knowing exactly what their client is worth.</p>
   <div class="features-grid">
     <div class="feature">
-      <div class="feature-icon">
-        <svg viewBox="0 0 24 24"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-      </div>
+      <div class="feature-icon"><svg viewBox="0 0 24 24"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
       <h3>AI Command Center</h3>
       <p>Ask anything about your clients &mdash; deals, pricing, leverage, strategy. AI answers instantly with NIL-specific context and live market data.</p>
       <span class="feature-tag">Powered by Claude</span>
     </div>
     <div class="feature">
-      <div class="feature-icon">
-        <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-      </div>
+      <div class="feature-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
       <h3>NILViewVal&trade; Rate Calculator</h3>
-      <p>Know exactly what to charge. Our proprietary model uses 12 inputs &mdash; including on-court stats, draft status, and real collective data &mdash; to produce accurate brand deal rates.</p>
+      <p>Know exactly what to charge. Our model uses 12 inputs &mdash; on-court stats, draft status, real collective data &mdash; to produce accurate brand deal rates for every client.</p>
       <span class="feature-tag">NILViewVal v3</span>
     </div>
     <div class="feature">
-      <div class="feature-icon">
-        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      </div>
+      <div class="feature-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
       <h3>Deal Scan</h3>
-      <p>AI scans hundreds of brands and surfaces the best opportunities for each client &mdash; ranked by fit score, close probability, and market timing.</p>
+      <p>AI surfaces the best brand opportunities for each client &mdash; ranked by fit score and close probability. Write outreach in one click.</p>
       <span class="feature-tag">AI-Ranked</span>
     </div>
     <div class="feature">
-      <div class="feature-icon">
-        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      </div>
+      <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
       <h3>Team Match</h3>
-      <p>Find the best transfer destinations with real roster value estimates from 70+ collective budgets. Includes roster need analysis, portal comps, and NIL trajectory scoring.</p>
+      <p>Find the best transfer destinations with real roster values from 70+ collective budgets. Includes roster need analysis, portal comps, and NIL trajectory scoring.</p>
       <span class="feature-tag">Real Collective Data</span>
     </div>
     <div class="feature">
-      <div class="feature-icon">
-        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-      </div>
+      <div class="feature-icon"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
       <h3>Contract Generator</h3>
-      <p>Professional NIL contracts generated in seconds &mdash; built around the specific deal type, state law, deliverables, and payment terms. PDF-ready to sign.</p>
+      <p>Professional NIL contracts generated in seconds &mdash; built around the deal type, state law, and deliverables. PDF-ready to sign.</p>
       <span class="feature-tag">Opus-Powered</span>
     </div>
     <div class="feature">
-      <div class="feature-icon">
-        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-      </div>
+      <div class="feature-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
       <h3>Deal Pipeline</h3>
-      <p>A full Kanban CRM for every deal across every client. Drag and drop between stages, track pipeline value, and monitor commission in real time.</p>
+      <p>A full Kanban CRM for every deal across every client. Drag and drop between stages and track pipeline value and commission in real time.</p>
       <span class="feature-tag">Kanban CRM</span>
     </div>
   </div>
@@ -190,73 +167,89 @@ footer{padding:28px 64px;border-top:1px solid rgba(255,255,255,0.06);display:fle
 
 <div class="divider"></div>
 
-<!-- HOW IT WORKS -->
-<section class="section" id="how-it-works">
-  <div class="section-eyebrow">How It Works</div>
-  <div class="section-title">From roster to closed deal</div>
-  <p class="section-sub">A complete workflow built around how agents actually operate &mdash; not how a product manager thinks they do.</p>
-  <div class="steps">
-    <div class="step">
-      <div class="step-num">Step 01</div>
-      <h3>Add your clients</h3>
-      <p>Import your roster in minutes. Add social stats, school info, position, on-court stats, and draft status. NILDash builds a valuation profile for each athlete automatically.</p>
+<section class="section">
+  <div class="section-eyebrow">Why NILDash Wins</div>
+  <div class="section-title">More organized. More revenue.<br>Less guesswork.</div>
+  <p class="section-sub">NILDash replaces spreadsheets, missed follow-ups, and underpriced deals with a system that keeps you organized and your athletes earning more.</p>
+  <div class="proof">
+    <div class="pc">
+      <div class="pv">One platform</div>
+      <div class="pt">Everything in one place</div>
+      <div class="pd">Roster, deals, contracts, outreach, compliance, and commissions &mdash; all in one dashboard. No more juggling spreadsheets, emails, and scattered notes.</div>
     </div>
-    <div class="step">
-      <div class="step-num">Step 02</div>
-      <h3>Run the intelligence tools</h3>
-      <p>Use Deal Scan to find brand opportunities, Rate Calculator to set your floor price, Team Match to find the best transfer destination, and AI Command to strategize in real time.</p>
+    <div class="pc">
+      <div class="pv">More revenue</div>
+      <div class="pt">For you and your athletes</div>
+      <div class="pd">Agents who know their athlete&apos;s true market value close bigger deals. NILViewVal&trade; gives you the data to negotiate with confidence and charge what you&apos;re worth.</div>
     </div>
-    <div class="step">
-      <div class="step-num">Step 03</div>
-      <h3>Close and track</h3>
-      <p>Generate contracts, manage deals through your pipeline, send brand pitch reports to prospects, and track commissions &mdash; all in one platform.</p>
+    <div class="pc">
+      <div class="pv">70+ programs</div>
+      <div class="pt">Real collective data, not estimates</div>
+      <div class="pd">We track sport-specific collective budgets across 70+ D1 programs so your transfer conversations are backed by real market intelligence &mdash; not guesses.</div>
     </div>
   </div>
 </section>
 
 <div class="divider"></div>
 
-<!-- REQUEST ACCESS -->
+<section class="section" id="how-it-works">
+  <div class="section-eyebrow">How It Works</div>
+  <div class="section-title">Built around how you work</div>
+  <p class="section-sub">Not another tool to learn. NILDash fits into your existing workflow and makes every part of it faster &mdash; from signing a client to cashing a commission check.</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">Step 01</div>
+      <h3>Add your clients</h3>
+      <p>Import your roster in minutes. Add social stats, school info, position, on-court stats, and draft status. NILDash builds a complete valuation profile for each athlete automatically.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">Step 02</div>
+      <h3>Run the intelligence tools</h3>
+      <p>Use Deal Scan to find brand opportunities, Rate Calculator to set your floor price, Team Match for transfer destinations, and AI Command to strategize in real time.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">Step 03</div>
+      <h3>Close and track</h3>
+      <p>Generate contracts, manage deals through your pipeline, send brand pitch reports to prospects, and watch your commission tracker grow &mdash; all in one place.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
 <section class="cta-section" id="access">
   <div class="cta-inner">
     <div class="cta-left">
-      <h2>Request Early Access</h2>
-      <p>NILDash is currently invite-only. We review every application and respond within 24 hours. Early access agents receive priority onboarding and direct feedback sessions.</p>
+      <h2>Get early access before your competition does</h2>
+      <p>NILDash is invite-only right now. Agents who get in early lock in beta pricing and help shape what gets built next. We respond within 24 hours.</p>
       <div class="cta-checks">
-        <div class="cta-check">Full platform access during beta</div>
-        <div class="cta-check">All AI tools included</div>
+        <div class="cta-check">Full platform access &mdash; all features included</div>
+        <div class="cta-check">NILViewVal&trade; rate model for every client</div>
+        <div class="cta-check">Real collective budget data for 70+ programs</div>
         <div class="cta-check">Direct line to the founding team</div>
-        <div class="cta-check">Shape the product roadmap</div>
       </div>
     </div>
-    <div class="cta-right">
+    <div>
       <div id="request-form">
         <div class="form-row">
           <input class="form-input" id="r-first" placeholder="First name" type="text">
           <input class="form-input" id="r-last" placeholder="Last name" type="text">
         </div>
-        <div class="form-group">
-          <input class="form-input" id="r-email" placeholder="Email address" type="email">
-        </div>
-        <div class="form-group">
-          <input class="form-input" id="r-agency" placeholder="Agency name" type="text">
-        </div>
-        <div class="form-group">
-          <select class="form-select" id="r-athletes">
-            <option value="" disabled selected>How many athletes do you represent?</option>
-            <option value="1-5">1&ndash;5 athletes</option>
-            <option value="6-15">6&ndash;15 athletes</option>
-            <option value="16-30">16&ndash;30 athletes</option>
-            <option value="30+">30+ athletes</option>
-          </select>
-        </div>
+        <input class="form-input" id="r-email" placeholder="Email address" type="email" style="margin-bottom:10px">
+        <input class="form-input" id="r-agency" placeholder="Agency name" type="text" style="margin-bottom:10px">
+        <select class="form-select" id="r-athletes">
+          <option value="" disabled selected>How many athletes do you represent?</option>
+          <option value="1-10">1&ndash;10 athletes</option>
+          <option value="11-25">11&ndash;25 athletes</option>
+          <option value="25+">25+ athletes</option>
+        </select>
         <button class="form-btn" onclick="submitRequest()">Request Access &rarr;</button>
         <p class="form-note">No credit card required. We&apos;ll reach out within 24 hours.</p>
       </div>
       <div class="success-msg" id="success-msg">
-        <div style="font-size:32px;margin-bottom:12px">&#10003;</div>
+        <div style="width:48px;height:48px;border-radius:50%;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:20px;color:#4ade80">&#10003;</div>
         <h3>Request received</h3>
-        <p>We&apos;ll review your application and reach out to <span id="success-email"></span> within 24 hours.</p>
+        <p>We&apos;ll review your application and reach out to <strong id="success-email" style="color:#f0ede6"></strong> within 24 hours.</p>
       </div>
     </div>
   </div>
@@ -269,21 +262,21 @@ footer{padding:28px 64px;border-top:1px solid rgba(255,255,255,0.06);display:fle
 
 <script>
 async function submitRequest() {
-  const first = document.getElementById('r-first').value.trim();
-  const last = document.getElementById('r-last').value.trim();
-  const email = document.getElementById('r-email').value.trim();
-  const agency = document.getElementById('r-agency').value.trim();
-  const athletes = document.getElementById('r-athletes').value;
+  var first = document.getElementById('r-first').value.trim();
+  var last = document.getElementById('r-last').value.trim();
+  var email = document.getElementById('r-email').value.trim();
+  var agency = document.getElementById('r-agency').value.trim();
+  var athletes = document.getElementById('r-athletes').value;
   if (!first || !last || !email) { alert('Please fill in your name and email.'); return; }
-  const btn = document.querySelector('.form-btn');
+  var btn = document.querySelector('.form-btn');
   btn.textContent = 'Submitting...'; btn.disabled = true;
   try {
-    const r = await fetch('/api/request-access', {
+    var r = await fetch('/api/request-access', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({firstName:first, lastName:last, email, agency, athletes})
+      body: JSON.stringify({firstName:first, lastName:last, email:email, agency:agency, athletes:athletes})
     });
-    const data = await r.json();
+    var data = await r.json();
     if (data.ok) {
       document.getElementById('request-form').style.display = 'none';
       document.getElementById('success-msg').style.display = 'block';
