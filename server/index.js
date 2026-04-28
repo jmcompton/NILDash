@@ -553,10 +553,14 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
     'Return ONLY JSON array of 6 schools. Sort by: ' + (sortBy||'fit') + '\n' +
     '[{"rank":1,"name":"Full School Name","conference":"SEC","confLabel":"SEC","tier":"reach|best-fit|safe","why":"2 specific sentences about this athlete fit","nilLow":1000000,"nilHigh":3000000,"nilBreakdown":[{"label":"Roster Value","val":"$1M-3M"}],"fitScore":92,"playingTimeOutlook":"Immediate starter","rosterNeed":"Lost 2 bigs to draft — critical need","collectiveDealHistory":"Paid $1.5M-2.5M for similar F/C archetypes in 2025 portal","trajectoryNote":"SEC exposure + elite coaching accelerates draft stock","portalComp":"Similar path to [Player] who signed $2M deal in 2025","metrics":[{"label":"Collective","val":"Elite"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"}]}]';
 
+  // Add live search context to prompt
+  const searchContext = 'Search the web for: 1) "' + athlete.name + ' transfer portal 2026" to find their current transfer status, 2) "' + (athlete.school||'') + ' NIL collective 2026" for current budget info, 3) Recent disclosed NIL deals for ' + sport + ' ' + position + ' players in the transfer portal. Use this live data to make your recommendations more accurate.';
+  const fullPrompt = searchContext + '\n\n' + prompt;
+
   let teams = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const raw = await ai.oneShot(prompt, 'You are an expert NIL agent. Use real market knowledge. Return ONLY valid JSON array. No markdown. No preamble.', 6000);
+      const raw = await ai.oneShotWithSearch(fullPrompt, 'You are an expert NIL agent with access to live web search. Search for current transfer portal news and NIL deals before answering. Return ONLY valid JSON array. No markdown. No preamble.');
       const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
       const si = cleaned.indexOf('[');
       const ei = cleaned.lastIndexOf(']');
