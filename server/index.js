@@ -777,6 +777,42 @@ app.post('/api/request-access', async (req, res) => {
   }
 });
 
+// ── Weekly Deal Comp Ingestion ───────────────────────────────
+function scheduleWeeklyIngestion() {
+  const now = new Date();
+  const nextSunday = new Date(now);
+  nextSunday.setDate(now.getDate() + (7 - now.getDay()) % 7 || 7);
+  nextSunday.setHours(2, 0, 0, 0);
+  const msUntil = nextSunday - now;
+  console.log('Next NIL comp ingestion:', nextSunday.toISOString());
+  setTimeout(async function runJob() {
+    console.log('Running weekly NIL comp ingestion...');
+    try {
+      const { exec } = require('child_process');
+      exec('node ' + require('path').join(__dirname, 'nilCompJob.js'), (err, stdout, stderr) => {
+        if (err) console.error('Ingestion error:', err.message);
+        else console.log('Ingestion complete:', stdout.slice(-200));
+      });
+    } catch(e) { console.error('Ingestion failed:', e.message); }
+    setTimeout(runJob, 7 * 24 * 60 * 60 * 1000);
+  }, msUntil);
+}
+if (process.env.NODE_ENV === 'production') scheduleWeeklyIngestion();
+
+// Admin endpoint to trigger manually
+app.post('/api/admin/run-ingestion', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+    const { exec } = require('child_process');
+    exec('node ' + require('path').join(__dirname, 'nilCompJob.js'), (err, stdout) => {
+      if (err) console.error('Manual ingestion error:', err.message);
+      else console.log('Manual ingestion done:', stdout.slice(-200));
+    });
+    res.json({ ok: true, message: 'Ingestion job started in background' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Plan management ──────────────────────────────────────────
 app.post('/api/admin/set-plan', async (req, res) => {
   try {
