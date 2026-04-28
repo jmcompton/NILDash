@@ -1939,24 +1939,28 @@ async function addDealToPipeline(brand, dealType, campaign) {
 // Deal Scan — Add to Outreach
 function addDealToOutreach(brand, campaign) {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
-  // Track for NILViewVal feedback
   trackDealScanAction(brand, '', 'outreach');
-  // Add to outreach log
   var ath = athletes.find(function(a) { return a.id === selectedAthleteId; });
   if (!window.outreachLogByAthlete) window.outreachLogByAthlete = {};
   if (!window.outreachLogByAthlete[selectedAthleteId]) window.outreachLogByAthlete[selectedAthleteId] = [];
-  window.outreachLogByAthlete[selectedAthleteId].unshift({
+  var entry = {
     id: Date.now(),
     brand: brand,
     athlete: ath ? ath.name : '',
     category: campaign || 'NIL Deal',
     date: new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}),
     status: 'Sent'
-  });
-  showToast(brand + ' added to Outreach tracker');
-  // Pre-fill outreach writer
-  var el = document.getElementById('orBrand');
-  if (el) el.value = brand;
+  };
+  window.outreachLogByAthlete[selectedAthleteId].unshift(entry);
+  // Pre-fill outreach writer and navigate
+  var orBrand = document.getElementById('or-brand') || document.getElementById('orBrand');
+  if (orBrand) orBrand.value = brand;
+  // Also pre-fill the outreach athlete selector
+  var orAthlete = document.getElementById('ob-athlete');
+  if (orAthlete) orAthlete.value = selectedAthleteId;
+  // Render tracker immediately
+  if (typeof renderOutreachTracker === 'function') renderOutreachTracker();
+  showToast(brand + ' added to Outreach — go to Outreach to write your email');
 }
 
 // NILViewVal Feedback Loop — track which deals agents pursue
