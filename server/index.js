@@ -251,7 +251,12 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
 app.delete('/api/deals/:id', requireAuth, async (req, res) => {
   const deal = await store.getDeal(req.params.id);
   if (!deal) return res.status(404).json({ error: 'Not found' });
-  if (deal.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+  // Allow if owner or if no agent_id set (legacy deals)
+  const user = await store.getUser(req.session.userId);
+  const isAdmin = user && user.email === 'johnmarkcompton@gmail.com';
+  if (!isAdmin && deal.agent_id && deal.agent_id !== req.session.userId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   await store.deleteDeal(req.params.id);
   res.json({ ok: true });
 });
