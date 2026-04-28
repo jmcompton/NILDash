@@ -777,6 +777,28 @@ app.post('/api/request-access', async (req, res) => {
   }
 });
 
+// ── Deal Action Feedback ─────────────────────────────────────
+app.post('/api/feedback/deal-action', requireAuth, async (req, res) => {
+  try {
+    const { brand, dealType, action, athleteId } = req.body;
+    const athlete = athleteId ? await store.getAthlete(athleteId) : null;
+    await store.pool.query(`
+      CREATE TABLE IF NOT EXISTS deal_scan_feedback (
+        id SERIAL PRIMARY KEY, agent_id TEXT, athlete_id TEXT,
+        brand TEXT, deal_type TEXT, action TEXT,
+        sport TEXT, position TEXT, school_tier TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await store.pool.query(
+      'INSERT INTO deal_scan_feedback (agent_id, athlete_id, brand, deal_type, action, sport, position, school_tier) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      [req.session.userId, athleteId||'', brand||'', dealType||'', action||'',
+       athlete?.sport||'', athlete?.position||'', athlete?.schoolTier||'']
+    );
+    res.json({ ok: true });
+  } catch(e) { res.json({ ok: false }); }
+});
+
 // ── Weekly Deal Comp Ingestion ───────────────────────────────
 function scheduleWeeklyIngestion() {
   const now = new Date();

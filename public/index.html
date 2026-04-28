@@ -1903,12 +1903,102 @@ function renderDealsTable(recs) {
             '<span style="font-size:12px;color:'+scoreColor+';font-weight:700">'+score+'</span>' +
           '</div>' +
           '<button onclick="prefillOutreach(&quot;'+brandSafe+'&quot;)" style="padding:8px 14px;background:var(--accent);color:#000;border:none;border-radius:40px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Write Outreach</button>' +
+          '<button onclick="addDealToPipeline(&quot;'+brandSafe+'&quot;,&quot;'+(d.dealType||'ig-post')+'&quot;,&quot;'+(d.campaign||'').replace(/"/g,'').substring(0,40)+'&quot;)" style="padding:7px 14px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">+ Pipeline</button>' +
+          '<button onclick="addDealToOutreach(&quot;'+brandSafe+'&quot;,&quot;'+(d.campaign||'').replace(/"/g,'').substring(0,40)+'&quot;)" style="padding:7px 14px;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap">+ Outreach</button>' +
           '<button onclick="prefillNeg(&quot;'+brandSafe+'&quot;,&quot;&quot;)" style="padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap">Negotiate</button>' +
         '</div>' +
       '</div>' +
     '</div>';
   }).join('');
 }
+// Deal Scan — Add to Pipeline
+async function addDealToPipeline(brand, dealType, campaign) {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  try {
+    const dealId = 'deal-' + Date.now();
+    await fetch(API_BASE + '/api/athletes/' + selectedAthleteId + '/deals', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        id: dealId,
+        brand: brand,
+        campaign: campaign || '',
+        stage: 'Prospecting',
+        value: 0,
+        dealType: dealType || 'ig-post',
+        notes: 'Added from Deal Scan',
+        athleteId: selectedAthleteId
+      })
+    });
+    // Track for NILViewVal feedback
+    trackDealScanAction(brand, dealType, 'pipeline');
+    showToast(brand + ' added to Pipeline');
+  } catch(e) { showToast('Error adding to pipeline'); }
+}
+
+// Deal Scan — Add to Outreach
+function addDealToOutreach(brand, campaign) {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  // Track for NILViewVal feedback
+  trackDealScanAction(brand, '', 'outreach');
+  // Add to outreach log
+  var ath = athletes.find(function(a) { return a.id === selectedAthleteId; });
+  if (!window.outreachLogByAthlete) window.outreachLogByAthlete = {};
+  if (!window.outreachLogByAthlete[selectedAthleteId]) window.outreachLogByAthlete[selectedAthleteId] = [];
+  window.outreachLogByAthlete[selectedAthleteId].unshift({
+    id: Date.now(),
+    brand: brand,
+    athlete: ath ? ath.name : '',
+    category: campaign || 'NIL Deal',
+    date: new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}),
+    status: 'Sent'
+  });
+  showToast(brand + ' added to Outreach tracker');
+  // Pre-fill outreach writer
+  var el = document.getElementById('orBrand');
+  if (el) el.value = brand;
+}
+
+// NILViewVal Feedback Loop — track which deals agents pursue
+function trackDealScanAction(brand, dealType, action) {
+  try {
+    var ath = athletes.find(function(a) { return a.id === selectedAthleteId; });
+    if (!ath) return;
+    // Store in localStorage for feedback
+    var key = 'nil-deal-actions';
+    var existing = JSON.parse(localStorage.getItem(key) || '[]');
+    existing.push({
+      brand: brand, dealType: dealType, action: action,
+      sport: ath.sport, position: ath.position, schoolTier: ath.schoolTier,
+      timestamp: Date.now()
+    });
+    // Keep last 50 actions
+    if (existing.length > 50) existing = existing.slice(-50);
+    localStorage.setItem(key, JSON.stringify(existing));
+    // Send to server for model feedback
+    fetch(API_BASE + '/api/feedback/deal-action', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ brand: brand, dealType: dealType, action: action, athleteId: selectedAthleteId })
+    }).catch(function() {});
+  } catch(e) {}
+}
+
+// Refresh deal scan with new results
+async function runDealsRefresh() {
+  var btn = document.getElementById('deals-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing...'; }
+  // Store current brands to exclude
+  var currentBrands = [];
+  document.querySelectorAll('#deals-results [data-brand]').forEach(function(el) {
+    currentBrands.push(el.getAttribute('data-brand'));
+  });
+  window._excludeDealBrands = currentBrands;
+  await runDeals(true);
+  window._excludeDealBrands = [];
+  if (btn) { btn.disabled = false; btn.textContent = 'Refresh ↺'; }
+}
+
 function prefillOutreach(brand) {
   var el = document.getElementById('orBrand');
   if (el) el.value = brand;
