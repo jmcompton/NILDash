@@ -216,6 +216,7 @@ app.get('/api/comps', requireAuth, async (req, res) => {
   const { sport, schoolTier } = req.query;
   const comps = await store.getComps(sport, schoolTier, 20);
   const stats = await store.getCompStats(sport, schoolTier);
+  const rateContextStr = liveContext ? '\n\nLIVE MARKET DATA (from web search):\n' + liveContext : '';
   res.json({ comps, stats, count: comps.length });
 });
 
