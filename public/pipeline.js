@@ -48,7 +48,7 @@
               (stage !== 'Closed' ?
                 '<button onclick="NILPipeline.moveNext(\'' + d.id + '\',\'' + d.athleteId + '\',\'' + stage + '\')" ' +
                 'style="font-size:10px;color:var(--accent);background:transparent;border:none;cursor:pointer;padding:0;font-weight:700">' +
-                'Move to ' + STAGES[STAGES.indexOf(stage)+1] + ' →</button>' :
+                '→ ' + STAGES[STAGES.indexOf(stage)+1] + '</button>' :
                 '<span style="font-size:10px;color:var(--muted)">✓ Closed</span>'
               ) +
               '<button onclick="NILPipeline.deleteCard(\'' + d.id + '\',\'' + d.athleteId + '\')" ' +
