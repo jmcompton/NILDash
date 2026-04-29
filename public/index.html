@@ -1807,6 +1807,7 @@ function showView(id, btn) {
   if (id === 'pipeline') loadPipeline();
   if (id === 'calendar') loadCalendar();
   if (id === 'analytics') loadAnalytics();
+  if (id === 'command') setTimeout(updateNilRateKpi, 300);
   if (id === 'roster') renderRoster();
   if (id === 'contract') prefillContract();
 }
