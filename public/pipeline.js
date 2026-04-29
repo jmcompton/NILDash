@@ -41,7 +41,7 @@
             '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px">' + (d.brand||'Unknown') + '</div>' +
             '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">' + (d.athleteName||'') + '</div>' +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-              '<div style="font-size:12px;font-weight:600;color:var(--accent)">$' + (d.value||0).toLocaleString() + '</div>' +
+              '<div style="font-size:18px;font-weight:700;color:var(--accent);letter-spacing:-0.02em">$' + (d.value||0).toLocaleString() + '</div>' +
               '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:' + color + '20;color:' + color + ';font-weight:700">' + stage.split(' ')[0] + '</span>' +
             '</div>' +
             '<div style="display:flex;justify-content:space-between;align-items:center">' +
