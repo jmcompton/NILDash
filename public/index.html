@@ -1656,7 +1656,16 @@ function renderRoster() {
         <div class="ac-stat"><span>${reach}</span> reach</div>
         <div class="ac-stat"><span>${a.engagement}%</span> eng</div>
       </div>
-      <div style="display:flex;gap:6px;margin-top:10px">
+      <div style="margin-top:10px;margin-bottom:8px">
+        <textarea
+          onclick="event.stopPropagation()"
+          onchange="saveAthleteNote('${a.id}', this.value)"
+          placeholder="Quick note... (e.g. Mom wants $200K min)"
+          rows="2"
+          style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:10px;padding:6px 8px;resize:none;font-family:var(--mono);outline:none;line-height:1.4"
+        >${a.agentNote || ''}</textarea>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:4px">
         <button onclick="event.stopPropagation();editAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;padding:5px;cursor:pointer">✏️ Edit</button>
         <button onclick="event.stopPropagation();deleteAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--red);font-size:11px;padding:5px;cursor:pointer">🗑 Delete</button>
         <button onclick="event.stopPropagation();generateReport('${a.id}')" style="flex:1;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:5px;cursor:pointer">🔗 Report</button>
@@ -2257,6 +2266,19 @@ async function updateNilRateKpi() {
       el.textContent = '$' + data.low.toLocaleString() + ' - $' + data.high.toLocaleString();
       if (sub) sub.textContent = 'NILViewVal v3 estimate';
     }
+  } catch(e) {}
+}
+
+async function saveAthleteNote(athleteId, note) {
+  const ath = athletes.find(a => a.id === athleteId);
+  if (!ath) return;
+  ath.agentNote = note;
+  try {
+    await fetch(API_BASE + '/api/athletes/' + athleteId + '/note', {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ agentNote: note })
+    });
   } catch(e) {}
 }
 

@@ -183,6 +183,15 @@ app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Athlete note ─────────────────────────────────────────────
+app.patch('/api/athletes/:id/note', requireAuth, async (req, res) => {
+  const athlete = await store.getAthlete(req.params.id);
+  if (!athlete) return res.status(404).json({ error: 'Not found' });
+  if (athlete.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+  await store.saveAthlete(req.params.id, { ...athlete, agentNote: req.body.agentNote || '' });
+  res.json({ ok: true });
+});
+
 // ── Deals ──────────────────────────────────────────────────────
 app.get('/api/athletes/:id/deals', requireAuth, async (req, res) => {
   res.json(await store.getDealsByAthlete(req.params.id));
