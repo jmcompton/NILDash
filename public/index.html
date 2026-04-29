@@ -1915,6 +1915,15 @@ function renderDealsTable(recs) {
 async function addDealToPipeline(brand, dealType, campaign) {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   try {
+    // Get NILViewVal estimate for this deal type
+    var estimatedValue = 0;
+    try {
+      var rateResp = await fetch(API_BASE + '/api/rate/' + selectedAthleteId + '?type=' + (dealType || 'ig-post'));
+      if (rateResp.ok) {
+        var rateData = await rateResp.json();
+        estimatedValue = rateData.mid || rateData.low || 0;
+      }
+    } catch(e) {}
     const dealId = 'deal-' + Date.now();
     await fetch(API_BASE + '/api/athletes/' + selectedAthleteId + '/deals', {
       method: 'POST',
@@ -1924,15 +1933,15 @@ async function addDealToPipeline(brand, dealType, campaign) {
         brand: brand,
         campaign: campaign || '',
         stage: 'Prospecting',
-        value: 0,
+        value: estimatedValue,
         dealType: dealType || 'ig-post',
-        notes: 'Added from Deal Scan',
+        notes: 'Added from Deal Scan — est. value from NILViewVal',
         athleteId: selectedAthleteId
       })
     });
     // Track for NILViewVal feedback
     trackDealScanAction(brand, dealType, 'pipeline');
-    showToast(brand + ' added to Pipeline');
+    showToast(brand + ' added to Pipeline' + (estimatedValue > 0 ? ' — est. $' + estimatedValue.toLocaleString() : ''));
   } catch(e) { showToast('Error adding to pipeline'); }
 }
 
