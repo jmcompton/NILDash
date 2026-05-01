@@ -436,7 +436,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="kpi"><div class="kpi-label">Pipeline Value</div><div class="kpi-val" id="kpi-pipeline">$0</div><div class="kpi-sub">Active deals</div></div>
           <div class="kpi"><div class="kpi-label">Active Deals</div><div class="kpi-val" id="kpi-deals">0</div><div class="kpi-sub">In progress</div></div>
           <div class="kpi"><div class="kpi-label">Clients</div><div class="kpi-val" id="kpi-clients">0</div><div class="kpi-sub">On roster</div></div>
-          <div class="kpi" style="cursor:pointer" onclick="showView('rate',document.querySelector('.nav-item:nth-child(3)'))"><div class="kpi-label">NIL Rate (IG Reel)</div><div class="kpi-val" id="kpi-nil-rate" style="color:var(--accent)">—</div><div class="kpi-sub" id="kpi-nil-sub">Click to calculate</div></div>
+          <div class="kpi"><div class="kpi-label">Total NIL Earned</div><div class="kpi-val" id="kpi-total-nil" style="color:var(--accent)">$0K</div><div class="kpi-sub">Across all clients</div></div>
         </div>
 
         <div id="onboarding-checklist" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
@@ -3277,4 +3277,5 @@ renderNotifPanel();
 <script src="/search.js"></script>
 <script src="/analytics.js"></script>
 <script src="/help.js"></script>
+<script src="/nil-extras.js"></script>
 </body>
