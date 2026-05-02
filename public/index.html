@@ -1669,10 +1669,10 @@ function renderRoster() {
         >${a.agentNote || ''}</textarea>
       </div>
       <div style="display:flex;gap:6px;margin-top:4px">
-        <button onclick="event.stopPropagation();editAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;padding:5px;cursor:pointer">✏️ Edit</button>
-        <button onclick="event.stopPropagation();deleteAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--red);font-size:11px;padding:5px;cursor:pointer">🗑 Delete</button>
-        <button onclick="event.stopPropagation();generateReport('${a.id}')" style="flex:1;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:5px;cursor:pointer">🔗 Report</button>
-        <button onclick="event.stopPropagation();openClientProfile('${a.id}')" style="flex:1;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.3);border-radius:var(--r-sm);color:#60a5fa;font-size:11px;padding:5px;cursor:pointer">👤 Profile</button>
+        <button onclick="event.stopPropagation();editAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em">Edit</button>
+        <button onclick="event.stopPropagation();deleteAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--red);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em">Delete</button>
+        <button onclick="event.stopPropagation();generateReport('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em">Report</button>
+        <button onclick="event.stopPropagation();openClientProfile('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em;font-weight:600">Profile</button>
       </div>
     </div>`;
   }).join('');

@@ -135,7 +135,7 @@ document.addEventListener('DOMContentLoaded', function() {
   modal.id = 'profileModal';
   modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;padding:20px';
   modal.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:820px;max-height:90vh;overflow-y:auto;padding:24px;position:relative">
-    <button onclick="closeProfileModal()" style="position:absolute;top:14px;right:14px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;padding:4px 10px;cursor:pointer">✕ Close</button>
+    <button onclick="closeProfileModal()" style="position:absolute;top:14px;right:14px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;padding:4px 10px;cursor:pointer">Close</button>
     <div id="profileModalBody"></div>
   </div>`;
   document.body.appendChild(modal);
