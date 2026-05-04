@@ -1824,37 +1824,15 @@ function showView(id, btn) {
   if (id === 'roster') renderRoster();
   if (id === 'contract') prefillContract();
 }
-async function prefillContract() {
+function prefillContract() {
   if (!selectedAthleteId) return;
   const ath = athletes.find(a => a.id === selectedAthleteId);
   if (!ath) return;
-  // Pre-fill agent info
+  // Pre-fill agent info from session if available
   const agentName = document.getElementById('con-agent-name');
   const agentEmail = document.getElementById('con-agent-email');
   if (agentName && !agentName.value) agentName.value = currentUser ? (currentUser.name || '') : '';
   if (agentEmail && !agentEmail.value) agentEmail.value = currentUser ? (currentUser.email || '') : '';
-  // Pre-fill athlete info
-  const athName = document.getElementById('con-athlete-name');
-  const athSchool = document.getElementById('con-school');
-  const athSport = document.getElementById('con-sport');
-  if (athName && !athName.value) athName.value = ath.name || '';
-  if (athSchool && !athSchool.value) athSchool.value = ath.school || '';
-  if (athSport && !athSport.value) athSport.value = ath.sport || '';
-  // Pre-fill from most recent active pipeline deal
-  try {
-    const deals = await fetch(window.API_BASE + '/api/athletes/' + selectedAthleteId + '/deals').then(r=>r.json()).catch(()=>[]);
-    const active = deals.filter(d => d.stage !== 'Closed').sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
-    if (active.length > 0) {
-      const deal = active[0];
-      const brandEl = document.getElementById('con-brand');
-      const valueEl = document.getElementById('con-value');
-      const campEl = document.getElementById('con-campaign');
-      if (brandEl && !brandEl.value) brandEl.value = deal.brand || '';
-      if (valueEl && !valueEl.value) valueEl.value = deal.value || '';
-      if (campEl && !campEl.value) campEl.value = deal.campaign || '';
-      showToast('Pre-filled from pipeline: ' + (deal.brand || 'deal'));
-    }
-  } catch(e) {}
 }
 
 // ── AI: COMMAND ──────────────────────────────────────────────
@@ -1949,17 +1927,7 @@ function renderDealsTable(recs) {
 }
 // Deal Scan — Add to Pipeline
 async function addDealToPipeline(brand, dealType, campaign) {
-  if (!selectedAthleteId) {
-    // Auto-select first athlete if only one exists
-    if (athletes && athletes.length === 1) {
-      selectedAthleteId = athletes[0].id;
-      document.getElementById('activeAthlete').value = selectedAthleteId;
-      showToast('Auto-selected ' + athletes[0].name);
-    } else {
-      showToast('Select a client first from your roster');
-      return;
-    }
-  }
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
   try {
     // Get NILViewVal estimate for this deal type
     var estimatedValue = 0;
@@ -2414,6 +2382,80 @@ function setCommFilter(f) {
         else { el.style.background = 'transparent'; el.style.color = 'var(--muted)'; el.style.borderColor = 'var(--border)'; }
       });
       renderCommission();
+    }
+
+    async function renderCommission() {
+      const rate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
+
+      // Gather all deals across all athletes
+      const allDeals = [];
+      for (const ath of athletes) {
+        const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
+        deals.forEach(d => allDeals.push({ ...d, athleteName: ath.name, athleteId: ath.id }));
+      }
+
+      // Filter
+      let filtered = allDeals;
+      if (commFilter === 'Closed') filtered = allDeals.filter(d => d.stage === 'Closed');
+      else if (commFilter === 'active') filtered = allDeals.filter(d => d.stage !== 'Closed');
+
+      // KPIs
+      const closedDeals = allDeals.filter(d => d.stage === 'Closed');
+      const activeDeals = allDeals.filter(d => d.stage !== 'Closed');
+      const totalEarned = closedDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0) * rate;
+      const totalPending = activeDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0) * rate;
+
+      document.getElementById('comm-total-earned').textContent = '$' + Math.round(totalEarned).toLocaleString();
+      document.getElementById('comm-pending').textContent = '$' + Math.round(totalPending).toLocaleString();
+      document.getElementById('comm-closed-count').textContent = closedDeals.length;
+
+      // Top earner by athlete
+      const byAthlete = {};
+      closedDeals.forEach(d => {
+        if (!byAthlete[d.athleteName]) byAthlete[d.athleteName] = 0;
+        byAthlete[d.athleteName] += (parseInt(d.value) || 0) * rate;
+      });
+      const topAthlete = Object.entries(byAthlete).sort((a,b) => b[1]-a[1])[0];
+      document.getElementById('comm-top-athlete').textContent = topAthlete ? topAthlete[0].split(' ')[0] : '—';
+
+      // By athlete breakdown
+      const athEl = document.getElementById('comm-by-athlete');
+      if (Object.keys(byAthlete).length === 0) {
+        athEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px">No closed deals yet. Close a deal in the Pipeline to see commissions.</div>';
+      } else {
+        const maxVal = Math.max(...Object.values(byAthlete));
+        athEl.innerHTML = Object.entries(byAthlete).sort((a,b)=>b[1]-a[1]).map(([name, comm]) => `
+          <div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="font-size:12px;font-weight:500">${name}</span>
+              <span style="font-size:12px;font-weight:700;color:var(--accent)">$${Math.round(comm).toLocaleString()}</span>
+            </div>
+            <div style="background:var(--surface2);border-radius:40px;height:6px">
+              <div style="background:var(--accent);border-radius:40px;height:6px;width:${Math.round(comm/maxVal*100)}%"></div>
+            </div>
+          </div>`).join('');
+      }
+
+      // Deals table
+      const tbody = document.getElementById('comm-table-body');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No deals found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered.sort((a,b) => (parseInt(b.value)||0) - (parseInt(a.value)||0)).map(d => {
+        const val = parseInt(d.value) || 0;
+        const comm = Math.round(val * rate);
+        const isClosed = d.stage === 'Closed';
+        const statusColor = isClosed ? '#4ade80' : d.stage === 'Negotiating' ? 'var(--accent)' : 'var(--muted)';
+        return `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:10px 12px;font-weight:500">${d.athleteName}</td>
+          <td style="padding:10px 12px">${d.brand || '—'}</td>
+          <td style="padding:10px 12px;color:var(--muted);font-size:11px">${d.stage || '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:500">${val ? '$'+val.toLocaleString() : '—'}</td>
+          <td style="padding:10px 12px;text-align:right;font-weight:700;color:${isClosed ? 'var(--accent)' : 'var(--muted)'}">${comm ? '$'+comm.toLocaleString() : '—'}</td>
+          <td style="padding:10px 12px"><span style="font-size:10px;padding:3px 8px;border-radius:40px;background:${statusColor}22;color:${statusColor};font-weight:700">${isClosed ? 'EARNED' : 'PENDING'}</span></td>
+        </tr>`;
+      }).join('');
     }
 
     function setCommFilter(f) {
