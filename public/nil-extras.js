@@ -1,26 +1,23 @@
 
 
-function openClientProfile(id) {
+async function openClientProfile(id) {
   const a = window.athletes ? window.athletes.find(x => x.id === id) : null;
   if (!a) return;
 
-  const deals = JSON.parse(localStorage.getItem('nilDashDeals') || '[]')
-    .filter(d => d.athleteId === id || d.athlete === a.name);
+  const API_BASE = window.API_BASE || '';
+  const deals = await fetch(API_BASE + '/api/athletes/' + id + '/deals').then(r=>r.json()).catch(()=>[]);
+  const contracts = [];
 
-  const contracts = JSON.parse(localStorage.getItem('nilDashContracts') || '[]')
-    .filter(c => c.athleteId === id || c.athlete === a.name);
-
-  const totalNIL = deals.reduce((sum, d) => {
-    return sum + (parseFloat((d.value||'').toString().replace(/[^0-9.]/g,'')) || 0);
+  const totalNIL = deals.filter(d => d.stage === 'Closed').reduce((sum, d) => {
+    return sum + (parseInt(d.value) || 0);
   }, 0);
 
-  const commission = deals.reduce((sum, d) => {
-    const val = parseFloat((d.value||'').toString().replace(/[^0-9.]/g,'')) || 0;
-    const rate = parseFloat(d.commissionRate || 15) / 100;
-    return sum + (val * rate);
+  const commRate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
+  const commission = deals.filter(d => d.stage === 'Closed').reduce((sum, d) => {
+    return sum + ((parseInt(d.value) || 0) * commRate);
   }, 0);
 
-  const activeDealCount = deals.filter(d => d.stage && d.stage !== 'closed').length;
+  const activeDealCount = deals.filter(d => d.stage && d.stage !== 'Closed').length;
 
   const initials = (a.name||'?').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();
 
@@ -130,7 +127,7 @@ function closeProfileModal() {
   document.getElementById('profileModal').style.display = 'none';
 }
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
   const modal = document.createElement('div');
   modal.id = 'profileModal';
   modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;padding:20px';
@@ -141,5 +138,5 @@ document.addEventListener('DOMContentLoaded', function() {
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e) { if (e.target === modal) closeProfileModal(); });
 
-  calcTotalNilEarned();
+  if (typeof calcTotalNilEarned === 'function') await calcTotalNilEarned();
 });
