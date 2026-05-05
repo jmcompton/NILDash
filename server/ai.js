@@ -144,7 +144,17 @@ ${Object.entries(BRAND_WINDOWS).slice(0,4).map(([b,n]) => `  - ${b}: ${n}`).join
 
 NOTES: ${athlete.notes || 'None'}
 
+SPORT-SPECIFIC CONFERENCE INTELLIGENCE:
+${(() => {
+  const ctx = getSportConferenceContext(athlete.sport);
+  return `  Top conferences for ${athlete.sport}: ${ctx.topConferences.join(', ')}
+  Rising conferences: ${(ctx.risingConferences||[]).join(', ')}
+  Key insight: ${ctx.note}`;
+})()}
+
 RULES:
+- ALWAYS use the sport-specific conference intelligence above when recommending schools or conferences
+- NEVER recommend conferences not listed for this sport (e.g. never suggest SEC for hockey)
 - Use NILViewVal rates and real comps as primary data for all dollar amounts
 - Be direct — word-for-word scripts, real numbers, no hedging
 - When negotiating: cite NILViewVal range as your market anchor
