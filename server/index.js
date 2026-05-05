@@ -1020,7 +1020,7 @@ app.post('/api/athlete-portal/accept', async (req, res) => {
 app.get('/api/athlete-portal/validate/:token', async (req, res) => {
   try {
     await store.pool.query(`CREATE TABLE IF NOT EXISTS athlete_invites (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, token TEXT UNIQUE, visibility JSONB DEFAULT '{}', status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)`);
-    const r = await store.pool.query('SELECT ai.*, a.name as athlete_name, a.sport, a.school, a.position FROM athlete_invites ai JOIN athletes a ON ai.athlete_id = a.id WHERE ai.token=$1 AND ai.expires_at > NOW()', [req.params.token]);
+    const r = await store.pool.query("SELECT ai.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport, a.data->>'school' as school FROM athlete_invites ai JOIN athletes a ON ai.athlete_id = a.id WHERE ai.token=$1 AND ai.expires_at > NOW()", [req.params.token]);
     if (!r.rows.length) return res.status(400).json({ error: 'Invalid or expired invite' });
     res.json({ valid: true, athleteName: r.rows[0].athlete_name, sport: r.rows[0].sport, school: r.rows[0].school });
   } catch(e) { res.status(400).json({ error: 'Invalid invite' }); }
