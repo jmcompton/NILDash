@@ -1556,8 +1556,22 @@ async function bootApp() {
   if (currentUser.role === 'athlete') {
     showView('athlete-dashboard', null);
     loadAthleteDashboard();
-    if (document.getElementById('athletePortalsNavBtn')) document.getElementById('athletePortalsNavBtn').style.display = 'none';
-    if (document.getElementById('addAthleteNavBtn')) document.getElementById('addAthleteNavBtn').style.display = 'none';
+    // Hide entire agent nav for athletes
+    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-team-match','view-outreach','view-calendar','view-compliance','view-contract','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals'];
+    agentOnlyEls.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    // Hide sidebar nav sections
+    var navSections = document.querySelectorAll('.nav-section-label');
+    navSections.forEach(function(el) { el.style.display = 'none'; });
+    var navItems = document.querySelectorAll('.nav-item');
+    navItems.forEach(function(el) { el.style.display = 'none'; });
+    // Hide active client dropdown
+    var clientBar = document.querySelector('.client-bar');
+    if (clientBar) clientBar.style.display = 'none';
+    var activeClientRow = document.querySelector('[style*="ACTIVE CLIENT"]');
+    if (activeClientRow) activeClientRow.style.display = 'none';
   }
 
   // Check AI status
