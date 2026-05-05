@@ -225,13 +225,13 @@ async function loadPortalStatus(athleteId) {
           invSection.innerHTML = '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Share this link with the athlete:</div>' +
             '<div style="display:flex;gap:6px">' +
               '<input style="flex:1;font-size:11px;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)" readonly value="' + r.inviteUrl + '" id="invite-url-' + athleteId + '">' +
-              '<button onclick="copyInviteLink('' + athleteId + '')" style="padding:7px 12px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:11px;font-weight:700;cursor:pointer">Copy</button>' +
+              '<button onclick="copyInviteLink('" + athleteId + "')" style="padding:7px 12px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:11px;font-weight:700;cursor:pointer">Copy</button>' +
             '</div>';
         }
       }
     } else {
       var invSection = document.getElementById('portal-invite-section-' + athleteId);
-      if (invSection) invSection.innerHTML = '<button onclick="sendAthleteInvite('' + athleteId + '')" style="width:100%;padding:9px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:12px;font-weight:700;cursor:pointer">Send Invite</button>';
+      if (invSection) invSection.innerHTML = '<button onclick="sendAthleteInvite('" + athleteId + "')" style="width:100%;padding:9px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:12px;font-weight:700;cursor:pointer">Send Invite</button>';
     }
   } catch(e) { console.error('Portal status error:', e); }
 }
