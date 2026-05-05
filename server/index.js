@@ -949,6 +949,101 @@ app.post('/api/reports/generate', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ── Athlete Portal ────────────────────────────────────────────
+
+// Create invite token for an athlete
+app.post('/api/athlete-portal/invite', requireAuth, async (req, res) => {
+  const { athleteId, visibilitySettings } = req.body;
+  if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
+  const user = await store.getUser(req.session.userId);
+  const athlete = await store.getAthlete(athleteId);
+  if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+  const token = require('crypto').randomBytes(24).toString('hex');
+  const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  await store.pool.query(`CREATE TABLE IF NOT EXISTS athlete_invites (
+    id TEXT PRIMARY KEY,
+    athlete_id TEXT,
+    agent_id TEXT,
+    token TEXT UNIQUE,
+    visibility JSONB DEFAULT '{}',
+    status TEXT DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ
+  )`);
+  await store.pool.query(
+    'INSERT INTO athlete_invites (id, athlete_id, agent_id, token, visibility, expires_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET token=$4, visibility=$5, expires_at=$6',
+    ['invite-' + athleteId, athleteId, req.session.userId, token, JSON.stringify(visibilitySettings || { rate: true, deals: true, contracts: true, brands: false, compliance: true }), expires]
+  );
+  const inviteUrl = (process.env.APP_URL || 'https://mynildash.com') + '/athlete-signup?token=' + token;
+  res.json({ ok: true, token, inviteUrl, athleteName: athlete.name });
+});
+
+// Get invite status for an athlete
+app.get('/api/athlete-portal/invite/:athleteId', requireAuth, async (req, res) => {
+  try {
+    await store.pool.query(`CREATE TABLE IF NOT EXISTS athlete_invites (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, token TEXT UNIQUE, visibility JSONB DEFAULT '{}', status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)`);
+    const r = await store.pool.query('SELECT * FROM athlete_invites WHERE athlete_id=$1', [req.params.athleteId]);
+    if (!r.rows.length) return res.json({ invited: false });
+    const invite = r.rows[0];
+    const hasAccount = await store.pool.query('SELECT id FROM users WHERE athlete_id=$1', [req.params.athleteId]).catch(() => ({ rows: [] }));
+    res.json({ invited: true, status: invite.status, visibility: invite.visibility, hasAccount: hasAccount.rows.length > 0, inviteUrl: (process.env.APP_URL || 'https://mynildash.com') + '/athlete-signup?token=' + invite.token });
+  } catch(e) { res.json({ invited: false }); }
+});
+
+// Update visibility settings
+app.patch('/api/athlete-portal/visibility/:athleteId', requireAuth, async (req, res) => {
+  const { visibility } = req.body;
+  await store.pool.query('UPDATE athlete_invites SET visibility=$1 WHERE athlete_id=$2 AND agent_id=$3', [JSON.stringify(visibility), req.params.athleteId, req.session.userId]);
+  res.json({ ok: true });
+});
+
+// Accept invite and create athlete account
+app.post('/api/athlete-portal/accept', async (req, res) => {
+  const { token, name, email, password } = req.body;
+  if (!token || !name || !email || !password) return res.status(400).json({ error: 'All fields required' });
+  await store.pool.query(`CREATE TABLE IF NOT EXISTS athlete_invites (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, token TEXT UNIQUE, visibility JSONB DEFAULT '{}', status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)`);
+  const r = await store.pool.query('SELECT * FROM athlete_invites WHERE token=$1 AND expires_at > NOW()', [token]);
+  if (!r.rows.length) return res.status(400).json({ error: 'Invalid or expired invite link' });
+  const invite = r.rows[0];
+  if (await store.getUserByEmail(email)) return res.status(400).json({ error: 'Email already registered' });
+  const hash = await bcrypt.hash(password, 10);
+  const id = 'athlete-user-' + Date.now();
+  const user = await store.saveUser(id, { id, name, email, password: hash, role: 'athlete', athleteId: invite.athlete_id, agentId: invite.agent_id, createdAt: new Date().toISOString() });
+  await store.pool.query('UPDATE athlete_invites SET status=$1 WHERE token=$2', ['accepted', token]);
+  req.session.userId = id;
+  req.session.role = 'athlete';
+  res.json({ ok: true, id, name, email, role: 'athlete', athleteId: invite.athlete_id });
+});
+
+// Validate invite token
+app.get('/api/athlete-portal/validate/:token', async (req, res) => {
+  try {
+    await store.pool.query(`CREATE TABLE IF NOT EXISTS athlete_invites (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, token TEXT UNIQUE, visibility JSONB DEFAULT '{}', status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)`);
+    const r = await store.pool.query('SELECT ai.*, a.name as athlete_name, a.sport, a.school, a.position FROM athlete_invites ai JOIN athletes a ON ai.athlete_id = a.id WHERE ai.token=$1 AND ai.expires_at > NOW()', [req.params.token]);
+    if (!r.rows.length) return res.status(400).json({ error: 'Invalid or expired invite' });
+    res.json({ valid: true, athleteName: r.rows[0].athlete_name, sport: r.rows[0].sport, school: r.rows[0].school });
+  } catch(e) { res.status(400).json({ error: 'Invalid invite' }); }
+});
+
+// Athlete dashboard data
+app.get('/api/athlete-portal/dashboard', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (user.role !== 'athlete') return res.status(403).json({ error: 'Forbidden' });
+  const athleteId = user.athleteId;
+  const athlete = await store.getAthlete(athleteId);
+  const deals = await store.getDealsByAthlete(athleteId).catch(() => []);
+  const inviteR = await store.pool.query('SELECT visibility FROM athlete_invites WHERE athlete_id=$1', [athleteId]).catch(() => ({ rows: [] }));
+  const visibility = inviteR.rows[0]?.visibility || { rate: true, deals: true, contracts: true, brands: false, compliance: true };
+  const { nilViewVal } = require('./benchmarks');
+  const rate = nilViewVal(athlete, 'ig-reel');
+  res.json({ athlete, deals, visibility, rate });
+});
+
+app.get('/athlete-signup', (req, res) => {
+  res.sendFile(require('path').join(__dirname, '..', 'public', 'athlete-signup.html'));
+});
+
 app.get('/report/:token', async (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'report.html'));
 });

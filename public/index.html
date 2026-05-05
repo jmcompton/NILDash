@@ -390,6 +390,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('add-athlete',this)" id="addAthleteNavBtn">
         <span class="nav-dot-item"></span>Add Client
       </button>
+      <button class="nav-item" onclick="showView('athlete-portals',this)" id="athletePortalsNavBtn">
+        <span class="nav-dot-item"></span>Athlete Portals
+      </button>
     </nav>
 
     <div class="sidebar-bottom">
@@ -806,6 +809,22 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div style="margin-top:20px">
           <button class="run-btn" onclick="document.getElementById('addDealModal').classList.add('open')">+ Add Deal</button>
         </div>
+      </div>
+
+      <!-- ── ATHLETE PORTALS ── -->
+      <div id="view-athlete-portals" class="view">
+        <div class="page-title">Athlete Portals</div>
+        <div class="page-sub">Invite clients to their own NIL dashboard and control what they see</div>
+        <div id="athlete-portals-list" style="display:flex;flex-direction:column;gap:12px;margin-top:16px">
+          <div style="color:var(--muted);text-align:center;padding:40px">Loading clients...</div>
+        </div>
+      </div>
+
+      <!-- ── ATHLETE DASHBOARD ── -->
+      <div id="view-athlete-dashboard" class="view" style="display:none">
+        <div class="page-title" id="ath-dash-greeting">Your NIL Dashboard</div>
+        <div class="page-sub">Managed by your agent</div>
+        <div id="ath-dash-content" style="margin-top:16px"></div>
       </div>
 
       <!-- ── ROSTER ── -->
@@ -1534,6 +1553,12 @@ async function bootApp() {
 
   await loadAthletes();
   loadKPIs();
+  if (currentUser.role === 'athlete') {
+    showView('athlete-dashboard', null);
+    loadAthleteDashboard();
+    if (document.getElementById('athletePortalsNavBtn')) document.getElementById('athletePortalsNavBtn').style.display = 'none';
+    if (document.getElementById('addAthleteNavBtn')) document.getElementById('addAthleteNavBtn').style.display = 'none';
+  }
 
   // Check AI status
   const health = await fetch(`${API_BASE}/api/health`).then(r=>r.json()).catch(()=>({aiReady:false}));
@@ -1820,7 +1845,7 @@ function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -1829,6 +1854,7 @@ function showView(id, btn) {
   if (id === 'analytics') loadAnalytics();
   if (id === 'command') setTimeout(updateNilRateKpi, 800);
   if (id === 'roster') renderRoster();
+  if (id === 'athlete-portals') loadAthletePortals();
   if (id === 'contract') prefillContract();
 }
 function prefillContract() {

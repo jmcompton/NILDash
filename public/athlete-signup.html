@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NILDash - Athlete Portal</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#F7F6F3;color:#1a1a1a;font-family:Inter,sans-serif;font-size:14px;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{background:#fff;border-radius:16px;border:0.5px solid #e2e0db;padding:36px;width:100%;max-width:420px}
+.logo{font-size:20px;font-weight:600;color:#1a1a1a;margin-bottom:4px}
+.logo span{color:#2d6a2d}
+.subtitle{font-size:13px;color:#999;margin-bottom:28px}
+.badge{background:#f0f7f0;border:1px solid #c8e6c9;border-radius:10px;padding:12px 16px;margin-bottom:24px;display:none}
+.badge-name{font-size:15px;font-weight:600;color:#1a1a1a}
+.badge-sub{font-size:12px;color:#666;margin-top:2px}
+label{display:block;font-size:12px;font-weight:500;color:#666;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em}
+input{width:100%;padding:11px 14px;border:1px solid #e2e0db;border-radius:8px;font-size:14px;color:#1a1a1a;background:#fff;outline:none;margin-bottom:16px;font-family:Inter,sans-serif}
+input:focus{border-color:#2d6a2d}
+.btn{width:100%;padding:13px;background:#1a1a1a;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;font-family:Inter,sans-serif;margin-top:4px}
+.btn:disabled{opacity:0.4;cursor:not-allowed}
+.error{color:#dc2626;font-size:12px;margin-top:8px;text-align:center;display:none}
+.success{color:#2d6a2d;font-size:13px;text-align:center;display:none;padding:16px;background:#f0f7f0;border-radius:8px;margin-top:12px}
+hr{border:none;border-top:1px solid #e2e0db;margin:20px 0}
+.signin{text-align:center;font-size:13px;color:#999}
+.signin a{color:#2d6a2d;text-decoration:none;font-weight:500}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">NIL<span>Dash</span></div>
+  <div class="subtitle" id="page-sub">Athlete Portal</div>
+  <div id="invalid-state" style="text-align:center;padding:40px;display:none">
+    <div style="font-size:24px;color:#dc2626;margin-bottom:12px">x</div>
+    <div style="font-size:15px;font-weight:500;margin-bottom:8px">Invalid or expired invite</div>
+    <div style="font-size:13px;color:#999">Ask your agent to resend your invite link.</div>
+  </div>
+  <div id="signup-form">
+    <div class="badge" id="athlete-badge">
+      <div class="badge-name" id="badge-name"></div>
+      <div class="badge-sub" id="badge-sub"></div>
+    </div>
+    <div id="loading" style="text-align:center;padding:20px;color:#999">Validating invite...</div>
+    <div id="form-fields" style="display:none">
+      <label>Full name</label>
+      <input type="text" id="f-name" placeholder="Your full name">
+      <label>Email</label>
+      <input type="email" id="f-email" placeholder="your@email.com">
+      <label>Create password</label>
+      <input type="password" id="f-pass" placeholder="At least 8 characters">
+      <button class="btn" id="submit-btn" onclick="createAccount()">Create my account</button>
+      <div class="error" id="error-msg"></div>
+      <div class="success" id="success-msg">Account created! Redirecting to your dashboard...</div>
+    </div>
+  </div>
+  <hr>
+  <div class="signin">Already have an account? <a href="/">Sign in</a></div>
+</div>
+<script>
+var inviteToken = null;
+async function init() {
+  var params = new URLSearchParams(window.location.search);
+  inviteToken = params.get('token');
+  if (!inviteToken) { showInvalid(); return; }
+  try {
+    var r = await fetch('/api/athlete-portal/validate/' + inviteToken);
+    var data = await r.json();
+    if (!data.valid) { showInvalid(); return; }
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('form-fields').style.display = 'block';
+    document.getElementById('athlete-badge').style.display = 'block';
+    document.getElementById('badge-name').textContent = data.athleteName;
+    document.getElementById('badge-sub').textContent = [data.sport, data.school].filter(Boolean).join(' - ');
+    document.getElementById('f-name').value = data.athleteName || '';
+    document.getElementById('page-sub').textContent = 'Your agent has invited you to NILDash';
+  } catch(e) { showInvalid(); }
+}
+function showInvalid() {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('invalid-state').style.display = 'block';
+  document.getElementById('signup-form').style.display = 'none';
+}
+async function createAccount() {
+  var name = document.getElementById('f-name').value.trim();
+  var email = document.getElementById('f-email').value.trim();
+  var pass = document.getElementById('f-pass').value;
+  var errEl = document.getElementById('error-msg');
+  errEl.style.display = 'none';
+  if (!name || !email || !pass) { errEl.textContent = 'All fields are required'; errEl.style.display = 'block'; return; }
+  if (pass.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; errEl.style.display = 'block'; return; }
+  var btn = document.getElementById('submit-btn');
+  btn.disabled = true; btn.textContent = 'Creating account...';
+  try {
+    var r = await fetch('/api/athlete-portal/accept', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ token: inviteToken, name: name, email: email, password: pass })
+    });
+    var data = await r.json();
+    if (!r.ok) { errEl.textContent = data.error || 'Something went wrong'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Create my account'; return; }
+    document.getElementById('success-msg').style.display = 'block';
+    setTimeout(function(){ window.location.href = '/'; }, 2000);
+  } catch(e) { errEl.textContent = 'Network error - please try again'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Create my account'; }
+}
+init();
+</script>
+</body>
+</html>
