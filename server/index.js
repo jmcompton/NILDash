@@ -41,7 +41,8 @@ const authLimiter = rateLimit({
 // AI tools: 30 requests per minute per user
 const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  max: 20,
+  keyGenerator: (req) => req.session?.userId || req.ip,
   message: { error: 'Too many AI requests. Please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,
