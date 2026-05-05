@@ -477,7 +477,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div class="page-title">Deal Scan</div>
         <div class="page-sub">AI-ranked brand opportunities for your selected client</div>
         <div style="margin-bottom:16px">
-          <button id="deals-refresh-btn" onclick="runDealsRefresh()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;margin-right:8px">↺ Refresh</button><button class="run-btn" id="deals-run-btn" onclick="runDealScan()">⚡ Scan Deals with AI</button>
+          <button id="deals-refresh-btn" onclick="runDealsRefresh()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;margin-right:8px">↺ Refresh</button><button class="run-btn" id="deals-run-btn" onclick="runDealScan()">Scan Deals with AI</button>
         </div>
         <div class="ai-block" id="dealsAI" style="margin-bottom:16px">
           <div class="ai-header"><div class="spinner" id="dealsSpinner"></div><div class="ai-label">AI Deal Scan</div></div>
@@ -826,7 +826,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="form-group-sm"><label class="form-label-sm">Full Name *</label>
             <div style="display:flex;gap:8px">
               <input class="input-sm" id="a_name" placeholder="e.g. Marcus Johnson" style="flex:1">
-              <button class="run-btn" onclick="lookupPlayer()" id="lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">⚡ AI Lookup</button>
+              <button class="run-btn" onclick="lookupPlayer()" id="lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">AI Lookup</button>
             </div>
             <div id="lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
           </div>
@@ -1265,7 +1265,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <label class="form-label-sm">Full Name *</label>
         <div style="display:flex;gap:8px">
           <input class="input-sm" id="ob-athlete-name" placeholder="e.g. Marcus Johnson" style="flex:1">
-          <button onclick="obLookupPlayer()" id="ob-lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px;background:var(--accent);color:#000;border:none;border-radius:var(--r-sm);font-family:var(--mono);cursor:pointer;font-weight:700">⚡ AI Lookup</button>
+          <button onclick="obLookupPlayer()" id="ob-lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px;background:var(--accent);color:#000;border:none;border-radius:var(--r-sm);font-family:var(--mono);cursor:pointer;font-weight:700">AI Lookup</button>
         </div>
         <div id="ob-lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
       </div>
@@ -3022,7 +3022,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
           status.textContent = 'Not found — fill in manually.';
         }
       } catch(e) { status.textContent = 'Lookup failed — fill in manually.'; }
-      btn.disabled = false; btn.textContent = '⚡ AI Lookup';
+      btn.disabled = false; btn.textContent = 'AI Lookup';
     }
 
     async function obAddSample() {
