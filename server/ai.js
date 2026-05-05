@@ -14,6 +14,82 @@ function getClient() {
   return client;
 }
 
+// Sport-specific conference and school intelligence
+const SPORT_CONFERENCE_MAP = {
+  'football': {
+    topConferences: ['SEC', 'Big Ten', 'Big 12', 'ACC', 'Pac-12'],
+    risingConferences: ['American Athletic', 'Mountain West', 'Sun Belt', 'MAC', 'C-USA'],
+    note: 'NIL strongest in SEC and Big Ten. Big 12 and ACC also significant. G5 programs have smaller but growing collective budgets.'
+  },
+  'basketball': {
+    topConferences: ['Big Ten', 'SEC', 'Big 12', 'ACC', 'Big East', 'Pac-12'],
+    risingConferences: ['American Athletic', 'Mountain West', 'A-10', 'WCC', 'MVC'],
+    note: 'Big East is elite for basketball NIL despite no football. Kansas, Kentucky, Duke, UNC command premium rates. Mid-major stars at Gonzaga, Saint Marys can earn well.'
+  },
+  'hockey': {
+    topConferences: ['Big Ten', 'NCHC', 'Hockey East', 'CCHA', 'ECAC'],
+    risingConferences: ['Atlantic Hockey', 'WCHA'],
+    note: 'SEC has almost NO hockey programs — never recommend SEC for hockey. Top hockey NIL markets: Minnesota, Michigan, Wisconsin, Boston University, Boston College, Notre Dame, Denver, Minnesota-Duluth, Providence, UMass. Hockey NIL is smaller than football/basketball but growing fast in hockey markets.'
+  },
+  'baseball': {
+    topConferences: ['SEC', 'ACC', 'Big 12', 'Pac-12', 'Sun Belt'],
+    risingConferences: ['American Athletic', 'Mountain West', 'Big West'],
+    note: 'SEC dominates college baseball NIL. LSU, Arkansas, Vanderbilt, Tennessee are premier programs. Draft status is a massive NIL multiplier for baseball.'
+  },
+  'soccer': {
+    topConferences: ['ACC', 'Big Ten', 'Pac-12', 'SEC', 'Big East'],
+    risingConferences: ['American Athletic', 'WCC', 'A-10'],
+    note: 'ACC and Big Ten lead soccer NIL. International players with overseas followings can command premium rates regardless of conference.'
+  },
+  'softball': {
+    topConferences: ['SEC', 'Pac-12', 'ACC', 'Big 12', 'Big Ten'],
+    risingConferences: ['American Athletic', 'Mountain West', 'Sun Belt'],
+    note: 'SEC and Oklahoma/Texas dominate softball NIL. Cat Osterman effect — softball stars with social presence can earn significantly.'
+  },
+  'volleyball': {
+    topConferences: ['Big Ten', 'Pac-12', 'SEC', 'ACC', 'Big 12'],
+    risingConferences: ['American Athletic', 'Mountain West', 'WCC'],
+    note: 'Nebraska, Wisconsin, Texas, Stanford lead volleyball NIL. Female athletes in volleyball often outperform expectations on social.'
+  },
+  'gymnastics': {
+    topConferences: ['SEC', 'Pac-12', 'Big Ten', 'ACC'],
+    risingConferences: ['Mountain West', 'Big 12'],
+    note: 'SEC gymnastics leads NIL by far — LSU, Florida, Alabama, Georgia. Gymnasts often have the highest per-follower brand value of any college sport.'
+  },
+  'wrestling': {
+    topConferences: ['Big Ten', 'Big 12', 'ACC', 'EIWA'],
+    risingConferences: ['MAC', 'PAC', 'SoCon'],
+    note: 'Big Ten dominates wrestling NIL. Penn State, Iowa, Ohio State are top programs. Wrestling NIL is niche but growing with combat sports crossover appeal.'
+  },
+  'lacrosse': {
+    topConferences: ['ACC', 'Big Ten', 'Ivy League', 'Patriot League', 'CAA'],
+    risingConferences: ['American Athletic', 'SoCon'],
+    note: 'ACC leads lacrosse NIL. Maryland, Virginia, Notre Dame, Duke are top programs. Northeast market is key for lacrosse brand deals.'
+  },
+  'swimming': {
+    topConferences: ['SEC', 'Big Ten', 'Pac-12', 'ACC', 'Big 12'],
+    risingConferences: ['American Athletic', 'Mountain West'],
+    note: 'Olympic years dramatically spike swimming NIL values. Cal, Texas, Stanford, Florida lead. International reach can significantly boost rates.'
+  },
+  'track': {
+    topConferences: ['SEC', 'Big 12', 'Pac-12', 'ACC', 'Big Ten'],
+    risingConferences: ['Mountain West', 'American Athletic'],
+    note: 'Olympic track stars command premium NIL. SEC and Big 12 lead. International athletes with overseas followings can outperform domestic comps.'
+  }
+};
+
+function getSportConferenceContext(sport) {
+  const s = (sport || '').toLowerCase();
+  for (const [key, val] of Object.entries(SPORT_CONFERENCE_MAP)) {
+    if (s.includes(key)) return val;
+  }
+  return {
+    topConferences: ['Big Ten', 'SEC', 'Big 12', 'ACC'],
+    risingConferences: ['American Athletic', 'Mountain West'],
+    note: 'Research sport-specific conference NIL landscape before making recommendations.'
+  };
+}
+
 async function buildSystemPrompt(athlete, role = 'agent') {
   const totalReach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const brandAwareness = totalReach > 500000 ? 'High (500K+ reach)' :

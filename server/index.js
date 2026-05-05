@@ -975,7 +975,7 @@ app.get('/landing', (req, res) => {
 });
 
 // ── Admin ────────────────────────────────────────────────────
-app.get('/admin', requireAuth, async (req, res) => {
+app.get('/admin', async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).send('Forbidden');
   res.sendFile(path.join(__dirname, '..', 'public', 'admin.html'));

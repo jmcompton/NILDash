@@ -80,6 +80,21 @@ a.back:hover{color:#C8F135}
   </tbody>
 </table>
 <script>
+// Auth check — redirect to login if not authenticated
+async function checkAdminAuth() {
+  try {
+    const r = await fetch('/api/auth/me');
+    const data = await r.json();
+    if (!data.email || data.email !== 'johnmarkcompton@gmail.com') {
+      window.location.href = '/';
+      return false;
+    }
+    return true;
+  } catch(e) {
+    window.location.href = '/';
+    return false;
+  }
+}
 async function load() {
   const r = await fetch('/api/admin/requests');
   const data = await r.json();
