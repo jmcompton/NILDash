@@ -1563,7 +1563,7 @@ async function bootApp() {
   // Check AI status
   const health = await fetch(`${API_BASE}/api/health`).then(r=>r.json()).catch(()=>({aiReady:false}));
   const aiEl = document.getElementById('aiStatus');
-  if (!health.aiReady) { aiEl.textContent = '⚠️ AI KEY MISSING'; aiEl.style.color = 'var(--red)'; aiEl.style.borderColor = 'rgba(241,53,53,0.3)'; }
+  if (aiEl && !health.aiReady) { aiEl.textContent = '⚠️ AI KEY MISSING'; aiEl.style.color = 'var(--red)'; aiEl.style.borderColor = 'rgba(241,53,53,0.3)'; }
   document.getElementById('kpi-ai').textContent = health.aiReady ? '✅' : '⚠️';
   document.getElementById('kpi-ai-sub').textContent = health.aiReady ? 'Connected' : 'Key missing';
   // Check if new user needs onboarding

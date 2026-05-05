@@ -141,7 +141,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.body.appendChild(modal);
   modal.addEventListener('click', function(e) { if (e.target === modal) closeProfileModal(); });
 
-  calcTotalNilEarned();
+  if (typeof calcTotalNilEarned === 'function') calcTotalNilEarned();
 });
 
 
