@@ -126,6 +126,7 @@ CLIENT PROFILE:
   Name: ${athlete.name} | Sport: ${athlete.sport} | Position: ${athlete.position || 'N/A'}
   Year: ${athlete.year || 'N/A'} | School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'unknown'})
   Stats: ${athlete.stats || 'Not provided'} | Portal: ${athlete.transferReason || 'Not in portal'}
+  Profile: ${athlete.profileUrl ? athlete.profileUrl : 'Not provided'}${athlete.profileUrl ? ' (use this for performance context)' : ''}
 
 SOCIAL & BRAND:
   Instagram: ${(athlete.instagram || 0).toLocaleString()} | TikTok: ${(athlete.tiktok || 0).toLocaleString()} | Total: ${totalReach.toLocaleString()}
