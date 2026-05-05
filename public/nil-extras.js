@@ -148,9 +148,17 @@ document.addEventListener('DOMContentLoaded', function() {
 // ── ATHLETE PORTALS ──────────────────────────────────────────
 
 async function loadAthletePortals() {
-  await new Promise(function(r){ setTimeout(r, 500); });
   const list = document.getElementById('athlete-portals-list');
   if (!list) return;
+  await new Promise(function(r){
+    var tries = 0;
+    var check = setInterval(function(){
+      tries++;
+      if ((window.athletes && window.athletes.length > 0) || tries > 20) {
+        clearInterval(check); r();
+      }
+    }, 200);
+  });
   const athletes = window.athletes || [];
   if (!athletes.length) {
     list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No clients yet. Add a client first.</div>';
