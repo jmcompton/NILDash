@@ -190,7 +190,7 @@ async function loadAthletePortals() {
         '</div>' +
         '<div id="portal-invite-section-' + a.id + '"></div>' +
       '</div>' +
-      '<button onclick="togglePortalCard('' + a.id + '')" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:7px;cursor:pointer;margin-top:8px" id="portal-expand-btn-' + a.id + '">Manage portal</button>' +
+      '<button onclick="togglePortalCard(\'' + a.id + '\')" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:7px;cursor:pointer;margin-top:8px" id="portal-expand-btn-' + a.id + '">Manage portal</button>' +
     '</div>';
   }).join('');
   athletes.forEach(function(a) { loadPortalStatus(a.id); });
