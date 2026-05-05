@@ -148,6 +148,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // ── ATHLETE PORTALS ──────────────────────────────────────────
 
 async function loadAthletePortals() {
+  await new Promise(function(r){ setTimeout(r, 500); });
   const list = document.getElementById('athlete-portals-list');
   if (!list) return;
   const athletes = window.athletes || [];
