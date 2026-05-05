@@ -513,8 +513,23 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const athleteRate = nilViewVal(athlete, 'ig-reel');
   const reach = (athlete.instagram||0) + (athlete.tiktok||0);
 
+  // Detect if athlete is from high school or has unknown tier — anchor to realistic programs
+  const tierRaw = (athlete.schoolTier || '').toLowerCase();
+  const isHighSchool = !tierRaw || tierRaw.includes('unknown') || tierRaw.includes('high school') || tierRaw === '';
+  const realisticAnchor = isHighSchool
+    ? '\nCRITICAL: This athlete is coming from a HIGH SCHOOL or has NO college history. ' +
+      'You MUST suggest realistic entry-level college programs only. ' +
+      'DO NOT suggest SEC, Big Ten, Big 12, or ACC programs unless the athlete has verifiable elite recruitment. ' +
+      'Focus on: Mid-major programs (MAC, Sun Belt, CUSA, Big West, Horizon League, MAAC, Missouri Valley), ' +
+      'low-major programs, and G5 schools. ' +
+      'NIL values should be in the $0-$50K range for most positions. ' +
+      'A high school athlete going to a mid-major starter role would earn $10K-$50K roster value. ' +
+      'Be realistic — most high school athletes do not receive Power 4 offers.\n'
+    : '';
+
   const prompt =
     'You are an expert NIL agent with deep knowledge of the 2024-26 transfer portal market.\n\n' +
+    realisticAnchor +
     'Find the 6 best transfer portal destinations for this athlete:\n' +
     'Name: ' + athlete.name + '\n' +
     'Sport: ' + sport + ' | Position: ' + (position||'N/A') + '\n' +
