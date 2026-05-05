@@ -184,7 +184,7 @@ async function loadAthletePortals() {
             var labels = { rate:'NIL rate estimate', deals:'Deal values', contracts:'Contracts', brands:'Brand opportunities', compliance:'Compliance status' };
             return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:var(--surface2);border-radius:6px">' +
               '<span style="font-size:12px;color:var(--text)">' + labels[key] + '</span>' +
-              '<input type="checkbox" id="vis-' + a.id + '-' + key + '" onchange="updatePortalVisibility('' + a.id + '')" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">' +
+              '<input type="checkbox" id="vis-' + a.id + '-' + key + '" onchange="updatePortalVisibility(\'' + a.id + '\')" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer">' +
             '</div>';
           }).join('') +
         '</div>' +
