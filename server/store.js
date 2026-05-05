@@ -21,6 +21,8 @@ async function init() {
     );
     ALTER TABLE users ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'beta';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS athlete_id TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_id TEXT;
     CREATE TABLE IF NOT EXISTS athletes (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -53,12 +55,12 @@ async function getUserByEmail(email) {
 }
 async function saveUser(id, data) {
   await pool.query(`
-    INSERT INTO users (id, name, email, password, role, updated_at)
-    VALUES ($1,$2,$3,$4,$5,NOW())
+    INSERT INTO users (id, name, email, password, role, athlete_id, agent_id, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
     ON CONFLICT (id) DO UPDATE SET
       name=EXCLUDED.name, email=EXCLUDED.email, password=EXCLUDED.password,
-      role=EXCLUDED.role, updated_at=NOW()
-  `, [id, data.name || '', data.email, data.password, data.role || 'agent']);
+      role=EXCLUDED.role, athlete_id=EXCLUDED.athlete_id, agent_id=EXCLUDED.agent_id, updated_at=NOW()
+  `, [id, data.name || '', data.email, data.password, data.role || 'agent', data.athleteId || null, data.agentId || null]);
   return getUser(id);
 }
 async function getAllUsers() {
