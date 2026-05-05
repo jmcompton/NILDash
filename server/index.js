@@ -1030,7 +1030,7 @@ app.get('/api/athlete-portal/validate/:token', async (req, res) => {
 app.get('/api/athlete-portal/dashboard', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (user.role !== 'athlete') return res.status(403).json({ error: 'Forbidden' });
-  const athleteId = user.athleteId;
+  const athleteId = user.athleteId || user.athlete_id;
   const athlete = await store.getAthlete(athleteId);
   const deals = await store.getDealsByAthlete(athleteId).catch(() => []);
   const inviteR = await store.pool.query('SELECT visibility FROM athlete_invites WHERE athlete_id=$1', [athleteId]).catch(() => ({ rows: [] }));
