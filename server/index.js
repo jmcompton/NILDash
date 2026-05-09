@@ -475,6 +475,67 @@ app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
   }
 });
 
+
+// ── NILViewVal v4 Full Report ──────────────────────────────────
+app.get('/api/nilviewval/:athleteId', requireAuth, async (req, res) => {
+  try {
+    const athlete = await store.getAthlete(req.params.athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    const { nilViewVal } = require('./benchmarks');
+    const types = ['ig-reel', 'ig-post', 'tiktok', 'bundle', 'retainer', 'stories'];
+    const rates = {};
+    for (const t of types) {
+      rates[t] = nilViewVal(athlete, t);
+    }
+    const primary = rates['ig-reel'];
+    res.json({
+      athlete: { id: athlete.id, name: athlete.name, sport: athlete.sport, school: athlete.school },
+      rates,
+      scores: {
+        marketabilityScore: primary.marketabilityScore,
+        sponsorshipReadiness: primary.sponsorshipReadiness,
+        audienceQuality: primary.audienceQuality,
+        confidenceScore: primary.confidenceScore,
+        archetypeScore: primary.archetypeScore,
+      },
+      sponsorCategories: primary.sponsorCategories,
+      brandPartnershipTypes: primary.brandPartnershipTypes,
+      breakdown: primary.breakdown,
+      recommendation: primary.recommendation,
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── AI Athlete Brand Kit ───────────────────────────────────────
+app.post('/api/ai/brand-kit', requireAuth, aiLimiter, async (req, res) => {
+  const { athleteId } = req.body;
+  if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
+  const athlete = await store.getAthlete(athleteId);
+  if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+  try {
+    const kit = await ai.generateAthleteBrandKit(athlete);
+    res.json(kit);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── AI Generate Outreach (Enhanced) ───────────────────────────
+app.post('/api/ai/generate-outreach', requireAuth, aiLimiter, async (req, res) => {
+  const { athleteId, brand, category, outreachType, goal } = req.body;
+  if (!athleteId || !brand) return res.status(400).json({ error: 'athleteId and brand required' });
+  const athlete = await store.getAthlete(athleteId);
+  if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+  try {
+    const outreach = await ai.generateOutreach(athlete, brand, category, outreachType || 'email', goal);
+    res.json(outreach);
+  } catch(err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Team Match endpoint ────────────────────────────────────────
 app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, sortBy } = req.body;
@@ -582,7 +643,7 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
     '- How this program affects NIL trajectory\n' +
     '- A real portal comp player who took a similar path\n\n' +
     'Return ONLY JSON array of 6 schools. Sort by: ' + (sortBy||'fit') + '\n' +
-    '[{"rank":1,"name":"Full School Name","conference":"SEC","confLabel":"SEC","tier":"reach|best-fit|safe","why":"2 specific sentences about this athlete fit","nilLow":1000000,"nilHigh":3000000,"nilBreakdown":[{"label":"Roster Value","val":"$1M-3M"}],"fitScore":92,"playingTimeOutlook":"Immediate starter","rosterNeed":"Lost 2 bigs to draft — critical need","collectiveDealHistory":"Paid $1.5M-2.5M for similar F/C archetypes in 2025 portal","trajectoryNote":"SEC exposure + elite coaching accelerates draft stock","portalComp":"Similar path to [Player] who signed $2M deal in 2025","metrics":[{"label":"Collective","val":"Elite"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"}]}]';
+    '[{"rank":1,"name":"Full School Name","conference":"SEC","confLabel":"SEC","tier":"reach|best-fit|safe","why":"2 specific sentences about this athlete fit","nilLow":1000000,"nilHigh":3000000,"nilBreakdown":[{"label":"Roster Value","val":"$1M-3M"}],"fitScore":92,"playingTimeOutlook":"Immediate starter","rosterNeed":"Lost 2 bigs to draft — critical need","collectiveDealHistory":"Paid $1.5M-2.5M for similar F/C archetypes in 2025 portal","trajectoryNote":"SEC exposure + elite coaching accelerates draft stock","portalComp":"Similar path to [Player] who signed $2M deal in 2025","metrics":[{"label":"Collective","val":"Elite"},{"label":"Market","val":"Major metro"},{"label":"Playing time","val":"High"}],"strengths":["2-3 specific strengths of this match for the athlete"],"weaknesses":["1-2 potential concerns or downsides"],"suggestedOpportunities":["2-3 specific NIL or brand opportunities unique to this school/market"]}]';
 
   // Add live search context to prompt
   const searchContext = 'Search the web for: 1) "' + athlete.name + ' transfer portal 2026" to find their current transfer status, 2) "' + (athlete.school||'') + ' NIL collective 2026" for current budget info, 3) Recent disclosed NIL deals for ' + sport + ' ' + position + ' players in the transfer portal. Use this live data to make your recommendations more accurate.';
@@ -603,7 +664,7 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
     } catch(e) { console.error('Team match error:', e.message); }
   }
   if (!teams) return res.json({ teams: [], error: 'AI service busy — please try again.' });
-  res.json({ teams, liveData: true, trajectoryNote, archetypeScore: athleteRate.archetypeScore });
+  res.json({ teams, liveData: true, trajectoryNote, archetypeScore: athleteRate.archetypeScore, marketabilityScore: athleteRate.marketabilityScore, sponsorshipReadiness: athleteRate.sponsorshipReadiness });
 });
 // ── Contract Generator ────────────────────────────────────────
 app.post('/api/ai/contract', requireAuth, aiLimiter, async (req, res) => {
