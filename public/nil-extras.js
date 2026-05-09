@@ -348,7 +348,7 @@ async function loadAthleteDashboard() {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NILViewVal v4 Scores Panel
+// NILViewVal v5 Scores Panel
 // ─────────────────────────────────────────────────────────────────────────────
 async function showNILViewValScores(athleteId, containerEl) {
   if (!containerEl) return;
@@ -577,3 +577,4 @@ async function runOutreachGeneration(athleteId) {
 window.openBrandKitModal = openBrandKitModal;
 window.openOutreachModal = openOutreachModal;
 window.runOutreachGeneration = runOutreachGeneration;
+window.showNILViewValScores = showNILViewValScores;
