@@ -365,6 +365,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('outreach',this)">
         <span class="nav-dot-item"></span>Outreach
       </button>
+      <button class="nav-item" onclick="showView('marketing',this)" id="marketingNavBtn">
+        <span class="nav-dot-item"></span>Marketing
+      </button>
       <button class="nav-item" onclick="showView('calendar',this)">
         <span class="nav-dot-item"></span>Calendar
       </button>
@@ -1017,6 +1020,78 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div>
       </div>
 
+
+      <!-- ── MARKETING ── -->
+      <div id="view-marketing" class="view">
+        <div class="page-title">Marketing Tools</div>
+        <div class="page-sub">AI-powered brand kit, outreach, and sponsorship materials for your client</div>
+
+        <!-- Tab bar -->
+        <div style="display:flex;gap:8px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
+          <button id="mkt-tab-brandkit" onclick="switchMarketingTab('brandkit')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;margin-bottom:-1px">🎯 Brand Kit</button>
+          <button id="mkt-tab-outreach" onclick="switchMarketingTab('outreach')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px">📨 Generate Outreach</button>
+          <button id="mkt-tab-scores" onclick="switchMarketingTab('scores')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px">📊 NIL Scores</button>
+        </div>
+
+        <!-- ── TAB: Brand Kit ── -->
+        <div id="mkt-panel-brandkit">
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Generate a complete brand kit for <strong id="mkt-athlete-name" style="color:var(--text)">your selected client</strong> — brand summary, sponsorship positioning, athlete bio, outreach talking points, content strategy, and campaign ideas.</div>
+            <button class="run-btn" id="mkt-brandkit-btn" onclick="runMarketingBrandKit()">Generate Brand Kit →</button>
+          </div>
+          <div id="mkt-brandkit-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">
+            Generating brand kit... takes about 15 seconds
+            <div style="margin-top:8px;font-size:11px">AI is analyzing your athlete's profile, social presence, sport, and market position</div>
+          </div>
+          <div id="mkt-brandkit-result" style="display:none"></div>
+        </div>
+
+        <!-- ── TAB: Generate Outreach ── -->
+        <div id="mkt-panel-outreach" style="display:none">
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Generate a full sponsorship outreach package for <strong id="mkt-athlete-name-2" style="color:var(--text)">your selected client</strong> — email, Instagram DM, partnership proposal, and follow-up message.</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+              <div>
+                <label class="form-label-sm">Brand / Company *</label>
+                <input class="input-sm" id="mkt-or-brand" placeholder="e.g. Celsius, Jim Hudson Toyota">
+              </div>
+              <div>
+                <label class="form-label-sm">Category</label>
+                <select class="select-sm" id="mkt-or-category">
+                  <option value="nutrition">Nutrition / Supplements</option>
+                  <option value="apparel">Apparel / Footwear</option>
+                  <option value="food">Food / Restaurant</option>
+                  <option value="auto">Automotive</option>
+                  <option value="finance">Finance / Banking</option>
+                  <option value="tech">Tech / Gaming</option>
+                  <option value="grooming">Grooming / Beauty</option>
+                  <option value="general">General</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label-sm">Deal Goal ($)</label>
+                <input class="input-sm" id="mkt-or-goal" type="number" placeholder="e.g. 2500">
+              </div>
+            </div>
+            <button class="run-btn" id="mkt-outreach-btn" onclick="runMarketingOutreach()">Generate Outreach →</button>
+          </div>
+          <div id="mkt-outreach-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">
+            Generating outreach materials... takes about 15 seconds
+          </div>
+          <div id="mkt-outreach-result" style="display:none"></div>
+        </div>
+
+        <!-- ── TAB: NIL Scores ── -->
+        <div id="mkt-panel-scores" style="display:none">
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">NILViewVal v4 composite scores for <strong id="mkt-athlete-name-3" style="color:var(--text)">your selected client</strong> — marketability, sponsorship readiness, audience quality, and top brand categories.</div>
+            <button class="run-btn" id="mkt-scores-btn" onclick="runMarketingScores()">Load NIL Scores →</button>
+          </div>
+          <div id="mkt-scores-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Loading scores...</div>
+          <div id="mkt-scores-result" style="display:none"></div>
+        </div>
+      </div>
+
       <!-- CALENDAR -->
       <div id="view-calendar" class="view">
         <div class="page-title">Deal Calendar</div>
@@ -1569,7 +1644,7 @@ async function bootApp() {
     showView('athlete-dashboard', null);
     loadAthleteDashboard();
     // Hide entire agent nav for athletes
-    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-team-match','view-outreach','view-calendar','view-compliance','view-contract','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals'];
+    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals'];
     agentOnlyEls.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -1669,6 +1744,7 @@ function clearAllResults() {
 
   // Outreach
   renderOutreachTracker();
+  updateMarketingClientLabel();
   const orResults = document.getElementById('or-results');
   if (orResults) orResults.style.display = 'none';
   const orBrand = document.getElementById('or-brand');
@@ -3350,5 +3426,170 @@ renderNotifPanel();
 <script src="/search.js"></script>
 <script src="/analytics.js"></script>
 <script src="/help.js"></script>
-<script src="/nil-extras.js"></script>
+<script src="/nil-extras.js">
+// ── Marketing View Logic ──────────────────────────────────────────────────────
+function switchMarketingTab(tab) {
+  ['brandkit','outreach','scores'].forEach(t => {
+    const btn = document.getElementById('mkt-tab-' + t);
+    const panel = document.getElementById('mkt-panel-' + t);
+    if (btn) {
+      btn.style.borderBottomColor = t === tab ? 'var(--accent)' : 'transparent';
+      btn.style.color = t === tab ? 'var(--accent)' : 'var(--muted)';
+    }
+    if (panel) panel.style.display = t === tab ? '' : 'none';
+  });
+}
+
+function updateMarketingClientLabel() {
+  const ath = athletes.find(a => a.id === selectedAthleteId);
+  const name = ath ? ath.name : 'your selected client';
+  ['mkt-athlete-name','mkt-athlete-name-2','mkt-athlete-name-3'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = name;
+  });
+}
+
+async function runMarketingBrandKit() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const btn = document.getElementById('mkt-brandkit-btn');
+  const loading = document.getElementById('mkt-brandkit-loading');
+  const result = document.getElementById('mkt-brandkit-result');
+  if (btn) btn.disabled = true;
+  if (loading) loading.style.display = 'block';
+  if (result) result.style.display = 'none';
+  try {
+    const r = await fetch(API_BASE + '/api/ai/brand-kit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: selectedAthleteId })
+    });
+    const kit = await r.json();
+    if (kit.error) throw new Error(kit.error);
+    if (loading) loading.style.display = 'none';
+    if (result) {
+      result.style.display = 'block';
+      function mktSection(title, body, icon) {
+        return '<div style="margin-bottom:14px;padding:14px;background:var(--surface2);border-radius:var(--r)">' +
+          '<div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">' + icon + ' ' + title + '</div>' +
+          '<div style="font-size:13px;color:var(--text);line-height:1.6">' + body + '</div></div>';
+      }
+      function mktBullets(arr) {
+        if (!Array.isArray(arr)) return '<p style="margin:0">' + arr + '</p>';
+        return '<ul style="margin:0;padding-left:16px">' + arr.map(i => '<li style="margin-bottom:4px">' + i + '</li>').join('') + '</ul>';
+      }
+      result.innerHTML =
+        '<div style="display:flex;justify-content:flex-end;margin-bottom:10px">' +
+          '<button onclick="navigator.clipboard.writeText(document.getElementById('mkt-brandkit-result').innerText).then(()=>showToast('Brand kit copied!'))" style="padding:6px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;cursor:pointer">📋 Copy All</button>' +
+        '</div>' +
+        mktSection('Brand Summary', kit.brandSummary || '—', '✨') +
+        mktSection('Sponsorship Positioning', kit.sponsorshipPositioning || '—', '🎯') +
+        mktSection('Athlete Bio (Media Kit)', kit.athleteBio || '—', '📋') +
+        mktSection('Outreach Talking Points', mktBullets(kit.outreachTalkingPoints), '💬') +
+        mktSection('Social Content Strategy', (kit.socialContentStrategy || '—') + (kit.contentPillars ? '<br><br><strong>Content Pillars:</strong><br>' + mktBullets(kit.contentPillars) : ''), '📱') +
+        mktSection('Campaign Suggestions', mktBullets(kit.campaignSuggestions), '🚀') +
+        mktSection('Ideal Sponsorship Categories', mktBullets(kit.idealSponsorshipCategories), '🏷️');
+    }
+  } catch(e) {
+    if (loading) loading.style.display = 'none';
+    if (result) { result.style.display = 'block'; result.innerHTML = '<div style="color:#f87171;padding:12px">Error: ' + e.message + '</div>'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runMarketingOutreach() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const brand = (document.getElementById('mkt-or-brand') || {}).value || '';
+  if (!brand.trim()) { showToast('Enter a brand name'); return; }
+  const category = (document.getElementById('mkt-or-category') || {}).value;
+  const goal = (document.getElementById('mkt-or-goal') || {}).value;
+  const btn = document.getElementById('mkt-outreach-btn');
+  const loading = document.getElementById('mkt-outreach-loading');
+  const result = document.getElementById('mkt-outreach-result');
+  if (btn) btn.disabled = true;
+  if (loading) loading.style.display = 'block';
+  if (result) result.style.display = 'none';
+  try {
+    const r = await fetch(API_BASE + '/api/ai/generate-outreach', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: selectedAthleteId, brand, category, outreachType: 'full', goal })
+    });
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    if (loading) loading.style.display = 'none';
+    if (result) {
+      result.style.display = 'block';
+      function orBox(title, icon, bodyText) {
+        var uid = 'orb-' + Math.random().toString(36).substr(2,6);
+        return '<div style="margin-bottom:12px;padding:14px;background:var(--surface2);border-radius:var(--r)">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+            '<span style="font-size:11px;font-weight:700;color:var(--accent)">' + icon + ' ' + title + '</span>' +
+            '<button onclick="navigator.clipboard.writeText(document.getElementById('' + uid + '').innerText).then(()=>showToast('Copied!'))" style="font-size:10px;padding:2px 8px;background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer">Copy</button>' +
+          '</div>' +
+          '<div id="' + uid + '" style="font-size:12px;color:var(--text);line-height:1.6;white-space:pre-wrap">' + (bodyText || '') + '</div></div>';
+      }
+      var html = '';
+      if (data.sponsorshipEmail) html += orBox('Sponsorship Email', '📧', 'SUBJECT: ' + (data.sponsorshipEmail.subject || '') + '\n\n' + (data.sponsorshipEmail.body || ''));
+      if (data.instagramDm) html += orBox('Instagram DM', '📲', data.instagramDm);
+      if (data.partnershipProposal) html += orBox('Partnership Proposal', '📄', data.partnershipProposal);
+      if (data.followUpEmail) html += orBox('Follow-up Email', '🔁', 'SUBJECT: ' + (data.followUpEmail.subject || '') + '\n\n' + (data.followUpEmail.body || ''));
+      result.innerHTML = html;
+    }
+  } catch(e) {
+    if (loading) loading.style.display = 'none';
+    if (result) { result.style.display = 'block'; result.innerHTML = '<div style="color:#f87171;padding:12px">Error: ' + e.message + '</div>'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runMarketingScores() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  const btn = document.getElementById('mkt-scores-btn');
+  const loading = document.getElementById('mkt-scores-loading');
+  const result = document.getElementById('mkt-scores-result');
+  if (btn) btn.disabled = true;
+  if (loading) loading.style.display = 'block';
+  if (result) result.style.display = 'none';
+  try {
+    const r = await fetch(API_BASE + '/api/nilviewval/' + selectedAthleteId);
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    if (loading) loading.style.display = 'none';
+    if (result) {
+      result.style.display = 'block';
+      const s = data.scores || {};
+      const cats = data.sponsorCategories || [];
+      const pts = data.brandPartnershipTypes || [];
+      function scoreColor(n) { return n >= 80 ? '#4ade80' : n >= 60 ? '#f59e0b' : '#f87171'; }
+      function bar(n) { return '<div style="background:var(--surface);border-radius:4px;height:8px;margin-top:6px"><div style="width:'+n+'%;background:'+scoreColor(n)+';height:8px;border-radius:4px"></div></div>'; }
+      result.innerHTML =
+        '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px">' +
+        [['Marketability', s.marketabilityScore], ['Sponsorship Readiness', s.sponsorshipReadiness], ['Audience Quality', s.audienceQuality], ['Valuation Confidence', s.confidenceScore]].map(([label, val]) =>
+          '<div style="background:var(--surface2);border-radius:var(--r);padding:14px">' +
+            '<div style="font-size:11px;color:var(--muted)">' + label + '</div>' +
+            '<div style="font-size:26px;font-weight:700;color:' + scoreColor(val||0) + ';margin-top:4px">' + (val||0) + '<span style="font-size:13px;color:var(--muted)">/100</span></div>' +
+            bar(val||0) +
+          '</div>'
+        ).join('') + '</div>' +
+        (cats.length ? '<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Top Sponsorship Categories</div>' +
+          cats.map(c => '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:var(--r-sm);margin-bottom:6px">' +
+            '<div><div style="font-size:12px;font-weight:600;color:var(--text)">' + c.name + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (c.reason||'') + '</div></div>' +
+            '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:rgba(74,222,128,0.12);color:#4ade80;white-space:nowrap;margin-left:8px">' + (c.fit||'Good') + '</span>' +
+          '</div>').join('') + '</div>' : '') +
+        (pts.length ? '<div><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Ideal Deal Structures</div>' +
+          pts.map(p => '<div style="padding:10px 12px;background:var(--surface2);border-radius:var(--r-sm);margin-bottom:6px">' +
+            '<div style="font-size:12px;font-weight:600;color:var(--text)">' + p.type + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + p.description + '</div>' +
+          '</div>').join('') + '</div>' : '');
+    }
+  } catch(e) {
+    if (loading) loading.style.display = 'none';
+    if (result) { result.style.display = 'block'; result.innerHTML = '<div style="color:#f87171;padding:12px">Error: ' + e.message + '</div>'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+</script>
 </body>
