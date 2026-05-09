@@ -455,7 +455,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div class="cmd-wrap">
           <div class="cmd-top">
             <span class="cmd-top-label">Ask about <span id="cmdClientLabel" style="color:var(--text)">your client</span></span>
-            <span style="font-size:10px;color:var(--muted)">LIVE AI</span>
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:10px;color:var(--muted)">LIVE AI</span>
+              <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="padding:3px 10px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:5px;color:var(--accent);font-size:10px;font-weight:600;cursor:pointer">🎯 Brand Kit</button>
+              <button onclick="if(selectedAthleteId){openOutreachModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="padding:3px 10px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:5px;color:var(--accent);font-size:10px;font-weight:600;cursor:pointer">📨 Outreach</button>
+            </div>
           </div>
           <textarea class="cmd-input" id="commandInput" placeholder="e.g. 'What are the 10 best deals for my client?' or 'What should I charge Nike?' or 'Give me negotiation leverage for today's call'"></textarea>
           <div class="cmd-footer">
@@ -1719,6 +1723,10 @@ function renderRoster() {
         <button onclick="event.stopPropagation();deleteAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--red);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em">Delete</button>
         <button onclick="event.stopPropagation();generateReport('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em">Report</button>
         <button onclick="event.stopPropagation();openClientProfile('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em;font-weight:600">Profile</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:4px">
+        <button onclick="event.stopPropagation();openBrandKitModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">🎯 Brand Kit</button>
+        <button onclick="event.stopPropagation();openOutreachModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">📨 Outreach</button>
       </div>
     </div>`;
   }).join('');
