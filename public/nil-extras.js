@@ -405,20 +405,24 @@ async function showNILViewValScores(athleteId, containerEl) {
 // ─────────────────────────────────────────────────────────────────────────────
 // AI Athlete Brand Kit Modal
 // ─────────────────────────────────────────────────────────────────────────────
+
 async function openBrandKitModal(athleteId, athleteName) {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
-  overlay.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:700px;max-height:90vh;overflow-y:auto;padding:24px">' +
+  const modal = document.createElement('div');
+  modal.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:700px;max-height:90vh;overflow-y:auto;padding:24px';
+  modal.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">' +
       '<div>' +
         '<div style="font-size:16px;font-weight:700;color:var(--text)">🎯 Brand Kit — ' + (athleteName||'Athlete') + '</div>' +
         '<div style="font-size:12px;color:var(--muted);margin-top:2px">AI-generated marketing materials</div>' +
       '</div>' +
-      '<button onclick="this.closest('div[style*=fixed]').remove()" style="background:var(--surface2);border:none;color:var(--muted);cursor:pointer;padding:6px 12px;border-radius:6px;font-size:12px">✕ Close</button>' +
+      '<button id="bk-close-btn" style="background:var(--surface2);border:none;color:var(--muted);cursor:pointer;padding:6px 12px;border-radius:6px;font-size:12px">✕ Close</button>' +
     '</div>' +
-    '<div id="brandKitContent" style="color:var(--muted);text-align:center;padding:30px">Generating brand kit... <br><small>This takes about 15 seconds</small></div>' +
-  '</div>';
+    '<div id="brandKitContent" style="color:var(--muted);text-align:center;padding:30px">Generating brand kit... <br><small>This takes about 15 seconds</small></div>';
+  overlay.appendChild(modal);
   document.body.appendChild(overlay);
+  document.getElementById('bk-close-btn').addEventListener('click', function() { overlay.remove(); });
 
   try {
     const r = await fetch('/api/ai/brand-kit', {
@@ -428,29 +432,37 @@ async function openBrandKitModal(athleteId, athleteName) {
     const kit = await r.json();
     if (kit.error) throw new Error(kit.error);
 
-    const content = document.getElementById('brandKitContent');
-    if (!content) return;
+    const bkContent = document.getElementById('brandKitContent');
+    if (!bkContent) return;
 
-    function section(title, content, icon) {
+    function section(title, body, icon) {
       return '<div style="margin-bottom:16px;padding:14px;background:var(--surface2);border-radius:8px">' +
         '<div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">' + icon + ' ' + title + '</div>' +
-        '<div style="font-size:13px;color:var(--text);line-height:1.6">' + content + '</div>' +
+        '<div style="font-size:13px;color:var(--text);line-height:1.6">' + body + '</div>' +
       '</div>';
     }
     function bullets(arr) {
-      if (!Array.isArray(arr)) return '<p>' + arr + '</p>';
-      return '<ul style="margin:0;padding-left:16px">' + arr.map(i => '<li style="margin-bottom:4px">' + i + '</li>').join('') + '</ul>';
+      if (!Array.isArray(arr)) return '<p style="margin:0">' + arr + '</p>';
+      return '<ul style="margin:0;padding-left:16px">' + arr.map(function(i){ return '<li style="margin-bottom:4px">' + i + '</li>'; }).join('') + '</ul>';
     }
 
-    content.innerHTML =
+    bkContent.innerHTML =
       section('Brand Summary', kit.brandSummary || '—', '✨') +
       section('Sponsorship Positioning', kit.sponsorshipPositioning || '—', '🎯') +
       section('Athlete Bio (Media Kit)', kit.athleteBio || '—', '📋') +
       section('Outreach Talking Points', bullets(kit.outreachTalkingPoints), '💬') +
       section('Social Content Strategy', (kit.socialContentStrategy || '—') + (kit.contentPillars ? '<br><br><strong>Content Pillars:</strong><br>' + bullets(kit.contentPillars) : ''), '📱') +
       section('Campaign Suggestions', bullets(kit.campaignSuggestions), '🚀') +
-      section('Ideal Sponsorship Categories', bullets(kit.idealSponsorshipCategories), '🏷️') +
-      '<button onclick="navigator.clipboard.writeText(document.getElementById('brandKitContent').innerText).then(()=>alert('Copied to clipboard!'))" style="width:100%;padding:10px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">📋 Copy Full Brand Kit</button>';
+      section('Ideal Sponsorship Categories', bullets(kit.idealSponsorshipCategories), '🏷️');
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = '📋 Copy Full Brand Kit';
+    copyBtn.style.cssText = 'width:100%;padding:10px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px';
+    copyBtn.addEventListener('click', function() {
+      navigator.clipboard.writeText(bkContent.innerText).then(function(){ if(typeof showToast==='function') showToast('Brand kit copied!'); else alert('Copied!'); });
+    });
+    bkContent.appendChild(copyBtn);
+
   } catch(e) {
     const c = document.getElementById('brandKitContent');
     if (c) c.innerHTML = '<div style="color:#f87171">Error generating brand kit: ' + e.message + '</div>';
@@ -463,13 +475,15 @@ async function openBrandKitModal(athleteId, athleteName) {
 async function openOutreachModal(athleteId, athleteName) {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
-  overlay.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:680px;max-height:90vh;overflow-y:auto;padding:24px">' +
+  const modal = document.createElement('div');
+  modal.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:680px;max-height:90vh;overflow-y:auto;padding:24px';
+  modal.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">' +
       '<div>' +
         '<div style="font-size:16px;font-weight:700;color:var(--text)">📨 Generate Outreach — ' + (athleteName||'Athlete') + '</div>' +
         '<div style="font-size:12px;color:var(--muted);margin-top:2px">AI-generated sponsorship emails, DMs, and proposals</div>' +
       '</div>' +
-      '<button onclick="this.closest('div[style*=fixed]').remove()" style="background:var(--surface2);border:none;color:var(--muted);cursor:pointer;padding:6px 12px;border-radius:6px;font-size:12px">✕ Close</button>' +
+      '<button id="or-close-btn" style="background:var(--surface2);border:none;color:var(--muted);cursor:pointer;padding:6px 12px;border-radius:6px;font-size:12px">✕ Close</button>' +
     '</div>' +
     '<div style="display:grid;gap:10px;margin-bottom:16px">' +
       '<div>' +
@@ -493,19 +507,24 @@ async function openOutreachModal(athleteId, athleteName) {
           '<input id="outreachGoal" type="number" placeholder="e.g. 2500" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;box-sizing:border-box">' +
         '</div>' +
       '</div>' +
-      '<button onclick="runOutreachGeneration('' + athleteId + '')" style="padding:10px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Generate Outreach →</button>' +
+      '<button id="or-generate-btn" style="padding:10px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Generate Outreach →</button>' +
     '</div>' +
-    '<div id="outreachResult"></div>' +
-  '</div>';
+    '<div id="outreachResult"></div>';
+  overlay.appendChild(modal);
   document.body.appendChild(overlay);
+  document.getElementById('or-close-btn').addEventListener('click', function() { overlay.remove(); });
+  document.getElementById('or-generate-btn').addEventListener('click', function() { runOutreachGeneration(athleteId); });
 }
 
 async function runOutreachGeneration(athleteId) {
-  const brand = document.getElementById('outreachBrand')?.value?.trim();
-  const category = document.getElementById('outreachCategory')?.value;
-  const goal = document.getElementById('outreachGoal')?.value;
+  const brandEl = document.getElementById('outreachBrand');
+  const categoryEl = document.getElementById('outreachCategory');
+  const goalEl = document.getElementById('outreachGoal');
   const resultEl = document.getElementById('outreachResult');
-  if (!brand) { alert('Enter a brand name'); return; }
+  const brand = brandEl ? brandEl.value.trim() : '';
+  const category = categoryEl ? categoryEl.value : 'general';
+  const goal = goalEl ? goalEl.value : '';
+  if (!brand) { if(typeof showToast==='function') showToast('Enter a brand name'); else alert('Enter a brand name'); return; }
   if (resultEl) resultEl.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px">Generating outreach... takes ~15 seconds</div>';
 
   try {
@@ -516,41 +535,45 @@ async function runOutreachGeneration(athleteId) {
     const data = await r.json();
     if (data.error) throw new Error(data.error);
 
-    function outreachBox(title, icon, content) {
-      const id = 'ob-' + Math.random().toString(36).substr(2,6);
-      return '<div style="margin-bottom:12px;padding:14px;background:var(--surface2);border-radius:8px">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-          '<span style="font-size:12px;font-weight:700;color:var(--accent)">' + icon + ' ' + title + '</span>' +
-          '<button onclick="navigator.clipboard.writeText(document.getElementById('' + id + '').innerText).then(()=>alert('Copied!'))" style="font-size:10px;padding:2px 8px;background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer">Copy</button>' +
-        '</div>' +
-        '<div id="' + id + '" style="font-size:12px;color:var(--text);line-height:1.6;white-space:pre-wrap">' + content + '</div>' +
-      '</div>';
+    function outreachBox(title, icon, bodyText) {
+      const boxId = 'ob-' + Math.random().toString(36).substr(2,6);
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'margin-bottom:12px;padding:14px;background:var(--surface2);border-radius:8px';
+      const header = document.createElement('div');
+      header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px';
+      const label = document.createElement('span');
+      label.style.cssText = 'font-size:12px;font-weight:700;color:var(--accent)';
+      label.textContent = icon + ' ' + title;
+      const copyBtn = document.createElement('button');
+      copyBtn.textContent = 'Copy';
+      copyBtn.style.cssText = 'font-size:10px;padding:2px 8px;background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer';
+      const bodyDiv = document.createElement('div');
+      bodyDiv.id = boxId;
+      bodyDiv.style.cssText = 'font-size:12px;color:var(--text);line-height:1.6;white-space:pre-wrap';
+      bodyDiv.textContent = bodyText;
+      copyBtn.addEventListener('click', function() {
+        navigator.clipboard.writeText(bodyDiv.textContent).then(function(){ if(typeof showToast==='function') showToast('Copied!'); else alert('Copied!'); });
+      });
+      header.appendChild(label);
+      header.appendChild(copyBtn);
+      wrapper.appendChild(header);
+      wrapper.appendChild(bodyDiv);
+      return wrapper;
     }
 
-    let html = '';
-    if (data.sponsorshipEmail) {
-      html += outreachBox('Sponsorship Email', '📧',
-        'SUBJECT: ' + (data.sponsorshipEmail.subject || '') + '
-
-' + (data.sponsorshipEmail.body || ''));
+    if (resultEl) {
+      resultEl.innerHTML = '';
+      if (data.sponsorshipEmail) resultEl.appendChild(outreachBox('Sponsorship Email', '📧', 'SUBJECT: ' + (data.sponsorshipEmail.subject||'') + '\n\n' + (data.sponsorshipEmail.body||'')));
+      if (data.instagramDm) resultEl.appendChild(outreachBox('Instagram DM', '📲', data.instagramDm));
+      if (data.partnershipProposal) resultEl.appendChild(outreachBox('Partnership Proposal', '📄', data.partnershipProposal));
+      if (data.followUpEmail) resultEl.appendChild(outreachBox('Follow-up Email', '🔁', 'SUBJECT: ' + (data.followUpEmail.subject||'') + '\n\n' + (data.followUpEmail.body||'')));
     }
-    if (data.instagramDm) html += outreachBox('Instagram DM', '📲', data.instagramDm);
-    if (data.partnershipProposal) html += outreachBox('Partnership Proposal', '📄', data.partnershipProposal);
-    if (data.followUpEmail) {
-      html += outreachBox('Follow-up Email', '🔁',
-        'SUBJECT: ' + (data.followUpEmail.subject || '') + '
-
-' + (data.followUpEmail.body || ''));
-    }
-
-    if (resultEl) resultEl.innerHTML = html;
   } catch(e) {
     if (resultEl) resultEl.innerHTML = '<div style="color:#f87171;padding:12px">Error: ' + e.message + '</div>';
   }
 }
 
-// Make functions globally accessible
-window.showNILViewValScores = showNILViewValScores;
+
 window.openBrandKitModal = openBrandKitModal;
 window.openOutreachModal = openOutreachModal;
 window.runOutreachGeneration = runOutreachGeneration;
