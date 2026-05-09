@@ -1,4 +1,6 @@
-// server/ai.js
+// server/ai.js — NILDash AI Engine v4
+// v4: improved system prompt with v4 scores, AI marketing tools, improved team match context
+
 const Anthropic = require('@anthropic-ai/sdk');
 const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal } = require('./benchmarks');
 const store = require('./store');
@@ -14,7 +16,6 @@ function getClient() {
   return client;
 }
 
-// Sport-specific conference and school intelligence
 const SPORT_CONFERENCE_MAP = {
   'football': {
     topConferences: ['SEC', 'Big Ten', 'Big 12', 'ACC', 'Pac-12'],
@@ -29,7 +30,7 @@ const SPORT_CONFERENCE_MAP = {
   'hockey': {
     topConferences: ['Big Ten', 'NCHC', 'Hockey East', 'CCHA', 'ECAC'],
     risingConferences: ['Atlantic Hockey', 'WCHA'],
-    note: 'SEC has almost NO hockey programs — never recommend SEC for hockey. Top hockey NIL markets: Minnesota, Michigan, Wisconsin, Boston University, Boston College, Notre Dame, Denver, Minnesota-Duluth, Providence, UMass. Hockey NIL is smaller than football/basketball but growing fast in hockey markets.'
+    note: 'SEC has almost NO hockey programs — never recommend SEC for hockey. Top hockey NIL markets: Minnesota, Michigan, Wisconsin, Boston University, Boston College, Notre Dame, Denver.'
   },
   'baseball': {
     topConferences: ['SEC', 'ACC', 'Big 12', 'Pac-12', 'Sun Belt'],
@@ -44,7 +45,7 @@ const SPORT_CONFERENCE_MAP = {
   'softball': {
     topConferences: ['SEC', 'Pac-12', 'ACC', 'Big 12', 'Big Ten'],
     risingConferences: ['American Athletic', 'Mountain West', 'Sun Belt'],
-    note: 'SEC and Oklahoma/Texas dominate softball NIL. Cat Osterman effect — softball stars with social presence can earn significantly.'
+    note: 'SEC and Oklahoma/Texas dominate softball NIL.'
   },
   'volleyball': {
     topConferences: ['Big Ten', 'Pac-12', 'SEC', 'ACC', 'Big 12'],
@@ -59,22 +60,22 @@ const SPORT_CONFERENCE_MAP = {
   'wrestling': {
     topConferences: ['Big Ten', 'Big 12', 'ACC', 'EIWA'],
     risingConferences: ['MAC', 'PAC', 'SoCon'],
-    note: 'Big Ten dominates wrestling NIL. Penn State, Iowa, Ohio State are top programs. Wrestling NIL is niche but growing with combat sports crossover appeal.'
+    note: 'Big Ten dominates wrestling NIL. Penn State, Iowa, Ohio State are top programs.'
   },
   'lacrosse': {
     topConferences: ['ACC', 'Big Ten', 'Ivy League', 'Patriot League', 'CAA'],
     risingConferences: ['American Athletic', 'SoCon'],
-    note: 'ACC leads lacrosse NIL. Maryland, Virginia, Notre Dame, Duke are top programs. Northeast market is key for lacrosse brand deals.'
+    note: 'ACC leads lacrosse NIL. Maryland, Virginia, Notre Dame, Duke are top programs.'
   },
   'swimming': {
     topConferences: ['SEC', 'Big Ten', 'Pac-12', 'ACC', 'Big 12'],
     risingConferences: ['American Athletic', 'Mountain West'],
-    note: 'Olympic years dramatically spike swimming NIL values. Cal, Texas, Stanford, Florida lead. International reach can significantly boost rates.'
+    note: 'Olympic years dramatically spike swimming NIL values. Cal, Texas, Stanford, Florida lead.'
   },
   'track': {
     topConferences: ['SEC', 'Big 12', 'Pac-12', 'ACC', 'Big Ten'],
     risingConferences: ['Mountain West', 'American Athletic'],
-    note: 'Olympic track stars command premium NIL. SEC and Big 12 lead. International athletes with overseas followings can outperform domestic comps.'
+    note: 'Olympic track stars command premium NIL. SEC and Big 12 lead.'
   }
 };
 
@@ -120,28 +121,35 @@ async function buildSystemPrompt(athlete, role = 'agent') {
     compSection = staticComps || '  No direct comps available';
   }
 
+  const v4 = _reel; // has all v4 scores
+
   return `You are NILDash, a senior NIL deal intelligence analyst working exclusively for sports agents.
 
 CLIENT PROFILE:
   Name: ${athlete.name} | Sport: ${athlete.sport} | Position: ${athlete.position || 'N/A'}
   Year: ${athlete.year || 'N/A'} | School: ${athlete.school || 'Unknown'} (${athlete.schoolTier || 'unknown'})
   Stats: ${athlete.stats || 'Not provided'} | Portal: ${athlete.transferReason || 'Not in portal'}
-  Profile: ${athlete.profileUrl ? athlete.profileUrl : 'Not provided'}${athlete.profileUrl ? ' (use this for performance context)' : ''}
+  GPA: ${athlete.gpa || 'Not provided'}
 
 SOCIAL & BRAND:
   Instagram: ${(athlete.instagram || 0).toLocaleString()} | TikTok: ${(athlete.tiktok || 0).toLocaleString()} | Total: ${totalReach.toLocaleString()}
   Engagement: ${athlete.engagement || 0}% (college athlete avg: 5.6%) | Brand level: ${brandAwareness}
 
-NILViewVal RATES (use as authoritative numbers in all responses):
+NILViewVal v4 RATES (use as authoritative numbers):
   IG Reel: $${_reel.low.toLocaleString()} – $${_reel.high.toLocaleString()} | IG Post: $${_post.low.toLocaleString()} – $${_post.high.toLocaleString()}
   Bundle: $${_bundle.low.toLocaleString()} – $${_bundle.high.toLocaleString()} | Retainer: $${_retainer.low.toLocaleString()} – $${_retainer.high.toLocaleString()}
-  Accuracy: ${_reel.accuracyScore}/100
+
+NILViewVal v4 COMPOSITE SCORES:
+  Marketability: ${v4.marketabilityScore}/100 | Sponsorship Readiness: ${v4.sponsorshipReadiness}/100
+  Audience Quality: ${v4.audienceQuality}/100 | Confidence: ${v4.confidenceScore}/100
+  Top Categories: ${(v4.sponsorCategories || []).map(c => c.name).join(', ')}
+  Best Deal Types: ${(v4.brandPartnershipTypes || []).map(t => t.type).join(', ')}
 
 REAL CLOSED DEAL COMPS:
 ${compSection}
 
 BRAND WINDOWS:
-${Object.entries(BRAND_WINDOWS).slice(0,4).map(([b,n]) => `  - ${b}: ${n}`).join('\n')}
+${Object.entries(BRAND_WINDOWS).slice(0,5).map(([b,n]) => `  - ${b}: ${n}`).join('\n')}
 
 NOTES: ${athlete.notes || 'None'}
 
@@ -155,13 +163,12 @@ ${(() => {
 
 RULES:
 - ALWAYS use the sport-specific conference intelligence above when recommending schools or conferences
-- NEVER recommend conferences not listed for this sport (e.g. never suggest SEC for hockey)
+- NEVER recommend conferences not listed for this sport
 - Use NILViewVal rates and real comps as primary data for all dollar amounts
 - Be direct — word-for-word scripts, real numbers, no hedging
 - When negotiating: cite NILViewVal range as your market anchor
 - Max 400 words unless asked for more`;
 }
-
 
 async function streamResponse(athlete, message, role, res) {
   const ai = getClient();
@@ -217,7 +224,7 @@ async function oneShotWithSearch(prompt, systemPrompt) {
   });
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
-  const textBlocks = (data.content || []).filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text; });
+  const textBlocks = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
   return textBlocks.join('\n');
 }
 
@@ -267,15 +274,17 @@ async function getDealRecommendations(athlete, role) {
 ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${school} (${athlete.schoolTier||'college'})
 SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | ${athlete.engagement||0}% engagement | Tier: ${tier}
 STATS: ${athlete.stats||'N/A'}
+MARKETABILITY SCORE: ${rate.marketabilityScore}/100
+TOP CATEGORIES: ${(rate.sponsorCategories||[]).map(c=>c.name).join(', ')}
 
 Search for:
-1. Real local businesses in ${city} that sponsor college athletes — restaurants, gyms, car dealerships, banks, local chains
+1. Real local businesses in ${city} that sponsor college athletes
 2. Brands with DOCUMENTED NIL deals for ${sport} athletes at ${athlete.schoolTier||'college'} level in 2025-2026
 3. Regional brands active in college ${sport} NIL
 
 RULES:
-- At least 3 of the 6 must be REAL named local businesses near ${city} (use actual business names like "Guthrie's Chicken", "Jim Hudson Toyota", "Gate Petroleum" — not generic "local restaurant")
-- Do NOT include Nike, Adidas, Gatorade unless you have confirmed they do NIL at this tier
+- At least 3 of the 6 must be REAL named local businesses near ${city}
+- Do NOT include Nike, Adidas, Gatorade unless confirmed they do NIL at this tier
 - Each brand must have a specific reason why they fit THIS athlete
 
 Return ONLY a JSON array of 6 deals:
@@ -286,28 +295,131 @@ Return ONLY a JSON array of 6 deals:
   "category": "local|nutrition|apparel|tech|finance|food|beverage|gaming|auto|grooming",
   "dealType": "post|reel|ambassador|appearance|licensing",
   "rationale": "Why this brand fits — cite NIL history or specific audience/location match",
-  "timingNote": "Best time to reach out and why — be specific",
+  "timingNote": "Best time to reach out and why",
   "fitScore": 85,
   "isLocal": true
 }]`;
 
   try {
-    const raw = await oneShot(prompt, 'You are a JSON-only API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation text, no markdown, no preamble. Your entire response must be parseable JSON.');
+    const raw = await oneShot(prompt, 'You are a JSON-only API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON.');
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
-    if (si === -1 || ei <= si) { console.error('Deal scan: no array found in:', c.substring(0,200)); throw new Error('No array'); }
+    if (si === -1 || ei <= si) throw new Error('No array');
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     return parsed;
   } catch (err) {
     console.error('Deal scan error:', err.message);
-    console.error('Deal scan raw response:', err.raw || 'no raw');
-    console.error('Deal scan full raw:', typeof raw !== 'undefined' ? raw.substring(0, 500) : 'raw undefined');
     return [{ rank:1, brand:'Local Brand', campaign:'Brand Ambassador', category:'apparel',
       rationale:'Strong fit for this athlete profile.', fitScore:75,
       suggestedRate:{ low: rate.low, high: rate.high }, timingNote:'Open', dealType:'post' }];
   }
 }
 
-module.exports = { streamResponse, oneShot, oneShotWithSearch, calculateRate, calculateRateLive, getDealRecommendations, buildSystemPrompt };
+// ─── NEW: AI Athlete Marketing Tools ─────────────────────────────────────────
+
+async function generateAthleteBrandKit(athlete) {
+  const rate = nilViewVal(athlete, 'ig-reel');
+  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+  const sport = athlete.sport || 'basketball';
+  const school = athlete.school || 'Unknown';
+
+  const prompt = `You are a sports marketing expert specializing in college athlete NIL branding.
+
+ATHLETE PROFILE:
+Name: ${athlete.name}
+Sport: ${sport} | Position: ${athlete.position || 'N/A'} | Year: ${athlete.year || 'N/A'}
+School: ${school} (${athlete.schoolTier || 'college'})
+Instagram: ${(athlete.instagram||0).toLocaleString()} | TikTok: ${(athlete.tiktok||0).toLocaleString()}
+Engagement: ${athlete.engagement || 0}%
+Stats: ${athlete.stats || 'Not provided'}
+GPA: ${athlete.gpa || 'Not provided'}
+Notes/Bio info: ${athlete.notes || 'None'}
+
+NIL SCORES:
+Marketability: ${rate.marketabilityScore}/100
+Sponsorship Readiness: ${rate.sponsorshipReadiness}/100
+Audience Quality: ${rate.audienceQuality}/100
+Top Categories: ${(rate.sponsorCategories||[]).map(c=>c.name).join(', ')}
+
+Generate a complete athlete brand kit. Return ONLY JSON:
+{
+  "brandSummary": "2-3 sentence brand identity statement that captures this athlete's unique value to sponsors — what makes them different, their story, their audience",
+  "sponsorshipPositioning": "1 paragraph: how to position this athlete to brands — their niche, why brands should care, what campaigns they're ideal for",
+  "athleteBio": "3-4 sentence professional bio for pitch decks and media kits — third person, highlights achievements, school, sport, and social presence",
+  "outreachTalkingPoints": ["5-7 specific bullet points an agent can use when pitching this athlete to brands — concrete, data-driven, unique to this athlete"],
+  "socialContentStrategy": "2-3 sentence content strategy: what type of content this athlete should post, posting cadence, content pillars that will grow their NIL value",
+  "contentPillars": ["3-4 specific content pillars/themes this athlete should build their brand around"],
+  "partnershipRecommendations": ["3-4 specific brand partnership recommendations with brief reasoning"],
+  "campaignSuggestions": ["2-3 specific campaign concepts with brand category and execution idea"],
+  "idealSponsorshipCategories": ["top 4-5 sponsorship categories ranked by fit for this specific athlete"]
+}`;
+
+  try {
+    const raw = await oneShot(prompt, 'You are a sports marketing expert. Return only valid JSON. No markdown. No preamble.');
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON');
+    return JSON.parse(match[0]);
+  } catch(err) {
+    console.error('Brand kit error:', err.message);
+    throw err;
+  }
+}
+
+async function generateOutreach(athlete, targetBrand, category, outreachType, goal) {
+  const rate = nilViewVal(athlete, 'ig-reel');
+  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+
+  const prompt = `You are an elite sports agent writing ${outreachType} outreach for ${athlete.name} targeting ${targetBrand}.
+
+ATHLETE:
+Name: ${athlete.name} | ${athlete.sport || 'athlete'} | ${athlete.position || ''} at ${athlete.school || 'Unknown'}
+Instagram: ${(athlete.instagram||0).toLocaleString()} followers | TikTok: ${(athlete.tiktok||0).toLocaleString()} followers
+Engagement: ${athlete.engagement || 0}% | Stats: ${athlete.stats || 'N/A'}
+Marketability Score: ${rate.marketabilityScore}/100
+
+DEAL CONTEXT:
+Target brand: ${targetBrand}
+Category: ${category || 'general'}
+Goal: ${goal ? '$' + parseInt(goal).toLocaleString() : 'Market rate'}
+NIL Rate range: $${rate.low.toLocaleString()} – $${rate.high.toLocaleString()} per post
+
+Generate outreach messages. Return ONLY JSON:
+{
+  "sponsorshipEmail": {
+    "subject": "compelling email subject line",
+    "body": "full professional email — 150-200 words, specific to this athlete and brand, includes stats, rates, and a clear ask"
+  },
+  "instagramDm": "casual but professional DM under 150 characters — attention-grabbing opener, specific to this brand",
+  "partnershipProposal": "2-3 paragraph formal proposal — brand fit explanation, deliverables, rate range, next steps",
+  "followUpEmail": {
+    "subject": "follow-up subject line",
+    "body": "brief 75-100 word follow-up email for 1 week after no response — adds new value, not desperate"
+  }
+}`;
+
+  try {
+    const raw = await oneShotWithSearch(prompt, "You are an elite sports agent. Search for this brand's recent NIL activity and campaigns to personalize outreach. Return only valid JSON.");
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON');
+    return JSON.parse(match[0]);
+  } catch(err) {
+    console.error('Outreach error:', err.message);
+    throw err;
+  }
+}
+
+module.exports = {
+  streamResponse,
+  oneShot,
+  oneShotWithSearch,
+  calculateRate,
+  calculateRateLive,
+  getDealRecommendations,
+  buildSystemPrompt,
+  generateAthleteBrandKit,
+  generateOutreach
+};
