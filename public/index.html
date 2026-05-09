@@ -563,6 +563,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div id="rate-context-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
             </div>
             <div id="rate-archetype" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
+            <div id="rate-v4-scores" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-top:12px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">NILViewVal v4 — Marketability Scores</div>
+              <div id="rate-v4-scores-body"></div>
+              <div style="display:flex;gap:8px;margin-top:14px">
+                <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">🎯 Generate Brand Kit</button>
+                <button onclick="if(selectedAthleteId){openOutreachModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">📨 Generate Outreach</button>
+              </div>
+            </div>
             <div id="rate-floor-notice" style="display:none;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:var(--r-sm);padding:10px 14px;font-size:11px;color:var(--blue);margin-top:12px">
             </div>
             <div id="rate-recommendation" style="display:none;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:var(--r-sm);padding:14px;margin-top:12px">
@@ -2323,7 +2331,16 @@ async function updateNilRateKpi() {
     const data = await r.json();
     if (data.low && data.high) {
       el.textContent = '$' + data.low.toLocaleString() + ' - $' + data.high.toLocaleString();
-      if (sub) sub.textContent = 'NILViewVal v3 estimate';
+      if (sub) sub.textContent = 'NILViewVal v4 estimate';
+    // Auto-load v4 composite scores panel
+    if (selectedAthleteId) {
+      var scoresPanel = document.getElementById('rate-v4-scores');
+      var scoresBody = document.getElementById('rate-v4-scores-body');
+      if (scoresPanel && scoresBody) {
+        scoresPanel.style.display = 'block';
+        if (typeof showNILViewValScores === 'function') showNILViewValScores(selectedAthleteId, scoresBody);
+      }
+    }
     }
   } catch(e) {}
 }
