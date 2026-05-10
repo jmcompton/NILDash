@@ -460,7 +460,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <span class="cmd-top-label">Ask about <span id="cmdClientLabel" style="color:var(--text)">your client</span></span>
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-size:10px;color:var(--muted)">LIVE AI</span>
-              <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="padding:3px 10px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:5px;color:var(--accent);font-size:10px;font-weight:600;cursor:pointer">🎯 Brand Kit</button>
+              <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="padding:3px 10px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:5px;color:var(--accent);font-size:10px;font-weight:600;cursor:pointer">🎯 Pitch Deck</button>
               <button onclick="if(selectedAthleteId){openOutreachModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="padding:3px 10px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:5px;color:var(--accent);font-size:10px;font-weight:600;cursor:pointer">📨 Outreach</button>
             </div>
           </div>
@@ -590,7 +590,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">NILViewVal v5.2 — Marketability Scores</div>
               <div id="rate-v4-scores-body"></div>
               <div style="display:flex;gap:8px;margin-top:14px">
-                <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">🎯 Generate Brand Kit</button>
+                <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">🎯 Generate Pitch Deck</button>
                 <button onclick="if(selectedAthleteId){openOutreachModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">📨 Generate Outreach</button>
               </div>
             </div>
@@ -1044,23 +1044,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <!-- ── MARKETING ── -->
       <div id="view-marketing" class="view">
         <div class="page-title">Marketing Tools</div>
-        <div class="page-sub">AI-powered brand kit, outreach, and sponsorship materials for your client</div>
+        <div class="page-sub">AI-powered pitch deck, outreach, and sponsorship materials for your client</div>
 
         <!-- Tab bar -->
         <div style="display:flex;gap:8px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
-          <button id="mkt-tab-brandkit" onclick="switchMarketingTab('brandkit')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;margin-bottom:-1px">🎯 Brand Kit</button>
+          <button id="mkt-tab-brandkit" onclick="switchMarketingTab('brandkit')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;margin-bottom:-1px">🎯 Pitch Deck</button>
           <button id="mkt-tab-outreach" onclick="switchMarketingTab('outreach')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px">📨 Generate Outreach</button>
           <button id="mkt-tab-scores" onclick="switchMarketingTab('scores')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px">📊 NIL Scores</button>
         </div>
 
-        <!-- ── TAB: Brand Kit ── -->
+        <!-- ── TAB: Pitch Deck ── -->
         <div id="mkt-panel-brandkit">
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
-            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Generate a complete brand kit for <strong id="mkt-athlete-name" style="color:var(--text)">your selected client</strong> — brand summary, sponsorship positioning, athlete bio, outreach talking points, content strategy, and campaign ideas.</div>
-            <button class="run-btn" id="mkt-brandkit-btn" onclick="runMarketingBrandKit()">Generate Brand Kit →</button>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Generate a complete pitch deck for <strong id="mkt-athlete-name" style="color:var(--text)">your selected client</strong> — brand summary, sponsorship positioning, athlete bio, outreach talking points, content strategy, and campaign ideas.</div>
+            <button class="run-btn" id="mkt-brandkit-btn" onclick="runMarketingBrandKit()">Generate Pitch Deck →</button>
           </div>
           <div id="mkt-brandkit-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">
-            Generating brand kit... takes about 15 seconds
+            Generating pitch deck... takes about 15 seconds
             <div style="margin-top:8px;font-size:11px">AI is analyzing your athlete's profile, social presence, sport, and market position</div>
           </div>
           <div id="mkt-brandkit-result" style="display:none"></div>
@@ -1872,7 +1872,7 @@ async function renderRoster() {
         <button onclick="event.stopPropagation();openClientProfile('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em;font-weight:600">Profile</button>
       </div>
       <div style="display:flex;gap:6px;margin-top:4px">
-        <button onclick="event.stopPropagation();openBrandKitModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">🎯 Brand Kit</button>
+        <button onclick="event.stopPropagation();openBrandKitModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">🎯 Pitch Deck</button>
         <button onclick="event.stopPropagation();openOutreachModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">📨 Outreach</button>
       </div>
     </div>`;
@@ -3904,12 +3904,12 @@ function openBrandKitModal(athleteId, athleteName) {
   if (athleteId) {
     selectAthlete(athleteId);
   }
-  // Switch to marketing view and brand kit tab
+  // Switch to marketing view and pitch deck tab
   var mktBtn = document.getElementById('marketingNavBtn');
   showView('marketing', mktBtn);
   setTimeout(function() {
     switchMarketingTab('brandkit');
-    // Auto-run brand kit after short delay
+    // Auto-run pitch deck after short delay
     setTimeout(runMarketingBrandKit, 300);
   }, 150);
 }
