@@ -97,10 +97,14 @@ async function buildSystemPrompt(athlete, role = 'agent') {
                          totalReach > 100000 ? 'Growing (100K-500K reach)' :
                          totalReach > 25000  ? 'Emerging (25K-100K reach)' : 'Early stage (<25K reach)';
 
-  const _reel     = nilViewVal(athlete, 'ig-reel');
-  const _post     = nilViewVal(athlete, 'ig-post');
-  const _bundle   = nilViewVal(athlete, 'bundle');
-  const _retainer = nilViewVal(athlete, 'retainer');
+  const _reel      = nilViewVal(athlete, 'ig-reel');
+  const _post      = nilViewVal(athlete, 'ig-post');
+  const _tiktok    = nilViewVal(athlete, 'tiktok');
+  const _bundle    = nilViewVal(athlete, 'bundle');
+  const _bundleCross = nilViewVal(athlete, 'bundle-cross');
+  const _retainer  = nilViewVal(athlete, 'retainer');
+  const _ugcVideo  = nilViewVal(athlete, 'ugc-video');
+  const _appearance = nilViewVal(athlete, 'appearance-inperson');
 
   let compSection = '  No closed deals logged yet for this sport/tier — use NILViewVal estimates below';
   try {
@@ -123,7 +127,7 @@ async function buildSystemPrompt(athlete, role = 'agent') {
 
   const v4 = _reel; // has all v4 scores
 
-  return `You are NILDash, a senior NIL deal intelligence analyst working exclusively for sports agents.
+  return `You are NILDash AI — a world-class NIL deal intelligence analyst powered by the NILViewVal v5.2 model. You work exclusively for sports agents. You have real market data: NCAA 2025 median deal=$60, avg=$5,594; top athletes earn $1M-$7M+; micro-athletes (10K-50K) are the fastest-growing NIL segment. You know real CPM rates (IG Reels: $15-45), real deal comps, and platform-specific strategies.
 
 CLIENT PROFILE:
   Name: ${athlete.name} | Sport: ${athlete.sport} | Position: ${athlete.position || 'N/A'}
@@ -133,13 +137,15 @@ CLIENT PROFILE:
 
 SOCIAL & BRAND:
   Instagram: ${(athlete.instagram || 0).toLocaleString()} | TikTok: ${(athlete.tiktok || 0).toLocaleString()} | Total: ${totalReach.toLocaleString()}
-  Engagement: ${athlete.engagement || 0}% (college athlete avg: 5.6%) | Brand level: ${brandAwareness}
+  Engagement: ${athlete.engagement || 0}% (college athlete avg: 4.8% per Hootsuite 2025) | Brand level: ${brandAwareness}
 
-NILViewVal v4 RATES (use as authoritative numbers):
-  IG Reel: $${_reel.low.toLocaleString()} – $${_reel.high.toLocaleString()} | IG Post: $${_post.low.toLocaleString()} – $${_post.high.toLocaleString()}
-  Bundle: $${_bundle.low.toLocaleString()} – $${_bundle.high.toLocaleString()} | Retainer: $${_retainer.low.toLocaleString()} – $${_retainer.high.toLocaleString()}
+NILViewVal v5.2 RATES — Real-data model (NCAA 2025 + On3 + Modash CPM benchmarks):
+  IG Reel: $\${_reel.low.toLocaleString()} – $\${_reel.high.toLocaleString()} | IG Post: $\${_post.low.toLocaleString()} – $\${_post.high.toLocaleString()}
+  TikTok: $\${_tiktok.low.toLocaleString()} – $\${_tiktok.high.toLocaleString()} | Bundle (IG+Post+Story): $\${_bundle.low.toLocaleString()} – $\${_bundle.high.toLocaleString()}
+  Cross-Platform Bundle: $\${_bundleCross.low.toLocaleString()} – $\${_bundleCross.high.toLocaleString()} | Monthly Retainer: $\${_retainer.low.toLocaleString()} – $\${_retainer.high.toLocaleString()}
+  UGC Video License: $\${_ugcVideo.low.toLocaleString()} – $\${_ugcVideo.high.toLocaleString()} | In-Person Appearance: $\${_appearance.low.toLocaleString()} – $\${_appearance.high.toLocaleString()}
 
-NILViewVal v4 COMPOSITE SCORES:
+NILViewVal v5.2 COMPOSITE SCORES:
   Marketability: ${v4.marketabilityScore}/100 | Sponsorship Readiness: ${v4.sponsorshipReadiness}/100
   Audience Quality: ${v4.audienceQuality}/100 | Confidence: ${v4.confidenceScore}/100
   Top Categories: ${(v4.sponsorCategories || []).map(c => c.name).join(', ')}
@@ -301,7 +307,7 @@ Return ONLY a JSON array of 6 deals:
 }]`;
 
   try {
-    const raw = await oneShot(prompt, 'You are a JSON-only API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON.');
+    const raw = await oneShotWithSearch(prompt, 'You are a JSON-only NIL deal research API. Use web search to find REAL local businesses in the athlete\'s city and REAL brand NIL programs. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON.');
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
