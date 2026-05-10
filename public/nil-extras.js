@@ -734,15 +734,20 @@ async function runMarketingScores() {
             '<div style="background:' + color + ';width:' + pct + '%;height:6px;border-radius:4px;transition:width 0.5s"></div>' +
           '</div></div>';
       }
-      const scores = data.scores || data;
+      // /api/ai/rate spreads nilViewVal result directly - use exact field names
+      const overall = Math.round(((data.marketabilityScore || 0) + (data.sponsorshipReadiness || 0) + (data.audienceQuality || 0)) / 3);
+      const cats = data.sponsorCategories || [];
+      const catNames = cats.map(function(c){ return typeof c === 'string' ? c : (c.name || c); }).slice(0,5).join(', ');
+      const rateInfo = (data.mid || data.low) ? '<div style="margin-top:12px;padding:14px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:8px">💰 Estimated IG Reel Rate</div><div style="font-size:16px;font-weight:700;color:var(--text)">$' + (data.low||0).toLocaleString() + ' – $' + (data.high||0).toLocaleString() + '</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Mid: $' + (data.mid||0).toLocaleString() + '</div></div>' : '';
       result.innerHTML =
-        '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">NILViewVal Composite Scores</div>' +
-        scoreBadge('Marketability', scores.marketability || scores.marketabilityScore || 0, 100, '#34d399') +
-        scoreBadge('Sponsorship Readiness', scores.sponsorshipReadiness || scores.readinessScore || 0, 100, '#60a5fa') +
-        scoreBadge('Audience Quality', scores.audienceQuality || scores.audienceScore || 0, 100, '#f59e0b') +
-        scoreBadge('Overall NIL Score', scores.overallScore || scores.nilScore || 0, 100, '#a78bfa') +
-        (scores.topCategories ? '<div style="margin-top:12px;padding:14px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:8px">🏷️ Top Brand Categories</div><div style="font-size:13px;color:var(--text)">' + (Array.isArray(scores.topCategories) ? scores.topCategories.join(', ') : scores.topCategories) + '</div></div>' : '') +
-        (scores.summary ? '<div style="margin-top:12px;padding:14px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:8px">📊 Summary</div><div style="font-size:13px;color:var(--text);line-height:1.6">' + scores.summary + '</div></div>' : '');
+        '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">NILViewVal v5.2 Composite Scores</div>' +
+        scoreBadge('Marketability', data.marketabilityScore || 0, 100, '#34d399') +
+        scoreBadge('Sponsorship Readiness', data.sponsorshipReadiness || 0, 100, '#60a5fa') +
+        scoreBadge('Audience Quality', data.audienceQuality || 0, 100, '#f59e0b') +
+        scoreBadge('Overall NIL Score', overall, 100, '#a78bfa') +
+        rateInfo +
+        (catNames ? '<div style="margin-top:12px;padding:14px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:8px">🏷️ Top Brand Categories</div><div style="font-size:13px;color:var(--text)">' + catNames + '</div></div>' : '') +
+        (data.archetypeScore ? '<div style="margin-top:12px;padding:14px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:8px">⚡ Archetype Score</div><div style="font-size:13px;color:var(--text)">' + data.archetypeScore + '</div></div>' : '');
     }
   } catch(e) {
     if (loading) loading.style.display = 'none';
