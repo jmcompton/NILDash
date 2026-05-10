@@ -1620,7 +1620,7 @@ let selectedAthleteId = null;
 let selectedRole = 'agent';
 
 // ── AUTH ──────────────────────────────────────────────────────
-function switchTab(tab) {
+async function switchTab(tab) {
   document.querySelectorAll('.auth-tab').forEach((t,i) => t.classList.toggle('active', (i===0&&tab==='login')||(i===1&&tab==='signup')));
   document.getElementById('loginForm').style.display  = tab==='login'  ? 'block' : 'none';
   document.getElementById('signupForm').style.display = tab==='signup' ? 'block' : 'none';
@@ -1837,7 +1837,7 @@ function onAthleteChange() {
   }
 }
 
-function renderRoster() {
+async function renderRoster() {
   const grid = document.getElementById('rosterGrid');
   if (!athletes.length) {
     grid.innerHTML = '<div style="color:var(--muted);padding:40px;text-align:center">No clients yet. Use "Add Client" to add your first athlete.</div>';
@@ -2038,7 +2038,7 @@ function prefillContract() {
 }
 
 // ── AI: COMMAND ──────────────────────────────────────────────
-function setPrompt(text) { document.getElementById('commandInput').value = text; document.getElementById('commandInput').focus(); }
+async function setPrompt(text) { document.getElementById('commandInput').value = text; document.getElementById('commandInput').focus(); }
 
 async function runCommand() {
   const msg = document.getElementById('commandInput').value.trim();
@@ -2162,7 +2162,7 @@ async function addDealToPipeline(brand, dealType, campaign) {
 }
 
 // Deal Scan — Add to Outreach
-function addDealToOutreach(brand, campaign) {
+async function addDealToOutreach(brand, campaign) {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   trackDealScanAction(brand, '', 'outreach');
   var ath = athletes.find(function(a) { return a.id === selectedAthleteId; });
@@ -2228,7 +2228,7 @@ async function runDealsRefresh() {
   if (btn) { btn.disabled = false; btn.textContent = 'Refresh ↺'; }
 }
 
-function prefillOutreach(brand) {
+async function prefillOutreach(brand) {
   var el = document.getElementById('orBrand');
   if (el) el.value = brand;
   showView('outreach', document.querySelectorAll('.nav-item')[5]);
@@ -3032,7 +3032,7 @@ async function runCompliance() {
   btn.disabled = false; btn.textContent = 'Check Compliance';
 }
 
-function renderComplianceResults(data) {
+async function renderComplianceResults(data) {
   const banner = document.getElementById('comp-status-banner');
   const styles = {
     clear: 'border-radius:6px;padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80',
@@ -3207,7 +3207,7 @@ function formatDeadlineDate(d) {
   return { label: dateStr, urgency: 'future', badge: diff + 'd left' };
 }
 
-function makeGoogleCalLink(title, date, description) {
+async function makeGoogleCalLink(title, date, description) {
   const start = date.toISOString().replace(/-|:|\.\d{3}/g, '').slice(0, 15) + '00Z';
   const end = new Date(date.getTime() + 60 * 60 * 1000).toISOString().replace(/-|:|\.\d{3}/g, '').slice(0, 15) + '00Z';
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
@@ -3318,7 +3318,7 @@ function renderTeamMatch(teams) {
   `).join('');
 }
 
-function toggleTmDetail(id) {
+async function toggleTmDetail(id) {
   const el = document.getElementById(id);
   if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
@@ -3561,7 +3561,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
   </div>
 </div>
 <script>
-function openManualDealModal(){
+async function openManualDealModal(){
   var modal=document.getElementById('manual-deal-modal');
   var sel=document.getElementById('md-athlete');
   sel.innerHTML=athletes.map(function(a){return '<option value="'+a.id+'">'+a.name+'</option>';}).join('');
@@ -3662,7 +3662,7 @@ renderNotifPanel();
 <script src="/nil-extras.js">
 // ── Marketing View Logic ──────────────────────────────────────────────────────
 // ── Marketing View Logic ─────────────────────────────────────────────────────
-function switchMarketingTab(tab) {
+async function switchMarketingTab(tab) {
   ['brandkit','outreach','scores'].forEach(function(t) {
     var btn = document.getElementById('mkt-tab-' + t);
     var panel = document.getElementById('mkt-panel-' + t);
