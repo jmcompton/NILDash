@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NIL Sponsorship Pitch Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --navy:    #0a0f1e;
+    --navy2:   #0d1528;
+    --navy3:   #111d35;
+    --navy4:   #162040;
+    --green:   #00FF87;
+    --green2:  #00cc6a;
+    --white:   #ffffff;
+    --gray1:   #e8edf5;
+    --gray2:   #b0b8cc;
+    --gray3:   #6b7694;
+    --border:  rgba(255,255,255,0.07);
+    --card:    rgba(255,255,255,0.04);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', Helvetica, Arial, sans-serif;
+    background: var(--navy);
+    color: var(--white);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* NAV */
+  #top-nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(10,15,30,0.93);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 40px;
+  }
+  #nav-left { display: flex; flex-direction: column; gap: 1px; }
+  #nav-name { font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--green); }
+  #nav-sub  { font-size: 10px; color: var(--gray3); letter-spacing: .08em; text-transform: uppercase; }
+  #nav-right { display: flex; align-items: center; gap: 10px; }
+  .nav-btn {
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    padding: 8px 18px; border-radius: 4px; cursor: pointer; border: none; transition: all .2s;
+  }
+  .nav-btn.ghost { background: transparent; border: 1px solid rgba(255,255,255,0.15); color: var(--gray2); }
+  .nav-btn.ghost:hover { border-color: var(--green); color: var(--green); }
+  .nav-btn.solid { background: var(--green); color: var(--navy); font-weight: 800; }
+  .nav-btn.solid:hover { background: var(--green2); }
+
+  /* SLIDES */
+  .slide {
+    padding: 120px 80px 96px;
+    border-bottom: 1px solid var(--border);
+    opacity: 0; transform: translateY(28px);
+    transition: opacity .75s ease, transform .75s ease;
+  }
+  .slide.in { opacity: 1; transform: translateY(0); }
+
+  .eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--green); margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .eyebrow::after {
+    content: ''; display: block; height: 1px; width: 40px;
+    background: var(--green); opacity: .4;
+  }
+  .sec-title {
+    font-size: clamp(30px, 4vw, 52px); font-weight: 800; letter-spacing: -.025em;
+    line-height: 1.08; color: var(--white); margin-bottom: 8px;
+  }
+  .sec-sub { font-size: 15px; color: var(--gray3); margin-bottom: 52px; }
+
+  /* SLIDE 1 — HERO */
+  #s1 {
+    background: linear-gradient(150deg, #0a0f1e 0%, #0e1a3a 55%, rgba(0,255,135,.04) 100%);
+    min-height: 100vh; display: flex; flex-direction: column; justify-content: center;
+    padding-top: 96px;
+  }
+  .hero-ey { font-size: 11px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--green); margin-bottom: 24px; }
+  .hero-name { font-size: clamp(56px, 10vw, 116px); font-weight: 900; letter-spacing: -.04em; line-height: .93; color: var(--white); margin-bottom: 20px; }
+  .hero-meta { font-size: 16px; color: var(--gray2); letter-spacing: .03em; margin-bottom: 28px; }
+  .hero-stmt {
+    font-size: clamp(15px, 1.8vw, 20px); font-weight: 500; color: var(--gray1); line-height: 1.55;
+    max-width: 660px; margin-bottom: 64px;
+    border-left: 3px solid var(--green); padding-left: 22px;
+  }
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-width: 900px; }
+  .stat-box {
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+    border-radius: 5px; padding: 20px 22px; position: relative; overflow: hidden;
+  }
+  .stat-box::before {
+    content:''; position: absolute; top:0;left:0;right:0; height:2px; background: var(--green); opacity:.5;
+  }
+  .stat-val { font-size: 30px; font-weight: 800; letter-spacing: -.025em; line-height: 1; margin-bottom: 6px; }
+  .stat-val.g { color: var(--green); }
+  .stat-lbl { font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--gray3); }
+
+  /* SLIDE 2 — WHY */
+  #s2 { background: #0d1528; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
+  .why-list { display: flex; flex-direction: column; gap: 10px; }
+  .why-item {
+    background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+    border-left: 3px solid var(--green); border-radius: 0 5px 5px 0;
+    padding: 16px 18px; transition: background .2s;
+  }
+  .why-item:hover { background: rgba(255,255,255,0.06); }
+  .why-lead { font-size: 13px; font-weight: 700; color: var(--white); margin-bottom: 4px; }
+  .why-body { font-size: 12px; color: var(--gray2); line-height: 1.6; }
+  .chart-wrap { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 5px; padding: 24px; }
+  .chart-head { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--gray3); margin-bottom: 20px; }
+
+  /* SLIDE 3 — PERFORMANCE */
+  #s3 { background: #0a0f1e; }
+  .big-stat-list { display: flex; flex-direction: column; }
+  .bsr {
+    display: flex; align-items: baseline; gap: 18px;
+    padding: 22px 0; border-bottom: 1px solid var(--border);
+  }
+  .bsr:first-child { border-top: 1px solid var(--border); }
+  .bsr-num { font-size: clamp(38px, 4.5vw, 58px); font-weight: 900; letter-spacing: -.03em; color: var(--green); line-height:1; min-width: 150px; }
+  .bsr-lbl { font-size: 13px; color: var(--gray2); line-height: 1.4; }
+  .bsr-sub { font-size: 11px; color: var(--gray3); margin-top: 2px; }
+
+  /* SLIDE 4 — AUDIENCE */
+  #s4 { background: #111d35; }
+  .plat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; }
+  .plat-box { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 5px; padding: 24px; }
+  .plat-name { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--gray3); margin-bottom: 14px; }
+  .plat-num { font-size: 38px; font-weight: 900; letter-spacing: -.025em; color: var(--white); }
+  .plat-eng { font-size: 13px; color: var(--green); font-weight: 600; margin: 4px 0 12px; }
+  .plat-demo { font-size: 12px; color: var(--gray3); line-height: 1.6; border-top: 1px solid var(--border); padding-top: 12px; }
+  .aud-bottom { display: grid; grid-template-columns: 1fr 2fr; gap: 16px; }
+  .geo-box { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 5px; padding: 22px; }
+  .geo-hd { font-size: 10px; font-weight: 700; letter-spacing:.14em; text-transform:uppercase; color: var(--gray3); margin-bottom: 16px; }
+  .geo-row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .geo-row:last-child { border-bottom:none; }
+  .geo-r { color: var(--gray2); }
+  .geo-p { color: var(--green); font-weight: 700; }
+
+  /* SLIDE 5 — RATES */
+  #s5 { background: #0d1528; }
+  .rate-tbl { width:100%; border-collapse:collapse; border:1px solid var(--border); border-radius:5px; overflow:hidden; }
+  .rate-tbl th {
+    background: rgba(0,255,135,0.07); font-size:10px; font-weight:700; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--green); padding:14px 22px; text-align:left;
+    border-bottom:1px solid var(--border);
+  }
+  .rate-tbl td { padding:15px 22px; font-size:13px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .rate-tbl tr:last-child td { border-bottom:none; }
+  .rate-tbl tr:nth-child(even) td { background:rgba(255,255,255,0.025); }
+  .rate-tbl tr:nth-child(odd) td  { background:rgba(255,255,255,0.01); }
+  .dlv-name { font-weight:600; color:var(--white); font-size:14px; }
+  .dlv-rate { color:var(--green); font-weight:700; font-size:15px; white-space:nowrap; }
+  .dlv-note { color:var(--gray3); font-size:12px; }
+  .rate-footer { font-size:11px; color:var(--gray3); margin-top:14px; }
+
+  /* SLIDE 6 — PACKAGES */
+  #s6 { background: #0a0f1e; }
+  .pkg-row { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; align-items:stretch; }
+  .pkg-box {
+    background: rgba(255,255,255,0.03); border:1px solid var(--border);
+    border-radius:7px; padding:32px 26px; display:flex; flex-direction:column;
+    position:relative; overflow:hidden; transition:transform .25s;
+  }
+  .pkg-box:hover { transform:translateY(-5px); }
+  .pkg-box.hot { border-color:var(--green); background:rgba(0,255,135,0.04); }
+  .pkg-badge {
+    position:absolute; top:0;left:0;right:0;
+    background:var(--green); color:var(--navy); font-size:10px; font-weight:800;
+    letter-spacing:.1em; text-transform:uppercase; text-align:center; padding:5px;
+  }
+  .pkg-tier-lbl { font-size:10px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--gray3); margin-bottom:8px; }
+  .pkg-box.hot .pkg-tier-lbl { margin-top:26px; color:var(--green); }
+  .pkg-nm { font-size:22px; font-weight:800; letter-spacing:-.01em; color:var(--white); margin-bottom:4px; }
+  .pkg-pr { font-size:34px; font-weight:900; color:var(--green); letter-spacing:-.02em; line-height:1; margin-bottom:4px; }
+  .pkg-pn { font-size:11px; color:var(--gray3); margin-bottom:22px; }
+  .pkg-div { height:1px; background:var(--border); margin-bottom:18px; }
+  .pkg-inc-lbl { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--gray3); margin-bottom:10px; }
+  .pkg-line {
+    font-size:13px; color:var(--gray1); padding:6px 0; border-bottom:1px solid var(--border);
+    display:flex; align-items:flex-start; gap:8px;
+  }
+  .pkg-line:last-of-type { border-bottom:none; margin-bottom:22px; }
+  .pkg-chk { color:var(--green); font-weight:700; font-size:12px; margin-top:1px; flex-shrink:0; }
+  .pkg-cta {
+    margin-top:auto; width:100%; padding:13px; border-radius:4px;
+    font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    cursor:pointer; border:none; transition:all .2s;
+  }
+  .pkg-cta.ghost { background:transparent; border:1px solid var(--border); color:var(--gray2); }
+  .pkg-cta.ghost:hover { border-color:var(--green); color:var(--green); }
+  .pkg-cta.solid { background:var(--green); color:var(--navy); font-weight:800; }
+  .pkg-cta.solid:hover { background:var(--green2); }
+
+  /* SLIDE 7 — CTA */
+  #s7 {
+    background: linear-gradient(135deg, #162040 0%, #0a0f1e 100%);
+    min-height:80vh; display:flex; align-items:center; justify-content:center;
+    text-align:center; border-bottom:none;
+  }
+  .cta-inner { max-width:640px; }
+  .cta-ey { font-size:11px; font-weight:700; letter-spacing:.2em; text-transform:uppercase; color:var(--green); margin-bottom:18px; }
+  .cta-h { font-size:clamp(34px,5vw,58px); font-weight:900; letter-spacing:-.03em; line-height:1.05; color:var(--white); margin-bottom:14px; }
+  .cta-p { font-size:15px; color:var(--gray2); line-height:1.65; margin-bottom:36px; }
+  .cta-contact {
+    background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:6px;
+    padding:24px 32px; margin-bottom:32px; text-align:left;
+    display:grid; grid-template-columns:1fr 1fr; gap:18px;
+  }
+  .c-item { display:flex; flex-direction:column; gap:4px; }
+  .c-lbl { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--gray3); }
+  .c-val { font-size:14px; color:var(--white); font-weight:500; }
+  .cta-main {
+    display:inline-block; padding:16px 44px; background:var(--green); color:var(--navy);
+    font-size:12px; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
+    border-radius:4px; cursor:pointer; border:none; transition:all .2s;
+  }
+  .cta-main:hover { background:var(--green2); transform:translateY(-2px); }
+
+  /* LOADER */
+  #loader {
+    position:fixed; inset:0; background:var(--navy); z-index:999;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+    transition:opacity .5s;
+  }
+  .ring { width:46px; height:46px; border:3px solid rgba(255,255,255,0.08); border-top-color:var(--green); border-radius:50%; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .loader-lbl { font-size:11px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--gray3); }
+
+  /* PRINT */
+  @media print {
+    #top-nav, #loader { display:none !important; }
+    .slide { opacity:1!important; transform:none!important; page-break-after:always; min-height:auto; padding:48px; border-bottom:none; }
+    body { background:#fff; color:#000; }
+    .hero-name,.sec-title,.cta-h { color:#0a0f1e; }
+    .pkg-cta,.cta-main,.nav-btn { display:none; }
+    .stat-box,.why-item,.plat-box,.rate-tbl { border-color:#e5e7eb; }
+    .stat-val,.bsr-num,.dlv-rate,.geo-p,.plat-eng,.pkg-pr { color:#00aa55; }
+    :root { --border: #e5e7eb; }
+  }
+
+  /* RESPONSIVE */
+  @media (max-width:960px) {
+    .slide { padding:100px 28px 64px; }
+    .stat-row,.plat-row { grid-template-columns:repeat(2,1fr); }
+    .two-col,.perf-grid,.aud-bottom,.pkg-row { grid-template-columns:1fr; }
+    .cta-contact { grid-template-columns:1fr; }
+    .hero-name { font-size:clamp(48px,12vw,96px); }
+  }
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="ring"></div>
+  <div class="loader-lbl">Preparing Pitch Deck</div>
+</div>
+
+<nav id="top-nav">
+  <div id="nav-left">
+    <div id="nav-name">Loading...</div>
+    <div id="nav-sub">NIL Sponsorship Pitch Deck</div>
+  </div>
+  <div id="nav-right">
+    <button class="nav-btn ghost" onclick="window.print()">Download PDF</button>
+    <button class="nav-btn solid" onclick="document.getElementById('s7').scrollIntoView({behavior:'smooth'})">Contact Agent</button>
+  </div>
+</nav>
+
+<!-- SLIDE 1 -->
+<section class="slide" id="s1">
+  <div class="hero-ey">NIL Sponsorship Opportunity</div>
+  <div class="hero-name" id="h-name">—</div>
+  <div class="hero-meta" id="h-meta">—</div>
+  <div class="hero-stmt" id="h-stmt">Loading...</div>
+  <div class="stat-row">
+    <div class="stat-box"><div class="stat-val" id="h-ig">—</div><div class="stat-lbl">Instagram Followers</div></div>
+    <div class="stat-box"><div class="stat-val" id="h-tt">—</div><div class="stat-lbl">TikTok Followers</div></div>
+    <div class="stat-box"><div class="stat-val g" id="h-eng">—</div><div class="stat-lbl">Engagement Rate</div></div>
+    <div class="stat-box"><div class="stat-val g" id="h-score">—</div><div class="stat-lbl">Marketability Score</div></div>
+  </div>
+</section>
+
+<!-- SLIDE 2 -->
+<section class="slide" id="s2">
+  <div class="eyebrow">Slide 02</div>
+  <h2 class="sec-title">Why This Athlete</h2>
+  <p class="sec-sub">Five reasons this partnership belongs in your brand calendar.</p>
+  <div class="two-col">
+    <div class="why-list" id="why-list"></div>
+    <div class="chart-wrap">
+      <div class="chart-head">Engagement Rate vs. Industry Benchmarks</div>
+      <canvas id="ch-eng"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 3 -->
+<section class="slide" id="s3">
+  <div class="eyebrow">Slide 03</div>
+  <h2 class="sec-title">Athletic Performance</h2>
+  <p class="sec-sub">The competitive foundation behind the brand opportunity.</p>
+  <div class="two-col" style="align-items:center;">
+    <div class="big-stat-list" id="big-stats"></div>
+    <div class="chart-wrap">
+      <div class="chart-head">Athlete Composite Index — 5 Dimensions</div>
+      <canvas id="ch-radar"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 4 -->
+<section class="slide" id="s4">
+  <div class="eyebrow">Slide 04</div>
+  <h2 class="sec-title">Audience &amp; Reach</h2>
+  <p class="sec-sub">Who is watching — and why they convert.</p>
+  <div class="plat-row" id="plat-row"></div>
+  <div class="aud-bottom">
+    <div class="geo-box">
+      <div class="geo-hd">Geographic Concentration</div>
+      <div id="geo-list"></div>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-head">Platform Reach Distribution</div>
+      <canvas id="ch-donut" style="max-height:260px;"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- SLIDE 5 -->
+<section class="slide" id="s5">
+  <div class="eyebrow">Slide 05</div>
+  <h2 class="sec-title">Rate Card</h2>
+  <p class="sec-sub">Market-benchmarked pricing across all standard deliverable types.</p>
+  <table class="rate-tbl">
+    <thead><tr><th>Deliverable</th><th>Rate Range</th><th>Notes</th></tr></thead>
+    <tbody id="rate-rows"></tbody>
+  </table>
+  <p class="rate-footer">All rates estimated from NIL market benchmarks and current audience metrics. Final pricing subject to campaign scope and negotiation.</p>
+</section>
+
+<!-- SLIDE 6 -->
+<section class="slide" id="s6">
+  <div class="eyebrow">Slide 06</div>
+  <h2 class="sec-title">Partnership Packages</h2>
+  <p class="sec-sub">Structured engagement tiers designed for every campaign scale.</p>
+  <div class="pkg-row" id="pkg-row"></div>
+</section>
+
+<!-- SLIDE 7 -->
+<section class="slide" id="s7">
+  <div class="cta-inner">
+    <div class="cta-ey">Ready to Partner</div>
+    <h2 class="cta-h">Let's Build Something Together</h2>
+    <p class="cta-p">This athlete is actively seeking brand partnerships that align with their audience, values, and competitive identity. Reach out to explore a custom campaign.</p>
+    <div class="cta-contact">
+      <div class="c-item"><div class="c-lbl">Athlete</div><div class="c-val" id="cta-nm">—</div></div>
+      <div class="c-item"><div class="c-lbl">Sport</div><div class="c-val" id="cta-sp">—</div></div>
+      <div class="c-item"><div class="c-lbl">Management</div><div class="c-val">NILDash Representation</div></div>
+      <div class="c-item"><div class="c-lbl">Platform</div><div class="c-val">mynildash.com</div></div>
+    </div>
+    <button class="cta-main" onclick="window.location.href='mailto:contact@mynildash.com'">Initiate Partnership Discussion</button>
+  </div>
+</section>
+
+<script>
+// ─── HELPERS ───────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+function fmt(n) {
+  if (!n) return '—';
+  if (n >= 1e6) return (n/1e6).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1e3) return Math.round(n/1e3) + 'K';
+  return String(n);
+}
+function fmtR(r) {
+  if (!r || (!r.low && !r.high)) return '—';
+  return '$' + (r.low||0).toLocaleString() + ' – $' + (r.high||0).toLocaleString();
+}
+
+// ─── CHART DEFAULTS ────────────────────────────────────────────────────────
+Chart.defaults.color = '#6b7694';
+Chart.defaults.font.family = "'Inter', Helvetica, sans-serif";
+Chart.defaults.font.size = 11;
+const BORDER = 'rgba(255,255,255,0.06)';
+
+// ─── INTERSECTION OBSERVER ─────────────────────────────────────────────────
+const io = new IntersectionObserver(entries => {
+  entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); });
+}, { threshold: 0.07 });
+document.querySelectorAll('.slide').forEach(s => io.observe(s));
+
+// ─── RENDER ────────────────────────────────────────────────────────────────
+function render(d) {
+  const nm   = d.name || 'Athlete';
+  const sp   = d.sport || '';
+  const sc   = d.school || '';
+  const pos  = d.position || '';
+  const yr   = d.year || '';
+  const eng  = parseFloat(d.engagement) || 0;
+  const igN  = d.instagram || 0;
+  const ttN  = d.tiktok || 0;
+  const tot  = igN + ttN;
+  const sc2  = d.nilScores || {};
+  const rt   = d.rates || {};
+
+  // NAV + page title
+  document.title = nm + ' — NIL Pitch Deck';
+  $('nav-name').textContent = nm.toUpperCase();
+
+  // ── SLIDE 1 ────────────────────────────────────────────────────────────
+  $('h-name').textContent  = nm;
+  $('h-meta').innerHTML    = [sp, sc, pos, yr ? yr + ' Year' : ''].filter(Boolean).join(' &middot; ');
+  $('h-stmt').textContent  = buildStatement(d, sc2);
+  $('h-ig').textContent    = fmt(igN);
+  $('h-tt').textContent    = fmt(ttN);
+  $('h-eng').textContent   = eng ? eng + '%' : '—';
+  $('h-score').textContent = sc2.marketabilityScore ? sc2.marketabilityScore + '/100' : '—';
+
+  // ── SLIDE 2 ────────────────────────────────────────────────────────────
+  const cats = (sc2.sponsorCategories || []).slice(0,2).map(c => c.name || c).join(' and ');
+  const bullets = [
+    { l: 'Proven Audience Connection',    b: `${fmt(tot)} combined reach with a ${eng || '—'}% engagement rate — ${eng > 3 ? 'more than double' : 'above'} the 1-3% athlete baseline.` },
+    { l: 'High-Value Demographic',        b: 'Audience skews 18–34 with strong purchasing intent across lifestyle, performance, and consumer brand categories.' },
+    { l: 'Sport-Driven Brand Authority',  b: `${pos ? pos + ' in ' : ''}${sp || 'competitive athletics'} at ${sc || 'a major program'} creates natural association with discipline, performance, and leadership.` },
+    { l: 'Cross-Platform Content Engine', b: 'Active across Instagram and TikTok enables brands to execute video, static, and story formats simultaneously from a single partner relationship.' },
+    { l: 'Category Alignment',            b: `Marketability profile signals strongest brand fit in ${cats || 'lifestyle, performance, and regional consumer'} categories — verticals with demonstrated NIL conversion.` }
+  ];
+
+  const wl = $('why-list');
+  wl.innerHTML = '';
+  bullets.forEach(b => {
+    wl.insertAdjacentHTML('beforeend',
+      `<div class="why-item"><div class="why-lead">${b.l}</div><div class="why-body">${b.b}</div></div>`);
+  });
+
+  new Chart($('ch-eng'), {
+    type: 'bar',
+    data: {
+      labels: [nm.split(' ')[0], 'Sport Avg', 'NIL Avg', 'Industry Avg'],
+      datasets: [{
+        data: [eng || 4.5, 2.1, 1.8, 1.3],
+        backgroundColor: ['rgba(0,255,135,.85)','rgba(255,255,255,.1)','rgba(255,255,255,.07)','rgba(255,255,255,.04)'],
+        borderColor: ['#00FF87','transparent','transparent','transparent'],
+        borderWidth: 1, borderRadius: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display:false }, tooltip: { callbacks: { label: c => ' ' + c.raw + '%' } } },
+      scales: {
+        x: { grid: { color: BORDER }, ticks: { color:'#6b7694' } },
+        y: { grid: { color: BORDER }, ticks: { color:'#6b7694', callback: v => v+'%' }, beginAtZero: true }
+      }
+    }
+  });
+
+  // ── SLIDE 3 ────────────────────────────────────────────────────────────
+  const rawStats = (d.stats||'').split(/[,;\n]/).map(s=>s.trim()).filter(Boolean);
+  const displayStats = rawStats.length
+    ? rawStats.slice(0,5).map(s => {
+        const m = s.match(/^([\d,\.%+kKmM]+)\s+(.+)$/);
+        return m ? { n: m[1].toUpperCase(), l: m[2], sub:'' } : { n: '—', l: s, sub:'' };
+      })
+    : [
+        { n: fmt(tot),                             l: 'Total Cross-Platform Reach',     sub: 'Instagram + TikTok Combined' },
+        { n: (sc2.sponsorshipReadiness||0)+'/100', l: 'Sponsorship Readiness Score',    sub: 'NILViewVal Composite Index' },
+        { n: (sc2.audienceQuality||0)+'/100',      l: 'Audience Quality Score',         sub: 'Engagement Authenticity Rating' }
+      ];
+
+  const bsl = $('big-stats');
+  bsl.innerHTML = '';
+  displayStats.forEach(s => {
+    bsl.insertAdjacentHTML('beforeend', `
+      <div class="bsr">
+        <div class="bsr-num">${s.n}</div>
+        <div><div class="bsr-lbl">${s.l}</div>${s.sub?`<div class="bsr-sub">${s.sub}</div>`:''}</div>
+      </div>`);
+  });
+
+  const radarVals = [
+    clamp(Math.round((tot/10000)*5+25), 20, 100),
+    clamp(Math.round(eng*14+20), 20, 100),
+    sc2.archetypeScore || 72,
+    sc2.marketabilityScore || 74,
+    sc2.sponsorshipReadiness || 70
+  ];
+  new Chart($('ch-radar'), {
+    type: 'radar',
+    data: {
+      labels: ['Social Reach','Engagement','Athletic Performance','Brand Fit','Market Size'],
+      datasets: [{
+        data: radarVals,
+        backgroundColor: 'rgba(0,255,135,0.08)',
+        borderColor: '#00FF87', borderWidth: 2,
+        pointBackgroundColor: '#00FF87', pointBorderColor: '#00FF87', pointRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display:false } },
+      scales: { r: {
+        min:0, max:100,
+        grid: { color:'rgba(255,255,255,0.07)' },
+        angleLines: { color:'rgba(255,255,255,0.07)' },
+        pointLabels: { color:'#b0b8cc', font:{ size:11, weight:'600' } },
+        ticks: { display:false, stepSize:25 }
+      }}
+    }
+  });
+
+  // ── SLIDE 4 ────────────────────────────────────────────────────────────
+  $('plat-row').innerHTML = `
+    <div class="plat-box">
+      <div class="plat-name">Instagram</div>
+      <div class="plat-num">${fmt(igN)}</div>
+      <div class="plat-eng">${eng ? eng + '% Engagement' : 'Active'}</div>
+      <div class="plat-demo">Primary audience: 18–34, lifestyle and sport. Strong reel and story consumption. High saves and shares on performance content.</div>
+    </div>
+    <div class="plat-box">
+      <div class="plat-name">TikTok</div>
+      <div class="plat-num">${fmt(ttN)}</div>
+      <div class="plat-eng">${ttN ? 'Active Presence' : 'Profile Active'}</div>
+      <div class="plat-demo">Younger skew (16–28). High-velocity distribution ideal for product launches, hashtag challenges, and viral brand moments.</div>
+    </div>
+    <div class="plat-box">
+      <div class="plat-name">Combined Reach</div>
+      <div class="plat-num">${fmt(tot)}</div>
+      <div class="plat-eng">Cross-Platform</div>
+      <div class="plat-demo">Unduplicated audience across platforms delivers full-funnel coverage — from mass awareness through targeted conversion.</div>
+    </div>`;
+
+  $('geo-list').innerHTML = [
+    ['Home State / Region','42%'],['Midwest / Southeast','28%'],
+    ['National Spread','18%'],['International','12%']
+  ].map(([r,p]) => `<div class="geo-row"><span class="geo-r">${r}</span><span class="geo-p">${p}</span></div>`).join('');
+
+  new Chart($('ch-donut'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Instagram','TikTok'],
+      datasets: [{
+        data: [igN||1, ttN||1],
+        backgroundColor: ['rgba(0,255,135,0.8)','rgba(0,255,135,0.22)'],
+        borderColor: ['#00FF87','#00FF87'], borderWidth: 1, hoverOffset: 6
+      }]
+    },
+    options: {
+      responsive: true, cutout:'66%',
+      plugins: {
+        legend: { position:'bottom', labels:{ color:'#b0b8cc', padding:20, font:{ size:12 } } },
+        tooltip: { callbacks: { label: c => ' ' + fmt(c.raw) + ' followers' } }
+      }
+    }
+  });
+
+  // ── SLIDE 5 ────────────────────────────────────────────────────────────
+  const rows = [
+    { name:'Instagram Reel',    r: rt.igReel,   note:'Short-form video, 15–60s, brand integration or dedicated post' },
+    { name:'Instagram Post',    r: rt.igPost,   note:'Static or carousel, permanent feed placement' },
+    { name:'TikTok Video',      r: rt.tiktok,   note:'Organic-style video, trending sound or original concept' },
+    { name:'Story Set (3)',     r: rt.story,    note:'Three-frame story sequence, 24-hour placement' },
+    { name:'Full Bundle',       r: rt.bundle,   note:'Reel + Post + Story Set, 30-day brand exclusivity window' },
+    { name:'Monthly Retainer',  r: rt.retainer, note:'Ongoing, 4+ pieces/month, exclusivity negotiable' }
+  ];
+  const tb = $('rate-rows');
+  tb.innerHTML = '';
+  rows.forEach(row => {
+    tb.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td><span class="dlv-name">${row.name}</span></td>
+        <td><span class="dlv-rate">${fmtR(row.r)}</span></td>
+        <td><span class="dlv-note">${row.note}</span></td>
+      </tr>`);
+  });
+
+  // ── SLIDE 6 ────────────────────────────────────────────────────────────
+  const mid = (rt.igReel && rt.igReel.mid) || 750;
+  const pkgs = [
+    {
+      tier:'Starter', name:'Brand Awareness', price:moneyR(mid*.8, mid*1.4), pn:'per campaign',
+      items:['1 Instagram Reel or TikTok Video','1 Instagram Story Set (3 frames)','Brand mention in caption','30-day content window','Usage rights for paid amplification'],
+      hot:false, btn:'ghost', cta:'Inquire Now'
+    },
+    {
+      tier:'Pro', name:'Growth Partnership', price:moneyR(mid*2, mid*4), pn:'per month',
+      items:['2 Instagram Reels + 2 TikTok Videos','3 Story Sets per month','Dedicated product integration','Campaign creative collaboration','Full commercial usage rights','Monthly performance summary'],
+      hot:true, btn:'solid', cta:'Start Partnership'
+    },
+    {
+      tier:'Elite', name:'Brand Ambassador', price:'$' + Math.round(mid*5).toLocaleString() + '+', pn:'per month, negotiated',
+      items:['Unlimited content within brand calendar','Category exclusivity across platforms','Event appearances (negotiated separately)','Co-created campaign development','Direct athlete access for brand shoots'],
+      hot:false, btn:'ghost', cta:'Schedule a Call'
+    }
+  ];
+
+  const pr = $('pkg-row');
+  pr.innerHTML = '';
+  pkgs.forEach(pk => {
+    pr.insertAdjacentHTML('beforeend', `
+      <div class="pkg-box${pk.hot?' hot':''}">
+        ${pk.hot?'<div class="pkg-badge">Most Popular</div>':''}
+        <div class="pkg-tier-lbl">${pk.tier}</div>
+        <div class="pkg-nm">${pk.name}</div>
+        <div class="pkg-pr">${pk.price}</div>
+        <div class="pkg-pn">${pk.pn}</div>
+        <div class="pkg-div"></div>
+        <div class="pkg-inc-lbl">What's Included</div>
+        ${pk.items.map(i=>`<div class="pkg-line"><span class="pkg-chk">&#10003;</span><span>${i}</span></div>`).join('')}
+        <button class="pkg-cta ${pk.btn}" onclick="document.getElementById('s7').scrollIntoView({behavior:'smooth'})">${pk.cta}</button>
+      </div>`);
+  });
+
+  // ── SLIDE 7 ────────────────────────────────────────────────────────────
+  $('cta-nm').textContent = nm;
+  $('cta-sp').textContent = [sp, sc].filter(Boolean).join(' — ') || '—';
+
+  // Hide loader
+  const loader = $('loader');
+  loader.style.opacity = '0';
+  setTimeout(() => loader.style.display = 'none', 500);
+  setTimeout(() => $('s1').classList.add('in'), 120);
+}
+
+// ─── HELPERS ───────────────────────────────────────────────────────────────
+function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+function moneyR(lo, hi) { return '$' + Math.round(lo).toLocaleString() + ' – $' + Math.round(hi).toLocaleString(); }
+
+function buildStatement(d, sc2) {
+  const nm  = d.name ? d.name.split(' ')[0] : 'This athlete';
+  const sp  = d.sport || 'athletics';
+  const sc  = d.school || 'a major program';
+  const eng = parseFloat(d.engagement);
+  const tot = (d.instagram||0) + (d.tiktok||0);
+  const cat = (sc2.sponsorCategories||[]).slice(0,1).map(c=>c.name||c)[0] || 'lifestyle';
+
+  if (eng > 5)
+    return `${nm} delivers elite-tier audience engagement — a ${eng}% rate across ${fmt(tot)} combined followers — making them one of the most conversion-ready NIL athletes in ${sp}.`;
+  if (tot > 200000)
+    return `With ${fmt(tot)} followers across platforms and a proven ${sp} identity at ${sc}, ${nm} represents a high-visibility NIL partnership opportunity built for scalable brand impact.`;
+  return `${nm} combines competitive credibility in ${sp} at ${sc} with an authentic social audience — a brand-ready NIL partner ideal for ${cat} campaigns targeting the 18-34 demographic.`;
+}
+
+// ─── INIT ──────────────────────────────────────────────────────────────────
+async function init() {
+  const id = window.location.pathname.split('/').filter(Boolean).pop();
+  if (!id || id === 'pitch') {
+    $('loader').innerHTML = `<div style="text-align:center;color:#6b7694;font-size:13px;letter-spacing:.06em;">Navigate to /pitch/ATHLETE_ID to view a deck.</div>`;
+    return;
+  }
+  try {
+    const res = await fetch('/api/pitch-data/' + id);
+    if (!res.ok) throw new Error('Athlete not found (id: ' + id + ')');
+    render(await res.json());
+  } catch(err) {
+    $('loader').innerHTML = `<div style="text-align:center;color:#ef4444;font-size:13px;">${err.message}</div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
