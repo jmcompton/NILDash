@@ -322,46 +322,69 @@ Return ONLY a JSON array of 6 deals:
 
 async function generateAthleteBrandKit(athlete) {
   const rate = nilViewVal(athlete, 'ig-reel');
-  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const sport = athlete.sport || 'basketball';
   const school = athlete.school || 'Unknown';
+  const ig = (athlete.instagram || 0).toLocaleString();
+  const tt = (athlete.tiktok || 0).toLocaleString();
+  const totalReach = ((athlete.instagram || 0) + (athlete.tiktok || 0)).toLocaleString();
+  const topCats = (rate.sponsorCategories || []).slice(0, 5).map(c => c.name || c).join(', ');
 
-  const prompt = `You are a sports marketing expert specializing in college athlete NIL branding.
+  const prompt = `You are the world's top sports marketing strategist — you have built NIL campaigns for elite college programs and Fortune 500 sponsors. You create sponsorship pitch decks that close deals.
 
-ATHLETE PROFILE:
+Generate a 6-slide sponsorship pitch deck for this athlete. Be precise, sponsor-facing, and compelling. No fluff.
+
+ATHLETE DATA:
 Name: ${athlete.name}
 Sport: ${sport} | Position: ${athlete.position || 'N/A'} | Year: ${athlete.year || 'N/A'}
-School: ${school} (${athlete.schoolTier || 'college'})
-Instagram: ${(athlete.instagram||0).toLocaleString()} | TikTok: ${(athlete.tiktok||0).toLocaleString()}
-Engagement: ${athlete.engagement || 0}%
+School: ${school}
 Stats: ${athlete.stats || 'Not provided'}
-GPA: ${athlete.gpa || 'Not provided'}
-Notes/Bio info: ${athlete.notes || 'None'}
+Bio/Notes: ${athlete.notes || 'None'}
+Instagram: ${ig} followers | TikTok: ${tt} followers | Engagement: ${athlete.engagement || 'N/A'}%
+Marketability Score: ${rate.marketabilityScore}/100 | Audience Quality: ${rate.audienceQuality}/100
+Top Brand Categories: ${topCats}
 
-NIL SCORES:
-Marketability: ${rate.marketabilityScore}/100
-Sponsorship Readiness: ${rate.sponsorshipReadiness}/100
-Audience Quality: ${rate.audienceQuality}/100
-Top Categories: ${(rate.sponsorCategories||[]).map(c=>c.name).join(', ')}
-
-Generate a complete athlete brand kit. Return ONLY JSON:
+Return ONLY this JSON — no markdown, no extra keys:
 {
-  "brandSummary": "2-3 sentence brand identity statement that captures this athlete's unique value to sponsors — what makes them different, their story, their audience",
-  "sponsorshipPositioning": "1 paragraph: how to position this athlete to brands — their niche, why brands should care, what campaigns they're ideal for",
-  "athleteBio": "3-4 sentence professional bio for pitch decks and media kits — third person, highlights achievements, school, sport, and social presence",
-  "outreachTalkingPoints": ["5-7 specific bullet points an agent can use when pitching this athlete to brands — concrete, data-driven, unique to this athlete"],
-  "socialContentStrategy": "2-3 sentence content strategy: what type of content this athlete should post, posting cadence, content pillars that will grow their NIL value",
-  "contentPillars": ["3-4 specific content pillars/themes this athlete should build their brand around"],
-  "partnershipRecommendations": ["3-4 specific brand partnership recommendations with brief reasoning"],
-  "campaignSuggestions": ["2-3 specific campaign concepts with brand category and execution idea"],
-  "idealSponsorshipCategories": ["top 4-5 sponsorship categories ranked by fit for this specific athlete"]
+  "slide1": {
+    "headline": "One punchy positioning sentence — written for a brand decision-maker, not a fan",
+    "intro": "Two sentences max. Who this athlete is, why they matter right now."
+  },
+  "slide2": {
+    "bullets": ["Bullet 1 — marketability/personality insight", "Bullet 2", "Bullet 3", "Bullet 4", "Bullet 5"]
+  },
+  "slide3": {
+    "stats": ["Stat or achievement 1", "Stat or achievement 2", "Stat or achievement 3"],
+    "role": "One sentence on their role and importance to the team"
+  },
+  "slide4": {
+    "instagram": "${ig}",
+    "tiktok": "${tt}",
+    "engagement": "${athlete.engagement || 'N/A'}%",
+    "audienceSummary": "1-2 sentences describing audience demographics and engagement quality",
+    "growthSignal": "One sentence on trajectory or momentum if applicable"
+  },
+  "slide5": {
+    "categories": [
+      { "name": "Category name", "reason": "One-line brand fit rationale" },
+      { "name": "Category name", "reason": "One-line brand fit rationale" },
+      { "name": "Category name", "reason": "One-line brand fit rationale" },
+      { "name": "Category name", "reason": "One-line brand fit rationale" }
+    ]
+  },
+  "slide6": {
+    "activations": [
+      { "title": "Campaign title", "description": "Practical, specific activation idea — 2 sentences max" },
+      { "title": "Campaign title", "description": "Practical, specific activation idea — 2 sentences max" },
+      { "title": "Campaign title", "description": "Practical, specific activation idea — 2 sentences max" }
+    ]
+  }
 }`;
 
   try {
-    const raw = await oneShot(prompt, 'You are a sports marketing expert. Return only valid JSON. No markdown. No preamble. Be concise but complete.');
+    const raw = await oneShot(prompt, 'You are a world-class sports marketing strategist. Return only valid JSON. No markdown. No preamble. No extra keys. Be concise and sponsor-facing.');
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error('No JSON');
+    if (!match) throw new Error('No JSON found in response');
     return JSON.parse(match[0]);
   } catch(err) {
     console.error('Brand kit error:', err.message);
