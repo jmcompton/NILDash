@@ -3899,5 +3899,32 @@ async function runMarketingScores() {
   }
 }
 
+
+function openBrandKitModal(athleteId, athleteName) {
+  if (athleteId) {
+    selectAthlete(athleteId);
+  }
+  // Switch to marketing view and brand kit tab
+  var mktBtn = document.getElementById('marketingNavBtn');
+  showView('marketing', mktBtn);
+  setTimeout(function() {
+    switchMarketingTab('brandkit');
+    // Auto-run brand kit after short delay
+    setTimeout(runMarketingBrandKit, 300);
+  }, 150);
+}
+
+function openOutreachModal(athleteId, athleteName) {
+  if (athleteId) {
+    selectAthlete(athleteId);
+  }
+  // Switch to marketing view and outreach tab
+  var mktBtn = document.getElementById('marketingNavBtn');
+  showView('marketing', mktBtn);
+  setTimeout(function() {
+    switchMarketingTab('outreach');
+  }, 150);
+}
+
 </script>
 </body>
