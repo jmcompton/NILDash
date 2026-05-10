@@ -406,7 +406,7 @@ async function showNILViewValScores(athleteId, containerEl) {
 // AI Athlete Brand Kit Modal
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function async openBrandKitModal(athleteId, athleteName) {
+async function openBrandKitModal(athleteId, athleteName) {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
   const modal = document.createElement('div');
