@@ -3780,11 +3780,12 @@ async function runMarketingScores() {
       var pts = data.brandPartnershipTypes || [];
       function scoreColor(n) { return n >= 80 ? '#4ade80' : n >= 60 ? '#f59e0b' : '#f87171'; }
       function bar(n) { return '<div style="background:var(--surface);border-radius:4px;height:8px;margin-top:6px"><div style="width:'+Math.min(n,100)+'%;background:'+scoreColor(n)+';height:8px;border-radius:4px;transition:width .4s"></div></div>'; }
+      var sc = data.scores || {};
       var scoreCards = [
-        ['Marketability', data.marketabilityScore],
-        ['Sponsorship Readiness', data.sponsorshipReadiness],
-        ['Audience Quality', data.audienceQuality],
-        ['Data Confidence', data.confidenceScore]
+        ['Marketability', sc.marketabilityScore || 0],
+        ['Sponsorship Readiness', sc.sponsorshipReadiness || 0],
+        ['Audience Quality', sc.audienceQuality || 0],
+        ['Data Confidence', sc.confidenceScore || 0]
       ];
       var html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px">';
       scoreCards.forEach(function(item) {
@@ -3797,12 +3798,27 @@ async function runMarketingScores() {
       html += '</div>';
       // Rate range
       html += '<div style="background:var(--surface2);border-radius:var(--r);padding:14px;margin-bottom:16px">';
-      html += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📊 NILViewVal v5 Rate Range (IG Reel)</div>';
-      html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">';
-      html += '<div><div style="font-size:10px;color:var(--muted)">Floor</div><div style="font-size:20px;font-weight:700;color:var(--text)">$' + (data.rates && data.rates['ig-reel'] ? data.rates['ig-reel'].low.toLocaleString() : data.low||0) + '</div></div>';
-      html += '<div><div style="font-size:10px;color:var(--muted)">Market Rate</div><div style="font-size:20px;font-weight:700;color:var(--accent)">$' + (data.rates && data.rates['ig-reel'] ? data.rates['ig-reel'].mid.toLocaleString() : data.mid||0) + '</div></div>';
-      html += '<div><div style="font-size:10px;color:var(--muted)">Ask Price</div><div style="font-size:20px;font-weight:700;color:var(--text)">$' + (data.rates && data.rates['ig-reel'] ? data.rates['ig-reel'].high.toLocaleString() : data.high||0) + '</div></div>';
+      html += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">📊 NILViewVal v5.2 Rate Range (IG Reel)</div>';
+      var rates = data.rates || {};
+      var reel = rates['ig-reel'] || {}; var tiktok = rates['tiktok'] || {}; var bundle = rates['bundle'] || {}; var retainer = rates['retainer'] || {};
+      html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px">';
+      html += '<div style="text-align:center"><div style="font-size:10px;color:var(--muted);margin-bottom:2px">IG Reel Floor</div><div style="font-size:18px;font-weight:700;color:var(--text)">$' + (reel.low||0).toLocaleString() + '</div></div>';
+      html += '<div style="text-align:center"><div style="font-size:10px;color:var(--muted);margin-bottom:2px">IG Reel Market</div><div style="font-size:18px;font-weight:700;color:var(--accent)">$' + (reel.mid||0).toLocaleString() + '</div></div>';
+      html += '<div style="text-align:center"><div style="font-size:10px;color:var(--muted);margin-bottom:2px">IG Reel Ask</div><div style="font-size:18px;font-weight:700;color:var(--text)">$' + (reel.high||0).toLocaleString() + '</div></div>';
+      html += '</div>';
+      html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding-top:8px;border-top:1px solid var(--border)">';
+      html += '<div style="text-align:center"><div style="font-size:10px;color:var(--muted);margin-bottom:2px">TikTok</div><div style="font-size:15px;font-weight:700;color:var(--text)">$'+(tiktok.low||0).toLocaleString()+'\u2013$'+(tiktok.high||0).toLocaleString()+'</div></div>';
+      html += '<div style="text-align:center"><div style="font-size:10px;color:var(--muted);margin-bottom:2px">Bundle</div><div style="font-size:15px;font-weight:700;color:var(--text)">$'+(bundle.low||0).toLocaleString()+'\u2013$'+(bundle.high||0).toLocaleString()+'</div></div>';
+      html += '<div style="text-align:center"><div style="font-size:10px;color:var(--muted);margin-bottom:2px">Monthly Retainer</div><div style="font-size:15px;font-weight:700;color:var(--text)">$'+(retainer.low||0).toLocaleString()+'\u2013$'+(retainer.high||0).toLocaleString()+'</div></div>';
       html += '</div></div>';
+      if (sc.archetypeScore) {
+        var aScore = sc.archetypeScore;
+        var aTier = aScore >= 85 ? 'Elite' : aScore >= 70 ? 'Strong' : aScore >= 55 ? 'Developing' : 'Emerging';
+        var aColor = aScore >= 85 ? '#4ade80' : aScore >= 70 ? '#60a5fa' : aScore >= 55 ? '#f59e0b' : '#94a3b8';
+        html += '<div style="background:var(--surface2);border-radius:var(--r);padding:12px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">';
+        html += '<div><div style="font-size:11px;color:var(--muted)">Archetype Score</div><div style="font-size:11px;color:'+aColor+';font-weight:600;margin-top:2px">Tier: '+aTier+'</div></div>';
+        html += '<div style="font-size:36px;font-weight:800;color:'+aColor+'">'+aScore+'<span style="font-size:13px;color:var(--muted)">/99</span></div></div>';
+      }
       if (cats.length) {
         html += '<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🏷️ Top Sponsorship Categories</div>';
         cats.forEach(function(c) {
