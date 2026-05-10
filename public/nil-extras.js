@@ -608,40 +608,154 @@ async function runMarketingBrandKit() {
   const result = document.getElementById('mkt-brandkit-result');
   if (btn) btn.disabled = true;
   if (loading) loading.style.display = '';
-  if (result) result.style.display = 'none';
+  if (result) { result.style.display = 'none'; result.innerHTML = ''; }
   try {
     const res = await fetch('/api/ai/brand-kit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ athleteId: selectedAthleteId })
     });
-    const kit = await res.json();
-    if (kit.error) throw new Error(kit.error);
+    const deck = await res.json();
+    if (deck.error) throw new Error(deck.error);
     if (loading) loading.style.display = 'none';
     if (result) {
       result.style.display = '';
-      function sec(title, body, icon) {
-        return '<div style="margin-bottom:14px;padding:14px;background:var(--surface2);border-radius:8px">' +
-          '<div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">' + icon + ' ' + title + '</div>' +
-          '<div style="font-size:13px;color:var(--text);line-height:1.6">' + body + '</div></div>';
+      const athlete = (window.athletes || []).find(function(a){ return a.id === selectedAthleteId; }) || {};
+      const athleteName = athlete.name || 'Athlete';
+      const school = athlete.school || '';
+      const sport = athlete.sport || '';
+
+      // ── Styles ──────────────────────────────────────────────────────────
+      const base = 'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;';
+      const cardStyle = 'background:#fff;border:1px solid #e2e8f0;border-radius:4px;margin-bottom:2px;overflow:hidden;';
+      const headerStyle = 'background:#0f172a;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;';
+      const slideNumStyle = 'color:#64748b;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;';
+      const slideTitleStyle = 'color:#94a3b8;font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;';
+      const bodyStyle = 'padding:24px 28px;';
+      const labelStyle = 'font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#64748b;margin-bottom:6px;';
+      const headlineStyle = 'font-size:20px;font-weight:700;color:#0f172a;line-height:1.25;margin-bottom:12px;';
+      const bodyTextStyle = 'font-size:13px;color:#334155;line-height:1.65;margin:0;';
+      const bulletStyle = 'font-size:13px;color:#334155;line-height:1.65;padding:5px 0 5px 16px;position:relative;border-bottom:1px solid #f1f5f9;margin:0;';
+      const statStyle = 'font-size:13px;color:#0f172a;font-weight:600;padding:8px 0;border-bottom:1px solid #f1f5f9;';
+      const accentBar = 'width:3px;background:#22c55e;border-radius:2px;flex-shrink:0;';
+      const metricBox = 'background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:12px 16px;text-align:center;';
+
+      function slide(num, title, bodyHTML) {
+        return '<div style="' + cardStyle + '">' +
+          '<div style="' + headerStyle + '">' +
+            '<span style="' + slideNumStyle + '">SLIDE ' + num + '</span>' +
+            '<span style="' + slideTitleStyle + '">' + title + '</span>' +
+          '</div>' +
+          '<div style="' + bodyStyle + '">' + bodyHTML + '</div>' +
+        '</div>';
       }
-      function bullets(arr) {
-        if (!Array.isArray(arr)) return '<p style="margin:0">' + arr + '</p>';
-        return '<ul style="margin:0;padding-left:16px">' + arr.map(function(i){ return '<li style="margin-bottom:4px">' + i + '</li>'; }).join('') + '</ul>';
-      }
+
+      function divider() { return '<div style="height:1px;background:#f1f5f9;margin:14px 0;"></div>'; }
+
+      // ── Slide 1: Athlete Snapshot ────────────────────────────────────────
+      const s1 = deck.slide1 || {};
+      const s1Body =
+        '<div style="display:flex;gap:16px;align-items:flex-start;">' +
+          '<div style="' + accentBar + 'margin-top:4px;height:auto;min-height:48px;"></div>' +
+          '<div>' +
+            '<div style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin-bottom:6px;">' + sport.toUpperCase() + (school ? ' &middot; ' + school.toUpperCase() : '') + '</div>' +
+            '<div style="font-size:26px;font-weight:800;color:#0f172a;letter-spacing:-.01em;margin-bottom:10px;">' + athleteName + '</div>' +
+            '<div style="font-size:15px;font-weight:500;color:#1e293b;line-height:1.4;margin-bottom:12px;">' + (s1.headline || '') + '</div>' +
+            divider() +
+            '<p style="' + bodyTextStyle + '">' + (s1.intro || '') + '</p>' +
+          '</div>' +
+        '</div>';
+
+      // ── Slide 2: Why This Athlete ────────────────────────────────────────
+      const s2 = deck.slide2 || {};
+      const bullets2 = (s2.bullets || []).map(function(b, i) {
+        return '<div style="' + bulletStyle + (i === (s2.bullets.length - 1) ? 'border-bottom:none;' : '') + '">' +
+          '<span style="position:absolute;left:0;top:5px;color:#22c55e;font-size:11px;font-weight:700;">&#x2014;</span>' + b + '</div>';
+      }).join('');
+      const s2Body = '<div style="' + labelStyle + '">What sets this athlete apart</div>' + bullets2;
+
+      // ── Slide 3: Athletic Performance ────────────────────────────────────
+      const s3 = deck.slide3 || {};
+      const stats3 = (s3.stats || []).map(function(s, i) {
+        return '<div style="' + statStyle + (i === (s3.stats.length - 1) ? 'border-bottom:none;' : '') + '">' + s + '</div>';
+      }).join('');
+      const s3Body =
+        '<div style="' + labelStyle + '">Key Stats & Achievements</div>' +
+        stats3 +
+        (s3.role ? divider() + '<div style="' + labelStyle + '">Team Role</div><p style="' + bodyTextStyle + '">' + s3.role + '</p>' : '');
+
+      // ── Slide 4: Audience & Social ───────────────────────────────────────
+      const s4 = deck.slide4 || {};
+      const metricsHTML =
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">' +
+          '<div style="' + metricBox + '">' +
+            '<div style="font-size:19px;font-weight:800;color:#0f172a;">' + (s4.instagram || '—') + '</div>' +
+            '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-top:2px;">Instagram</div>' +
+          '</div>' +
+          '<div style="' + metricBox + '">' +
+            '<div style="font-size:19px;font-weight:800;color:#0f172a;">' + (s4.tiktok || '—') + '</div>' +
+            '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-top:2px;">TikTok</div>' +
+          '</div>' +
+          '<div style="' + metricBox + '">' +
+            '<div style="font-size:19px;font-weight:800;color:#22c55e;">' + (s4.engagement || '—') + '</div>' +
+            '<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-top:2px;">Engagement</div>' +
+          '</div>' +
+        '</div>';
+      const s4Body =
+        metricsHTML +
+        '<div style="' + labelStyle + '">Audience Profile</div>' +
+        '<p style="' + bodyTextStyle + 'margin-bottom:12px;">' + (s4.audienceSummary || '') + '</p>' +
+        (s4.growthSignal ? '<div style="background:#f0fdf4;border-left:3px solid #22c55e;padding:10px 14px;border-radius:0 4px 4px 0;font-size:12px;color:#166534;font-weight:500;">' + s4.growthSignal + '</div>' : '');
+
+      // ── Slide 5: Brand Fit ───────────────────────────────────────────────
+      const s5 = deck.slide5 || {};
+      const cats5 = (s5.categories || []).map(function(c, i) {
+        return '<div style="display:flex;align-items:flex-start;gap:14px;padding:10px 0;border-bottom:1px solid #f1f5f9;' + (i === (s5.categories.length - 1) ? 'border-bottom:none;' : '') + '">' +
+          '<div style="width:28px;height:28px;background:#0f172a;border-radius:3px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;font-weight:700;color:#22c55e;margin-top:1px;">' + (i + 1) + '</div>' +
+          '<div><div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:2px;">' + (c.name || c) + '</div>' +
+          '<div style="font-size:12px;color:#64748b;line-height:1.5;">' + (c.reason || '') + '</div></div>' +
+        '</div>';
+      }).join('');
+      const s5Body = '<div style="' + labelStyle + '">Ideal Sponsorship Categories</div>' + cats5;
+
+      // ── Slide 6: Activation Ideas ─────────────────────────────────────
+      const s6 = deck.slide6 || {};
+      const acts6 = (s6.activations || []).map(function(a, i) {
+        const colors = ['#0f172a', '#1e3a5f', '#14532d'];
+        return '<div style="background:' + colors[i % 3] + ';border-radius:4px;padding:18px 20px;margin-bottom:8px;">' +
+          '<div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;margin-bottom:6px;">CONCEPT ' + (i + 1) + '</div>' +
+          '<div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:6px;">' + (a.title || '') + '</div>' +
+          '<div style="font-size:12px;color:#cbd5e1;line-height:1.6;">' + (a.description || '') + '</div>' +
+        '</div>';
+      }).join('');
+      const s6Body = '<div style="' + labelStyle + '">Campaign Concepts</div>' + acts6;
+
+      // ── Assemble ────────────────────────────────────────────────────────
+      const deckHeader =
+        '<div style="background:#0f172a;border-radius:4px 4px 0 0;padding:20px 28px;margin-bottom:2px;">' +
+          '<div style="font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#22c55e;margin-bottom:4px;">SPONSORSHIP PITCH DECK</div>' +
+          '<div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-.01em;">' + athleteName.toUpperCase() + '</div>' +
+          '<div style="font-size:12px;color:#64748b;margin-top:4px;">' + (sport ? sport.charAt(0).toUpperCase() + sport.slice(1) : '') + (school ? ' &middot; ' + school : '') + ' &middot; NIL Sponsorship Opportunity</div>' +
+        '</div>';
+
+      const exportBtn =
+        '<button onclick="printPitchDeck()" style="width:100%;margin-top:10px;padding:12px;background:#0f172a;color:#fff;border:none;border-radius:4px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;">Export as PDF</button>';
+
       result.innerHTML =
-        sec('Brand Summary', kit.brandSummary || '—', '✨') +
-        sec('Sponsorship Positioning', kit.sponsorshipPositioning || '—', '🎯') +
-        sec('Athlete Bio (Media Kit)', kit.athleteBio || '—', '📋') +
-        sec('Outreach Talking Points', bullets(kit.outreachTalkingPoints), '💬') +
-        sec('Social Content Strategy', (kit.socialContentStrategy || '—') + (kit.contentPillars ? '<br><br><strong>Content Pillars:</strong><br>' + bullets(kit.contentPillars) : ''), '📱') +
-        sec('Campaign Suggestions', bullets(kit.campaignSuggestions), '🚀') +
-        sec('Ideal Sponsorship Categories', bullets(kit.idealSponsorshipCategories), '🏷️') +
-        '<button onclick="navigator.clipboard.writeText(document.getElementById(\'mkt-brandkit-result\').innerText).then(function(){if(typeof showToast===\'function\')showToast(\'Copied!\');else alert(\'Copied!\');})" style="width:100%;padding:10px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">📋 Copy Full Pitch Deck</button>';
+        '<div style="' + base + 'max-width:720px;">' +
+          deckHeader +
+          slide(1, 'ATHLETE SNAPSHOT', s1Body) +
+          slide(2, 'WHY THIS ATHLETE', s2Body) +
+          slide(3, 'ATHLETIC PERFORMANCE', s3Body) +
+          slide(4, 'AUDIENCE & SOCIAL PRESENCE', s4Body) +
+          slide(5, 'BRAND FIT', s5Body) +
+          slide(6, 'ACTIVATION IDEAS', s6Body) +
+          exportBtn +
+        '</div>';
     }
   } catch(e) {
     if (loading) loading.style.display = 'none';
-    if (result) { result.style.display = ''; result.innerHTML = '<div style="color:#f87171;padding:12px">Error: ' + e.message + '</div>'; }
+    if (result) { result.style.display = ''; result.innerHTML = '<div style="padding:16px;color:#ef4444;font-size:13px;border:1px solid #fecaca;border-radius:4px;">Error generating pitch deck: ' + e.message + '</div>'; }
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -755,4 +869,15 @@ async function runMarketingScores() {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+function printPitchDeck() {
+  const el = document.getElementById('mkt-brandkit-result');
+  if (!el) return;
+  const html = el.innerHTML;
+  const win = window.open('', '_blank', 'width=800,height=1000');
+  win.document.write('<html><head><title>Sponsorship Pitch Deck</title><style>body{margin:0;padding:32px;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}@media print{body{padding:0;background:#fff;}button{display:none!important;}}</style></head><body>' + html + '</body></html>');
+  win.document.close();
+  win.focus();
+  setTimeout(function(){ win.print(); }, 500);
 }
