@@ -247,15 +247,21 @@ app.post('/api/deals', requireAuth, async (req, res) => {
 app.patch('/api/deals/:id', requireAuth, async (req, res) => {
   const existing = await store.getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
-  // Auto-save to deal comps when a deal is closed with a real value
-  if (req.body.status === 'closed' && existing.status !== 'closed' && parseInt(req.body.value || existing.value) > 0) {
+  const merged = { ...existing, ...req.body };
+  // Sync status from stage (pipeline drag uses 'stage', other code uses 'status')
+  if (req.body.stage === 'Closed' && existing.stage !== 'Closed') merged.status = 'closed';
+  else if (req.body.status === 'closed' && existing.status !== 'closed') merged.stage = merged.stage || 'Closed';
+  // Auto-save to deal comps when deal moves to Closed with a real value
+  const isNowClosed = (req.body.stage === 'Closed' && existing.stage !== 'Closed') ||
+                      (req.body.status === 'closed' && existing.status !== 'closed');
+  if (isNowClosed && parseInt(merged.value || 0) > 0) {
     const athlete = await store.getAthlete(existing.athleteId);
     if (athlete) {
-      await store.saveComp({ ...existing, ...req.body }, athlete);
-      console.log('Deal comp saved:', athlete.sport, athlete.schoolTier, req.body.value || existing.value);
+      await store.saveComp(merged, athlete);
+      console.log('Deal comp saved:', athlete.sport, athlete.schoolTier, '$' + (merged.value || 0));
     }
   }
-  res.json(await store.saveDeal(req.params.id, { ...existing, ...req.body }));
+  res.json(await store.saveDeal(req.params.id, merged));
 });
 
 app.delete('/api/deals/:id', requireAuth, async (req, res) => {
