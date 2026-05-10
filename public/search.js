@@ -51,19 +51,27 @@
           (a.sport||'').toLowerCase().includes(q) ||
           (a.school||'').toLowerCase().includes(q) ||
           (a.position||'').toLowerCase().includes(q)) {
-        hits.push({ icon: '👤', label: a.name, sub: (a.sport||'') + (a.position ? ' · ' + a.position : '') + ' · ' + (a.school||''), action: function() {
-          if (window.setActiveAthlete) setActiveAthlete(a.id);
-        }});
+        var athLabel = a.name;
+        var athSub = [a.sport, a.position, a.school].filter(Boolean).join(' · ');
+        (function(aid, aLabel, aSub) {
+          hits.push({ icon: '👤', label: aLabel, sub: aSub, action: function() {
+            if (window.setActiveAthlete) setActiveAthlete(aid);
+          }});
+        })(a.id, athLabel, athSub);
       }
     });
 
     var deals = window._pipelineDeals || [];
+    // If pipeline hasn't been loaded yet, try to use cached athlete deals
+    if (!deals.length && window._athleteDealsCache) {
+      Object.values(window._athleteDealsCache).forEach(function(arr) { deals = deals.concat(arr); });
+    }
     deals.forEach(function(d) {
       if ((d.brand||'').toLowerCase().includes(q) ||
           (d.athleteName||'').toLowerCase().includes(q) ||
           (d.stage||'').toLowerCase().includes(q)) {
         hits.push({ icon: '💼', label: (d.brand||'Deal') + ' — ' + (d.athleteName||''), sub: (d.stage||'') + ' · $' + (d.value||0).toLocaleString(), action: function() {
-          if (window.showView) showView('pipeline', document.querySelectorAll('.nav-item')[4]);
+          if (window.showView) { var navItems = document.querySelectorAll('.nav-item'); var pipeBtn = Array.from(navItems).find(function(n){ return n.textContent.includes('Pipeline'); }); showView('pipeline', pipeBtn || navItems[4]); }
         }});
       }
     });
@@ -151,12 +159,15 @@ setTimeout(function() {
   updateDynamicPrompts();
 }, 1000);
 
-// Analytics loader
-window.loadAnalytics = function() {
-  if (window.NILAnalytics) {
-    NILAnalytics.load(window.athletes || [], window.API_BASE || '');
-  }
-};
+// Analytics loader — defer to inline loadAnalytics if already defined
+// (index.html has a full implementation; this is only a fallback for standalone use)
+if (!window.loadAnalytics) {
+  window.loadAnalytics = function() {
+    if (window.NILAnalytics) {
+      NILAnalytics.load(window.athletes || [], window.API_BASE || '');
+    }
+  };
+}
 
 // Generate athlete report
 window.generateReport = async function(athleteId) {
