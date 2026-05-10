@@ -2633,7 +2633,7 @@ let lastComplianceResult = null;
 
 let lastContract = '';
     let commFilter = 'all';
-async async function setCommFilter(f) {
+async function setCommFilter(f) {
       commFilter = f;
       ['all','Closed','active'].forEach(x => {
         const el = document.getElementById('cf-' + x);
@@ -2644,7 +2644,7 @@ async async function setCommFilter(f) {
       renderCommission();
     }
 
-    async async async function renderCommission() {
+    async function renderCommission() {
       const rate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
 
       // Gather all deals across all athletes
@@ -2718,7 +2718,7 @@ async async function setCommFilter(f) {
       }).join('');
     }
 
-async async function loadAnalytics() {
+async function loadAnalytics() {
   const body = document.getElementById('analytics-body');
   if (!body) return;
   body.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">Loading analytics...</div>';
