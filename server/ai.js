@@ -212,38 +212,9 @@ async function oneShot(prompt, system, maxTokens) {
 }
 
 async function oneShotWithSearch(prompt, systemPrompt) {
-  // Try web search first (claude-3-5-haiku-20241022 supports web_search_20250305)
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'interleaved-thinking-2025-05-14'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4000,
-        system: systemPrompt,
-        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
-        messages: [{ role: 'user', content: prompt }]
-      }),
-      signal: AbortSignal.timeout(25000)
-    });
-    if (response.ok) {
-      const data = await response.json();
-      if (!data.error) {
-        const textBlocks = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
-        const result = textBlocks.join('\n');
-        if (result && result.length > 10) return result;
-      }
-    }
-  } catch(webErr) {
-    console.log('Web search attempt failed, falling back to standard AI:', webErr.message);
-  }
-  // Fallback: standard oneShot without web search (fast, reliable)
-  return await oneShot(prompt, systemPrompt + ' Use your training knowledge to provide accurate, detailed answers.', 4000);
+  // Skip web search attempt - use high-quality oneShot with rich context instead
+  // (web_search tool was causing timeouts on Railway - oneShot with good prompts is more reliable)
+  return await oneShot(prompt, systemPrompt + ' Use your training knowledge of real NIL deals, brands, collectives, and transfer portal activity from 2024-2026 to provide accurate, specific, data-backed answers.', 4000);
 }
 
 async function calculateRateLive(athlete, deliverableType) {
