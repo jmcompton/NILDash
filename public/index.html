@@ -1625,7 +1625,7 @@ function switchTab(tab) {
   document.getElementById('loginForm').style.display  = tab==='login'  ? 'block' : 'none';
   document.getElementById('signupForm').style.display = tab==='signup' ? 'block' : 'none';
 }
-function selectRole(role) {
+async function selectRole(role) {
   selectedRole = role;
   document.getElementById('roleAgent').classList.toggle('active', role==='agent');
   const athleteBtn = document.getElementById('roleAthlete');
@@ -1879,7 +1879,7 @@ function renderRoster() {
   }).join('');
 }
 
-function selectAthlete(id) {
+async function selectAthlete(id) {
   selectedAthleteId = id;
   document.getElementById('activeAthlete').value = id;
   const ath = athletes.find(a => a.id === id);
@@ -1898,7 +1898,7 @@ async function deleteAthlete(id) {
   showToast('Client deleted');
 }
 
-function editAthlete(id) {
+async function editAthlete(id) {
   const a = athletes.find(x => x.id === id);
   if (!a) return;
   // Switch to Add Client view and pre-fill
@@ -2189,7 +2189,7 @@ function addDealToOutreach(brand, campaign) {
 }
 
 // NILViewVal Feedback Loop — track which deals agents pursue
-function trackDealScanAction(brand, dealType, action) {
+async function trackDealScanAction(brand, dealType, action) {
   try {
     var ath = athletes.find(function(a) { return a.id === selectedAthleteId; });
     if (!ath) return;
@@ -2234,7 +2234,7 @@ function prefillOutreach(brand) {
   showView('outreach', document.querySelectorAll('.nav-item')[5]);
   showToast('Brand pre-filled — write your outreach');
 }
-function prefillNeg(brand, rate) {
+async function prefillNeg(brand, rate) {
   document.getElementById('negBrand').value = brand;
   if (rate && rate.includes('–')) document.getElementById('negTarget').value = rate.split('–')[1].replace('$','').trim();
   showView('negotiate', document.querySelectorAll('.nav-item')[3]);
@@ -2505,7 +2505,7 @@ async function addDeal() {
 }
 
 // ── UTILS ────────────────────────────────────────────────────
-function copyText(el) {
+async function copyText(el) {
   navigator.clipboard.writeText(el.textContent.trim());
   showToast('Copied to clipboard!');
 }
@@ -2633,7 +2633,7 @@ let lastComplianceResult = null;
 
 let lastContract = '';
     let commFilter = 'all';
-function setCommFilter(f) {
+async function setCommFilter(f) {
       commFilter = f;
       ['all','Closed','active'].forEach(x => {
         const el = document.getElementById('cf-' + x);
@@ -2963,12 +2963,12 @@ async function loadAnalytics() {
       btn.disabled = false; btn.textContent = '📄 Generate Contract →';
     }
 
-    function copyContract() {
+    async function copyContract() {
       navigator.clipboard.writeText(lastContract);
       showToast('Contract copied to clipboard');
     }
 
-    function downloadContract() {
+    async function downloadContract() {
       const athlete = athletes.find(a => a.id === selectedAthleteId);
       const brand = document.getElementById('con-brand').value.trim();
       const filename = (athlete ? athlete.name.replace(/\s+/g,'-') : 'athlete') + '-' + brand.replace(/\s+/g,'-') + '-NIL-contract.txt';
@@ -3361,7 +3361,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
     // ── ONBOARDING ─────────────────────────────────────────────
     let obAthleteId = null;
 
-    function obStep(n) {
+    async function obStep(n) {
       document.querySelectorAll('.ob-step').forEach(s => s.style.display = 'none');
       const step = document.getElementById('ob-step-' + n);
       if (step) step.style.display = 'block';
@@ -3462,7 +3462,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
       obStep(4);
     }
 
-    function obSkipDeal() {
+    async function obSkipDeal() {
       document.getElementById('ob-deal-check-icon').textContent = '–';
       obStep(4);
     }
@@ -3567,7 +3567,7 @@ function openManualDealModal(){
   sel.innerHTML=athletes.map(function(a){return '<option value="'+a.id+'">'+a.name+'</option>';}).join('');
   modal.style.display='flex';
 }
-function closeManualDealModal(){
+async function closeManualDealModal(){
   document.getElementById('manual-deal-modal').style.display='none';
 }
 async function saveManualDeal(){
@@ -3675,7 +3675,7 @@ function switchMarketingTab(tab) {
   });
 }
 
-function updateMarketingClientLabel() {
+async function updateMarketingClientLabel() {
   var ath = athletes ? athletes.find(function(a){ return a.id === selectedAthleteId; }) : null;
   var name = ath ? ath.name : 'your selected client';
   ['mkt-athlete-name','mkt-athlete-name-2','mkt-athlete-name-3'].forEach(function(id) {
