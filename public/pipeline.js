@@ -29,7 +29,10 @@
               '<span style="width:8px;height:8px;border-radius:50%;background:' + color + ';display:inline-block"></span>' +
               '<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted)">' + stage + '</span>' +
             '</div>' +
-            '<span style="font-size:11px;font-weight:700;color:var(--text)">' + stageDeals.length + '</span>' +
+            '<div style="text-align:right">' +
+              '<div style="font-size:11px;font-weight:700;color:var(--text)">' + stageDeals.length + '</div>' +
+              (stageDeals.length > 0 ? '<div style="font-size:9px;color:var(--muted)">$' + (stageDeals.reduce(function(s,d){return s+(d.value||0);},0)/1000).toFixed(0) + 'K</div>' : '') +
+            '</div>' +
           '</div>' +
           '<div style="padding:8px;display:flex;flex-direction:column;gap:8px">';
 
@@ -38,9 +41,13 @@
             'ondragstart="NILPipeline.onDragStart(event)" ' +
             'ondragend="NILPipeline.onDragEnd(event)" ' +
             'style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;cursor:grab;transition:opacity 0.15s;user-select:none">' +
-            '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px">' + (d.brand||'Unknown') + '</div>' +
+            '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">' +
+              '<div style="font-size:12px;font-weight:600;color:var(--text)">' + (d.brand||'Unknown') + '</div>' +
+              (d.dealType ? '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,0.06);color:var(--muted)">' + (d.dealType||'').replace('-',' ') + '</span>' : '') +
+            '</div>' +
             '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">' + (d.athleteName||'') + '</div>' +
-            '<div style="font-size:10px;color:var(--muted);margin-bottom:8px;opacity:0.6">Last updated: ' + (d.updatedAt ? new Date(d.updatedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : d.createdAt ? new Date(d.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "—") + '</div>' +
+            '<div style="font-size:10px;color:var(--muted);margin-bottom:4px;opacity:0.6">Updated: ' + (d.updatedAt ? new Date(d.updatedAt).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : d.createdAt ? new Date(d.createdAt).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "—") + '</div>' +
+            (d.notes ? '<div style="font-size:10px;color:var(--muted);margin-bottom:6px;font-style:italic;opacity:0.7">' + (d.notes.length > 50 ? d.notes.substring(0,50)+'…' : d.notes) + '</div>' : '') +
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
               '<div style="font-size:18px;font-weight:700;color:var(--accent);letter-spacing:-0.02em">$' + (d.value||0).toLocaleString() + '</div>' +
               '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:' + color + '20;color:' + color + ';font-weight:700">' + stage.split(' ')[0] + '</span>' +
@@ -124,11 +131,16 @@
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({stage: newStage})
         });
-        if (typeof showToast === 'function') showToast('Moved to ' + newStage);
+        if (typeof showToast === 'function') showToast('Moved to ' + newStage + (newStage === 'Closed' ? ' 🎉' : ''));
         if (typeof loadKPIs === 'function') loadKPIs();
         if (typeof loadPipeline === 'function') loadPipeline();
-        if (newStage === 'Closed' && typeof renderCommission === 'function') {
-          setTimeout(renderCommission, 200);
+        if (newStage === 'Closed') {
+          if (typeof renderCommission === 'function') setTimeout(renderCommission, 300);
+          // Reload analytics if it's the current view
+          var analyticsBody = document.getElementById('analytics-body');
+          if (analyticsBody && analyticsBody.offsetParent !== null && typeof loadAnalytics === 'function') {
+            setTimeout(loadAnalytics, 500);
+          }
         }
       } catch(e) {
         if (typeof showToast === 'function') showToast('Error moving deal');
