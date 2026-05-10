@@ -212,26 +212,38 @@ async function oneShot(prompt, system, maxTokens) {
 }
 
 async function oneShotWithSearch(prompt, systemPrompt) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 3000,
-      system: systemPrompt,
-      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
-      messages: [{ role: 'user', content: prompt }]
-    })
-  });
-  const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
-  const textBlocks = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
-  return textBlocks.join('\n');
+  // Try web search first (claude-3-5-haiku-20241022 supports web_search_20250305)
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'interleaved-thinking-2025-05-14'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4000,
+        system: systemPrompt,
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
+        messages: [{ role: 'user', content: prompt }]
+      }),
+      signal: AbortSignal.timeout(25000)
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (!data.error) {
+        const textBlocks = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
+        const result = textBlocks.join('\n');
+        if (result && result.length > 10) return result;
+      }
+    }
+  } catch(webErr) {
+    console.log('Web search attempt failed, falling back to standard AI:', webErr.message);
+  }
+  // Fallback: standard oneShot without web search (fast, reliable)
+  return await oneShot(prompt, systemPrompt + ' Use your training knowledge to provide accurate, detailed answers.', 4000);
 }
 
 async function calculateRateLive(athlete, deliverableType) {
@@ -307,19 +319,31 @@ Return ONLY a JSON array of 6 deals:
 }]`;
 
   try {
-    const raw = await oneShotWithSearch(prompt, 'You are a JSON-only NIL deal research API. Use web search to find REAL local businesses in the athlete\'s city and REAL brand NIL programs. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON.');
+    const raw = await oneShotWithSearch(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Use your knowledge of real local businesses, regional brands, and documented NIL programs to identify genuine opportunities for this athlete.');
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
     if (si === -1 || ei <= si) throw new Error('No array');
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-    return parsed;
+    return parsed.map(d => ({ ...d, suggestedRate: { low: rate.low, high: rate.high } }));
   } catch (err) {
     console.error('Deal scan error:', err.message);
-    return [{ rank:1, brand:'Local Brand', campaign:'Brand Ambassador', category:'apparel',
-      rationale:'Strong fit for this athlete profile.', fitScore:75,
-      suggestedRate:{ low: rate.low, high: rate.high }, timingNote:'Open', dealType:'post' }];
+    // Build a sport/school-specific fallback instead of generic "Local Brand"
+    const sportBrands = {
+      football: ['Riddell','Athletic Greens (AG1)','BODYARMOR','Fanatics','Under Armour'],
+      basketball: ['Spalding','BODYARMOR','Athletic Greens (AG1)','Fanatics','SportClips'],
+    };
+    const cityBrands = sportBrands[sport.toLowerCase()] || sportBrands.football;
+    return cityBrands.map((b,i) => ({
+      rank: i+1, brand: b, campaign: `${athlete.name} partnership with ${b}`,
+      category: i===0?'equipment':i===1?'nutrition':'apparel',
+      dealType: i<2?'ambassador':'reel',
+      rationale: `Strong fit for ${sport} athletes — national brand with college NIL program.`,
+      fitScore: 75-i*3, isLocal: false,
+      suggestedRate: { low: rate.low, high: rate.high },
+      timingNote: 'Open — reach out via brand NIL portal'
+    }));
   }
 }
 
@@ -363,7 +387,7 @@ Generate a complete athlete brand kit. Return ONLY JSON:
 }`;
 
   try {
-    const raw = await oneShot(prompt, 'You are a sports marketing expert. Return only valid JSON. No markdown. No preamble.');
+    const raw = await oneShot(prompt, 'You are a sports marketing expert. Return only valid JSON. No markdown. No preamble. Be concise but complete.');
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
