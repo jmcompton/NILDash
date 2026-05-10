@@ -1570,7 +1570,43 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <option>Negotiating</option><option>Closing</option><option>Closed</option>
       </select>
     </div>
-    <button class="run-btn" style="width:100%;margin-top:12px" onclick="addDeal()">Save Deal →</button>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+      <div>
+        <div class="form-label-sm" style="margin-bottom:4px">Deal Type</div>
+        <select class="select-sm" id="d_deal_type">
+          <option value="ig-reel">IG Reel</option>
+          <option value="ig-post">IG Post</option>
+          <option value="tiktok">TikTok Video</option>
+          <option value="bundle">IG Bundle</option>
+          <option value="bundle-cross">Cross-Platform Bundle</option>
+          <option value="retainer">Monthly Retainer</option>
+          <option value="appearance-inperson">In-Person Appearance</option>
+          <option value="ugc-video">UGC Video</option>
+          <option value="license-jersey">Jersey License</option>
+          <option value="collective-roster">Collective Roster</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div>
+        <div class="form-label-sm" style="margin-bottom:4px">Category</div>
+        <select class="select-sm" id="d_category">
+          <option value="">Any</option>
+          <option value="nutrition">Nutrition</option>
+          <option value="apparel">Apparel</option>
+          <option value="auto">Automotive</option>
+          <option value="finance">Finance</option>
+          <option value="food">Food/Restaurant</option>
+          <option value="tech">Tech/Gaming</option>
+          <option value="local">Local Business</option>
+          <option value="collective">NIL Collective</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-bottom:10px">
+      <div class="form-label-sm" style="margin-bottom:4px">Notes</div>
+      <textarea class="input-sm" id="d_notes" placeholder="Any context, contact info, deal terms..." style="resize:vertical;min-height:52px;font-family:inherit"></textarea>
+    </div>
+    <button class="run-btn" style="width:100%;margin-top:4px" onclick="addDeal()">Save Deal →</button>
   </div>
 </div>
 
@@ -1714,6 +1750,13 @@ async function loadAthletes() {
       document.getElementById('activeAthlete').value = selectedAthleteId;
       onAthleteChange();
     }
+    // Pre-warm deal cache for global search
+    window._athleteDealsCache = window._athleteDealsCache || {};
+    athletes.forEach(function(a) {
+      fetch(API_BASE + '/api/athletes/' + a.id + '/deals').then(function(r){ return r.json(); }).then(function(deals){
+        window._athleteDealsCache[a.id] = (deals || []).map(function(d){ return Object.assign({}, d, {athleteName: a.name, athleteId: a.id}); });
+      }).catch(function(){});
+    });
   } catch(e) { console.error(e); }
 }
 
@@ -2438,6 +2481,9 @@ async function addDeal() {
         campaign: document.getElementById('d_campaign').value,
         value: document.getElementById('d_value').value,
         stage: document.getElementById('d_stage').value,
+        dealType: (document.getElementById('d_deal_type') || {}).value || 'ig-reel',
+        notes: (document.getElementById('d_notes') || {}).value || '',
+        category: (document.getElementById('d_category') || {}).value || '',
       }),
     });
     const data = await r.json();
@@ -2446,6 +2492,9 @@ async function addDeal() {
     document.getElementById('d_brand').value = '';
     document.getElementById('d_campaign').value = '';
     document.getElementById('d_value').value = '';
+    if (document.getElementById('d_notes')) document.getElementById('d_notes').value = '';
+    if (document.getElementById('d_deal_type')) document.getElementById('d_deal_type').value = 'ig-reel';
+    if (document.getElementById('d_category')) document.getElementById('d_category').value = '';
     showToast('✅ Deal added!');
     await loadKPIs();
     await loadPipeline();
