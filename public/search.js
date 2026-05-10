@@ -110,7 +110,7 @@
 })();
 
 // Dynamic AI Command prompts based on active client
-function updateDynamicPrompts() {
+async function updateDynamicPrompts() {
   var container = document.getElementById('dynamic-prompts');
   if (!container) return;
   var athletes = window.athletes || [];
