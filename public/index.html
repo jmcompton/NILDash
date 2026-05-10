@@ -2082,7 +2082,7 @@ async function runDealScan() {
   document.getElementById('dealsSpinner').style.display = 'none';
 }
 
-function renderDealsTable(recs) {
+async function renderDealsTable(recs) {
   if (!recs || !recs.length) return;
   var container = document.getElementById('dealsTbody');
   container.innerHTML = recs.map(function(d,i) {
