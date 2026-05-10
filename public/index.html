@@ -2210,16 +2210,48 @@ async function calcRate() {
     const result = document.getElementById('rateResult');
     result.classList.add('visible');
     document.getElementById('rateRange').textContent = '$' + (rate.low||0).toLocaleString() + ' – $' + (rate.high||0).toLocaleString();
-    document.getElementById('ratePer').textContent = 'per ' + type.replace('-',' ');
+    const delivLabels = {
+      'ig-reel':'per IG Reel', 'ig-post':'per IG Post', 'ig-carousel':'per IG Carousel',
+      'tiktok':'per TikTok Video', 'tiktok-spark':'per TikTok Spark Ad',
+      'youtube-short':'per YouTube Short', 'youtube-long':'per YouTube Dedicated Video',
+      'youtube-int':'per YouTube Integration', 'stories':'per Story Set',
+      'story-bundle':'per Story Bundle (5-7)', 'newsletter':'per Newsletter Feature',
+      'podcast-host':'per Podcast Host Read', 'twitter-campaign':'per Twitter/X Campaign',
+      'threads':'per Threads Campaign', 'bundle':'per IG Bundle (Reel+Post+Story)',
+      'bundle-cross':'per Cross-Platform Bundle', 'retainer':'per Month (Retainer)',
+      'ugc-photo':'per UGC Photo License', 'ugc-video':'per UGC Video License',
+      'appearance-inperson':'per In-Person Appearance', 'appearance-speaking':'per Speaking/Panel',
+      'appearance-meetgreet':'per Meet & Greet', 'appearance-campus':'per Campus Appearance',
+      'appearance-virtual':'per Virtual Appearance', 'media-podcast':'per Podcast Guest Spot',
+      'media-youtube':'per YouTube Integration', 'media-twitch':'per Twitch Session',
+      'media-pressday':'per Media Day', 'media-documentary':'per Documentary Feature',
+      'license-jersey':'per Jersey License', 'license-merch':'per Merch Collab',
+      'license-codesign':'per Product Co-Design', 'license-autograph':'per Autograph Signing',
+      'license-videogame':'per Video Game License', 'license-trading-card':'per Trading Card',
+      'license-nft-digital':'per Digital/NFT', 'collective-roster':'per Month (Collective)',
+      'collective-ambassador':'per Month (Ambassador)', 'collective-booster':'per Booster Event',
+      'collective-exclusive':'per Month (Exclusive)', 'camp-skills':'per Skills Camp',
+      'camp-clinic':'per Youth Clinic', 'camp-training':'per Training Partnership',
+      'camp-elite':'per Elite Camp/Showcase',
+    };
+    document.getElementById('ratePer').textContent = delivLabels[type] || ('per ' + type.replace(/-/g,' '));
     const b = rate.breakdown || {};
     const liveTag = rate.liveData ? '<div class="rb-row" style="color:var(--accent);font-size:10px;margin-bottom:4px">Live market data used</div>' : '';
     const contextRow = rate.marketContext ? '<div class="rb-row" style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:4px">' + rate.marketContext + '</div>' : '';
+    function rbRow(label, val) { return val ? '<div class="rb-row"><span class="rb-label">' + label + '</span><span class="rb-val">' + val + '</span></div>' : ''; }
     document.getElementById('rateBreakdown').innerHTML = liveTag +
-      (b.reach ? '<div class="rb-row"><span class="rb-label">Effective reach</span><span class="rb-val">' + b.reach.toLocaleString() + '</span></div>' : '') +
-      (b.sportMult ? '<div class="rb-row"><span class="rb-label">Sport multiplier</span><span class="rb-val">' + b.sportMult + '×</span></div>' : '') +
-      (b.schoolMult ? '<div class="rb-row"><span class="rb-label">School multiplier</span><span class="rb-val">' + b.schoolMult + '×</span></div>' : '') +
-      (b.engMult ? '<div class="rb-row"><span class="rb-label">Engagement multiplier</span><span class="rb-val">' + b.engMult + '×</span></div>' : '') +
-      (b.cpm ? '<div class="rb-row"><span class="rb-label">Implied CPM</span><span class="rb-val">$' + b.cpm + '</span></div>' : '') +
+      rbRow('Effective reach', b.reach ? b.reach.toLocaleString() : null) +
+      rbRow('Sport multiplier', b.sportMult ? b.sportMult + '×' : null) +
+      rbRow('School multiplier', b.schoolMult ? b.schoolMult + '×' : null) +
+      rbRow('Position multiplier', b.posMult && b.posMult !== '1.00' ? b.posMult + '×' : null) +
+      rbRow('Market multiplier', b.marketMult && b.marketMult !== '1.00' ? b.marketMult + '×' : null) +
+      rbRow('Engagement multiplier', b.engMult ? b.engMult + '×' : null) +
+      rbRow('Cross-platform bonus', b.crossPlatform && b.crossPlatform !== '1.00' ? b.crossPlatform + '×' : null) +
+      rbRow('Stats boost', b.statsMult && parseFloat(b.statsMult) > 1.05 ? b.statsMult + '×' : null) +
+      rbRow('Draft premium', b.draftMult && parseFloat(b.draftMult) > 1.1 ? b.draftMult + '×' : null) +
+      rbRow('Academic signal', b.acadMult && b.acadMult !== '1.00' ? b.acadMult + '×' : null) +
+      rbRow('Implied CPM', b.cpm ? '$' + b.cpm : null) +
+      rbRow('Total multiplier', b.totalMult ? b.totalMult + '×' : null) +
       contextRow;
     // Show client context panel
     const ath = athletes.find(a => a.id === selectedAthleteId);
@@ -2269,23 +2301,34 @@ async function calcRate() {
         recBox.style.display = 'none';
       }
     }
-    // Show archetype score if available
+    // Show v5.2 scores panel
     var archBox = document.getElementById('rate-archetype');
     if (archBox) {
-      if (rate.archetypeScore) {
-        archBox.style.display = 'block';
-        var score = rate.archetypeScore;
-        var tier = score >= 85 ? 'Elite' : score >= 70 ? 'Strong' : score >= 55 ? 'Developing' : 'Emerging';
-        var color = score >= 85 ? '#4ade80' : score >= 70 ? '#60a5fa' : score >= 55 ? '#f59e0b' : 'var(--muted)';
-        archBox.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
-          '<div style="font-size:10px;font-weight:700;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Archetype Score</div>' +
-          '<div style="font-size:18px;font-weight:700;color:' + color + '">' + score + '<span style="font-size:11px;color:var(--muted)">/99</span></div>' +
-        '</div>' +
-        '<div style="height:4px;background:var(--surface2);border-radius:2px;margin-bottom:8px"><div style="height:100%;width:' + score + '%;background:' + color + ';border-radius:2px"></div></div>' +
-        '<div style="font-size:11px;color:var(--muted)">Tier: <span style="color:' + color + ';font-weight:600">' + tier + '</span>' +
-        (rate.draftMult > 1.4 ? ' · <span style="color:#f59e0b">Draft premium (' + rate.draftMult.toFixed(1) + 'x)</span>' : '') +
-        (rate.statsMult > 1.2 ? ' · Stats boost (' + rate.statsMult.toFixed(2) + 'x)' : '') + '</div>';
-      } else { archBox.style.display = 'none'; }
+      archBox.style.display = 'block';
+      var aScore = rate.archetypeScore;
+      var mkt = rate.marketabilityScore || 0;
+      var spr = rate.sponsorshipReadiness || 0;
+      var aq  = rate.audienceQuality || 0;
+      var conf = rate.confidenceScore || rate.accuracyScore || 0;
+      function scColor(n) { return n >= 80 ? '#4ade80' : n >= 60 ? '#f59e0b' : '#f87171'; }
+      function scBar(n) { return '<div style="background:var(--surface2);border-radius:3px;height:5px;margin-top:4px"><div style="width:'+Math.min(n,100)+'%;background:'+scColor(n)+';height:5px;border-radius:3px"></div></div>'; }
+      var html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px">';
+      [['Marketability',mkt],['Readiness',spr],['Audience Quality',aq],['Confidence',conf]].forEach(function(item) {
+        html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">' +
+          '<div style="font-size:10px;color:var(--muted)">' + item[0] + '</div>' +
+          '<div style="font-size:20px;font-weight:800;color:'+scColor(item[1])+'">'+item[1]+'<span style="font-size:11px;color:var(--muted)">/100</span></div>' +
+          scBar(item[1]) + '</div>';
+      });
+      html += '</div>';
+      if (aScore) {
+        var aTier = aScore >= 85 ? 'Elite' : aScore >= 70 ? 'Strong' : aScore >= 55 ? 'Developing' : 'Emerging';
+        var aColor = aScore >= 85 ? '#4ade80' : aScore >= 70 ? '#60a5fa' : aScore >= 55 ? '#f59e0b' : 'var(--muted)';
+        html += '<div style="font-size:11px;color:var(--muted)">Archetype Score: <span style="color:'+aColor+';font-weight:700">'+aScore+'/99</span> · Tier: <span style="color:'+aColor+';font-weight:600">'+aTier+'</span>';
+        if (rate.draftMult > 1.4) html += ' · <span style="color:#f59e0b">Draft premium ('+rate.draftMult.toFixed(1)+'×)</span>';
+        if (rate.statsMult > 1.2) html += ' · Stats boost ('+rate.statsMult.toFixed(2)+'×)';
+        html += '</div>';
+      }
+      archBox.innerHTML = html;
     }
     document.getElementById('rateAI').classList.add('visible');
   } catch(e) { showToast('Error: ' + e.message); }
@@ -2625,6 +2668,127 @@ function setCommFilter(f) {
         </tr>`;
       }).join('');
     }
+
+async function loadAnalytics() {
+  const body = document.getElementById('analytics-body');
+  if (!body) return;
+  body.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">Loading analytics...</div>';
+
+  // Gather all deals across all athletes
+  const allDeals = [];
+  for (const ath of athletes) {
+    const deals = await fetch(API_BASE + '/api/athletes/' + ath.id + '/deals').then(r=>r.json()).catch(()=>[]);
+    deals.forEach(d => allDeals.push({ ...d, athleteName: ath.name, athleteId: ath.id }));
+  }
+
+  const commRate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
+  const closed = allDeals.filter(d => d.stage === 'Closed');
+  const active = allDeals.filter(d => d.stage !== 'Closed');
+  const totalPipeline = allDeals.reduce((s,d)=>s+(parseInt(d.value)||0),0);
+  const totalClosed = closed.reduce((s,d)=>s+(parseInt(d.value)||0),0);
+  const totalComm = Math.round(totalClosed * commRate);
+
+  // Stage breakdown
+  const stages = ['Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
+  const bystage = {};
+  stages.forEach(s => { bystage[s] = { count: 0, value: 0 }; });
+  allDeals.forEach(d => {
+    const s = d.stage || 'Prospecting';
+    if (bystage[s]) { bystage[s].count++; bystage[s].value += parseInt(d.value)||0; }
+  });
+
+  // Category breakdown
+  const bycat = {};
+  allDeals.forEach(d => {
+    const cat = d.category || d.brand || 'Other';
+    if (!bycat[cat]) bycat[cat] = 0;
+    bycat[cat] += parseInt(d.value)||0;
+  });
+  const topCats = Object.entries(bycat).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  // Athlete breakdown
+  const byAth = {};
+  closed.forEach(d => {
+    if (!byAth[d.athleteName]) byAth[d.athleteName] = 0;
+    byAth[d.athleteName] += parseInt(d.value)||0;
+  });
+
+  const accentGreen = '#c8f135';
+  function kpi(label, val, sub) {
+    return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px">' +
+      '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">' + label + '</div>' +
+      '<div style="font-size:24px;font-weight:800;color:var(--accent)">' + val + '</div>' +
+      (sub ? '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + sub + '</div>' : '') + '</div>';
+  }
+  function bar(label, val, max, color) {
+    var pct = max > 0 ? Math.round(val/max*100) : 0;
+    return '<div style="margin-bottom:10px">' +
+      '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
+        '<span style="font-size:11px;color:var(--text)">' + label + '</span>' +
+        '<span style="font-size:11px;font-weight:700;color:var(--text)">$' + val.toLocaleString() + '</span></div>' +
+      '<div style="background:var(--surface);height:6px;border-radius:3px">' +
+        '<div style="background:' + (color||accentGreen) + ';height:6px;border-radius:3px;width:' + pct + '%"></div></div></div>';
+  }
+
+  var html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">' +
+    kpi('Total Pipeline', '$' + (totalPipeline/1000).toFixed(0) + 'K', allDeals.length + ' deals') +
+    kpi('Closed Value', '$' + (totalClosed/1000).toFixed(0) + 'K', closed.length + ' closed') +
+    kpi('My Commission', '$' + totalComm.toLocaleString(), (commRate*100).toFixed(0) + '% rate') +
+    kpi('Active Deals', active.length, stages.filter(s=>s!=='Closed').map(s=>bystage[s]?.count||0).reduce((a,b)=>a+b,0) + ' in pipeline') +
+  '</div>';
+
+  // Pipeline funnel
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">';
+  html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px">';
+  html += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">Pipeline by Stage</div>';
+  const maxStageVal = Math.max(...stages.map(s=>bystage[s]?.value||0), 1);
+  stages.forEach(s => {
+    var stageColor = s === 'Closed' ? '#4ade80' : s === 'Closing' ? accentGreen : 'var(--muted)';
+    html += '<div style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">' +
+      '<span style="font-size:11px;color:var(--text);width:120px">' + s + '</span>' +
+      '<span style="font-size:10px;color:var(--muted);margin-right:8px">' + (bystage[s]?.count||0) + ' deals</span>' +
+      '<span style="font-size:11px;font-weight:700;color:' + stageColor + '">$' + ((bystage[s]?.value||0)/1000).toFixed(0) + 'K</span></div>';
+  });
+  html += '</div>';
+
+  // Top clients by closed value
+  html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px">';
+  html += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px">Top Clients (Closed Deals)</div>';
+  if (Object.keys(byAth).length === 0) {
+    html += '<div style="color:var(--muted);font-size:12px">No closed deals yet.</div>';
+  } else {
+    const maxAthVal = Math.max(...Object.values(byAth), 1);
+    Object.entries(byAth).sort((a,b)=>b[1]-a[1]).slice(0,5).forEach(([name,val]) => {
+      html += bar(name, val, maxAthVal, accentGreen);
+    });
+  }
+  html += '</div></div>';
+
+  // Recent deals table
+  const recent = allDeals.sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0)).slice(0,10);
+  if (recent.length > 0) {
+    html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px">';
+    html += '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">Recent Deals</div>';
+    html += '<table style="width:100%;border-collapse:collapse">';
+    html += '<thead><tr style="border-bottom:1px solid var(--border)">' +
+      ['Athlete','Brand','Stage','Value','Category'].map(h=>'<th style="text-align:left;padding:8px 10px;font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase">' + h + '</th>').join('') + '</tr></thead><tbody>';
+    recent.forEach(d => {
+      var stageColor = d.stage==='Closed' ? '#4ade80' : d.stage==='Closing' ? accentGreen : 'var(--muted)';
+      html += '<tr style="border-bottom:1px solid var(--border)">' +
+        '<td style="padding:9px 10px;font-size:12px;font-weight:500">' + (d.athleteName||'—') + '</td>' +
+        '<td style="padding:9px 10px;font-size:12px">' + (d.brand||'—') + '</td>' +
+        '<td style="padding:9px 10px"><span style="font-size:10px;padding:2px 7px;border-radius:4px;background:' + stageColor + '22;color:' + stageColor + '">' + (d.stage||'—') + '</span></td>' +
+        '<td style="padding:9px 10px;font-size:12px;font-weight:700">' + (d.value ? '$'+(parseInt(d.value)).toLocaleString() : '—') + '</td>' +
+        '<td style="padding:9px 10px;font-size:11px;color:var(--muted)">' + (d.category||'—') + '</td>' +
+      '</tr>';
+    });
+    html += '</tbody></table></div>';
+  } else {
+    html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:40px;text-align:center;color:var(--muted);font-size:13px">No deals logged yet. Add deals in the Pipeline to see analytics.</div>';
+  }
+
+  body.innerHTML = html;
+}
 
     function setCommFilter(f) {
       commFilter = f;
