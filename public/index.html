@@ -509,45 +509,65 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div class="form-group-sm">
               <label class="form-label-sm">Type</label>
               <select class="select-sm" id="rateDeliverable">
-                <optgroup label="Social Media">
+                <optgroup label="📱 Social Media">
                   <option value="ig-reel" selected>IG Reel</option>
                   <option value="ig-post">Single IG Post</option>
+                  <option value="ig-carousel">IG Carousel (Multi-Image)</option>
                   <option value="tiktok">TikTok Video</option>
-                  <option value="stories">Story Set (3-5)</option>
-                  <option value="youtube-long">YouTube (dedicated)</option>
-                  <option value="newsletter">Newsletter / Email Feature</option>
-                  <option value="podcast-host">Podcast Host Read</option>
-                  <option value="twitter-campaign">Twitter/X Campaign</option>
-                  <option value="bundle">Full Social Bundle</option>
+                  <option value="tiktok-spark">TikTok Spark Ad (Boosted)</option>
+                  <option value="youtube-short">YouTube Short</option>
+                  <option value="story-bundle">Story Set + Link (5-7 stories)</option>
+                  <option value="stories">Single Story Set (3 stories)</option>
+                  <option value="bundle">IG Bundle (Reel + Post + Story)</option>
+                  <option value="bundle-cross">Cross-Platform Bundle (IG + TikTok)</option>
                   <option value="retainer">Monthly Retainer</option>
                 </optgroup>
-                <optgroup label="Appearances &amp; Events">
+                <optgroup label="📹 Long-Form &amp; Audio">
+                  <option value="youtube-long">YouTube Dedicated Video</option>
+                  <option value="youtube-int">YouTube Integration (Mid-Roll)</option>
+                  <option value="podcast-host">Podcast Host Read</option>
+                  <option value="newsletter">Newsletter / Email Feature</option>
+                  <option value="twitter-campaign">Twitter/X Campaign</option>
+                  <option value="threads">Threads Campaign</option>
+                </optgroup>
+                <optgroup label="🎨 UGC &amp; Content Rights">
+                  <option value="ugc-video">UGC Video (Brand Runs in Their Ads)</option>
+                  <option value="ugc-photo">UGC Photo / Image Rights</option>
+                </optgroup>
+                <optgroup label="🏟️ Appearances &amp; Events">
                   <option value="appearance-inperson">In-Person Appearance</option>
                   <option value="appearance-speaking">Speaking / Panel</option>
                   <option value="appearance-meetgreet">Meet &amp; Greet</option>
                   <option value="appearance-campus">Campus Appearance</option>
+                  <option value="appearance-virtual">Virtual Appearance / Zoom</option>
                 </optgroup>
-                <optgroup label="Content &amp; Media">
+                <optgroup label="🎙️ Content &amp; Media">
                   <option value="media-podcast">Podcast Guest Spot</option>
-                  <option value="media-youtube">YouTube Integration</option>
-                  <option value="media-twitch">Twitch / Livestream</option>
+                  <option value="media-youtube">YouTube Channel Integration</option>
+                  <option value="media-twitch">Twitch / Livestream Session</option>
                   <option value="media-pressday">Press Interview / Media Day</option>
+                  <option value="media-documentary">Documentary / Short Film Feature</option>
                 </optgroup>
-                <optgroup label="Licensing &amp; Brand">
-                  <option value="license-jersey">Jersey Licensing</option>
+                <optgroup label="⚖️ Licensing &amp; Brand">
+                  <option value="license-jersey">Jersey / Uniform Licensing</option>
                   <option value="license-merch">Merchandise Collab</option>
                   <option value="license-codesign">Product Co-Design</option>
                   <option value="license-autograph">Autograph Signing (Bulk)</option>
+                  <option value="license-videogame">Video Game Likeness (EA Sports etc.)</option>
+                  <option value="license-trading-card">Trading Card / Collectible</option>
+                  <option value="license-nft-digital">Digital / NFT Collectible</option>
                 </optgroup>
-                <optgroup label="Collective / School">
+                <optgroup label="🏫 Collective / School">
                   <option value="collective-roster">Collective Roster Deal (Monthly)</option>
-                  <option value="collective-ambassador">School Ambassador</option>
+                  <option value="collective-ambassador">School Ambassador Role</option>
                   <option value="collective-booster">Booster Event Appearance</option>
+                  <option value="collective-exclusive">Exclusive School/Collective Deal</option>
                 </optgroup>
-                <optgroup label="Camps &amp; Clinics">
+                <optgroup label="🏕️ Camps &amp; Clinics">
                   <option value="camp-skills">Skills Camp Appearance</option>
                   <option value="camp-clinic">Youth Clinic Host</option>
                   <option value="camp-training">Training Facility Partnership</option>
+                  <option value="camp-elite">Elite Camp / Showcase Event</option>
                 </optgroup>
               </select>
             </div>
@@ -567,7 +587,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
             <div id="rate-archetype" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
             <div id="rate-v4-scores" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-top:12px">
-              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">NILViewVal v4 — Marketability Scores</div>
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">NILViewVal v5.2 — Marketability Scores</div>
               <div id="rate-v4-scores-body"></div>
               <div style="display:flex;gap:8px;margin-top:14px">
                 <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">🎯 Generate Brand Kit</button>
@@ -1084,7 +1104,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <!-- ── TAB: NIL Scores ── -->
         <div id="mkt-panel-scores" style="display:none">
           <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
-            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">NILViewVal v4 composite scores for <strong id="mkt-athlete-name-3" style="color:var(--text)">your selected client</strong> — marketability, sponsorship readiness, audience quality, and top brand categories.</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">NILViewVal v5.2 composite scores for <strong id="mkt-athlete-name-3" style="color:var(--text)">your selected client</strong> — marketability, sponsorship readiness, audience quality, and top brand categories.</div>
             <button class="run-btn" id="mkt-scores-btn" onclick="runMarketingScores()">Load NIL Scores →</button>
           </div>
           <div id="mkt-scores-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Loading scores...</div>
@@ -2407,7 +2427,7 @@ async function updateNilRateKpi() {
     const data = await r.json();
     if (data.low && data.high) {
       el.textContent = '$' + data.low.toLocaleString() + ' - $' + data.high.toLocaleString();
-      if (sub) sub.textContent = 'NILViewVal v4 estimate';
+      if (sub) sub.textContent = 'NILViewVal v5.2 estimate';
     // Auto-load v4 composite scores panel
     if (selectedAthleteId) {
       var scoresPanel = document.getElementById('rate-v4-scores');
