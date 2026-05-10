@@ -768,7 +768,7 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) { doc.moveDown(0.4); continue; }
-    if (/^(d+.|[A-Z][A-Zs]{4,}:?)$/.test(trimmed) || /^[A-Zs]{6,}$/.test(trimmed)) {
+    if (/^(\d+\.|[A-Z][A-Z\s]{4,}:?)$/.test(trimmed) || /^[A-Z\s]{6,}$/.test(trimmed)) {
       doc.moveDown(0.3).font('Helvetica-Bold').fontSize(10).text(trimmed).font('Helvetica').fontSize(10);
     } else {
       doc.text(trimmed, { align: 'justify' });
