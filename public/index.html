@@ -2718,7 +2718,7 @@ async function setCommFilter(f) {
       }).join('');
     }
 
-async function loadAnalytics() {
+async async function loadAnalytics() {
   const body = document.getElementById('analytics-body');
   if (!body) return;
   body.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">Loading analytics...</div>';
