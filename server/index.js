@@ -482,12 +482,20 @@ app.get('/api/nilviewval/:athleteId', requireAuth, async (req, res) => {
     const athlete = await store.getAthlete(req.params.athleteId);
     if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
     const { nilViewVal } = require('./benchmarks');
-    const types = ['ig-reel', 'ig-post', 'tiktok', 'bundle', 'retainer', 'stories'];
+    // Compute all key deliverable types
+    const types = [
+      'ig-reel', 'ig-post', 'ig-carousel', 'tiktok', 'tiktok-spark',
+      'youtube-short', 'youtube-long', 'story-bundle', 'stories',
+      'bundle', 'bundle-cross', 'retainer', 'ugc-video', 'ugc-photo',
+      'appearance-inperson', 'camp-skills', 'collective-roster',
+      'license-jersey', 'media-podcast', 'newsletter',
+    ];
     const rates = {};
     for (const t of types) {
-      rates[t] = nilViewVal(athlete, t);
+      const r = nilViewVal(athlete, t);
+      rates[t] = { low: r.low, mid: r.mid, high: r.high };
     }
-    const primary = rates['ig-reel'];
+    const primary = nilViewVal(athlete, 'ig-reel'); // full object for scores
     res.json({
       athlete: { id: athlete.id, name: athlete.name, sport: athlete.sport, school: athlete.school },
       rates,
@@ -497,11 +505,14 @@ app.get('/api/nilviewval/:athleteId', requireAuth, async (req, res) => {
         audienceQuality: primary.audienceQuality,
         confidenceScore: primary.confidenceScore,
         archetypeScore: primary.archetypeScore,
+        draftMult: primary.draftMult,
+        statsMult: primary.statsMult,
       },
       sponsorCategories: primary.sponsorCategories,
       brandPartnershipTypes: primary.brandPartnershipTypes,
       breakdown: primary.breakdown,
       recommendation: primary.recommendation,
+      floorApplied: primary.floorApplied,
     });
   } catch(e) {
     res.status(500).json({ error: e.message });
@@ -1118,8 +1129,8 @@ app.get('/api/reports/:token', async (req, res) => {
     const athlete = await store.getAthlete(report.athlete_id);
     const agent = await store.getUser(report.agent_id);
     const deals = await store.getDealsByAthlete(report.athlete_id);
-    const { calculateRate } = require('./ai');
-    const rate = calculateRate(athlete, 'ig-reel');
+    const { nilViewVal } = require('./benchmarks');
+    const rate = nilViewVal(athlete, 'ig-reel');
     res.json({ athlete, agent: { name: agent?.name, email: agent?.email }, deals, rate, agentMessage: report.agent_message, createdAt: report.created_at, expiresAt: report.expires_at });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -1132,7 +1143,16 @@ app.get('/api/rate/:athleteId', requireAuth, async (req, res) => {
     const { nilViewVal } = require('./benchmarks');
     const type = req.query.type || 'ig-reel';
     const rate = nilViewVal(athlete, type);
-    res.json({ low: rate.low, mid: rate.mid, high: rate.high, archetypeScore: rate.archetypeScore });
+    res.json({
+      low: rate.low, mid: rate.mid, high: rate.high,
+      archetypeScore: rate.archetypeScore,
+      marketabilityScore: rate.marketabilityScore,
+      sponsorshipReadiness: rate.sponsorshipReadiness,
+      audienceQuality: rate.audienceQuality,
+      confidenceScore: rate.confidenceScore,
+      floorApplied: rate.floorApplied,
+      breakdown: rate.breakdown,
+    });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
