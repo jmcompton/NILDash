@@ -578,3 +578,176 @@ window.openBrandKitModal = openBrandKitModal;
 window.openOutreachModal = openOutreachModal;
 window.runOutreachGeneration = runOutreachGeneration;
 window.showNILViewValScores = showNILViewValScores;
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARKETING TAB — switchMarketingTab, runMarketingBrandKit, runMarketingOutreach, runMarketingScores
+// ─────────────────────────────────────────────────────────────────────────────
+
+function switchMarketingTab(tab) {
+  const tabs = ['brandkit', 'outreach', 'scores'];
+  tabs.forEach(function(t) {
+    const btn = document.getElementById('mkt-tab-' + t);
+    const panel = document.getElementById('mkt-panel-' + t);
+    if (btn) {
+      btn.style.borderBottom = t === tab ? '2px solid var(--accent)' : '2px solid transparent';
+      btn.style.color = t === tab ? 'var(--accent)' : 'var(--muted)';
+    }
+    if (panel) panel.style.display = t === tab ? '' : 'none';
+  });
+}
+
+async function runMarketingBrandKit() {
+  if (!selectedAthleteId) {
+    if (typeof showToast === 'function') showToast('Select an athlete first');
+    else alert('Select an athlete first');
+    return;
+  }
+  const btn = document.getElementById('mkt-brandkit-btn');
+  const loading = document.getElementById('mkt-brandkit-loading');
+  const result = document.getElementById('mkt-brandkit-result');
+  if (btn) btn.disabled = true;
+  if (loading) loading.style.display = '';
+  if (result) result.style.display = 'none';
+  try {
+    const res = await fetch('/api/ai/brand-kit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: selectedAthleteId })
+    });
+    const kit = await res.json();
+    if (kit.error) throw new Error(kit.error);
+    if (loading) loading.style.display = 'none';
+    if (result) {
+      result.style.display = '';
+      function sec(title, body, icon) {
+        return '<div style="margin-bottom:14px;padding:14px;background:var(--surface2);border-radius:8px">' +
+          '<div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">' + icon + ' ' + title + '</div>' +
+          '<div style="font-size:13px;color:var(--text);line-height:1.6">' + body + '</div></div>';
+      }
+      function bullets(arr) {
+        if (!Array.isArray(arr)) return '<p style="margin:0">' + arr + '</p>';
+        return '<ul style="margin:0;padding-left:16px">' + arr.map(function(i){ return '<li style="margin-bottom:4px">' + i + '</li>'; }).join('') + '</ul>';
+      }
+      result.innerHTML =
+        sec('Brand Summary', kit.brandSummary || '—', '✨') +
+        sec('Sponsorship Positioning', kit.sponsorshipPositioning || '—', '🎯') +
+        sec('Athlete Bio (Media Kit)', kit.athleteBio || '—', '📋') +
+        sec('Outreach Talking Points', bullets(kit.outreachTalkingPoints), '💬') +
+        sec('Social Content Strategy', (kit.socialContentStrategy || '—') + (kit.contentPillars ? '<br><br><strong>Content Pillars:</strong><br>' + bullets(kit.contentPillars) : ''), '📱') +
+        sec('Campaign Suggestions', bullets(kit.campaignSuggestions), '🚀') +
+        sec('Ideal Sponsorship Categories', bullets(kit.idealSponsorshipCategories), '🏷️') +
+        '<button onclick="navigator.clipboard.writeText(document.getElementById(\'mkt-brandkit-result\').innerText).then(function(){if(typeof showToast===\'function\')showToast(\'Copied!\');else alert(\'Copied!\');})" style="width:100%;padding:10px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">📋 Copy Full Pitch Deck</button>';
+    }
+  } catch(e) {
+    if (loading) loading.style.display = 'none';
+    if (result) { result.style.display = ''; result.innerHTML = '<div style="color:#f87171;padding:12px">Error: ' + e.message + '</div>'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runMarketingOutreach() {
+  if (!selectedAthleteId) {
+    if (typeof showToast === 'function') showToast('Select an athlete first');
+    else alert('Select an athlete first');
+    return;
+  }
+  const brand = (document.getElementById('mkt-or-brand') || {}).value || '';
+  if (!brand.trim()) {
+    if (typeof showToast === 'function') showToast('Enter a brand name first');
+    else alert('Enter a brand name first');
+    return;
+  }
+  const category = (document.getElementById('mkt-or-category') || {}).value || 'general';
+  const goal = (document.getElementById('mkt-or-goal') || {}).value || '';
+  const btn = document.getElementById('mkt-outreach-btn');
+  const loading = document.getElementById('mkt-outreach-loading');
+  const result = document.getElementById('mkt-outreach-result');
+  if (btn) btn.disabled = true;
+  if (loading) loading.style.display = '';
+  if (result) result.style.display = 'none';
+  try {
+    const res = await fetch('/api/ai/generate-outreach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: selectedAthleteId, brand: brand.trim(), category, goal })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (loading) loading.style.display = 'none';
+    if (result) {
+      result.style.display = '';
+      function outreachBox(label, content, icon) {
+        if (!content) return '';
+        return '<div style="margin-bottom:14px;padding:14px;background:var(--surface2);border-radius:8px">' +
+          '<div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">' + icon + ' ' + label + '</div>' +
+          '<pre style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.5;margin:0;font-family:var(--mono,monospace)">' + content + '</pre>' +
+          '<button onclick="navigator.clipboard.writeText(this.previousElementSibling.textContent).then(function(){if(typeof showToast===\'function\')showToast(\'Copied!\');else alert(\'Copied!\');})" style="margin-top:8px;padding:6px 12px;background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;cursor:pointer">📋 Copy</button>' +
+        '</div>';
+      }
+      result.innerHTML =
+        outreachBox('Cold Email', data.email, '📧') +
+        outreachBox('Instagram DM', data.instagramDm || data.dm, '📱') +
+        outreachBox('Partnership Proposal', data.proposal, '📄') +
+        outreachBox('Follow-Up Message', data.followUp || data.followup, '🔁');
+    }
+  } catch(e) {
+    if (loading) loading.style.display = 'none';
+    if (result) { result.style.display = ''; result.innerHTML = '<div style="color:#f87171;padding:12px">Error: ' + e.message + '</div>'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runMarketingScores() {
+  if (!selectedAthleteId) {
+    if (typeof showToast === 'function') showToast('Select an athlete first');
+    else alert('Select an athlete first');
+    return;
+  }
+  const btn = document.getElementById('mkt-scores-btn');
+  const loading = document.getElementById('mkt-scores-loading');
+  const result = document.getElementById('mkt-scores-result');
+  if (btn) btn.disabled = true;
+  if (loading) loading.style.display = '';
+  if (result) result.style.display = 'none';
+  try {
+    const res = await fetch('/api/ai/rate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: selectedAthleteId })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (loading) loading.style.display = 'none';
+    if (result) {
+      result.style.display = '';
+      function scoreBadge(label, score, max, color) {
+        const pct = Math.round((score / max) * 100);
+        return '<div style="margin-bottom:12px;padding:14px;background:var(--surface2);border-radius:8px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+            '<span style="font-size:12px;font-weight:600;color:var(--text)">' + label + '</span>' +
+            '<span style="font-size:16px;font-weight:700;color:' + color + '">' + score + '<span style="font-size:11px;color:var(--muted)">/' + max + '</span></span>' +
+          '</div>' +
+          '<div style="background:var(--border);border-radius:4px;height:6px">' +
+            '<div style="background:' + color + ';width:' + pct + '%;height:6px;border-radius:4px;transition:width 0.5s"></div>' +
+          '</div></div>';
+      }
+      const scores = data.scores || data;
+      result.innerHTML =
+        '<div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px">NILViewVal Composite Scores</div>' +
+        scoreBadge('Marketability', scores.marketability || scores.marketabilityScore || 0, 100, '#34d399') +
+        scoreBadge('Sponsorship Readiness', scores.sponsorshipReadiness || scores.readinessScore || 0, 100, '#60a5fa') +
+        scoreBadge('Audience Quality', scores.audienceQuality || scores.audienceScore || 0, 100, '#f59e0b') +
+        scoreBadge('Overall NIL Score', scores.overallScore || scores.nilScore || 0, 100, '#a78bfa') +
+        (scores.topCategories ? '<div style="margin-top:12px;padding:14px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:8px">🏷️ Top Brand Categories</div><div style="font-size:13px;color:var(--text)">' + (Array.isArray(scores.topCategories) ? scores.topCategories.join(', ') : scores.topCategories) + '</div></div>' : '') +
+        (scores.summary ? '<div style="margin-top:12px;padding:14px;background:var(--surface2);border-radius:8px"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:8px">📊 Summary</div><div style="font-size:13px;color:var(--text);line-height:1.6">' + scores.summary + '</div></div>' : '');
+    }
+  } catch(e) {
+    if (loading) loading.style.display = 'none';
+    if (result) { result.style.display = ''; result.innerHTML = '<div style="color:#f87171;padding:12px">Error: ' + e.message + '</div>'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
