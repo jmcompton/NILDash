@@ -326,7 +326,7 @@ Give a 4-part playbook:
 4. WALK-AWAY LINE — exact sentence
 Include 3 KEY DATA POINTS to quote. Word-for-word scripts only.`;
   try {
-    const playbook = await ai.oneShotWithSearch(prompt, 'You are an elite sports agent negotiation coach. Search for recent NIL deal rates and brand spending data to inform your negotiation strategy. Return practical word-for-word scripts.');
+    const playbook = await ai.oneShot(prompt, 'You are an elite sports agent negotiation coach with deep expertise in NIL deal rates and brand spending. Return practical word-for-word scripts.', 8000);
     res.json({ playbook });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -368,7 +368,7 @@ app.post('/api/ai/outreach', requireAuth, aiLimiter, async (req, res) => {
     ' Return ONLY JSON: {"emailSubject":"subject","email":"full email","instagram":"DM under 150 chars","linkedin":"message under 200 chars"}' +
     ' Be specific to this athlete. Confident, not salesy. No placeholders.';
   try {
-    const raw = await ai.oneShotWithSearch(prompt, "You are a sports agent writing brand outreach. Search for this brand's recent NIL activity and marketing campaigns to personalize the outreach. Return only valid JSON.");
+    const raw = await ai.oneShot(prompt, "You are a sports agent writing brand outreach with deep knowledge of NIL brand partnerships and marketing campaigns. Return only valid JSON.", 8000);
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Generation failed' });
@@ -406,7 +406,7 @@ app.post('/api/ai/compliance', requireAuth, aiLimiter, async (req, res) => {
     'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Agent licensing requirements in ' + state + ' 5) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 6) SPARTA compliance - agent must notify ' + (school||'the university') + ' within 72 hours of signing 7) School-specific NIL policies\n\n' +
     'Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text agent must send to university athletic department within 72 hours","sourceNote":"what laws this is based on"}';
   try {
-    const result = await ai.oneShotWithSearch(prompt, 'You are a NIL compliance expert. Search for current 2026 NIL laws for this state before answering. Laws change frequently — always use the most current information. Return only valid JSON.');
+    const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with comprehensive knowledge of all 50 state NIL laws as of 2025-2026, plus the NCAA House settlement rules. Return only valid JSON.', 8000);
     const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Failed to parse result' });
@@ -470,7 +470,7 @@ app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
   if (!name) return res.status(400).json({ error: 'name required' });
   const prompt = 'Look up college athlete: ' + name + (school ? ' at ' + school : '') + (sport ? ' (' + sport + ')' : '') + '. Search ESPN, 247Sports, On3, and school athletic websites for their current 2025-26 stats. Also search for their Instagram and TikTok accounts. Return this JSON - use real verified data where available, and your training knowledge as fallback for anything you cannot find via search. Always return found:true. {"found":true,"name":"full name","school":"school name","sport":"sport","position":"position abbrev","year":"Freshman or Sophomore or Junior or Senior or Grad Transfer","stats":"current season stats if found, or career highlights","height":"height","weight":"weight","hometown":"city state","instagram":0,"tiktok":0,"engagement":0,"schoolTier":"p4-top10 or p4-mid or p4-lower or mid-top or mid-lower or highmajor-top","notes":"bio, awards, rankings"}. Return ONLY JSON no markdown.';
   try {
-    const raw = await ai.oneShotWithSearch(prompt, 'You are a college sports database with web search. Search for the athlete first, then use your training knowledge as backup. Always return found:true with best available data. Return only valid JSON.');
+    const raw = await ai.oneShot(prompt, 'You are a comprehensive college sports database with knowledge of thousands of college athletes. Always return found:true with best available data based on your training knowledge. Return only valid JSON.', 4000);
     const cleaned = raw.replace(/`/g, '').replace(/json/g, '').trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return res.json({ found: false });
