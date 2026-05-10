@@ -1837,7 +1837,7 @@ async function onAthleteChange() {
   }
 }
 
-async async function renderRoster() {
+async function renderRoster() {
   const grid = document.getElementById('rosterGrid');
   if (!athletes.length) {
     grid.innerHTML = '<div style="color:var(--muted);padding:40px;text-align:center">No clients yet. Use "Add Client" to add your first athlete.</div>';
@@ -1879,7 +1879,7 @@ async async function renderRoster() {
   }).join('');
 }
 
-async async function selectAthlete(id) {
+async function selectAthlete(id) {
   selectedAthleteId = id;
   document.getElementById('activeAthlete').value = id;
   const ath = athletes.find(a => a.id === id);
@@ -1889,7 +1889,7 @@ async async function selectAthlete(id) {
   showToast(ath.name + ' selected as active client');
 }
 
-async async function deleteAthlete(id) {
+async function deleteAthlete(id) {
   if (!confirm('Delete this client? This cannot be undone.')) return;
   await fetch(`${API_BASE}/api/athletes/${id}`, { method: 'DELETE' });
   athletes = athletes.filter(a => a.id !== id);
@@ -1898,7 +1898,7 @@ async async function deleteAthlete(id) {
   showToast('Client deleted');
 }
 
-async async function editAthlete(id) {
+async function editAthlete(id) {
   const a = athletes.find(x => x.id === id);
   if (!a) return;
   // Switch to Add Client view and pre-fill
@@ -1933,7 +1933,7 @@ async async function editAthlete(id) {
   showToast('Editing ' + a.name + ' — make changes and click Update');
 }
 
-async async function updateAthlete(id) {
+async function updateAthlete(id) {
   const name = document.getElementById('a_name').value.trim();
   if (!name) return;
   const data = {
@@ -1963,7 +1963,7 @@ async async function updateAthlete(id) {
   showToast(name + ' updated!');
 }
 
-async async function addAthlete() {
+async function addAthlete() {
   const name = document.getElementById('a_name').value.trim();
   const err  = document.getElementById('addAthleteError');
   if (!name) { err.textContent = 'Name is required'; return; }
@@ -2038,9 +2038,9 @@ async function prefillContract() {
 }
 
 // ── AI: COMMAND ──────────────────────────────────────────────
-async async function setPrompt(text) { document.getElementById('commandInput').value = text; document.getElementById('commandInput').focus(); }
+async function setPrompt(text) { document.getElementById('commandInput').value = text; document.getElementById('commandInput').focus(); }
 
-async async function runCommand() {
+async function runCommand() {
   const msg = document.getElementById('commandInput').value.trim();
   if (!msg) return;
   const btn = document.getElementById('runCmdBtn');
@@ -2064,7 +2064,7 @@ async async function runCommand() {
 }
 
 // ── AI: DEALS ────────────────────────────────────────────────
-async async function runDealScan() {
+async function runDealScan() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const box = document.getElementById('dealsAI');
   const txt = document.getElementById('dealsText');
@@ -2082,7 +2082,7 @@ async async function runDealScan() {
   document.getElementById('dealsSpinner').style.display = 'none';
 }
 
-async async function renderDealsTable(recs) {
+async function renderDealsTable(recs) {
   if (!recs || !recs.length) return;
   var container = document.getElementById('dealsTbody');
   container.innerHTML = recs.map(function(d,i) {
@@ -2128,7 +2128,7 @@ async async function renderDealsTable(recs) {
   }).join('');
 }
 // Deal Scan — Add to Pipeline
-async async function addDealToPipeline(brand, dealType, campaign) {
+async function addDealToPipeline(brand, dealType, campaign) {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   try {
     // Get NILViewVal estimate for this deal type
@@ -2162,7 +2162,7 @@ async async function addDealToPipeline(brand, dealType, campaign) {
 }
 
 // Deal Scan — Add to Outreach
-async async function addDealToOutreach(brand, campaign) {
+async function addDealToOutreach(brand, campaign) {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   trackDealScanAction(brand, '', 'outreach');
   var ath = athletes.find(function(a) { return a.id === selectedAthleteId; });
@@ -2189,7 +2189,7 @@ async async function addDealToOutreach(brand, campaign) {
 }
 
 // NILViewVal Feedback Loop — track which deals agents pursue
-async async function trackDealScanAction(brand, dealType, action) {
+async function trackDealScanAction(brand, dealType, action) {
   try {
     var ath = athletes.find(function(a) { return a.id === selectedAthleteId; });
     if (!ath) return;
@@ -2214,7 +2214,7 @@ async async function trackDealScanAction(brand, dealType, action) {
 }
 
 // Refresh deal scan with new results
-async async function runDealsRefresh() {
+async function runDealsRefresh() {
   var btn = document.getElementById('deals-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Refreshing...'; }
   // Store current brands to exclude
@@ -2228,20 +2228,20 @@ async async function runDealsRefresh() {
   if (btn) { btn.disabled = false; btn.textContent = 'Refresh ↺'; }
 }
 
-async async function prefillOutreach(brand) {
+async function prefillOutreach(brand) {
   var el = document.getElementById('orBrand');
   if (el) el.value = brand;
   showView('outreach', document.querySelectorAll('.nav-item')[5]);
   showToast('Brand pre-filled — write your outreach');
 }
-async async function prefillNeg(brand, rate) {
+async function prefillNeg(brand, rate) {
   document.getElementById('negBrand').value = brand;
   if (rate && rate.includes('–')) document.getElementById('negTarget').value = rate.split('–')[1].replace('$','').trim();
   showView('negotiate', document.querySelectorAll('.nav-item')[3]);
 }
 
 // ── AI: RATE ─────────────────────────────────────────────────
-async async function calcRate() {
+async function calcRate() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const type = document.getElementById('rateDeliverable').value;
   try {
@@ -2377,7 +2377,7 @@ async async function calcRate() {
   } catch(e) { showToast('Error: ' + e.message); }
 }
 
-async async function getRateScript() {
+async function getRateScript() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const type = document.getElementById('rateDeliverable').value;
   const rate = await fetch(`${API_BASE}/api/ai/rate`, {
@@ -2404,7 +2404,7 @@ async async function getRateScript() {
 }
 
 // ── AI: NEGOTIATE ────────────────────────────────────────────
-async async function runNegotiate() {
+async function runNegotiate() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const brand = document.getElementById('negBrand').value;
   if (!brand) { showToast('Enter a brand name'); return; }
@@ -2428,7 +2428,7 @@ async async function runNegotiate() {
 }
 
 // ── PIPELINE ─────────────────────────────────────────────────
-async async function loadPipeline() {
+async function loadPipeline() {
   const stages = ['Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
   let allDeals = [];
   var filterEl = document.getElementById('pipe-filter-client');
@@ -2448,7 +2448,7 @@ async async function loadPipeline() {
   if (window.NILPipeline) { NILPipeline.render(allDeals, board); }
 }
 
-async async function moveDeal(dealId, athleteId, currentStage, stages) {
+async function moveDeal(dealId, athleteId, currentStage, stages) {
   const idx = stages.indexOf(currentStage);
   const nextStage = stages[idx + 1];
   if (!nextStage) { showToast('Already at final stage'); return; }
@@ -2461,7 +2461,7 @@ async async function moveDeal(dealId, athleteId, currentStage, stages) {
   if (nextStage === 'Closed') setTimeout(renderCommission, 200);
 }
 
-async async function deleteDealCard(dealId, athleteId) {
+async function deleteDealCard(dealId, athleteId) {
   if (!confirm('Delete this deal?')) return;
   await fetch(`${API_BASE}/api/deals/${dealId}`, { method:'DELETE' });
   showToast('Deal deleted');
@@ -2469,7 +2469,7 @@ async async function deleteDealCard(dealId, athleteId) {
   setTimeout(renderCommission, 200);
 }
 
-async async function addDeal() {
+async function addDeal() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const brand = document.getElementById('d_brand').value.trim();
   if (!brand) { showToast('Brand name required'); return; }
@@ -2633,7 +2633,7 @@ let lastComplianceResult = null;
 
 let lastContract = '';
     let commFilter = 'all';
-async async async function setCommFilter(f) {
+async async function setCommFilter(f) {
       commFilter = f;
       ['all','Closed','active'].forEach(x => {
         const el = document.getElementById('cf-' + x);
@@ -2644,7 +2644,7 @@ async async async function setCommFilter(f) {
       renderCommission();
     }
 
-    async async async async function renderCommission() {
+    async async async function renderCommission() {
       const rate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
 
       // Gather all deals across all athletes
@@ -2718,7 +2718,7 @@ async async async function setCommFilter(f) {
       }).join('');
     }
 
-async async async function loadAnalytics() {
+async async function loadAnalytics() {
   const body = document.getElementById('analytics-body');
   if (!body) return;
   body.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">Loading analytics...</div>';
@@ -2924,7 +2924,7 @@ async async async function loadAnalytics() {
       }).join('');
     }
 
-    async async function generateContract() {
+    async function generateContract() {
       const brand = document.getElementById('con-brand').value.trim();
       const value = document.getElementById('con-value').value;
       if (!brand || !value) { showToast('Brand and value are required'); return; }
@@ -2963,12 +2963,12 @@ async async async function loadAnalytics() {
       btn.disabled = false; btn.textContent = '📄 Generate Contract →';
     }
 
-    async async function copyContract() {
+    async function copyContract() {
       navigator.clipboard.writeText(lastContract);
       showToast('Contract copied to clipboard');
     }
 
-    async async function downloadContract() {
+    async function downloadContract() {
       const athlete = athletes.find(a => a.id === selectedAthleteId);
       const brand = document.getElementById('con-brand').value.trim();
       const filename = (athlete ? athlete.name.replace(/\s+/g,'-') : 'athlete') + '-' + brand.replace(/\s+/g,'-') + '-NIL-contract.txt';
@@ -2979,7 +2979,7 @@ async async async function loadAnalytics() {
       URL.revokeObjectURL(url);
       showToast('Contract downloaded');
     }
-    async async function downloadContractPDF() {
+    async function downloadContractPDF() {
       if (!lastContract) { showToast('Generate a contract first'); return; }
       const athlete = athletes.find(a => a.id === selectedAthleteId);
       const brand = document.getElementById('con-brand').value.trim();
@@ -3001,7 +3001,7 @@ async async async function loadAnalytics() {
       } catch(e) { showToast('Error: ' + e.message); }
     }
 
-async async function runCompliance() {
+async function runCompliance() {
   const state = document.getElementById('comp-state').value;
   const dealType = document.getElementById('comp-deal-type').value;
   const brand = document.getElementById('comp-brand').value.trim();
@@ -3032,7 +3032,7 @@ async async function runCompliance() {
   btn.disabled = false; btn.textContent = 'Check Compliance';
 }
 
-async async function renderComplianceResults(data) {
+async function renderComplianceResults(data) {
   const banner = document.getElementById('comp-status-banner');
   const styles = {
     clear: 'border-radius:6px;padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80',
@@ -3075,7 +3075,7 @@ async async function renderComplianceResults(data) {
   if (s) s.textContent = data.sourceNote ? 'Source: ' + data.sourceNote : '';
 }
 
-async async function saveComplianceToNotes() {
+async function saveComplianceToNotes() {
   if (!lastComplianceResult || !selectedAthleteId) { showToast('Select a client first'); return; }
   const state = document.getElementById('comp-state').value;
   const dealType = document.getElementById('comp-deal-type').value;
@@ -3098,7 +3098,7 @@ async async function saveComplianceToNotes() {
   }
 }
 
-async async function runOutreach() {
+async function runOutreach() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const brand = document.getElementById('or-brand').value.trim();
   if (!brand) { showToast('Enter a brand name'); return; }
@@ -3207,7 +3207,7 @@ async function formatDeadlineDate(d) {
   return { label: dateStr, urgency: 'future', badge: diff + 'd left' };
 }
 
-async async function makeGoogleCalLink(title, date, description) {
+async function makeGoogleCalLink(title, date, description) {
   const start = date.toISOString().replace(/-|:|\.\d{3}/g, '').slice(0, 15) + '00Z';
   const end = new Date(date.getTime() + 60 * 60 * 1000).toISOString().replace(/-|:|\.\d{3}/g, '').slice(0, 15) + '00Z';
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE' +
@@ -3217,14 +3217,14 @@ async async function makeGoogleCalLink(title, date, description) {
     '&sf=true&output=xml';
 }
 
-async async function loadCalendar() {
+async function loadCalendar() {
   await NILCal.load(athletes, API_BASE);
 }
 
 // ── INIT ─────────────────────────────────────────────────────
 
 // ── TEAM MATCH ───────────────────────────────────────────────
-async async function runTeamMatch() {
+async function runTeamMatch() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const btn = document.getElementById('tm-run-btn');
   btn.disabled = true; btn.textContent = 'Scanning...';
@@ -3318,12 +3318,12 @@ async function renderTeamMatch(teams) {
   `).join('');
 }
 
-async async function toggleTmDetail(id) {
+async function toggleTmDetail(id) {
   const el = document.getElementById(id);
   if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-async async function buildTmPlaybook(schoolName, targetNil) {
+async function buildTmPlaybook(schoolName, targetNil) {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const ath = athletes.find(a => a.id === selectedAthleteId);
   const block = document.getElementById('tm-playbook-block');
@@ -3361,13 +3361,13 @@ window.addEventListener('DOMContentLoaded', checkSession);
     // ── ONBOARDING ─────────────────────────────────────────────
     let obAthleteId = null;
 
-    async async function obStep(n) {
+    async function obStep(n) {
       document.querySelectorAll('.ob-step').forEach(s => s.style.display = 'none');
       const step = document.getElementById('ob-step-' + n);
       if (step) step.style.display = 'block';
     }
 
-    async async function obLookupPlayer() {
+    async function obLookupPlayer() {
       const name = document.getElementById('ob-athlete-name').value.trim();
       if (!name) { showToast('Enter athlete name first'); return; }
       const btn = document.getElementById('ob-lookup-btn');
@@ -3399,7 +3399,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
       btn.disabled = false; btn.textContent = 'AI Lookup';
     }
 
-    async async function obAddSample() {
+    async function obAddSample() {
       document.getElementById('ob-athlete-name').value = 'Marcus Johnson';
       document.getElementById('ob-athlete-school').value = 'University of Alabama';
       document.getElementById('ob-athlete-sport').value = 'football';
@@ -3413,7 +3413,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
       await obAddAthlete();
     }
 
-    async async function obAddAthlete() {
+    async function obAddAthlete() {
       const name = document.getElementById('ob-athlete-name').value.trim();
       if (!name) { showToast('Please enter an athlete name'); return; }
       try {
@@ -3443,7 +3443,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
       } catch(e) { showToast('Error: ' + e.message); }
     }
 
-    async async function obAddDeal() {
+    async function obAddDeal() {
       const brand = document.getElementById('ob-deal-brand').value.trim();
       if (!brand || !obAthleteId) { obSkipDeal(); return; }
       try {
@@ -3570,7 +3570,7 @@ async function openManualDealModal(){
 async function closeManualDealModal(){
   document.getElementById('manual-deal-modal').style.display='none';
 }
-async async function saveManualDeal(){
+async function saveManualDeal(){
   var athleteId=document.getElementById('md-athlete').value;
   var brand=document.getElementById('md-brand').value.trim();
   var value=parseInt(document.getElementById('md-value').value);
@@ -3629,7 +3629,7 @@ async function addNotification(id, title, sub, urgency) {
   localStorage.setItem('nildash-notifs', JSON.stringify(notifs));
   renderNotifPanel();
 }
-async async function checkDeadlineNotifications() {
+async function checkDeadlineNotifications() {
   if (!athletes || athletes.length===0) return;
   for (var i=0; i<athletes.length; i++) {
     var ath = athletes[i];
@@ -3662,7 +3662,7 @@ renderNotifPanel();
 <script src="/nil-extras.js">
 // ── Marketing View Logic ──────────────────────────────────────────────────────
 // ── Marketing View Logic ─────────────────────────────────────────────────────
-async async function switchMarketingTab(tab) {
+async function switchMarketingTab(tab) {
   ['brandkit','outreach','scores'].forEach(function(t) {
     var btn = document.getElementById('mkt-tab-' + t);
     var panel = document.getElementById('mkt-panel-' + t);
@@ -3675,7 +3675,7 @@ async async function switchMarketingTab(tab) {
   });
 }
 
-async async function updateMarketingClientLabel() {
+async function updateMarketingClientLabel() {
   var ath = athletes ? athletes.find(function(a){ return a.id === selectedAthleteId; }) : null;
   var name = ath ? ath.name : 'your selected client';
   ['mkt-athlete-name','mkt-athlete-name-2','mkt-athlete-name-3'].forEach(function(id) {
@@ -3684,7 +3684,7 @@ async async function updateMarketingClientLabel() {
   });
 }
 
-async async function runMarketingBrandKit() {
+async function runMarketingBrandKit() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   var btn = document.getElementById('mkt-brandkit-btn');
   var loading = document.getElementById('mkt-brandkit-loading');
@@ -3750,7 +3750,7 @@ async async function runMarketingBrandKit() {
   }
 }
 
-async async function runMarketingOutreach() {
+async function runMarketingOutreach() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   var brandEl = document.getElementById('mkt-or-brand');
   var brand = brandEl ? brandEl.value.trim() : '';
