@@ -406,7 +406,7 @@ async function showNILViewValScores(athleteId, containerEl) {
 // AI Athlete Brand Kit Modal
 // ─────────────────────────────────────────────────────────────────────────────
 
-async async function openBrandKitModal(athleteId, athleteName) {
+async function openBrandKitModal(athleteId, athleteName) {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
   const modal = document.createElement('div');
@@ -472,7 +472,7 @@ async async function openBrandKitModal(athleteId, athleteName) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Generate Outreach Modal
 // ─────────────────────────────────────────────────────────────────────────────
-async async function openOutreachModal(athleteId, athleteName) {
+async function openOutreachModal(athleteId, athleteName) {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
   const modal = document.createElement('div');
@@ -516,7 +516,7 @@ async async function openOutreachModal(athleteId, athleteName) {
   document.getElementById('or-generate-btn').addEventListener('click', function() { runOutreachGeneration(athleteId); });
 }
 
-async async function runOutreachGeneration(athleteId) {
+async function runOutreachGeneration(athleteId) {
   const brandEl = document.getElementById('outreachBrand');
   const categoryEl = document.getElementById('outreachCategory');
   const goalEl = document.getElementById('outreachGoal');
