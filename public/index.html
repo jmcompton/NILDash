@@ -1772,7 +1772,7 @@ function populateAthleteSelect() {
   if (cur) sel.value = cur;
 }
 
-function clearAllResults() {
+async function clearAllResults() {
   // Command center
   const cmdOut = document.getElementById('cmdOutput');
   if (cmdOut) cmdOut.innerHTML = '';
@@ -2026,7 +2026,7 @@ function showView(id, btn) {
   if (id === 'athlete-portals') loadAthletePortals();
   if (id === 'contract') prefillContract();
 }
-function prefillContract() {
+async function prefillContract() {
   if (!selectedAthleteId) return;
   const ath = athletes.find(a => a.id === selectedAthleteId);
   if (!ath) return;
@@ -2624,7 +2624,7 @@ async function lookupPlayer() {
 let outreachLogByAthlete = {};
 let currentOutreach = null;
 
-function copyText(id) {
+async function copyText(id) {
   const el = document.getElementById(id);
   if (el) navigator.clipboard.writeText(el.textContent).then(() => showToast('Copied!'));
 }
@@ -2839,7 +2839,7 @@ async async async function loadAnalytics() {
   body.innerHTML = html;
 }
 
-    function setCommFilter(f) {
+    async function setCommFilter(f) {
       commFilter = f;
       ['all','Closed','active'].forEach(x => {
         const el = document.getElementById('cf-' + x);
@@ -3196,7 +3196,7 @@ function getDaysFromCreated(createdAt, offsetDays) {
   return d;
 }
 
-function formatDeadlineDate(d) {
+async function formatDeadlineDate(d) {
   const now = new Date();
   const diff = Math.ceil((d - now) / (1000 * 60 * 60 * 24));
   const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -3258,7 +3258,7 @@ function fmtNil(n) {
   return '$' + n;
 }
 
-function renderTeamMatch(teams) {
+async function renderTeamMatch(teams) {
   if (!teams || !teams.length) {
     document.getElementById('tm-results').innerHTML = '<div style="color:var(--muted);padding:20px">No matching programs found. Try adjusting your filters.</div>';
     return;
@@ -3621,7 +3621,7 @@ function renderNotifPanel() {
       n.title+'</div><div style="font-size:11px;color:var(--muted)">'+n.sub+'</div></div>';
   }).join('') : '<div class="notif-empty">No urgent deadlines</div>';
 }
-function addNotification(id, title, sub, urgency) {
+async function addNotification(id, title, sub, urgency) {
   var notifs = JSON.parse(localStorage.getItem('nildash-notifs') || '[]');
   if (notifs.find(function(n){ return n.id===id; })) return;
   notifs.unshift({id:id,title:title,sub:sub,urgency:urgency,time:Date.now()});
