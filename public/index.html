@@ -3154,7 +3154,7 @@ function updateOutreachStatus(id, status) {
   if (e) { e.status = status; renderOutreachTracker(); }
 }
 
-function renderOutreachTracker() {
+async function renderOutreachTracker() {
   const el = document.getElementById('or-tracker');
   if (!el) return;
   const outreachLog = selectedAthleteId ? (outreachLogByAthlete[selectedAthleteId] || []) : [];
@@ -3601,7 +3601,7 @@ document.addEventListener('click', function(e) {
     panel.classList.remove('open');
   }
 });
-function clearNotifications() {
+async function clearNotifications() {
   localStorage.setItem('nildash-notifs', '[]');
   renderNotifPanel();
 }
