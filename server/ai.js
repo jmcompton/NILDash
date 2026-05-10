@@ -290,7 +290,7 @@ Return ONLY a JSON array of 6 deals:
 }]`;
 
   try {
-    const raw = await oneShotWithSearch(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Use your knowledge of real local businesses, regional brands, and documented NIL programs to identify genuine opportunities for this athlete.');
+    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Use your comprehensive knowledge of real local businesses, regional brands, and documented NIL programs to identify genuine opportunities.', 8000);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
