@@ -406,7 +406,7 @@ async function showNILViewValScores(athleteId, containerEl) {
 // AI Athlete Brand Kit Modal
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function openBrandKitModal(athleteId, athleteName) {
+async function async openBrandKitModal(athleteId, athleteName) {
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px';
   const modal = document.createElement('div');
@@ -414,12 +414,12 @@ async function openBrandKitModal(athleteId, athleteName) {
   modal.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">' +
       '<div>' +
-        '<div style="font-size:16px;font-weight:700;color:var(--text)">🎯 Brand Kit — ' + (athleteName||'Athlete') + '</div>' +
-        '<div style="font-size:12px;color:var(--muted);margin-top:2px">AI-generated marketing materials</div>' +
+        '<div style="font-size:16px;font-weight:700;color:var(--text)">📊 Pitch Deck — ' + (athleteName||'Athlete') + '</div>' +
+        '<div style="font-size:12px;color:var(--muted);margin-top:2px">AI-generated pitch deck & marketing materials</div>' +
       '</div>' +
       '<button id="bk-close-btn" style="background:var(--surface2);border:none;color:var(--muted);cursor:pointer;padding:6px 12px;border-radius:6px;font-size:12px">✕ Close</button>' +
     '</div>' +
-    '<div id="brandKitContent" style="color:var(--muted);text-align:center;padding:30px">Generating brand kit... <br><small>This takes about 15 seconds</small></div>';
+    '<div id="brandKitContent" style="color:var(--muted);text-align:center;padding:30px">Generating pitch deck... <br><small>This takes about 15 seconds</small></div>';
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
   document.getElementById('bk-close-btn').addEventListener('click', function() { overlay.remove(); });
@@ -456,16 +456,16 @@ async function openBrandKitModal(athleteId, athleteName) {
       section('Ideal Sponsorship Categories', bullets(kit.idealSponsorshipCategories), '🏷️');
 
     const copyBtn = document.createElement('button');
-    copyBtn.textContent = '📋 Copy Full Brand Kit';
+    copyBtn.textContent = '📋 Copy Full Pitch Deck';
     copyBtn.style.cssText = 'width:100%;padding:10px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:4px';
     copyBtn.addEventListener('click', function() {
-      navigator.clipboard.writeText(bkContent.innerText).then(function(){ if(typeof showToast==='function') showToast('Brand kit copied!'); else alert('Copied!'); });
+      navigator.clipboard.writeText(bkContent.innerText).then(function(){ if(typeof showToast==='function') showToast('Pitch deck copied!'); else alert('Copied!'); });
     });
     bkContent.appendChild(copyBtn);
 
   } catch(e) {
     const c = document.getElementById('brandKitContent');
-    if (c) c.innerHTML = '<div style="color:#f87171">Error generating brand kit: ' + e.message + '</div>';
+    if (c) c.innerHTML = '<div style="color:#f87171">Error generating pitch deck: ' + e.message + '</div>';
   }
 }
 
