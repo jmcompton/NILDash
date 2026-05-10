@@ -235,7 +235,7 @@ async function calculateRateLive(athlete, deliverableType) {
     + 'Return ONLY this JSON (no markdown):\n'
     + '{"low":0,"mid":0,"high":0,"marketContext":"2 sentences on live data found","breakdown":{"reach":0,"sportMult":0,"schoolMult":0,"engMult":0,"delivMult":0,"cpm":"0.00"}}';
   try {
-    const raw = await oneShotWithSearch(prompt, 'You are a NIL market analyst. Use web search for real 2026 NIL market rates. Return only valid JSON.');
+    const raw = await oneShot(prompt, 'You are a NIL market analyst with comprehensive knowledge of 2025-2026 NIL market rates. Return only valid JSON.', 4000);
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON found');
@@ -402,7 +402,7 @@ Generate outreach messages. Return ONLY JSON:
 }`;
 
   try {
-    const raw = await oneShotWithSearch(prompt, "You are an elite sports agent. Search for this brand's recent NIL activity and campaigns to personalize outreach. Return only valid JSON.");
+    const raw = await oneShot(prompt, "You are an elite sports agent writing brand outreach with deep knowledge of NIL partnerships. Return only valid JSON.", 8000);
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
