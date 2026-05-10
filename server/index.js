@@ -1218,6 +1218,58 @@ app.post('/api/admin/requests/:id/deny', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+
+// ── Pitch Deck (Shareable) ────────────────────────────────────────────────
+app.get('/pitch/:athleteId', async (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'pitch.html'));
+});
+
+app.get('/api/pitch-data/:athleteId', async (req, res) => {
+  try {
+    const athlete = await store.getAthlete(req.params.athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    const { nilViewVal } = require('./benchmarks');
+    const igReel = nilViewVal(athlete, 'ig-reel');
+    const igPost = nilViewVal(athlete, 'ig-post');
+    const tiktok = nilViewVal(athlete, 'tiktok');
+    const story = nilViewVal(athlete, 'ig-story');
+    const bundle = nilViewVal(athlete, 'bundle');
+    const retainer = nilViewVal(athlete, 'retainer');
+    // Return only non-sensitive fields
+    res.json({
+      name: athlete.name,
+      sport: athlete.sport,
+      school: athlete.school,
+      position: athlete.position,
+      year: athlete.year,
+      instagram: athlete.instagram || 0,
+      tiktok: athlete.tiktok || 0,
+      engagement: athlete.engagement || 0,
+      stats: athlete.stats || '',
+      notes: athlete.notes || '',
+      gpa: athlete.gpa || '',
+      nilScores: {
+        marketabilityScore: igReel.marketabilityScore,
+        sponsorshipReadiness: igReel.sponsorshipReadiness,
+        audienceQuality: igReel.audienceQuality,
+        archetypeScore: igReel.archetypeScore,
+        sponsorCategories: igReel.sponsorCategories || []
+      },
+      rates: {
+        igReel:   { low: igReel.low,   mid: igReel.mid,   high: igReel.high },
+        igPost:   { low: igPost.low,   mid: igPost.mid,   high: igPost.high },
+        tiktok:   { low: tiktok.low,   mid: tiktok.mid,   high: tiktok.high },
+        story:    { low: story.low,    mid: story.mid,    high: story.high },
+        bundle:   { low: bundle.low,   mid: bundle.mid,   high: bundle.high },
+        retainer: { low: retainer.low, mid: retainer.mid, high: retainer.high }
+      }
+    });
+  } catch(err) {
+    console.error('Pitch data error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
