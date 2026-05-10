@@ -929,6 +929,26 @@ function scheduleWeeklyIngestion() {
 }
 if (process.env.NODE_ENV === 'production') scheduleWeeklyIngestion();
 
+
+// Dev endpoint: approve an email for testing (requires X-Dev-Secret header)
+app.post('/api/dev/approve-email', async (req, res) => {
+  const secret = req.headers['x-dev-secret'];
+  if (secret !== process.env.DEV_SECRET) return res.status(403).json({ error: 'Forbidden' });
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  try {
+    await store.pool.query(
+      `INSERT INTO access_requests (first_name, last_name, email, agency, athletes, status, created_at)
+       VALUES ($1,$2,$3,$4,$5,'approved',NOW())
+       ON CONFLICT (email) DO UPDATE SET status='approved'`,
+      ['Dev', 'Test', email, 'DevAgency', 'n/a']
+    );
+    res.json({ ok: true, email });
+  } catch(e) {
+    res.json({ ok: false, error: e.message });
+  }
+});
+
 // Admin endpoint to trigger manually
 app.post('/api/admin/run-ingestion', async (req, res) => {
   try {
