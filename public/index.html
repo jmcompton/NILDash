@@ -1760,7 +1760,7 @@ async function loadAthletes() {
   } catch(e) { console.error(e); }
 }
 
-function populateAthleteSelect() {
+async function populateAthleteSelect() {
   const sel = document.getElementById('activeAthlete');
   const cur = sel.value;
   sel.innerHTML = '<option value="">Select a client...</option>';
@@ -2006,7 +2006,7 @@ async function loadKPIs() {
 }
 
 // ── VIEWS ────────────────────────────────────────────────────
-function showView(id, btn) {
+async function showView(id, btn) {
   if(window.innerWidth<=768){document.querySelector('.sidebar').classList.remove('open');var o=document.getElementById('sidebarOverlay');if(o)o.classList.remove('open');}
       if (id === 'commission') setTimeout(renderCommission, 100);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -2546,7 +2546,7 @@ async function saveAthleteNote(athleteId, note) {
   } catch(e) {}
 }
 
-function showToast(msg) {
+async function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2800);
@@ -3190,7 +3190,7 @@ const stageProb = {
   'Prospecting': 10
 };
 
-function getDaysFromCreated(createdAt, offsetDays) {
+async function getDaysFromCreated(createdAt, offsetDays) {
   const d = new Date(createdAt || Date.now());
   d.setDate(d.getDate() + offsetDays);
   return d;
@@ -3252,7 +3252,7 @@ async async function runTeamMatch() {
   btn.disabled = false; btn.textContent = 'Scan Teams →';
 }
 
-function fmtNil(n) {
+async function fmtNil(n) {
   if (n >= 1000000) return '$' + (n/1000000).toFixed(1) + 'M';
   if (n >= 1000) return '$' + Math.round(n/1000) + 'K';
   return '$' + n;
@@ -3605,7 +3605,7 @@ function clearNotifications() {
   localStorage.setItem('nildash-notifs', '[]');
   renderNotifPanel();
 }
-function renderNotifPanel() {
+async function renderNotifPanel() {
   var notifs = JSON.parse(localStorage.getItem('nildash-notifs') || '[]');
   var badge = document.getElementById('notifBadge');
   var list = document.getElementById('notifList');
