@@ -81,7 +81,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13
 body::before{display:none}
 
 /* ── AUTH ── */
-#authScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:500;padding:20px;background:var(--bg)}
+#authScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:600;padding:20px;background:var(--bg)}
 #authScreen.hidden{display:none}
 .auth-box{background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:40px;width:100%;max-width:420px;position:relative;z-index:1}
 .auth-logo{font-family:var(--head);font-size:32px;font-weight:800;color:var(--accent);margin-bottom:4px;letter-spacing:-0.03em}
@@ -250,11 +250,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
     width:272px;
     min-height:100vh;
     box-shadow:4px 0 24px rgba(0,0,0,0.5);
-    pointer-events:auto;
+    pointer-events:none;
     overflow-y:auto;
     -webkit-overflow-scrolling:touch;
   }
-  .sidebar.open{transform:translateX(0)}
+  .sidebar.open{
+    transform:translateX(0);
+    pointer-events:auto;
+  }
   .sidebar.open .nav-item{
     pointer-events:auto;
     cursor:pointer;
