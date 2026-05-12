@@ -112,8 +112,23 @@
       col.style.background = '';
       col.style.border = '1px solid var(--border)';
       if (!draggedDeal || draggedDeal.stage === newStage) return;
-      await NILPipeline.updateStage(draggedDeal.id, draggedDeal.athleteId, newStage);
+
+      // Optimistic UI: move the card into the target column immediately
+      var card = document.querySelector('[data-deal-id="' + draggedDeal.id + '"]');
+      var targetCards = col.querySelector('[style*="flex-direction:column"]') ||
+                        col.querySelector('div:last-child');
+      if (card && targetCards) {
+        card.dataset.stage = newStage;
+        card.style.opacity = '0.6';
+        targetCards.appendChild(card);
+        setTimeout(function(){ if(card) card.style.opacity = '1'; }, 300);
+      }
+
+      var snapshot = {id: draggedDeal.id, athleteId: draggedDeal.athleteId};
       draggedDeal = null;
+
+      // Server patch + silent background reload
+      NILPipeline.updateStage(snapshot.id, snapshot.athleteId, newStage);
     },
 
     moveNext: async function(dealId, athleteId, currentStage) {
@@ -131,9 +146,10 @@
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({stage: newStage})
         });
-        if (typeof showToast === 'function') showToast('Moved to ' + newStage + (newStage === 'Closed' ? ' 🎉' : ''));
+        if (typeof showToast === 'function') showToast('Moved to ' + newStage);
         if (typeof loadKPIs === 'function') loadKPIs();
-        if (typeof loadPipeline === 'function') loadPipeline();
+        // Reload pipeline in background after short delay — don't block UI
+        if (typeof loadPipeline === 'function') setTimeout(loadPipeline, 400);
         if (newStage === 'Closed') {
           if (typeof renderCommission === 'function') setTimeout(renderCommission, 300);
           // Reload analytics if it's the current view
