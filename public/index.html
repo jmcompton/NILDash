@@ -2203,8 +2203,10 @@ async function loadAthletes() {
     const r = await fetch(`${API_BASE}/api/athletes`);
     athletes = await r.json();
     window.athletes = athletes;
+    window._allAthletes = athletes;
     renderRoster();
     populateAthleteSelect();
+    populatePitchClientDropdown();
     document.getElementById('kpi-clients').textContent = athletes.length;
     setTimeout(updateNilRateKpi, 1000);
     if (athletes.length > 0 && !selectedAthleteId) {
