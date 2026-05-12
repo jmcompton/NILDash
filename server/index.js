@@ -1222,6 +1222,11 @@ app.post('/api/admin/requests/:id/deny', requireAuth, async (req, res) => {
 });
 
 
+// ── Visual Demo Page ─────────────────────────────────────────────────────
+app.get('/demo', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'demo.html'));
+});
+
 // ── Pitch Deck (Shareable) ────────────────────────────────────────────────
 app.get('/pitch/:athleteId', async (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'pitch.html'));
