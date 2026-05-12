@@ -245,29 +245,38 @@ tbody td{padding:11px 14px;vertical-align:middle}
   .sidebar{
     position:fixed;
     left:0;top:0;bottom:0;
-    transform:translateX(-100%);
+    transform:translateX(-110%);
     transition:transform 0.28s cubic-bezier(.4,0,.2,1);
-    z-index:300;
+    z-index:1000;
     width:272px;
     min-height:100vh;
-    box-shadow:4px 0 24px rgba(0,0,0,0.5);
+    min-height:100dvh;
+    box-shadow:4px 0 32px rgba(0,0,0,0.6);
     pointer-events:none;
     overflow-y:auto;
+    overflow-x:hidden;
     -webkit-overflow-scrolling:touch;
+    will-change:transform;
   }
   .sidebar.open{
-    transform:translateX(0);
-    pointer-events:auto;
+    transform:translateX(0) !important;
+    pointer-events:auto !important;
+    visibility:visible !important;
   }
-  .sidebar.open .nav-item{
+  .sidebar.open .nav-item,
+  .sidebar.open .nav-section,
+  .sidebar.open .user-footer,
+  .sidebar.open * {
     pointer-events:auto;
     cursor:pointer;
-    -webkit-tap-highlight-color:rgba(74,222,128,0.15);
+  }
+  .sidebar.open .nav-item{
+    -webkit-tap-highlight-color:rgba(74,222,128,0.18);
     touch-action:manipulation;
   }
 
   /* ── Main content: full width, space for top bar ── */
-  .main{margin-left:0 !important;padding-top:56px !important;width:100% !important;max-width:100vw !important;overflow-x:hidden}
+  .main{margin-left:0 !important;padding-top:56px !important;width:100% !important;max-width:100vw !important;overflow-x:hidden;position:relative;z-index:1}
   .content{padding:12px 14px !important;width:100% !important;box-sizing:border-box !important}
   #appScreen.visible{display:block !important}
 
@@ -367,12 +376,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
   display:none;
   position:fixed;inset:0;
   background:rgba(0,0,0,0.55);
-  z-index:299;
+  z-index:999;
   pointer-events:none;
   backdrop-filter:blur(2px);
   -webkit-backdrop-filter:blur(2px);
+  -webkit-tap-highlight-color:transparent;
 }
-.sidebar-overlay.open{display:block;pointer-events:all}
+.sidebar-overlay.open{display:block;pointer-events:all;cursor:pointer}
 
 /* ── Safe area insets (iPhone notch/home bar) ── */
 @supports(padding:max(0px)){
@@ -690,7 +700,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
 </head>
 <body>
 <div class="mobile-topbar">
-  <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open');document.getElementById('sidebarOverlay').classList.toggle('open')">☰</button>
+  <button class="hamburger" onclick="toggleMobileSidebar()">☰</button>
   <div class="mob-logo">NILDash</div>
 </div>
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="document.querySelector('.sidebar').classList.remove('open');document.getElementById('sidebarOverlay').classList.remove('open')"></div>
@@ -1500,22 +1510,24 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <!-- Row 2: Photo upload -->
             <div style="margin-bottom:18px">
               <label style="display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Athlete Photo (shows on pitch deck cover)</label>
-              <div style="display:flex;align-items:center;gap:12px">
-                <div id="mkt-photo-preview" style="width:56px;height:56px;border-radius:8px;background:var(--surface);border:1px solid var(--border2);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center">
-                  <span style="font-size:22px;color:var(--muted)">👤</span>
-                </div>
-                <div style="flex:1">
-                  <div id="mkt-photo-drop"
-                    onclick="document.getElementById('mkt-photo-input').click()"
-                    ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(74,222,128,0.04)'"
-                    ondragleave="this.style.borderColor='var(--border2)';this.style.background='transparent'"
-                    ondrop="handlePitchPhotoDrop(event)"
-                    style="border:1.5px dashed var(--border2);border-radius:var(--r-sm);padding:12px 16px;cursor:pointer;text-align:center;transition:all 0.2s">
-                    <div id="mkt-photo-label" style="font-size:12px;color:var(--muted)">Click to upload or drag & drop a photo</div>
-                    <div style="font-size:10px;color:var(--muted);margin-top:3px;opacity:0.7">JPG, PNG, HEIC — auto-compressed for best quality</div>
-                  </div>
-                  <input type="file" id="mkt-photo-input" accept="image/*" style="display:none" onchange="handlePitchPhotoSelect(this)">
-                </div>
+              <div style="display:flex;align-items:center;gap:14px">
+                <!-- Thumbnail preview — clicking also opens picker -->
+                <label for="mkt-photo-input" id="mkt-photo-preview" style="width:60px;height:60px;border-radius:8px;background:var(--surface);border:1px solid var(--border2);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:border-color 0.2s" title="Click to choose photo">
+                  <span id="mkt-photo-icon" style="font-size:26px;pointer-events:none">👤</span>
+                </label>
+                <!-- Drop zone — <label for=> means clicking anywhere opens picker on ALL platforms -->
+                <label for="mkt-photo-input" id="mkt-photo-drop"
+                  ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(74,222,128,0.06)'"
+                  ondragleave="this.style.borderColor='var(--border2)';this.style.background='transparent'"
+                  ondrop="handlePitchPhotoDrop(event);event.preventDefault()"
+                  style="flex:1;display:block;border:1.5px dashed var(--border2);border-radius:var(--r-sm);padding:14px 16px;cursor:pointer;text-align:center;transition:all 0.2s">
+                  <div id="mkt-photo-label" style="font-size:12px;color:var(--muted);pointer-events:none">Tap to choose photo — or drag & drop here</div>
+                  <div style="font-size:10px;color:var(--muted);margin-top:3px;opacity:0.65;pointer-events:none">JPG, PNG, HEIC — auto-compressed before sending</div>
+                </label>
+                <!-- Native file input — positioned off-screen, triggered by label for= -->
+                <input type="file" id="mkt-photo-input" accept="image/*"
+                  style="position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0"
+                  onchange="handlePitchPhotoSelect(this)">
               </div>
             </div>
 
@@ -2472,6 +2484,7 @@ async function loadKPIs() {
 // ── VIEWS ────────────────────────────────────────────────────
 async function showView(id, btn) {
   if(window.innerWidth<=768){document.querySelector('.sidebar').classList.remove('open');var o=document.getElementById('sidebarOverlay');if(o)o.classList.remove('open');}
+  if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
       if (id === 'commission') setTimeout(renderCommission, 100);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -4206,17 +4219,28 @@ function compressAndSetPitchPhoto(file) {
 function populatePitchClientDropdown() {
   var sel = document.getElementById('mkt-pitch-client');
   if (!sel) return;
+  var list = window.athletes || window._allAthletes || [];
+  if (!list.length) {
+    // Athlete cache not ready yet — fetch directly
+    fetch(API_BASE + '/api/athletes')
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        window.athletes = data;
+        window._allAthletes = data;
+        populatePitchClientDropdown();
+      }).catch(function(){});
+    return;
+  }
   var current = sel.value;
   sel.innerHTML = '<option value="">— Select client —</option>';
-  (window._allAthletes || []).forEach(function(a) {
+  list.forEach(function(a) {
     var opt = document.createElement('option');
     opt.value = a.id;
     opt.textContent = a.name + (a.sport ? ' — ' + a.sport : '') + (a.school ? ' / ' + a.school : '');
-    if (a.id === current) opt.selected = true;
+    if (String(a.id) === String(current)) opt.selected = true;
     sel.appendChild(opt);
   });
-  // Pre-select the currently selected athlete if any
-  if (!current && selectedAthleteId) sel.value = selectedAthleteId;
+  if (!sel.value && selectedAthleteId) sel.value = String(selectedAthleteId);
 }
 
 function onPitchClientChange(id) {
@@ -4500,6 +4524,34 @@ function openOutreachModal(athleteId, athleteName) {
 </script>
 
 <script>
+
+// ── Mobile sidebar toggle ──────────────────────────────────
+function toggleMobileSidebar() {
+  var sb = document.querySelector('.sidebar');
+  var ov = document.getElementById('sidebarOverlay');
+  if (!sb) return;
+  var isOpen = sb.classList.contains('open');
+  if (isOpen) {
+    sb.classList.remove('open');
+    if (ov) ov.classList.remove('open');
+  } else {
+    sb.classList.add('open');
+    if (ov) ov.classList.add('open');
+    // Force repaint on iOS
+    sb.style.display = 'none';
+    void sb.offsetHeight;
+    sb.style.display = '';
+  }
+}
+// Close sidebar on overlay tap
+document.addEventListener('DOMContentLoaded', function() {
+  var ov = document.getElementById('sidebarOverlay');
+  if (ov) ov.addEventListener('click', function() {
+    document.querySelector('.sidebar').classList.remove('open');
+    ov.classList.remove('open');
+  });
+});
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
     navigator.serviceWorker.register('/sw.js')
