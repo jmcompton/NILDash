@@ -1270,6 +1270,23 @@ app.get('/api/pitch-data/:athleteId', async (req, res) => {
   }
 });
 
+// ── PWA static assets — explicit routes so catchall doesn't eat them ──
+app.get('/manifest.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/manifest+json');
+  res.sendFile(path.join(__dirname, '..', 'public', 'manifest.json'));
+});
+
+app.get('/sw.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Service-Worker-Allowed', '/');
+  res.sendFile(path.join(__dirname, '..', 'public', 'sw.js'));
+});
+
+app.use('/icons', (req, res, next) => {
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  next();
+}, require('express').static(path.join(__dirname, '..', 'public', 'icons')));
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
