@@ -124,7 +124,8 @@ body::before{display:none}
 .logout-btn{width:100%;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px;font-family:var(--mono);font-size:11px;cursor:pointer;transition:all 0.15s;margin-top:8px}
 .logout-btn:hover{border-color:var(--red);color:var(--red)}
 
-.main{margin-left:220px;flex:1;min-height:100vh;position:relative;z-index:1}
+#appScreen{display:flex;min-height:100vh}
+.main{margin-left:210px;flex:1;min-height:100vh;position:relative;z-index:1;width:calc(100% - 210px);overflow-x:hidden}
 .topbar{position:sticky;top:0;z-index:40;background:#0c0c0b;border-bottom:1px solid rgba(255,255,255,0.06);padding:0 24px;height:48px;display:flex;align-items:center;justify-content:space-between}
 .breadcrumb{font-size:11px;color:var(--muted);letter-spacing:0.04em}
 .breadcrumb span{color:var(--text);font-weight:500}
@@ -132,7 +133,7 @@ body::before{display:none}
 .ai-status::before{content:'';width:5px;height:5px;border-radius:50%;background:#4ade80;flex-shrink:0}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
-.content{padding:28px}
+.content{padding:28px 32px;width:100%;box-sizing:border-box}
 
 /* ── VIEWS ── */
 .view{display:none;min-height:0}.view.active{display:block;min-height:0}
@@ -637,7 +638,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
                   <option value="bundle-cross">Cross-Platform Bundle (IG + TikTok)</option>
                   <option value="retainer">Monthly Retainer</option>
                 </optgroup>
-                <optgroup label="📹 Long-Form &amp; Audio">
+                <optgroup label="Long-Form &amp; Audio">
                   <option value="youtube-long">YouTube Dedicated Video</option>
                   <option value="youtube-int">YouTube Integration (Mid-Roll)</option>
                   <option value="podcast-host">Podcast Host Read</option>
@@ -645,25 +646,25 @@ tbody td{padding:11px 14px;vertical-align:middle}
                   <option value="twitter-campaign">Twitter/X Campaign</option>
                   <option value="threads">Threads Campaign</option>
                 </optgroup>
-                <optgroup label="🎨 UGC &amp; Content Rights">
+                <optgroup label="UGC &amp; Content Rights">
                   <option value="ugc-video">UGC Video (Brand Runs in Their Ads)</option>
                   <option value="ugc-photo">UGC Photo / Image Rights</option>
                 </optgroup>
-                <optgroup label="🏟️ Appearances &amp; Events">
+                <optgroup label="Appearances &amp; Events">
                   <option value="appearance-inperson">In-Person Appearance</option>
                   <option value="appearance-speaking">Speaking / Panel</option>
                   <option value="appearance-meetgreet">Meet &amp; Greet</option>
                   <option value="appearance-campus">Campus Appearance</option>
                   <option value="appearance-virtual">Virtual Appearance / Zoom</option>
                 </optgroup>
-                <optgroup label="🎙️ Content &amp; Media">
+                <optgroup label="Content &amp; Media">
                   <option value="media-podcast">Podcast Guest Spot</option>
                   <option value="media-youtube">YouTube Channel Integration</option>
                   <option value="media-twitch">Twitch / Livestream Session</option>
                   <option value="media-pressday">Press Interview / Media Day</option>
                   <option value="media-documentary">Documentary / Short Film Feature</option>
                 </optgroup>
-                <optgroup label="⚖️ Licensing &amp; Brand">
+                <optgroup label="Licensing &amp; Brand">
                   <option value="license-jersey">Jersey / Uniform Licensing</option>
                   <option value="license-merch">Merchandise Collab</option>
                   <option value="license-codesign">Product Co-Design</option>
@@ -672,13 +673,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
                   <option value="license-trading-card">Trading Card / Collectible</option>
                   <option value="license-nft-digital">Digital / NFT Collectible</option>
                 </optgroup>
-                <optgroup label="🏫 Collective / School">
+                <optgroup label="Collective / School">
                   <option value="collective-roster">Collective Roster Deal (Monthly)</option>
                   <option value="collective-ambassador">School Ambassador Role</option>
                   <option value="collective-booster">Booster Event Appearance</option>
                   <option value="collective-exclusive">Exclusive School/Collective Deal</option>
                 </optgroup>
-                <optgroup label="🏕️ Camps &amp; Clinics">
+                <optgroup label="Camps &amp; Clinics">
                   <option value="camp-skills">Skills Camp Appearance</option>
                   <option value="camp-clinic">Youth Clinic Host</option>
                   <option value="camp-training">Training Facility Partnership</option>
