@@ -329,9 +329,16 @@ async function generateAthleteBrandKit(athlete) {
   const totalReach = ((athlete.instagram || 0) + (athlete.tiktok || 0)).toLocaleString();
   const topCats = (rate.sponsorCategories || []).slice(0, 5).map(c => c.name || c).join(', ');
 
-  const prompt = `You are the world's top sports marketing strategist — you have built NIL campaigns for elite college programs and Fortune 500 sponsors. You create sponsorship pitch decks that close deals.
+  const targetBrand = athlete.targetBrand || null;
+  const brandLine = targetBrand
+    ? `TARGET BRAND: ${targetBrand}\nThis pitch deck is EXCLUSIVELY for ${targetBrand}. Every section must speak directly to ${targetBrand}'s brand identity, audience, and marketing goals. Do not mention other brands.`
+    : 'TARGET BRAND: Not specified — generate a general sponsorship pitch.';
 
-Generate a 6-slide sponsorship pitch deck for this athlete. Be precise, sponsor-facing, and compelling. No fluff.
+  const prompt = `You are the world's top sports NIL marketing strategist. You have closed NIL deals for elite programs and Fortune 500 brands. You write pitch decks that get replies.
+
+Your ONLY job right now is to generate a 6-slide pitch deck that convinces ${targetBrand || 'a brand'} to sign ${athlete.name} as a NIL partner. Every word should make ${targetBrand || 'the brand'} say "this athlete belongs in our campaign."
+
+${brandLine}
 
 ATHLETE DATA:
 Name: ${athlete.name}
@@ -343,39 +350,53 @@ Instagram: ${ig} followers | TikTok: ${tt} followers | Engagement: ${athlete.eng
 Marketability Score: ${rate.marketabilityScore}/100 | Audience Quality: ${rate.audienceQuality}/100
 Top Brand Categories: ${topCats}
 
-Return ONLY this JSON — no markdown, no extra keys:
+CRITICAL RULES:
+- Slide 1 headline must name ${targetBrand || 'the brand'} directly — e.g. "Why ${athlete.name.split(' ')[0]} and ${targetBrand || '[Brand]'} belong together"
+- Slide 2 bullets must explain why THIS athlete fits ${targetBrand || 'this brand'}'s specific marketing needs (audience overlap, brand values, campaign opportunity)
+- Slide 5 categories must be specific to ${targetBrand || 'the brand'}'s product lines, not generic categories
+- Slide 6 activations must be ${targetBrand || 'brand'}-specific campaign ideas (product names, platforms they use, their marketing style)
+- NEVER use placeholder text like "Brand name" or "Category name" — use actual ${targetBrand || 'brand'} terminology
+- No dollar amounts, no financial projections, no emojis
+
+Return ONLY this JSON — no markdown, no extra keys, no code fences:
 {
   "slide1": {
-    "headline": "One punchy positioning sentence — written for a brand decision-maker, not a fan",
-    "intro": "Two sentences max. Who this athlete is, why they matter right now."
+    "headline": "A direct, punchy headline naming both the athlete and ${targetBrand || 'the brand'}",
+    "intro": "2 sentences. Why ${athlete.name} and ${targetBrand || 'this brand'} are a natural fit right now."
   },
   "slide2": {
-    "bullets": ["Bullet 1 — marketability/personality insight", "Bullet 2", "Bullet 3", "Bullet 4", "Bullet 5"]
+    "bullets": [
+      "Reason 1 — specific audience or value alignment with ${targetBrand || 'this brand'}",
+      "Reason 2 — athlete personality or lifestyle fit with ${targetBrand || 'this brand'}'s identity",
+      "Reason 3 — reach, engagement, or platform fit for ${targetBrand || 'this brand'}'s marketing channels",
+      "Reason 4 — geographic or demographic overlap with ${targetBrand || 'this brand'}'s target customer",
+      "Reason 5 — credibility, accolades, or story that ${targetBrand || 'this brand'} can build content around"
+    ]
   },
   "slide3": {
-    "stats": ["Stat or achievement 1", "Stat or achievement 2", "Stat or achievement 3"],
-    "role": "One sentence on their role and importance to the team"
+    "stats": ["Competitive achievement or stat 1", "Competitive achievement or stat 2", "Competitive achievement or stat 3"],
+    "role": "One sentence on their competitive standing and why that credibility matters to ${targetBrand || 'a brand'} partner"
   },
   "slide4": {
     "instagram": "${ig}",
     "tiktok": "${tt}",
     "engagement": "${athlete.engagement || 'N/A'}%",
-    "audienceSummary": "1-2 sentences describing audience demographics and engagement quality",
-    "growthSignal": "One sentence on trajectory or momentum if applicable"
+    "audienceSummary": "1-2 sentences on audience demographics and why that audience is valuable to ${targetBrand || 'this brand'}",
+    "growthSignal": "One sentence on social momentum or trajectory"
   },
   "slide5": {
     "categories": [
-      { "name": "Category name", "reason": "One-line brand fit rationale" },
-      { "name": "Category name", "reason": "One-line brand fit rationale" },
-      { "name": "Category name", "reason": "One-line brand fit rationale" },
-      { "name": "Category name", "reason": "One-line brand fit rationale" }
+      { "name": "${targetBrand || 'Brand'} product or campaign type", "reason": "Why this specific activation makes sense for ${targetBrand || 'this brand'}" },
+      { "name": "${targetBrand || 'Brand'} product or campaign type", "reason": "Why this specific activation makes sense for ${targetBrand || 'this brand'}" },
+      { "name": "${targetBrand || 'Brand'} product or campaign type", "reason": "Why this specific activation makes sense for ${targetBrand || 'this brand'}" },
+      { "name": "${targetBrand || 'Brand'} product or campaign type", "reason": "Why this specific activation makes sense for ${targetBrand || 'this brand'}" }
     ]
   },
   "slide6": {
     "activations": [
-      { "title": "Campaign title", "description": "Practical, specific activation idea — 2 sentences max" },
-      { "title": "Campaign title", "description": "Practical, specific activation idea — 2 sentences max" },
-      { "title": "Campaign title", "description": "Practical, specific activation idea — 2 sentences max" }
+      { "title": "${targetBrand || 'Brand'}-specific campaign title", "description": "Specific activation using ${targetBrand || 'brand'}'s products, platforms, or marketing channels — 2 sentences" },
+      { "title": "${targetBrand || 'Brand'}-specific campaign title", "description": "Specific activation using ${targetBrand || 'brand'}'s products, platforms, or marketing channels — 2 sentences" },
+      { "title": "${targetBrand || 'Brand'}-specific campaign title", "description": "Specific activation using ${targetBrand || 'brand'}'s products, platforms, or marketing channels — 2 sentences" }
     ]
   }
 }`;
