@@ -2672,7 +2672,7 @@ async function showToast(msg) {
 }
 
 // ── PLAYER URL FETCH ─────────────────────────────────────────
-async async function fetchFromUrl() {
+async function fetchFromUrl() {
   const url = document.getElementById('a_url').value.trim();
   if (!url) { showToast('Paste a player profile URL first'); return; }
   const btn = document.getElementById('fetch-btn');
