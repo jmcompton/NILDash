@@ -283,15 +283,22 @@
 
 <!-- SLIDE 1 -->
 <section class="slide" id="s1">
-  <div class="hero-ey">NIL Sponsorship Opportunity</div>
-  <div class="hero-name" id="h-name">—</div>
-  <div class="hero-meta" id="h-meta">—</div>
-  <div class="hero-stmt" id="h-stmt">Loading...</div>
-  <div class="stat-row">
-    <div class="stat-box"><div class="stat-val" id="h-ig">—</div><div class="stat-lbl">Instagram Followers</div></div>
-    <div class="stat-box"><div class="stat-val" id="h-tt">—</div><div class="stat-lbl">TikTok Followers</div></div>
-    <div class="stat-box"><div class="stat-val g" id="h-eng">—</div><div class="stat-lbl">Engagement Rate</div></div>
-    <div class="stat-box"><div class="stat-val g" id="h-score">—</div><div class="stat-lbl">Marketability Score</div></div>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:24px">
+    <div style="flex:1;min-width:280px">
+      <div class="hero-ey" id="h-brand-label">NIL Sponsorship Opportunity</div>
+      <div class="hero-name" id="h-name">—</div>
+      <div class="hero-meta" id="h-meta">—</div>
+      <div class="hero-stmt" id="h-stmt">Loading...</div>
+      <div class="stat-row" style="margin-top:24px">
+        <div class="stat-box"><div class="stat-val" id="h-ig">—</div><div class="stat-lbl">Instagram Followers</div></div>
+        <div class="stat-box"><div class="stat-val" id="h-tt">—</div><div class="stat-lbl">TikTok Followers</div></div>
+        <div class="stat-box"><div class="stat-val g" id="h-eng">—</div><div class="stat-lbl">Engagement Rate</div></div>
+        <div class="stat-box"><div class="stat-val g" id="h-score">—</div><div class="stat-lbl">Marketability Score</div></div>
+      </div>
+    </div>
+    <div id="h-photo-wrap" style="display:none;flex-shrink:0">
+      <img id="h-photo" src="" alt="Athlete" style="width:220px;height:280px;object-fit:cover;object-position:top;border-radius:12px;border:2px solid var(--green);box-shadow:0 0 40px rgba(0,255,135,0.2)">
+    </div>
   </div>
 </section>
 
@@ -420,6 +427,15 @@ function render(d) {
   // NAV + page title
   document.title = nm + ' — NIL Pitch Deck';
   $('nav-name').textContent = nm.toUpperCase();
+  // Brand label on slide 1
+  const brandLabel = d.targetBrand ? `NIL Pitch: ${nm.split(' ')[0]} × ${d.targetBrand.toUpperCase()}` : 'NIL Sponsorship Opportunity';
+  $('h-brand-label').textContent = brandLabel;
+  document.title = d.targetBrand ? `${nm} × ${d.targetBrand} — NIL Pitch` : nm + ' — NIL Pitch Deck';
+  // Athlete photo
+  if (d.athletePhoto) {
+    $('h-photo').src = d.athletePhoto;
+    $('h-photo-wrap').style.display = 'block';
+  }
 
   // ── SLIDE 1 ────────────────────────────────────────────────────────────
   $('h-name').textContent  = nm;
@@ -655,8 +671,59 @@ function buildStatement(d, sc2) {
 }
 
 // ─── INIT ──────────────────────────────────────────────────────────────────
+// Brand color palettes — keyed by common brand name (lowercase)
+const BRAND_COLORS = {
+  nike:       { accent: '#F05A28', accent2: '#e64d1a' },
+  adidas:     { accent: '#ffffff', accent2: '#cccccc' },
+  gatorade:   { accent: '#F6A623', accent2: '#e09500' },
+  celsius:    { accent: '#E03E3E', accent2: '#c73232' },
+  underarmour:{ accent: '#1C75BC', accent2: '#155e9d' },
+  'under armour':{ accent: '#1C75BC', accent2: '#155e9d' },
+  redbull:    { accent: '#CC1E2A', accent2: '#b01820' },
+  'red bull': { accent: '#CC1E2A', accent2: '#b01820' },
+  monster:    { accent: '#79D30F', accent2: '#5ea800' },
+  toyota:     { accent: '#EB0A1E', accent2: '#cc0818' },
+  ford:       { accent: '#003478', accent2: '#00286a' },
+  pepsi:      { accent: '#004B93', accent2: '#003d7a' },
+  cocacola:   { accent: '#F40009', accent2: '#d40008' },
+  'coca-cola':{ accent: '#F40009', accent2: '#d40008' },
+  apple:      { accent: '#555555', accent2: '#444444' },
+  amazon:     { accent: '#FF9900', accent2: '#e68a00' },
+  google:     { accent: '#4285F4', accent2: '#3367d6' },
+  mcdonalds:  { accent: '#FFC72C', accent2: '#e6b000' },
+  subway:     { accent: '#009246', accent2: '#007a39' },
+  chipotle:   { accent: '#A81612', accent2: '#8a1210' },
+  chick:      { accent: '#E31837', accent2: '#c41430' },
+  'chick-fil-a': { accent: '#E31837', accent2: '#c41430' },
+  dunkin:     { accent: '#FF6E1E', accent2: '#e05c0e' },
+  starbucks:  { accent: '#00704A', accent2: '#005a3c' },
+};
+
+function applyBrandColors(brandName) {
+  if (!brandName) return;
+  const key = brandName.toLowerCase().trim();
+  // Try exact match first, then partial
+  let colors = BRAND_COLORS[key];
+  if (!colors) {
+    for (const [k,v] of Object.entries(BRAND_COLORS)) {
+      if (key.includes(k) || k.includes(key.split(' ')[0])) { colors = v; break; }
+    }
+  }
+  if (colors) {
+    document.documentElement.style.setProperty('--green', colors.accent);
+    document.documentElement.style.setProperty('--green2', colors.accent2);
+    // Update all .g text color elements
+    document.querySelectorAll('.g,.accent-text,[style*="#00FF87"],[style*="#00cc6a"]').forEach(el => {
+      if (el.style.color) el.style.color = colors.accent;
+    });
+  }
+}
+
 async function init() {
   const id = window.location.pathname.split('/').filter(Boolean).pop();
+  const params = new URLSearchParams(window.location.search);
+  const targetBrand = params.get('brand') || '';
+
   if (!id || id === 'pitch') {
     $('loader').innerHTML = `<div style="text-align:center;color:#6b7694;font-size:13px;letter-spacing:.06em;">Navigate to /pitch/ATHLETE_ID to view a deck.</div>`;
     return;
@@ -664,7 +731,26 @@ async function init() {
   try {
     const res = await fetch('/api/pitch-data/' + id);
     if (!res.ok) throw new Error('Athlete not found (id: ' + id + ')');
-    render(await res.json());
+    const data = await res.json();
+
+    // Inject brand + photo into data before render
+    data.targetBrand = targetBrand || null;
+
+    // Try to load athlete photo from sessionStorage (set by the marketing page)
+    try {
+      const pitchStored = sessionStorage.getItem('nilPitchData_' + id);
+      if (pitchStored) {
+        const stored = JSON.parse(pitchStored);
+        if (stored.photo) data.athletePhoto = stored.photo;
+        if (!targetBrand && stored.brand) data.targetBrand = stored.brand;
+      }
+    } catch(e) {}
+
+    render(data);
+
+    // Apply brand colors after render
+    if (data.targetBrand) applyBrandColors(data.targetBrand);
+
   } catch(err) {
     $('loader').innerHTML = `<div style="text-align:center;color:#ef4444;font-size:13px;">${err.message}</div>`;
   }
