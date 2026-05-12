@@ -1479,26 +1479,47 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
         <!-- ── TAB: Pitch Deck ── -->
         <div id="mkt-panel-brandkit">
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
-            <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Generate a brand-targeted pitch deck for <strong id="mkt-athlete-name" style="color:var(--text)">your selected client</strong> — tailored to a specific brand with matching colors, positioning, and campaign strategy.</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Generate Brand-Targeted Pitch Deck</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:18px">Every slide will be written specifically for the brand you choose — audience fit, campaign ideas, and positioning tailored to make them say yes.</div>
+
+            <!-- Row 1: Client + Brand -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
               <div>
-                <label class="form-label-sm">Target Brand *</label>
-                <input class="input-sm" id="mkt-pitch-brand" placeholder="e.g. Nike, Celsius, Gatorade" style="font-size:13px;width:100%">
-                <div style="font-size:10px;color:var(--muted);margin-top:4px">Colors and messaging will match this brand</div>
+                <label style="display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Client *</label>
+                <select id="mkt-pitch-client" style="width:100%;padding:9px 12px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r-sm);color:var(--text);font-size:13px;font-family:inherit;outline:none" onchange="onPitchClientChange(this.value)">
+                  <option value="">— Select client —</option>
+                </select>
               </div>
               <div>
-                <label class="form-label-sm">Athlete Photo (optional)</label>
-                <div id="mkt-photo-drop" onclick="document.getElementById('mkt-photo-input').click()" style="border:1px dashed var(--border2);border-radius:var(--r-sm);padding:10px 14px;cursor:pointer;text-align:center;font-size:11px;color:var(--muted);transition:border-color 0.2s"
-                  ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
-                  ondragleave="this.style.borderColor='var(--border2)'"
-                  ondrop="handlePitchPhotoDrop(event)">
-                  <span id="mkt-photo-label">Drop photo or click to upload</span>
-                </div>
-                <input type="file" id="mkt-photo-input" accept="image/*" style="display:none" onchange="handlePitchPhotoSelect(this)">
+                <label style="display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Target Brand *</label>
+                <input id="mkt-pitch-brand" placeholder="e.g. Nike, Celsius, Gatorade" style="width:100%;padding:9px 12px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r-sm);color:var(--text);font-size:13px;font-family:inherit;outline:none;box-sizing:border-box">
               </div>
             </div>
-            <button class="run-btn" id="mkt-brandkit-btn" onclick="runMarketingBrandKit()">Generate Pitch Deck →</button>
+
+            <!-- Row 2: Photo upload -->
+            <div style="margin-bottom:18px">
+              <label style="display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Athlete Photo (shows on pitch deck cover)</label>
+              <div style="display:flex;align-items:center;gap:12px">
+                <div id="mkt-photo-preview" style="width:56px;height:56px;border-radius:8px;background:var(--surface);border:1px solid var(--border2);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center">
+                  <span style="font-size:22px;color:var(--muted)">👤</span>
+                </div>
+                <div style="flex:1">
+                  <div id="mkt-photo-drop"
+                    onclick="document.getElementById('mkt-photo-input').click()"
+                    ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(74,222,128,0.04)'"
+                    ondragleave="this.style.borderColor='var(--border2)';this.style.background='transparent'"
+                    ondrop="handlePitchPhotoDrop(event)"
+                    style="border:1.5px dashed var(--border2);border-radius:var(--r-sm);padding:12px 16px;cursor:pointer;text-align:center;transition:all 0.2s">
+                    <div id="mkt-photo-label" style="font-size:12px;color:var(--muted)">Click to upload or drag & drop a photo</div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:3px;opacity:0.7">JPG, PNG, HEIC — auto-compressed for best quality</div>
+                  </div>
+                  <input type="file" id="mkt-photo-input" accept="image/*" style="display:none" onchange="handlePitchPhotoSelect(this)">
+                </div>
+              </div>
+            </div>
+
+            <button class="run-btn" id="mkt-brandkit-btn" onclick="runMarketingBrandKit()" style="width:100%;justify-content:center">Generate Pitch Deck →</button>
           </div>
           <div id="mkt-brandkit-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">
             Generating pitch deck... takes about 15 seconds
@@ -2514,7 +2535,7 @@ async function runDealScan() {
   try {
     const {recommendations, error} = await fetch(`${API_BASE}/api/ai/deals`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ athleteId: selectedAthleteId, targetBrand: targetBrand, athletePhoto: window._pitchPhotoDataUrl || null }),
+      body: JSON.stringify({ athleteId: pitchAthleteId, targetBrand: targetBrand, athletePhoto: window._pitchPhotoDataUrl || null }),
     }).then(r=>r.json());
     if(error) throw new Error(error);
     renderDealsTable(recommendations);
@@ -4130,32 +4151,77 @@ async function updateMarketingClientLabel() {
   });
 }
 
-// Photo handlers for pitch deck
+// ── Pitch Deck: photo compression + client dropdown ──
 window._pitchPhotoDataUrl = null;
+
 function handlePitchPhotoDrop(e) {
   e.preventDefault();
-  document.getElementById('mkt-photo-drop').style.borderColor = 'var(--border2)';
-  var file = e.dataTransfer.files[0];
-  if (file && file.type.startsWith('image/')) loadPitchPhoto(file);
+  var drop = document.getElementById('mkt-photo-drop');
+  if (drop) { drop.style.borderColor = 'var(--border2)'; drop.style.background = 'transparent'; }
+  var file = (e.dataTransfer.files || [])[0];
+  if (file && file.type.startsWith('image/')) compressAndSetPitchPhoto(file);
 }
 function handlePitchPhotoSelect(input) {
-  if (input.files[0]) loadPitchPhoto(input.files[0]);
+  if (input && input.files[0]) compressAndSetPitchPhoto(input.files[0]);
 }
-function loadPitchPhoto(file) {
+function compressAndSetPitchPhoto(file) {
   var reader = new FileReader();
   reader.onload = function(ev) {
-    window._pitchPhotoDataUrl = ev.target.result;
-    document.getElementById('mkt-photo-label').textContent = '✓ ' + file.name;
-    document.getElementById('mkt-photo-drop').style.borderColor = 'var(--accent)';
+    var img = new Image();
+    img.onload = function() {
+      // Compress: max 480px wide, JPEG 0.78 quality
+      var MAX = 480;
+      var w = img.width, h = img.height;
+      if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      var compressed = canvas.toDataURL('image/jpeg', 0.78);
+      window._pitchPhotoDataUrl = compressed;
+      // Update preview thumbnail
+      var preview = document.getElementById('mkt-photo-preview');
+      if (preview) preview.innerHTML = '<img src="' + compressed + '" style="width:56px;height:56px;object-fit:cover;object-position:top">';
+      // Update label
+      var label = document.getElementById('mkt-photo-label');
+      if (label) { label.textContent = '✓ ' + file.name + ' (compressed)'; label.style.color = 'var(--accent)'; }
+      var drop = document.getElementById('mkt-photo-drop');
+      if (drop) drop.style.borderColor = 'var(--accent)';
+    };
+    img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
 }
 
+// Populate pitch client dropdown whenever athletes are loaded
+function populatePitchClientDropdown() {
+  var sel = document.getElementById('mkt-pitch-client');
+  if (!sel) return;
+  var current = sel.value;
+  sel.innerHTML = '<option value="">— Select client —</option>';
+  (window._allAthletes || []).forEach(function(a) {
+    var opt = document.createElement('option');
+    opt.value = a.id;
+    opt.textContent = a.name + (a.sport ? ' — ' + a.sport : '') + (a.school ? ' / ' + a.school : '');
+    if (a.id === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // Pre-select the currently selected athlete if any
+  if (!current && selectedAthleteId) sel.value = selectedAthleteId;
+}
+
+function onPitchClientChange(id) {
+  // nothing extra needed — value is read at generate time
+}
+
 async function runMarketingBrandKit() {
-  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  // Get client from dropdown (preferred) or fall back to sidebar selection
+  var clientSel = document.getElementById('mkt-pitch-client');
+  var pitchAthleteId = (clientSel && clientSel.value) ? clientSel.value : selectedAthleteId;
+  if (!pitchAthleteId) { showToast('Select a client first'); if (clientSel) clientSel.focus(); return; }
   var brandInputEl = document.getElementById('mkt-pitch-brand');
   var targetBrand = brandInputEl ? brandInputEl.value.trim() : '';
-  if (!targetBrand) { showToast('Enter a target brand first'); if (brandInputEl) brandInputEl.focus(); return; }
+  if (!targetBrand) { showToast('Enter the target brand name'); if (brandInputEl) brandInputEl.focus(); return; }
   var btn = document.getElementById('mkt-brandkit-btn');
   var loading = document.getElementById('mkt-brandkit-loading');
   var resultEl = document.getElementById('mkt-brandkit-result');
