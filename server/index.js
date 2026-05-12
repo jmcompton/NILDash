@@ -527,13 +527,16 @@ app.get('/api/nilviewval/:athleteId', requireAuth, async (req, res) => {
 
 // ── AI Athlete Brand Kit ───────────────────────────────────────
 app.post('/api/ai/brand-kit', requireAuth, aiLimiter, async (req, res) => {
-  const { athleteId } = req.body;
+  const { athleteId, targetBrand, athletePhoto } = req.body;
   if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   try {
-    const kit = await ai.generateAthleteBrandKit(athlete);
-    res.json(kit);
+    // Attach brand context to athlete object for AI generation
+    const athleteWithBrand = { ...athlete, targetBrand: targetBrand || null, athletePhoto: athletePhoto || null };
+    const kit = await ai.generateAthleteBrandKit(athleteWithBrand);
+    // Pass brand + photo through to the response so pitch.html can use them
+    res.json({ ...kit, targetBrand: targetBrand || null, athletePhoto: athletePhoto || null });
   } catch(err) {
     res.status(500).json({ error: err.message });
   }
