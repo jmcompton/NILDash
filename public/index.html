@@ -246,12 +246,21 @@ tbody td{padding:11px 14px;vertical-align:middle}
     left:0;top:0;bottom:0;
     transform:translateX(-100%);
     transition:transform 0.28s cubic-bezier(.4,0,.2,1);
-    z-index:200;
+    z-index:300;
     width:272px;
     min-height:100vh;
     box-shadow:4px 0 24px rgba(0,0,0,0.5);
+    pointer-events:auto;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
   }
   .sidebar.open{transform:translateX(0)}
+  .sidebar.open .nav-item{
+    pointer-events:auto;
+    cursor:pointer;
+    -webkit-tap-highlight-color:rgba(74,222,128,0.15);
+    touch-action:manipulation;
+  }
 
   /* ── Main content: full width, space for top bar ── */
   .main{margin-left:0 !important;padding-top:56px !important;width:100vw}
@@ -322,7 +331,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
   height:56px;
   background:var(--surface);
   border-bottom:1px solid var(--border);
-  z-index:150;
+  z-index:350;
   align-items:center;
   padding:0 16px;
   gap:12px;
@@ -353,7 +362,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
   display:none;
   position:fixed;inset:0;
   background:rgba(0,0,0,0.55);
-  z-index:199;
+  z-index:299;
   pointer-events:none;
   backdrop-filter:blur(2px);
   -webkit-backdrop-filter:blur(2px);
@@ -590,7 +599,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div class="page-title">Deal Scan</div>
         <div class="page-sub">AI-ranked brand opportunities for your selected client</div>
         <div style="margin-bottom:16px">
-          <button id="deals-refresh-btn" onclick="runDealsRefresh()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;margin-right:8px">↺ Refresh</button><button class="run-btn" id="deals-run-btn" onclick="runDealScan()">Scan Deals with AI</button>
+          <button id="deals-refresh-btn" onclick="runDealsRefresh()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;margin-right:8px">Refresh</button><button class="run-btn" id="deals-run-btn" onclick="runDealScan()">Scan Deals with AI</button>
         </div>
         <div class="ai-block" id="dealsAI" style="margin-bottom:16px">
           <div class="ai-header"><div class="spinner" id="dealsSpinner"></div><div class="ai-label">AI Deal Scan</div></div>
@@ -612,7 +621,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div class="form-group-sm">
               <label class="form-label-sm">Type</label>
               <select class="select-sm" id="rateDeliverable">
-                <optgroup label="📱 Social Media">
+                <optgroup label="Social Media">
                   <option value="ig-reel" selected>IG Reel</option>
                   <option value="ig-post">Single IG Post</option>
                   <option value="ig-carousel">IG Carousel (Multi-Image)</option>
@@ -2531,17 +2540,21 @@ async function runNegotiate() {
 }
 
 // ── PIPELINE ─────────────────────────────────────────────────
-async function loadPipeline() {
+async async function loadPipeline() {
   const stages = ['Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
   let allDeals = [];
   var filterEl = document.getElementById('pipe-filter-client');
   var filterActive = filterEl && filterEl.checked;
   var athleteList = filterActive ? athletes.filter(a => a.id === selectedAthleteId) : athletes;
-  for (const ath of athleteList) {
-    const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
-    deals.forEach(d => allDeals.push({...d, athleteName: ath.name}));
-    window._pipelineDeals = allDeals;
-  }
+  // Parallel fetch — much faster than sequential
+  const results = await Promise.all(
+    athleteList.map(ath =>
+      fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[])
+        .then(deals => deals.map(d => ({...d, athleteName: ath.name})))
+    )
+  );
+  allDeals = results.flat();
+  window._pipelineDeals = allDeals;
   const total = allDeals.reduce((s,d)=>s+(d.value||0),0);
   document.getElementById('pipe-total').textContent = '$'+(total/1000).toFixed(0)+'K';
   document.getElementById('pipe-count').textContent = allDeals.filter(d=>d.stage!=='Closed').length;
@@ -2656,13 +2669,13 @@ async function showToast(msg) {
 }
 
 // ── PLAYER URL FETCH ─────────────────────────────────────────
-async function fetchFromUrl() {
+async async function fetchFromUrl() {
   const url = document.getElementById('a_url').value.trim();
   if (!url) { showToast('Paste a player profile URL first'); return; }
   const btn = document.getElementById('fetch-btn');
   const status = document.getElementById('fetch-status');
   btn.disabled = true; btn.textContent = 'Importing...';
-  status.textContent = 'Fetching real stats from URL...';
+  status.textContent = 'Fetching profile data...';
   try {
     const r = await fetch(`${API_BASE}/api/ai/player-fetch`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
@@ -3355,7 +3368,8 @@ async function runTeamMatch() {
   btn.disabled = false; btn.textContent = 'Scan Teams →';
 }
 
-async function fmtNil(n) {
+function fmtNil(n) {
+  if (!n || isNaN(n)) return '$0';
   if (n >= 1000000) return '$' + (n/1000000).toFixed(1) + 'M';
   if (n >= 1000) return '$' + Math.round(n/1000) + 'K';
   return '$' + n;
@@ -3984,7 +3998,7 @@ async function runMarketingScores() {
         html += '</div>';
       }
       if (pts.length) {
-        html += '<div><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">🤝 Ideal Deal Structures</div>';
+        html += '<div><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Ideal Deal Structures</div>';
         pts.forEach(function(p) {
           html += '<div style="padding:10px 12px;background:var(--surface2);border-radius:var(--r-sm);margin-bottom:6px">';
           html += '<div style="font-size:12px;font-weight:600;color:var(--text)">' + p.type + '</div>';
