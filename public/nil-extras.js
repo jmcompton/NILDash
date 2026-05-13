@@ -613,7 +613,7 @@ async function runMarketingBrandKit() {
     const res = await fetch('/api/ai/brand-kit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ athleteId: selectedAthleteId })
+      body: JSON.stringify({ athleteId: selectedAthleteId, targetBrand: (document.getElementById('mkt-pitch-brand') || {}).value || null, athletePhoto: window._pitchPhotoDataUrl || null })
     });
     const deck = await res.json();
     if (deck.error) throw new Error(deck.error);
@@ -830,7 +830,7 @@ async function runMarketingScores() {
     const res = await fetch('/api/ai/rate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ athleteId: selectedAthleteId })
+      body: JSON.stringify({ athleteId: selectedAthleteId, targetBrand: (document.getElementById('mkt-pitch-brand') || {}).value || null, athletePhoto: window._pitchPhotoDataUrl || null })
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
