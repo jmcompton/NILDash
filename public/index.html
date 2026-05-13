@@ -4443,52 +4443,6 @@ async function runMarketingBrandKit() {
       resultEl.style.display = 'block';
       resultEl.innerHTML = '';
 
-      // Copy All button
-      var copyAllBtn = document.createElement('div');
-      copyAllBtn.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:10px';
-      var cb = document.createElement('button');
-      cb.textContent = ' Copy All';
-      cb.style.cssText = 'padding:6px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;cursor:pointer';
-      cb.addEventListener('click', function() {
-        navigator.clipboard.writeText(resultEl.innerText).then(function(){ showToast('Brand kit copied!'); });
-      });
-      copyAllBtn.appendChild(cb);
-      resultEl.appendChild(copyAllBtn);
-
-      function mktSection(title, bodyHtml, icon) {
-        var div = document.createElement('div');
-        div.style.cssText = 'margin-bottom:14px;padding:14px;background:var(--surface2);border-radius:var(--r)';
-        var hdr = document.createElement('div');
-        hdr.style.cssText = 'font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px';
-        hdr.textContent = (icon ? icon + ' ' : '') + title;
-        var body = document.createElement('div');
-        body.style.cssText = 'font-size:13px;color:var(--text);line-height:1.6';
-        body.innerHTML = typeof bodyHtml === 'string' ? bodyHtml : (bodyHtml || '—');
-        div.appendChild(hdr);
-        div.appendChild(body);
-        resultEl.appendChild(div);
-      }
-      function mktBullets(arr) {
-        if (!Array.isArray(arr)) return '<p style="margin:0">' + (arr||'—') + '</p>';
-        return '<ul style="margin:0;padding-left:16px">' + arr.map(function(i){ return '<li style="margin-bottom:4px">' + i + '</li>'; }).join('') + '</ul>';
-      }
-
-      // Brand label header
-      if (targetBrand) {
-        var brandHdr = document.createElement('div');
-        brandHdr.style.cssText = 'margin-bottom:16px;padding:10px 14px;background:rgba(200,241,53,0.06);border:1px solid rgba(200,241,53,0.2);border-radius:var(--r);font-size:11px;color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:0.06em';
-        brandHdr.textContent = 'Pitch Deck: Targeted at ' + targetBrand.toUpperCase();
-        resultEl.insertBefore(brandHdr, resultEl.firstChild);
-      }
-
-      mktSection('Brand Summary', kit.brandSummary || '—', '');
-      mktSection('Sponsorship Positioning', kit.sponsorshipPositioning || '—', '');
-      mktSection('Athlete Bio (Media Kit)', kit.athleteBio || '—', '');
-      mktSection('Outreach Talking Points', mktBullets(kit.outreachTalkingPoints), '');
-      mktSection('Social Content Strategy', (kit.socialContentStrategy || '—') + (kit.contentPillars ? '<br><br><strong>Content Pillars:</strong><br>' + mktBullets(kit.contentPillars) : ''), '');
-      mktSection('Campaign Suggestions', mktBullets(kit.campaignSuggestions), '');
-      mktSection('Ideal Sponsorship Categories', mktBullets(kit.idealSponsorshipCategories), '');
-
       // Store FULL deck data for pitch.html (avoids re-calling AI in new tab)
       try {
         var pitchData = {
