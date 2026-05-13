@@ -397,312 +397,176 @@ tbody td{padding:11px 14px;vertical-align:middle}
   .main{padding-bottom:max(16px,env(safe-area-inset-bottom))}
 }
 
-/* ═══════════════════════════════════════════════════════
-   NILDash — Visual Enhancement Layer v2
-   Pure cosmetic CSS. No data or structure changes.
-   ═══════════════════════════════════════════════════════ */
-
-/* ── Animated background grid on the main content area ── */
-.main::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background-image:
-    linear-gradient(rgba(74,222,128,0.018) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(74,222,128,0.018) 1px, transparent 1px);
-  background-size: 64px 64px;
-  animation: gridMove 30s linear infinite;
-}
-@keyframes gridMove {
-  0%   { background-position: 0 0; }
-  100% { background-position: 64px 64px; }
-}
+/* ── Demo design system overrides ── */
 .content { position: relative; z-index: 1; }
 
-/* ── Glowing orb behind the sidebar logo ── */
-.sidebar-logo::before {
-  content: '';
-  position: absolute;
-  top: -40px; left: -60px;
-  width: 180px; height: 180px;
-  background: radial-gradient(circle, rgba(74,222,128,0.12) 0%, transparent 70%);
-  pointer-events: none;
-  border-radius: 50%;
-  animation: orbPulse 6s ease-in-out infinite alternate;
+/* KPI cards - Bebas numbers, colored per type */
+.kpi { position:relative;overflow:hidden;cursor:default; }
+.kpi-val, .kpi-value {
+  font-family:'Bebas Neue',sans-serif !important;
+  font-size:40px !important;
+  font-weight:400 !important;
+  color:#C8FF00 !important;
+  letter-spacing:1px !important;
+  line-height:1 !important;
+  -webkit-text-fill-color:#C8FF00 !important;
+  background:none !important;
+  -webkit-background-clip:unset !important;
+  background-clip:unset !important;
 }
-.sidebar-logo { position: relative; overflow: visible; }
-@keyframes orbPulse {
-  0%   { opacity: 0.6; transform: scale(1); }
-  100% { opacity: 1;   transform: scale(1.15); }
+.kpi:nth-child(2) .kpi-val { color:#00D4FF !important; -webkit-text-fill-color:#00D4FF !important; }
+.kpi:nth-child(3) .kpi-val { color:#FFB800 !important; -webkit-text-fill-color:#FFB800 !important; }
+.kpi:nth-child(4) .kpi-val { color:#FF3D5A !important; -webkit-text-fill-color:#FF3D5A !important; }
+.kpi:hover { transform:translateY(-2px); border-color:rgba(200,255,0,0.25) !important; }
+
+/* Page titles - Bebas */
+.page-title {
+  font-family:'Bebas Neue',sans-serif !important;
+  font-size:36px !important;
+  font-weight:400 !important;
+  letter-spacing:1.5px !important;
+  color:var(--text) !important;
+  -webkit-text-fill-color:var(--text) !important;
+  background:none !important;
+  -webkit-background-clip:unset !important;
+  background-clip:unset !important;
 }
 
-/* ── Sidebar: glowing active nav item ── */
+/* Sidebar - new dark navy */
+.sidebar { background:#141929 !important; }
 .nav-item.active {
-  background: rgba(74,222,128,0.1) !important;
-  color: #4ade80 !important;
-  font-weight: 600 !important;
-  box-shadow: inset 3px 0 0 #4ade80;
-  border-radius: 6px !important;
-}
-.nav-item.active .nav-dot-item::before {
-  content: '';
-  display: inline-block;
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: #4ade80;
-  box-shadow: 0 0 6px #4ade80;
-  margin-right: 6px;
+  background:rgba(200,255,0,0.1) !important;
+  color:#C8FF00 !important;
+  border:1px solid rgba(200,255,0,0.18) !important;
+  box-shadow:none !important;
+  border-radius:8px !important;
 }
 .nav-item:hover {
-  background: rgba(255,255,255,0.06) !important;
-  color: rgba(240,237,230,0.9) !important;
-  transform: translateX(2px);
-  transition: all 0.15s ease !important;
+  background:rgba(255,255,255,0.06) !important;
+  color:rgba(240,244,255,0.9) !important;
+  transform:none !important;
 }
 
-/* ── Logo text gradient ── */
-.logo-text {
-  background: linear-gradient(135deg, #4ade80 0%, #00e5ff 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* ── KPI cards: pop with glow on hover ── */
-.kpi {
-  position: relative;
-  overflow: hidden;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
-  cursor: default;
-}
-.kpi::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-.kpi:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 32px rgba(74,222,128,0.12), 0 2px 8px rgba(0,0,0,0.4);
-  border-color: rgba(74,222,128,0.25) !important;
-}
-.kpi:hover::before { opacity: 1; }
-
-/* ── KPI value: gradient text ── */
-.kpi-val, .kpi-value {
-  background: linear-gradient(135deg, #4ade80 0%, #86efac 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  font-weight: 800 !important;
-}
-
-/* ── Cards: glow on hover ── */
-.card, .pipe-card {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
-  position: relative;
-  overflow: hidden;
-}
-.card:hover, .pipe-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 28px rgba(0,0,0,0.35), 0 0 0 1px rgba(74,222,128,0.1);
-  border-color: rgba(74,222,128,0.2) !important;
-}
-
-/* ── Topbar: glass effect ── */
+/* Topbar */
 .topbar {
-  background: rgba(12,12,11,0.85) !important;
-  backdrop-filter: blur(20px) !important;
-  -webkit-backdrop-filter: blur(20px) !important;
-  border-bottom: 1px solid rgba(74,222,128,0.08) !important;
+  background:#0A0E1A !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+  border-bottom:1px solid rgba(255,255,255,0.08) !important;
 }
 
-/* ── AI Ready badge: pulsing glow ── */
-.ai-status {
-  animation: aiBadgePulse 3s ease-in-out infinite;
-  font-weight: 700 !important;
-  letter-spacing: 0.08em !important;
-}
-@keyframes aiBadgePulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(74,222,128,0); }
-  50%       { box-shadow: 0 0 12px 2px rgba(74,222,128,0.25); }
-}
-.ai-status::before {
-  animation: dotBlink 2s ease-in-out infinite !important;
-}
-@keyframes dotBlink {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.4; transform: scale(0.7); }
-}
-
-/* ── Run button: shimmering gradient ── */
+/* Run button - solid lime */
 .run-btn {
-  background: linear-gradient(135deg, #4ade80 0%, #22d3ee 100%) !important;
-  color: #0A0A08 !important;
-  font-weight: 700 !important;
-  border: none !important;
-  position: relative;
-  overflow: hidden;
-  transition: transform 0.2s, box-shadow 0.2s !important;
+  background:#C8FF00 !important;
+  color:#0A0E1A !important;
+  font-weight:700 !important;
+  border:none !important;
+  position:relative;
+  overflow:hidden;
 }
-.run-btn::after {
-  content: '';
-  position: absolute;
-  top: 0; left: -100%;
-  width: 60%; height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
-  transform: skewX(-20deg);
-  animation: shimmer 3s ease-in-out infinite;
-}
-@keyframes shimmer {
-  0%   { left: -100%; }
-  60%, 100% { left: 160%; }
-}
-.run-btn:hover {
-  transform: translateY(-2px) !important;
-  box-shadow: 0 6px 24px rgba(74,222,128,0.4) !important;
-}
-.run-btn:disabled::after { display: none; }
+.run-btn::after { display:none !important; }
+.run-btn:hover { background:#A8D900 !important; transform:none !important; box-shadow:none !important; }
 
-/* ── Accent chips: sharper ── */
-.chip-green {
-  background: rgba(74,222,128,0.1) !important;
-  color: #4ade80 !important;
-  border: 1px solid rgba(74,222,128,0.25) !important;
-  font-weight: 700 !important;
-}
-.chip-blue {
-  background: rgba(96,165,250,0.1) !important;
-  color: #60a5fa !important;
-  border: 1px solid rgba(96,165,250,0.25) !important;
-  font-weight: 700 !important;
-}
+/* Chips */
+.chip-green { background:rgba(200,255,0,0.1) !important; color:#C8FF00 !important; border:1px solid rgba(200,255,0,0.2) !important; font-weight:600 !important; }
+.chip-blue { background:rgba(0,212,255,0.1) !important; color:#00D4FF !important; border:1px solid rgba(0,212,255,0.2) !important; font-weight:600 !important; }
 
-/* ── Pipeline board columns: subtle top accent ── */
-.pipe-col {
-  border-top: 2px solid rgba(74,222,128,0.15) !important;
-  transition: border-top-color 0.2s !important;
-}
-.pipe-col:hover { border-top-color: rgba(74,222,128,0.4) !important; }
+/* Pipeline cols */
+.pipe-col { border-top:2px solid rgba(200,255,0,0.15) !important; }
+.pipe-col:hover { border-top-color:rgba(200,255,0,0.4) !important; }
 
-/* ── Page title: gradient ── */
-.page-title {
-  background: linear-gradient(135deg, #f0ede6 0%, rgba(240,237,230,0.65) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  font-weight: 800 !important;
-  letter-spacing: -0.03em !important;
-}
-
-/* ── Section/card header accent lines ── */
+/* Card title */
 .card-title {
-  color: rgba(240,237,230,0.55) !important;
-  font-size: 10px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.12em !important;
-  text-transform: uppercase !important;
+  color:rgba(240,244,255,0.45) !important;
+  font-size:10px !important;
+  font-weight:600 !important;
+  letter-spacing:1.5px !important;
+  text-transform:uppercase !important;
+  font-family:'DM Sans',sans-serif !important;
 }
 
-/* ── Input fields: glow on focus ── */
+/* Inputs */
 .form-input:focus, .form-select:focus, .input-sm:focus, .select-sm:focus {
-  border-color: #4ade80 !important;
-  box-shadow: 0 0 0 3px rgba(74,222,128,0.1) !important;
-  outline: none !important;
+  border-color:#C8FF00 !important;
+  box-shadow:0 0 0 3px rgba(200,255,0,0.1) !important;
+  outline:none !important;
 }
 
-/* ── Sidebar: subtle gradient from top ── */
-.sidebar {
-  background: linear-gradient(180deg, #0f0f0e 0%, #0c0c0b 100%) !important;
-}
-
-/* ── Auth box: glowing border on focus ── */
-.auth-box {
-  box-shadow: 0 0 0 1px rgba(74,222,128,0.06), 0 24px 80px rgba(0,0,0,0.6) !important;
-}
-
-/* ── Notification bell: glow ── */
-.notif-bell {
-  transition: color 0.15s, transform 0.15s !important;
-}
-.notif-bell:hover {
-  transform: scale(1.15) rotate(-12deg) !important;
-}
-
-/* ── Athlete card: hover lift ── */
-.athlete-card {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
-}
-.athlete-card:hover {
-  transform: translateY(-3px) !important;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(74,222,128,0.15) !important;
-}
-.athlete-card.selected {
-  border-color: rgba(74,222,128,0.4) !important;
-  box-shadow: 0 0 0 2px rgba(74,222,128,0.15) inset !important;
-}
-
-/* ── Modal: frosted glass ── */
-.mb {
-  box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(74,222,128,0.06) !important;
-}
-
-/* ── Rate range value: pop ── */
+/* Rate range */
 .rate-range {
-  background: linear-gradient(135deg, #4ade80, #22d3ee) !important;
-  -webkit-background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  background-clip: text !important;
-  font-weight: 800 !important;
+  font-family:'Bebas Neue',sans-serif !important;
+  font-size:48px !important;
+  font-weight:400 !important;
+  color:#C8FF00 !important;
+  letter-spacing:2px !important;
+  line-height:1 !important;
+  -webkit-text-fill-color:#C8FF00 !important;
+  background:none !important;
+  -webkit-background-clip:unset !important;
+  background-clip:unset !important;
 }
 
-/* ── Light mode: keep design coherent ── */
-[data-theme="light"] .kpi-val,
-[data-theme="light"] .kpi-value {
-  background: linear-gradient(135deg, #15803d 0%, #0e7490 100%) !important;
-  -webkit-background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  background-clip: text !important;
+/* Logo text */
+.logo-text {
+  background:none !important;
+  -webkit-text-fill-color:#FFFFFF !important;
+  color:#FFFFFF !important;
 }
-[data-theme="light"] .page-title {
-  background: linear-gradient(135deg, #111110 0%, rgba(17,17,16,0.6) 100%) !important;
-  -webkit-background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  background-clip: text !important;
+
+/* Athlete cards */
+.athlete-card:hover { transform:translateY(-2px) !important; box-shadow:none !important; border-color:rgba(200,255,0,0.3) !important; }
+.athlete-card.selected { border-color:rgba(200,255,0,0.5) !important; box-shadow:none !important; }
+
+/* Auth box */
+.auth-box { box-shadow:0 24px 80px rgba(0,0,0,0.6) !important; }
+
+/* AI status */
+.ai-status { animation:none !important; font-weight:600 !important; letter-spacing:0.08em !important; }
+
+/* NIL Market ticker */
+.nil-ticker {
+  background:#141929;
+  border-bottom:1px solid rgba(255,255,255,0.08);
+  padding:8px 28px;
+  display:flex;
+  align-items:center;
+  overflow:hidden;
+  gap:0;
 }
-[data-theme="light"] .run-btn {
-  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%) !important;
-  color: #ffffff !important;
+.nil-ticker-label {
+  font-size:10px;font-weight:700;letter-spacing:2px;
+  color:#C8FF00;background:rgba(200,255,0,0.1);
+  border:1px solid rgba(200,255,0,0.2);border-radius:4px;
+  padding:3px 8px;white-space:nowrap;flex-shrink:0;margin-right:16px;
+  font-family:'DM Sans',sans-serif;
 }
-[data-theme="light"] .run-btn::after { display: none; }
-[data-theme="light"] .logo-text {
-  background: linear-gradient(135deg, #15803d 0%, #0e7490 100%) !important;
-  -webkit-background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  background-clip: text !important;
+.nil-ticker-scroll {
+  display:flex;gap:28px;
+  animation:nilTicker 30s linear infinite;
+  white-space:nowrap;
 }
-[data-theme="light"] .main::before {
-  background-image:
-    linear-gradient(rgba(21,128,61,0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(21,128,61,0.015) 1px, transparent 1px);
-  background-size: 64px 64px;
+.nil-tick { display:flex;align-items:center;gap:6px;font-size:12px;font-family:'JetBrains Mono',monospace; }
+.nil-tick-name { color:rgba(240,244,255,0.45); }
+.nil-tick-val { color:#F0F4FF;font-weight:600; }
+.nil-tick-up { font-size:11px;padding:2px 6px;border-radius:4px;color:#0A0E1A;background:#C8FF00; }
+.nil-tick-dn { font-size:11px;padding:2px 6px;border-radius:4px;color:white;background:#FF3D5A; }
+@keyframes nilTicker { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+
+/* Topbar action buttons */
+.topbar-btn {
+  display:flex;align-items:center;gap:6px;padding:7px 14px;
+  border-radius:8px;font-size:12px;font-weight:500;cursor:pointer;
+  border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);
+  color:rgba(240,244,255,0.6);font-family:'DM Sans',sans-serif;
+  transition:all 0.15s;
 }
-[data-theme="light"] .nav-item.active {
-  background: rgba(21,128,61,0.08) !important;
-  color: #15803d !important;
-  box-shadow: inset 3px 0 0 #15803d !important;
-}
-[data-theme="light"] .rate-range {
-  background: linear-gradient(135deg, #15803d, #0e7490) !important;
-  -webkit-background-clip: text !important;
-  -webkit-text-fill-color: transparent !important;
-  background-clip: text !important;
-}
+.topbar-btn:hover { border-color:rgba(255,255,255,0.2);color:#F0F4FF; }
+.topbar-btn.primary { background:#C8FF00;border-color:#C8FF00;color:#0A0E1A;font-weight:700; }
+.topbar-btn.primary:hover { background:#A8D900; }
+
+/* Page subtitle */
+.topbar-page-title { font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:1.5px;color:#F0F4FF;line-height:1; }
+.topbar-page-sub { font-size:11px;color:rgba(240,244,255,0.4);margin-top:1px;font-family:'DM Sans',sans-serif; }
 </style>
 </head>
 <body>
@@ -799,53 +663,55 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <nav class="sidebar-nav">
       <div class="nav-section-label">Command</div>
       <button class="nav-item active" onclick="showView('command',this)">
-        <span class="nav-dot-item"></span>AI Command
+        <span class="nav-icon">⚡</span>Dashboard
       </button>
       <button class="nav-item" onclick="showView('deals',this)">
-        <span class="nav-dot-item"></span>Deal Scan
+        <span class="nav-icon">🔍</span>Deal Scan AI
       </button>
       <button class="nav-item" onclick="showView('rate',this)">
-        <span class="nav-dot-item"></span>Rate Calculator
-      </button>
-      <button class="nav-item" onclick="showView('negotiate',this)">
-        <span class="nav-dot-item"></span>Negotiate
-      </button>
-      <button class="nav-item" onclick="showView('team-match',this)">
-        <span class="nav-dot-item"></span>Team Match
-      </button>
-      <button class="nav-item" onclick="showView('outreach',this)">
-        <span class="nav-dot-item"></span>Outreach
-      </button>
-      <button class="nav-item" onclick="showView('marketing',this)" id="marketingNavBtn">
-        <span class="nav-dot-item"></span>Marketing
-      </button>
-      <button class="nav-item" onclick="showView('calendar',this)">
-        <span class="nav-dot-item"></span>Calendar
-      </button>
-      <button class="nav-item" onclick="showView('compliance',this)">
-        <span class="nav-dot-item"></span>Compliance
-      </button>
-      <button class="nav-item" onclick="showView('contract',this)">
-        <span class="nav-dot-item"></span>Contract
-      </button>
-      <button class="nav-item" onclick="showView('analytics',this)">
-        <span class="nav-dot-item"></span>Analytics
-      </button>
-      <button class="nav-item" onclick="showView('commission',this)">
-        <span class="nav-dot-item"></span>Commission
+        <span class="nav-icon">💰</span>Rate Calculator
       </button>
       <button class="nav-item" onclick="showView('pipeline',this)">
-        <span class="nav-dot-item"></span>Pipeline
+        <span class="nav-icon">📊</span>Deal Pipeline
+      </button>
+      <button class="nav-item" onclick="showView('contract',this)">
+        <span class="nav-icon">📄</span>Contract Gen
+      </button>
+      <div class="nav-section-label">Intelligence</div>
+      <button class="nav-item" onclick="showView('team-match',this)">
+        <span class="nav-icon">🎯</span>Team Match
+      </button>
+      <button class="nav-item" onclick="showView('negotiate',this)">
+        <span class="nav-icon">🤝</span>Negotiate
+      </button>
+      <button class="nav-item" onclick="showView('outreach',this)">
+        <span class="nav-icon">📧</span>Outreach
+      </button>
+      <button class="nav-item" onclick="showView('analytics',this)">
+        <span class="nav-icon">📈</span>Analytics
+      </button>
+      <button class="nav-item" onclick="showView('commission',this)">
+        <span class="nav-icon">💵</span>Commission
+      </button>
+      <div class="nav-section-label">Compliance</div>
+      <button class="nav-item" onclick="showView('compliance',this)">
+        <span class="nav-icon">🛡</span>SPARTA Tracker
+      </button>
+      <button class="nav-item" onclick="showView('calendar',this)">
+        <span class="nav-icon">📅</span>Calendar
       </button>
       <div class="nav-section-label">Roster</div>
       <button class="nav-item" onclick="showView('roster',this)">
-        <span class="nav-dot-item"></span>My Roster
+        <span class="nav-icon">👤</span>My Clients
       </button>
       <button class="nav-item" onclick="showView('add-athlete',this)" id="addAthleteNavBtn">
-        <span class="nav-dot-item"></span>Add Client
+        <span class="nav-icon">➕</span>Add Client
       </button>
       <button class="nav-item" onclick="showView('athlete-portals',this)" id="athletePortalsNavBtn">
-        <span class="nav-dot-item"></span>Athlete Portals
+        <span class="nav-icon">🔗</span>Athlete Portals
+      </button>
+      <button class="nav-item" onclick="showView('marketing',this)" id="marketingNavBtn">
+        <span class="nav-icon">📣</span>Marketing
       </button>
     </nav>
 
@@ -867,10 +733,31 @@ tbody td{padding:11px 14px;vertical-align:middle}
   <!-- Main content -->
   <main class="main">
     <div class="topbar">
-      <div class="breadcrumb">NILDash / <span id="breadcrumb">Command Center</span></div>
+      <div>
+        <div class="topbar-page-title" id="topbarTitle">Dashboard</div>
+        <div class="topbar-page-sub" id="topbarSub">Wednesday, May 13, 2026 · Agent Portal</div>
+      </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <button class="notif-bell" id="notifBell" onclick="toggleNotifPanel()">🔔<span class="notif-badge" id="notifBadge"></span></button>
-        <div class="ai-status" id="aiStatus">AI READY</div>
+        <button class="topbar-btn" onclick="toggleNotifPanel()">🔔 <span class="notif-badge" id="notifBadge"></span></button>
+        <button class="topbar-btn">🔍 Search</button>
+        <div class="ai-status" id="aiStatus">● AI READY</div>
+      </div>
+    </div>
+    <div class="nil-ticker">
+      <div class="nil-ticker-label">NIL MARKET</div>
+      <div class="nil-ticker-scroll">
+        <div class="nil-tick"><span class="nil-tick-name">IG Reel</span>&nbsp;<span class="nil-tick-val">$0.048/view</span>&nbsp;<span class="nil-tick-up">+3.1%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">TikTok</span>&nbsp;<span class="nil-tick-val">$0.032/view</span>&nbsp;<span class="nil-tick-up">+7.4%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">P4 QB avg</span>&nbsp;<span class="nil-tick-val">$42K/yr</span>&nbsp;<span class="nil-tick-dn">-1.2%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">NIL Market</span>&nbsp;<span class="nil-tick-val">$2.8B</span>&nbsp;<span class="nil-tick-up">+18%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">Avg Deal</span>&nbsp;<span class="nil-tick-val">$4,200</span>&nbsp;<span class="nil-tick-up">+5.2%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">Engmt Rate</span>&nbsp;<span class="nil-tick-val">5.6%</span>&nbsp;<span class="nil-tick-up">+0.3%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">IG Reel</span>&nbsp;<span class="nil-tick-val">$0.048/view</span>&nbsp;<span class="nil-tick-up">+3.1%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">TikTok</span>&nbsp;<span class="nil-tick-val">$0.032/view</span>&nbsp;<span class="nil-tick-up">+7.4%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">P4 QB avg</span>&nbsp;<span class="nil-tick-val">$42K/yr</span>&nbsp;<span class="nil-tick-dn">-1.2%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">NIL Market</span>&nbsp;<span class="nil-tick-val">$2.8B</span>&nbsp;<span class="nil-tick-up">+18%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">Avg Deal</span>&nbsp;<span class="nil-tick-val">$4,200</span>&nbsp;<span class="nil-tick-up">+5.2%</span></div>
+        <div class="nil-tick"><span class="nil-tick-name">Engmt Rate</span>&nbsp;<span class="nil-tick-val">5.6%</span>&nbsp;<span class="nil-tick-up">+0.3%</span></div>
       </div>
     </div>
 
