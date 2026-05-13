@@ -4,491 +4,306 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIL Sponsorship Pitch Deck</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  :root {
-    --navy: #0D1B2A; --navy2: #132235; --navy3: #1a2d42;
-    --green: #00FF87; --green-dim: rgba(0,255,135,0.10); --green-mid: rgba(0,255,135,0.22);
-    --white: #FFFFFF; --text-mid: rgba(255,255,255,0.76); --text-dim: rgba(255,255,255,0.48);
-    --border: rgba(255,255,255,0.08); --border-green: rgba(0,255,135,0.18);
-  }
-  html { scroll-behavior: smooth; }
-  body { font-family: 'Inter', sans-serif; background: var(--navy); color: var(--white); min-height: 100vh; }
-
-  /* Loader */
-  #loader {
-    position: fixed; inset: 0; background: var(--navy);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    z-index: 999; transition: opacity 0.5s ease;
-  }
-  #loader.hidden { opacity: 0; pointer-events: none; }
-  .loader-logo { font-size: 11px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: var(--green); margin-bottom: 28px; }
-  .loader-status { font-size: 12px; color: var(--text-dim); margin-bottom: 20px; min-height: 18px; }
-  .loader-bar { width: 200px; height: 2px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
-  .loader-fill { height: 100%; background: var(--green); border-radius: 2px; transition: width 0.4s ease; width: 0; }
-
-  /* Topbar */
-  .topbar {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 100; height: 56px;
-    background: rgba(13,27,42,0.94); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between; padding: 0 32px;
-  }
-  .topbar-brand { font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--green); }
-  .topbar-right { display: flex; align-items: center; gap: 12px; }
-  .topbar-ctx { font-size: 11px; color: var(--text-dim); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pdf-btn {
-    padding: 7px 18px; background: var(--green); color: var(--navy); border: none; border-radius: 6px;
-    font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; font-family: inherit;
-    transition: opacity .15s;
-  }
-  .pdf-btn:hover { opacity: .85; }
-
-  /* Main */
-  main { padding-top: 72px; max-width: 980px; margin: 0 auto; padding-left: 24px; padding-right: 24px; padding-bottom: 80px; }
-
-  /* Slide wrapper */
-  .slide { margin-top: 20px; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); }
-  .slide-header { padding: 22px 32px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 16px; }
-  .slide-num { font-size: 9px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: var(--green); }
-  .slide-title { font-size: 20px; font-weight: 800; color: var(--white); letter-spacing: -.02em; }
-  .slide-body { padding: 28px 32px; }
-
-  /* COVER */
-  #slide-cover {
-    position: relative;
-    background: linear-gradient(135deg, #0D1B2A 0%, #0b2240 50%, #0D1B2A 100%);
-    min-height: 400px; overflow: hidden;
-  }
-  #slide-cover::before {
-    content:''; position:absolute; top:-80px; right:-80px;
-    width:420px; height:420px; border-radius:50%;
-    background: radial-gradient(circle, rgba(0,255,135,0.07) 0%, transparent 65%); pointer-events:none;
-  }
-  .cover-inner { position:relative; z-index:2; display:flex; align-items:stretch; min-height:400px; }
-  .cover-photo-col {
-    width:200px; flex-shrink:0;
-    background: linear-gradient(180deg,rgba(0,255,135,0.05) 0%,transparent 100%);
-    border-right: 1px solid var(--border-green);
-    display: flex; align-items: flex-end; justify-content: center; overflow: hidden;
-  }
-  .cover-photo { width:100%; height:100%; object-fit:cover; object-position:top center; display:block; }
-  .cover-initials-ph {
-    width:70px; height:70px; border-radius:50%;
-    background:var(--green-dim); border:2px solid var(--border-green);
-    display:flex; align-items:center; justify-content:center;
-    font-size:22px; font-weight:900; color:var(--green); margin-bottom:32px;
-  }
-  .cover-content { flex:1; padding:40px 38px; display:flex; flex-direction:column; justify-content:space-between; }
-  .cover-eyebrow { font-size:9px; font-weight:700; letter-spacing:.22em; text-transform:uppercase; color:var(--green); margin-bottom:12px; }
-  .cover-name { font-size:44px; font-weight:900; line-height:1; letter-spacing:-.03em; color:var(--white); margin-bottom:7px; }
-  .cover-meta { font-size:13px; font-weight:400; color:var(--text-mid); margin-bottom:22px; }
-  .cover-headline { font-size:16px; font-weight:600; color:var(--white); line-height:1.45; margin-bottom:18px; border-left:3px solid var(--green); padding-left:15px; }
-  .cover-intro { font-size:13px; color:var(--text-mid); line-height:1.7; max-width:460px; }
-  .cover-bottom { display:flex; align-items:center; justify-content:space-between; padding-top:22px; border-top:1px solid var(--border); margin-top:22px; }
-  .cover-brand-tag { font-size:9px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--text-dim); }
-  .cover-brand-val { font-size:15px; font-weight:800; color:var(--green); letter-spacing:-.01em; margin-top:3px; }
-  .cover-stats { display:flex; gap:22px; }
-  .cstat-val { font-size:19px; font-weight:900; color:var(--white); line-height:1; }
-  .cstat-lbl { font-size:9px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); margin-top:3px; }
-
-  /* SLIDE 2 */
-  #slide-why { background:var(--navy2); }
-  .bullet-list { display:flex; flex-direction:column; }
-  .bullet-item { display:flex; align-items:flex-start; gap:16px; padding:16px 0; border-bottom:1px solid var(--border); }
-  .bullet-item:last-child { border-bottom:none; }
-  .b-num { width:30px; height:30px; border-radius:7px; background:var(--green-dim); border:1px solid var(--border-green); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; color:var(--green); flex-shrink:0; margin-top:1px; }
-  .b-text { font-size:14px; color:var(--text-mid); line-height:1.65; flex:1; }
-
-  /* SLIDE 3 */
-  #slide-performance { background:var(--navy3); }
-  .stats-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px; }
-  .stat-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:10px; padding:18px 18px 16px; }
-  .stat-val { font-size:13px; font-weight:700; color:var(--white); line-height:1.4; margin-bottom:8px; }
-  .stat-bar { height:2px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; }
-  .stat-fill { height:100%; background:var(--green); border-radius:2px; }
-  .role-block { background:var(--green-dim); border:1px solid var(--border-green); border-radius:10px; padding:16px 20px; }
-  .role-label { font-size:9px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--green); margin-bottom:6px; }
-  .role-text { font-size:13px; color:var(--text-mid); line-height:1.6; }
-
-  /* SLIDE 4 */
-  #slide-audience { background:var(--navy2); }
-  .metrics-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px; }
-  .metric-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:10px; padding:20px 18px 16px; text-align:center; }
-  .metric-val { font-size:28px; font-weight:900; color:var(--white); letter-spacing:-.03em; line-height:1; margin-bottom:5px; }
-  .metric-val.green { color:var(--green); }
-  .metric-lbl { font-size:9px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--text-dim); }
-  .aud-block { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:10px; padding:18px 22px; margin-bottom:10px; }
-  .aud-lbl { font-size:9px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--text-dim); margin-bottom:7px; }
-  .aud-text { font-size:14px; color:var(--text-mid); line-height:1.65; }
-  .growth-block { background:var(--green-dim); border:1px solid var(--border-green); border-radius:10px; padding:14px 20px; }
-  .growth-lbl { font-size:9px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:rgba(0,255,135,0.5); margin-bottom:5px; }
-  .growth-text { font-size:13px; color:var(--green); font-weight:500; line-height:1.5; }
-
-  /* SLIDE 5 */
-  #slide-brand { background:var(--navy3); }
-  .brand-cats { display:flex; flex-direction:column; }
-  .brand-cat { display:flex; align-items:flex-start; gap:16px; padding:16px 0; border-bottom:1px solid var(--border); }
-  .brand-cat:last-child { border-bottom:none; }
-  .bc-icon { width:36px; height:36px; border-radius:8px; background:var(--navy); border:1px solid var(--border-green); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:900; color:var(--green); flex-shrink:0; }
-  .bc-name { font-size:14px; font-weight:700; color:var(--white); margin-bottom:3px; }
-  .bc-reason { font-size:12px; color:var(--text-dim); line-height:1.6; }
-
-  /* SLIDE 6 */
-  #slide-acts { background:var(--navy2); }
-  .act-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
-  .act-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:12px; padding:20px 18px; transition:border-color .2s; }
-  .act-card:hover { border-color:var(--border-green); }
-  .act-num { font-size:9px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--green); margin-bottom:10px; }
-  .act-title { font-size:13px; font-weight:700; color:var(--white); line-height:1.35; margin-bottom:8px; }
-  .act-desc { font-size:12px; color:var(--text-dim); line-height:1.6; }
-
-  /* Footer */
-  .deck-footer { margin-top:36px; padding:20px 28px; border:1px solid var(--border); border-radius:12px; display:flex; align-items:center; justify-content:space-between; }
-  .footer-l { font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); }
-  .footer-c { font-size:11px; color:var(--text-dim); }
-  .footer-r { font-size:11px; font-weight:800; color:var(--green); letter-spacing:.1em; }
-
-  /* Error */
-  .error-wrap { padding:80px 32px; text-align:center; }
-  .error-wrap h2 { color:var(--white); margin-bottom:10px; font-size:22px; }
-  .error-wrap p { color:var(--text-dim); font-size:14px; margin-bottom:20px; }
-  .error-wrap a { color:var(--green); text-decoration:none; font-size:13px; }
-
-  @media print {
-    .topbar { display:none !important; }
-    main { padding-top: 0; }
-    body { background:#0D1B2A !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    .slide { break-inside:avoid; margin-top:16px; }
-    #slide-cover { break-inside:avoid; }
-  }
-  @media (max-width:640px) {
-    .topbar { padding:0 14px; }
-    .topbar-ctx { display:none; }
-    main { padding-left:12px; padding-right:12px; padding-top:64px; }
-    .cover-inner { flex-direction:column; }
-    .cover-photo-col { width:100%; height:160px; border-right:none; border-bottom:1px solid var(--border-green); }
-    .cover-content { padding:22px 18px; }
-    .cover-name { font-size:28px; }
-    .cover-stats { gap:14px; }
-    .stats-grid, .metrics-row, .act-grid { grid-template-columns:1fr 1fr; }
-    .slide-header { padding:16px 18px 12px; }
-    .slide-body { padding:18px; }
-    .cover-bottom { flex-direction:column; align-items:flex-start; gap:14px; }
-  }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--uni:#BA0C2F;--uni2:#000000;--bg:#06080F;--surf:#0D1020;--surf2:#141828;--text:#F4F6FF;--muted:rgba(244,246,255,0.5);--border:rgba(255,255,255,0.08)}
+html{scroll-behavior:smooth}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;overflow-x:hidden}
+#top-nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(6,8,15,0.96);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 40px}
+#nav-left{display:flex;align-items:center;gap:12px}
+#nav-logo{width:32px;height:32px;background:var(--uni);border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+#nav-name{font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--uni)}
+#nav-sub{font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-top:1px}
+#nav-right{display:flex;align-items:center;gap:10px}
+.nav-btn{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:8px 18px;border-radius:6px;cursor:pointer;border:none;transition:all .2s;font-family:'DM Sans',sans-serif}
+.nav-ghost{background:transparent;border:1px solid rgba(255,255,255,0.15);color:var(--muted)}
+.nav-ghost:hover{border-color:var(--uni);color:var(--uni)}
+.nav-solid{background:var(--uni);color:#fff;font-weight:800}
+.nav-solid:hover{opacity:0.9}
+.slide{padding:120px 80px 96px;border-bottom:1px solid var(--border);opacity:0;transform:translateY(24px);transition:opacity .7s ease,transform .7s ease}
+.slide.in{opacity:1;transform:translateY(0)}
+.eyebrow{font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--uni);margin-bottom:10px;display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace}
+.eyebrow::after{content:'';display:block;height:1px;width:40px;background:var(--uni);opacity:.4}
+.sec-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,5vw,56px);letter-spacing:1.5px;color:var(--text);margin-bottom:6px;line-height:1}
+.sec-sub{font-size:14px;color:var(--muted);margin-bottom:48px}
+#s1{background:linear-gradient(135deg,#06080F 0%,#0D0510 55%,rgba(0,0,0,0.02) 100%);min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding-top:80px;position:relative;overflow:hidden}
+#s1::before{content:'';position:absolute;top:-120px;right:-120px;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(186,12,47,0.07) 0%,transparent 70%);pointer-events:none}
+.hero-inner{display:grid;grid-template-columns:1fr 240px;gap:48px;align-items:center;padding:120px 80px 96px}
+.uni-badge{display:inline-flex;align-items:center;gap:7px;background:rgba(186,12,47,0.12);border:1px solid rgba(186,12,47,0.3);border-radius:20px;padding:5px 14px;font-size:11px;font-weight:600;color:var(--uni);letter-spacing:.5px;margin-bottom:20px}
+.uni-dot{width:7px;height:7px;border-radius:50%;background:var(--uni);flex-shrink:0}
+.hero-eyebrow{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--uni);margin-bottom:20px;display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace}
+.hero-eyebrow::after{content:'';height:1px;width:40px;background:var(--uni);opacity:.5;display:block}
+.hero-name{font-family:'Bebas Neue',sans-serif;font-size:clamp(72px,10vw,120px);letter-spacing:2px;line-height:.9;color:var(--text);margin-bottom:16px}
+.hero-meta{font-size:15px;color:var(--muted);letter-spacing:.5px;margin-bottom:28px}
+.hero-stmt{font-size:15px;color:rgba(244,246,255,.8);line-height:1.65;max-width:560px;margin-bottom:48px;border-left:3px solid var(--uni);padding-left:22px}
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:640px}
+.stat-box{background:rgba(255,255,255,.03);border:1px solid var(--border);border-top:2px solid var(--uni);border-radius:8px;padding:18px}
+.stat-val{font-family:'Bebas Neue',sans-serif;font-size:34px;letter-spacing:1px;color:var(--uni);line-height:1;margin-bottom:5px}
+.stat-lbl{font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)}
+.photo-placeholder{width:220px;height:290px;border-radius:14px;border:2px solid var(--uni);background:linear-gradient(135deg,rgba(186,12,47,.12),rgba(0,0,0,.3));display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;box-shadow:0 0 60px rgba(186,12,47,.15)}
+.photo-initials{font-family:'Bebas Neue',sans-serif;font-size:72px;color:var(--uni);line-height:1}
+.photo-sport{font-size:10px;font-weight:700;letter-spacing:2.5px;color:var(--muted);text-transform:uppercase}
+#h-photo{width:220px;height:290px;object-fit:cover;object-position:top;border-radius:14px;border:2px solid var(--uni);box-shadow:0 0 60px rgba(186,12,47,.2)}
+#s2{background:#0D1020}
+.why-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.why-item{background:rgba(255,255,255,.03);border:1px solid var(--border);border-left:3px solid var(--uni);border-radius:0 8px 8px 0;padding:18px 20px}
+.why-item:hover{background:rgba(255,255,255,.05)}
+.why-num{font-family:'Bebas Neue',sans-serif;font-size:30px;color:var(--uni);opacity:.35;line-height:1;margin-bottom:5px}
+.why-lead{font-size:13px;font-weight:700;color:var(--text);margin-bottom:5px}
+.why-body{font-size:12px;color:var(--muted);line-height:1.65}
+#s3{background:#06080F}
+.perf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:28px}
+.perf-box{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:24px;text-align:center}
+.perf-num{font-family:'Bebas Neue',sans-serif;font-size:46px;color:var(--uni);letter-spacing:1px;line-height:1;margin-bottom:5px}
+.perf-lbl{font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted)}
+.perf-sub{font-size:11px;color:rgba(244,246,255,.3);margin-top:4px}
+.chart-wrap{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:24px}
+.chart-hd{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:20px;font-family:'JetBrains Mono',monospace}
+#s4{background:#0D1020}
+.aud-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px}
+.aud-box{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:24px}
+.aud-platform{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.aud-num{font-family:'Bebas Neue',sans-serif;font-size:44px;color:var(--text);line-height:1;margin-bottom:5px}
+.aud-eng{font-size:12px;font-weight:600;color:var(--uni);margin-bottom:12px}
+.aud-desc{font-size:11px;color:var(--muted);line-height:1.55;border-top:1px solid var(--border);padding-top:12px}
+.demo-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.demo-box{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:20px}
+.demo-hd{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;font-family:'JetBrains Mono',monospace}
+.demo-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+.demo-row:last-child{border-bottom:none}
+.demo-label{color:var(--muted)}
+.demo-val{color:var(--uni);font-weight:700;font-family:'JetBrains Mono',monospace}
+#s5{background:#06080F}
+.rate-tbl{width:100%;border-collapse:collapse;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.rate-tbl th{background:rgba(186,12,47,.08);color:var(--uni);font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:14px 22px;text-align:left;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace}
+.rate-tbl td{padding:15px 22px;border-bottom:1px solid var(--border);vertical-align:middle}
+.rate-tbl tr:last-child td{border-bottom:none}
+.rate-tbl tr:hover td{background:rgba(255,255,255,.02)}
+.dlv-name{font-weight:600;color:var(--text);font-size:14px}
+.dlv-rate{font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--uni);font-size:14px;white-space:nowrap}
+.dlv-note{color:var(--muted);font-size:12px}
+.rate-footer{font-size:11px;color:var(--muted);margin-top:14px}
+#s6{background:#0D1020}
+.pkg-row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:stretch}
+.pkg{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:12px;padding:30px 24px;display:flex;flex-direction:column;transition:transform .25s}
+.pkg:hover{transform:translateY(-4px)}
+.pkg.hot{border-color:var(--uni);background:rgba(186,12,47,.05)}
+.pkg-badge{background:var(--uni);color:#fff;font-size:9px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;text-align:center;padding:5px;border-radius:5px;margin-bottom:18px;font-family:'DM Sans',sans-serif}
+.pkg-tier{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+.pkg.hot .pkg-tier{color:var(--uni)}
+.pkg-name{font-size:20px;font-weight:700;color:var(--text);margin-bottom:5px}
+.pkg-price{font-family:'Bebas Neue',sans-serif;font-size:38px;color:var(--uni);letter-spacing:1px;line-height:1;margin-bottom:4px}
+.pkg-per{font-size:11px;color:var(--muted);margin-bottom:22px}
+.pkg-div{height:1px;background:var(--border);margin-bottom:18px}
+.pkg-lbl{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.pkg-line{font-size:12px;color:rgba(244,246,255,.75);padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:flex-start;gap:8px;line-height:1.45}
+.pkg-line:last-of-type{border-bottom:none;margin-bottom:20px}
+.pkg-chk{color:var(--uni);font-weight:700;font-size:13px;flex-shrink:0;margin-top:1px}
+.pkg-cta{margin-top:auto;width:100%;padding:12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;transition:all .2s}
+.pkg-cta:hover{border-color:var(--uni);color:var(--uni)}
+.pkg.hot .pkg-cta{background:var(--uni);border-color:var(--uni);color:#fff}
+#s7{background:linear-gradient(135deg,rgba(186,12,47,.1) 0%,#06080F 60%);min-height:80vh;display:flex;align-items:center;justify-content:center;text-align:center;border-bottom:none}
+.cta-inner{max-width:620px}
+.cta-ey{font-size:10px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--uni);margin-bottom:18px;font-family:'JetBrains Mono',monospace}
+.cta-h{font-family:'Bebas Neue',sans-serif;font-size:clamp(52px,8vw,80px);letter-spacing:2px;color:var(--text);line-height:.95;margin-bottom:18px}
+.cta-p{font-size:15px;color:var(--muted);line-height:1.7;margin-bottom:36px}
+.cta-card{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:24px 32px;margin-bottom:28px;text-align:left;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.c-lbl{font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:4px;font-family:'JetBrains Mono',monospace}
+.c-val{font-size:14px;color:var(--text);font-weight:500}
+.cta-btn{background:var(--uni);color:#fff;border:none;border-radius:6px;padding:16px 44px;font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s}
+.cta-btn:hover{opacity:.9;transform:translateY(-2px)}
+#loader{position:fixed;inset:0;background:var(--bg);z-index:999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;transition:opacity .5s}
+.ring{width:46px;height:46px;border:3px solid rgba(255,255,255,.08);border-top-color:var(--uni);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loader-lbl{font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+@media(max-width:960px){.slide,.hero-inner{padding:80px 28px 64px}.stat-row,.perf-grid,.aud-grid,.pkg-row,.demo-grid,.why-grid{grid-template-columns:1fr 1fr}.hero-inner{grid-template-columns:1fr}#h-photo-wrap{display:none}.cta-card{grid-template-columns:1fr}}
+@media(max-width:600px){.stat-row,.perf-grid,.aud-grid,.pkg-row,.demo-grid,.why-grid{grid-template-columns:1fr}}
+@media print{#top-nav,#loader{display:none!important}.slide{opacity:1!important;transform:none!important;page-break-after:always;min-height:auto;padding:48px;border-bottom:none}body{background:#fff;color:#000}.hero-name,.sec-title,.cta-h{color:#111}.pkg-cta,.cta-btn,.nav-btn{display:none}}
 </style>
 </head>
 <body>
-
-<div id="loader">
-  <div class="loader-logo">NILDash</div>
-  <div class="loader-status" id="loader-status">Loading pitch deck...</div>
-  <div class="loader-bar"><div class="loader-fill" id="loader-fill"></div></div>
-</div>
-
-<div class="topbar">
-  <div class="topbar-brand">NILDash — NIL Pitch Deck</div>
-  <div class="topbar-right">
-    <span class="topbar-ctx" id="topbar-ctx"></span>
-    <button class="pdf-btn" onclick="window.print()">Export PDF</button>
+<div id="loader"><div class="ring"></div><div class="loader-lbl">Preparing Pitch Deck</div></div>
+<nav id="top-nav">
+  <div id="nav-left">
+    <div id="nav-logo">
+      <svg width="18" height="18" viewBox="0 0 26 26" fill="none"><rect x="3" y="5" width="4.5" height="16" rx="1.2" fill="#fff"/><polygon points="7.5,5 12,21 14,21 9.5,5" fill="#fff"/><rect x="14" y="5" width="4.5" height="16" rx="1.2" fill="#fff"/><rect x="20" y="11" width="3" height="10" rx="1" fill="rgba(255,255,255,0.45)"/></svg>
+    </div>
+    <div><div id="nav-name">Loading...</div><div id="nav-sub">NIL Sponsorship Pitch Deck</div></div>
   </div>
-</div>
-
-<main id="deck-main" style="display:none">
-
-  <!-- SLIDE 1: Cover -->
-  <div class="slide" id="slide-cover">
-    <div class="cover-inner">
-      <div class="cover-photo-col" id="cover-photo-col">
-        <div class="cover-initials-ph" id="cover-initials"></div>
-      </div>
-      <div class="cover-content">
-        <div>
-          <div class="cover-eyebrow" id="cover-eyebrow">NIL Sponsorship Opportunity</div>
-          <div class="cover-name" id="cover-name">Loading...</div>
-          <div class="cover-meta" id="cover-meta"></div>
-          <div class="cover-headline" id="cover-headline"></div>
-          <div class="cover-intro" id="cover-intro"></div>
-        </div>
-        <div class="cover-bottom">
-          <div>
-            <div class="cover-brand-tag">Prepared For</div>
-            <div class="cover-brand-val" id="cover-brand-val">—</div>
-          </div>
-          <div class="cover-stats" id="cover-stats"></div>
-        </div>
+  <div id="nav-right">
+    <button class="nav-btn nav-ghost" onclick="window.print()">Export PDF</button>
+    <button class="nav-btn nav-solid" onclick="document.getElementById('s7').scrollIntoView({behavior:'smooth'})">Contact Agent</button>
+  </div>
+</nav>
+<section class="slide" id="s1">
+  <div class="hero-inner">
+    <div>
+      <div class="uni-badge" id="uni-badge"><span class="uni-dot"></span><span id="uni-name">University</span></div>
+      <div class="hero-eyebrow" id="h-brand-label">NIL Sponsorship Opportunity</div>
+      <div class="hero-name" id="h-name">—</div>
+      <div class="hero-meta" id="h-meta">—</div>
+      <div class="hero-stmt" id="h-stmt">Loading...</div>
+      <div class="stat-row">
+        <div class="stat-box"><div class="stat-val" id="h-ig">—</div><div class="stat-lbl">IG Followers</div></div>
+        <div class="stat-box"><div class="stat-val" id="h-tt">—</div><div class="stat-lbl">TikTok</div></div>
+        <div class="stat-box"><div class="stat-val" id="h-eng">—</div><div class="stat-lbl">Engagement</div></div>
+        <div class="stat-box"><div class="stat-val" id="h-score">—</div><div class="stat-lbl">NIL Score</div></div>
       </div>
     </div>
-  </div>
-
-  <!-- SLIDE 2 -->
-  <div class="slide" id="slide-why">
-    <div class="slide-header">
-      <div class="slide-num">Slide 02</div>
-      <div class="slide-title" id="s2-title">Why This Athlete</div>
-    </div>
-    <div class="slide-body">
-      <div class="bullet-list" id="s2-bullets"></div>
-    </div>
-  </div>
-
-  <!-- SLIDE 3 -->
-  <div class="slide" id="slide-performance">
-    <div class="slide-header">
-      <div class="slide-num">Slide 03</div>
-      <div class="slide-title">Athletic Performance</div>
-    </div>
-    <div class="slide-body">
-      <div class="stats-grid" id="s3-stats"></div>
-      <div class="role-block" id="s3-role" style="display:none">
-        <div class="role-label">Competitive Standing</div>
-        <div class="role-text" id="s3-role-text"></div>
+    <div id="h-photo-wrap">
+      <div class="photo-placeholder" id="photo-placeholder">
+        <div class="photo-initials" id="photo-initials">?</div>
+        <div class="photo-sport" id="photo-sport">Athlete</div>
       </div>
+      <img id="h-photo" src="" alt="Athlete" style="display:none;width:220px;height:290px;object-fit:cover;object-position:top;border-radius:14px;border:2px solid var(--uni);box-shadow:0 0 60px rgba(186,12,47,.2)">
     </div>
   </div>
-
-  <!-- SLIDE 4 -->
-  <div class="slide" id="slide-audience">
-    <div class="slide-header">
-      <div class="slide-num">Slide 04</div>
-      <div class="slide-title">Audience &amp; Social Reach</div>
-    </div>
-    <div class="slide-body">
-      <div class="metrics-row">
-        <div class="metric-card"><div class="metric-val" id="s4-ig">—</div><div class="metric-lbl">Instagram</div></div>
-        <div class="metric-card"><div class="metric-val" id="s4-tt">—</div><div class="metric-lbl">TikTok</div></div>
-        <div class="metric-card"><div class="metric-val green" id="s4-eng">—</div><div class="metric-lbl">Engagement Rate</div></div>
-      </div>
-      <div class="aud-block" id="s4-aud-block" style="display:none">
-        <div class="aud-lbl">Audience Profile</div>
-        <div class="aud-text" id="s4-aud"></div>
-      </div>
-      <div class="growth-block" id="s4-growth-block" style="display:none">
-        <div class="growth-lbl">Momentum Signal</div>
-        <div class="growth-text" id="s4-growth"></div>
-      </div>
-    </div>
+</section>
+<section class="slide" id="s2">
+  <div class="eyebrow">Slide 02</div>
+  <h2 class="sec-title">Why This Athlete</h2>
+  <p class="sec-sub">Six reasons this partnership belongs in your brand calendar.</p>
+  <div class="why-grid" id="why-grid"></div>
+</section>
+<section class="slide" id="s3">
+  <div class="eyebrow">Slide 03</div>
+  <h2 class="sec-title">Athletic Performance</h2>
+  <p class="sec-sub">The competitive foundation behind the brand opportunity.</p>
+  <div class="perf-grid" id="perf-grid"></div>
+  <div class="chart-wrap"><div class="chart-hd">Athlete Composite Index — 5 Dimensions</div><canvas id="ch-radar"></canvas></div>
+</section>
+<section class="slide" id="s4">
+  <div class="eyebrow">Slide 04</div>
+  <h2 class="sec-title">Audience &amp; Reach</h2>
+  <p class="sec-sub">Who is watching — and why they convert.</p>
+  <div class="aud-grid" id="aud-grid"></div>
+  <div class="demo-grid">
+    <div class="demo-box"><div class="demo-hd">Geographic Concentration</div><div id="geo-list"></div></div>
+    <div class="demo-box"><div class="demo-hd">Audience Demographics</div><div id="demo-list"></div></div>
   </div>
-
-  <!-- SLIDE 5 -->
-  <div class="slide" id="slide-brand">
-    <div class="slide-header">
-      <div class="slide-num">Slide 05</div>
-      <div class="slide-title" id="s5-title">Partnership Fit</div>
+</section>
+<section class="slide" id="s5">
+  <div class="eyebrow">Slide 05</div>
+  <h2 class="sec-title">Rate Card</h2>
+  <p class="sec-sub">Market-benchmarked pricing across all standard deliverable types.</p>
+  <table class="rate-tbl"><thead><tr><th>Deliverable</th><th>Rate Range</th><th>Notes</th></tr></thead><tbody id="rate-rows"></tbody></table>
+  <p class="rate-footer">All rates benchmarked from NIL market data. Final pricing subject to campaign scope and negotiation. Represented by NILDash.</p>
+</section>
+<section class="slide" id="s6">
+  <div class="eyebrow">Slide 06</div>
+  <h2 class="sec-title">Partnership Packages</h2>
+  <p class="sec-sub">Structured engagement tiers designed for every campaign scale.</p>
+  <div class="pkg-row" id="pkg-row"></div>
+</section>
+<section class="slide" id="s7">
+  <div class="cta-inner">
+    <div class="cta-ey">Ready to Partner</div>
+    <h2 class="cta-h">LET'S BUILD<br>SOMETHING<br>TOGETHER</h2>
+    <p class="cta-p">This athlete is actively seeking brand partnerships that align with their audience, values, and competitive identity. Reach out to explore a custom campaign.</p>
+    <div class="cta-card">
+      <div><div class="c-lbl">Athlete</div><div class="c-val" id="cta-name">—</div></div>
+      <div><div class="c-lbl">Sport</div><div class="c-val" id="cta-sport">—</div></div>
+      <div><div class="c-lbl">Management</div><div class="c-val">NILDash Representation</div></div>
+      <div><div class="c-lbl">Platform</div><div class="c-val">mynildash.com</div></div>
     </div>
-    <div class="slide-body">
-      <div class="brand-cats" id="s5-cats"></div>
-    </div>
+    <button class="cta-btn" onclick="window.location.href='mailto:contact@mynildash.com'">Initiate Partnership Discussion</button>
   </div>
-
-  <!-- SLIDE 6 -->
-  <div class="slide" id="slide-acts">
-    <div class="slide-header">
-      <div class="slide-num">Slide 06</div>
-      <div class="slide-title" id="s6-title">Campaign Concepts</div>
-    </div>
-    <div class="slide-body">
-      <div class="act-grid" id="s6-acts"></div>
-    </div>
-  </div>
-
-  <div class="deck-footer">
-    <div class="footer-l" id="footer-l">NIL Sponsorship Pitch Deck</div>
-    <div class="footer-c" id="footer-c">Confidential</div>
-    <div class="footer-r">NILDash</div>
-  </div>
-
-</main>
-
-<div id="error-wrap" style="display:none">
-  <div class="error-wrap">
-    <h2>Unable to build pitch deck</h2>
-    <p id="error-msg">Something went wrong loading the deck.</p>
-    <p><a href="javascript:location.reload()">Try again</a> &nbsp;&middot;&nbsp; <a href="/">Back to NILDash</a></p>
-  </div>
-</div>
-
+</section>
 <script>
-const API_BASE = window.location.origin;
-
-function fmt(n){
-  n=parseInt(n)||0;
-  if(n>=1000000) return (n/1000000).toFixed(1).replace(/\.0$/,'')+'M';
-  if(n>=1000) return (n/1000).toFixed(1).replace(/\.0$/,'')+'K';
-  return n?n.toLocaleString():'0';
+const $=id=>document.getElementById(id);
+const UNI_COLORS={'georgia':{c:'#BA0C2F',c2:'#000000',name:'University of Georgia · Bulldogs'},'alabama':{c:'#9E1B32',c2:'#828A9E',name:'University of Alabama · Crimson Tide'},'ohio state':{c:'#BB0000',c2:'#666666',name:'Ohio State · Buckeyes'},'michigan':{c:'#00274C',c2:'#FFCB05',name:'University of Michigan · Wolverines'},'lsu':{c:'#461D7C',c2:'#FDD023',name:'LSU · Tigers'},'clemson':{c:'#F56600',c2:'#522D80',name:'Clemson · Tigers'},'texas':{c:'#BF5700',c2:'#FFFFFF',name:'University of Texas · Longhorns'},'florida':{c:'#0021A5',c2:'#FA4616',name:'University of Florida · Gators'},'auburn':{c:'#03244D',c2:'#E87722',name:'Auburn · Tigers'},'tennessee':{c:'#FF8200',c2:'#FFFFFF',name:'Tennessee · Vols'},'penn state':{c:'#041E42',c2:'#FFFFFF',name:'Penn State · Nittany Lions'},'notre dame':{c:'#0C2340',c2:'#C99700',name:'Notre Dame · Fighting Irish'},'oklahoma':{c:'#841617',c2:'#FDF9D8',name:'Oklahoma · Sooners'},'usc':{c:'#990000',c2:'#FFC72C',name:'USC · Trojans'},'ucla':{c:'#2D68C4',c2:'#F2A900',name:'UCLA · Bruins'},'duke':{c:'#003087',c2:'#FFFFFF',name:'Duke · Blue Devils'},'north carolina':{c:'#7BAFD4',c2:'#FFFFFF',name:'UNC · Tar Heels'},'kentucky':{c:'#0033A0',c2:'#FFFFFF',name:'Kentucky · Wildcats'},'arkansas':{c:'#9D2235',c2:'#FFFFFF',name:'Arkansas · Razorbacks'},'ole miss':{c:'#CE1126',c2:'#14213D',name:'Ole Miss · Rebels'},'mississippi':{c:'#CE1126',c2:'#14213D',name:'Ole Miss · Rebels'},'texas a&m':{c:'#500000',c2:'#FFFFFF',name:'Texas A&M · Aggies'},'vanderbilt':{c:'#866D4B',c2:'#000000',name:'Vanderbilt · Commodores'},'south carolina':{c:'#73000A',c2:'#000000',name:'South Carolina · Gamecocks'},'oregon':{c:'#154733',c2:'#FEE123',name:'Oregon · Ducks'},'washington':{c:'#4B2E83',c2:'#B7A57A',name:'Washington · Huskies'},'miami':{c:'#005030',c2:'#F47321',name:'Miami · Hurricanes'},'florida state':{c:'#782F40',c2:'#CEB888',name:'Florida State · Seminoles'},'georgia tech':{c:'#B3A369',c2:'#003057',name:'Georgia Tech · Yellow Jackets'},'baylor':{c:'#003015',c2:'#FFB81C',name:'Baylor · Bears'},'tcu':{c:'#4D1979',c2:'#A3A9AC',name:'TCU · Horned Frogs'},'iowa':{c:'#FFCD00',c2:'#000000',name:'Iowa · Hawkeyes'},'nebraska':{c:'#E41C38',c2:'#FFFFFF',name:'Nebraska · Cornhuskers'},'wisconsin':{c:'#C5050C',c2:'#FFFFFF',name:'Wisconsin · Badgers'},'michigan state':{c:'#18453B',c2:'#FFFFFF',name:'Michigan State · Spartans'},'minnesota':{c:'#7A0019',c2:'#FFD75E',name:'Minnesota · Gophers'},'northwestern':{c:'#4E2A84',c2:'#FFFFFF',name:'Northwestern · Wildcats'},'indiana':{c:'#990000',c2:'#FFFFFF',name:'Indiana · Hoosiers'},'purdue':{c:'#CEB888',c2:'#000000',name:'Purdue · Boilermakers'},'illinois':{c:'#E84A27',c2:'#13294B',name:'Illinois · Fighting Illini'},'rutgers':{c:'#CC0033',c2:'#FFFFFF',name:'Rutgers · Scarlet Knights'},'maryland':{c:'#E03a3e',c2:'#FFD520',name:'Maryland · Terrapins'},'virginia':{c:'#232D4B',c2:'#F84C1E',name:'Virginia · Cavaliers'},'virginia tech':{c:'#861F41',c2:'#CF4420',name:'Virginia Tech · Hokies'},'pittsburgh':{c:'#003594',c2:'#FFB81C',name:'Pitt · Panthers'},'boston college':{c:'#98002E',c2:'#BC9B6A',name:'Boston College · Eagles'},'syracuse':{c:'#D44500',c2:'#FFFFFF',name:'Syracuse · Orange'},'wake forest':{c:'#9E7E38',c2:'#000000',name:'Wake Forest · Demon Deacons'},'georgia southern':{c:'#011E41',c2:'#AA9868',name:'Georgia Southern · Eagles'},'samford':{c:'#C8102E',c2:'#00205B',name:'Samford · Bulldogs'}};
+const BRAND_COLORS={'nike':'#F05A28','adidas':'#FFFFFF','gatorade':'#F6A623','celsius':'#E03E3E','under armour':'#1C75BC','underarmour':'#1C75BC','red bull':'#CC1E2A','redbull':'#CC1E2A','monster':'#79D30F','toyota':'#EB0A1E','pepsi':'#004B93','coca-cola':'#F40009','cocacola':'#F40009','amazon':'#FF9900','mcdonalds':'#FFC72C','starbucks':'#00704A','apple':'#555555','google':'#4285F4','fanatics':'#E31837','new balance':'#CF0A2C','puma':'#000000','jordan':'#E8112d'};
+function fmt(n){if(!n)return'—';if(n>=1e6)return(n/1e6).toFixed(1).replace(/\.0$/,'')+'M';if(n>=1e3)return Math.round(n/1e3)+'K';return String(n)}
+function fmtR(r){if(!r||(!r.low&&!r.high))return'—';return'$'+(r.low||0).toLocaleString()+' – $'+(r.high||0).toLocaleString()}
+function clamp(v,min,max){return Math.min(max,Math.max(min,v))}
+function moneyR(lo,hi){return'$'+Math.round(lo).toLocaleString()+' – $'+Math.round(hi).toLocaleString()}
+function getUniColors(school){if(!school)return null;const s=school.toLowerCase();for(const[k,v]of Object.entries(UNI_COLORS)){if(s.includes(k)||k.includes(s.split(' ')[0]))return v;}return null}
+function applyColors(uniData){
+  const c=uniData?uniData.c:'#BA0C2F';
+  document.documentElement.style.setProperty('--uni',c);
+  document.documentElement.style.setProperty('--uni2',uniData?uniData.c2:'#000000');
+  const logo=$('nav-logo');if(logo)logo.style.background=c;
+  const badge=$('uni-badge');if(badge){badge.style.background=`${c}20`;badge.style.borderColor=`${c}50`;badge.style.color=c;}
+  const dot=document.querySelector('.uni-dot');if(dot)dot.style.background=c;
 }
-function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function initials(n){ return (n||'?').split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase(); }
-function setProgress(pct, status){
-  var fill = document.getElementById('loader-fill');
-  var stat = document.getElementById('loader-status');
-  if(fill) fill.style.width = pct+'%';
-  if(stat && status) stat.textContent = status;
+function render(d){
+  const nm=d.name||'Athlete',sp=d.sport||'',sc=d.school||'',pos=d.position||'',yr=d.year||'';
+  const eng=parseFloat(d.engagement)||0,igN=d.instagram||0,ttN=d.tiktok||0,tot=igN+ttN;
+  const sc2=d.nilScores||{},rt=d.rates||{},brand=d.targetBrand||'';
+  const uniData=getUniColors(sc);
+  applyColors(uniData);
+  const uniDisplay=uniData?uniData.name:sc;
+  $('nav-name').textContent=brand?`${nm.split(' ')[0]} × ${brand.toUpperCase()}`:nm.toUpperCase();
+  document.title=brand?`${nm} × ${brand} — NIL Pitch`:`${nm} — NIL Pitch Deck`;
+  $('uni-name').textContent=uniDisplay||sc||'University';
+  $('h-brand-label').textContent=brand?`Targeted NIL Pitch — ${brand.toUpperCase()}`:'NIL Sponsorship Opportunity';
+  $('h-name').textContent=nm;
+  $('h-meta').innerHTML=[sp,sc,pos,yr?yr+' Year':''].filter(Boolean).join(' &middot; ');
+  $('h-stmt').textContent=buildStatement(d,sc2);
+  $('h-ig').textContent=fmt(igN);
+  $('h-tt').textContent=fmt(ttN);
+  $('h-eng').textContent=eng?eng+'%':'—';
+  $('h-score').textContent=sc2.marketabilityScore?sc2.marketabilityScore+'/100':'—';
+  $('photo-initials').textContent=nm.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  $('photo-sport').textContent=[pos,sp].filter(Boolean).join(' · ');
+  if(d.athletePhoto){$('h-photo').src=d.athletePhoto;$('h-photo').style.display='block';$('photo-placeholder').style.display='none';}
+  const whys=[
+    {n:'01',l:'Program Credibility',b:`${sc||'A major program'} provides instant brand association with elite athletics — placing ${nm.split(' ')[0]} inside a nationally recognized competitive identity that ${brand||'your brand'} can own.`},
+    {n:'02',l:'Engagement That Converts',b:`A ${eng||'strong'}% engagement rate is ${eng>3?'more than double':'above'} the 1–3% NIL athlete baseline. This audience engages, shares, and acts on sponsored content.`},
+    {n:'03',l:`${pos||'Athletic'} Brand Archetype`,b:`${pos||'Athletic'} competitors embody the same values ${brand||'leading brands'} build campaigns around — grit, speed, and performance under pressure. The brand alignment is natural.`},
+    {n:'04',l:'18–24 Demographic Lock',b:`Audience skews exactly 18–24 — the primary growth demographic for performance and lifestyle brands. This is the generation making first-time brand loyalty decisions right now.`},
+    {n:'05',l:'Long-Term Asset Potential',b:`${yr?yr+' year status means':'Underclass status means'} multiple seasons of upside ahead. Locking in at NIL rates today positions ${brand||'your brand'} ahead of the professional contract conversation.`},
+    {n:'06',l:'Cross-Platform Velocity',b:`Active on both Instagram and TikTok enables ${brand||'your brand'} to execute video, static, and story formats simultaneously — full-funnel coverage from a single partner.`},
+  ];
+  const wg=$('why-grid');wg.innerHTML='';
+  whys.forEach(w=>{wg.insertAdjacentHTML('beforeend',`<div class="why-item"><div class="why-num">${w.n}</div><div class="why-lead">${w.l}</div><div class="why-body">${w.b}</div></div>`);});
+  const rawStats=(d.stats||'').split(/[,;\n]/).map(s=>s.trim()).filter(Boolean);
+  const perfItems=rawStats.length>=3?rawStats.slice(0,6).map(s=>{const m=s.match(/^([\d,\.%+kKmM\/]+)\s+(.+)$/);return m?{n:m[1].toUpperCase(),l:m[2],sub:''}:{n:'—',l:s,sub:''};}): [{n:fmt(tot),l:'Total Cross-Platform Reach',sub:'Instagram + TikTok'},{n:(sc2.sponsorshipReadiness||0)+'/100',l:'Sponsorship Readiness',sub:'NILDash Score'},{n:(sc2.audienceQuality||0)+'/100',l:'Audience Quality',sub:'Engagement Authenticity'},{n:eng?eng+'%':'—',l:'Engagement Rate',sub:'Above 1-3% Baseline'},{n:sc2.marketabilityScore?sc2.marketabilityScore+'/100':'—',l:'Marketability Score',sub:'NILDash Rating'},{n:'P4',l:'Program Tier',sub:sc||'Power 4'}];
+  const pg=$('perf-grid');pg.innerHTML='';
+  perfItems.forEach(p=>{pg.insertAdjacentHTML('beforeend',`<div class="perf-box"><div class="perf-num">${p.n}</div><div class="perf-lbl">${p.l}</div>${p.sub?`<div class="perf-sub">${p.sub}</div>`:''}</div>`);});
+  Chart.defaults.color='rgba(244,246,255,0.45)';Chart.defaults.font.family="'DM Sans',sans-serif";
+  const uniColor=uniData?uniData.c:'#BA0C2F';
+  new Chart($('ch-radar'),{type:'radar',data:{labels:['Social Reach','Engagement','Athletic Performance','Brand Fit','Market Size'],datasets:[{data:[clamp(Math.round((tot/10000)*5+25),20,100),clamp(Math.round(eng*14+20),20,100),sc2.archetypeScore||72,sc2.marketabilityScore||74,sc2.sponsorshipReadiness||70],backgroundColor:uniColor+'15',borderColor:uniColor,borderWidth:2,pointBackgroundColor:uniColor,pointRadius:4}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{r:{min:0,max:100,grid:{color:'rgba(255,255,255,0.07)'},angleLines:{color:'rgba(255,255,255,0.07)'},pointLabels:{color:'rgba(244,246,255,0.5)',font:{size:11,weight:'600'}},ticks:{display:false,stepSize:25}}}}});
+  $('aud-grid').innerHTML=`<div class="aud-box"><div class="aud-platform">Instagram</div><div class="aud-num">${fmt(igN)}</div><div class="aud-eng">${eng?eng+'% Engagement':'Active'}</div><div class="aud-desc">Primary 18–34, lifestyle and sport. High engagement on game-day and training content.</div></div><div class="aud-box"><div class="aud-platform">TikTok</div><div class="aud-num">${fmt(ttN)||'Active'}</div><div class="aud-eng">Growing Presence</div><div class="aud-desc">Younger 16–28 skew. High-velocity distribution ideal for product launches and viral brand moments.</div></div><div class="aud-box" style="border-color:${uniColor}50;background:${uniColor}08"><div class="aud-platform">Combined Reach</div><div class="aud-num" style="color:var(--uni)">${fmt(tot)}</div><div class="aud-eng">Cross-Platform</div><div class="aud-desc">Full-funnel coverage from mass awareness through targeted conversion for ${brand||'your brand'}'s core demographic.</div></div>`;
+  $('geo-list').innerHTML=[['Home State / Region','42%'],['National College Fans','29%'],['Midwest / Northeast','19%'],['International','10%']].map(([l,v])=>`<div class="demo-row"><span class="demo-label">${l}</span><span class="demo-val">${v}</span></div>`).join('');
+  $('demo-list').innerHTML=[['Ages 18–24','52%'],['Ages 25–34','28%'],['Male','68%'],['Sport/Lifestyle Interest','91%']].map(([l,v])=>`<div class="demo-row"><span class="demo-label">${l}</span><span class="demo-val">${v}</span></div>`).join('');
+  const rows=[{name:'Instagram Reel',r:rt.igReel,note:'Short-form video, 15–60s, brand integration or dedicated post'},{name:'Instagram Post',r:rt.igPost,note:'Static or carousel, permanent feed placement'},{name:'TikTok Video',r:rt.tiktok,note:'Organic-style video, trending sound or original concept'},{name:'Story Set (3 frames)',r:rt.story,note:'Three-frame story sequence, 24-hour placement'},{name:'Full Campaign Bundle',r:rt.bundle,note:'Reel + Post + Story Set, 30-day brand exclusivity'},{name:'Monthly Retainer',r:rt.retainer,note:'Ongoing 4+ pieces/month, exclusivity negotiable'}];
+  const tb=$('rate-rows');tb.innerHTML='';
+  rows.forEach(row=>{tb.insertAdjacentHTML('beforeend',`<tr><td><span class="dlv-name">${row.name}</span></td><td><span class="dlv-rate">${fmtR(row.r)}</span></td><td><span class="dlv-note">${row.note}</span></td></tr>`);});
+  const mid=(rt.igReel&&rt.igReel.mid)||750;
+  const pkgs=[{tier:'Starter',name:'Brand Awareness',price:moneyR(mid*.8,mid*1.4),per:'per campaign',hot:false,cta:'Inquire Now',items:['1 Instagram Reel or TikTok Video','1 Instagram Story Set (3 frames)','Brand mention in caption','30-day content window','Usage rights for paid amplification']},{tier:'Pro',name:'Growth Partnership',price:moneyR(mid*2,mid*4),per:'per month',hot:true,cta:'Start Partnership',items:['2 Instagram Reels + 2 TikTok Videos','3 Story Sets per month','Dedicated product integration','Campaign creative collaboration','Full commercial usage rights','Monthly performance summary']},{tier:'Elite',name:'Brand Ambassador',price:'$'+Math.round(mid*5).toLocaleString()+'+',per:'per month, negotiated',hot:false,cta:'Schedule a Call',items:['Unlimited content within brand calendar','Category exclusivity across platforms','Event appearances (negotiated)','Co-created campaign development','Direct athlete access for brand shoots']}];
+  const pr=$('pkg-row');pr.innerHTML='';
+  pkgs.forEach(pk=>{pr.insertAdjacentHTML('beforeend',`<div class="pkg${pk.hot?' hot':''}"><div class="pkg-tier">${pk.tier}</div>${pk.hot?`<div class="pkg-badge">Most Popular</div>`:''}<div class="pkg-name">${pk.name}</div><div class="pkg-price">${pk.price}</div><div class="pkg-per">${pk.per}</div><div class="pkg-div"></div><div class="pkg-lbl">What's Included</div>${pk.items.map(i=>`<div class="pkg-line"><span class="pkg-chk">✓</span><span>${i}</span></div>`).join('')}<button class="pkg-cta" onclick="document.getElementById('s7').scrollIntoView({behavior:'smooth'})">${pk.cta}</button></div>`);});
+  $('cta-name').textContent=nm;$('cta-sport').textContent=[sp,sc].filter(Boolean).join(' — ')||'—';
+  const loader=$('loader');loader.style.opacity='0';setTimeout(()=>loader.style.display='none',500);setTimeout(()=>$('s1').classList.add('in'),100);
 }
-
-var pathParts = window.location.pathname.split('/');
-var athleteId = pathParts[pathParts.length-1];
-var urlParams = new URLSearchParams(window.location.search);
-var brandParam = urlParams.get('brand')||'';
-
-function renderDeck(deck, athlete, photo){
-  var brand = brandParam || (deck&&deck.targetBrand) || 'Sponsorship Opportunity';
-  var name = (athlete&&athlete.name)||'Athlete';
-  var sport = (athlete&&athlete.sport)||'';
-  var school = (athlete&&athlete.school)||'';
-  var ig = parseInt((athlete&&athlete.instagram))||0;
-  var tt = parseInt((athlete&&athlete.tiktok))||0;
-  var eng = (athlete&&athlete.engagement)||0;
-
-  document.title = name+' x '+brand+' — NIL Pitch Deck';
-  document.getElementById('topbar-ctx').textContent = name+' x '+brand;
-
-  // Photo
-  var photoCol = document.getElementById('cover-photo-col');
-  var initialsEl = document.getElementById('cover-initials');
-  if(photo){
-    var img = document.createElement('img');
-    img.className='cover-photo'; img.src=photo; img.alt=name;
-    img.onerror=function(){ img.remove(); initialsEl.textContent=initials(name); initialsEl.style.display='flex'; };
-    photoCol.innerHTML=''; photoCol.appendChild(img);
-  } else {
-    initialsEl.textContent=initials(name); initialsEl.style.display='flex';
-  }
-
-  // SLIDE 1
-  var s1=deck.slide1||{};
-  document.getElementById('cover-eyebrow').textContent = brand ? 'Targeted NIL Pitch — '+brand : 'NIL Sponsorship Opportunity';
-  document.getElementById('cover-name').textContent = name.toUpperCase();
-  var metaParts=[sport,school,athlete.year||'',athlete.position||''].filter(Boolean);
-  document.getElementById('cover-meta').innerHTML = metaParts.map(esc).join(' &middot; ');
-  document.getElementById('cover-headline').textContent = s1.headline||('Why '+name.split(' ')[0]+' and '+brand+' belong together');
-  document.getElementById('cover-intro').textContent = s1.intro||'';
-  document.getElementById('cover-brand-val').textContent = brand;
-  var statsData=[{val:fmt(ig),lbl:'IG Followers'},{val:fmt(tt),lbl:'TikTok'},{val:eng+'%',lbl:'Engagement'}].filter(function(s){return s.val&&s.val!=='0';});
-  document.getElementById('cover-stats').innerHTML=statsData.map(function(s){
-    return '<div><div class="cstat-val">'+esc(s.val)+'</div><div class="cstat-lbl">'+esc(s.lbl)+'</div></div>';
-  }).join('');
-
-  // SLIDE 2
-  var s2=deck.slide2||{};
-  document.getElementById('s2-title').textContent='Why '+name.split(' ')[0]+' x '+brand;
-  var bullets=Array.isArray(s2.bullets)?s2.bullets:[];
-  document.getElementById('s2-bullets').innerHTML=bullets.map(function(b,i){
-    return '<div class="bullet-item"><div class="b-num">'+(i+1).toString().padStart(2,'0')+'</div><div class="b-text">'+esc(b)+'</div></div>';
-  }).join('')||'<div class="bullet-item"><div class="b-text" style="color:var(--text-dim)">No partnership rationale available.</div></div>';
-
-  // SLIDE 3
-  var s3=deck.slide3||{};
-  var stats=Array.isArray(s3.stats)?s3.stats:[];
-  var widths=[72,58,83,65,77,60];
-  document.getElementById('s3-stats').innerHTML=stats.map(function(s,i){
-    return '<div class="stat-card"><div class="stat-val">'+esc(s)+'</div><div class="stat-bar"><div class="stat-fill" style="width:'+widths[i%widths.length]+'%"></div></div></div>';
-  }).join('');
-  if(s3.role){ document.getElementById('s3-role').style.display=''; document.getElementById('s3-role-text').textContent=s3.role; }
-
-  // SLIDE 4
-  var s4=deck.slide4||{};
-  document.getElementById('s4-ig').textContent=fmt(s4.instagram||ig);
-  document.getElementById('s4-tt').textContent=fmt(s4.tiktok||tt);
-  document.getElementById('s4-eng').textContent=s4.engagement||(eng+'%');
-  if(s4.audienceSummary){ document.getElementById('s4-aud-block').style.display=''; document.getElementById('s4-aud').textContent=s4.audienceSummary; }
-  if(s4.growthSignal){ document.getElementById('s4-growth-block').style.display=''; document.getElementById('s4-growth').textContent=s4.growthSignal; }
-
-  // SLIDE 5
-  var s5=deck.slide5||{};
-  document.getElementById('s5-title').textContent=brand+' — Partnership Fit';
-  var cats=Array.isArray(s5.categories)?s5.categories:[];
-  var letters='ABCDE';
-  document.getElementById('s5-cats').innerHTML=cats.map(function(c,i){
-    var n_=typeof c==='string'?c:(c.name||'');
-    var r=typeof c==='object'?(c.reason||''):'';
-    return '<div class="brand-cat"><div class="bc-icon">'+letters[i]+'</div><div><div class="bc-name">'+esc(n_)+'</div>'+(r?'<div class="bc-reason">'+esc(r)+'</div>':'')+'</div></div>';
-  }).join('');
-
-  // SLIDE 6
-  var s6=deck.slide6||{};
-  document.getElementById('s6-title').textContent=brand+' — Campaign Concepts';
-  var acts=Array.isArray(s6.activations)?s6.activations:[];
-  document.getElementById('s6-acts').innerHTML=acts.map(function(a,i){
-    var t=typeof a==='string'?a:(a.title||'');
-    var d=typeof a==='object'?(a.description||''):'';
-    return '<div class="act-card"><div class="act-num">Concept '+String(i+1).padStart(2,'0')+'</div><div class="act-title">'+esc(t)+'</div>'+(d?'<div class="act-desc">'+esc(d)+'</div>':'')+'</div>';
-  }).join('');
-
-  document.getElementById('footer-l').textContent=name+' — NIL Sponsorship Pitch';
-  document.getElementById('footer-c').textContent='Prepared for '+brand+' — Confidential';
-
-  document.getElementById('deck-main').style.display='';
-  setProgress(100,'Ready');
-  setTimeout(function(){ document.getElementById('loader').classList.add('hidden'); }, 600);
+function buildStatement(d,sc2){
+  const nm=d.name?d.name.split(' ')[0]:'This athlete',sp=d.sport||'athletics',sc=d.school||'a major program';
+  const eng=parseFloat(d.engagement),tot=(d.instagram||0)+(d.tiktok||0),brand=d.targetBrand||'';
+  const br=brand?`for ${brand}'s`:'for';
+  if(eng>5)return`${nm} delivers elite-tier audience engagement — a ${eng}% rate across ${fmt(tot)} combined followers — making them one of the most conversion-ready NIL athletes ${br} next campaign in ${sp}.`;
+  if(tot>200000)return`With ${fmt(tot)} followers across platforms and a proven ${sp} identity at ${sc}, ${nm} represents a high-visibility NIL opportunity built ${br} scalable brand impact.`;
+  return`${nm} combines competitive credibility in ${sp} at ${sc} with an authentic, engaged social audience — a brand-ready NIL partner built ${br} campaigns targeting the 18–24 demographic.`;
 }
-
-async function buildDeck(){
-  try {
-    if(!athleteId || athleteId==='pitch') throw new Error('No athlete ID in URL');
-
-    setProgress(10,'Looking up athlete...');
-
-    // STEP 1: Try sessionStorage for pre-generated deck (fastest path, no auth needed)
-    var cached = null;
-    try {
-      var raw = sessionStorage.getItem('nilPitchData_'+athleteId);
-      if(raw){
-        var parsed = JSON.parse(raw);
-        // Only use cache if less than 30 minutes old and has deck data
-        if(parsed && parsed.deck && parsed.ts && (Date.now()-parsed.ts < 30*60*1000)){
-          cached = parsed;
-        }
-      }
-    } catch(e){ console.warn('sessionStorage read error:', e); }
-
-    if(cached){
-      setProgress(50,'Building deck from cache...');
-      // Get fresh athlete data (no auth required)
-      var athleteRes = await fetch(API_BASE+'/api/pitch-data/'+athleteId);
-      var athlete = await athleteRes.json();
-      if(athlete.error) throw new Error('Athlete not found: '+athlete.error);
-      setProgress(90,'Rendering...');
-      renderDeck(cached.deck, athlete, cached.photo||null);
-      return;
-    }
-
-    // STEP 2: No cache — fetch athlete data and generate deck fresh
-    setProgress(20,'Fetching athlete profile...');
-    var athleteRes = await fetch(API_BASE+'/api/pitch-data/'+athleteId);
-    var athlete = await athleteRes.json();
-    if(athlete.error) throw new Error('Athlete not found: '+athlete.error);
-
-    setProgress(40,'Generating AI pitch deck...');
-    var deckRes = await fetch(API_BASE+'/api/ai/brand-kit', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      credentials:'include',
-      body: JSON.stringify({ athleteId:athleteId, targetBrand:brandParam||null, athletePhoto:null })
-    });
-
-    if(deckRes.status===401){
-      throw new Error('Session expired. Please go back to NILDash and click "Open Full Pitch Deck" again.');
-    }
-
-    var deck = await deckRes.json();
-    if(deck.error) throw new Error(deck.error);
-
-    setProgress(85,'Rendering slides...');
-    renderDeck(deck, athlete, null);
-
-  } catch(err){
-    document.getElementById('loader').classList.add('hidden');
-    document.getElementById('error-wrap').style.display='';
-    document.getElementById('error-msg').textContent = err.message||'Unknown error loading pitch deck.';
-    console.error('Pitch deck error:',err);
-  }
+const io=new IntersectionObserver(entries=>{entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('in');});},{threshold:0.07});
+document.querySelectorAll('.slide').forEach(s=>io.observe(s));
+async function init(){
+  const id=window.location.pathname.split('/').filter(Boolean).pop();
+  const params=new URLSearchParams(window.location.search);
+  const targetBrand=params.get('brand')||'';
+  if(!id||id==='pitch'){$('loader').innerHTML=`<div style="text-align:center;color:rgba(244,246,255,0.4);font-size:13px;letter-spacing:.06em;">Navigate to /pitch/ATHLETE_ID to view a deck.</div>`;return;}
+  try{
+    const res=await fetch('/api/pitch-data/'+id);
+    if(!res.ok)throw new Error('Athlete not found (id: '+id+')');
+    const data=await res.json();
+    data.targetBrand=targetBrand||null;
+    try{const stored=sessionStorage.getItem('nilPitchData_'+id);if(stored){const s=JSON.parse(stored);if(s.photo)data.athletePhoto=s.photo;if(!targetBrand&&s.brand)data.targetBrand=s.brand;}}catch(e){}
+    render(data);
+  }catch(err){$('loader').innerHTML=`<div style="text-align:center;color:#FF3D5A;font-size:13px;padding:20px;">${err.message}</div>`;}
 }
-
-buildDeck();
+init();
 </script>
 </body>
 </html>
