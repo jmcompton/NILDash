@@ -134,7 +134,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);lin
   </div>
   <div id="nav-right">
     <button class="nav-btn nav-ghost" onclick="window.print()">Export PDF</button>
-    <button class="nav-btn nav-solid" onclick="document.getElementById('s7').scrollIntoView({behavior:'smooth'})">Contact Agent</button>
+    <button class="nav-btn nav-solid" onclick="openContactModal()">Contact Agent</button>
   </div>
 </nav>
 <section class="slide" id="s1">
@@ -208,7 +208,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);lin
       <div><div class="c-lbl">Management</div><div class="c-val">NILDash Representation</div></div>
       <div><div class="c-lbl">Platform</div><div class="c-val">mynildash.com</div></div>
     </div>
-    <button class="cta-btn" onclick="window.location.href='mailto:contact@mynildash.com'">Initiate Partnership Discussion</button>
+    <button class="cta-btn" onclick="initPartnership()">Initiate Partnership Discussion</button>
   </div>
 </section>
 <script>
@@ -304,6 +304,82 @@ async function init(){
   }catch(err){$('loader').innerHTML=`<div style="text-align:center;color:#FF3D5A;font-size:13px;padding:20px;">${err.message}</div>`;}
 }
 init();
+</script>
+
+<!-- CONTACT MODAL -->
+<div id="contact-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);backdrop-filter:blur(8px);z-index:200;align-items:center;justify-content:center;padding:20px">
+  <div style="background:#0D1020;border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:36px;max-width:480px;width:100%;position:relative">
+    <button onclick="closeContactModal()" style="position:absolute;top:16px;right:16px;background:none;border:none;color:rgba(244,246,255,0.4);font-size:22px;cursor:pointer;line-height:1">×</button>
+    <div style="font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--uni);margin-bottom:8px;font-family:'JetBrains Mono',monospace">Partnership Inquiry</div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:1.5px;color:#F4F6FF;margin-bottom:6px;line-height:1">Contact the Agent</div>
+    <div style="font-size:13px;color:rgba(244,246,255,0.5);margin-bottom:28px">Reach out directly to discuss a partnership with this athlete.</div>
+    <div style="display:grid;gap:14px;margin-bottom:28px">
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px 20px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(244,246,255,0.4);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Athlete</div>
+        <div style="font-size:15px;font-weight:600;color:#F4F6FF" id="modal-athlete-name">—</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px 20px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(244,246,255,0.4);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Agent / Representative</div>
+        <div style="font-size:15px;font-weight:600;color:#F4F6FF" id="modal-agent-name">NILDash Representative</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px 20px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(244,246,255,0.4);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Email</div>
+        <div style="font-size:15px;font-weight:600;color:var(--uni)" id="modal-agent-email">contact@mynildash.com</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:16px 20px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:rgba(244,246,255,0.4);margin-bottom:6px;font-family:'JetBrains Mono',monospace">Platform</div>
+        <div style="font-size:15px;font-weight:600;color:#F4F6FF">mynildash.com</div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button onclick="closeContactModal()" style="flex:1;padding:12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border:1px solid rgba(255,255,255,0.1);background:transparent;color:rgba(244,246,255,0.5);font-family:'DM Sans',sans-serif">Close</button>
+      <button onclick="initPartnership()" style="flex:2;padding:12px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;cursor:pointer;border:none;background:var(--uni);color:#fff;font-family:'DM Sans',sans-serif">Send Email →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openContactModal(){
+  const modal = document.getElementById('contact-modal');
+  modal.style.display = 'flex';
+  // Populate from rendered data
+  const athleteName = document.getElementById('h-name');
+  const agentNameEl = document.getElementById('modal-agent-name');
+  const agentEmailEl = document.getElementById('modal-agent-email');
+  const athleteNameEl = document.getElementById('modal-athlete-name');
+  if(athleteName) athleteNameEl.textContent = athleteName.textContent || '—';
+  // Try to get stored agent info from sessionStorage
+  try {
+    const agentInfo = sessionStorage.getItem('nilAgentInfo');
+    if(agentInfo){
+      const a = JSON.parse(agentInfo);
+      if(a.name) agentNameEl.textContent = a.name;
+      if(a.email) agentEmailEl.textContent = a.email;
+    }
+  } catch(e){}
+}
+function closeContactModal(){
+  document.getElementById('contact-modal').style.display = 'none';
+}
+document.getElementById('contact-modal').addEventListener('click', function(e){
+  if(e.target === this) closeContactModal();
+});
+function initPartnership(){
+  const athleteName = (document.getElementById('h-name')||{}).textContent || 'Athlete';
+  const brand = new URLSearchParams(window.location.search).get('brand') || 'your brand';
+  const agentEmailEl = document.getElementById('modal-agent-email');
+  const agentEmail = agentEmailEl ? agentEmailEl.textContent : 'contact@mynildash.com';
+  const subject = encodeURIComponent(`NIL Partnership Inquiry — ${athleteName} × ${brand}`);
+  const body = encodeURIComponent(`Hello,
+
+I am interested in discussing a NIL partnership between ${brand} and ${athleteName}.
+
+Please let me know the best way to connect.
+
+Thank you.`);
+  window.location.href = `mailto:${agentEmail}?subject=${subject}&body=${body}`;
+  closeContactModal();
+}
 </script>
 </body>
 </html>

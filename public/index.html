@@ -2328,6 +2328,8 @@ async function bootApp() {
   document.getElementById('authScreen').classList.add('hidden');
   document.getElementById('appScreen').classList.add('visible');
   document.getElementById('userName').textContent = currentUser.name;
+  // Store agent info for pitch deck contact modal
+  try { sessionStorage.setItem('nilAgentInfo', JSON.stringify({name: currentUser.name, email: currentUser.email})); } catch(e){}
   document.getElementById('userRole').textContent = currentUser.role;
   document.getElementById('userAvatar').textContent = currentUser.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   document.getElementById('sidebarRoleLabel').textContent = currentUser.role === 'agent' ? 'Agent Portal' : 'Athlete Portal';
