@@ -11,8 +11,8 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
     --navy: #0D1B2A; --navy2: #132235; --navy3: #1a2d42;
-    --green: #00FF87; --green-dim: rgba(0,255,135,0.1); --green-mid: rgba(0,255,135,0.22);
-    --white: #FFFFFF; --text-mid: rgba(255,255,255,0.76); --text-dim: rgba(255,255,255,0.50);
+    --green: #00FF87; --green-dim: rgba(0,255,135,0.10); --green-mid: rgba(0,255,135,0.22);
+    --white: #FFFFFF; --text-mid: rgba(255,255,255,0.76); --text-dim: rgba(255,255,255,0.48);
     --border: rgba(255,255,255,0.08); --border-green: rgba(0,255,135,0.18);
   }
   html { scroll-behavior: smooth; }
@@ -22,13 +22,13 @@
   #loader {
     position: fixed; inset: 0; background: var(--navy);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    z-index: 999; transition: opacity 0.6s ease;
+    z-index: 999; transition: opacity 0.5s ease;
   }
   #loader.hidden { opacity: 0; pointer-events: none; }
   .loader-logo { font-size: 11px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: var(--green); margin-bottom: 28px; }
-  .loader-bar { width: 180px; height: 2px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
-  .loader-fill { height: 100%; background: var(--green); border-radius: 2px; animation: loadFill 2.2s ease forwards; }
-  @keyframes loadFill { from{width:0} to{width:100%} }
+  .loader-status { font-size: 12px; color: var(--text-dim); margin-bottom: 20px; min-height: 18px; }
+  .loader-bar { width: 200px; height: 2px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+  .loader-fill { height: 100%; background: var(--green); border-radius: 2px; transition: width 0.4s ease; width: 0; }
 
   /* Topbar */
   .topbar {
@@ -39,10 +39,11 @@
   }
   .topbar-brand { font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--green); }
   .topbar-right { display: flex; align-items: center; gap: 12px; }
-  .topbar-ctx { font-size: 11px; color: var(--text-dim); }
+  .topbar-ctx { font-size: 11px; color: var(--text-dim); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pdf-btn {
     padding: 7px 18px; background: var(--green); color: var(--navy); border: none; border-radius: 6px;
     font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; font-family: inherit;
+    transition: opacity .15s;
   }
   .pdf-btn:hover { opacity: .85; }
 
@@ -50,11 +51,8 @@
   main { padding-top: 72px; max-width: 980px; margin: 0 auto; padding-left: 24px; padding-right: 24px; padding-bottom: 80px; }
 
   /* Slide wrapper */
-  .slide { margin-top: 24px; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); }
-  .slide-header {
-    padding: 22px 32px 18px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: baseline; gap: 16px;
-  }
+  .slide { margin-top: 20px; border-radius: 14px; overflow: hidden; border: 1px solid var(--border); }
+  .slide-header { padding: 22px 32px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 16px; }
   .slide-num { font-size: 9px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: var(--green); }
   .slide-title { font-size: 20px; font-weight: 800; color: var(--white); letter-spacing: -.02em; }
   .slide-body { padding: 28px 32px; }
@@ -62,45 +60,39 @@
   /* COVER */
   #slide-cover {
     position: relative;
-    background: linear-gradient(135deg, #0D1B2A 0%, #0b2240 55%, #0D1B2A 100%);
-    min-height: 420px; overflow: hidden;
+    background: linear-gradient(135deg, #0D1B2A 0%, #0b2240 50%, #0D1B2A 100%);
+    min-height: 400px; overflow: hidden;
   }
   #slide-cover::before {
-    content:''; position:absolute; top:-100px; right:-100px;
-    width:500px; height:500px; border-radius:50%;
-    background: radial-gradient(circle, rgba(0,255,135,0.07) 0%, transparent 65%);
+    content:''; position:absolute; top:-80px; right:-80px;
+    width:420px; height:420px; border-radius:50%;
+    background: radial-gradient(circle, rgba(0,255,135,0.07) 0%, transparent 65%); pointer-events:none;
   }
-  .cover-inner { position:relative; z-index:2; display:flex; align-items:stretch; min-height:420px; }
+  .cover-inner { position:relative; z-index:2; display:flex; align-items:stretch; min-height:400px; }
   .cover-photo-col {
-    width:210px; flex-shrink:0;
+    width:200px; flex-shrink:0;
     background: linear-gradient(180deg,rgba(0,255,135,0.05) 0%,transparent 100%);
     border-right: 1px solid var(--border-green);
     display: flex; align-items: flex-end; justify-content: center; overflow: hidden;
   }
-  .cover-photo { width:100%; height:100%; object-fit:cover; object-position:top center; }
+  .cover-photo { width:100%; height:100%; object-fit:cover; object-position:top center; display:block; }
   .cover-initials-ph {
-    width:72px; height:72px; border-radius:50%;
+    width:70px; height:70px; border-radius:50%;
     background:var(--green-dim); border:2px solid var(--border-green);
     display:flex; align-items:center; justify-content:center;
-    font-size:24px; font-weight:900; color:var(--green); margin-bottom:36px;
+    font-size:22px; font-weight:900; color:var(--green); margin-bottom:32px;
   }
-  .cover-content { flex:1; padding:44px 40px; display:flex; flex-direction:column; justify-content:space-between; }
-  .cover-eyebrow { font-size:9px; font-weight:700; letter-spacing:.22em; text-transform:uppercase; color:var(--green); margin-bottom:14px; }
-  .cover-name { font-size:46px; font-weight:900; line-height:1; letter-spacing:-.03em; color:var(--white); margin-bottom:8px; }
-  .cover-meta { font-size:14px; font-weight:400; color:var(--text-mid); margin-bottom:24px; }
-  .cover-headline {
-    font-size:17px; font-weight:600; color:var(--white); line-height:1.45;
-    margin-bottom:20px; border-left:3px solid var(--green); padding-left:16px;
-  }
+  .cover-content { flex:1; padding:40px 38px; display:flex; flex-direction:column; justify-content:space-between; }
+  .cover-eyebrow { font-size:9px; font-weight:700; letter-spacing:.22em; text-transform:uppercase; color:var(--green); margin-bottom:12px; }
+  .cover-name { font-size:44px; font-weight:900; line-height:1; letter-spacing:-.03em; color:var(--white); margin-bottom:7px; }
+  .cover-meta { font-size:13px; font-weight:400; color:var(--text-mid); margin-bottom:22px; }
+  .cover-headline { font-size:16px; font-weight:600; color:var(--white); line-height:1.45; margin-bottom:18px; border-left:3px solid var(--green); padding-left:15px; }
   .cover-intro { font-size:13px; color:var(--text-mid); line-height:1.7; max-width:460px; }
-  .cover-bottom {
-    display:flex; align-items:center; justify-content:space-between;
-    padding-top:24px; border-top:1px solid var(--border); margin-top:24px;
-  }
+  .cover-bottom { display:flex; align-items:center; justify-content:space-between; padding-top:22px; border-top:1px solid var(--border); margin-top:22px; }
   .cover-brand-tag { font-size:9px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--text-dim); }
-  .cover-brand-val { font-size:16px; font-weight:800; color:var(--green); letter-spacing:-.01em; margin-top:3px; }
-  .cover-stats { display:flex; gap:24px; }
-  .cstat-val { font-size:20px; font-weight:900; color:var(--white); line-height:1; }
+  .cover-brand-val { font-size:15px; font-weight:800; color:var(--green); letter-spacing:-.01em; margin-top:3px; }
+  .cover-stats { display:flex; gap:22px; }
+  .cstat-val { font-size:19px; font-weight:900; color:var(--white); line-height:1; }
   .cstat-lbl { font-size:9px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); margin-top:3px; }
 
   /* SLIDE 2 */
@@ -108,19 +100,14 @@
   .bullet-list { display:flex; flex-direction:column; }
   .bullet-item { display:flex; align-items:flex-start; gap:16px; padding:16px 0; border-bottom:1px solid var(--border); }
   .bullet-item:last-child { border-bottom:none; }
-  .b-num {
-    width:30px; height:30px; border-radius:7px;
-    background:var(--green-dim); border:1px solid var(--border-green);
-    display:flex; align-items:center; justify-content:center;
-    font-size:11px; font-weight:800; color:var(--green); flex-shrink:0; margin-top:1px;
-  }
+  .b-num { width:30px; height:30px; border-radius:7px; background:var(--green-dim); border:1px solid var(--border-green); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:800; color:var(--green); flex-shrink:0; margin-top:1px; }
   .b-text { font-size:14px; color:var(--text-mid); line-height:1.65; flex:1; }
 
   /* SLIDE 3 */
   #slide-performance { background:var(--navy3); }
-  .stats-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:20px; }
-  .stat-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:10px; padding:18px 20px; }
-  .stat-card-val { font-size:13px; font-weight:700; color:var(--white); line-height:1.4; margin-bottom:8px; }
+  .stats-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px; }
+  .stat-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:10px; padding:18px 18px 16px; }
+  .stat-val { font-size:13px; font-weight:700; color:var(--white); line-height:1.4; margin-bottom:8px; }
   .stat-bar { height:2px; background:rgba(255,255,255,0.08); border-radius:2px; overflow:hidden; }
   .stat-fill { height:100%; background:var(--green); border-radius:2px; }
   .role-block { background:var(--green-dim); border:1px solid var(--border-green); border-radius:10px; padding:16px 20px; }
@@ -129,68 +116,68 @@
 
   /* SLIDE 4 */
   #slide-audience { background:var(--navy2); }
-  .metrics-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:20px; }
-  .metric-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:10px; padding:22px 20px 18px; text-align:center; }
-  .metric-val { font-size:30px; font-weight:900; color:var(--white); letter-spacing:-.03em; line-height:1; margin-bottom:6px; }
+  .metrics-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:18px; }
+  .metric-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:10px; padding:20px 18px 16px; text-align:center; }
+  .metric-val { font-size:28px; font-weight:900; color:var(--white); letter-spacing:-.03em; line-height:1; margin-bottom:5px; }
   .metric-val.green { color:var(--green); }
   .metric-lbl { font-size:9px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--text-dim); }
-  .aud-summary { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:10px; padding:20px 24px; margin-bottom:10px; }
-  .aud-lbl { font-size:9px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--text-dim); margin-bottom:8px; }
+  .aud-block { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:10px; padding:18px 22px; margin-bottom:10px; }
+  .aud-lbl { font-size:9px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--text-dim); margin-bottom:7px; }
   .aud-text { font-size:14px; color:var(--text-mid); line-height:1.65; }
-  .growth-sig { background:var(--green-dim); border:1px solid var(--border-green); border-radius:10px; padding:14px 20px; }
+  .growth-block { background:var(--green-dim); border:1px solid var(--border-green); border-radius:10px; padding:14px 20px; }
   .growth-lbl { font-size:9px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:rgba(0,255,135,0.5); margin-bottom:5px; }
   .growth-text { font-size:13px; color:var(--green); font-weight:500; line-height:1.5; }
 
   /* SLIDE 5 */
   #slide-brand { background:var(--navy3); }
   .brand-cats { display:flex; flex-direction:column; }
-  .brand-cat { display:flex; align-items:flex-start; gap:16px; padding:18px 0; border-bottom:1px solid var(--border); }
+  .brand-cat { display:flex; align-items:flex-start; gap:16px; padding:16px 0; border-bottom:1px solid var(--border); }
   .brand-cat:last-child { border-bottom:none; }
-  .brand-cat-icon {
-    width:38px; height:38px; border-radius:8px; background:var(--navy); border:1px solid var(--border-green);
-    display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:900; color:var(--green); flex-shrink:0;
-  }
-  .brand-cat-name { font-size:14px; font-weight:700; color:var(--white); margin-bottom:4px; }
-  .brand-cat-reason { font-size:12px; color:var(--text-dim); line-height:1.6; }
+  .bc-icon { width:36px; height:36px; border-radius:8px; background:var(--navy); border:1px solid var(--border-green); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:900; color:var(--green); flex-shrink:0; }
+  .bc-name { font-size:14px; font-weight:700; color:var(--white); margin-bottom:3px; }
+  .bc-reason { font-size:12px; color:var(--text-dim); line-height:1.6; }
 
   /* SLIDE 6 */
   #slide-acts { background:var(--navy2); }
   .act-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
-  .act-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:12px; padding:22px 20px; transition:border-color .2s; }
+  .act-card { background:rgba(255,255,255,0.04); border:1px solid var(--border); border-radius:12px; padding:20px 18px; transition:border-color .2s; }
   .act-card:hover { border-color:var(--border-green); }
-  .act-num { font-size:9px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--green); margin-bottom:12px; }
-  .act-title { font-size:14px; font-weight:700; color:var(--white); line-height:1.35; margin-bottom:10px; }
-  .act-desc { font-size:12px; color:var(--text-dim); line-height:1.65; }
+  .act-num { font-size:9px; font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--green); margin-bottom:10px; }
+  .act-title { font-size:13px; font-weight:700; color:var(--white); line-height:1.35; margin-bottom:8px; }
+  .act-desc { font-size:12px; color:var(--text-dim); line-height:1.6; }
 
   /* Footer */
-  .deck-footer {
-    margin-top:40px; padding:22px 28px; border:1px solid var(--border); border-radius:12px;
-    display:flex; align-items:center; justify-content:space-between;
-  }
-  .footer-l { font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--text-dim); }
+  .deck-footer { margin-top:36px; padding:20px 28px; border:1px solid var(--border); border-radius:12px; display:flex; align-items:center; justify-content:space-between; }
+  .footer-l { font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); }
   .footer-c { font-size:11px; color:var(--text-dim); }
   .footer-r { font-size:11px; font-weight:800; color:var(--green); letter-spacing:.1em; }
 
+  /* Error */
   .error-wrap { padding:80px 32px; text-align:center; }
-  .error-wrap h2 { color:var(--white); margin-bottom:12px; }
-  .error-wrap p { color:var(--text-dim); }
+  .error-wrap h2 { color:var(--white); margin-bottom:10px; font-size:22px; }
+  .error-wrap p { color:var(--text-dim); font-size:14px; margin-bottom:20px; }
+  .error-wrap a { color:var(--green); text-decoration:none; font-size:13px; }
 
   @media print {
     .topbar { display:none !important; }
-    main { padding-top:0; }
+    main { padding-top: 0; }
     body { background:#0D1B2A !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     .slide { break-inside:avoid; margin-top:16px; }
+    #slide-cover { break-inside:avoid; }
   }
   @media (max-width:640px) {
-    .topbar { padding:0 16px; }
-    main { padding-left:12px; padding-right:12px; }
+    .topbar { padding:0 14px; }
+    .topbar-ctx { display:none; }
+    main { padding-left:12px; padding-right:12px; padding-top:64px; }
     .cover-inner { flex-direction:column; }
-    .cover-photo-col { width:100%; height:180px; border-right:none; border-bottom:1px solid var(--border-green); }
-    .cover-content { padding:24px 16px; }
-    .cover-name { font-size:30px; }
-    .stats-grid,.metrics-row,.act-grid { grid-template-columns:1fr 1fr; }
-    .slide-header { padding:18px 18px 14px; }
+    .cover-photo-col { width:100%; height:160px; border-right:none; border-bottom:1px solid var(--border-green); }
+    .cover-content { padding:22px 18px; }
+    .cover-name { font-size:28px; }
+    .cover-stats { gap:14px; }
+    .stats-grid, .metrics-row, .act-grid { grid-template-columns:1fr 1fr; }
+    .slide-header { padding:16px 18px 12px; }
     .slide-body { padding:18px; }
+    .cover-bottom { flex-direction:column; align-items:flex-start; gap:14px; }
   }
 </style>
 </head>
@@ -198,7 +185,8 @@
 
 <div id="loader">
   <div class="loader-logo">NILDash</div>
-  <div class="loader-bar"><div class="loader-fill"></div></div>
+  <div class="loader-status" id="loader-status">Loading pitch deck...</div>
+  <div class="loader-bar"><div class="loader-fill" id="loader-fill"></div></div>
 </div>
 
 <div class="topbar">
@@ -236,7 +224,7 @@
     </div>
   </div>
 
-  <!-- SLIDE 2: Why This Athlete -->
+  <!-- SLIDE 2 -->
   <div class="slide" id="slide-why">
     <div class="slide-header">
       <div class="slide-num">Slide 02</div>
@@ -247,7 +235,7 @@
     </div>
   </div>
 
-  <!-- SLIDE 3: Performance -->
+  <!-- SLIDE 3 -->
   <div class="slide" id="slide-performance">
     <div class="slide-header">
       <div class="slide-num">Slide 03</div>
@@ -262,7 +250,7 @@
     </div>
   </div>
 
-  <!-- SLIDE 4: Audience -->
+  <!-- SLIDE 4 -->
   <div class="slide" id="slide-audience">
     <div class="slide-header">
       <div class="slide-num">Slide 04</div>
@@ -274,18 +262,18 @@
         <div class="metric-card"><div class="metric-val" id="s4-tt">—</div><div class="metric-lbl">TikTok</div></div>
         <div class="metric-card"><div class="metric-val green" id="s4-eng">—</div><div class="metric-lbl">Engagement Rate</div></div>
       </div>
-      <div class="aud-summary" id="s4-sum-block" style="display:none">
+      <div class="aud-block" id="s4-aud-block" style="display:none">
         <div class="aud-lbl">Audience Profile</div>
-        <div class="aud-text" id="s4-sum"></div>
+        <div class="aud-text" id="s4-aud"></div>
       </div>
-      <div class="growth-sig" id="s4-growth-block" style="display:none">
+      <div class="growth-block" id="s4-growth-block" style="display:none">
         <div class="growth-lbl">Momentum Signal</div>
         <div class="growth-text" id="s4-growth"></div>
       </div>
     </div>
   </div>
 
-  <!-- SLIDE 5: Brand Fit -->
+  <!-- SLIDE 5 -->
   <div class="slide" id="slide-brand">
     <div class="slide-header">
       <div class="slide-num">Slide 05</div>
@@ -296,7 +284,7 @@
     </div>
   </div>
 
-  <!-- SLIDE 6: Activations -->
+  <!-- SLIDE 6 -->
   <div class="slide" id="slide-acts">
     <div class="slide-header">
       <div class="slide-num">Slide 06</div>
@@ -318,7 +306,8 @@
 <div id="error-wrap" style="display:none">
   <div class="error-wrap">
     <h2>Unable to build pitch deck</h2>
-    <p id="error-msg">An error occurred.</p>
+    <p id="error-msg">Something went wrong loading the deck.</p>
+    <p><a href="javascript:location.reload()">Try again</a> &nbsp;&middot;&nbsp; <a href="/">Back to NILDash</a></p>
   </div>
 </div>
 
@@ -329,128 +318,172 @@ function fmt(n){
   n=parseInt(n)||0;
   if(n>=1000000) return (n/1000000).toFixed(1).replace(/\.0$/,'')+'M';
   if(n>=1000) return (n/1000).toFixed(1).replace(/\.0$/,'')+'K';
-  return n.toLocaleString();
+  return n?n.toLocaleString():'0';
 }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function initials(n){ return (n||'?').split(' ').map(w=>w[0]||'').join('').substring(0,2).toUpperCase(); }
+function initials(n){ return (n||'?').split(' ').map(function(w){return w[0]||'';}).join('').substring(0,2).toUpperCase(); }
+function setProgress(pct, status){
+  var fill = document.getElementById('loader-fill');
+  var stat = document.getElementById('loader-status');
+  if(fill) fill.style.width = pct+'%';
+  if(stat && status) stat.textContent = status;
+}
 
-const pathParts = window.location.pathname.split('/');
-const athleteId = pathParts[pathParts.length-1];
-const urlParams = new URLSearchParams(window.location.search);
-const brandParam = urlParams.get('brand')||'';
+var pathParts = window.location.pathname.split('/');
+var athleteId = pathParts[pathParts.length-1];
+var urlParams = new URLSearchParams(window.location.search);
+var brandParam = urlParams.get('brand')||'';
+
+function renderDeck(deck, athlete, photo){
+  var brand = brandParam || (deck&&deck.targetBrand) || 'Sponsorship Opportunity';
+  var name = (athlete&&athlete.name)||'Athlete';
+  var sport = (athlete&&athlete.sport)||'';
+  var school = (athlete&&athlete.school)||'';
+  var ig = parseInt((athlete&&athlete.instagram))||0;
+  var tt = parseInt((athlete&&athlete.tiktok))||0;
+  var eng = (athlete&&athlete.engagement)||0;
+
+  document.title = name+' x '+brand+' — NIL Pitch Deck';
+  document.getElementById('topbar-ctx').textContent = name+' x '+brand;
+
+  // Photo
+  var photoCol = document.getElementById('cover-photo-col');
+  var initialsEl = document.getElementById('cover-initials');
+  if(photo){
+    var img = document.createElement('img');
+    img.className='cover-photo'; img.src=photo; img.alt=name;
+    img.onerror=function(){ img.remove(); initialsEl.textContent=initials(name); initialsEl.style.display='flex'; };
+    photoCol.innerHTML=''; photoCol.appendChild(img);
+  } else {
+    initialsEl.textContent=initials(name); initialsEl.style.display='flex';
+  }
+
+  // SLIDE 1
+  var s1=deck.slide1||{};
+  document.getElementById('cover-eyebrow').textContent = brand ? 'Targeted NIL Pitch — '+brand : 'NIL Sponsorship Opportunity';
+  document.getElementById('cover-name').textContent = name.toUpperCase();
+  var metaParts=[sport,school,athlete.year||'',athlete.position||''].filter(Boolean);
+  document.getElementById('cover-meta').innerHTML = metaParts.map(esc).join(' &middot; ');
+  document.getElementById('cover-headline').textContent = s1.headline||('Why '+name.split(' ')[0]+' and '+brand+' belong together');
+  document.getElementById('cover-intro').textContent = s1.intro||'';
+  document.getElementById('cover-brand-val').textContent = brand;
+  var statsData=[{val:fmt(ig),lbl:'IG Followers'},{val:fmt(tt),lbl:'TikTok'},{val:eng+'%',lbl:'Engagement'}].filter(function(s){return s.val&&s.val!=='0';});
+  document.getElementById('cover-stats').innerHTML=statsData.map(function(s){
+    return '<div><div class="cstat-val">'+esc(s.val)+'</div><div class="cstat-lbl">'+esc(s.lbl)+'</div></div>';
+  }).join('');
+
+  // SLIDE 2
+  var s2=deck.slide2||{};
+  document.getElementById('s2-title').textContent='Why '+name.split(' ')[0]+' x '+brand;
+  var bullets=Array.isArray(s2.bullets)?s2.bullets:[];
+  document.getElementById('s2-bullets').innerHTML=bullets.map(function(b,i){
+    return '<div class="bullet-item"><div class="b-num">'+(i+1).toString().padStart(2,'0')+'</div><div class="b-text">'+esc(b)+'</div></div>';
+  }).join('')||'<div class="bullet-item"><div class="b-text" style="color:var(--text-dim)">No partnership rationale available.</div></div>';
+
+  // SLIDE 3
+  var s3=deck.slide3||{};
+  var stats=Array.isArray(s3.stats)?s3.stats:[];
+  var widths=[72,58,83,65,77,60];
+  document.getElementById('s3-stats').innerHTML=stats.map(function(s,i){
+    return '<div class="stat-card"><div class="stat-val">'+esc(s)+'</div><div class="stat-bar"><div class="stat-fill" style="width:'+widths[i%widths.length]+'%"></div></div></div>';
+  }).join('');
+  if(s3.role){ document.getElementById('s3-role').style.display=''; document.getElementById('s3-role-text').textContent=s3.role; }
+
+  // SLIDE 4
+  var s4=deck.slide4||{};
+  document.getElementById('s4-ig').textContent=fmt(s4.instagram||ig);
+  document.getElementById('s4-tt').textContent=fmt(s4.tiktok||tt);
+  document.getElementById('s4-eng').textContent=s4.engagement||(eng+'%');
+  if(s4.audienceSummary){ document.getElementById('s4-aud-block').style.display=''; document.getElementById('s4-aud').textContent=s4.audienceSummary; }
+  if(s4.growthSignal){ document.getElementById('s4-growth-block').style.display=''; document.getElementById('s4-growth').textContent=s4.growthSignal; }
+
+  // SLIDE 5
+  var s5=deck.slide5||{};
+  document.getElementById('s5-title').textContent=brand+' — Partnership Fit';
+  var cats=Array.isArray(s5.categories)?s5.categories:[];
+  var letters='ABCDE';
+  document.getElementById('s5-cats').innerHTML=cats.map(function(c,i){
+    var n_=typeof c==='string'?c:(c.name||'');
+    var r=typeof c==='object'?(c.reason||''):'';
+    return '<div class="brand-cat"><div class="bc-icon">'+letters[i]+'</div><div><div class="bc-name">'+esc(n_)+'</div>'+(r?'<div class="bc-reason">'+esc(r)+'</div>':'')+'</div></div>';
+  }).join('');
+
+  // SLIDE 6
+  var s6=deck.slide6||{};
+  document.getElementById('s6-title').textContent=brand+' — Campaign Concepts';
+  var acts=Array.isArray(s6.activations)?s6.activations:[];
+  document.getElementById('s6-acts').innerHTML=acts.map(function(a,i){
+    var t=typeof a==='string'?a:(a.title||'');
+    var d=typeof a==='object'?(a.description||''):'';
+    return '<div class="act-card"><div class="act-num">Concept '+String(i+1).padStart(2,'0')+'</div><div class="act-title">'+esc(t)+'</div>'+(d?'<div class="act-desc">'+esc(d)+'</div>':'')+'</div>';
+  }).join('');
+
+  document.getElementById('footer-l').textContent=name+' — NIL Sponsorship Pitch';
+  document.getElementById('footer-c').textContent='Prepared for '+brand+' — Confidential';
+
+  document.getElementById('deck-main').style.display='';
+  setProgress(100,'Ready');
+  setTimeout(function(){ document.getElementById('loader').classList.add('hidden'); }, 600);
+}
 
 async function buildDeck(){
   try {
-    const [pitchRes, athleteRes] = await Promise.all([
-      fetch(API_BASE+'/api/ai/brand-kit',{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ athleteId, targetBrand: brandParam||null, athletePhoto: null })
-      }),
-      fetch(API_BASE+'/api/pitch-data/'+athleteId)
-    ]);
+    if(!athleteId || athleteId==='pitch') throw new Error('No athlete ID in URL');
 
-    const [deck, athlete] = await Promise.all([pitchRes.json(), athleteRes.json()]);
+    setProgress(10,'Looking up athlete...');
+
+    // STEP 1: Try sessionStorage for pre-generated deck (fastest path, no auth needed)
+    var cached = null;
+    try {
+      var raw = sessionStorage.getItem('nilPitchData_'+athleteId);
+      if(raw){
+        var parsed = JSON.parse(raw);
+        // Only use cache if less than 30 minutes old and has deck data
+        if(parsed && parsed.deck && parsed.ts && (Date.now()-parsed.ts < 30*60*1000)){
+          cached = parsed;
+        }
+      }
+    } catch(e){ console.warn('sessionStorage read error:', e); }
+
+    if(cached){
+      setProgress(50,'Building deck from cache...');
+      // Get fresh athlete data (no auth required)
+      var athleteRes = await fetch(API_BASE+'/api/pitch-data/'+athleteId);
+      var athlete = await athleteRes.json();
+      if(athlete.error) throw new Error('Athlete not found: '+athlete.error);
+      setProgress(90,'Rendering...');
+      renderDeck(cached.deck, athlete, cached.photo||null);
+      return;
+    }
+
+    // STEP 2: No cache — fetch athlete data and generate deck fresh
+    setProgress(20,'Fetching athlete profile...');
+    var athleteRes = await fetch(API_BASE+'/api/pitch-data/'+athleteId);
+    var athlete = await athleteRes.json();
+    if(athlete.error) throw new Error('Athlete not found: '+athlete.error);
+
+    setProgress(40,'Generating AI pitch deck...');
+    var deckRes = await fetch(API_BASE+'/api/ai/brand-kit', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      credentials:'include',
+      body: JSON.stringify({ athleteId:athleteId, targetBrand:brandParam||null, athletePhoto:null })
+    });
+
+    if(deckRes.status===401){
+      throw new Error('Session expired. Please go back to NILDash and click "Open Full Pitch Deck" again.');
+    }
+
+    var deck = await deckRes.json();
     if(deck.error) throw new Error(deck.error);
-    if(athlete.error) throw new Error(athlete.error);
 
-    const brand = brandParam || deck.targetBrand || 'Sponsorship Opportunity';
-    const name = athlete.name||'Athlete';
-    const sport = athlete.sport||'';
-    const school = athlete.school||'';
-    const ig = parseInt(athlete.instagram)||0;
-    const tt = parseInt(athlete.tiktok)||0;
-    const eng = athlete.engagement||0;
-
-    document.title = name + ' x ' + brand + ' — NIL Pitch Deck';
-    document.getElementById('topbar-ctx').textContent = name + ' x ' + brand;
-
-    // Photo from sessionStorage
-    let photo = null;
-    try { photo = JSON.parse(sessionStorage.getItem('nilPitchData_'+athleteId)||'{}').photo || null; } catch(e){}
-    if(!photo) try { photo = JSON.parse(sessionStorage.getItem('nilPitchPhoto_'+athleteId)||'null'); } catch(e){}
-
-    const photoCol = document.getElementById('cover-photo-col');
-    const initialsEl = document.getElementById('cover-initials');
-    if(photo){
-      const img = document.createElement('img');
-      img.className = 'cover-photo'; img.src = photo; img.alt = name;
-      img.onerror = function(){ img.remove(); initialsEl.textContent=initials(name); };
-      photoCol.innerHTML = '';
-      photoCol.appendChild(img);
-    } else {
-      initialsEl.textContent = initials(name);
-    }
-
-    // SLIDE 1
-    const s1 = deck.slide1||{};
-    document.getElementById('cover-eyebrow').textContent = brand ? 'Targeted NIL Pitch — '+brand : 'NIL Sponsorship Opportunity';
-    document.getElementById('cover-name').textContent = name.toUpperCase();
-    const metaParts = [sport, school, athlete.year||'', athlete.position||''].filter(Boolean);
-    document.getElementById('cover-meta').innerHTML = metaParts.map(esc).join(' &middot; ');
-    document.getElementById('cover-headline').textContent = s1.headline || ('Why '+name.split(' ')[0]+' and '+brand+' belong together');
-    document.getElementById('cover-intro').textContent = s1.intro||'';
-    document.getElementById('cover-brand-val').textContent = brand;
-    const statsData = [{val:fmt(ig),lbl:'IG Followers'},{val:fmt(tt),lbl:'TikTok'},{val:eng+'%',lbl:'Engagement'}].filter(s=>s.val&&s.val!=='0');
-    document.getElementById('cover-stats').innerHTML = statsData.map(s=>'<div><div class="cstat-val">'+esc(s.val)+'</div><div class="cstat-lbl">'+esc(s.lbl)+'</div></div>').join('');
-
-    // SLIDE 2
-    const s2 = deck.slide2||{};
-    document.getElementById('s2-title').textContent = 'Why '+name.split(' ')[0]+' x '+brand;
-    const bullets = Array.isArray(s2.bullets)?s2.bullets:[];
-    document.getElementById('s2-bullets').innerHTML = bullets.map((b,i)=>
-      '<div class="bullet-item"><div class="b-num">'+(i+1).toString().padStart(2,'0')+'</div><div class="b-text">'+esc(b)+'</div></div>'
-    ).join('')||'<div class="bullet-item"><div class="b-text" style="color:var(--text-dim)">No content returned.</div></div>';
-
-    // SLIDE 3
-    const s3 = deck.slide3||{};
-    const stats = Array.isArray(s3.stats)?s3.stats:[];
-    document.getElementById('s3-stats').innerHTML = stats.map(s=>
-      '<div class="stat-card"><div class="stat-card-val">'+esc(s)+'</div><div class="stat-bar"><div class="stat-fill" style="width:'+(40+Math.floor(Math.random()*55))+'%"></div></div></div>'
-    ).join('');
-    if(s3.role){
-      document.getElementById('s3-role').style.display='';
-      document.getElementById('s3-role-text').textContent=s3.role;
-    }
-
-    // SLIDE 4
-    const s4 = deck.slide4||{};
-    document.getElementById('s4-ig').textContent = fmt(s4.instagram||ig);
-    document.getElementById('s4-tt').textContent = fmt(s4.tiktok||tt);
-    document.getElementById('s4-eng').textContent = s4.engagement||(eng+'%');
-    if(s4.audienceSummary){ document.getElementById('s4-sum-block').style.display=''; document.getElementById('s4-sum').textContent=s4.audienceSummary; }
-    if(s4.growthSignal){ document.getElementById('s4-growth-block').style.display=''; document.getElementById('s4-growth').textContent=s4.growthSignal; }
-
-    // SLIDE 5
-    const s5 = deck.slide5||{};
-    document.getElementById('s5-title').textContent = brand+' — Partnership Fit';
-    const cats = Array.isArray(s5.categories)?s5.categories:[];
-    const letters = 'ABCDE';
-    document.getElementById('s5-cats').innerHTML = cats.map((c,i)=>{
-      const n_=typeof c==='string'?c:(c.name||'');
-      const r=typeof c==='object'?(c.reason||''):'';
-      return '<div class="brand-cat"><div class="brand-cat-icon">'+letters[i]+'</div><div><div class="brand-cat-name">'+esc(n_)+'</div>'+(r?'<div class="brand-cat-reason">'+esc(r)+'</div>':'')+'</div></div>';
-    }).join('');
-
-    // SLIDE 6
-    const s6 = deck.slide6||{};
-    document.getElementById('s6-title').textContent = brand+' — Campaign Concepts';
-    const acts = Array.isArray(s6.activations)?s6.activations:[];
-    document.getElementById('s6-acts').innerHTML = acts.map((a,i)=>{
-      const t=typeof a==='string'?a:(a.title||'');
-      const d=typeof a==='object'?(a.description||''):'';
-      return '<div class="act-card"><div class="act-num">Concept '+String(i+1).padStart(2,'0')+'</div><div class="act-title">'+esc(t)+'</div>'+(d?'<div class="act-desc">'+esc(d)+'</div>':'')+'</div>';
-    }).join('');
-
-    document.getElementById('footer-l').textContent = name+' — NIL Sponsorship Pitch';
-    document.getElementById('footer-c').textContent = 'Prepared for '+brand+' — Confidential';
-
-    document.getElementById('deck-main').style.display='';
-    setTimeout(()=>{ document.getElementById('loader').classList.add('hidden'); }, 1800);
+    setProgress(85,'Rendering slides...');
+    renderDeck(deck, athlete, null);
 
   } catch(err){
     document.getElementById('loader').classList.add('hidden');
     document.getElementById('error-wrap').style.display='';
-    document.getElementById('error-msg').textContent = err.message||'Unknown error';
+    document.getElementById('error-msg').textContent = err.message||'Unknown error loading pitch deck.';
     console.error('Pitch deck error:',err);
   }
 }
