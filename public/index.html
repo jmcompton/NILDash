@@ -703,6 +703,148 @@ tbody td{padding:11px 14px;vertical-align:middle}
   -webkit-text-fill-color: transparent !important;
   background-clip: text !important;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   NILDash Mobile Fixes — DO NOT TOUCH DESKTOP LAYOUT
+   Applied ONLY at max-width:768px
+   ═══════════════════════════════════════════════════════════ */
+
+/* Force all inline-style grids to single column on mobile */
+@media (max-width: 768px) {
+
+  /* Catch-all: any inline display:grid element inside .content */
+  .content [style*="display:grid"],
+  .content [style*="display: grid"] {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+  }
+
+  /* But allow 2-col grids that are intentionally small (stats, badges) */
+  .content [style*="grid-template-columns:1fr 1fr"][style*="gap:8px"],
+  .content [style*="grid-template-columns:repeat(2,1fr)"][style*="gap:8px"] {
+    display: grid !important;
+    flex-direction: unset !important;
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* KPI grids: 2 columns always */
+  [style*="grid-template-columns:repeat(4,1fr)"],
+  [style*="grid-template-columns:repeat(3,1fr)"] {
+    display: grid !important;
+    flex-direction: unset !important;
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  /* Calendar: 7-col grid needs special treatment */
+  [style*="grid-template-columns:repeat(7,1fr)"] {
+    display: grid !important;
+    flex-direction: unset !important;
+    grid-template-columns: repeat(7,1fr) !important;
+    font-size: 9px !important;
+  }
+
+  /* Logo scaling fix */
+  .sidebar-logo { padding: 16px 14px !important; }
+  .nildash-logo-wordmark { font-size: 17px !important; }
+  .mob-logo { font-size: 15px !important; letter-spacing: -0.01em !important; }
+
+  /* Marketing panel: inputs full width */
+  #mkt-panel-brandkit input,
+  #mkt-panel-brandkit select {
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  #mkt-pitch-brand,
+  #mkt-pitch-client {
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Rate calculator: prevent overflow */
+  #rateCalcSection .card { overflow-x: auto !important; }
+
+  /* Roster cards: full width */
+  .athlete-card,
+  [class*="athlete"],
+  [id*="roster"] .card {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Negotiate / Outreach panels: stack on mobile */
+  .neg-layout,
+  [style*="grid-template-columns:320px"] {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* Fix overflow on all content panels */
+  .content,
+  .content > * {
+    overflow-x: hidden !important;
+    max-width: 100vw !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Page headers: reduce padding */
+  .page-header { padding: 14px 0 !important; }
+  .page-title { font-size: 20px !important; }
+
+  /* Tabs: allow horizontal scroll */
+  .tabs-row,
+  [id*="mkt-tabs"],
+  [class*="tab-row"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    white-space: nowrap !important;
+    display: flex !important;
+  }
+  .tabs-row button,
+  [id*="mkt-tabs"] button {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+  }
+
+  /* Action buttons: full width on mobile */
+  #mkt-brandkit-btn,
+  [id*="generate-btn"],
+  [id*="run-btn"] {
+    width: 100% !important;
+  }
+
+  /* Deal scan / AI command result blocks */
+  .ai-result,
+  [id*="result"],
+  [id*="Output"],
+  [id*="output"] {
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+  }
+
+  /* Team match grid */
+  [id*="teamMatchResult"] [style*="grid-template-columns"] {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* Commission table */
+  [id*="commission"] table,
+  [id*="pipeline"] table {
+    font-size: 11px !important;
+  }
+
+  /* Fix auth form z-index (login form clickable over sidebar) */
+  #authScreen {
+    z-index: 450 !important;
+  }
+
+  /* Ensure pitch deck photo upload area doesn't overflow */
+  #mkt-photo-drop {
+    min-width: 0 !important;
+    flex: 1 !important;
+  }
+}
 </style>
 </head>
 <body>
@@ -4337,10 +4479,16 @@ async function runMarketingBrandKit() {
       mktSection('Campaign Suggestions', mktBullets(kit.campaignSuggestions), '');
       mktSection('Ideal Sponsorship Categories', mktBullets(kit.idealSponsorshipCategories), '');
 
-      // Store data for pitch.html and show Open button
+      // Store FULL deck data for pitch.html (avoids re-calling AI in new tab)
       try {
-        var pitchData = { brand: targetBrand, photo: window._pitchPhotoDataUrl || null };
-        sessionStorage.setItem('nilPitchData_' + selectedAthleteId, JSON.stringify(pitchData));
+        var pitchData = {
+          brand: targetBrand,
+          photo: window._pitchPhotoDataUrl || null,
+          deck: kit,
+          athleteId: pitchAthleteId,
+          ts: Date.now()
+        };
+        sessionStorage.setItem('nilPitchData_' + pitchAthleteId, JSON.stringify(pitchData));
       } catch(e) {}
 
       var openBtn = document.createElement('div');
@@ -4349,7 +4497,7 @@ async function runMarketingBrandKit() {
       ob.textContent = 'Open Full Pitch Deck';
       ob.style.cssText = 'padding:10px 28px;background:var(--accent);color:#000;font-weight:700;border:none;border-radius:var(--r-sm);cursor:pointer;font-size:13px';
       ob.addEventListener('click', function() {
-        var url = '/pitch/' + selectedAthleteId + (targetBrand ? '?brand=' + encodeURIComponent(targetBrand) : '');
+        var url = '/pitch/' + pitchAthleteId + (targetBrand ? '?brand=' + encodeURIComponent(targetBrand) : '');
         window.open(url, '_blank');
       });
       openBtn.appendChild(ob);
