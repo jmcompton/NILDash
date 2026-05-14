@@ -43,6 +43,7 @@ const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
   keyGenerator: (req) => req.session?.userId || req.ip,
+  validate: { keyGeneratorIpFallback: false },
   message: { error: 'Too many AI requests. Please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,
