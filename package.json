@@ -1,6 +1,6 @@
 {
   "name": "nildash",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "NILDash - AI-powered NIL intelligence for agents and athletes",
   "main": "server/index.js",
   "scripts": {
