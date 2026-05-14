@@ -65,7 +65,7 @@
 [data-theme="light"] .ai-block{border-color:rgba(0,0,0,0.06)!important;background:#f8f7f4!important}
 [data-theme="light"] .ai-label{color:#15803d!important}
 [data-theme="light"] .ai-badge{background:#f0fdf4!important;color:#15803d!important}
-[data-theme="light"] .kpi-val,.kpi-value{font-family:'DM Sans',sans-serif!important;font-weight:700!important;letter-spacing:-0.02em!important;color:#C8FF00!important;-webkit-text-fill-color:#C8FF00!important;background:none!important}
+[data-theme="light"] .kpi-val,[data-theme="light"] .kpi-value{font-family:'Bebas Neue',sans-serif!important;font-size:30px!important;font-weight:400!important;color:#5A9900!important;-webkit-text-fill-color:#5A9900!important;background:none!important;letter-spacing:1px!important}
 [data-theme="light"] input,.select-sm,.input-sm{font-family:'Inter',sans-serif!important}
 [data-theme="light"] button{font-family:'Inter',sans-serif!important}
 [data-theme="light"] .auth-box{border-radius:12px!important}
@@ -149,7 +149,7 @@ body::before{display:none}
 .card:hover{border-color:rgba(255,255,255,0.14)}
 .card-title{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08);font-family:'DM Sans',sans-serif}
 .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px}
-.kpi{background:var(--surface);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px 16px;position:relative;overflow:hidden;transition:all 0.15s;cursor:default}
+.kpi{background:var(--surface);border:1px solid rgba(200,255,0,0.25);border-top:2px solid #C8FF00;border-radius:12px;padding:12px 16px;position:relative;overflow:hidden;transition:all 0.15s;cursor:default}
 .kpi:hover{border-color:rgba(200,255,0,0.25);transform:translateY(-2px)}
 .kpi-label{font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;font-weight:600;font-family:'DM Sans',sans-serif}
 .kpi-val{font-family:'Bebas Neue',sans-serif;font-size:30px;font-weight:400;letter-spacing:1px;color:#C8FF00;line-height:1;-webkit-text-fill-color:#C8FF00;background:none}
@@ -733,6 +733,38 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="kpi"><div class="kpi-label">Total NIL Earned</div><div class="kpi-val" id="kpi-total-nil" style="color:#C8FF00;-webkit-text-fill-color:#C8FF00">$0K</div><div class="kpi-sub">Across all clients</div></div>
         </div>
 
+        <div id="dashboard-quick-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+          <div style="background:var(--surface);border:1px solid rgba(200,255,0,0.2);border-top:2px solid #C8FF00;border-radius:12px;padding:14px 16px">
+            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Quick Actions</div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <button onclick="showView('rate',document.querySelector('.nav-item[onclick*=rate]'))" style="text-align:left;padding:8px 12px;background:rgba(200,255,0,0.06);border:1px solid rgba(200,255,0,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Calculate Rate for Client</button>
+              <button onclick="showView('deals',document.querySelector('.nav-item[onclick*=deals]'))" style="text-align:left;padding:8px 12px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">🔍 Scan for New Deals</button>
+              <button onclick="showView('marketing',document.querySelector('.nav-item[onclick*=marketing]'))" style="text-align:left;padding:8px 12px;background:rgba(255,184,0,0.06);border:1px solid rgba(255,184,0,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">🎯 Generate Pitch Deck</button>
+              <button onclick="showView('contract',document.querySelector('.nav-item[onclick*=contract]'))" style="text-align:left;padding:8px 12px;background:rgba(255,61,90,0.06);border:1px solid rgba(255,61,90,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">📄 Generate Contract</button>
+            </div>
+          </div>
+          <div style="background:var(--surface);border:1px solid rgba(200,255,0,0.2);border-top:2px solid #C8FF00;border-radius:12px;padding:14px 16px">
+            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">NIL Market Pulse</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                <span style="font-size:12px;color:var(--muted)">IG Reel avg rate</span>
+                <span style="font-size:12px;font-weight:600;color:#C8FF00;font-family:'JetBrains Mono',monospace">$0.048/view</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                <span style="font-size:12px;color:var(--muted)">NIL Market size</span>
+                <span style="font-size:12px;font-weight:600;color:#C8FF00;font-family:'JetBrains Mono',monospace">$2.8B</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                <span style="font-size:12px;color:var(--muted)">Avg P4 QB deal</span>
+                <span style="font-size:12px;font-weight:600;color:#00D4FF;font-family:'JetBrains Mono',monospace">$42K/yr</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0">
+                <span style="font-size:12px;color:var(--muted)">Avg engagement</span>
+                <span style="font-size:12px;font-weight:600;color:#FFB800;font-family:'JetBrains Mono',monospace">5.6%</span>
+              </div>
+            </div>
+          </div>
+        </div>
         <div id="onboarding-checklist" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div>
