@@ -47,7 +47,7 @@
 [data-theme="light"] .sidebar-bottom .user-role{color:rgba(255,255,255,0.35)!important}
 [data-theme="light"] #theme-toggle-btn{color:rgba(255,255,255,0.5)!important;border-color:rgba(255,255,255,0.1)!important}
 [data-theme="light"] #theme-toggle-btn:hover{color:rgba(255,255,255,0.8)!important;background:rgba(255,255,255,0.06)!important}
-[data-theme="light"] .topbar{background:#ffffff!important;border-bottom:0.5px solid rgba(0,0,0,0.08)!important}
+[data-theme="light"] .topbar{background:#ffffff!important;border-bottom:0.5px solid rgba(0,0,0,0.08)!important;padding:0 12px!important}
 [data-theme="light"] .page-title{font-family:'Inter',sans-serif!important;font-size:20px!important;font-weight:600!important;letter-spacing:-0.02em!important}
 [data-theme="light"] .page-sub{font-family:'Inter',sans-serif!important;font-size:13px!important}
 [data-theme="light"] .card{border:0.5px solid rgba(0,0,0,0.08)!important;border-radius:10px!important}
@@ -130,17 +130,17 @@ body::before{display:none}
 
 #appScreen{display:flex;min-height:100vh}
 .main{margin-left:200px;flex:1;min-height:100vh;position:relative;z-index:1;width:calc(100% - 200px);overflow-x:hidden}
-.topbar{position:sticky;top:0;z-index:40;background:#0A0E1A;border-bottom:1px solid rgba(255,255,255,0.08);padding:0 8px;height:44px;display:flex;align-items:center;justify-content:space-between}
+.topbar{position:sticky;top:0;z-index:40;background:#0A0E1A;border-bottom:1px solid rgba(255,255,255,0.08);padding:0 12px;height:44px;display:flex;align-items:center;justify-content:space-between}
 .breadcrumb{font-size:11px;color:var(--muted);letter-spacing:0.04em;font-family:'DM Sans',sans-serif}
 .breadcrumb span{color:var(--text);font-weight:600}
 .ai-status{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(240,244,255,0.4);font-family:'DM Sans',sans-serif;font-weight:500}
 .ai-status::before{content:'';width:6px;height:6px;border-radius:50%;background:#C8FF00;flex-shrink:0;animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-.content{padding:6px 8px 16px 8px;width:100%;box-sizing:border-box}
+.content{padding:4px 0 16px 0;width:100%;box-sizing:border-box}
 
 /*  VIEWS  */
-.view{display:none;min-height:0}.view.active{display:block;min-height:0}
+.view{display:none;min-height:0;padding:0 12px}.view.active{display:block;min-height:0;padding:0 12px}
 
 /*  SHARED  */
 .page-title{font-family:'Bebas Neue',sans-serif;font-size:28px;font-weight:400;letter-spacing:1.5px;margin-bottom:2px;color:var(--text)}
@@ -1029,7 +1029,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="content">
 
       <!-- SELECT ATHLETE BAR (shown on AI views) -->
-      <div id="athleteBar" style="margin-bottom:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div id="athleteBar" style="margin-bottom:6px;padding:0 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-size:11px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase">Active client:</span>
         <select class="select-sm" id="activeAthlete" onchange="onAthleteChange()" style="width:220px">
           <option value="">Select a client...</option>
