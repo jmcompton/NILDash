@@ -6,6 +6,8 @@
 <title>NIL Sponsorship Pitch Deck</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--uni:#BA0C2F;--uni2:#000000;--bg:#06080F;--surf:#0D1020;--surf2:#141828;--text:#F4F6FF;--muted:rgba(244,246,255,0.5);--border:rgba(255,255,255,0.08)}
@@ -133,7 +135,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);lin
     <div><div id="nav-name">Loading...</div><div id="nav-sub">NIL Sponsorship Pitch Deck</div></div>
   </div>
   <div id="nav-right">
-    <button class="nav-btn nav-ghost" onclick="window.print()">Export PDF</button>
+    <button class="nav-btn nav-ghost" onclick="exportPDF()" id="export-btn">Export PDF</button>
     <button class="nav-btn nav-solid" onclick="openContactModal()">Contact Agent</button>
   </div>
 </nav>
@@ -148,8 +150,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);lin
       <div class="stat-row">
         <div class="stat-box"><div class="stat-val" id="h-ig">—</div><div class="stat-lbl">IG Followers</div></div>
         <div class="stat-box"><div class="stat-val" id="h-tt">—</div><div class="stat-lbl">TikTok</div></div>
-        <div class="stat-box"><div class="stat-val" id="h-eng">—</div><div class="stat-lbl">Engagement</div></div>
-        <div class="stat-box"><div class="stat-val" id="h-score">—</div><div class="stat-lbl">NIL Score</div></div>
+        <div class="stat-box"><div class="stat-val" id="h-eng">—</div><div class="stat-lbl">Engagement Rate</div></div>
+        <div class="stat-box"><div class="stat-val" id="h-reach">—</div><div class="stat-lbl">Total Reach</div></div>
       </div>
     </div>
     <div id="h-photo-wrap">
@@ -172,7 +174,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);lin
   <h2 class="sec-title">Athletic Performance</h2>
   <p class="sec-sub">The competitive foundation behind the brand opportunity.</p>
   <div class="perf-grid" id="perf-grid"></div>
-  <div class="chart-wrap"><div class="chart-hd">Athlete Composite Index — 5 Dimensions</div><canvas id="ch-radar"></canvas></div>
+  <div class="chart-wrap">
+    <div class="chart-hd">Social Platform Breakdown</div>
+    <canvas id="ch-platform" style="max-height:280px"></canvas>
+  </div>
 </section>
 <section class="slide" id="s4">
   <div class="eyebrow">Slide 04</div>
@@ -245,7 +250,7 @@ function render(d){
   $('h-ig').textContent=fmt(igN);
   $('h-tt').textContent=fmt(ttN);
   $('h-eng').textContent=eng?eng+'%':'—';
-  $('h-score').textContent=sc2.marketabilityScore?sc2.marketabilityScore+'/100':'—';
+  $('h-reach').textContent=fmt(tot);
   $('photo-initials').textContent=nm.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   $('photo-sport').textContent=[pos,sp].filter(Boolean).join(' · ');
   if(d.athletePhoto){$('h-photo').src=d.athletePhoto;$('h-photo').style.display='block';$('photo-placeholder').style.display='none';}
@@ -265,7 +270,35 @@ function render(d){
   perfItems.forEach(p=>{pg.insertAdjacentHTML('beforeend',`<div class="perf-box"><div class="perf-num">${p.n}</div><div class="perf-lbl">${p.l}</div>${p.sub?`<div class="perf-sub">${p.sub}</div>`:''}</div>`);});
   Chart.defaults.color='rgba(244,246,255,0.45)';Chart.defaults.font.family="'DM Sans',sans-serif";
   const uniColor=uniData?uniData.c:'#BA0C2F';
-  new Chart($('ch-radar'),{type:'radar',data:{labels:['Social Reach','Engagement','Athletic Performance','Brand Fit','Market Size'],datasets:[{data:[clamp(Math.round((tot/10000)*5+25),20,100),clamp(Math.round(eng*14+20),20,100),sc2.archetypeScore||72,sc2.marketabilityScore||74,sc2.sponsorshipReadiness||70],backgroundColor:uniColor+'15',borderColor:uniColor,borderWidth:2,pointBackgroundColor:uniColor,pointRadius:4}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{r:{min:0,max:100,grid:{color:'rgba(255,255,255,0.07)'},angleLines:{color:'rgba(255,255,255,0.07)'},pointLabels:{color:'rgba(244,246,255,0.5)',font:{size:11,weight:'600'}},ticks:{display:false,stepSize:25}}}}});
+  // Platform bar chart - real data only, all positive
+  new Chart($('ch-platform'),{
+    type:'bar',
+    data:{
+      labels:['Instagram Followers','TikTok Followers','Combined Reach','Engagement Rate (×10K)'],
+      datasets:[{
+        data:[igN||0, ttN||0, tot||0, Math.round((eng||0)*10000)],
+        backgroundColor:[uniColor+'CC', uniColor+'88', uniColor+'AA', uniColor+'66'],
+        borderColor:[uniColor, uniColor, uniColor, uniColor],
+        borderWidth:2,
+        borderRadius:6,
+        borderSkipped:false,
+      }]
+    },
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:function(c){
+          if(c.dataIndex===3) return ' '+eng+'% Engagement Rate';
+          return ' '+fmt(c.raw)+' followers';
+        }}}
+      },
+      scales:{
+        x:{grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'rgba(244,246,255,0.5)',font:{size:11}}},
+        y:{grid:{color:'rgba(255,255,255,0.06)'},ticks:{color:'rgba(244,246,255,0.5)',callback:function(v){return fmt(v);}},beginAtZero:true}
+      }
+    }
+  });
   $('aud-grid').innerHTML=`<div class="aud-box"><div class="aud-platform">Instagram</div><div class="aud-num">${fmt(igN)}</div><div class="aud-eng">${eng?eng+'% Engagement':'Active'}</div><div class="aud-desc">Primary 18–34, lifestyle and sport. High engagement on game-day and training content.</div></div><div class="aud-box"><div class="aud-platform">TikTok</div><div class="aud-num">${fmt(ttN)||'Active'}</div><div class="aud-eng">Growing Presence</div><div class="aud-desc">Younger 16–28 skew. High-velocity distribution ideal for product launches and viral brand moments.</div></div><div class="aud-box" style="border-color:${uniColor}50;background:${uniColor}08"><div class="aud-platform">Combined Reach</div><div class="aud-num" style="color:var(--uni)">${fmt(tot)}</div><div class="aud-eng">Cross-Platform</div><div class="aud-desc">Full-funnel coverage from mass awareness through targeted conversion for ${brand||'your brand'}'s core demographic.</div></div>`;
   $('geo-list').innerHTML=[['Home State / Region','42%'],['National College Fans','29%'],['Midwest / Northeast','19%'],['International','10%']].map(([l,v])=>`<div class="demo-row"><span class="demo-label">${l}</span><span class="demo-val">${v}</span></div>`).join('');
   $('demo-list').innerHTML=[['Ages 18–24','52%'],['Ages 25–34','28%'],['Male','68%'],['Sport/Lifestyle Interest','91%']].map(([l,v])=>`<div class="demo-row"><span class="demo-label">${l}</span><span class="demo-val">${v}</span></div>`).join('');
@@ -304,6 +337,44 @@ async function init(){
   }catch(err){$('loader').innerHTML=`<div style="text-align:center;color:#FF3D5A;font-size:13px;padding:20px;">${err.message}</div>`;}
 }
 init();
+
+async function exportPDF(){
+  const btn = document.getElementById('export-btn');
+  const nav = document.getElementById('top-nav');
+  const loader = document.createElement('div');
+  loader.style.cssText = 'position:fixed;inset:0;background:rgba(6,8,15,0.9);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px';
+  loader.innerHTML = '<div style="width:46px;height:46px;border:3px solid rgba(255,255,255,0.08);border-top-color:var(--uni);border-radius:50%;animation:spin 1s linear infinite"></div><div style="font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:rgba(244,246,255,0.5)">Generating PDF...</div>';
+  document.body.appendChild(loader);
+  try {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'px', format: [1280, 720] });
+    const slides = document.querySelectorAll('.slide');
+    nav.style.display = 'none';
+    for(let i = 0; i < slides.length; i++){
+      slides[i].style.opacity = '1';
+      slides[i].style.transform = 'none';
+      const canvas = await html2canvas(slides[i], {
+        scale: 1.5,
+        useCORS: true,
+        backgroundColor: '#06080F',
+        width: 1280,
+        windowWidth: 1280,
+      });
+      const imgData = canvas.toDataURL('image/jpeg', 0.92);
+      if(i > 0) pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', 0, 0, 1280, 720);
+      loader.querySelector('div:last-child').textContent = `Slide ${i+1} of ${slides.length}...`;
+    }
+    nav.style.display = 'flex';
+    const athleteName = (document.getElementById('h-name')||{}).textContent || 'Athlete';
+    const brand = new URLSearchParams(window.location.search).get('brand') || 'NIL';
+    pdf.save(`${athleteName.replace(/\s+/g,'-')}-x-${brand}-NIL-Pitch.pdf`);
+  } catch(err){
+    nav.style.display = 'flex';
+    alert('PDF export failed: ' + err.message);
+  }
+  document.body.removeChild(loader);
+}
 </script>
 
 <!-- CONTACT MODAL -->
