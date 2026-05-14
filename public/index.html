@@ -745,25 +745,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <button onclick="showView('contract',document.querySelector('.nav-item[onclick*=contract]'))" style="text-align:left;padding:8px 12px;background:rgba(255,61,90,0.06);border:1px solid rgba(255,61,90,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Generate Contract</button>
             </div>
           </div>
-          <div style="background:var(--surface);border:1px solid rgba(200,255,0,0.2);border-top:2px solid #C8FF00;border-radius:12px;padding:14px 16px">
-            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">NIL Market Pulse</div>
-            <div style="display:flex;flex-direction:column;gap:8px">
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-                <span style="font-size:12px;color:var(--muted)">IG Reel avg rate</span>
-                <span style="font-size:12px;font-weight:600;color:#C8FF00;font-family:'JetBrains Mono',monospace">$0.048/view</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-                <span style="font-size:12px;color:var(--muted)">NIL Market size</span>
-                <span style="font-size:12px;font-weight:600;color:#C8FF00;font-family:'JetBrains Mono',monospace">$2.8B</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-                <span style="font-size:12px;color:var(--muted)">Avg P4 QB deal</span>
-                <span style="font-size:12px;font-weight:600;color:#00D4FF;font-family:'JetBrains Mono',monospace">$42K/yr</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0">
-                <span style="font-size:12px;color:var(--muted)">Avg engagement</span>
-                <span style="font-size:12px;font-weight:600;color:#FFB800;font-family:'JetBrains Mono',monospace">5.6%</span>
-              </div>
+          <div style="background:var(--surface);border:1px solid rgba(255,184,0,0.2);border-top:2px solid #FFB800;border-radius:12px;padding:14px 16px;overflow:hidden">
+            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Follow-Ups Needed</div>
+            <div id="followup-list" style="display:flex;flex-direction:column;gap:6px">
+              <div style="font-size:11px;color:var(--muted);padding:8px 0">Loading...</div>
             </div>
           </div>
         </div>
@@ -2050,6 +2035,7 @@ async function bootApp() {
 
   await loadAthletes();
   loadKPIs();
+  loadFollowUps();
   if (currentUser.role === 'athlete') {
     showView('athlete-dashboard', null);
     loadAthleteDashboard();
@@ -2351,6 +2337,30 @@ async function addAthlete() {
 }
 
 //  KPIS 
+async function loadFollowUps() {
+  const el = document.getElementById('followup-list');
+  if (!el) return;
+  try {
+    const data = await fetch(`${API_BASE}/api/dashboard/followups`).then(r=>r.json());
+    const items = data.followups || [];
+    if (!items.length) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:8px 0">No follow-ups needed right now.</div>';
+      return;
+    }
+    const urgencyColor = { high:'#FF3D5A', medium:'#FFB800', low:'rgba(255,255,255,0.25)' };
+    el.innerHTML = items.map(f => `
+      <div style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+        <div style="width:6px;height:6px;border-radius:50%;background:${urgencyColor[f.urgency]};flex-shrink:0;margin-top:4px"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.label}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px">${f.detail}</div>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--muted)">Unable to load.</div>';
+  }
+}
+
 async function loadKPIs() {
   if (!selectedAthleteId) return;
   try {

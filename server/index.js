@@ -786,6 +786,77 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
   doc.end();
 });
 
+// ── Dashboard Follow-Ups ─────────────────────────────────────
+app.get('/api/dashboard/followups', requireAuth, async (req, res) => {
+  const agentId = req.session.userId;
+  const followups = [];
+  const now = new Date();
+
+  try {
+    // Deals stuck in an active stage for 7+ days
+    const deals = await store.getDealsByAgent(agentId);
+    const staleStages = ['Prospecting','Outreach','Negotiating','Sent'];
+    for (const deal of deals) {
+      const stage = deal.stage || deal.status || '';
+      const updatedAt = deal.updatedAt || deal.createdAt || deal.created_at;
+      if (staleStages.includes(stage) && updatedAt) {
+        const daysSince = Math.floor((now - new Date(updatedAt)) / 86400000);
+        if (daysSince >= 7) {
+          followups.push({
+            type: 'deal',
+            label: `${deal.brand || 'Deal'} — ${stage}`,
+            detail: `No update in ${daysSince} days`,
+            urgency: daysSince >= 14 ? 'high' : 'medium',
+          });
+        }
+      }
+    }
+
+    // Upcoming calendar events in next 7 days
+    try {
+      await store.pool.query('CREATE TABLE IF NOT EXISTS calendar_events (id SERIAL PRIMARY KEY, agent_id TEXT, title TEXT, date TEXT, notes TEXT, reminderdays INTEGER, created_at TIMESTAMPTZ DEFAULT NOW())');
+      const upcoming = await store.pool.query(
+        `SELECT * FROM calendar_events WHERE agent_id=$1 AND date >= $2 AND date <= $3 ORDER BY date ASC LIMIT 5`,
+        [agentId, now.toISOString().slice(0,10), new Date(now.getTime() + 7*86400000).toISOString().slice(0,10)]
+      );
+      for (const ev of upcoming.rows) {
+        const daysUntil = Math.floor((new Date(ev.date) - now) / 86400000);
+        followups.push({
+          type: 'calendar',
+          label: ev.title,
+          detail: daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `In ${daysUntil} days`,
+          urgency: daysUntil <= 1 ? 'high' : 'medium',
+        });
+      }
+    } catch(e) {}
+
+    // Athletes with no active deals
+    const athletes = await store.getAthletesByAgent(agentId);
+    const athleteIdsWithDeals = new Set(deals.filter(d => {
+      const s = d.stage || d.status || '';
+      return ['Prospecting','Outreach','Negotiating','Sent'].includes(s);
+    }).map(d => d.athleteId));
+    for (const ath of athletes) {
+      if (!athleteIdsWithDeals.has(ath.id)) {
+        followups.push({
+          type: 'athlete',
+          label: ath.name,
+          detail: 'No active deals — consider outreach',
+          urgency: 'low',
+        });
+      }
+    }
+
+    // Sort: high urgency first
+    const order = { high: 0, medium: 1, low: 2 };
+    followups.sort((a, b) => order[a.urgency] - order[b.urgency]);
+
+    res.json({ followups: followups.slice(0, 6) });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Catch-all → frontend ───────────────────────────────────────
 // ── Calendar Events ───────────────────────────────────────────
 app.get('/api/calendar/events', requireAuth, async (req, res) => {
