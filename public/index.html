@@ -235,6 +235,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .modal-close{float:right;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;margin-top:-4px}
 
 /* Toast */
+.notif-panel{position:fixed;top:44px;right:0;z-index:100;width:280px;max-height:calc(100vh - 44px);overflow-y:auto;background:var(--surface);border-left:1px solid var(--border);border-bottom:1px solid var(--border);display:none}
+.notif-panel.open{display:block}
 .toast{position:fixed;bottom:20px;right:20px;z-index:999;background:#141929;color:var(--text);border:1px solid rgba(200,255,0,0.4);border-radius:10px;padding:12px 18px;font-size:12px;max-width:320px;opacity:0;transform:translateY(8px);transition:all 0.25s;pointer-events:none;font-family:'DM Sans',sans-serif;font-weight:500}
 .toast.show{opacity:1;transform:none}
 
@@ -737,10 +739,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div style="background:var(--surface);border:1px solid rgba(200,255,0,0.2);border-top:2px solid #C8FF00;border-radius:12px;padding:14px 16px">
             <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Quick Actions</div>
             <div style="display:flex;flex-direction:column;gap:6px">
-              <button onclick="showView('rate',document.querySelector('.nav-item[onclick*=rate]'))" style="text-align:left;padding:8px 12px;background:rgba(200,255,0,0.06);border:1px solid rgba(200,255,0,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">⚡ Calculate Rate for Client</button>
-              <button onclick="showView('deals',document.querySelector('.nav-item[onclick*=deals]'))" style="text-align:left;padding:8px 12px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">🔍 Scan for New Deals</button>
-              <button onclick="showView('marketing',document.querySelector('.nav-item[onclick*=marketing]'))" style="text-align:left;padding:8px 12px;background:rgba(255,184,0,0.06);border:1px solid rgba(255,184,0,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">🎯 Generate Pitch Deck</button>
-              <button onclick="showView('contract',document.querySelector('.nav-item[onclick*=contract]'))" style="text-align:left;padding:8px 12px;background:rgba(255,61,90,0.06);border:1px solid rgba(255,61,90,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">📄 Generate Contract</button>
+              <button onclick="showView('rate',document.querySelector('.nav-item[onclick*=rate]'))" style="text-align:left;padding:8px 12px;background:rgba(200,255,0,0.06);border:1px solid rgba(200,255,0,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Calculate Rate for Client</button>
+              <button onclick="showView('deals',document.querySelector('.nav-item[onclick*=deals]'))" style="text-align:left;padding:8px 12px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Scan for New Deals</button>
+              <button onclick="showView('marketing',document.querySelector('.nav-item[onclick*=marketing]'))" style="text-align:left;padding:8px 12px;background:rgba(255,184,0,0.06);border:1px solid rgba(255,184,0,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Generate Pitch Deck</button>
+              <button onclick="showView('contract',document.querySelector('.nav-item[onclick*=contract]'))" style="text-align:left;padding:8px 12px;background:rgba(255,61,90,0.06);border:1px solid rgba(255,61,90,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Generate Contract</button>
             </div>
           </div>
           <div style="background:var(--surface);border:1px solid rgba(200,255,0,0.2);border-top:2px solid #C8FF00;border-radius:12px;padding:14px 16px">
