@@ -130,25 +130,25 @@ body::before{display:none}
 
 #appScreen{display:flex;min-height:100vh}
 .main{margin-left:220px;flex:1;min-height:100vh;position:relative;z-index:1;width:calc(100% - 220px);overflow-x:hidden}
-.topbar{position:sticky;top:0;z-index:40;background:#0A0E1A;border-bottom:1px solid rgba(255,255,255,0.08);padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between}
+.topbar{position:sticky;top:0;z-index:40;background:#0A0E1A;border-bottom:1px solid rgba(255,255,255,0.08);padding:0 20px;height:44px;display:flex;align-items:center;justify-content:space-between}
 .breadcrumb{font-size:11px;color:var(--muted);letter-spacing:0.04em;font-family:'DM Sans',sans-serif}
 .breadcrumb span{color:var(--text);font-weight:600}
 .ai-status{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(240,244,255,0.4);font-family:'DM Sans',sans-serif;font-weight:500}
 .ai-status::before{content:'';width:6px;height:6px;border-radius:50%;background:#C8FF00;flex-shrink:0;animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-.content{padding:16px 20px;width:100%;box-sizing:border-box}
+.content{padding:10px 16px 16px 16px;width:100%;box-sizing:border-box}
 
 /*  VIEWS  */
 .view{display:none;min-height:0}.view.active{display:block;min-height:0}
 
 /*  SHARED  */
-.page-title{font-family:'Bebas Neue',sans-serif;font-size:32px;font-weight:400;letter-spacing:1.5px;margin-bottom:4px;color:var(--text)}
-.page-sub{font-size:12px;color:var(--muted);margin-bottom:24px;font-family:'DM Sans',sans-serif}
+.page-title{font-family:'Bebas Neue',sans-serif;font-size:28px;font-weight:400;letter-spacing:1.5px;margin-bottom:2px;color:var(--text)}
+.page-sub{font-size:12px;color:var(--muted);margin-bottom:10px;font-family:'DM Sans',sans-serif}
 .card{background:var(--surface);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px 22px;transition:border-color 0.15s}
 .card:hover{border-color:rgba(255,255,255,0.14)}
 .card-title{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08);font-family:'DM Sans',sans-serif}
-.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px}
 .kpi{background:var(--surface);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden;transition:all 0.15s;cursor:default}
 .kpi:hover{border-color:rgba(200,255,0,0.25);transform:translateY(-2px)}
 .kpi-label{font-size:10px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:10px;font-weight:600;font-family:'DM Sans',sans-serif}
@@ -1029,7 +1029,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="content">
 
       <!-- SELECT ATHLETE BAR (shown on AI views) -->
-      <div id="athleteBar" style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div id="athleteBar" style="margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-size:11px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase">Active client:</span>
         <select class="select-sm" id="activeAthlete" onchange="onAthleteChange()" style="width:220px">
           <option value="">Select a client...</option>
