@@ -140,10 +140,10 @@ SOCIAL & BRAND:
   Engagement: ${athlete.engagement || 0}% (college athlete avg: 4.8% per Hootsuite 2025) | Brand level: ${brandAwareness}
 
 NILViewVal v5.2 RATES — Real-data model (NCAA 2025 + On3 + Modash CPM benchmarks):
-  IG Reel: $\${_reel.low.toLocaleString()} – $\${_reel.high.toLocaleString()} | IG Post: $\${_post.low.toLocaleString()} – $\${_post.high.toLocaleString()}
-  TikTok: $\${_tiktok.low.toLocaleString()} – $\${_tiktok.high.toLocaleString()} | Bundle (IG+Post+Story): $\${_bundle.low.toLocaleString()} – $\${_bundle.high.toLocaleString()}
-  Cross-Platform Bundle: $\${_bundleCross.low.toLocaleString()} – $\${_bundleCross.high.toLocaleString()} | Monthly Retainer: $\${_retainer.low.toLocaleString()} – $\${_retainer.high.toLocaleString()}
-  UGC Video License: $\${_ugcVideo.low.toLocaleString()} – $\${_ugcVideo.high.toLocaleString()} | In-Person Appearance: $\${_appearance.low.toLocaleString()} – $\${_appearance.high.toLocaleString()}
+  IG Reel: \$${_reel.low.toLocaleString()} – \$${_reel.high.toLocaleString()} | IG Post: \$${_post.low.toLocaleString()} – \$${_post.high.toLocaleString()}
+  TikTok: \$${_tiktok.low.toLocaleString()} – \$${_tiktok.high.toLocaleString()} | Bundle (IG+Post+Story): \$${_bundle.low.toLocaleString()} – \$${_bundle.high.toLocaleString()}
+  Cross-Platform Bundle: \$${_bundleCross.low.toLocaleString()} – \$${_bundleCross.high.toLocaleString()} | Monthly Retainer: \$${_retainer.low.toLocaleString()} – \$${_retainer.high.toLocaleString()}
+  UGC Video License: \$${_ugcVideo.low.toLocaleString()} – \$${_ugcVideo.high.toLocaleString()} | In-Person Appearance: \$${_appearance.low.toLocaleString()} – \$${_appearance.high.toLocaleString()}
 
 NILViewVal v5.2 COMPOSITE SCORES:
   Marketability: ${v4.marketabilityScore}/100 | Sponsorship Readiness: ${v4.sponsorshipReadiness}/100
@@ -217,6 +217,7 @@ async function oneShotWithSearch(prompt, systemPrompt) {
   return await oneShot(prompt, systemPrompt + ' Use your training knowledge of real NIL deals, brands, collectives, and transfer portal activity from 2024-2026 to provide accurate, specific, data-backed answers.', 4000);
 }
 
+// Reserved for future live rate enhancement
 async function calculateRateLive(athlete, deliverableType) {
   const sport = athlete.sport || 'basketball';
   const tier = athlete.schoolTier || 'p4-mid';

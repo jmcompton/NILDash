@@ -1,5 +1,6 @@
 // server/index.js
 require('dotenv').config();
+if (!process.env.SESSION_SECRET) console.warn('WARNING: SESSION_SECRET not set — using insecure default');
 
 const express  = require('express');
 const session  = require('express-session');
@@ -17,6 +18,7 @@ const ai       = require('./ai');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com';
 
 // Security headers
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -38,7 +40,7 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// AI tools: 30 requests per minute per user
+// AI tools: 20 requests per minute per user
 const aiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -90,7 +92,6 @@ app.post('/api/auth/signup', async (req, res) => {
     return res.status(400).json({ error: 'Email already registered' });
   // Check if email is approved
   try {
-    await store.pool.query('CREATE TABLE IF NOT EXISTS access_requests (id SERIAL PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, agency TEXT, athletes TEXT, status TEXT DEFAULT \'pending\', created_at TIMESTAMPTZ DEFAULT NOW())');
     const approved = await store.pool.query('SELECT id FROM access_requests WHERE email=$1 AND status=$2', [email, 'approved']);
     if (approved.rows.length === 0)
       return res.status(403).json({ error: 'Your email has not been approved yet. Request access at mynildash.com/landing' });
@@ -110,7 +111,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
 app.post('/api/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
-  const user = await store.getUserByEmail(email);
+  const user = await store.getUserByEmailWithPassword(email);
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
   const ok = await bcrypt.compare(password, user.password);
@@ -178,7 +179,7 @@ app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
   if (!athlete) return res.status(404).json({ error: 'Not found' });
   const user = await store.getUser(req.session.userId);
   // Allow admin or owner to delete
-  if (athlete.agent_id !== req.session.userId && user.email !== 'johnmarkcompton@gmail.com') {
+  if (athlete.agent_id !== req.session.userId && user.email !== ADMIN_EMAIL) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   await store.deleteAthlete(req.params.id);
@@ -227,7 +228,6 @@ app.get('/api/comps', requireAuth, async (req, res) => {
   const { sport, schoolTier } = req.query;
   const comps = await store.getComps(sport, schoolTier, 20);
   const stats = await store.getCompStats(sport, schoolTier);
-  const rateContextStr = liveContext ? '\n\nLIVE MARKET DATA (from web search):\n' + liveContext : '';
   res.json({ comps, stats, count: comps.length });
 });
 
@@ -270,7 +270,7 @@ app.delete('/api/deals/:id', requireAuth, async (req, res) => {
   if (!deal) return res.status(404).json({ error: 'Not found' });
   // Allow if owner or if no agent_id set (legacy deals)
   const user = await store.getUser(req.session.userId);
-  const isAdmin = user && user.email === 'johnmarkcompton@gmail.com';
+  const isAdmin = user && user.email === ADMIN_EMAIL;
   if (!isAdmin && deal.agent_id && deal.agent_id !== req.session.userId) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -814,7 +814,6 @@ app.get('/api/dashboard/followups', requireAuth, async (req, res) => {
 
     // Upcoming calendar events in next 7 days
     try {
-      await store.pool.query('CREATE TABLE IF NOT EXISTS calendar_events (id SERIAL PRIMARY KEY, agent_id TEXT, title TEXT, date TEXT, notes TEXT, reminderdays INTEGER, created_at TIMESTAMPTZ DEFAULT NOW())');
       const upcoming = await store.pool.query(
         `SELECT * FROM calendar_events WHERE agent_id=$1 AND date >= $2 AND date <= $3 ORDER BY date ASC LIMIT 5`,
         [agentId, now.toISOString().slice(0,10), new Date(now.getTime() + 7*86400000).toISOString().slice(0,10)]
@@ -861,7 +860,6 @@ app.get('/api/dashboard/followups', requireAuth, async (req, res) => {
 // ── Calendar Events ───────────────────────────────────────────
 app.get('/api/calendar/events', requireAuth, async (req, res) => {
   try {
-    await store.pool.query('CREATE TABLE IF NOT EXISTS calendar_events (id SERIAL PRIMARY KEY, agent_id TEXT, title TEXT, date TEXT, notes TEXT, reminderdays INTEGER, created_at TIMESTAMPTZ DEFAULT NOW())');
     const r = await store.pool.query('SELECT * FROM calendar_events WHERE agent_id=$1 ORDER BY date ASC', [req.session.userId]);
     res.json({ events: r.rows });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -870,7 +868,6 @@ app.post('/api/calendar/events', requireAuth, async (req, res) => {
   const { title, date, notes, reminderDays } = req.body;
   if (!title || !date) return res.status(400).json({ error: 'title and date required' });
   try {
-    await store.pool.query('CREATE TABLE IF NOT EXISTS calendar_events (id SERIAL PRIMARY KEY, agent_id TEXT, title TEXT, date TEXT, notes TEXT, reminderdays INTEGER, created_at TIMESTAMPTZ DEFAULT NOW())');
     const r = await store.pool.query('INSERT INTO calendar_events (agent_id, title, date, notes, reminderdays) VALUES ($1,$2,$3,$4,$5) RETURNING *', [req.session.userId, title, date, notes||'', reminderDays !== '' && reminderDays !== undefined ? parseInt(reminderDays) : null]);
     res.json({ event: r.rows[0] });
   } catch(e) { res.status(500).json({ error: e.message }); }
@@ -883,7 +880,7 @@ app.delete('/api/calendar/events/:id', requireAuth, async (req, res) => {
 });
 
 // ── Password Reset ───────────────────────────────────────────
-app.post('/api/auth/forgot-password', async (req, res) => {
+app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email required' });
   try {
@@ -891,7 +888,6 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     if (!user) return res.json({ ok: true }); // Don't reveal if email exists
     const token = require('crypto').randomBytes(32).toString('hex');
     const expires = new Date(Date.now() + 3600000).toISOString(); // 1 hour
-    await store.pool.query('CREATE TABLE IF NOT EXISTS password_resets (id SERIAL PRIMARY KEY, email TEXT, token TEXT, expires_at TIMESTAMPTZ, used BOOLEAN DEFAULT FALSE)');
     await store.pool.query('INSERT INTO password_resets (email, token, expires_at) VALUES ($1,$2,$3)', [email, token, expires]);
     const resetUrl = (process.env.APP_URL || 'https://mynildash.com') + '/reset?token=' + token;
     await resend.emails.send({
@@ -913,7 +909,6 @@ app.post('/api/auth/reset-password', async (req, res) => {
   const { token, password } = req.body;
   if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
   try {
-    await store.pool.query('CREATE TABLE IF NOT EXISTS password_resets (id SERIAL PRIMARY KEY, email TEXT, token TEXT, expires_at TIMESTAMPTZ, used BOOLEAN DEFAULT FALSE)');
     const r = await store.pool.query('SELECT * FROM password_resets WHERE token=$1 AND used=FALSE AND expires_at > NOW()', [token]);
     if (!r.rows.length) return res.status(400).json({ error: 'Invalid or expired reset link' });
     const { email } = r.rows[0];
@@ -931,7 +926,6 @@ app.post('/api/request-access', async (req, res) => {
   const { firstName, lastName, email, agency, athletes } = req.body;
   if (!firstName || !lastName || !email) return res.status(400).json({ error: 'Name and email required' });
   try {
-    await store.pool.query(`CREATE TABLE IF NOT EXISTS access_requests (id SERIAL PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, agency TEXT, athletes TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`);
     await store.pool.query('INSERT INTO access_requests (first_name, last_name, email, agency, athletes) VALUES ($1,$2,$3,$4,$5)', [firstName, lastName, email, agency||'', athletes||'']);
     console.log('ACCESS REQUEST:', firstName, lastName, email, agency, athletes);
     // Email notification to admin
@@ -940,7 +934,7 @@ app.post('/api/request-access', async (req, res) => {
       const resend = new Resend(process.env.RESEND_API_KEY);
       await resend.emails.send({
         from: 'noreply@mynildash.com',
-        to: 'johnmarkcompton@gmail.com',
+        to: ADMIN_EMAIL,
         subject: 'New NILDash Access Request — ' + firstName + ' ' + lastName,
         html: '<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">' +
           '<h2 style="color:#15803d">New Access Request</h2>' +
@@ -963,14 +957,6 @@ app.post('/api/feedback/deal-action', requireAuth, async (req, res) => {
   try {
     const { brand, dealType, action, athleteId } = req.body;
     const athlete = athleteId ? await store.getAthlete(athleteId) : null;
-    await store.pool.query(`
-      CREATE TABLE IF NOT EXISTS deal_scan_feedback (
-        id SERIAL PRIMARY KEY, agent_id TEXT, athlete_id TEXT,
-        brand TEXT, deal_type TEXT, action TEXT,
-        sport TEXT, position TEXT, school_tier TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
     await store.pool.query(
       'INSERT INTO deal_scan_feedback (agent_id, athlete_id, brand, deal_type, action, sport, position, school_tier) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
       [req.session.userId, athleteId||'', brand||'', dealType||'', action||'',
@@ -1026,7 +1012,7 @@ app.post('/api/dev/approve-email', async (req, res) => {
 app.post('/api/admin/run-ingestion', async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);
-    if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
     const { exec } = require('child_process');
     exec('node ' + require('path').join(__dirname, 'nilCompJob.js'), (err, stdout) => {
       if (err) console.error('Manual ingestion error:', err.message);
@@ -1041,7 +1027,7 @@ app.post('/api/admin/set-plan', async (req, res) => {
   try {
     const { userId, plan } = req.body;
     const user = await store.getUser(req.session.userId);
-    if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
     let trialEndsAt = null;
     if (plan === 'trial') {
       trialEndsAt = new Date(Date.now() + 14 * 86400000).toISOString();
@@ -1054,14 +1040,16 @@ app.post('/api/admin/set-plan', async (req, res) => {
 app.get('/api/admin/users', async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);
-    if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
     const r = await store.pool.query('SELECT id, name, email, plan, trial_ends_at, created_at FROM users ORDER BY created_at DESC');
     res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Admin force delete ───────────────────────────────────────
-app.delete('/api/admin/athlete/:id', async (req, res) => {
+app.delete('/api/admin/athlete/:id', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
   try {
     await store.pool.query('DELETE FROM athletes WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
@@ -1071,7 +1059,7 @@ app.delete('/api/admin/athlete/:id', async (req, res) => {
 // ── Admin cleanup ────────────────────────────────────────────
 app.post('/api/admin/cleanup-duplicates', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
-  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+  if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
   try {
     const r = await store.pool.query('SELECT id, data FROM athletes WHERE agent_id=$1 ORDER BY updated_at ASC', [req.session.userId]);
     const seen = {};
@@ -1112,7 +1100,6 @@ app.post('/api/reports/generate', requireAuth, async (req, res) => {
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const agent = await store.getUser(req.session.userId);
   try {
-    await store.pool.query('CREATE TABLE IF NOT EXISTS athlete_reports (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, agent_message TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)');
     const token = require('crypto').randomBytes(16).toString('hex');
     const expires = new Date(Date.now() + 7 * 86400000).toISOString();
     await store.pool.query('INSERT INTO athlete_reports (id, athlete_id, agent_id, agent_message, expires_at) VALUES ($1,$2,$3,$4,$5)', [token, athleteId, req.session.userId, agentMessage||'', expires]);
@@ -1132,16 +1119,6 @@ app.post('/api/athlete-portal/invite', requireAuth, async (req, res) => {
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const token = require('crypto').randomBytes(24).toString('hex');
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  await store.pool.query(`CREATE TABLE IF NOT EXISTS athlete_invites (
-    id TEXT PRIMARY KEY,
-    athlete_id TEXT,
-    agent_id TEXT,
-    token TEXT UNIQUE,
-    visibility JSONB DEFAULT '{}',
-    status TEXT DEFAULT 'pending',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    expires_at TIMESTAMPTZ
-  )`);
   await store.pool.query(
     'INSERT INTO athlete_invites (id, athlete_id, agent_id, token, visibility, expires_at) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET token=$4, visibility=$5, expires_at=$6',
     ['invite-' + athleteId, athleteId, req.session.userId, token, JSON.stringify(visibilitySettings || { rate: true, deals: true, contracts: true, brands: false, compliance: true }), expires]
@@ -1153,7 +1130,6 @@ app.post('/api/athlete-portal/invite', requireAuth, async (req, res) => {
 // Get invite status for an athlete
 app.get('/api/athlete-portal/invite/:athleteId', requireAuth, async (req, res) => {
   try {
-    await store.pool.query(`CREATE TABLE IF NOT EXISTS athlete_invites (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, token TEXT UNIQUE, visibility JSONB DEFAULT '{}', status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)`);
     const r = await store.pool.query('SELECT * FROM athlete_invites WHERE athlete_id=$1', [req.params.athleteId]);
     if (!r.rows.length) return res.json({ invited: false });
     const invite = r.rows[0];
@@ -1173,7 +1149,6 @@ app.patch('/api/athlete-portal/visibility/:athleteId', requireAuth, async (req, 
 app.post('/api/athlete-portal/accept', async (req, res) => {
   const { token, name, email, password } = req.body;
   if (!token || !name || !email || !password) return res.status(400).json({ error: 'All fields required' });
-  await store.pool.query(`CREATE TABLE IF NOT EXISTS athlete_invites (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, token TEXT UNIQUE, visibility JSONB DEFAULT '{}', status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)`);
   const r = await store.pool.query('SELECT * FROM athlete_invites WHERE token=$1 AND expires_at > NOW()', [token]);
   if (!r.rows.length) return res.status(400).json({ error: 'Invalid or expired invite link' });
   const invite = r.rows[0];
@@ -1190,7 +1165,6 @@ app.post('/api/athlete-portal/accept', async (req, res) => {
 // Validate invite token
 app.get('/api/athlete-portal/validate/:token', async (req, res) => {
   try {
-    await store.pool.query(`CREATE TABLE IF NOT EXISTS athlete_invites (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, token TEXT UNIQUE, visibility JSONB DEFAULT '{}', status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)`);
     const r = await store.pool.query("SELECT ai.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport, a.data->>'school' as school FROM athlete_invites ai JOIN athletes a ON ai.athlete_id = a.id WHERE ai.token=$1 AND ai.expires_at > NOW()", [req.params.token]);
     if (!r.rows.length) return res.status(400).json({ error: 'Invalid or expired invite' });
     res.json({ valid: true, athleteName: r.rows[0].athlete_name, sport: r.rows[0].sport, school: r.rows[0].school });
@@ -1221,7 +1195,6 @@ app.get('/report/:token', async (req, res) => {
 
 app.get('/api/reports/:token', async (req, res) => {
   try {
-    await store.pool.query('CREATE TABLE IF NOT EXISTS athlete_reports (id TEXT PRIMARY KEY, athlete_id TEXT, agent_id TEXT, agent_message TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), expires_at TIMESTAMPTZ)');
     const r = await store.pool.query('SELECT * FROM athlete_reports WHERE id=$1 AND expires_at > NOW()', [req.params.token]);
     if (!r.rows.length) return res.status(404).json({ error: 'Report not found or expired' });
     const report = r.rows[0];
@@ -1268,27 +1241,26 @@ app.get('/landing', (req, res) => {
 // ── Admin ────────────────────────────────────────────────────
 app.get('/admin', async (req, res) => {
   const user = await store.getUser(req.session.userId);
-  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).send('Forbidden');
+  if (!user || user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
   res.sendFile(path.join(__dirname, '..', 'public', 'admin.html'));
 });
 app.get('/api/admin/requests', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
-  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+  if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
   try {
-    await store.pool.query(`CREATE TABLE IF NOT EXISTS access_requests (id SERIAL PRIMARY KEY, first_name TEXT, last_name TEXT, email TEXT, agency TEXT, athletes TEXT, status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT NOW())`);
     const r = await store.pool.query('SELECT * FROM access_requests ORDER BY created_at DESC');
     res.json({ requests: r.rows });
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/admin/requests/:id/approve', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
-  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+  if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
   await store.pool.query('UPDATE access_requests SET status=$1 WHERE id=$2', ['approved', req.params.id]);
   res.json({ ok: true });
 });
 app.post('/api/admin/requests/:id/deny', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
-  if (!user || user.email !== 'johnmarkcompton@gmail.com') return res.status(403).json({ error: 'Forbidden' });
+  if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
   await store.pool.query('UPDATE access_requests SET status=$1 WHERE id=$2', ['denied', req.params.id]);
   res.json({ ok: true });
 });

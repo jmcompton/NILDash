@@ -1,26 +1,30 @@
 
 
-function openClientProfile(id) {
+async function openClientProfile(id) {
   const a = window.athletes ? window.athletes.find(x => x.id === id) : null;
   if (!a) return;
 
-  const deals = JSON.parse(localStorage.getItem('nilDashDeals') || '[]')
-    .filter(d => d.athleteId === id || d.athlete === a.name);
+  const API_BASE = window.API_BASE || '';
+  let deals = [];
+  try {
+    const r = await fetch(`${API_BASE}/api/athletes/${id}/deals`, { credentials: 'include' });
+    if (r.ok) deals = await r.json();
+  } catch(e) { console.error('Failed to load deals:', e); }
 
   const contracts = JSON.parse(localStorage.getItem('nilDashContracts') || '[]')
     .filter(c => c.athleteId === id || c.athlete === a.name);
 
   const totalNIL = deals.reduce((sum, d) => {
-    return sum + (parseFloat((d.value||'').toString().replace(/[^0-9.]/g,'')) || 0);
+    return sum + (parseInt(d.value) || 0);
   }, 0);
 
+  const commRate = parseFloat(localStorage.getItem('nilCommissionRate') || '15') / 100;
   const commission = deals.reduce((sum, d) => {
-    const val = parseFloat((d.value||'').toString().replace(/[^0-9.]/g,'')) || 0;
-    const rate = parseFloat(d.commissionRate || 15) / 100;
-    return sum + (val * rate);
+    const val = parseInt(d.value) || 0;
+    return sum + (val * commRate);
   }, 0);
 
-  const activeDealCount = deals.filter(d => d.stage && d.stage !== 'closed').length;
+  const activeDealCount = deals.filter(d => d.stage && d.stage !== 'Closed').length;
 
   const initials = (a.name||'?').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase();
 

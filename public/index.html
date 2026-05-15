@@ -1060,7 +1060,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
           <div style="font-size:11px;color:var(--muted)">My Commission Rate:</div>
           <div style="display:flex;align-items:center;gap:8px">
-            <input type="number" id="comm-rate" value="15" min="1" max="50" style="width:60px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;font-weight:700;text-align:center" onchange="renderCommission()">
+            <input type="number" id="comm-rate" value="15" min="1" max="50" style="width:60px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;font-weight:700;text-align:center" onchange="localStorage.setItem('nilCommissionRate', this.value); renderCommission()">
             <span style="font-size:13px;font-weight:700;color:var(--text)">%</span>
           </div>
           <div style="font-size:11px;color:var(--muted);margin-left:8px">Applied to all closed deals</div>
@@ -2028,6 +2028,10 @@ async function bootApp() {
   document.getElementById('userAvatar').textContent = currentUser.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   document.getElementById('sidebarRoleLabel').textContent = currentUser.role === 'agent' ? 'Agent Portal' : 'Athlete Portal';
 
+  // Restore saved commission rate
+  const savedRate = localStorage.getItem('nilCommissionRate');
+  if (savedRate && document.getElementById('comm-rate')) document.getElementById('comm-rate').value = savedRate;
+
   // Hide "Add Client" for athletes
   if (currentUser.role === 'athlete') {
     document.getElementById('addAthleteNavBtn').style.display = 'none';
@@ -2061,8 +2065,10 @@ async function bootApp() {
   const health = await fetch(`${API_BASE}/api/health`).then(r=>r.json()).catch(()=>({aiReady:false}));
   const aiEl = document.getElementById('aiStatus');
   if (aiEl && !health.aiReady) { aiEl.textContent = ' AI KEY MISSING'; aiEl.style.color = 'var(--red)'; aiEl.style.borderColor = 'rgba(241,53,53,0.3)'; }
-  document.getElementById('kpi-ai').textContent = health.aiReady ? '' : '';
-  document.getElementById('kpi-ai-sub').textContent = health.aiReady ? 'Connected' : 'Key missing';
+  const kpiAiEl = document.getElementById('kpi-ai');
+  if (kpiAiEl) kpiAiEl.textContent = health.aiReady ? '' : '';
+  const kpiAiSubEl = document.getElementById('kpi-ai-sub');
+  if (kpiAiSubEl) kpiAiSubEl.textContent = health.aiReady ? 'Connected' : 'Key missing';
   // Check if new user needs onboarding
   setTimeout(checkOnboarding, 500);
 }
@@ -2116,13 +2122,11 @@ async function populateAthleteSelect() {
 
 async function clearAllResults() {
   // Command center
-  const cmdOut = document.getElementById('cmdOutput');
-  if (cmdOut) cmdOut.innerHTML = '';
-  const cmdBox = document.querySelector('.cmd-output');
-  if (cmdBox) cmdBox.classList.remove('visible');
+  const cmdOut = document.getElementById('commandOutput');
+  if (cmdOut) { cmdOut.classList.remove('visible'); cmdOut.innerHTML = ''; }
 
   // Deal scan
-  const dealAI = document.getElementById('dealAI');
+  const dealAI = document.getElementById('dealsAI');
   if (dealAI) { dealAI.classList.remove('visible'); dealAI.innerHTML = ''; }
   const dealTable = document.getElementById('dealScanTable');
   if (dealTable) dealTable.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">Run a deal scan to see recommendations</td></tr>';
@@ -2179,6 +2183,11 @@ async function onAthleteChange() {
   }
 }
 
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
 async function renderRoster() {
   const grid = document.getElementById('rosterGrid');
   if (!athletes.length) {
@@ -2190,10 +2199,10 @@ async function renderRoster() {
     return `<div class="athlete-card ${a.id===selectedAthleteId?'selected':''}" onclick="selectAthlete('${a.id}')">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <div style="width:36px;height:36px;border-radius:50%;background:${ ['rgba(74,222,128,0.15)','rgba(96,165,250,0.15)','rgba(245,158,11,0.15)','rgba(167,139,250,0.15)'][Math.abs((a.name||'').charCodeAt(0))%4] };display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:${ ['#4ade80','#60a5fa','#f59e0b','#a78bfa'][Math.abs((a.name||'').charCodeAt(0))%4] };flex-shrink:0">${ (a.name||'?').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase() }</div>
-        <div class="ac-name">${a.name}</div>
+        <div class="ac-name">${escHtml(a.name)}</div>
       </div>
-      <div class="ac-meta">${a.sport} · ${a.position || ''} · ${a.school || 'School not set'}</div>
-      <div class="ac-meta" style="font-size:10px;margin-top:2px">${a.year || ''} ${a.stats ? '· ' + a.stats : ''}</div>
+      <div class="ac-meta">${escHtml(a.sport)} · ${escHtml(a.position || '')} · ${escHtml(a.school || 'School not set')}</div>
+      <div class="ac-meta" style="font-size:10px;margin-top:2px">${escHtml(a.year || '')} ${a.stats ? '· ' + escHtml(a.stats) : ''}</div>
       <div class="ac-stats">
         <div class="ac-stat"><span>${reach}</span> reach</div>
         <div class="ac-stat"><span>${a.engagement}%</span> eng</div>
@@ -2205,7 +2214,7 @@ async function renderRoster() {
           placeholder="Agent notes..."
           rows="2"
           style="width:100%;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:10px;padding:6px 8px;resize:none;font-family:var(--mono);outline:none;line-height:1.4"
-        >${a.agentNote || ''}</textarea>
+        >${escHtml(a.agentNote || '')}</textarea>
       </div>
       <div style="display:flex;gap:6px;margin-top:4px">
         <button onclick="event.stopPropagation();editAthlete('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em">Edit</button>
@@ -2322,6 +2331,10 @@ async function addAthlete() {
         tiktok: document.getElementById('a_tt').value,
         engagement: document.getElementById('a_eng').value,
         notes: document.getElementById('a_notes').value,
+        year: document.getElementById('a_year') ? document.getElementById('a_year').value : '',
+        stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
+        transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
+        gpa: document.getElementById('a_gpa') ? document.getElementById('a_gpa').value : '',
       }),
     });
     const data = await r.json();
@@ -2413,19 +2426,37 @@ async function runCommand() {
   const btn = document.getElementById('runCmdBtn');
   btn.disabled = true; btn.textContent = 'Thinking...';
   const out = document.getElementById('commandOutput');
-  const txt = document.getElementById('commandText');
+  const outputEl = document.getElementById('commandText');
   out.classList.add('visible');
-  txt.textContent = 'NILDash is thinking...';
+  outputEl.textContent = 'NILDash is thinking...';
   document.getElementById('cmdSpinner').style.display = 'block';
   try {
-    const r = await fetch(`${API_BASE}/api/ai/ask`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ athleteId: selectedAthleteId, message: msg }),
+    const response = await fetch(`${API_BASE}/api/ai/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ athleteId: selectedAthleteId, message: msg })
     });
-    const data = await r.json();
-    if (data.error) { txt.textContent = '\u274c ' + data.error; }
-    else { txt.textContent = data.response || 'No response received.'; }
-  } catch(e) { txt.textContent = '\u274c ' + e.message; }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let result = '';
+    outputEl.textContent = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const text = line.slice(6);
+          if (text === '[DONE]') break;
+          try { const parsed = JSON.parse(text); result += parsed.text || ''; } catch(e) { result += text; }
+          outputEl.textContent = result;
+        }
+      }
+    }
+    if (!result) outputEl.textContent = 'No response received.';
+  } catch(e) { outputEl.textContent = '\u274c ' + e.message; }
   document.getElementById('cmdSpinner').style.display = 'none';
   btn.disabled = false; btn.textContent = 'Run \u2192';
 }
@@ -2590,7 +2621,7 @@ async function runDealsRefresh() {
     currentBrands.push(el.getAttribute('data-brand'));
   });
   window._excludeDealBrands = currentBrands;
-  await runDeals(true);
+  await runDealScan();
   window._excludeDealBrands = [];
   if (btn) { btn.disabled = false; btn.textContent = 'Refresh ↺'; }
 }
@@ -3004,90 +3035,6 @@ let lastComplianceResult = null;
 
 let lastContract = '';
     let commFilter = 'all';
-async function setCommFilter(f) {
-      commFilter = f;
-      ['all','Closed','active'].forEach(x => {
-        const el = document.getElementById('cf-' + x);
-        if (!el) return;
-        if (x === f) { el.style.background = 'var(--accent)'; el.style.color = '#000'; el.style.borderColor = 'var(--accent)'; }
-        else { el.style.background = 'transparent'; el.style.color = 'var(--muted)'; el.style.borderColor = 'var(--border)'; }
-      });
-      renderCommission();
-    }
-
-    async function renderCommission() {
-      const rate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
-
-      // Gather all deals across all athletes
-      const allDeals = [];
-      for (const ath of athletes) {
-        const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
-        deals.forEach(d => allDeals.push({ ...d, athleteName: ath.name, athleteId: ath.id }));
-      }
-
-      // Filter
-      let filtered = allDeals;
-      if (commFilter === 'Closed') filtered = allDeals.filter(d => d.stage === 'Closed');
-      else if (commFilter === 'active') filtered = allDeals.filter(d => d.stage !== 'Closed');
-
-      // KPIs
-      const closedDeals = allDeals.filter(d => d.stage === 'Closed');
-      const activeDeals = allDeals.filter(d => d.stage !== 'Closed');
-      const totalEarned = closedDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0) * rate;
-      const totalPending = activeDeals.reduce((s, d) => s + (parseInt(d.value) || 0), 0) * rate;
-
-      document.getElementById('comm-total-earned').textContent = '$' + Math.round(totalEarned).toLocaleString();
-      document.getElementById('comm-pending').textContent = '$' + Math.round(totalPending).toLocaleString();
-      document.getElementById('comm-closed-count').textContent = closedDeals.length;
-
-      // Top earner by athlete
-      const byAthlete = {};
-      closedDeals.forEach(d => {
-        if (!byAthlete[d.athleteName]) byAthlete[d.athleteName] = 0;
-        byAthlete[d.athleteName] += (parseInt(d.value) || 0) * rate;
-      });
-      const topAthlete = Object.entries(byAthlete).sort((a,b) => b[1]-a[1])[0];
-      document.getElementById('comm-top-athlete').textContent = topAthlete ? topAthlete[0].split(' ')[0] : '—';
-
-      // By athlete breakdown
-      const athEl = document.getElementById('comm-by-athlete');
-      if (Object.keys(byAthlete).length === 0) {
-        athEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:16px">No closed deals yet. Close a deal in the Pipeline to see commissions.</div>';
-      } else {
-        const maxVal = Math.max(...Object.values(byAthlete));
-        athEl.innerHTML = Object.entries(byAthlete).sort((a,b)=>b[1]-a[1]).map(([name, comm]) => `
-          <div style="margin-bottom:12px">
-            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-              <span style="font-size:12px;font-weight:500">${name}</span>
-              <span style="font-size:12px;font-weight:700;color:var(--accent)">$${Math.round(comm).toLocaleString()}</span>
-            </div>
-            <div style="background:var(--surface2);border-radius:40px;height:6px">
-              <div style="background:var(--accent);border-radius:40px;height:6px;width:${Math.round(comm/maxVal*100)}%"></div>
-            </div>
-          </div>`).join('');
-      }
-
-      // Deals table
-      const tbody = document.getElementById('comm-table-body');
-      if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:24px">No deals found</td></tr>';
-        return;
-      }
-      tbody.innerHTML = filtered.sort((a,b) => (parseInt(b.value)||0) - (parseInt(a.value)||0)).map(d => {
-        const val = parseInt(d.value) || 0;
-        const comm = Math.round(val * rate);
-        const isClosed = d.stage === 'Closed';
-        const statusColor = isClosed ? '#4ade80' : d.stage === 'Negotiating' ? 'var(--accent)' : 'var(--muted)';
-        return `<tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:10px 12px;font-weight:500">${d.athleteName}</td>
-          <td style="padding:10px 12px">${d.brand || '—'}</td>
-          <td style="padding:10px 12px;color:var(--muted);font-size:11px">${d.stage || '—'}</td>
-          <td style="padding:10px 12px;text-align:right;font-weight:500">${val ? '$'+val.toLocaleString() : '—'}</td>
-          <td style="padding:10px 12px;text-align:right;font-weight:700;color:${isClosed ? 'var(--accent)' : 'var(--muted)'}">${comm ? '$'+comm.toLocaleString() : '—'}</td>
-          <td style="padding:10px 12px"><span style="font-size:10px;padding:3px 8px;border-radius:40px;background:${statusColor}22;color:${statusColor};font-weight:700">${isClosed ? 'EARNED' : 'PENDING'}</span></td>
-        </tr>`;
-      }).join('');
-    }
 
 async function loadAnalytics() {
   const body = document.getElementById('analytics-body');
@@ -3134,13 +3081,13 @@ async function loadAnalytics() {
   });
 
   const accentGreen = '#c8f135';
-  async function kpi(label, val, sub) {
+  function kpi(label, val, sub) {
     return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px">' +
       '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">' + label + '</div>' +
       '<div style="font-size:24px;font-weight:800;color:var(--accent)">' + val + '</div>' +
       (sub ? '<div style="font-size:11px;color:var(--muted);margin-top:3px">' + sub + '</div>' : '') + '</div>';
   }
-  async function bar(label, val, max, color) {
+  function bar(label, val, max, color) {
     var pct = max > 0 ? Math.round(val/max*100) : 0;
     return '<div style="margin-bottom:10px">' +
       '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
@@ -3672,7 +3619,7 @@ async function renderTeamMatch(teams) {
             ${t.collectiveDealHistory ? `<div style="background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.15);border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-size:9px;font-weight:700;color:#60a5fa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Collective Deal History</div><div style="font-size:12px;color:var(--text)">${t.collectiveDealHistory}</div></div>` : ""}
             ${t.trajectoryNote ? `<div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-size:9px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">NIL Trajectory at This School</div><div style="font-size:12px;color:var(--text)">${t.trajectoryNote}</div></div>` : ""}
             ${t.portalComp ? `<div style="background:var(--surface2);border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Portal Comp</div><div style="font-size:12px;color:var(--text)">${t.portalComp}</div></div>` : ""}
-            <button class="run-btn" style="font-size:12px;padding:8px 16px" onclick="event.stopPropagation();buildTmPlaybook('${(t.name||"").replace(/'/g,"\'")}','${fmtNil(t.nilHigh||0)}')>Build negotiation playbook for ${t.name||'this school'} →</button>
+            <button class="run-btn" style="font-size:12px;padding:8px 16px" onclick="event.stopPropagation();buildTmPlaybook('${(t.name||"").replace(/'/g,"\'")}','${fmtNil(t.nilHigh||0)}')">Build negotiation playbook for ${t.name||'this school'} →</button>
           </div>
         </div>
         <div style="text-align:right;min-width:100px">

@@ -1,8 +1,9 @@
 // NILDash — Automated Deal Comp Ingestion Job
 // Runs weekly to pull disclosed NIL deals from web search and store as calibration data
 // Called by: node ./server/nilCompJob.js
+require('dotenv').config();
 
-const pool = require('./db');
+const { pool } = require('./store');
 const Anthropic = require('@anthropic-ai/sdk');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -148,13 +149,6 @@ async function runIngestionJob() {
   
   process.exit(0);
 }
-
-// Load env vars
-require('dotenv').config();
-const { Pool } = require('pg');
-const pg = new Pool({ connectionString: process.env.DATABASE_URL });
-// Override pool with actual connection
-Object.assign(pool, pg);
 
 runIngestionJob().catch(e => {
   console.error('Job failed:', e);

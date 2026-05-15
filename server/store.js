@@ -38,7 +38,88 @@ async function init() {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS calendar_events (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT,
+      title TEXT,
+      date TEXT,
+      notes TEXT,
+      reminderdays INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id SERIAL PRIMARY KEY,
+      email TEXT,
+      token TEXT,
+      expires_at TIMESTAMPTZ,
+      used BOOLEAN DEFAULT FALSE
+    );
+    CREATE TABLE IF NOT EXISTS access_requests (
+      id SERIAL PRIMARY KEY,
+      first_name TEXT,
+      last_name TEXT,
+      email TEXT,
+      agency TEXT,
+      athletes TEXT,
+      status TEXT DEFAULT 'pending',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS athlete_reports (
+      id TEXT PRIMARY KEY,
+      athlete_id TEXT,
+      agent_id TEXT,
+      agent_message TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      expires_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS athlete_invites (
+      id TEXT PRIMARY KEY,
+      athlete_id TEXT,
+      agent_id TEXT,
+      token TEXT UNIQUE,
+      visibility JSONB DEFAULT '{}',
+      status TEXT DEFAULT 'pending',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      expires_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS deal_scan_feedback (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT,
+      athlete_id TEXT,
+      brand TEXT,
+      deal_type TEXT,
+      action TEXT,
+      sport TEXT,
+      position TEXT,
+      school_tier TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS deal_comps (
+      id SERIAL PRIMARY KEY,
+      sport TEXT,
+      school_tier TEXT,
+      school TEXT,
+      position TEXT,
+      followers INTEGER,
+      engagement NUMERIC,
+      deal_type TEXT,
+      deal_value INTEGER,
+      brand TEXT,
+      year_in_school TEXT,
+      draft_status TEXT,
+      ppg NUMERIC,
+      rpg NUMERIC,
+      apg NUMERIC,
+      source TEXT,
+      athlete_name TEXT,
+      auto_ingested BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `);
+  // Indexes for performance
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_athletes_agent ON athletes(agent_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deals_athlete ON deals(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deals_agent ON deals(agent_id)`).catch(() => {});
   // Add name column if missing (migration for existing DBs)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT`).catch(() => {});
   console.log('Database tables ready');
@@ -47,9 +128,19 @@ async function init() {
 // USERS
 async function getUser(id) {
   const r = await pool.query('SELECT * FROM users WHERE id=$1', [id]);
+  if (r.rows[0]) { const { password, ...safe } = r.rows[0]; return safe; }
+  return null;
+}
+async function getUserWithPassword(id) {
+  const r = await pool.query('SELECT * FROM users WHERE id=$1', [id]);
   return r.rows[0] || null;
 }
 async function getUserByEmail(email) {
+  const r = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
+  if (r.rows[0]) { const { password, ...safe } = r.rows[0]; return safe; }
+  return null;
+}
+async function getUserByEmailWithPassword(email) {
   const r = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
   return r.rows[0] || null;
 }
@@ -97,19 +188,6 @@ async function deleteAthlete(id) {
 async function saveComp(dealData, athleteData) {
   try {
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS deal_comps (
-        id SERIAL PRIMARY KEY,
-        sport TEXT,
-        school_tier TEXT,
-        followers INTEGER,
-        engagement NUMERIC,
-        deal_type TEXT,
-        deal_value INTEGER,
-        year_in_school TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
-    await pool.query(`
       INSERT INTO deal_comps (sport, school_tier, followers, engagement, deal_type, deal_value, year_in_school)
       VALUES ($1,$2,$3,$4,$5,$6,$7)
     `, [
@@ -128,7 +206,6 @@ async function saveComp(dealData, athleteData) {
 
 async function getComps(sport, schoolTier, limit = 20) {
   try {
-    await pool.query(`CREATE TABLE IF NOT EXISTS deal_comps (id SERIAL PRIMARY KEY, sport TEXT, school_tier TEXT, followers INTEGER, engagement NUMERIC, deal_type TEXT, deal_value INTEGER, year_in_school TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`);
     const r = await pool.query(`
       SELECT * FROM deal_comps
       WHERE deal_value > 0
@@ -145,7 +222,6 @@ async function getComps(sport, schoolTier, limit = 20) {
 
 async function getCompStats(sport, schoolTier) {
   try {
-    await pool.query(`CREATE TABLE IF NOT EXISTS deal_comps (id SERIAL PRIMARY KEY, sport TEXT, school_tier TEXT, followers INTEGER, engagement NUMERIC, deal_type TEXT, deal_value INTEGER, year_in_school TEXT, created_at TIMESTAMPTZ DEFAULT NOW())`);
     const r = await pool.query(`
       SELECT
         COUNT(*) as count,
@@ -195,7 +271,7 @@ async function deleteDeal(id) {
 init().catch(console.error);
 
 module.exports = {
-  getUser, getUserByEmail, saveUser, getAllUsers,
+  getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers,
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
   getDeal, getDealsByAthlete, getDealsByAgent, saveDeal, deleteDeal,
   saveComp, getComps, getCompStats,
