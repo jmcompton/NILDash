@@ -2403,14 +2403,24 @@ app.post('/api/university/scheduler/trigger', requireAuth, requireUniversityMode
 // Returns immediately with jobId. Poll GET /discovery/:jobId for status.
 app.post('/api/university/roster/discover', requireAuth, requireUniversityMode, async (req, res) => {
   try {
-    const userId       = req.session.userId;
-    const universityId = await resolveSessionUniversity(userId);
-    if (!universityId) return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
-
+    const userId = req.session.userId;
     const { sport, universityName } = req.body;
     if (!sport) return res.status(400).json({ error: 'sport is required' });
+    if (!universityName) return res.status(400).json({ error: 'universityName is required' });
 
-    // Resolve university name if not supplied
+    // Resolve university_id: prefer linked account, fall back to DB name lookup,
+    // then derive a stable slug so the job can always proceed.
+    let universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      const byName = await store.pool.query(
+        'SELECT id FROM universities WHERE LOWER(name) = LOWER($1) LIMIT 1',
+        [universityName]
+      );
+      universityId = byName.rows[0]?.id
+        || ('univ-' + universityName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+    }
+
+    // Resolve the canonical display name (linked account or provided string)
     let univName = universityName;
     if (!univName) {
       const univRow = await store.pool.query('SELECT name FROM universities WHERE id = $1', [universityId]);
