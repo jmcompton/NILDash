@@ -82,7 +82,8 @@ const SCHOOL_DOMAINS = {
   'the citadel':               { domain: 'citadelsports.com',     conf: 'SoCon' },
   'etsu':                      { domain: 'etsubucs.com',          conf: 'SoCon' },
   'east tennessee state':      { domain: 'etsubucs.com',          conf: 'SoCon' },
-  'vmI':                       { domain: 'vmisports.com',         conf: 'SoCon' },
+  'vmi':                       { domain: 'vmisports.com',         conf: 'SoCon' },
+  'virginia military institute': { domain: 'vmisports.com',       conf: 'SoCon' },
   'western carolina':          { domain: 'catamountsports.com',   conf: 'SoCon' },
 };
 
@@ -116,7 +117,7 @@ const SPORT_SLUGS = {
 
 // ── Conference domain map ─────────────────────────────────────────────────
 const CONFERENCE_DOMAINS = {
-  'SoCon':    'soconports.com',
+  'SoCon':    'socon.org',
   'SEC':      'secsports.com',
   'ACC':      'theacc.com',
   'Big Ten':  'bigten.org',
