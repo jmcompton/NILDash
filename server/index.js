@@ -403,6 +403,123 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
   });
 });
 
+// ── Deal Close Mode — analyze endpoint ────────────────────────
+app.post('/api/deal-close/analyze', requireAuth, aiLimiter, async (req, res) => {
+  const { athleteId, brand, dealScanData } = req.body;
+  if (!athleteId || !brand) return res.status(400).json({ error: 'athleteId and brand required' });
+
+  const athlete = await store.getAthlete(athleteId);
+  if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+  const user = await store.getUser(req.session.userId);
+  const agentId = req.session.userId;
+
+  // ── Pull cached data from DB (non-blocking lookups) ───────────
+  const [enrichmentRow, matchRow, contactRows, outreachRows] = await Promise.all([
+    store.pool.query(
+      `SELECT * FROM company_enrichment WHERE agent_id=$1 AND brand_name ILIKE $2 ORDER BY created_at DESC LIMIT 1`,
+      [agentId, brand]
+    ).then(r => r.rows[0] || null).catch(() => null),
+    store.pool.query(
+      `SELECT * FROM brand_match_scores WHERE agent_id=$1 AND athlete_id=$2 AND brand_name ILIKE $3 ORDER BY created_at DESC LIMIT 1`,
+      [agentId, athleteId, brand]
+    ).then(r => r.rows[0] || null).catch(() => null),
+    store.pool.query(
+      `SELECT bc.* FROM brand_contacts bc
+       JOIN company_enrichment ce ON bc.enrichment_id = ce.id
+       WHERE ce.agent_id=$1 AND ce.brand_name ILIKE $2 ORDER BY bc.created_at DESC LIMIT 3`,
+      [agentId, brand]
+    ).then(r => r.rows).catch(() => []),
+    store.pool.query(
+      `SELECT id, subject, status, created_at FROM outreach_logs WHERE agent_id=$1 AND athlete_id=$2 AND brand_name ILIKE $3 ORDER BY created_at DESC LIMIT 3`,
+      [agentId, athleteId, brand]
+    ).then(r => r.rows).catch(() => []),
+  ]);
+
+  // ── Rate estimate ─────────────────────────────────────────────
+  const { nilViewVal: _nvv, cleanRange, generatePricingStrategy } = require('./benchmarks');
+  const athleteForRate = athlete.data || athlete;
+  const rawRate = _nvv(athleteForRate, dealScanData?.dealType || 'ig-reel');
+  const cleaned = cleanRange(rawRate.low, rawRate.high);
+  const pricing = generatePricingStrategy(rawRate);
+
+  // ── AI: Negotiation Talking Points + Objection Handling ──────
+  const reach = ((athleteForRate.instagram || 0) + (athleteForRate.tiktok || 0)).toLocaleString();
+  const engagement = athleteForRate.engagement || 4.2;
+  const campaignConcept = dealScanData?.campaign || matchRow?.campaign_ideas?.[0] || 'brand ambassador partnership';
+  const fitScore = dealScanData?.fitScore || matchRow?.compatibility_score || 78;
+  const rationale = dealScanData?.rationale || matchRow?.reasoning || 'Strong fit identified';
+  const audienceAlignment = matchRow?.audience_alignment || '';
+  const brandDesc = enrichmentRow?.description || '';
+
+  const aiPrompt = `You are a sports agent preparing to close a NIL deal between ${athlete.name} and ${brand}.
+
+ATHLETE: ${athlete.name} | ${athleteForRate.sport || 'athlete'} | ${athleteForRate.school || 'college'} | ${reach} total reach | ${engagement}% engagement
+BRAND: ${brand}${brandDesc ? ' — ' + brandDesc : ''}
+CAMPAIGN CONCEPT: ${campaignConcept}
+FIT SCORE: ${fitScore}/100
+RATIONALE: ${rationale}
+${audienceAlignment ? 'AUDIENCE ALIGNMENT: ' + audienceAlignment : ''}
+RATE RANGE: $${cleaned.low.toLocaleString()} – $${cleaned.high.toLocaleString()} per deliverable
+
+Generate a deal close briefing. Return ONLY valid JSON:
+{
+  "negotiation_points": [
+    "Specific point 1 grounded in data",
+    "Specific point 2",
+    "Specific point 3",
+    "Specific point 4",
+    "Specific point 5"
+  ],
+  "opening_line": "Exact word-for-word opening sentence for the call",
+  "objection_handling": [
+    { "objection": "Your rate is too high", "response": "Word-for-word response grounded in data" },
+    { "objection": "We're not sure about athlete fit", "response": "Word-for-word response" },
+    { "objection": "We need to loop in our CMO", "response": "Word-for-word response" },
+    { "objection": "We already work with influencers", "response": "Word-for-word response" }
+  ],
+  "ask_anchor": "One sentence on how to open the rate conversation — what number to anchor at and why",
+  "walk_away_line": "Exact sentence to close the call if they won't move"
+}`;
+
+  let aiData = null;
+  try {
+    const raw = await ai.oneShot(aiPrompt, 'You are an elite sports agent negotiation coach. Return only valid JSON.', 2000, ai.MODEL_FAST);
+    const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    aiData = JSON.parse(clean);
+  } catch (e) {
+    console.error('[deal-close] AI parse failed:', e.message);
+    aiData = {
+      negotiation_points: [
+        `${athlete.name}'s ${engagement}% engagement is ${(engagement / 2.1).toFixed(1)}x the industry average for paid influencers`,
+        `Total reach of ${reach} delivers CPM of approximately $12–16 vs. $28–45 for paid Instagram ads`,
+        `${fitScore}/100 fit score — audience demographics align with ${brand}'s core market`,
+        campaignConcept,
+        rationale,
+      ],
+      opening_line: `I appreciate you taking the time — I wanted to walk you through why I think ${athlete.name} is a strong fit for ${brand} right now.`,
+      objection_handling: [
+        { objection: 'Your rate is too high', response: `The $${cleaned.low.toLocaleString()}–$${cleaned.high.toLocaleString()} range is based on ${athlete.name}'s ${engagement}% engagement, which is well above the ${(engagement / 2.1).toFixed(1)}x industry average. You're getting college-level authenticity at a fraction of macro-influencer pricing.` },
+        { objection: 'We need to think about it', response: `Totally understand — what specific questions can I answer today to help you move forward? I can also send over the pitch deck if that helps the internal conversation.` },
+      ],
+      ask_anchor: `Open at $${cleaned.high.toLocaleString()} and signal flexibility down to $${cleaned.low.toLocaleString()} if they need to adjust scope.`,
+      walk_away_line: `I hear you — let's stay in touch and revisit this when timing makes more sense.`,
+    };
+  }
+
+  res.json({
+    athlete: { name: athlete.name, sport: athleteForRate.sport, school: athleteForRate.school, instagram: athleteForRate.instagram, tiktok: athleteForRate.tiktok, engagement: athleteForRate.engagement, position: athleteForRate.position, stats: athleteForRate.stats },
+    brand: { name: brand, description: brandDesc, industry: enrichmentRow?.industry, size: enrichmentRow?.brand_size, targetDemographics: enrichmentRow?.raw_data?.target_demographics },
+    enrichment: enrichmentRow,
+    match: matchRow,
+    contacts: contactRows,
+    outreach: outreachRows,
+    pricing: { low: cleaned.low, high: cleaned.high, mid: pricing.target, start: pricing.start, target: pricing.target, stretch: pricing.stretch, dealType: dealScanData?.dealType || 'ig-reel' },
+    dealScan: dealScanData || null,
+    ai: aiData,
+    hasExistingData: !!(enrichmentRow || matchRow || outreachRows.length),
+  });
+});
+
 app.post('/api/ai/negotiate', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, brand, theirOffer, agentTarget } = req.body;
   const athlete = await store.getAthlete(athleteId);

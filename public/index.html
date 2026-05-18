@@ -674,6 +674,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('pipeline',this)">
         <span class="nav-dot-item"></span>Pipeline
       </button>
+      <button class="nav-item" onclick="showView('deal-close',this)" id="dealCloseNavBtn">
+        <span class="nav-dot-item"></span>Deal Close
+      </button>
       <div class="nav-section-label">Roster</div>
       <button class="nav-item" onclick="showView('roster',this)">
         <span class="nav-dot-item"></span>My Roster
@@ -881,7 +884,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
               </select>
             </div>
             <button class="run-btn" style="width:100%" onclick="calcRate()">Calculate Rate</button>
-            <button class="run-btn" style="width:100%;margin-top:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border)" onclick="getRateScript()">Get Justification Script</button>
+            <button class="run-btn" style="width:100%;margin-top:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border)" onclick="getRateScript()">Negotiation Talking Points</button>
           </div>
           <div>
             <div class="rate-result" id="rateResult">
@@ -943,13 +946,105 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
 
             <div class="ai-block" id="rateAI" style="margin-top:16px">
-              <div class="ai-header"><div class="spinner" id="rateSpinner"></div><div class="ai-label">Rate Justification Script</div></div>
-              <div class="ai-content" id="rateText">Calculate a rate above then click "Get Justification Script" for word-for-word language to defend your price on a call.</div>
+              <div class="ai-header"><div class="spinner" id="rateSpinner"></div><div class="ai-label">Negotiation Talking Points</div></div>
+              <div class="ai-content" id="rateText">Calculate a rate above then click "Negotiation Talking Points" for word-for-word language to defend your price on a call.</div>
             </div>
           </div>
         </div>
       </div>
 
+
+      <!--  DEAL CLOSE MODE  -->
+      <div id="view-deal-close" class="view">
+        <!-- Header bar -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
+          <div>
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Deal Close Mode</div>
+            <div id="dc-headline" style="font-size:18px;font-weight:700;color:var(--text)">Select an athlete + brand to begin</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input id="dc-brand-input" placeholder="Enter brand name…" style="padding:9px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;width:220px" onkeydown="if(event.key==='Enter')runDealClose()">
+            <button onclick="runDealClose()" id="dc-run-btn" class="run-btn" style="padding:9px 20px">Analyze Deal</button>
+          </div>
+        </div>
+
+        <!-- Fit score banner (hidden until loaded) -->
+        <div id="dc-fit-banner" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 20px;margin-bottom:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <div id="dc-fit-score-ring" style="width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;border:3px solid var(--accent);color:var(--accent)">—</div>
+            <div>
+              <div id="dc-fit-label" style="font-size:13px;font-weight:700;color:var(--text)">—</div>
+              <div id="dc-fit-rationale" style="font-size:11px;color:var(--muted);margin-top:2px;max-width:400px;line-height:1.5"></div>
+            </div>
+          </div>
+          <div id="dc-status-badge" style="font-size:10px;font-weight:700;padding:4px 12px;border-radius:20px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.25);color:var(--accent)">READY TO CLOSE</div>
+        </div>
+
+        <!-- Loading state -->
+        <div id="dc-loading" style="display:none;text-align:center;padding:60px 20px">
+          <div class="spinner" style="display:inline-block;margin-bottom:12px"></div>
+          <div style="font-size:13px;color:var(--muted)" id="dc-loading-msg">Pulling deal intelligence…</div>
+        </div>
+
+        <!-- Main grid -->
+        <div id="dc-body" style="display:none;grid-template-columns:1fr 1fr;gap:16px">
+
+          <!-- ATHLETE SNAPSHOT -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Athlete Snapshot</div>
+            <div id="dc-athlete-body"></div>
+          </div>
+
+          <!-- BRAND SNAPSHOT -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Brand Snapshot</div>
+            <div id="dc-brand-body"></div>
+          </div>
+
+          <!-- ASK STRATEGY (full width) -->
+          <div style="grid-column:1/-1;background:var(--surface);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r);padding:18px">
+            <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Ask Strategy</div>
+            <div id="dc-ask-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px"></div>
+          </div>
+
+          <!-- NEGOTIATION TALKING POINTS -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Negotiation Talking Points</div>
+            <div id="dc-talking-points"></div>
+            <div id="dc-opening-line" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)"></div>
+            <div id="dc-walk-away" style="margin-top:10px"></div>
+          </div>
+
+          <!-- OBJECTION HANDLING -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Objection Handling</div>
+            <div id="dc-objections"></div>
+          </div>
+
+          <!-- CAMPAIGN CONCEPT (full width) -->
+          <div style="grid-column:1/-1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Recommended Campaign</div>
+              <div id="dc-campaign-tag" style="font-size:10px;color:var(--muted)"></div>
+            </div>
+            <div id="dc-campaign-body"></div>
+          </div>
+
+          <!-- CONTACTS -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Brand Contacts</div>
+            <div id="dc-contacts-body"></div>
+            <button onclick="openOutreachFromDealClose()" style="margin-top:12px;width:100%;padding:9px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Start Outreach →</button>
+          </div>
+
+          <!-- EXISTING OUTREACH -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Outreach History</div>
+            <div id="dc-outreach-body"></div>
+          </div>
+
+        </div>
+      </div>
 
       <!--  ANALYTICS  -->
       <div id="view-analytics" class="view">
@@ -2198,7 +2293,7 @@ async function bootApp() {
     showView('athlete-dashboard', null);
     loadAthleteDashboard();
     // Hide entire agent nav for athletes
-    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals'];
+    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-deal-close','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals'];
     agentOnlyEls.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -2554,9 +2649,9 @@ async function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings' };
+    negotiate:'Negotiation Intel', 'deal-close':'Deal Close Mode', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
-  const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
+  const showBar = ['command','deals','rate','negotiate','deal-close','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
   if (id === 'calendar') loadCalendar();
@@ -2565,6 +2660,7 @@ async function showView(id, btn) {
   if (id === 'roster') renderRoster();
   if (id === 'athlete-portals') loadAthletePortals();
   if (id === 'contract') prefillContract();
+  if (id === 'deal-close') onDealCloseViewOpen();
 }
 async function prefillContract() {
   if (!selectedAthleteId) return;
@@ -2680,7 +2776,7 @@ async function renderDealsTable(recs) {
           '<button onclick="prefillOutreach(&quot;'+brandSafe+'&quot;)" style="padding:8px 14px;background:var(--accent);color:#000;border:none;border-radius:40px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Write Outreach</button>' +
           '<button onclick="addDealToPipeline(&quot;'+brandSafe+'&quot;,&quot;'+(d.dealType||'ig-post')+'&quot;,&quot;'+(d.campaign||'').replace(/"/g,'').substring(0,40)+'&quot;)" style="padding:7px 14px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">+ Pipeline</button>' +
           '<button onclick="addDealToOutreach(&quot;'+brandSafe+'&quot;,&quot;'+(d.campaign||'').replace(/"/g,'').substring(0,40)+'&quot;)" style="padding:7px 14px;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap">+ Outreach</button>' +
-          '<button onclick="prefillNeg(&quot;'+brandSafe+'&quot;,&quot;&quot;)" style="padding:7px 14px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap">Negotiate</button>' +
+          '<button onclick="openDealClose(&quot;'+brandSafe+'&quot;,'+i+')" style="padding:7px 14px;background:rgba(186,12,47,0.1);border:1px solid rgba(186,12,47,0.3);color:#f87171;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">Deal Close →</button>' +
           '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults['+i+']);}else{showToast(\'Outreach engine loading…\');}" style="padding:7px 14px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">⚡ AI Outreach</button>' +
         '</div>' +
       '</div>' +
@@ -2793,6 +2889,210 @@ async function prefillOutreach(brand) {
 }
 async function prefillNeg(brand, rate) {
   // Negotiate view removed — no-op
+}
+
+// ── DEAL CLOSE MODE ────────────────────────────────────────────────────────────
+
+var _dealCloseContext = null; // { brand, dealScanData }
+
+function openDealClose(brand, dealScanIndex) {
+  var dealScanData = (dealScanIndex !== undefined && window._dealScanResults) ? window._dealScanResults[dealScanIndex] : null;
+  _dealCloseContext = { brand: brand, dealScanData: dealScanData };
+  showView('deal-close', document.getElementById('dealCloseNavBtn'));
+}
+
+function onDealCloseViewOpen() {
+  if (_dealCloseContext && _dealCloseContext.brand) {
+    document.getElementById('dc-brand-input').value = _dealCloseContext.brand;
+    runDealClose();
+  } else {
+    // Just show the blank state with input focused
+    document.getElementById('dc-brand-input').focus();
+    document.getElementById('dc-body').style.display = 'none';
+    document.getElementById('dc-loading').style.display = 'none';
+    document.getElementById('dc-fit-banner').style.display = 'none';
+  }
+}
+
+async function runDealClose() {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  var brand = (_dealCloseContext && _dealCloseContext.brand) || document.getElementById('dc-brand-input').value.trim();
+  if (!brand) { showToast('Enter a brand name'); document.getElementById('dc-brand-input').focus(); return; }
+
+  var btn = document.getElementById('dc-run-btn');
+  btn.disabled = true; btn.textContent = 'Analyzing…';
+  document.getElementById('dc-loading').style.display = 'block';
+  document.getElementById('dc-body').style.display = 'none';
+  document.getElementById('dc-fit-banner').style.display = 'none';
+  document.getElementById('dc-headline').textContent = brand + ' — loading intelligence…';
+
+  var dealScanData = (_dealCloseContext && _dealCloseContext.brand === brand) ? _dealCloseContext.dealScanData : null;
+
+  try {
+    var resp = await fetch(API_BASE + '/api/deal-close/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ athleteId: selectedAthleteId, brand: brand, dealScanData: dealScanData }),
+    });
+    if (!resp.ok) throw new Error('API error ' + resp.status);
+    var data = await resp.json();
+
+    renderDealClose(data, brand);
+    _dealCloseContext = { brand: brand, dealScanData: data.dealScan };
+  } catch(e) {
+    showToast('Error loading deal intelligence: ' + e.message);
+    document.getElementById('dc-headline').textContent = 'Error — try again';
+  } finally {
+    document.getElementById('dc-loading').style.display = 'none';
+    btn.disabled = false; btn.textContent = 'Analyze Deal';
+  }
+}
+
+function renderDealClose(data, brand) {
+  var ath = data.athlete || {};
+  var br = data.brand || {};
+  var pricing = data.pricing || {};
+  var match = data.match || {};
+  var ai = data.ai || {};
+  var contacts = data.contacts || [];
+  var outreach = data.outreach || [];
+  var dealScan = data.dealScan || {};
+
+  // Headline
+  document.getElementById('dc-headline').textContent = (ath.name || 'Athlete') + ' × ' + brand;
+
+  // Fit banner
+  var fitScore = dealScan.fitScore || match.compatibility_score || 78;
+  var fitColor = fitScore >= 85 ? 'var(--accent)' : fitScore >= 70 ? '#f59e0b' : '#f87171';
+  var fitRing = document.getElementById('dc-fit-score-ring');
+  fitRing.textContent = fitScore;
+  fitRing.style.borderColor = fitColor;
+  fitRing.style.color = fitColor;
+  document.getElementById('dc-fit-label').textContent = brand + ' — ' + (fitScore >= 85 ? 'Excellent Fit' : fitScore >= 70 ? 'Strong Fit' : 'Possible Fit');
+  document.getElementById('dc-fit-rationale').textContent = dealScan.rationale || match.reasoning || '';
+  var banner = document.getElementById('dc-fit-banner');
+  banner.style.display = 'flex';
+
+  // Athlete snapshot
+  var ig = ((ath.instagram || 0) >= 1000) ? ((ath.instagram/1000).toFixed(0) + 'K') : (ath.instagram || 0);
+  var tt = ((ath.tiktok || 0) >= 1000) ? ((ath.tiktok/1000).toFixed(0) + 'K') : (ath.tiktok || 0);
+  document.getElementById('dc-athlete-body').innerHTML =
+    dcRow('Name', ath.name || '—') +
+    dcRow('Sport', (ath.sport || '—') + (ath.position ? ' · ' + ath.position : '')) +
+    dcRow('School', ath.school || '—') +
+    dcRow('Instagram', ig + ' followers') +
+    dcRow('TikTok', tt + ' followers') +
+    dcRow('Engagement', (ath.engagement || 0) + '% (avg 2.1%)') +
+    (ath.stats ? dcRow('Stats', ath.stats) : '');
+
+  // Brand snapshot
+  document.getElementById('dc-brand-body').innerHTML =
+    dcRow('Brand', brand) +
+    (br.industry ? dcRow('Industry', br.industry) : '') +
+    (br.size ? dcRow('Size', br.size) : '') +
+    (br.description ? dcRow('About', br.description, true) : '') +
+    (br.targetDemographics ? dcRow('Target Demo', br.targetDemographics) : '') +
+    (data.hasExistingData ? '<div style="margin-top:10px;font-size:10px;color:var(--accent)">✓ Enrichment data on file</div>' : '<div style="margin-top:10px;font-size:10px;color:var(--muted)">Run AI Outreach to generate full enrichment</div>');
+
+  // Ask strategy
+  var askAnchor = ai.ask_anchor || '';
+  document.getElementById('dc-ask-body').innerHTML =
+    dcAskCard('Start', '$' + (pricing.start || pricing.low || 0).toLocaleString(), 'Open anchor — room to negotiate down') +
+    dcAskCard('Target', '$' + (pricing.target || pricing.mid || 0).toLocaleString(), 'Where you want to land', true) +
+    dcAskCard('Stretch', '$' + (pricing.stretch || pricing.high || 0).toLocaleString(), 'If they love the athlete, push here');
+  if (askAnchor) {
+    document.getElementById('dc-ask-body').innerHTML += '<div style="grid-column:1/-1;padding:10px 12px;background:rgba(132,204,22,0.05);border:1px solid rgba(132,204,22,0.15);border-radius:var(--r-sm);font-size:12px;color:var(--text);line-height:1.5">' + askAnchor + '</div>';
+  }
+
+  // Negotiation talking points
+  var pts = ai.negotiation_points || [];
+  document.getElementById('dc-talking-points').innerHTML = pts.map(function(p) {
+    return '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px"><span style="color:var(--accent);font-size:14px;line-height:1;flex-shrink:0;margin-top:1px">→</span><span style="font-size:12px;color:var(--text);line-height:1.55">' + p + '</span></div>';
+  }).join('');
+
+  var openingLine = ai.opening_line || '';
+  if (openingLine) {
+    document.getElementById('dc-opening-line').innerHTML = '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Call Opening Line</div><div style="font-size:12px;color:var(--text);font-style:italic;line-height:1.6;padding:10px 12px;background:var(--surface2);border-radius:var(--r-sm)">"' + openingLine + '"</div>';
+  }
+  var walkAway = ai.walk_away_line || '';
+  if (walkAway) {
+    document.getElementById('dc-walk-away').innerHTML = '<div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Walk-Away Line</div><div style="font-size:12px;color:var(--text);font-style:italic;line-height:1.6;padding:10px 12px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:var(--r-sm)">"' + walkAway + '"</div>';
+  }
+
+  // Objection handling
+  var objections = ai.objection_handling || [];
+  document.getElementById('dc-objections').innerHTML = objections.map(function(o) {
+    return '<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">' +
+      '<div style="font-size:11px;color:#f87171;font-weight:600;margin-bottom:5px">"' + o.objection + '"</div>' +
+      '<div style="font-size:12px;color:var(--text);line-height:1.55">' + o.response + '</div>' +
+    '</div>';
+  }).join('');
+
+  // Campaign
+  var campaign = dealScan.campaign || (match.campaign_ideas && match.campaign_ideas[0]) || '';
+  var campaignIdeas = [];
+  if (match.campaign_ideas) {
+    try { campaignIdeas = typeof match.campaign_ideas === 'string' ? JSON.parse(match.campaign_ideas) : match.campaign_ideas; } catch(e) {}
+  }
+  document.getElementById('dc-campaign-tag').textContent = dealScan.dealType ? dealScan.dealType.replace(/-/g, ' ').replace(/\b\w/g, function(c){return c.toUpperCase();}) : '';
+  document.getElementById('dc-campaign-body').innerHTML =
+    (campaign ? '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">' + campaign + '</div>' : '') +
+    (campaignIdeas.length > 1 ? '<div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Also Consider</div>' +
+      campaignIdeas.slice(1, 4).map(function(ci) {
+        return '<div style="font-size:12px;color:var(--text);margin-bottom:6px;padding-left:12px;border-left:2px solid var(--border)">' + ci + '</div>';
+      }).join('') : '') +
+    (match.audience_alignment ? '<div style="margin-top:12px;font-size:11px;color:var(--muted);line-height:1.5">' + match.audience_alignment + '</div>' : '');
+
+  // Contacts
+  if (contacts.length > 0) {
+    document.getElementById('dc-contacts-body').innerHTML = contacts.map(function(c) {
+      return '<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">' +
+        '<div style="font-size:13px;font-weight:600;color:var(--text)">' + (c.name || 'Contact') + '</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (c.title || '') + '</div>' +
+        (c.email ? '<div style="font-size:11px;color:var(--accent);margin-top:2px"><a href="mailto:' + c.email + '" style="color:var(--accent);text-decoration:none">' + c.email + '</a></div>' : '') +
+      '</div>';
+    }).join('');
+  } else {
+    document.getElementById('dc-contacts-body').innerHTML = '<div style="font-size:12px;color:var(--muted)">No contacts on file — run AI Outreach to discover contacts.</div>';
+  }
+
+  // Outreach history
+  if (outreach.length > 0) {
+    document.getElementById('dc-outreach-body').innerHTML = outreach.map(function(o) {
+      return '<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">' +
+        '<div style="font-size:12px;font-weight:600;color:var(--text)">' + (o.subject || 'Outreach Draft') + '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">' +
+          '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(132,204,22,0.1);color:var(--accent);font-weight:600">' + (o.status || 'draft').toUpperCase() + '</span>' +
+          '<span style="font-size:10px;color:var(--muted)">' + new Date(o.created_at).toLocaleDateString() + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } else {
+    document.getElementById('dc-outreach-body').innerHTML = '<div style="font-size:12px;color:var(--muted)">No outreach on file for this brand yet.</div>';
+  }
+
+  document.getElementById('dc-body').style.display = 'grid';
+}
+
+function openOutreachFromDealClose() {
+  var brand = document.getElementById('dc-brand-input').value.trim() || (_dealCloseContext && _dealCloseContext.brand) || '';
+  if (brand) prefillOutreach(brand);
+}
+
+function dcRow(label, value, small) {
+  return '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">' +
+    '<span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;min-width:70px;padding-top:1px">' + label + '</span>' +
+    '<span style="font-size:' + (small ? '11' : '12') + 'px;color:var(--text);line-height:1.45;flex:1">' + value + '</span>' +
+  '</div>';
+}
+
+function dcAskCard(label, value, note, highlight) {
+  return '<div style="background:' + (highlight ? 'rgba(132,204,22,0.07)' : 'var(--surface2)') + ';border:1px solid ' + (highlight ? 'rgba(132,204,22,0.3)' : 'var(--border)') + ';border-radius:var(--r-sm);padding:14px;text-align:center">' +
+    '<div style="font-size:10px;font-weight:700;color:' + (highlight ? 'var(--accent)' : 'var(--muted)') + ';text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">' + label + '</div>' +
+    '<div style="font-size:20px;font-weight:800;color:' + (highlight ? 'var(--accent)' : 'var(--text)') + ';margin-bottom:4px">' + value + '</div>' +
+    '<div style="font-size:10px;color:var(--muted)">' + note + '</div>' +
+  '</div>';
 }
 
 //  AI: RATE 
@@ -3280,7 +3580,7 @@ async function exportRateSheet() {
 
 async function getRateScript() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
-  if (!lastCalculatedRate) { showToast('Calculate a rate first, then click Get Justification Script'); return; }
+  if (!lastCalculatedRate) { showToast('Calculate a rate first, then click Negotiation Talking Points'); return; }
   const ath = athletes.find(a => a.id === selectedAthleteId);
   const txt = document.getElementById('rateText');
   const spinner = document.getElementById('rateSpinner');
@@ -3288,22 +3588,30 @@ async function getRateScript() {
   spinner.style.display = 'block';
   txt.textContent = '';
   try {
-    const mid = lastCalculatedRate.mid || Math.round(((lastCalculatedRate.low||0) + (lastCalculatedRate.high||0)) / 2) || 10000;
+    const cleanLow  = lastCalculatedRate.cleanLow  || lastCalculatedRate.low  || 0;
+    const cleanHigh = lastCalculatedRate.cleanHigh || lastCalculatedRate.high || 0;
+    const mid = lastCalculatedRate.mid || Math.round((cleanLow + cleanHigh) / 2) || 10000;
     const type = lastCalculatedRate.deliverableType || 'ig-reel';
     const engagement = ath?.engagement || 4.2;
     const reach = ((ath?.instagram||0) + (ath?.tiktok||0)).toLocaleString();
-    const msg = `You are a sports agent. Write a confident 5-sentence word-for-word script to justify charging $${mid.toLocaleString()} for a ${type} NIL deal with ${ath?.name||'this athlete'} (${ath?.sport||'athlete'}, ${ath?.school||'college'}).
+    const rateDrivers = (lastCalculatedRate.rateDrivers || []).slice(0, 3).join(', ');
+    const msg = `You are a sports agent about to get on a call to negotiate a NIL deal for ${ath?.name||'this athlete'} (${ath?.sport||'athlete'} at ${ath?.school||'college'}).
 
-Key facts to weave in naturally:
-- Their engagement rate is ${engagement}% vs. 2.1% industry average for paid influencers
-- Total social reach: ${reach} followers
-- Rate range: $${(lastCalculatedRate.low||0).toLocaleString()} – $${(lastCalculatedRate.high||0).toLocaleString()}
-- CPM comparison: brand gets ~$13 CPM vs $25-45 CPM for paid IG ads
+The brand has not committed yet. Your job is to give me negotiation talking points.
 
-Use quotation marks. End with a closing question to the brand. Be confident, data-driven, and conversational.`;
+KEY DATA:
+- Deliverable: ${type.replace(/-/g, ' ')}
+- Rate range: $${cleanLow.toLocaleString()} – $${cleanHigh.toLocaleString()} | Target: $${mid.toLocaleString()}
+- Engagement: ${engagement}% (industry avg 2.1% — that's ${(engagement/2.1).toFixed(1)}x above average)
+- Total reach: ${reach} followers
+- CPM estimate: ~$12–16 vs. $28–45 for paid Instagram ads
+${rateDrivers ? '- Rate drivers: ' + rateDrivers : ''}
+
+Write 5 specific talking points formatted as a numbered list. Each point should be ONE sentence — a specific, data-grounded statement an agent would actually say out loud in a negotiation call. Not generic advice. Not script headers. Just the lines themselves. Then add a section titled "If They Push Back on Price:" with 2 concise word-for-word responses. Keep the whole thing under 250 words.`;
     const r = await fetch(`${API_BASE}/api/ai/ask`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ athleteId: selectedAthleteId, message: msg }),
     });
     const data = await r.json();

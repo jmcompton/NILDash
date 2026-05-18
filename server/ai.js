@@ -494,6 +494,8 @@ Generate outreach messages. Return ONLY JSON:
 }
 
 module.exports = {
+  MODEL_FAST,
+  MODEL_STANDARD,
   streamResponse,
   oneShot,
   oneShotWithSearch,
