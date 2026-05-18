@@ -2797,7 +2797,10 @@ async function calcRate() {
     lastCalculatedRate = { ...rate, deliverableType: type };
     const result = document.getElementById('rateResult');
     result.classList.add('visible');
-    document.getElementById('rateRange').textContent = '$' + (rate.low||0).toLocaleString() + ' – $' + (rate.high||0).toLocaleString();
+    // Use clean rounded numbers — avoids false precision like $472–$877
+    const displayLow  = rate.cleanLow  || rate.low  || 0;
+    const displayHigh = rate.cleanHigh || rate.high || 0;
+    document.getElementById('rateRange').textContent = '$' + displayLow.toLocaleString() + ' – $' + displayHigh.toLocaleString();
     const delivLabels = {
       'ig-reel':'per IG Reel', 'ig-post':'per IG Post', 'ig-carousel':'per IG Carousel',
       'tiktok':'per TikTok Video', 'tiktok-spark':'per TikTok Spark Ad',
@@ -2823,24 +2826,26 @@ async function calcRate() {
       'camp-elite':'per Elite Camp/Showcase',
     };
     document.getElementById('ratePer').textContent = delivLabels[type] || ('per ' + type.replace(/-/g,' '));
-    const b = rate.breakdown || {};
-    const liveTag = rate.liveData ? '<div class="rb-row" style="color:var(--accent);font-size:10px;margin-bottom:4px">Live market data used</div>' : '';
-    const contextRow = rate.marketContext ? '<div class="rb-row" style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:4px">' + rate.marketContext + '</div>' : '';
-    function rbRow(label, val) { return val ? '<div class="rb-row"><span class="rb-label">' + label + '</span><span class="rb-val">' + val + '</span></div>' : ''; }
-    document.getElementById('rateBreakdown').innerHTML = liveTag +
-      rbRow('Effective reach', b.reach ? b.reach.toLocaleString() : null) +
-      rbRow('Sport multiplier', b.sportMult ? b.sportMult + '×' : null) +
-      rbRow('School multiplier', b.schoolMult ? b.schoolMult + '×' : null) +
-      rbRow('Position multiplier', b.posMult && b.posMult !== '1.00' ? b.posMult + '×' : null) +
-      rbRow('Market multiplier', b.marketMult && b.marketMult !== '1.00' ? b.marketMult + '×' : null) +
-      rbRow('Engagement multiplier', b.engMult ? b.engMult + '×' : null) +
-      rbRow('Cross-platform bonus', b.crossPlatform && b.crossPlatform !== '1.00' ? b.crossPlatform + '×' : null) +
-      rbRow('Stats boost', b.statsMult && parseFloat(b.statsMult) > 1.05 ? b.statsMult + '×' : null) +
-      rbRow('Draft premium', b.draftMult && parseFloat(b.draftMult) > 1.1 ? b.draftMult + '×' : null) +
-      rbRow('Academic signal', b.acadMult && b.acadMult !== '1.00' ? b.acadMult + '×' : null) +
-      rbRow('Implied CPM', b.cpm ? '$' + b.cpm : null) +
-      rbRow('Total multiplier', b.totalMult ? b.totalMult + '×' : null) +
-      contextRow;
+    // ── Rate Drivers + Limitations — replaces raw multiplier display ──────
+    // Internal math unchanged; presentation uses plain-English reasoning.
+    var driversHtml = '';
+    if (rate.rateDrivers && rate.rateDrivers.length) {
+      driversHtml += '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin:12px 0 6px">Rate Drivers</div>';
+      driversHtml += '<div style="display:flex;flex-wrap:wrap;gap:5px">';
+      rate.rateDrivers.forEach(function(d) {
+        driversHtml += '<span style="font-size:11px;padding:3px 9px;border-radius:20px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.2);color:var(--accent)">↑ ' + d + '</span>';
+      });
+      driversHtml += '</div>';
+    }
+    if (rate.rateLimits && rate.rateLimits.length) {
+      driversHtml += '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 6px">Limitations</div>';
+      driversHtml += '<div style="display:flex;flex-wrap:wrap;gap:5px">';
+      rate.rateLimits.forEach(function(l) {
+        driversHtml += '<span style="font-size:11px;padding:3px 9px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--muted)">↓ ' + l + '</span>';
+      });
+      driversHtml += '</div>';
+    }
+    document.getElementById('rateBreakdown').innerHTML = driversHtml;
     // Show client context panel
     const ath = athletes.find(a => a.id === selectedAthleteId);
     if (ath) {
@@ -2889,33 +2894,84 @@ async function calcRate() {
         recBox.style.display = 'none';
       }
     }
-    // Show v5.2 scores panel
+    // ── Market Confidence + Reliability panel ───────────────────────────────
+    // Replaces fake-precision score grid with transparent estimation display.
     var archBox = document.getElementById('rate-archetype');
     if (archBox) {
       archBox.style.display = 'block';
-      var aScore = rate.archetypeScore;
-      var mkt = rate.marketabilityScore || 0;
-      var spr = rate.sponsorshipReadiness || 0;
-      var aq  = rate.audienceQuality || 0;
-      var conf = rate.confidenceScore || rate.accuracyScore || 0;
-      function scColor(n) { return n >= 80 ? '#4ade80' : n >= 60 ? '#f59e0b' : '#f87171'; }
-      function scBar(n) { return '<div style="background:var(--surface2);border-radius:3px;height:5px;margin-top:4px"><div style="width:'+Math.min(n,100)+'%;background:'+scColor(n)+';height:5px;border-radius:3px"></div></div>'; }
-      var html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px">';
-      [['Marketability',mkt],['Readiness',spr],['Audience Quality',aq],['Confidence',conf]].forEach(function(item) {
-        html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">' +
-          '<div style="font-size:10px;color:var(--muted)">' + item[0] + '</div>' +
-          '<div style="font-size:20px;font-weight:800;color:'+scColor(item[1])+'">'+item[1]+'<span style="font-size:11px;color:var(--muted)">/100</span></div>' +
-          scBar(item[1]) + '</div>';
-      });
-      html += '</div>';
-      if (aScore) {
-        var aTier = aScore >= 85 ? 'Elite' : aScore >= 70 ? 'Strong' : aScore >= 55 ? 'Developing' : 'Emerging';
-        var aColor = aScore >= 85 ? '#4ade80' : aScore >= 70 ? '#60a5fa' : aScore >= 55 ? '#f59e0b' : 'var(--muted)';
-        html += '<div style="font-size:11px;color:var(--muted)">Archetype Score: <span style="color:'+aColor+';font-weight:700">'+aScore+'/99</span> · Tier: <span style="color:'+aColor+';font-weight:600">'+aTier+'</span>';
-        if (rate.draftMult > 1.4) html += ' · <span style="color:#f59e0b">Draft premium ('+rate.draftMult.toFixed(1)+'×)</span>';
-        if (rate.statsMult > 1.2) html += ' · Stats boost ('+rate.statsMult.toFixed(2)+'×)';
-        html += '</div>';
+      var ct = rate.confTypes   || {};
+      var rl = rate.reliability || {};
+      var overallLabel = ct.overall || 'Low';
+      var overallColor = overallLabel === 'High' ? '#4ade80' : overallLabel === 'Moderate' ? '#f59e0b' : 'var(--muted)';
+      var relScore = rl.score || 0;
+      var relColor = relScore >= 7 ? '#4ade80' : relScore >= 5 ? '#f59e0b' : 'var(--muted)';
+
+      function confBar(pct) {
+        var c = pct >= 70 ? '#4ade80' : pct >= 45 ? '#f59e0b' : 'rgba(255,255,255,0.15)';
+        return '<div style="background:var(--surface2);border-radius:3px;height:4px;margin-top:5px;margin-bottom:2px"><div style="width:' + Math.min(pct,100) + '%;background:' + c + ';height:4px;border-radius:3px;transition:width 0.4s"></div></div>';
       }
+
+      var html = '';
+
+      // Market Confidence header
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+      html +=   '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Market Confidence</div>';
+      html +=   '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:' + (overallLabel === 'High' ? 'rgba(74,222,128,0.12)' : overallLabel === 'Moderate' ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.06)') + ';color:' + overallColor + ';border:1px solid ' + (overallLabel === 'High' ? 'rgba(74,222,128,0.25)' : overallLabel === 'Moderate' ? 'rgba(245,158,11,0.25)' : 'var(--border)') + '">' + overallLabel + '</span>';
+      html += '</div>';
+
+      // Confidence type grid
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
+
+      // Social data confidence
+      html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">';
+      html +=   '<div style="font-size:10px;color:var(--muted)">Social Data</div>';
+      html +=   '<div style="font-size:16px;font-weight:800;color:var(--text)">' + (ct.social || 0) + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>';
+      html +=   confBar(ct.social || 0);
+      html += '</div>';
+
+      // Market confidence
+      html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">';
+      html +=   '<div style="font-size:10px;color:var(--muted)">Market Benchmarks</div>';
+      html +=   '<div style="font-size:16px;font-weight:800;color:var(--text)">' + (ct.market || 0) + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>';
+      html +=   confBar(ct.market || 0);
+      html += '</div>';
+
+      // Comparable deals confidence
+      html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">';
+      html +=   '<div style="font-size:10px;color:var(--muted)">Deal Comparables</div>';
+      if (ct.comparable > 0) {
+        html += '<div style="font-size:16px;font-weight:800;color:var(--text)">' + ct.comparable + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>';
+        html += confBar(ct.comparable);
+      } else {
+        html += '<div style="font-size:12px;font-weight:700;color:var(--muted);margin-top:4px">No data</div>';
+        html += '<div style="font-size:10px;color:var(--muted);margin-top:3px">Add closed deals to improve</div>';
+      }
+      html += '</div>';
+
+      // Historical deal confidence — always honest
+      html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">';
+      html +=   '<div style="font-size:10px;color:var(--muted)">Deal History</div>';
+      html +=   '<div style="font-size:12px;font-weight:700;color:var(--muted);margin-top:4px">Unavailable</div>';
+      html +=   '<div style="font-size:10px;color:var(--muted);margin-top:3px">No individual history on file</div>';
+      html += '</div>';
+
+      html += '</div>'; // end grid
+
+      // Market Reliability Score
+      html += '<div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">';
+      html +=   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+      html +=     '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Market Reliability</div>';
+      html +=     '<div style="font-size:18px;font-weight:900;color:' + relColor + '">' + relScore + '<span style="font-size:11px;color:var(--muted);font-weight:400">/10</span></div>';
+      html +=   '</div>';
+      html +=   '<div style="background:var(--surface2);border-radius:3px;height:5px;margin-bottom:10px"><div style="width:' + Math.min(relScore * 10, 100) + '%;background:' + relColor + ';height:5px;border-radius:3px;transition:width 0.4s"></div></div>';
+      if (rl.strengths && rl.strengths.length) {
+        html += '<div style="font-size:10px;color:var(--muted);margin-bottom:4px"><span style="color:#4ade80">Strong:</span> ' + rl.strengths.join(' · ') + '</div>';
+      }
+      if (rl.weaknesses && rl.weaknesses.length) {
+        html += '<div style="font-size:10px;color:var(--muted)"><span style="color:var(--muted)">Weak:</span> ' + rl.weaknesses.join(' · ') + '</div>';
+      }
+      html += '</div>';
+
       archBox.innerHTML = html;
     }
     document.getElementById('rateAI').classList.add('visible');
@@ -3020,23 +3076,34 @@ async function exportRateSheet() {
   </div>
   <div class="rate-hero">
     <div>
-      <div class="rate-big">$${(rate.low||0).toLocaleString()} – $${(rate.high||0).toLocaleString()}</div>
-      <div class="rate-label">Recommended range per ${delivLabel}</div>
+      <div class="rate-big">$${(rate.cleanLow||rate.low||0).toLocaleString()} – $${(rate.cleanHigh||rate.high||0).toLocaleString()}</div>
+      <div class="rate-label">Estimated market range per ${delivLabel}</div>
     </div>
-    <div class="conf">${conf} Confidence</div>
+    <div class="conf">${conf} Confidence · ${rate.reliability?.score||0}/10 Reliability</div>
   </div>
   <div class="section">
-    <div class="section-title">How This Rate Was Built</div>
-    ${Object.entries({
-      'Effective Reach': rate.breakdown?.reach ? rate.breakdown.reach.toLocaleString()+' followers' : null,
-      'Sport Multiplier': rate.breakdown?.sportMult ? rate.breakdown.sportMult+'×' : null,
-      'School Tier Multiplier': rate.breakdown?.schoolMult ? rate.breakdown.schoolMult+'×' : null,
-      'Position Multiplier': rate.breakdown?.posMult && rate.breakdown.posMult!=='1.00' ? rate.breakdown.posMult+'×' : null,
-      'Engagement Bonus': rate.breakdown?.engMult ? rate.breakdown.engMult+'×' : null,
-      'Cross-Platform Bonus': rate.breakdown?.crossPlatform && rate.breakdown.crossPlatform!=='1.00' ? rate.breakdown.crossPlatform+'×' : null,
-      'Implied CPM': rate.breakdown?.cpm ? '$'+rate.breakdown.cpm+' per 1,000 impressions' : null,
-      'Total Multiplier': rate.breakdown?.totalMult ? rate.breakdown.totalMult+'×' : null,
-    }).filter(([,v])=>v).map(([k,v])=>`<div class="breakdown-row"><span class="breakdown-label">${k}</span><span class="breakdown-val">${v}</span></div>`).join('')}
+    <div class="section-title">Rate Drivers</div>
+    ${(rate.rateDrivers||[]).map(d=>`<div class="breakdown-row"><span style="color:#2e7d32">↑</span> <span class="breakdown-label">${d}</span></div>`).join('')}
+    ${(rate.rateDrivers||[]).length === 0 ? '<div class="breakdown-row"><span class="breakdown-label">Based on NILViewVal benchmark model</span></div>' : ''}
+  </div>
+  ${(rate.rateLimits||[]).length ? `<div class="section">
+    <div class="section-title">Limitations</div>
+    ${(rate.rateLimits||[]).map(l=>`<div class="breakdown-row"><span style="color:#999">↓</span> <span class="breakdown-label" style="color:#777">${l}</span></div>`).join('')}
+  </div>` : ''}
+  <div class="section">
+    <div class="section-title">Confidence Summary</div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="stat-num" style="font-size:16px">${rate.confTypes?.social||0}%</div><div class="stat-lbl">Social Data</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:16px">${rate.confTypes?.market||0}%</div><div class="stat-lbl">Market Benchmarks</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:14px">${rate.confTypes?.overall||'Low'}</div><div class="stat-lbl">Overall</div></div>
+    </div>
+    <div class="stat-grid" style="margin-top:8px">
+      <div class="stat-box"><div class="stat-num" style="font-size:16px">${rate.reliability?.score||0}/10</div><div class="stat-lbl">Market Reliability</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:14px">${rate.confTypes?.comparable||0 ? rate.confTypes.comparable+'%' : 'None'}</div><div class="stat-lbl">Deal Comparables</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:14px">N/A</div><div class="stat-lbl">Deal History</div></div>
+    </div>
+    ${(rate.reliability?.strengths||[]).length ? `<div style="margin-top:10px;font-size:11px;color:#2e7d32">Strong: ${(rate.reliability.strengths||[]).join(' · ')}</div>` : ''}
+    ${(rate.reliability?.weaknesses||[]).length ? `<div style="margin-top:4px;font-size:11px;color:#999">Weak: ${(rate.reliability.weaknesses||[]).join(' · ')}</div>` : ''}
   </div>
   ${rate.comps && rate.comps.length ? `<div class="section">
     <div class="section-title">Comparable Closed Deals (Anonymized)</div>

@@ -710,4 +710,280 @@ const BRAND_WINDOWS = {
   'ea sports':       'CFB launch (July), roster updates Oct-Jan. $1,500 base + star negotiation.',
 };
 
-module.exports = { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal };
+// ─── Trustworthy Output Layer ─────────────────────────────────────────────────
+// Added to NILViewVal v5.2 — replaces fake precision with transparent estimation.
+// ALL functions below are ADDITIVE — zero changes to existing functions above.
+
+/** Round a dollar amount to a clean, believable number */
+function roundToClean(n) {
+  const num = Math.round(n) || 0;
+  if (num >= 50000) return Math.round(num / 2500) * 2500;
+  if (num >= 10000) return Math.round(num / 1000) * 1000;
+  if (num >= 5000)  return Math.round(num / 500)  * 500;
+  if (num >= 2000)  return Math.round(num / 250)  * 250;
+  if (num >= 500)   return Math.round(num / 50)   * 50;
+  if (num >= 100)   return Math.round(num / 25)   * 25;
+  return Math.round(num / 10) * 10;
+}
+
+/** Apply rounding to a rate pair — ensures low != high after rounding */
+function cleanRange(low, high) {
+  let cLow  = roundToClean(low  || 0);
+  let cHigh = roundToClean(high || 0);
+  if (cHigh <= cLow && cLow > 0) cHigh = cLow + roundToClean(cLow * 0.4);
+  return { low: cLow, high: cHigh };
+}
+
+/** Inline follower formatter (mirrors the one in nilViewVal scope) */
+function _fmtK(n) {
+  const num = parseInt(n) || 0;
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return Math.round(num / 1000) + 'K';
+  return String(num);
+}
+
+/**
+ * Generate human-readable rate drivers — what pushed the rate UP.
+ * Returns array of plain-English strings (max 5).
+ */
+function generateRateDrivers(athlete, rate) {
+  const drivers = [];
+  const sport  = (athlete.sport     || '').toLowerCase();
+  const tier   = (athlete.schoolTier || '').toLowerCase();
+  const pos    = (athlete.position  || '').toLowerCase();
+  const school = (athlete.school    || '').toLowerCase();
+  const er     = parseFloat(athlete.engagement) || 0;
+  const ig     = parseInt(athlete.instagram)    || 0;
+  const tt     = parseInt(athlete.tiktok)       || 0;
+  const reach  = ig + tt;
+  const b      = rate.breakdown || {};
+  const dMult  = parseFloat(b.draftMult)  || 1.0;
+  const sMult  = parseFloat(b.statsMult)  || 1.0;
+  const mMult  = parseFloat(b.marketMult) || 1.0;
+
+  // School visibility
+  if (tier.startsWith('p4-top10'))       drivers.push('P4 Top-10 program visibility');
+  else if (tier.startsWith('p4-top25'))  drivers.push('Power 4 Top-25 program market');
+  else if (tier.startsWith('p4'))        drivers.push('Power 4 school visibility');
+  else if (tier.startsWith('highmajor')) drivers.push('High-major program recognition');
+
+  // Conference premium
+  const secSchools = ['georgia','alabama','lsu','florida','tennessee','auburn','ole miss','mississippi state','arkansas','missouri','vanderbilt','kentucky','south carolina','texas a&m','texas','oklahoma'];
+  const b10Schools = ['ohio state','michigan','penn state','michigan state','iowa','wisconsin','minnesota','illinois','northwestern','indiana','purdue','nebraska','rutgers','maryland'];
+  const accSchools = ['clemson','duke','north carolina','miami','virginia tech','florida state','georgia tech','nc state','syracuse','boston college','wake forest','pittsburgh','louisville','california'];
+  const b12Schools = ['byu','kansas state','iowa state','oklahoma state','kansas','tcu','baylor','texas tech','utah','colorado','west virginia','cincinnati','houston','ucf'];
+  if (secSchools.some(s => school.includes(s)))      drivers.push('SEC conference premium');
+  else if (b10Schools.some(s => school.includes(s))) drivers.push('Big Ten conference visibility');
+  else if (accSchools.some(s => school.includes(s))) drivers.push('ACC program market');
+  else if (b12Schools.some(s => school.includes(s))) drivers.push('Big 12 conference reach');
+
+  // Sport demand
+  if      (sport.includes('football'))          drivers.push('High football brand demand');
+  else if (sport.includes('basketball'))        drivers.push('Strong basketball NIL market');
+  else if (sport.includes('gymnastics'))        drivers.push('Elite gymnastics audience profile');
+  else if (sport.includes('volleyball'))        drivers.push('Growing volleyball NIL market');
+  else if (sport.includes('baseball'))          drivers.push('Active baseball NIL market');
+
+  // Position premium
+  if      (pos.includes('qb') || pos.includes('quarterback'))    drivers.push('QB position commands maximum premium');
+  else if (pos.includes('pg') || pos.includes('point guard'))    drivers.push('Point guard visibility premium');
+  else if (pos.includes('wr') || pos.includes('wide receiver'))  drivers.push('Wide receiver brand demand');
+  else if (pos.includes('edge') || pos.includes('cb'))           drivers.push('Premium defensive position');
+
+  // Engagement quality
+  if      (er >= 10) drivers.push('Exceptional engagement (' + er.toFixed(1) + '% — 2×+ avg)');
+  else if (er >= 6)  drivers.push('Strong engagement (' + er.toFixed(1) + '% vs. 4.8% avg)');
+  else if (er >= 4)  drivers.push('Above-average engagement rate');
+
+  // Reach tier
+  if      (reach >= 500000) drivers.push('Major-tier reach (' + _fmtK(reach) + ' combined)');
+  else if (reach >= 100000) drivers.push('Mid-tier social following (' + _fmtK(reach) + ')');
+  else if (reach >= 25000)  drivers.push('Micro-influencer niche authority');
+
+  // Cross-platform bonus
+  if (ig > 0 && tt > 0) drivers.push('Cross-platform presence (IG + TikTok)');
+
+  // Draft / stats signals
+  if (dMult >= 2.5)  drivers.push('Top draft prospect premium');
+  else if (dMult >= 1.5) drivers.push('Draft prospect visibility boost');
+  if (sMult >= 1.3)  drivers.push('Elite on-field performance metrics');
+
+  // Market geography
+  if (mMult >= 1.35) {
+    const bigCities = [['athens','Athens market'],['tuscaloosa','Tuscaloosa market'],['columbus','Columbus market'],
+      ['baton rouge','Baton Rouge market'],['austin','Austin market'],['dallas','Dallas market'],
+      ['los angeles','Los Angeles market'],['new york','New York market'],['atlanta','Atlanta market'],
+      ['miami','Miami market']];
+    const cityMatch = bigCities.find(([c]) => school.includes(c));
+    drivers.push(cityMatch ? cityMatch[1] + ' concentration' : 'Major market geography');
+  }
+
+  return drivers.slice(0, 5);
+}
+
+/**
+ * Generate human-readable limitations — what constrained the rate.
+ * Returns array of plain-English strings (max 4).
+ */
+function generateRateLimitations(athlete, rate, compCount) {
+  const limits = [];
+  const reach = (parseInt(athlete.instagram) || 0) + (parseInt(athlete.tiktok) || 0);
+  const er    = parseFloat(athlete.engagement) || 0;
+  const tier  = (athlete.schoolTier || '').toLowerCase();
+  const ig    = parseInt(athlete.instagram) || 0;
+  const tt    = parseInt(athlete.tiktok)   || 0;
+
+  if (compCount < 5)                          limits.push('Limited closed deal data for this sport/tier');
+  if (reach < 10000)                          limits.push('Sub-10K following — local deals most realistic');
+  else if (reach < 25000 && er < 5)          limits.push('Micro-tier reach with average engagement');
+  if (er < 3 && er > 0)                      limits.push('Below-average engagement reduces CPM value');
+  if (!ig)                                    limits.push('No Instagram data on file');
+  if (!tt)                                    limits.push('TikTok data not on file (single-platform)');
+  if (tier && !tier.startsWith('p4') && !tier.startsWith('highmajor'))
+                                              limits.push('Non-P4 tier reduces national brand interest');
+  if (!athlete.position)                      limits.push('Position not specified — using default index');
+  if (!athlete.ppg && !athlete.rpg)          limits.push('No performance stats on file');
+  limits.push('No individual deal history (estimation only)');
+
+  return limits.slice(0, 4);
+}
+
+/**
+ * Market Reliability Score — 1.0–10.0
+ * Measures how much real data backs the estimate.
+ */
+function calcMarketReliabilityScore(athlete, rate, compCount) {
+  const ig    = parseInt(athlete.instagram) || 0;
+  const tt    = parseInt(athlete.tiktok)   || 0;
+  const reach = ig + tt;
+  const er    = parseFloat(athlete.engagement) || 0;
+  const tier  = (athlete.schoolTier || '').toLowerCase();
+
+  let score = 2.5; // honest starting base
+
+  // Social signal quality (up to +3.0)
+  if (ig > 0)    score += 1.2;
+  if (tt > 0)    score += 0.8;
+  if (er > 0)    score += 0.6;
+  if (reach >= 10000) score += 0.4;
+
+  // School/sport anchor (up to +2.0)
+  if (tier.startsWith('p4'))        score += 1.0;
+  else if (tier.startsWith('highmajor')) score += 0.6;
+  else if (tier.startsWith('mid'))  score += 0.3;
+  if (athlete.sport)                score += 0.5;
+  if (athlete.position)             score += 0.5;
+
+  // Historical deal data (up to +1.5)
+  if (compCount >= 20)      score += 1.5;
+  else if (compCount >= 10) score += 1.0;
+  else if (compCount >= 5)  score += 0.6;
+  else if (compCount >= 1)  score += 0.2;
+
+  // Supplementary profile data (up to +1.0)
+  if (athlete.ppg || athlete.rpg) score += 0.4;
+  if (athlete.gpa)                score += 0.3;
+  if (athlete.draftStatus)        score += 0.3;
+
+  const strengths = [];
+  const weaknesses = [];
+  if (ig > 0 || tt > 0) strengths.push('Social following verified');
+  if (er >= 4)          strengths.push('Engagement metrics on file');
+  else                  weaknesses.push('Engagement data thin or absent');
+  if (tier.startsWith('p4') || tier.startsWith('highmajor')) strengths.push('School visibility benchmarks available');
+  if (athlete.sport)    strengths.push('Sport-specific market benchmarks');
+  if (compCount >= 5)   strengths.push(compCount + ' comparable closed deals');
+  else                  weaknesses.push('Few comparable closed deals on record');
+  weaknesses.push('No individual deal history on file');
+  if (!tt)              weaknesses.push('TikTok data absent (single-platform)');
+
+  return {
+    score: Math.round(Math.min(10, Math.max(1, score)) * 10) / 10,
+    strengths: strengths.slice(0, 3),
+    weaknesses: weaknesses.slice(0, 3),
+  };
+}
+
+/**
+ * Separate confidence types — replaces single fake-precision score.
+ * Returns per-dimension confidence percentages + overall label.
+ */
+function generateConfidenceTypes(athlete, rate, compCount) {
+  const ig    = parseInt(athlete.instagram) || 0;
+  const tt    = parseInt(athlete.tiktok)   || 0;
+  const er    = parseFloat(athlete.engagement) || 0;
+
+  // Social confidence — how complete is the social footprint?
+  let social = 15;
+  if (ig > 0) social += 38;
+  if (tt > 0) social += 22;
+  if (er > 0) social += 20;
+  if (ig > 0 && tt > 0) social += 5; // cross-platform completeness bonus
+  social = Math.min(92, social);
+
+  // Market confidence — school, sport, position known?
+  let market = 38;
+  if (athlete.schoolTier) market += 15;
+  if (athlete.sport)      market += 15;
+  if (athlete.position)   market += 10;
+  if (ig > 0 || tt > 0)  market += 6;
+  market = Math.min(80, market);
+
+  // Comparable confidence — actual closed deal data
+  let comparable = 0;
+  if      (compCount >= 20) comparable = 85;
+  else if (compCount >= 10) comparable = 68;
+  else if (compCount >= 5)  comparable = 50;
+  else if (compCount >= 1)  comparable = 30;
+  else                      comparable = 0; // honest zero
+
+  // Historical deal confidence — always unavailable until we have it
+  const historical = 0;
+
+  // Overall weighted label
+  const weighted = (social * 0.40) + (market * 0.35) + (comparable * 0.25);
+  const overall = weighted >= 68 ? 'High' : weighted >= 48 ? 'Moderate' : 'Low';
+
+  return { social, market, comparable, historical, overall, weighted: Math.round(weighted) };
+}
+
+/**
+ * Comparable market context note for the UI "Comparable Market" panel.
+ */
+function generateComparableNote(athlete, rate) {
+  const tier   = (athlete.schoolTier || '').toLowerCase();
+  const sport  = (athlete.sport || '').toLowerCase();
+  const reach  = (parseInt(athlete.instagram) || 0) + (parseInt(athlete.tiktok) || 0);
+
+  const tierLabel =
+    tier.startsWith('p4-top10') ? 'P4 Top-10' :
+    tier.startsWith('p4-top25') ? 'P4 Top-25' :
+    tier.startsWith('p4')       ? 'Power 4'   :
+    tier.startsWith('highmajor')? 'High-Major' :
+    tier.startsWith('mid')      ? 'Mid-Major'  : 'similar tier';
+
+  const sportLabel =
+    sport.includes('football')   ? 'football athletes'   :
+    sport.includes('basketball') ? 'basketball athletes' :
+    sport.includes('gymnastics') ? 'gymnastics athletes' :
+    sport.includes('volleyball') ? 'volleyball athletes' :
+    sport.includes('baseball')   ? 'baseball athletes'   : 'athletes in this sport';
+
+  const reachLabel =
+    reach >= 200000 ? '150K–400K followers' :
+    reach >= 100000 ? '75K–200K followers'  :
+    reach >= 50000  ? '35K–80K followers'   :
+    reach >= 25000  ? '15K–45K followers'   :
+    reach >= 10000  ? '8K–25K followers'    : 'similar reach tier';
+
+  return { tierLabel, sportLabel, reachLabel, source: '2025 NIL benchmark data' };
+}
+
+module.exports = {
+  MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal,
+  // Trustworthy output layer
+  roundToClean, cleanRange,
+  generateRateDrivers, generateRateLimitations,
+  calcMarketReliabilityScore, generateConfidenceTypes,
+  generateComparableNote,
+};

@@ -336,6 +336,19 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
     year: c.year_in_school || null
   }));
 
+  // ── Trustworthy output layer ─────────────────────────────────────────────
+  // Adds transparent estimation fields — keeps all existing fields intact.
+  const {
+    cleanRange, generateRateDrivers, generateRateLimitations,
+    calcMarketReliabilityScore, generateConfidenceTypes, generateComparableNote,
+  } = require('./benchmarks');
+  const cleaned     = cleanRange(rate.low, rate.high);
+  const rateDrivers = generateRateDrivers(athlete, rate);
+  const rateLimits  = generateRateLimitations(athlete, rate, compCount);
+  const reliability = calcMarketReliabilityScore(athlete, rate, compCount);
+  const confTypes   = generateConfidenceTypes(athlete, rate, compCount);
+  const compNote    = generateComparableNote(athlete, rate);
+
   res.json({
     ...rate,
     liveData: false,
@@ -347,7 +360,15 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
       max: Math.round(parseFloat(compStats.max_value))
     } : null,
     confidence,
-    confidenceNote
+    confidenceNote,
+    // ── Trustworthy output layer (new fields — additive, backward compatible)
+    cleanLow:     cleaned.low,
+    cleanHigh:    cleaned.high,
+    rateDrivers,
+    rateLimits,
+    reliability,
+    confTypes,
+    compNote,
   });
 });
 
