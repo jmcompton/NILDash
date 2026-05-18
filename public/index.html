@@ -1539,6 +1539,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Searches official athletics websites and ESPN. Claude AI extracts athlete data. High-confidence results auto-import; others go to the review queue.</div>
               <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
                 <div>
+                  <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">School</div>
+                  <input id="intel-school-input" type="text" placeholder="e.g. Samford University"
+                    style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;min-width:200px;outline:none">
+                </div>
+                <div>
                   <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Sport</div>
                   <select id="intel-sport-select" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;min-width:180px;outline:none">
                     <option value="">— Select sport —</option>
@@ -6663,12 +6668,19 @@ var _intelStatusLabels = {
 };
 
 async function _intelStartDiscovery() {
-  var sportSelect = document.getElementById('intel-sport-select');
-  var sport       = sportSelect ? sportSelect.value : '';
-  if (!sport) {
-    alert('Please select a sport first.');
-    return;
+  var sportSelect  = document.getElementById('intel-sport-select');
+  var schoolInput  = document.getElementById('intel-school-input');
+  var sport        = sportSelect ? sportSelect.value.trim() : '';
+  var school       = schoolInput ? schoolInput.value.trim() : '';
+
+  // Pre-fill school from loaded university data if blank
+  if (!school && _univData && _univData.university && _univData.university.name) {
+    school = _univData.university.name;
+    if (schoolInput) schoolInput.value = school;
   }
+
+  if (!school) { alert('Please enter a school name.'); return; }
+  if (!sport)  { alert('Please select a sport.');      return; }
 
   var btn = document.getElementById('intel-start-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
@@ -6678,7 +6690,7 @@ async function _intelStartDiscovery() {
       method:      'POST',
       credentials: 'include',
       headers:     { 'Content-Type': 'application/json' },
-      body:        JSON.stringify({ sport }),
+      body:        JSON.stringify({ sport, universityName: school }),
     });
     var data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Failed to start job');
