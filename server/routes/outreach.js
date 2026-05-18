@@ -168,7 +168,11 @@ router.post('/pitch', async (req, res) => {
     const matchScore = await matchSvc.matchAthleteToBrand(req.session.userId, athlete, enrichment);
     const contact = contactId ? await contactSvc.getById(contactId) : await contactSvc.getBestContact(req.session.userId, enrichmentId);
 
-    const pitch = await pitchSvc.generatePitch({ athlete, enrichment, matchScore, contact, dealScanData: {} });
+    const agentRow = await pool.query('SELECT name, email FROM users WHERE id=$1', [req.session.userId]);
+    const agentName  = agentRow.rows[0]?.name  || null;
+    const agentEmail = agentRow.rows[0]?.email || null;
+
+    const pitch = await pitchSvc.generatePitch({ athlete, enrichment, matchScore, contact, dealScanData: {}, agentName, agentEmail });
     res.json(pitch);
   } catch (e) {
     console.error('[outreach/pitch]', e.message);

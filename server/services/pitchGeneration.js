@@ -33,12 +33,22 @@ const { oneShot } = require('../ai');
  * }
  */
 async function generatePitch(inputs) {
-  const { athlete, enrichment, matchScore, contact, dealScanData } = inputs;
+  const { athlete, enrichment, matchScore, contact, dealScanData, agentName, agentEmail } = inputs;
   const athleteData = extractAthleteData(athlete);
+  const agentSignature = agentName || 'Your Agent';
+  const agentTitle = 'NIL Partnerships';
 
-  const system = `You are a NIL partnership outreach specialist writing on behalf of a sports agency.
-Your writing is direct, professional, and highly personalized to each brand and athlete.
-Never use generic templates. Every line should feel written specifically for this brand-athlete pair.
+  const system = `You are a seasoned sports agent with 15 years in athlete representation. You write real emails — not marketing copy.
+
+Your emails sound like they came from a real person who actually knows both the athlete and the brand. They are:
+- Conversational but professional. Not stiff. Not corporate.
+- Specific and credible. You cite real numbers and real context.
+- Short paragraphs (2-4 sentences). No walls of text.
+- Zero AI tell-tale phrases: no "I wanted to reach out," no "Here's why this matters," no "This is a unique opportunity," no "I believe this could be," no "I'm excited to share," no bullet points converted to prose.
+- No section headers, no colons introducing lists, no "straightforward" or "simply put."
+- The tone is confident but not salesy. You're not pitching — you're starting a conversation between two people who should probably work together.
+- Sign off with the agent's real name and title. Never use [Agent Name] literally.
+
 Return ONLY a valid JSON object. No markdown code blocks, no explanation.`;
 
   const campaignIdeas = safeParseArray(matchScore?.campaign_ideas);
@@ -81,22 +91,26 @@ MATCH ANALYSIS:
 - Audience alignment: ${matchScore?.audience_alignment || 'Audiences align well'}
 - Campaign ideas: ${campaignIdeas.slice(0, 3).join(' | ')}
 
+AGENT SIGNING THIS EMAIL:
+- Name: ${agentSignature}
+- Title: ${agentTitle}
+
 Generate this exact JSON:
 {
-  "subject_line": "compelling email subject under 60 chars — specific to this brand+athlete",
-  "personalized_intro": "2-3 sentence opening paragraph addressing ${contactName || 'the contact'} that references something specific about ${enrichment.brand_name} — NOT generic",
-  "athlete_fit": "2-3 sentences explaining exactly why ${athleteData.name} is the right fit for ${enrichment.brand_name} — use specific stats and school/sport details",
-  "audience_alignment": "2 sentences on audience overlap between ${athleteData.name}'s fanbase and ${enrichment.brand_name}'s customers",
+  "subject_line": "compelling subject under 60 chars — no hype words, reads like a real person wrote it",
+  "personalized_intro": "2-3 sentence opening that feels personal, not canned — references something real about ${enrichment.brand_name} or the contact's role",
+  "athlete_fit": "2-3 sentences on why ${athleteData.name} fits ${enrichment.brand_name} — specific, stats-grounded",
+  "audience_alignment": "2 sentences on audience overlap, grounded in real numbers",
   "campaign_ideas": [
-    "Specific campaign idea 1 with brief description",
-    "Specific campaign idea 2 with brief description",
-    "Specific campaign idea 3 with brief description"
+    "Specific campaign idea 1",
+    "Specific campaign idea 2",
+    "Specific campaign idea 3"
   ],
-  "value_proposition": "3-4 sentences on the concrete value ${enrichment.brand_name} gets from this partnership — include engagement numbers and reach",
-  "partnership_structure": "2-3 sentences suggesting a realistic partnership structure (deliverables, timeline, exclusivity)",
-  "roi_messaging": "2 sentences on ROI framing — what ${enrichment.brand_name} can expect in terms of exposure and engagement",
-  "cta": "one clear call to action sentence",
-  "full_email_body": "complete professional email body (NOT including subject). 250-350 words. Include: greeting, intro, athlete overview, fit explanation, campaign idea, value proposition, CTA, professional closing. Sign off as agent.",
+  "value_proposition": "3-4 sentences on what ${enrichment.brand_name} gets — concrete, not vague",
+  "partnership_structure": "2-3 sentences on realistic structure (deliverables, timeline, exclusivity)",
+  "roi_messaging": "2 sentences on ROI framing — engagement numbers, reach",
+  "cta": "one natural, low-pressure call-to-action sentence",
+  "full_email_body": "Write a complete outreach email exactly as it would appear — from greeting through sign-off. Follow ALL of these rules:\n\n1. GREETING: Use the contact's first name if known (${contactName || 'Hi there'}), followed by a comma and a line break.\n2. OPENING: Start with ONE sentence that is not about the athlete. Reference something real about ${enrichment.brand_name} — a product line, a market position, something you'd actually know if you followed their business. Do not start with 'I' as the first word.\n3. SECOND PARAGRAPH: Introduce the athlete naturally. Lead with a specific achievement or number — not their name. Let the context land before the name.\n4. THIRD PARAGRAPH: The partnership angle. What would this actually look like? Be specific about one campaign concept. No vague 'content partnership' language — describe the actual thing.\n5. FOURTH PARAGRAPH: One sentence on reach/engagement numbers. One sentence on why that audience is relevant to ${enrichment.brand_name}. That's it — don't oversell.\n6. CLOSING: Ask for 15 minutes. One sentence. Then sign off.\n7. SIGN-OFF FORMAT:\n   Best,\n   ${agentSignature}\n   ${agentTitle}\n\n8. FORBIDDEN PHRASES (do not use any of these): 'I wanted to reach out', 'unique opportunity', 'I believe', 'I think', 'exciting', 'leverage', 'synergy', 'seamless', 'Here's why', 'straightforward', 'simply put', 'I'm excited', 'I'm confident', 'thrilled', 'passion', 'game-changer', 'perfect fit', 'natural fit', 'no-brainer', any sentence starting with 'This is'.\n9. LENGTH: 180-240 words in the body. Tight. Every sentence must earn its place.\n10. NO bullet points, numbered lists, section headers, or bold text inside the email body.",
   "deck_talking_points": [
     "Key point 1 for the pitch deck",
     "Key point 2",

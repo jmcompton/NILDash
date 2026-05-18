@@ -101,6 +101,15 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult) {
   const completedSteps = [];
   const failedSteps = [];
 
+  // Load agent profile so pitches are signed with a real name
+  let agentName = null;
+  let agentEmail = null;
+  try {
+    const agentRow = await pool.query('SELECT name, email FROM users WHERE id=$1', [agentId]);
+    agentName  = agentRow.rows[0]?.name  || null;
+    agentEmail = agentRow.rows[0]?.email || null;
+  } catch (e) { /* non-fatal — pitch will use fallback */ }
+
   async function step(name, fn) {
     try {
       logWorkflowEvent(runId, agentId, name + '_started', { brand: brandName });
@@ -155,6 +164,8 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult) {
       matchScore,
       contact: bestContact,
       dealScanData: dealScanResult,
+      agentName,
+      agentEmail,
     })
   );
 
