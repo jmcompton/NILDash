@@ -82,8 +82,8 @@ function renderEmailAccountsUI() {
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <span style="width:8px;height:8px;background:${statusColor};border-radius:50%;display:inline-block" title="${acc.status}"></span>
-          <button onclick="triggerEmailSync('${acc.id}')" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer" title="Sync now">↻ Sync</button>
-          <button onclick="disconnectEmailAccount('${acc.id}')" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(241,53,53,0.4);border-radius:var(--r-sm);color:#f87171;cursor:pointer">Disconnect</button>
+          <button onclick="emailModule.triggerEmailSync('${acc.id}')" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer" title="Sync now">↻ Sync</button>
+          <button onclick="emailModule.disconnectEmailAccount('${acc.id}')" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(241,53,53,0.4);border-radius:var(--r-sm);color:#f87171;cursor:pointer">Disconnect</button>
         </div>
       </div>`;
   }).join('');
@@ -213,7 +213,7 @@ function renderThreadList(filter) {
     const unread = t.has_unread || parseInt(t.unread_count) > 0;
     const isActive = EmailState.activeThread?.id === t.id;
     return `
-      <div onclick="openThread('${t.id}')" style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;background:${isActive ? 'var(--surface2)' : 'transparent'};transition:background 0.1s"
+      <div onclick="emailModule.openThread('${t.id}')" style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;background:${isActive ? 'var(--surface2)' : 'transparent'};transition:background 0.1s"
            onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background='${isActive ? 'var(--surface2)' : 'transparent'}'">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
           <span style="font-size:12px;font-weight:${unread ? '700' : '500'};color:${unread ? 'var(--text)' : 'var(--muted)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:70%">${escHtml(participants || '(no sender)')}</span>
@@ -262,8 +262,8 @@ function renderMessagePane(thread, messages) {
         <div style="font-size:11px;color:var(--muted)">${messages.length} message${messages.length !== 1 ? 's' : ''}</div>
       </div>
       <div style="display:flex;gap:8px">
-        ${lastMsg ? `<button onclick="openComposer('reply')" style="font-size:11px;padding:5px 12px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-weight:700;cursor:pointer">Reply</button>` : ''}
-        <button onclick="openComposer('new')" style="font-size:11px;padding:5px 12px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer">Compose</button>
+        ${lastMsg ? `<button onclick="emailModule.openComposer('reply')" style="font-size:11px;padding:5px 12px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-weight:700;cursor:pointer">Reply</button>` : ''}
+        <button onclick="emailModule.openComposer('new')" style="font-size:11px;padding:5px 12px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer">Compose</button>
       </div>
     </div>
     <div style="padding:16px 20px;display:flex;flex-direction:column;gap:16px">
