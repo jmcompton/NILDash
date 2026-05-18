@@ -153,6 +153,7 @@ async function processQueue(pool, { universityId, agentId, limit = 50 }) {
   const processResult = {
     processed: 0, committed: 0, skipped: 0, failed: 0,
     newEntities: 0, exactMatches: 0, probableMatches: 0, conflicts: 0,
+    lastAthleteId: null,  // ID of most recently written athlete (for immediate UI feedback)
   };
 
   // Fetch pending events for this university
@@ -230,16 +231,19 @@ async function processQueue(pool, { universityId, agentId, limit = 50 }) {
       // Exact match: update existing athlete's data fields (non-destructive)
       await _updateExistingAthlete(pool, resolution.matchedAthleteId, normalized, universityId);
       processResult.exactMatches++;
+      processResult.lastAthleteId = resolution.matchedAthleteId;
     } else if (resolution.matchType === 'probable') {
       // Probable: insert as new athlete with lower confidence (don't overwrite)
       // — safer than silently merging uncertain matches
-      await _insertNewAthlete(pool, normalized, universityId, agentId, 'probable');
+      const newId = await _insertNewAthlete(pool, normalized, universityId, agentId, 'probable');
       processResult.probableMatches++;
       processResult.newEntities++;
+      if (newId) processResult.lastAthleteId = newId;
     } else {
       // new_entity: insert
-      await _insertNewAthlete(pool, normalized, universityId, agentId, 'new');
+      const newId = await _insertNewAthlete(pool, normalized, universityId, agentId, 'new');
       processResult.newEntities++;
+      if (newId) processResult.lastAthleteId = newId;
     }
 
     // Mark committed
@@ -283,6 +287,7 @@ async function _updateExistingAthlete(pool, athleteId, normalized, universityId)
 }
 
 // ── Private: insert new athlete ───────────────────────────────────────────
+// Returns the new athlete ID on success, null on failure.
 async function _insertNewAthlete(pool, normalized, universityId, agentId, matchContext) {
   try {
     const athleteId  = `auto-${uuidv4()}`;
@@ -298,8 +303,10 @@ async function _insertNewAthlete(pool, normalized, universityId, agentId, matchC
        ON CONFLICT (id) DO NOTHING`,
       [athleteId, agentId || 'system', JSON.stringify(athleteData)]
     );
+    return athleteId;
   } catch (err) {
     console.warn('[IngestionPipeline] Insert athlete failed:', err.message);
+    return null;
   }
 }
 

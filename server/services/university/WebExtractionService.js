@@ -42,27 +42,23 @@ function delay(ms) {
 }
 
 // ── HTTP fetch with timeout + retry ───────────────────────────────────────
+// Uses Node 18+ native fetch (global) — no external package needed.
 async function fetchWithRetry(url, attempt = 0) {
-  let nodeFetch;
-  try {
-    nodeFetch = require('node-fetch');
-    // node-fetch v3 uses ESM default export; v2 uses CommonJS default
-    if (nodeFetch.default) nodeFetch = nodeFetch.default;
-  } catch {
-    throw new Error('node-fetch not available — install it via npm install node-fetch@2');
+  // Node 18+ ships fetch as a global. Verify it's available.
+  if (typeof fetch === 'undefined') {
+    throw new Error('Native fetch unavailable — requires Node.js 18+');
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
   try {
-    const res = await nodeFetch(url, {
+    const res = await fetch(url, {
       signal: controller.signal,
       headers: {
         'User-Agent': nextUserAgent(),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
       },

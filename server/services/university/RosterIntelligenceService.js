@@ -362,13 +362,31 @@ async function approveReviewItem(pool, { reviewId, reviewedBy, agentId }) {
   const item = row.rows[0];
   if (item.status !== 'pending') throw new Error(`Item already ${item.status}`);
 
-  // Import via IngestionPipeline
-  const result = await IngestionPipeline.ingest(pool, {
+  const effectiveAgentId = agentId || reviewedBy || 'system';
+  const athletePayload   = typeof item.athlete_data === 'string'
+    ? JSON.parse(item.athlete_data)
+    : item.athlete_data;
+
+  // Queue via IngestionPipeline (creates ingestion_event)
+  const ingestResult = await IngestionPipeline.ingest(pool, {
     source:       'review_approved',
     universityId: item.university_id,
-    agentId:      agentId || reviewedBy || 'system',
-    athleteData:  typeof item.athlete_data === 'string' ? JSON.parse(item.athlete_data) : item.athlete_data,
+    agentId:      effectiveAgentId,
+    athleteData:  athletePayload,
   });
+
+  // Immediately process queue so athlete appears in the CRM right away
+  let athleteId = null;
+  if (!ingestResult.isDuplicate) {
+    const processResult = await IngestionPipeline.processQueue(pool, {
+      universityId: item.university_id,
+      agentId:      effectiveAgentId,
+      limit:        5,
+    }).catch(() => ({}));
+
+    // Pick up the newly-written athlete ID if entity resolution created a new one
+    athleteId = processResult?.lastAthleteId || null;
+  }
 
   // Mark as approved
   await pool.query(
@@ -376,10 +394,10 @@ async function approveReviewItem(pool, { reviewId, reviewedBy, agentId }) {
      SET status = 'approved', reviewed_by = $1, reviewed_at = NOW(),
          athlete_id = $2
      WHERE id = $3`,
-    [reviewedBy, result?.athleteId || null, reviewId]
+    [reviewedBy, athleteId, reviewId]
   );
 
-  return { ok: true, athleteId: result?.athleteId };
+  return { ok: true, athleteId };
 }
 
 // ── Reject a review queue item ─────────────────────────────────────────────
