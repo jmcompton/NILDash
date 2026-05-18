@@ -1449,6 +1449,21 @@ try {
   console.warn('[email] Sync poller failed to start:', e.message);
 }
 
+// ── Outreach Automation Engine ────────────────────────────────────────────────
+// Isolated route module — zero interference with existing routes above.
+try {
+  const outreachRoutes = require('./routes/outreach');
+  app.use('/api/outreach', requireAuth, outreachRoutes);
+
+  // Start follow-up automation poller (fire-and-forget)
+  const followUpSvc = require('./services/followUpAutomation');
+  followUpSvc.startPoller();
+
+  console.log('[outreach] Outreach automation engine loaded');
+} catch (e) {
+  console.warn('[outreach] Engine failed to load:', e.message);
+}
+
 // ── PWA static assets — explicit routes so catchall doesn't eat them ──
 app.get('/manifest.json', (req, res) => {
   res.setHeader('Content-Type', 'application/manifest+json');

@@ -208,6 +208,141 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deals_agent ON deals(agent_id)`).catch(() => {});
   // Add name column if missing (migration for existing DBs)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT`).catch(() => {});
+
+  // ── Outreach Engine Tables (additive — never modifies existing tables) ──────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS company_enrichment (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      website TEXT,
+      industry TEXT,
+      location TEXT,
+      phone TEXT,
+      general_email TEXT,
+      description TEXT,
+      social_links JSONB DEFAULT '{}',
+      brand_size TEXT,
+      employee_count TEXT,
+      annual_revenue TEXT,
+      marketing_contacts JSONB DEFAULT '[]',
+      sponsorship_contacts JSONB DEFAULT '[]',
+      partnership_contacts JSONB DEFAULT '[]',
+      pr_contacts JSONB DEFAULT '[]',
+      athlete_relations_contacts JSONB DEFAULT '[]',
+      raw_data JSONB DEFAULT '{}',
+      enriched_at TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS brand_contacts (
+      id TEXT PRIMARY KEY,
+      enrichment_id TEXT NOT NULL REFERENCES company_enrichment(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      name TEXT,
+      title TEXT,
+      email TEXT,
+      phone TEXT,
+      linkedin TEXT,
+      contact_type TEXT,
+      confidence_score NUMERIC DEFAULT 0,
+      source TEXT,
+      priority_rank INT DEFAULT 99,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS brand_match_scores (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      athlete_id TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      enrichment_id TEXT REFERENCES company_enrichment(id) ON DELETE SET NULL,
+      compatibility_score NUMERIC DEFAULT 0,
+      reasoning TEXT,
+      campaign_ideas JSONB DEFAULT '[]',
+      partnership_opportunities JSONB DEFAULT '[]',
+      audience_alignment TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS pitch_decks (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      athlete_id TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      enrichment_id TEXT REFERENCES company_enrichment(id) ON DELETE SET NULL,
+      match_score_id TEXT REFERENCES brand_match_scores(id) ON DELETE SET NULL,
+      file_path TEXT,
+      slide_data JSONB DEFAULT '{}',
+      version INT DEFAULT 1,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS outreach_logs (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      athlete_id TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      contact_id TEXT REFERENCES brand_contacts(id) ON DELETE SET NULL,
+      enrichment_id TEXT REFERENCES company_enrichment(id) ON DELETE SET NULL,
+      deck_id TEXT REFERENCES pitch_decks(id) ON DELETE SET NULL,
+      email_account_id TEXT,
+      email_message_id TEXT,
+      subject TEXT,
+      body_html TEXT,
+      status TEXT DEFAULT 'draft',
+      sent_at TIMESTAMPTZ,
+      opened_at TIMESTAMPTZ,
+      replied_at TIMESTAMPTZ,
+      follow_up_count INT DEFAULT 0,
+      next_follow_up_at TIMESTAMPTZ,
+      crm_deal_id TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS automation_runs (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      athlete_id TEXT NOT NULL,
+      brand_name TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      steps_completed JSONB DEFAULT '[]',
+      steps_failed JSONB DEFAULT '[]',
+      enrichment_id TEXT,
+      contact_id TEXT,
+      match_score_id TEXT,
+      deck_id TEXT,
+      outreach_id TEXT,
+      error_message TEXT,
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      completed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS workflow_events (
+      id SERIAL PRIMARY KEY,
+      run_id TEXT REFERENCES automation_runs(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      payload JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch(e => console.error('Outreach engine tables init error:', e.message));
+
+  // Outreach engine indexes
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_company_enrichment_agent ON company_enrichment(agent_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_company_enrichment_brand ON company_enrichment(brand_name)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_contacts_enrichment ON brand_contacts(enrichment_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_contacts_agent ON brand_contacts(agent_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_match_athlete ON brand_match_scores(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_agent ON outreach_logs(agent_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_athlete ON outreach_logs(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_automation_runs_agent ON automation_runs(agent_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_workflow_events_run ON workflow_events(run_id)`).catch(() => {});
+
   console.log('Database tables ready');
 }
 
