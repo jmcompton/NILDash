@@ -535,27 +535,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
 }
 
 /* ── NIL Director Dashboard component classes ── */
-.univ-tab {
-  padding: 10px 18px;
-  border: none;
-  background: none;
-  color: var(--muted);
-  font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  transition: color 0.15s;
-}
-.univ-tab:hover { color: var(--text); }
-.univ-tab-active {
-  color: var(--text) !important;
-  font-weight: 600 !important;
-  border-bottom-color: var(--accent) !important;
-}
+.univ-tab { display:none; }
+.univ-sidenav-item { display:block; width:100%; padding:9px 16px; border:none; background:none; color:var(--muted); font-family:'DM Sans',sans-serif; font-size:12px; font-weight:500; cursor:pointer; text-align:left; border-left:2px solid transparent; transition:all 0.15s; white-space:nowrap; }
+.univ-sidenav-item:hover { color:var(--text); background:rgba(240,244,255,0.04); }
+.univ-sidenav-active { color:var(--text)!important; font-weight:600!important; border-left-color:var(--accent)!important; background:rgba(132,204,22,0.06)!important; }
 .nil-kpi-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -1232,28 +1215,34 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <div id="view-university-dashboard" class="view">
 
         <!-- ── University header ─────────────────────────────────────── -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0;padding:0 0 16px 0;border-bottom:1px solid var(--border)">
           <div>
             <div id="univ-header-name" style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--text);letter-spacing:1px;line-height:1">NIL Director Dashboard</div>
             <div id="univ-header-meta" style="font-size:11px;color:var(--muted);margin-top:3px"></div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
-            <div id="univ-alert-badge" style="display:none;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:var(--r-sm);padding:5px 10px;font-size:11px;font-weight:700;color:#ef4444;cursor:pointer" onclick="switchUnivTab('compliance')">⚠ <span id="univ-alert-count">0</span> alerts</div>
+            <div id="univ-alert-badge" style="display:none;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:var(--r-sm);padding:5px 10px;font-size:11px;font-weight:700;color:#ef4444;cursor:pointer" onclick="switchUnivTab('compliance')">! <span id="univ-alert-count">0</span> alerts</div>
             <button onclick="_nilDirRefresh()" style="padding:6px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Refresh</button>
             <button onclick="_nilDirOpenAddDeal()" style="padding:6px 14px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">+ Log Deal</button>
           </div>
         </div>
 
-        <!-- ── Tab bar ───────────────────────────────────────────────── -->
-        <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px;overflow-x:auto">
-          <button id="univTab-overview"     onclick="switchUnivTab('overview')"     class="univ-tab univ-tab-active">📊 Overview</button>
-          <button id="univTab-athletes"     onclick="switchUnivTab('athletes')"     class="univ-tab">👥 Athletes</button>
-          <button id="univTab-deals"        onclick="switchUnivTab('deals')"        class="univ-tab">💼 Deals</button>
-          <button id="univTab-compliance"   onclick="switchUnivTab('compliance')"   class="univ-tab">⚠ Compliance</button>
-          <button id="univTab-insights"     onclick="switchUnivTab('insights')"     class="univ-tab">🤖 AI Engine</button>
-          <button id="univTab-activity"     onclick="switchUnivTab('activity')"     class="univ-tab">📝 Activity</button>
-          <button id="univTab-import"       onclick="switchUnivTab('import')"       class="univ-tab">⬆ Import</button>
-        </div>
+        <!-- ── Body: sidebar + content ──────────────────────────────── -->
+        <div style="display:flex;gap:0;margin-top:16px">
+
+          <!-- Left sidebar nav -->
+          <div style="width:160px;flex-shrink:0;border-right:1px solid var(--border);padding:4px 0;margin-right:28px">
+            <button id="univTab-overview"     onclick="switchUnivTab('overview')"     class="univ-sidenav-item univ-sidenav-active">Overview</button>
+            <button id="univTab-athletes"     onclick="switchUnivTab('athletes')"     class="univ-sidenav-item">Athletes</button>
+            <button id="univTab-deals"        onclick="switchUnivTab('deals')"        class="univ-sidenav-item">Deals</button>
+            <button id="univTab-compliance"   onclick="switchUnivTab('compliance')"   class="univ-sidenav-item">Compliance</button>
+            <button id="univTab-insights"     onclick="switchUnivTab('insights')"     class="univ-sidenav-item">AI Engine</button>
+            <button id="univTab-activity"     onclick="switchUnivTab('activity')"     class="univ-sidenav-item">Activity</button>
+            <button id="univTab-import"       onclick="switchUnivTab('import')"       class="univ-sidenav-item">Import</button>
+          </div>
+
+          <!-- Right content panels -->
+          <div style="flex:1;min-width:0">
 
         <!-- ══════════════════════════════════════════════════════════
              TAB 1: Overview — KPIs + Daily Actions + Top Earners
@@ -1494,8 +1483,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
           <!-- Sub-tabs -->
           <div style="display:flex;gap:8px;margin-bottom:20px">
-            <button id="importSubTab-bulk" onclick="_importSubTab('bulk')" style="padding:7px 16px;background:rgba(132,204,22,0.12);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">📋 Bulk Import</button>
-            <button id="importSubTab-auto" onclick="_importSubTab('auto')" style="padding:7px 16px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">🤖 Auto-Import</button>
+            <button id="importSubTab-bulk" onclick="_importSubTab('bulk')" style="padding:7px 16px;background:rgba(132,204,22,0.12);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Bulk Import</button>
+            <button id="importSubTab-auto" onclick="_importSubTab('auto')" style="padding:7px 16px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Auto-Import</button>
           </div>
 
           <!-- Bulk Import sub-panel -->
@@ -1567,8 +1556,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
                     <option value="wrestling">Wrestling</option>
                   </select>
                 </div>
-                <button onclick="_intelStartDiscovery()" id="intel-start-btn" style="padding:9px 22px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">🔍 Find Roster</button>
-                <button onclick="_intelLoadReviewQueue()" style="padding:9px 16px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📋 Review Queue <span id="intel-queue-badge" style="display:none;background:var(--accent);color:#0a0e1a;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px">0</span></button>
+                <button onclick="_intelStartDiscovery()" id="intel-start-btn" style="padding:9px 22px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Find Roster</button>
+                <button onclick="_intelLoadReviewQueue()" style="padding:9px 16px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Review Queue <span id="intel-queue-badge" style="display:none;background:var(--accent);color:#0a0e1a;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px">0</span></button>
               </div>
             </div>
             <div id="intel-progress-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
@@ -1604,72 +1593,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
         </div><!-- /univPanel-import -->
 
-        <!-- ── TAB: Bulk Import ── -->
-        <div id="univPanel-import" style="display:none">
-
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
-
-            <!-- Instructions + template download -->
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">How to Import</div>
-              <ol style="font-size:12px;color:var(--muted);line-height:1.8;padding-left:16px;margin:0 0 16px 0">
-                <li>Download the CSV template below</li>
-                <li>Fill in one athlete per row</li>
-                <li>Required columns: <code style="background:var(--surface2);padding:1px 4px;border-radius:3px;font-size:11px">name, sport, school</code></li>
-                <li>Paste the CSV text or upload the file</li>
-                <li>Click Import — duplicates are skipped automatically</li>
-              </ol>
-              <a id="univ-template-link" href="/api/university/import-template" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;text-decoration:none">
-                ↓ Download CSV Template
-              </a>
-              <div style="margin-top:16px;font-size:11px;color:var(--muted)">
-                <strong style="color:var(--text)">Supported formats:</strong> CSV · JSON array<br>
-                <strong style="color:var(--text)">Deduplication:</strong> name + school + sport (exact)<br>
-                <strong style="color:var(--text)">School names:</strong> Common abbreviations are normalized (e.g. "Samford" → "Samford University")
-              </div>
-            </div>
-
-            <!-- Format selector + text area -->
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Paste Data or Upload File</div>
-                <div style="display:flex;gap:4px">
-                  <button id="univImportFmtCsv" onclick="_univImportSetFmt('csv')" style="padding:4px 10px;border-radius:var(--r-sm);border:1px solid var(--accent);background:rgba(132,204,22,0.12);color:var(--accent);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--mono)">CSV</button>
-                  <button id="univImportFmtJson" onclick="_univImportSetFmt('json')" style="padding:4px 10px;border-radius:var(--r-sm);border:1px solid var(--border);background:none;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--mono)">JSON</button>
-                </div>
-              </div>
-              <textarea id="univ-import-textarea" placeholder="name,sport,school,position,instagram,tiktok,engagement,stats,notes&#10;Jane Smith,Basketball,Samford University,Point Guard,8500,12000,6.2,..." style="width:100%;height:140px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px;color:var(--text);font-family:var(--mono);font-size:11px;resize:vertical;box-sizing:border-box;outline:none"></textarea>
-              <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
-                <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);cursor:pointer;font-size:11px;color:var(--muted)">
-                  ↑ Upload file
-                  <input type="file" id="univ-import-file" accept=".csv,.json,.txt" style="display:none" onchange="_univImportFileRead(this)">
-                </label>
-                <button onclick="_univRunImport()" style="flex:1;padding:8px 0;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Import Athletes</button>
-              </div>
-            </div>
-
-          </div>
-
-          <!-- Import result -->
-          <div id="univ-import-result" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px"></div>
-
-          <!-- Ingestion pipeline status -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Ingestion Pipeline</div>
-              <div style="display:flex;gap:8px">
-                <button onclick="_univLoadIngestionEvents()" style="padding:4px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Refresh</button>
-                <button onclick="_univProcessQueue()" style="padding:4px 12px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);color:var(--accent);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">Process Queue</button>
-              </div>
-            </div>
-            <div id="univ-queue-status" style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap"></div>
-            <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Recent Events</div>
-            <div id="univ-ingestion-events"><div style="color:var(--muted);font-size:11px">Click Refresh to load ingestion history.</div></div>
-          </div>
-
-        </div><!-- /univPanel-import -->
-
-
+          </div><!-- /univ-content-panels -->
+        </div><!-- /univ-body-flex -->
       </div><!-- /view-university-dashboard -->
 
       <!--  ANALYTICS  -->
@@ -6031,7 +5956,7 @@ function switchUnivTab(tab) {
     var panel = document.getElementById(panels[t]);
     var isActive = (t === tab);
     if (btn) {
-      btn.className = 'univ-tab' + (isActive ? ' univ-tab-active' : '');
+      btn.className = 'univ-sidenav-item' + (isActive ? ' univ-sidenav-active' : '');
     }
     if (panel) panel.style.display = isActive ? 'block' : 'none';
   });
@@ -6765,7 +6690,7 @@ async function _intelStartDiscovery() {
   } catch (err) {
     alert('Error: ' + err.message);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '🔍 Find Roster'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Find Roster'; }
   }
 }
 
