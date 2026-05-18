@@ -1433,7 +1433,13 @@ app.get('/api/pitch-data/:athleteId', async (req, res) => {
 // ── Email Integration ─────────────────────────────────────────────────────────
 // All email routes isolated in server/routes/email.js — no existing logic touched.
 const emailRoutes = require('./routes/email');
-app.use('/api/email', requireAuth, emailRoutes);
+// OAuth callbacks bypass session auth — identity is verified via the state param.
+function emailAuthMiddleware(req, res, next) {
+  const OAUTH_CALLBACKS = ['/oauth/gmail/callback', '/oauth/outlook/callback'];
+  if (OAUTH_CALLBACKS.includes(req.path)) return next();
+  return requireAuth(req, res, next);
+}
+app.use('/api/email', emailAuthMiddleware, emailRoutes);
 
 // Start background email sync poller (fire-and-forget — never blocks startup)
 try {
