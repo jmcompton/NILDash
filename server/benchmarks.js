@@ -1054,6 +1054,132 @@ function generatePricingStrategy(rate) {
   return { start, target, stretch };
 }
 
+/**
+ * decomposeFitScore — break fit into 4 readable dimensions.
+ * Returns qualitative labels (High / Moderate / Low), never numeric scores.
+ * Derived from available data only — never fabricated.
+ *
+ * Params:
+ *   athleteData  — athlete row (data JSONB unwrapped)
+ *   enrichment   — company_enrichment row (may be null)
+ *   matchRow     — brand_match_scores row (may be null)
+ *   dealScan     — deal scan result object (may be null)
+ */
+function decomposeFitScore(athleteData, enrichment, matchRow, dealScan) {
+  const sport      = (athleteData.sport     || '').toLowerCase();
+  const school     = (athleteData.school    || '').toLowerCase();
+  const tier       = (athleteData.schoolTier || '').toLowerCase();
+  const ig         = parseInt(athleteData.instagram) || 0;
+  const tt         = parseInt(athleteData.tiktok)    || 0;
+  const reach      = ig + tt;
+  const er         = parseFloat(athleteData.engagement) || 0;
+  const rawFit     = dealScan?.fitScore || matchRow?.compatibility_score || 70;
+  const isLocal    = !!(dealScan?.isLocal);
+  const brandCat   = (enrichment?.industry || dealScan?.category || '').toLowerCase();
+  const brandDesc  = (enrichment?.description || '').toLowerCase();
+  const targetDemo = (enrichment?.raw_data?.target_demographics || '').toLowerCase();
+
+  // ── Audience Fit ──────────────────────────────────────────────
+  // How well does this athlete's audience match the brand's target buyer?
+  // Grounded in: engagement quality, reach, platform presence.
+  let audienceFit = 'Moderate';
+  let audienceNote = 'Audience data partially available';
+  if (er >= 7 && reach >= 30000) {
+    audienceFit = 'High';
+    audienceNote = 'Strong engagement at meaningful scale';
+  } else if (er >= 5 && reach >= 10000) {
+    audienceFit = 'High';
+    audienceNote = 'Above-average engagement across core audience';
+  } else if (er < 2.5 && er > 0) {
+    audienceFit = 'Low';
+    audienceNote = 'Engagement below platform average';
+  } else if (!ig && !tt) {
+    audienceFit = 'Low';
+    audienceNote = 'Social data not on file';
+  } else if (reach < 5000) {
+    audienceFit = 'Moderate';
+    audienceNote = 'Audience still building — micro-market applicable';
+  }
+
+  // ── Brand Category Fit ────────────────────────────────────────
+  // Does the athlete's sport and lifestyle naturally align with this brand?
+  const fitnessCategories  = ['gym', 'fitness', 'sport', 'athletic', 'performance', 'supplement', 'nutrition', 'health'];
+  const foodCategories     = ['food', 'restaurant', 'qsr', 'dining', 'beverage', 'drink'];
+  const financeCategories  = ['finance', 'bank', 'insurance', 'invest', 'credit'];
+  const autoCategories     = ['auto', 'car', 'truck', 'vehicle', 'dealership'];
+  const fashionCategories  = ['fashion', 'apparel', 'clothing', 'shoe', 'style'];
+
+  const teamSports = ['football', 'basketball', 'baseball', 'soccer', 'volleyball', 'softball'];
+  const isTeamSport = teamSports.some(s => sport.includes(s));
+
+  let categoryFit = 'Moderate';
+  let categoryNote = 'Brand category aligns with college athletics broadly';
+
+  if (fitnessCategories.some(c => brandCat.includes(c)) && isTeamSport) {
+    categoryFit = 'High'; categoryNote = 'Sport–brand lifestyle alignment is direct';
+  } else if (foodCategories.some(c => brandCat.includes(c))) {
+    categoryFit = rawFit >= 75 ? 'High' : 'Moderate';
+    categoryNote = rawFit >= 75 ? 'Food brands index well against college athlete audiences' : 'Food brand alignment depends on campaign framing';
+  } else if (fashionCategories.some(c => brandCat.includes(c)) && er >= 5) {
+    categoryFit = 'High'; categoryNote = 'Engaged audience skews lifestyle-receptive';
+  } else if (financeCategories.some(c => brandCat.includes(c))) {
+    categoryFit = 'Moderate'; categoryNote = 'Finance NIL partnerships exist but require credibility framing';
+  } else if (autoCategories.some(c => brandCat.includes(c)) && rawFit >= 75) {
+    categoryFit = 'High'; categoryNote = 'Auto brands historically active in college markets';
+  } else if (rawFit < 60) {
+    categoryFit = 'Low'; categoryNote = 'Category–sport alignment not clearly established';
+  }
+
+  // ── Geography Fit ─────────────────────────────────────────────
+  // Does the brand's market geography match where the athlete has reach?
+  let geoFit = 'Moderate';
+  let geoNote = 'Geography data partially available';
+
+  if (isLocal) {
+    geoFit = 'High'; geoNote = 'Brand operates in the athlete\'s local market';
+  } else if (rawFit >= 85 && (tier.startsWith('p4') || tier.startsWith('highmajor'))) {
+    geoFit = 'High'; geoNote = 'High-visibility school in brand-relevant market';
+  } else if (rawFit < 60) {
+    geoFit = 'Low'; geoNote = 'Geographic alignment unclear from available data';
+  } else if (tier.startsWith('p4')) {
+    geoFit = 'Moderate'; geoNote = 'Power 4 school market — national or regional brand opportunity';
+  }
+
+  // ── Sport Relevance ───────────────────────────────────────────
+  // Is this sport category one brands in this industry actively sponsor?
+  let sportFit = 'Moderate';
+  let sportNote = 'Sport is active in the NIL market';
+
+  const highDemandSports = ['football', 'men\'s basketball', 'women\'s basketball'];
+  const growingSports    = ['volleyball', 'gymnastics', 'baseball', 'soccer', 'softball', 'swimming'];
+
+  if (highDemandSports.some(s => sport.includes(s.split("'")[0]))) {
+    sportFit = 'High'; sportNote = 'High brand demand for this sport';
+  } else if (growingSports.some(s => sport.includes(s))) {
+    sportFit = rawFit >= 70 ? 'High' : 'Moderate';
+    sportNote = rawFit >= 70 ? 'Growing NIL market for this sport' : 'Emerging NIL activity in this sport';
+  } else if (rawFit < 60) {
+    sportFit = 'Low'; sportNote = 'Limited comparable deal data for this sport';
+  }
+
+  // ── Overall ───────────────────────────────────────────────────
+  const dims = [audienceFit, categoryFit, geoFit, sportFit];
+  const highCount = dims.filter(d => d === 'High').length;
+  const lowCount  = dims.filter(d => d === 'Low').length;
+  const overall   =
+    highCount >= 3            ? 'High Fit Opportunity'      :
+    highCount >= 2 && lowCount === 0 ? 'Solid Fit Opportunity' :
+    lowCount  >= 2            ? 'Developing Opportunity'    : 'Moderate Fit Opportunity';
+
+  return {
+    audienceFit,  audienceNote,
+    categoryFit,  categoryNote,
+    geoFit,       geoNote,
+    sportFit,     sportNote,
+    overall,
+  };
+}
+
 module.exports = {
   MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal,
   // Trustworthy output layer
@@ -1061,4 +1187,6 @@ module.exports = {
   generateRateDrivers, generateRateLimitations,
   calcMarketReliabilityScore, generateConfidenceTypes,
   generateComparableNote, generateMomentumSignal, generatePricingStrategy,
+  // Deal Close Mode
+  decomposeFitScore,
 };

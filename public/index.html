@@ -954,9 +954,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
 
 
-      <!--  DEAL CLOSE MODE  -->
+      <!--  DEAL CLOSE MODE v2  -->
       <div id="view-deal-close" class="view">
-        <!-- Header bar -->
+
+        <!-- ── Header ─────────────────────────────────────────── -->
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
           <div>
             <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Deal Close Mode</div>
@@ -968,82 +969,133 @@ tbody td{padding:11px 14px;vertical-align:middle}
           </div>
         </div>
 
-        <!-- Fit score banner (hidden until loaded) -->
-        <div id="dc-fit-banner" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 20px;margin-bottom:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-          <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-            <div id="dc-fit-score-ring" style="width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;border:3px solid var(--accent);color:var(--accent)">—</div>
-            <div>
-              <div id="dc-fit-label" style="font-size:13px;font-weight:700;color:var(--text)">—</div>
-              <div id="dc-fit-rationale" style="font-size:11px;color:var(--muted);margin-top:2px;max-width:400px;line-height:1.5"></div>
-            </div>
-          </div>
-          <div id="dc-status-badge" style="font-size:10px;font-weight:700;padding:4px 12px;border-radius:20px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.25);color:var(--accent)">READY TO CLOSE</div>
+        <!-- ── Fit Overview Banner ────────────────────────────── -->
+        <div id="dc-fit-banner" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-bottom:16px">
+          <div id="dc-fit-overall" style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px"></div>
+          <div id="dc-fit-dims" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px"></div>
+          <div id="dc-fit-rationale" style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5"></div>
         </div>
 
-        <!-- Loading state -->
+        <!-- ── Loading state ──────────────────────────────────── -->
         <div id="dc-loading" style="display:none;text-align:center;padding:60px 20px">
           <div class="spinner" style="display:inline-block;margin-bottom:12px"></div>
           <div style="font-size:13px;color:var(--muted)" id="dc-loading-msg">Pulling deal intelligence…</div>
         </div>
 
-        <!-- Main grid -->
-        <div id="dc-body" style="display:none;grid-template-columns:1fr 1fr;gap:16px">
+        <!-- ── Main content ───────────────────────────────────── -->
+        <div id="dc-body" style="display:none">
 
-          <!-- ATHLETE SNAPSHOT -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Athlete Snapshot</div>
-            <div id="dc-athlete-body"></div>
+          <!-- ════════════════════════════════════════════════════
+               LAYER 1 — DATA
+               ════════════════════════════════════════════════════ -->
+          <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Facts &amp; Data</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+
+            <!-- Athlete Snapshot -->
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Athlete</div>
+              <div id="dc-athlete-body"></div>
+            </div>
+
+            <!-- Brand Snapshot -->
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Brand</div>
+              <div id="dc-brand-body"></div>
+            </div>
+
           </div>
 
-          <!-- BRAND SNAPSHOT -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Brand Snapshot</div>
-            <div id="dc-brand-body"></div>
+          <!-- Market Estimate (full width, DATA layer) -->
+          <div id="dc-market-estimate" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-bottom:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+              <div>
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Estimated Market Range</div>
+                <div id="dc-market-range" style="font-size:22px;font-weight:800;color:var(--text)">—</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px">per deliverable · rounded market estimate · not a guaranteed rate</div>
+              </div>
+              <div id="dc-market-reliability" style="text-align:right"></div>
+            </div>
           </div>
 
-          <!-- ASK STRATEGY (full width) -->
-          <div style="grid-column:1/-1;background:var(--surface);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r);padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Ask Strategy</div>
-            <div id="dc-ask-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px"></div>
+          <!-- Contacts + Outreach (DATA layer, 2-col) -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Brand Contacts</div>
+              <div id="dc-contacts-body"></div>
+              <button onclick="openOutreachFromDealClose()" style="margin-top:12px;width:100%;padding:9px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Start Outreach →</button>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Outreach History</div>
+              <div id="dc-outreach-body"></div>
+            </div>
           </div>
 
-          <!-- NEGOTIATION TALKING POINTS -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Negotiation Talking Points</div>
-            <div id="dc-talking-points"></div>
-            <div id="dc-opening-line" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)"></div>
-            <div id="dc-walk-away" style="margin-top:10px"></div>
+          <!-- ════════════════════════════════════════════════════
+               LAYER 2 — REASONING
+               ════════════════════════════════════════════════════ -->
+          <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Why This Estimate Exists</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+
+            <!-- Rate Drivers + Limitations -->
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Rate Signals</div>
+              <div id="dc-rate-drivers"></div>
+              <div id="dc-rate-limits" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"></div>
+            </div>
+
+            <!-- Comparable Market -->
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Comparable Market</div>
+              <div id="dc-comp-note"></div>
+              <div id="dc-momentum" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"></div>
+            </div>
+
           </div>
 
-          <!-- OBJECTION HANDLING -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Objection Handling</div>
-            <div id="dc-objections"></div>
-          </div>
-
-          <!-- CAMPAIGN CONCEPT (full width) -->
-          <div style="grid-column:1/-1;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+          <!-- Campaign + Audience (REASONING layer, full width) -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:14px">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Recommended Campaign</div>
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Campaign &amp; Audience Alignment</div>
               <div id="dc-campaign-tag" style="font-size:10px;color:var(--muted)"></div>
             </div>
             <div id="dc-campaign-body"></div>
           </div>
 
-          <!-- CONTACTS -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Brand Contacts</div>
-            <div id="dc-contacts-body"></div>
-            <button onclick="openOutreachFromDealClose()" style="margin-top:12px;width:100%;padding:9px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Start Outreach →</button>
-          </div>
+          <!-- ════════════════════════════════════════════════════
+               LAYER 3 — SALES (Agent only — hidden for University Mode)
+               ════════════════════════════════════════════════════ -->
+          <div id="dc-sales-layer">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">
+              <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em">Agent Guidance</div>
+              <span style="font-size:9px;padding:2px 8px;border-radius:10px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);color:var(--accent);font-weight:700">AGENT ONLY</span>
+            </div>
 
-          <!-- EXISTING OUTREACH -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Outreach History</div>
-            <div id="dc-outreach-body"></div>
-          </div>
+            <!-- Ask Strategy -->
+            <div style="background:var(--surface);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r);padding:18px;margin-bottom:14px">
+              <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Ask Strategy</div>
+              <div id="dc-ask-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px"></div>
+              <div id="dc-ask-anchor" style="font-size:12px;color:var(--text);padding:10px 12px;background:var(--surface2);border-radius:var(--r-sm);line-height:1.5"></div>
+            </div>
 
-        </div>
+            <!-- Talking Points + Objection Handling (2-col) -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Negotiation Talking Points</div>
+                <div id="dc-talking-points"></div>
+                <div id="dc-opening-line" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)"></div>
+                <div id="dc-walk-away" style="margin-top:10px"></div>
+              </div>
+
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Objection Handling</div>
+                <div id="dc-objections"></div>
+              </div>
+
+            </div>
+          </div><!-- /dc-sales-layer -->
+
+        </div><!-- /dc-body -->
       </div>
 
       <!--  ANALYTICS  -->
@@ -2950,107 +3002,102 @@ async function runDealClose() {
 }
 
 function renderDealClose(data, brand) {
-  var ath = data.athlete || {};
-  var br = data.brand || {};
-  var pricing = data.pricing || {};
-  var match = data.match || {};
-  var ai = data.ai || {};
-  var contacts = data.contacts || [];
-  var outreach = data.outreach || [];
-  var dealScan = data.dealScan || {};
+  var ath      = data.athlete      || {};
+  var br       = data.brand        || {};
+  var pricing  = data.pricing      || {};
+  var match    = data.match        || {};
+  var aiData   = data.ai           || {};
+  var contacts = data.contacts     || [];
+  var outreach = data.outreach     || [];
+  var dealScan = data.dealScan     || {};
+  var fit      = data.fitBreakdown || {};
+  var drivers  = data.rateDrivers  || [];
+  var limits   = data.rateLimits   || [];
+  var rel      = data.reliability  || {};
+  var compNote = data.compNote     || {};
+  var momentum = data.momentum     || {};
+  var market   = data.marketRange  || pricing;
 
-  // Headline
+  // ── University mode: hide sales layer ────────────────────────
+  var isUniversity = (data.userRole === 'university' || data.userRole === 'university_admin' || (currentUser && (currentUser.role === 'university' || currentUser.role === 'university_admin')));
+  var salesLayer = document.getElementById('dc-sales-layer');
+  if (salesLayer) salesLayer.style.display = isUniversity ? 'none' : 'block';
+
+  // ── Headline ─────────────────────────────────────────────────
   document.getElementById('dc-headline').textContent = (ath.name || 'Athlete') + ' × ' + brand;
 
-  // Fit banner
-  var fitScore = dealScan.fitScore || match.compatibility_score || 78;
-  var fitColor = fitScore >= 85 ? 'var(--accent)' : fitScore >= 70 ? '#f59e0b' : '#f87171';
-  var fitRing = document.getElementById('dc-fit-score-ring');
-  fitRing.textContent = fitScore;
-  fitRing.style.borderColor = fitColor;
-  fitRing.style.color = fitColor;
-  document.getElementById('dc-fit-label').textContent = brand + ' — ' + (fitScore >= 85 ? 'Excellent Fit' : fitScore >= 70 ? 'Strong Fit' : 'Possible Fit');
+  // ── Fit Banner ───────────────────────────────────────────────
+  var fitOverall  = fit.overall || 'Fit analysis complete';
+  var fitColor    = fitOverall.indexOf('High') !== -1 ? 'var(--accent)' : fitOverall.indexOf('Low') !== -1 || fitOverall.indexOf('Developing') !== -1 ? '#f59e0b' : 'var(--text)';
+  document.getElementById('dc-fit-overall').innerHTML = '<span style="color:' + fitColor + ';font-weight:700">' + fitOverall + '</span>';
   document.getElementById('dc-fit-rationale').textContent = dealScan.rationale || match.reasoning || '';
-  var banner = document.getElementById('dc-fit-banner');
-  banner.style.display = 'flex';
 
-  // Athlete snapshot
-  var ig = ((ath.instagram || 0) >= 1000) ? ((ath.instagram/1000).toFixed(0) + 'K') : (ath.instagram || 0);
-  var tt = ((ath.tiktok || 0) >= 1000) ? ((ath.tiktok/1000).toFixed(0) + 'K') : (ath.tiktok || 0);
-  document.getElementById('dc-athlete-body').innerHTML =
-    dcRow('Name', ath.name || '—') +
-    dcRow('Sport', (ath.sport || '—') + (ath.position ? ' · ' + ath.position : '')) +
-    dcRow('School', ath.school || '—') +
-    dcRow('Instagram', ig + ' followers') +
-    dcRow('TikTok', tt + ' followers') +
-    dcRow('Engagement', (ath.engagement || 0) + '% (avg 2.1%)') +
-    (ath.stats ? dcRow('Stats', ath.stats) : '');
-
-  // Brand snapshot
-  document.getElementById('dc-brand-body').innerHTML =
-    dcRow('Brand', brand) +
-    (br.industry ? dcRow('Industry', br.industry) : '') +
-    (br.size ? dcRow('Size', br.size) : '') +
-    (br.description ? dcRow('About', br.description, true) : '') +
-    (br.targetDemographics ? dcRow('Target Demo', br.targetDemographics) : '') +
-    (data.hasExistingData ? '<div style="margin-top:10px;font-size:10px;color:var(--accent)">✓ Enrichment data on file</div>' : '<div style="margin-top:10px;font-size:10px;color:var(--muted)">Run AI Outreach to generate full enrichment</div>');
-
-  // Ask strategy
-  var askAnchor = ai.ask_anchor || '';
-  document.getElementById('dc-ask-body').innerHTML =
-    dcAskCard('Start', '$' + (pricing.start || pricing.low || 0).toLocaleString(), 'Open anchor — room to negotiate down') +
-    dcAskCard('Target', '$' + (pricing.target || pricing.mid || 0).toLocaleString(), 'Where you want to land', true) +
-    dcAskCard('Stretch', '$' + (pricing.stretch || pricing.high || 0).toLocaleString(), 'If they love the athlete, push here');
-  if (askAnchor) {
-    document.getElementById('dc-ask-body').innerHTML += '<div style="grid-column:1/-1;padding:10px 12px;background:rgba(132,204,22,0.05);border:1px solid rgba(132,204,22,0.15);border-radius:var(--r-sm);font-size:12px;color:var(--text);line-height:1.5">' + askAnchor + '</div>';
-  }
-
-  // Negotiation talking points
-  var pts = ai.negotiation_points || [];
-  document.getElementById('dc-talking-points').innerHTML = pts.map(function(p) {
-    return '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px"><span style="color:var(--accent);font-size:14px;line-height:1;flex-shrink:0;margin-top:1px">→</span><span style="font-size:12px;color:var(--text);line-height:1.55">' + p + '</span></div>';
-  }).join('');
-
-  var openingLine = ai.opening_line || '';
-  if (openingLine) {
-    document.getElementById('dc-opening-line').innerHTML = '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Call Opening Line</div><div style="font-size:12px;color:var(--text);font-style:italic;line-height:1.6;padding:10px 12px;background:var(--surface2);border-radius:var(--r-sm)">"' + openingLine + '"</div>';
-  }
-  var walkAway = ai.walk_away_line || '';
-  if (walkAway) {
-    document.getElementById('dc-walk-away').innerHTML = '<div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Walk-Away Line</div><div style="font-size:12px;color:var(--text);font-style:italic;line-height:1.6;padding:10px 12px;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:var(--r-sm)">"' + walkAway + '"</div>';
-  }
-
-  // Objection handling
-  var objections = ai.objection_handling || [];
-  document.getElementById('dc-objections').innerHTML = objections.map(function(o) {
-    return '<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">' +
-      '<div style="font-size:11px;color:#f87171;font-weight:600;margin-bottom:5px">"' + o.objection + '"</div>' +
-      '<div style="font-size:12px;color:var(--text);line-height:1.55">' + o.response + '</div>' +
+  var fitDims = [
+    { label: 'Audience Fit',   value: fit.audienceFit,  note: fit.audienceNote  },
+    { label: 'Brand Category', value: fit.categoryFit,  note: fit.categoryNote  },
+    { label: 'Geography',      value: fit.geoFit,       note: fit.geoNote       },
+    { label: 'Sport Relevance',value: fit.sportFit,     note: fit.sportNote     },
+  ];
+  document.getElementById('dc-fit-dims').innerHTML = fitDims.map(function(d) {
+    var v = d.value || 'Moderate';
+    var c = v === 'High' ? 'var(--accent)' : v === 'Low' ? '#f87171' : '#f59e0b';
+    return '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px">' +
+      '<div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">' + d.label + '</div>' +
+      '<div style="font-size:12px;font-weight:700;color:' + c + ';margin-bottom:3px">' + v + '</div>' +
+      '<div style="font-size:10px;color:var(--muted);line-height:1.4">' + (d.note || '') + '</div>' +
     '</div>';
   }).join('');
 
-  // Campaign
-  var campaign = dealScan.campaign || (match.campaign_ideas && match.campaign_ideas[0]) || '';
-  var campaignIdeas = [];
-  if (match.campaign_ideas) {
-    try { campaignIdeas = typeof match.campaign_ideas === 'string' ? JSON.parse(match.campaign_ideas) : match.campaign_ideas; } catch(e) {}
-  }
-  document.getElementById('dc-campaign-tag').textContent = dealScan.dealType ? dealScan.dealType.replace(/-/g, ' ').replace(/\b\w/g, function(c){return c.toUpperCase();}) : '';
-  document.getElementById('dc-campaign-body').innerHTML =
-    (campaign ? '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">' + campaign + '</div>' : '') +
-    (campaignIdeas.length > 1 ? '<div style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Also Consider</div>' +
-      campaignIdeas.slice(1, 4).map(function(ci) {
-        return '<div style="font-size:12px;color:var(--text);margin-bottom:6px;padding-left:12px;border-left:2px solid var(--border)">' + ci + '</div>';
-      }).join('') : '') +
-    (match.audience_alignment ? '<div style="margin-top:12px;font-size:11px;color:var(--muted);line-height:1.5">' + match.audience_alignment + '</div>' : '');
+  var banner = document.getElementById('dc-fit-banner');
+  banner.style.display = 'block';
+
+  // ── LAYER 1: DATA ─────────────────────────────────────────────
+
+  // Athlete snapshot — follower counts as rounded estimates, no exact numbers
+  var igRaw = parseInt(ath.instagram) || 0;
+  var ttRaw = parseInt(ath.tiktok)    || 0;
+  var igEst = igRaw > 0 ? '~' + _dcFmtReach(igRaw) + ' (est.)' : '—';
+  var ttEst = ttRaw > 0 ? '~' + _dcFmtReach(ttRaw) + ' (est.)' : '—';
+  var erVal = parseFloat(ath.engagement) || 0;
+  var erDisplay = erVal > 0 ? erVal.toFixed(1) + '% engagement' : '—';
+  document.getElementById('dc-athlete-body').innerHTML =
+    dcRow('Name',       ath.name || '—') +
+    dcRow('Sport',      (ath.sport || '—') + (ath.position ? ' · ' + ath.position : '')) +
+    dcRow('School',     ath.school || '—') +
+    dcRow('Instagram',  igEst) +
+    dcRow('TikTok',     ttEst) +
+    dcRow('Engagement', erDisplay) +
+    (ath.stats ? dcRow('Stats', ath.stats, true) : '');
+
+  // Brand snapshot
+  document.getElementById('dc-brand-body').innerHTML =
+    dcRow('Name',    brand) +
+    (br.industry          ? dcRow('Category',   br.industry)          : '') +
+    (br.size              ? dcRow('Size',        br.size)              : '') +
+    (br.description       ? dcRow('About',       br.description, true) : '') +
+    (br.targetDemographics? dcRow('Target Demo', br.targetDemographics, true) : '') +
+    '<div style="margin-top:10px;font-size:10px;color:' + (data.hasExistingData ? 'var(--accent)' : 'var(--muted)') + '">' +
+      (data.hasExistingData ? '✓ Enrichment data on file' : 'No enrichment yet — run AI Outreach to generate') +
+    '</div>';
+
+  // Market Estimate
+  var mLow  = market.low  || 0;
+  var mHigh = market.high || 0;
+  document.getElementById('dc-market-range').textContent = mLow > 0 ? '$' + mLow.toLocaleString() + ' – $' + mHigh.toLocaleString() : '—';
+  var relLabel = rel.label || 'Moderate';
+  var relColor = relLabel === 'Very Strong' || relLabel === 'Strong' ? 'var(--accent)' : relLabel === 'Low' ? '#f87171' : '#f59e0b';
+  document.getElementById('dc-market-reliability').innerHTML =
+    '<div style="font-size:10px;color:var(--muted);margin-bottom:4px">Estimate Reliability</div>' +
+    '<div style="font-size:13px;font-weight:700;color:' + relColor + '">' + relLabel + '</div>' +
+    (rel.strengths && rel.strengths.length ? '<div style="font-size:10px;color:var(--muted);margin-top:4px;line-height:1.5">' + rel.strengths[0] + '</div>' : '');
 
   // Contacts
   if (contacts.length > 0) {
     document.getElementById('dc-contacts-body').innerHTML = contacts.map(function(c) {
       return '<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">' +
-        '<div style="font-size:13px;font-weight:600;color:var(--text)">' + (c.name || 'Contact') + '</div>' +
+        '<div style="font-size:12px;font-weight:600;color:var(--text)">' + (c.name || 'Contact') + '</div>' +
         '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (c.title || '') + '</div>' +
-        (c.email ? '<div style="font-size:11px;color:var(--accent);margin-top:2px"><a href="mailto:' + c.email + '" style="color:var(--accent);text-decoration:none">' + c.email + '</a></div>' : '') +
+        (c.email ? '<div style="margin-top:2px"><a href="mailto:' + c.email + '" style="font-size:11px;color:var(--accent);text-decoration:none">' + c.email + '</a></div>' : '') +
       '</div>';
     }).join('');
   } else {
@@ -3072,7 +3119,104 @@ function renderDealClose(data, brand) {
     document.getElementById('dc-outreach-body').innerHTML = '<div style="font-size:12px;color:var(--muted)">No outreach on file for this brand yet.</div>';
   }
 
-  document.getElementById('dc-body').style.display = 'grid';
+  // ── LAYER 2: REASONING ────────────────────────────────────────
+
+  // Rate Drivers
+  document.getElementById('dc-rate-drivers').innerHTML =
+    (drivers.length ? drivers.map(function(d) {
+      return '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:7px"><span style="color:var(--accent);font-size:12px;flex-shrink:0">↑</span><span style="font-size:12px;color:var(--text);line-height:1.45">' + d + '</span></div>';
+    }).join('') : '<div style="font-size:12px;color:var(--muted)">Add more athlete data to generate rate signals.</div>');
+
+  // Rate Limitations
+  document.getElementById('dc-rate-limits').innerHTML =
+    (limits.length ? limits.map(function(l) {
+      return '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:7px"><span style="color:var(--muted);font-size:12px;flex-shrink:0">↓</span><span style="font-size:12px;color:var(--muted);line-height:1.45">' + l + '</span></div>';
+    }).join('') : '');
+
+  // Comparable Market
+  var compTier  = compNote.tierLabel  || 'Similar tier';
+  var compSport = compNote.sportLabel || 'athletes in this sport';
+  var compReach = compNote.reachLabel || 'similar reach tier';
+  document.getElementById('dc-comp-note').innerHTML =
+    '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:10px">' +
+      compTier + ' ' + compSport + ' at ' + compReach + ' typically range <strong>$' + mLow.toLocaleString() + ' – $' + mHigh.toLocaleString() + '</strong> per deliverable.' +
+    '</div>' +
+    '<div style="font-size:10px;color:var(--muted)">Based on public NIL benchmark data (NCAA 2025, Opendorse, On3).</div>';
+
+  // Momentum
+  var momSignal = momentum.signal || 'Insufficient data';
+  var momColor  = momSignal === 'Trending Up' ? 'var(--accent)' : momSignal === 'Stable' ? '#60a5fa' : momSignal === 'Emerging' ? '#f59e0b' : 'var(--muted)';
+  document.getElementById('dc-momentum').innerHTML =
+    '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Momentum</div>' +
+    '<div style="font-size:12px;font-weight:700;color:' + momColor + ';margin-bottom:3px">' + momSignal + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);line-height:1.4">' + (momentum.reason || '') + '</div>';
+
+  // Campaign
+  var campaign = dealScan.campaign || (match.campaign_ideas && (Array.isArray(match.campaign_ideas) ? match.campaign_ideas[0] : '')) || '';
+  var campaignIdeas = [];
+  try { campaignIdeas = typeof match.campaign_ideas === 'string' ? JSON.parse(match.campaign_ideas) : (match.campaign_ideas || []); } catch(e) {}
+  document.getElementById('dc-campaign-tag').textContent = dealScan.dealType ? dealScan.dealType.replace(/-/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();}) : '';
+  document.getElementById('dc-campaign-body').innerHTML =
+    (campaign ? '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">' + campaign + '</div>' : '') +
+    (campaignIdeas.length > 1
+      ? campaignIdeas.slice(1,4).map(function(ci) {
+          return '<div style="font-size:12px;color:var(--text);margin-bottom:6px;padding-left:12px;border-left:2px solid var(--border)">' + ci + '</div>';
+        }).join('')
+      : '') +
+    (match.audience_alignment ? '<div style="margin-top:12px;font-size:11px;color:var(--muted);line-height:1.55;padding-top:10px;border-top:1px solid var(--border)">' + match.audience_alignment + '</div>' : '');
+
+  // ── LAYER 3: SALES (agent only) ───────────────────────────────
+  if (!isUniversity) {
+    // Ask Strategy
+    document.getElementById('dc-ask-body').innerHTML =
+      dcAskCard('Start',   '$' + (pricing.start  || pricing.low  || 0).toLocaleString(), 'Open anchor') +
+      dcAskCard('Target',  '$' + (pricing.target || pricing.mid  || 0).toLocaleString(), 'Fair market value', true) +
+      dcAskCard('Stretch', '$' + (pricing.stretch|| pricing.high || 0).toLocaleString(), 'Premium ask');
+    var anchor = aiData.ask_anchor || '';
+    document.getElementById('dc-ask-anchor').textContent = anchor || 'Open at the Target rate and signal flexibility if they need to adjust scope.';
+
+    // Talking Points
+    var pts = aiData.negotiation_points || [];
+    document.getElementById('dc-talking-points').innerHTML = pts.length
+      ? pts.map(function(p) {
+          return '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px"><span style="color:var(--accent);font-size:13px;flex-shrink:0;margin-top:1px">→</span><span style="font-size:12px;color:var(--text);line-height:1.55">' + p + '</span></div>';
+        }).join('')
+      : '<div style="font-size:12px;color:var(--muted)">Generate a deal scan to see AI talking points.</div>';
+
+    var openLine = aiData.opening_line || '';
+    document.getElementById('dc-opening-line').innerHTML = openLine
+      ? '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Call Opening</div><div style="font-size:12px;color:var(--text);font-style:italic;line-height:1.6;padding:10px 12px;background:var(--surface2);border-radius:var(--r-sm)">"' + openLine + '"</div>'
+      : '';
+
+    var walkLine = aiData.walk_away_line || '';
+    document.getElementById('dc-walk-away').innerHTML = walkLine
+      ? '<div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;margin-top:10px">If It\'s Not Going Anywhere</div><div style="font-size:12px;color:var(--text);font-style:italic;line-height:1.6;padding:10px 12px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.12);border-radius:var(--r-sm)">"' + walkLine + '"</div>'
+      : '';
+
+    // Objection Handling
+    var objections = aiData.objection_handling || [];
+    document.getElementById('dc-objections').innerHTML = objections.length
+      ? objections.map(function(o) {
+          return '<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">' +
+            '<div style="font-size:11px;color:#f87171;font-weight:600;margin-bottom:5px">"' + o.objection + '"</div>' +
+            '<div style="font-size:12px;color:var(--text);line-height:1.55">' + o.response + '</div>' +
+          '</div>';
+        }).join('')
+      : '<div style="font-size:12px;color:var(--muted)">Objection handling will appear here.</div>';
+  }
+
+  document.getElementById('dc-body').style.display = 'block';
+}
+
+// ── Deal Close helpers ────────────────────────────────────────────
+
+/** Rounds a follower count to a clean K display (no false precision) */
+function _dcFmtReach(n) {
+  var num = parseInt(n) || 0;
+  if (num >= 1000000) return Math.round(num / 100000) / 10 + 'M';
+  if (num >= 10000)   return Math.round(num / 1000) + 'K';
+  if (num >= 1000)    return (num / 1000).toFixed(1) + 'K';
+  return String(num);
 }
 
 function openOutreachFromDealClose() {
@@ -3088,8 +3232,8 @@ function dcRow(label, value, small) {
 }
 
 function dcAskCard(label, value, note, highlight) {
-  return '<div style="background:' + (highlight ? 'rgba(132,204,22,0.07)' : 'var(--surface2)') + ';border:1px solid ' + (highlight ? 'rgba(132,204,22,0.3)' : 'var(--border)') + ';border-radius:var(--r-sm);padding:14px;text-align:center">' +
-    '<div style="font-size:10px;font-weight:700;color:' + (highlight ? 'var(--accent)' : 'var(--muted)') + ';text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">' + label + '</div>' +
+  return '<div style="background:' + (highlight ? 'rgba(132,204,22,0.06)' : 'var(--surface2)') + ';border:1px solid ' + (highlight ? 'rgba(132,204,22,0.25)' : 'var(--border)') + ';border-radius:var(--r-sm);padding:14px;text-align:center">' +
+    '<div style="font-size:9px;font-weight:700;color:' + (highlight ? 'var(--accent)' : 'var(--muted)') + ';text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">' + label + '</div>' +
     '<div style="font-size:20px;font-weight:800;color:' + (highlight ? 'var(--accent)' : 'var(--text)') + ';margin-bottom:4px">' + value + '</div>' +
     '<div style="font-size:10px;color:var(--muted)">' + note + '</div>' +
   '</div>';

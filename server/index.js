@@ -435,12 +435,31 @@ app.post('/api/deal-close/analyze', requireAuth, aiLimiter, async (req, res) => 
     ).then(r => r.rows).catch(() => []),
   ]);
 
-  // ── Rate estimate ─────────────────────────────────────────────
-  const { nilViewVal: _nvv, cleanRange, generatePricingStrategy } = require('./benchmarks');
+  // ── Rate estimate + full reasoning layer ─────────────────────
+  const {
+    nilViewVal: _nvv, cleanRange, generatePricingStrategy,
+    generateRateDrivers, generateRateLimitations,
+    calcMarketReliabilityScore, generateConfidenceTypes,
+    generateComparableNote, generateMomentumSignal,
+    decomposeFitScore,
+  } = require('./benchmarks');
+
   const athleteForRate = athlete.data || athlete;
-  const rawRate = _nvv(athleteForRate, dealScanData?.dealType || 'ig-reel');
-  const cleaned = cleanRange(rawRate.low, rawRate.high);
-  const pricing = generatePricingStrategy(rawRate);
+  const rawRate   = _nvv(athleteForRate, dealScanData?.dealType || 'ig-reel');
+  const cleaned   = cleanRange(rawRate.low, rawRate.high);
+  const pricing   = generatePricingStrategy(rawRate);
+
+  // Comp count from brand_match_scores or fallback
+  const compCount = matchRow?.comp_count || 0;
+
+  // Trustworthy output layer (same functions used in Rate Calculator)
+  const rateDrivers    = generateRateDrivers(athleteForRate, rawRate);
+  const rateLimits     = generateRateLimitations(athleteForRate, rawRate, compCount);
+  const reliability    = calcMarketReliabilityScore(athleteForRate, rawRate, compCount);
+  const confTypes      = generateConfidenceTypes(athleteForRate, rawRate, compCount);
+  const compNote       = generateComparableNote(athleteForRate, rawRate);
+  const momentum       = generateMomentumSignal(athleteForRate);
+  const fitBreakdown   = decomposeFitScore(athleteForRate, enrichmentRow, matchRow, dealScanData);
 
   // ── AI: Negotiation Talking Points + Objection Handling ──────
   const reach = ((athleteForRate.instagram || 0) + (athleteForRate.tiktok || 0)).toLocaleString();
@@ -451,34 +470,38 @@ app.post('/api/deal-close/analyze', requireAuth, aiLimiter, async (req, res) => 
   const audienceAlignment = matchRow?.audience_alignment || '';
   const brandDesc = enrichmentRow?.description || '';
 
-  const aiPrompt = `You are a sports agent preparing to close a NIL deal between ${athlete.name} and ${brand}.
+  const aiPrompt = `You are a sports agent preparing for a call with ${brand} about a NIL deal for ${athlete.name}.
 
-ATHLETE: ${athlete.name} | ${athleteForRate.sport || 'athlete'} | ${athleteForRate.school || 'college'} | ${reach} total reach | ${engagement}% engagement
-BRAND: ${brand}${brandDesc ? ' — ' + brandDesc : ''}
-CAMPAIGN CONCEPT: ${campaignConcept}
-FIT SCORE: ${fitScore}/100
-RATIONALE: ${rationale}
-${audienceAlignment ? 'AUDIENCE ALIGNMENT: ' + audienceAlignment : ''}
-RATE RANGE: $${cleaned.low.toLocaleString()} – $${cleaned.high.toLocaleString()} per deliverable
+CONTEXT:
+- Athlete: ${athlete.name}, ${athleteForRate.sport || 'athlete'}, ${athleteForRate.school || 'college'}
+- Combined social reach: approximately ${reach}
+- Engagement: ${engagement}%
+- Brand: ${brand}${brandDesc ? ' (' + brandDesc + ')' : ''}
+- Campaign concept: ${campaignConcept}
+- Estimated market range: $${cleaned.low.toLocaleString()}–$${cleaned.high.toLocaleString()} per deliverable
+- Why this brand was flagged: ${rationale}
+${audienceAlignment ? '- Audience note: ' + audienceAlignment : ''}
 
-Generate a deal close briefing. Return ONLY valid JSON:
+Write a practical deal close briefing for the agent. Tone: experienced, human, grounded. No hype.
+
+Return ONLY valid JSON (no markdown):
 {
   "negotiation_points": [
-    "Specific point 1 grounded in data",
-    "Specific point 2",
-    "Specific point 3",
-    "Specific point 4",
-    "Specific point 5"
+    "One specific, data-grounded point the agent should make on the call",
+    "Second point",
+    "Third point",
+    "Fourth point",
+    "Fifth point"
   ],
-  "opening_line": "Exact word-for-word opening sentence for the call",
+  "opening_line": "Natural, low-pressure way to open the call — not scripted, not corporate",
   "objection_handling": [
-    { "objection": "Your rate is too high", "response": "Word-for-word response grounded in data" },
-    { "objection": "We're not sure about athlete fit", "response": "Word-for-word response" },
-    { "objection": "We need to loop in our CMO", "response": "Word-for-word response" },
-    { "objection": "We already work with influencers", "response": "Word-for-word response" }
+    { "objection": "The rate feels high", "response": "Concise, grounded response — one or two sentences" },
+    { "objection": "We're not sure about athlete fit", "response": "One or two sentences" },
+    { "objection": "We need to get CMO approval", "response": "One or two sentences" },
+    { "objection": "We already work with influencers", "response": "One or two sentences" }
   ],
-  "ask_anchor": "One sentence on how to open the rate conversation — what number to anchor at and why",
-  "walk_away_line": "Exact sentence to close the call if they won't move"
+  "ask_anchor": "One sentence: where to open the rate conversation and why that number",
+  "walk_away_line": "Soft, non-aggressive sentence to close the call if it isn't going anywhere"
 }`;
 
   let aiData = null;
@@ -507,6 +530,7 @@ Generate a deal close briefing. Return ONLY valid JSON:
   }
 
   res.json({
+    // ── Existing fields (preserved for backward compat) ──────────
     athlete: { name: athlete.name, sport: athleteForRate.sport, school: athleteForRate.school, instagram: athleteForRate.instagram, tiktok: athleteForRate.tiktok, engagement: athleteForRate.engagement, position: athleteForRate.position, stats: athleteForRate.stats },
     brand: { name: brand, description: brandDesc, industry: enrichmentRow?.industry, size: enrichmentRow?.brand_size, targetDemographics: enrichmentRow?.raw_data?.target_demographics },
     enrichment: enrichmentRow,
@@ -517,6 +541,19 @@ Generate a deal close briefing. Return ONLY valid JSON:
     dealScan: dealScanData || null,
     ai: aiData,
     hasExistingData: !!(enrichmentRow || matchRow || outreachRows.length),
+    // ── v2 additions: 3-layer architecture ──────────────────────
+    // DATA LAYER
+    marketRange: { low: cleaned.low, high: cleaned.high, label: 'Estimated market range' },
+    // REASONING LAYER
+    rateDrivers,
+    rateLimits,
+    reliability,
+    confTypes,
+    compNote,
+    momentum,
+    fitBreakdown,
+    // Meta
+    userRole: user?.role || 'agent',
   });
 });
 
