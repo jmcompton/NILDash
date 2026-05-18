@@ -135,50 +135,72 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
   if (!req.session.role) req.session.role = user.role;
   res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
 
-// ── One-time admin seed endpoint — Samford demo data ──────────────
-// Requires admin session. Self-removes after first successful run
-// by checking for existing seed records.
+// ── Admin seed + university link endpoint ─────────────────────────
+// POST /api/admin/seed-samford
+// Links admin account to Samford University, inserts demo athletes
+// with university_id stamped. ON CONFLICT DO UPDATE so re-running
+// this refreshes the university_id on any previously inserted records.
 }).post('/api/admin/seed-samford', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
 
   const agentId = user.id;
-  const athletes = [
-    { id:'samford-demo-001', name:'Marcus Webb',    sport:'Football',           position:'Wide Receiver',  school:'Samford University', schoolTier:'G5', instagram:18400, tiktok:22100, engagement:5.2, stats:'68 rec, 1,024 yds, 9 TD (2024)',               notes:'Birmingham native. Business major. Training content and fan engagement on social.' },
-    { id:'samford-demo-002', name:'Jordan Tate',    sport:'Basketball',         position:'Point Guard',    school:'Samford University', schoolTier:'G5', instagram:9800,  tiktok:14300, engagement:6.8, stats:'17.4 PPG, 6.1 APG, 1.9 SPG (2024-25)',          notes:'SoCon All-Conference honorable mention. Behind-the-scenes campus content.' },
-    { id:'samford-demo-003', name:'Ava Hollins',    sport:"Women's Soccer",     position:'Midfielder',     school:'Samford University', schoolTier:'G5', instagram:7200,  tiktok:5100,  engagement:7.4, stats:'8 goals, 5 assists (2024)',                      notes:'Pre-med student. Active in local community volunteering. Lifestyle and campus content.' },
-    { id:'samford-demo-004', name:'Caleb Norris',   sport:'Baseball',           position:'Pitcher',        school:'Samford University', schoolTier:'G5', instagram:4100,  tiktok:3600,  engagement:4.1, stats:'2.87 ERA, 89 K, 7-3 record (2024)',               notes:'Junior. High engagement when active. Minimal posting frequency.' },
-    { id:'samford-demo-005', name:'Deja Monroe',    sport:"Women's Basketball", position:'Small Forward',  school:'Samford University', schoolTier:'G5', instagram:12600, tiktok:19800, engagement:8.3, stats:'14.2 PPG, 7.8 RPG (2024-25)',                     notes:'Most followed athlete in the program. Active creator — training, travel, fashion.' },
-    { id:'samford-demo-006', name:'Tyler Okafor',   sport:'Football',           position:'Linebacker',     school:'Samford University', schoolTier:'G5', instagram:3200,  tiktok:1800,  engagement:3.9, stats:'88 tackles, 6.5 TFL, 3 sacks (2024)',              notes:'' },
-    { id:'samford-demo-007', name:'Priya Nair',     sport:'Track & Field',      position:'Sprints',        school:'Samford University', schoolTier:'G5', instagram:2900,  tiktok:6700,  engagement:9.1, stats:'11.42s 100m PR, SoCon qualifier 2024',             notes:'High engagement despite smaller following. Training clips perform well on TikTok.' },
-    { id:'samford-demo-008', name:'Cole Hutchins',  sport:'Football',           position:'Quarterback',    school:'Samford University', schoolTier:'G5', instagram:31200, tiktok:28900, engagement:4.7, stats:'2,841 pass yds, 24 TD, 7 INT (2024)',              notes:'Starting QB and de facto face of the program.' },
+  const UNIV_ID = 'univ-samford';
+
+  // 1. Ensure university exists (migration may not have run yet)
+  await store.pool.query(
+    `INSERT INTO universities (id, name, short_name, conference, location)
+     VALUES ($1, 'Samford University', 'Samford', 'SoCon', 'Birmingham, AL')
+     ON CONFLICT (id) DO NOTHING`,
+    [UNIV_ID]
+  ).catch(() => {});
+
+  // 2. Link this admin account to Samford for University Mode
+  await store.pool.query(
+    `UPDATE users SET university_id = $1 WHERE id = $2`,
+    [UNIV_ID, agentId]
+  ).catch(() => {});
+
+  const SAMFORD_ATHLETES = [
+    { id:'samford-demo-001', name:'Marcus Webb',   sport:'Football',           position:'Wide Receiver', school:'Samford University', schoolTier:'G5', instagram:18400, tiktok:22100, engagement:5.2, stats:'68 rec, 1,024 yds, 9 TD (2024)',          notes:'Birmingham native. Business major. Training content and fan engagement on social.', university_id: UNIV_ID },
+    { id:'samford-demo-002', name:'Jordan Tate',   sport:'Basketball',         position:'Point Guard',   school:'Samford University', schoolTier:'G5', instagram:9800,  tiktok:14300, engagement:6.8, stats:'17.4 PPG, 6.1 APG, 1.9 SPG (2024-25)',   notes:'SoCon All-Conference honorable mention. Behind-the-scenes campus content.', university_id: UNIV_ID },
+    { id:'samford-demo-003', name:'Ava Hollins',   sport:"Women's Soccer",     position:'Midfielder',    school:'Samford University', schoolTier:'G5', instagram:7200,  tiktok:5100,  engagement:7.4, stats:'8 goals, 5 assists (2024)',               notes:'Pre-med student. Active in local community volunteering.', university_id: UNIV_ID },
+    { id:'samford-demo-004', name:'Caleb Norris',  sport:'Baseball',           position:'Pitcher',       school:'Samford University', schoolTier:'G5', instagram:4100,  tiktok:3600,  engagement:4.1, stats:'2.87 ERA, 89 K, 7-3 record (2024)',       notes:'Junior. High engagement when active. Minimal posting frequency.', university_id: UNIV_ID },
+    { id:'samford-demo-005', name:'Deja Monroe',   sport:"Women's Basketball", position:'Small Forward', school:'Samford University', schoolTier:'G5', instagram:12600, tiktok:19800, engagement:8.3, stats:'14.2 PPG, 7.8 RPG (2024-25)',             notes:'Most followed athlete in the program. Active creator — training, travel, fashion.', university_id: UNIV_ID },
+    { id:'samford-demo-006', name:'Tyler Okafor',  sport:'Football',           position:'Linebacker',    school:'Samford University', schoolTier:'G5', instagram:3200,  tiktok:1800,  engagement:3.9, stats:'88 tackles, 6.5 TFL, 3 sacks (2024)',     notes:'Sophomore. Social presence still developing.', university_id: UNIV_ID },
+    { id:'samford-demo-007', name:'Priya Nair',    sport:'Track & Field',      position:'Sprints',       school:'Samford University', schoolTier:'G5', instagram:2900,  tiktok:6700,  engagement:9.1, stats:'11.42s 100m PR, SoCon qualifier 2024',    notes:'High engagement despite smaller following. Training clips perform well on TikTok.', university_id: UNIV_ID },
+    { id:'samford-demo-008', name:'Cole Hutchins', sport:'Football',           position:'Quarterback',   school:'Samford University', schoolTier:'G5', instagram:31200, tiktok:28900, engagement:4.7, stats:'2,841 pass yds, 24 TD, 7 INT (2024)',    notes:'Starting QB and de facto face of the program.', university_id: UNIV_ID },
   ];
 
-  let inserted = 0, skipped = 0;
-  for (const athlete of athletes) {
+  let inserted = 0, updated = 0, failed = 0;
+  for (const athlete of SAMFORD_ATHLETES) {
     const { id, ...data } = athlete;
     try {
       const result = await store.pool.query(
         `INSERT INTO athletes (id, agent_id, data, created_at, updated_at, last_updated_at)
-         VALUES ($1,$2,$3,NOW(),NOW(),NOW())
-         ON CONFLICT (id) DO NOTHING`,
+         VALUES ($1, $2, $3, NOW(), NOW(), NOW())
+         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW(), last_updated_at = NOW()`,
         [id, agentId, JSON.stringify(data)]
       );
-      if (result.rowCount > 0) inserted++; else skipped++;
-    } catch (_) {
-      // last_updated_at may not exist yet — fallback
+      // rowCount = 1 for both insert and update with ON CONFLICT DO UPDATE
+      const existing = await store.pool.query('SELECT id FROM athletes WHERE id=$1', [id]);
+      if (existing.rows.length) updated++; else inserted++;
+    } catch (err) {
+      console.error('[seed]', athlete.name, err.message);
+      // Fallback without last_updated_at
       try {
-        const r2 = await store.pool.query(
+        await store.pool.query(
           `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
-           VALUES ($1,$2,$3,NOW(),NOW())
-           ON CONFLICT (id) DO NOTHING`,
+           VALUES ($1, $2, $3, NOW(), NOW())
+           ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
           [id, agentId, JSON.stringify(data)]
         );
-        if (r2.rowCount > 0) inserted++; else skipped++;
-      } catch (e2) { console.error('[seed]', athlete.name, e2.message); }
+        updated++;
+      } catch (e2) { failed++; }
     }
   }
-  res.json({ ok: true, inserted, skipped, total: athletes.length, program: 'Samford University' });
+
+  res.json({ ok: true, upserted: inserted + updated, failed, total: SAMFORD_ATHLETES.length, university: 'Samford University', university_id: UNIV_ID, adminLinked: true });
 });
 
 // ── Athletes ───────────────────────────────────────────────────
@@ -1760,27 +1782,70 @@ try {
 // ── University Mode Routes ────────────────────────────────────────────────────
 // All routes gated by requireAuth + requireUniversityMode.
 // Services enforced: ProgramAggregationService, ComplianceActivityService,
-//                    ReadinessEngine, DataIntegrityLayer.
+//                    ReadinessEngine, DataIntegrityLayer, BulkImportService.
 // Forbidden: NILViewVal, outreach_logs, brand_match_scores, brand_contacts,
 //            company_enrichment, valuation, pricing.
 
 const ProgramAggregationService  = require('./services/university/ProgramAggregationService');
 const ComplianceActivityService   = require('./services/university/ComplianceActivityService');
 const { computeReadiness, getDevelopmentRecommendations } = require('./services/university/ReadinessEngine');
+const BulkImportService           = require('./services/university/BulkImportService');
+
+// ── University context helper ─────────────────────────────────────────────
+// Resolves the university_id for the current session user.
+// University-role users have users.university_id set.
+// Admin users may also have it set (e.g. admin linked to Samford for demo).
+// Returns null if no university linked — caller should 400.
+async function resolveSessionUniversity(userId) {
+  try {
+    const r = await store.pool.query(
+      'SELECT university_id FROM users WHERE id = $1 LIMIT 1',
+      [userId]
+    );
+    return r.rows[0]?.university_id || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// ── Fetch athletes scoped to a university ──────────────────────────────────
+// Reads from athletes table filtering by data->>'university_id'.
+// This is the only correct read path for university-mode endpoints.
+async function fetchUniversityAthletes(universityId) {
+  const rows = await store.pool.query(
+    `SELECT * FROM athletes
+     WHERE data->>'university_id' = $1
+     ORDER BY created_at DESC`,
+    [universityId]
+  );
+  return rows.rows;
+}
 
 // GET /api/university/dashboard
-// Full program overview — athletes, readiness, health score, trend
+// Full program overview — scoped to the user's university.
 app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId   = req.session.userId;
     const userRole = req.session.role;
 
-    // Fetch athletes — shared table, read-only from university context
-    const athleteRows = await store.pool.query(
-      'SELECT * FROM athletes WHERE agent_id = $1 ORDER BY created_at DESC',
-      [userId]
-    );
-    const athletes = athleteRows.rows;
+    // Resolve university scope
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      return res.status(400).json({
+        error: 'Your account is not linked to a university. Contact your administrator.',
+        code: 'NO_UNIVERSITY_LINKED',
+      });
+    }
+
+    // Fetch athletes scoped to this university only
+    const athletes = await fetchUniversityAthletes(universityId);
+
+    // Fetch university record for display
+    let university = null;
+    try {
+      const uRow = await store.pool.query('SELECT * FROM universities WHERE id = $1', [universityId]);
+      university = uRow.rows[0] || null;
+    } catch (_) {}
 
     // Activity counts from nil_activity_log (university-owned events only)
     // NOT from outreach_logs — that is agent-mode data
@@ -1803,17 +1868,19 @@ app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (
       const dealsCount = dealMap[a.id] || 0;
       const readiness  = computeReadiness(a, dealsCount, userRole);
       return {
-        id:         a.id,
-        name:       d.name        || 'Unnamed Athlete',
-        sport:      d.sport       || 'Unknown',
-        school:     d.school      || '',
-        instagram:  parseInt(d.instagram)    || 0,
-        tiktok:     parseInt(d.tiktok)       || 0,
-        engagement: parseFloat(d.engagement) || 0,
-        stats:      d.stats       || '',
-        notes:      d.notes       || '',
-        schoolTier: d.schoolTier  || '',
-        reach:      (parseInt(d.instagram) || 0) + (parseInt(d.tiktok) || 0),
+        id:           a.id,
+        name:         d.name        || 'Unnamed Athlete',
+        sport:        d.sport       || 'Unknown',
+        position:     d.position    || '',
+        school:       d.school      || '',
+        instagram:    parseInt(d.instagram)    || 0,
+        tiktok:       parseInt(d.tiktok)       || 0,
+        engagement:   parseFloat(d.engagement) || 0,
+        stats:        d.stats       || '',
+        notes:        d.notes       || '',
+        schoolTier:   d.schoolTier  || '',
+        university_id: d.university_id || universityId,
+        reach:        (parseInt(d.instagram) || 0) + (parseInt(d.tiktok) || 0),
         dealsCount,
         readiness,
         lastUpdatedAt: a.last_updated_at || null,
@@ -1821,6 +1888,8 @@ app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (
     });
 
     res.json({
+      university,
+      universityId,
       athletes:      athleteSummaries,
       overview,
       // Legacy flat fields preserved for backward compat with existing frontend
@@ -1838,18 +1907,25 @@ app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (
 });
 
 // GET /api/university/athlete/:id/readiness
-// Full readiness breakdown + development recommendations for one athlete
+// Full readiness breakdown + development recommendations for one athlete.
+// Verifies the athlete belongs to the user's university before serving.
 app.get('/api/university/athlete/:id/readiness', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId   = req.session.userId;
     const userRole = req.session.role;
 
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      return res.status(400).json({ error: 'No university linked to account', code: 'NO_UNIVERSITY_LINKED' });
+    }
+
+    // Fetch athlete — must belong to this university
     const athleteRow = await store.pool.query(
-      'SELECT * FROM athletes WHERE id = $1 AND user_id = $2',
-      [req.params.id, userId]
+      `SELECT * FROM athletes WHERE id = $1 AND data->>'university_id' = $2 LIMIT 1`,
+      [req.params.id, universityId]
     );
     if (!athleteRow.rows.length) {
-      return res.status(404).json({ error: 'Athlete not found' });
+      return res.status(404).json({ error: 'Athlete not found in your program' });
     }
 
     const athlete    = athleteRow.rows[0];
@@ -1866,13 +1942,15 @@ app.get('/api/university/athlete/:id/readiness', requireAuth, requireUniversityM
     const recs      = getDevelopmentRecommendations(athlete, readiness, userRole);
 
     // Log this readiness computation as a compliance event
-    await ComplianceActivityService.logEvent(store.pool, {
-      athleteId:    req.params.id,
-      userId,
-      eventType:    'readiness_computed',
-      confidence:   readiness.overallConfidence,
-      metadata:     { score: readiness.score, label: readiness.label },
-    });
+    try {
+      await ComplianceActivityService.logEvent(store.pool, {
+        athleteId:    req.params.id,
+        userId,
+        eventType:    'readiness_computed',
+        confidence:   readiness.overallConfidence,
+        metadata:     { score: readiness.score, label: readiness.label },
+      });
+    } catch (_) {}
 
     res.json({ athleteId: req.params.id, readiness, recommendations: recs });
   } catch (err) {
@@ -1882,20 +1960,22 @@ app.get('/api/university/athlete/:id/readiness', requireAuth, requireUniversityM
 });
 
 // GET /api/university/compliance
-// Program-level compliance dashboard
+// Program-level compliance dashboard — scoped to user's university.
 app.get('/api/university/compliance', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId   = req.session.userId;
     const userRole = req.session.role;
 
-    const athleteRows = await store.pool.query(
-      'SELECT * FROM athletes WHERE agent_id = $1 ORDER BY created_at DESC',
-      [userId]
-    );
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      return res.status(400).json({ error: 'No university linked to account', code: 'NO_UNIVERSITY_LINKED' });
+    }
+
+    const athletes = await fetchUniversityAthletes(universityId);
 
     const dashboard = await ComplianceActivityService.buildComplianceDashboard(
       store.pool,
-      { athletes: athleteRows.rows, userId },
+      { athletes, userId },
       userRole
     );
 
@@ -1904,6 +1984,49 @@ app.get('/api/university/compliance', requireAuth, requireUniversityMode, async 
     console.error('[university] Compliance error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// POST /api/university/bulk-import
+// Import athletes from CSV or JSON. Returns BulkImportResult.
+// Content-Type: application/json — body: { format: 'csv'|'json', data: '<raw string>' }
+// OR multipart is not supported here — clients base64 or send raw text in body.
+app.post('/api/university/bulk-import', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId   = req.session.userId;
+    const userRole = req.session.role;
+
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      return res.status(400).json({ error: 'No university linked to account', code: 'NO_UNIVERSITY_LINKED' });
+    }
+
+    const { format = 'csv', data: rawData } = req.body;
+    if (!rawData || !rawData.trim()) {
+      return res.status(400).json({ error: 'No data provided. Send { format, data } in request body.' });
+    }
+    if (!['csv', 'json'].includes(format)) {
+      return res.status(400).json({ error: 'format must be "csv" or "json"' });
+    }
+
+    const result = await BulkImportService.bulkImport(
+      store.pool, rawData, format, userId, universityId, userRole
+    );
+
+    console.log(`[university] Bulk import: ${result.imported} imported, ${result.skipped} skipped, ${result.failed} failed`);
+    res.json(result);
+  } catch (err) {
+    console.error('[university] Bulk import error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/import-template
+// Download CSV template with correct headers and one example row.
+app.get('/api/university/import-template', requireAuth, requireUniversityMode, (req, res) => {
+  const csv = BulkImportService.generateCSVTemplate();
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="nildash-athlete-import-template.csv"');
+  res.send(csv);
 });
 
 // ── PWA static assets — explicit routes so catchall doesn't eat them ──
