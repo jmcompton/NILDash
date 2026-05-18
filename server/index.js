@@ -15,6 +15,7 @@ const store    = require('./store');
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ai       = require('./ai');
+const { requireUniversityMode } = require('./middleware/modeGuard');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -1709,63 +1710,151 @@ try {
   console.warn('[outreach] Engine failed to load:', e.message);
 }
 
-// ── University Dashboard ──────────────────────────────────────────────────────
-app.get('/api/university/dashboard', requireAuth, async (req, res) => {
-  try {
-    const userId = req.session.userId;
+// ── University Mode Routes ────────────────────────────────────────────────────
+// All routes gated by requireAuth + requireUniversityMode.
+// Services enforced: ProgramAggregationService, ComplianceActivityService,
+//                    ReadinessEngine, DataIntegrityLayer.
+// Forbidden: NILViewVal, outreach_logs, brand_match_scores, brand_contacts,
+//            company_enrichment, valuation, pricing.
 
-    // Athletes for this account
+const ProgramAggregationService  = require('./services/university/ProgramAggregationService');
+const ComplianceActivityService   = require('./services/university/ComplianceActivityService');
+const { computeReadiness, getDevelopmentRecommendations } = require('./services/university/ReadinessEngine');
+
+// GET /api/university/dashboard
+// Full program overview — athletes, readiness, health score, trend
+app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId   = req.session.userId;
+    const userRole = req.session.role;
+
+    // Fetch athletes — shared table, read-only from university context
     const athleteRows = await store.pool.query(
       'SELECT * FROM athletes WHERE user_id = $1 ORDER BY created_at DESC',
       [userId]
     );
     const athletes = athleteRows.rows;
 
-    // Deal / outreach counts per athlete
+    // Activity counts from nil_activity_log (university-owned events only)
+    // NOT from outreach_logs — that is agent-mode data
     let dealMap = {};
     try {
-      const dealRows = await store.pool.query(
-        `SELECT athlete_id, COUNT(*) AS deal_count
-         FROM outreach_logs WHERE user_id = $1 GROUP BY athlete_id`,
+      const actRows = await store.pool.query(
+        `SELECT athlete_id, COUNT(*) AS event_count
+         FROM nil_activity_log WHERE user_id = $1 GROUP BY athlete_id`,
         [userId]
       );
-      dealRows.rows.forEach(r => { dealMap[r.athlete_id] = parseInt(r.deal_count) || 0; });
-    } catch (_) { /* table may not exist for all installs */ }
+      actRows.rows.forEach(r => { dealMap[r.athlete_id] = parseInt(r.event_count) || 0; });
+    } catch (_) { /* nil_activity_log may not exist yet — migrations pending */ }
 
-    // Build per-athlete summary (no monetary framing)
-    const summaries = athletes.map(a => {
-      const d = (a.data && typeof a.data === 'object') ? { ...a.data, id: a.id } : a;
-      const reach = (parseInt(d.instagram) || 0) + (parseInt(d.tiktok) || 0);
+    // Build program overview via service layer
+    const overview = await ProgramAggregationService.buildProgramOverview(athletes, dealMap, userRole);
+
+    // Build per-athlete summaries with server-side readiness
+    const athleteSummaries = athletes.map(a => {
+      const d          = (a.data && typeof a.data === 'object') ? { ...a.data, id: a.id } : a;
+      const dealsCount = dealMap[a.id] || 0;
+      const readiness  = computeReadiness(a, dealsCount, userRole);
       return {
-        id: a.id,
-        name:       d.name       || 'Unnamed Athlete',
-        sport:      d.sport      || 'Unknown',
-        school:     d.school     || '',
-        instagram:  parseInt(d.instagram)  || 0,
-        tiktok:     parseInt(d.tiktok)     || 0,
+        id:         a.id,
+        name:       d.name        || 'Unnamed Athlete',
+        sport:      d.sport       || 'Unknown',
+        school:     d.school      || '',
+        instagram:  parseInt(d.instagram)    || 0,
+        tiktok:     parseInt(d.tiktok)       || 0,
         engagement: parseFloat(d.engagement) || 0,
-        stats:      d.stats      || '',
-        notes:      d.notes      || '',
-        schoolTier: d.schoolTier || '',
-        reach,
-        dealsCount: dealMap[a.id] || 0,
+        stats:      d.stats       || '',
+        notes:      d.notes       || '',
+        schoolTier: d.schoolTier  || '',
+        reach:      (parseInt(d.instagram) || 0) + (parseInt(d.tiktok) || 0),
+        dealsCount,
+        readiness,
+        lastUpdatedAt: a.last_updated_at || null,
       };
     });
 
-    // Aggregates
-    const sportBreakdown = {};
-    summaries.forEach(s => {
-      sportBreakdown[s.sport] = (sportBreakdown[s.sport] || 0) + 1;
+    res.json({
+      athletes:      athleteSummaries,
+      overview,
+      // Legacy flat fields preserved for backward compat with existing frontend
+      sportBreakdown:  overview.sportBreakdown,
+      totalAthletes:   overview.totalAthletes,
+      avgEngagement:   overview.avgEngagementRate?.value ?? 0,
+      programHealth:   overview.programHealth,
+      dataReliability: overview.dataReliability,
+      generatedAt:     overview.generatedAt,
     });
-
-    const totalDeals = summaries.reduce((sum, s) => sum + s.dealsCount, 0);
-    const avgEngagement = summaries.length > 0
-      ? +(summaries.reduce((sum, s) => sum + s.engagement, 0) / summaries.length).toFixed(1)
-      : 0;
-
-    res.json({ athletes: summaries, sportBreakdown, totalAthletes: summaries.length, totalDeals, avgEngagement });
   } catch (err) {
     console.error('[university] Dashboard error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/athlete/:id/readiness
+// Full readiness breakdown + development recommendations for one athlete
+app.get('/api/university/athlete/:id/readiness', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId   = req.session.userId;
+    const userRole = req.session.role;
+
+    const athleteRow = await store.pool.query(
+      'SELECT * FROM athletes WHERE id = $1 AND user_id = $2',
+      [req.params.id, userId]
+    );
+    if (!athleteRow.rows.length) {
+      return res.status(404).json({ error: 'Athlete not found' });
+    }
+
+    const athlete    = athleteRow.rows[0];
+    let dealsCount   = 0;
+    try {
+      const ct = await store.pool.query(
+        'SELECT COUNT(*) AS c FROM nil_activity_log WHERE athlete_id=$1 AND user_id=$2',
+        [req.params.id, userId]
+      );
+      dealsCount = parseInt(ct.rows[0]?.c) || 0;
+    } catch (_) {}
+
+    const readiness = computeReadiness(athlete, dealsCount, userRole);
+    const recs      = getDevelopmentRecommendations(athlete, readiness, userRole);
+
+    // Log this readiness computation as a compliance event
+    await ComplianceActivityService.logEvent(store.pool, {
+      athleteId:    req.params.id,
+      userId,
+      eventType:    'readiness_computed',
+      confidence:   readiness.overallConfidence,
+      metadata:     { score: readiness.score, label: readiness.label },
+    });
+
+    res.json({ athleteId: req.params.id, readiness, recommendations: recs });
+  } catch (err) {
+    console.error('[university] Readiness error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/compliance
+// Program-level compliance dashboard
+app.get('/api/university/compliance', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId   = req.session.userId;
+    const userRole = req.session.role;
+
+    const athleteRows = await store.pool.query(
+      'SELECT * FROM athletes WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+
+    const dashboard = await ComplianceActivityService.buildComplianceDashboard(
+      store.pool,
+      { athletes: athleteRows.rows, userId },
+      userRole
+    );
+
+    res.json(dashboard);
+  } catch (err) {
+    console.error('[university] Compliance error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1791,7 +1880,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   const hasKey = !!(process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.includes('YOUR_KEY'));
   console.log(`
 ╔════════════════════════════════════╗
@@ -1800,4 +1889,21 @@ app.listen(PORT, () => {
 ║  URL:    http://localhost:${PORT}      ║
 ║  AI Key: ${hasKey ? '✅ Ready' : '⚠️  Add to .env'}              ║
 ╚════════════════════════════════════╝`);
+
+  // ── Auto-run idempotent migrations on startup ────────────────────
+  // All SQL statements are IF NOT EXISTS — safe to run every boot.
+  // Failure is logged but never crashes the server.
+  try {
+    const fs   = require('fs');
+    const path = require('path');
+    const migDir = path.join(__dirname, 'migrations');
+    const files  = fs.readdirSync(migDir).filter(f => f.endsWith('.sql')).sort();
+    for (const file of files) {
+      const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
+      await store.pool.query(sql);
+      console.log(`[migrations] ✅ ${file}`);
+    }
+  } catch (err) {
+    console.warn('[migrations] Migration run failed (non-fatal):', err.message);
+  }
 });

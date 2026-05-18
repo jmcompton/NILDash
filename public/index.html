@@ -1154,6 +1154,19 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
           </div>
 
+          <!-- Program health + data timestamp -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
+              <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Program Health</div>
+              <div id="univ-program-health"><div style="color:var(--muted);font-size:12px">Loading...</div></div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
+              <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Data Reliability</div>
+              <div id="univ-data-reliability"><div style="color:var(--muted);font-size:12px">Loading...</div></div>
+              <div id="univ-generated-at" style="font-size:10px;color:var(--muted);margin-top:8px"></div>
+            </div>
+          </div>
+
           <!-- Readiness distribution + sport breakdown -->
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
 
@@ -5457,7 +5470,10 @@ function enterAgentMode() {
   showView('command', document.querySelector('.nav-item[onclick*="command"]'));
 }
 
-// NIL Readiness Score — 0 to 100, purely developmental framing
+// NIL Readiness Score — DEPRECATED: client-side computation.
+// Source of truth is now server/services/university/ReadinessEngine.js
+// This function is retained only as a local fallback if the API call fails.
+// Do NOT add logic here. All changes go to ReadinessEngine.js.
 function calcNilReadiness(athlete, dealsCount) {
   var d = (athlete.data && typeof athlete.data === 'object') ? athlete.data : athlete;
   var score = 0;
@@ -5507,7 +5523,9 @@ function calcNilReadiness(athlete, dealsCount) {
   return { score: score, label: label, color: color };
 }
 
-// Development recommendations — no pricing, no sales framing
+// Development recommendations — DEPRECATED: client-side computation.
+// Source of truth is now server/services/university/ReadinessEngine.js
+// getDevelopmentRecommendations(). Retained as fallback only.
 function getDevelopmentRecs(athlete, readiness) {
   var d = (athlete.data && typeof athlete.data === 'object') ? athlete.data : athlete;
   var recs = [];
@@ -5563,7 +5581,43 @@ function _univFmtReach(n) {
   return num > 0 ? String(num) : '—';
 }
 
-// Main loader
+// ── Trust signal helpers ──────────────────────────────────────────
+
+// Render a data freshness badge from a readiness.dataFreshness object
+function _univFreshnessBadge(freshness) {
+  if (!freshness || freshness.daysOld === null) {
+    return '<span style="font-size:9px;padding:2px 6px;border-radius:8px;background:rgba(240,244,255,0.06);color:var(--muted);border:1px solid var(--border)">Date unknown</span>';
+  }
+  var col = freshness.stale ? '#FFB800' : 'rgba(132,204,22,0.8)';
+  var bg  = freshness.stale ? 'rgba(255,184,0,0.08)' : 'rgba(132,204,22,0.08)';
+  var bdr = freshness.stale ? 'rgba(255,184,0,0.25)' : 'rgba(132,204,22,0.25)';
+  return '<span style="font-size:9px;padding:2px 6px;border-radius:8px;background:' + bg + ';color:' + col + ';border:1px solid ' + bdr + '">' + freshness.label + (freshness.daysOld !== null ? ' · ' + freshness.daysOld + 'd' : '') + '</span>';
+}
+
+// Render a confidence chip (0.0–1.0)
+function _univConfidenceBadge(confidence) {
+  var pct = Math.round((confidence || 0) * 100);
+  var col = pct >= 70 ? 'var(--accent)' : pct >= 40 ? '#FFB800' : 'var(--muted)';
+  return '<span style="font-size:9px;color:' + col + ';font-family:var(--mono)">' + pct + '% conf</span>';
+}
+
+// Render data reliability bar for program overview
+function _univReliabilityBar(reliability) {
+  if (!reliability) return '';
+  var score = reliability.score || 0;
+  var col   = score >= 70 ? 'var(--accent)' : score >= 40 ? '#FFB800' : 'var(--red)';
+  return '<div style="display:flex;align-items:center;gap:8px">' +
+    '<div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">' +
+      '<div style="height:100%;width:' + score + '%;background:' + col + ';border-radius:2px"></div>' +
+    '</div>' +
+    '<span style="font-size:10px;color:' + col + ';font-family:var(--mono);min-width:28px">' + score + '/100</span>' +
+  '</div>' +
+  '<div style="font-size:10px;color:var(--muted);margin-top:3px">' +
+    reliability.freshAthletes + ' of ' + (reliability.freshAthletes + (reliability.staleAthletes||0)) + ' athletes have recent data' +
+  '</div>';
+}
+
+// Main loader — uses server-computed readiness + trust metadata
 async function loadUniversityDashboard() {
   try {
     var r = await fetch(API_BASE + '/api/university/dashboard', { credentials: 'include' });
@@ -5571,171 +5625,248 @@ async function loadUniversityDashboard() {
     var data = await r.json();
     _univData = data;
 
-    // Compute readiness for every athlete
-    var athletes = (data.athletes || []).map(function(a) {
-      a.readiness = calcNilReadiness(a, a.dealsCount);
-      a.recs      = getDevelopmentRecs(a, a.readiness);
-      return a;
-    });
+    var athletes  = data.athletes  || [];
+    var overview  = data.overview  || {};
+    var health    = data.programHealth || overview.programHealth || {};
+    var reliability = data.dataReliability || overview.dataReliability || {};
 
-    // KPIs
-    var activeCount = athletes.filter(function(a){ return a.dealsCount > 0; }).length;
-    var sportCount  = Object.keys(data.sportBreakdown || {}).length;
+    // ── KPIs ──────────────────────────────────────────────────────
+    var sportCount = Object.keys(data.sportBreakdown || {}).length;
     var setKpi = function(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; };
     setKpi('univ-kpi-athletes', athletes.length || '—');
     setKpi('univ-kpi-eng',      (data.avgEngagement || 0) + '%');
-    setKpi('univ-kpi-active',   activeCount);
+    setKpi('univ-kpi-active',   athletes.filter(function(a){ return a.dealsCount > 0; }).length);
     setKpi('univ-kpi-sports',   sportCount);
 
-    // Readiness distribution
-    var dist = { 'High Performer':0, 'Ready':0, 'Developing':0, 'Needs Development':0 };
-    athletes.forEach(function(a){ dist[a.readiness.label]++; });
-    var distEl = document.getElementById('univ-readiness-dist');
+    // ── Program health + data reliability (overview panel additions) ──
+    var healthEl = document.getElementById('univ-program-health');
+    if (healthEl) {
+      var hScore = health.score || 0;
+      var hCol   = hScore >= 75 ? 'var(--accent)' : hScore >= 55 ? '#00D4FF' : hScore >= 35 ? '#FFB800' : 'var(--muted)';
+      healthEl.innerHTML =
+        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">' +
+          '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:36px;color:' + hCol + ';letter-spacing:1px;line-height:1">' + hScore + '</div>' +
+          '<div>' +
+            '<div style="font-size:12px;font-weight:700;color:var(--text)">' + (health.label||'—') + '</div>' +
+            '<div style="font-size:10px;color:var(--muted)">' + (health.formula||'') + '</div>' +
+          '</div>' +
+        '</div>' +
+        _univReliabilityBar(reliability);
+    }
+
+    // ── Data reliability card ─────────────────────────────────────
+    var relEl = document.getElementById('univ-data-reliability');
+    if (relEl) { relEl.innerHTML = _univReliabilityBar(reliability); }
+
+    // ── Readiness distribution — from server overview ─────────────
+    var dist    = overview.readinessDistribution || {};
+    var distEl  = document.getElementById('univ-readiness-dist');
     if (distEl) {
       var total = athletes.length || 1;
-      distEl.innerHTML = Object.keys(dist).map(function(label) {
-        var count = dist[label];
+      var buckets = [
+        { key: 'highPerformer',    label: 'High Performer',    color: '#84CC16' },
+        { key: 'ready',            label: 'Ready',             color: '#00D4FF' },
+        { key: 'developing',       label: 'Developing',        color: '#FFB800' },
+        { key: 'needsDevelopment', label: 'Needs Development', color: 'rgba(240,244,255,0.35)' },
+      ];
+      distEl.innerHTML = buckets.map(function(b) {
+        var count = (dist[b.key] && dist[b.key].count) || 0;
         var pct   = Math.round((count / total) * 100);
-        var colors = { 'High Performer':'#84CC16','Ready':'#00D4FF','Developing':'#FFB800','Needs Development':'rgba(240,244,255,0.35)' };
-        var col = colors[label] || 'var(--muted)';
         return '<div style="margin-bottom:10px">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
-            '<span style="font-size:11px;color:var(--text)">' + label + '</span>' +
-            '<span style="font-size:11px;color:var(--muted);font-family:var(--mono)">' + count + ' &nbsp;(' + pct + '%)</span>' +
+            '<span style="font-size:11px;color:var(--text)">' + b.label + '</span>' +
+            '<span style="font-size:11px;color:var(--muted);font-family:var(--mono)">' + count + ' (' + pct + '%)</span>' +
           '</div>' +
           '<div style="height:5px;background:var(--surface2);border-radius:3px;overflow:hidden">' +
-            '<div style="height:100%;width:' + pct + '%;background:' + col + ';border-radius:3px;transition:width 0.4s"></div>' +
+            '<div style="height:100%;width:' + pct + '%;background:' + b.color + ';border-radius:3px;transition:width 0.4s"></div>' +
           '</div></div>';
       }).join('');
     }
 
-    // Sport breakdown
-    var sportEl = document.getElementById('univ-sport-breakdown');
+    // ── Sport breakdown ───────────────────────────────────────────
+    var sportEl   = document.getElementById('univ-sport-breakdown');
     if (sportEl) {
-      var sports = data.sportBreakdown || {};
+      var sports    = data.sportBreakdown || {};
       var sportKeys = Object.keys(sports).sort(function(a,b){ return sports[b]-sports[a]; });
-      var maxCount = Math.max.apply(null, sportKeys.map(function(k){ return sports[k]; })) || 1;
-      sportEl.innerHTML = sportKeys.length ? sportKeys.map(function(sport) {
-        var n   = sports[sport];
-        var pct = Math.round((n / maxCount) * 100);
-        return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
-          '<span style="font-size:11px;color:var(--text);min-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + sport + '</span>' +
-          '<div style="flex:1;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden">' +
-            '<div style="height:100%;width:' + pct + '%;background:var(--accent);border-radius:3px"></div>' +
-          '</div>' +
-          '<span style="font-size:11px;color:var(--muted);font-family:var(--mono);min-width:20px;text-align:right">' + n + '</span>' +
-        '</div>';
-      }).join('') : '<div style="color:var(--muted);font-size:12px">No athletes added yet.</div>';
+      var maxCount  = Math.max.apply(null, sportKeys.map(function(k){ return sports[k]; })) || 1;
+      sportEl.innerHTML = sportKeys.length
+        ? sportKeys.map(function(sport) {
+            var n = sports[sport];
+            return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+              '<span style="font-size:11px;color:var(--text);min-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + sport + '</span>' +
+              '<div style="flex:1;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden">' +
+                '<div style="height:100%;width:' + Math.round((n/maxCount)*100) + '%;background:var(--accent);border-radius:3px"></div>' +
+              '</div>' +
+              '<span style="font-size:11px;color:var(--muted);font-family:var(--mono);min-width:20px;text-align:right">' + n + '</span>' +
+            '</div>';
+          }).join('')
+        : '<div style="color:var(--muted);font-size:12px">No athletes added yet.</div>';
     }
 
-    // Roster list
+    // ── Roster — server readiness + freshness badges ──────────────
     var rosterEl = document.getElementById('univ-roster-list');
     if (rosterEl) {
       if (!athletes.length) {
         rosterEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px 0;text-align:center">No athletes in the program yet.</div>';
       } else {
-        var headerHtml = '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 120px;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px">' +
-          ['Athlete','Sport','Reach','NIL Readiness'].map(function(h){ return '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">' + h + '</div>'; }).join('') + '</div>';
-        var rowsHtml = athletes.map(function(a) {
-          var readiness = a.readiness;
-          return '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 120px;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">' +
+        var hdr = '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 150px;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px">' +
+          ['Athlete','Sport','Reach','NIL Readiness'].map(function(h){
+            return '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">' + h + '</div>';
+          }).join('') + '</div>';
+        var rows = athletes.map(function(a) {
+          var rs  = a.readiness || {};
+          var col = rs.labelColor || 'var(--muted)';
+          var freshness = (rs.dataFreshness) || null;
+          return '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 150px;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">' +
             '<div>' +
-              '<div style="font-size:12px;font-weight:600;color:var(--text)">' + (a.name || '—') + '</div>' +
-              '<div style="font-size:11px;color:var(--muted)">' + (a.school || '') + '</div>' +
+              '<div style="font-size:12px;font-weight:600;color:var(--text)">' + (a.name||'—') + '</div>' +
+              '<div style="font-size:11px;color:var(--muted);display:flex;gap:6px;align-items:center;margin-top:2px">' +
+                (a.school||'') +
+                (freshness ? ' &nbsp;' + _univFreshnessBadge(freshness) : '') +
+              '</div>' +
             '</div>' +
-            '<div style="font-size:12px;color:var(--muted)">' + (a.sport || '—') + '</div>' +
+            '<div style="font-size:12px;color:var(--muted)">' + (a.sport||'—') + '</div>' +
             '<div style="font-size:12px;font-family:var(--mono);color:var(--text)">' + _univFmtReach((a.instagram||0)+(a.tiktok||0)) + '</div>' +
             '<div>' +
               '<div style="display:flex;align-items:center;gap:6px">' +
                 '<div style="flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden">' +
-                  '<div style="height:100%;width:' + readiness.score + '%;background:' + readiness.color + ';border-radius:2px"></div>' +
+                  '<div style="height:100%;width:' + (rs.score||0) + '%;background:' + col + ';border-radius:2px"></div>' +
                 '</div>' +
-                '<span style="font-size:10px;color:' + readiness.color + ';font-family:var(--mono);min-width:24px">' + readiness.score + '</span>' +
+                '<span style="font-size:10px;color:' + col + ';font-family:var(--mono);min-width:24px">' + (rs.score||0) + '</span>' +
               '</div>' +
-              '<div style="font-size:9px;color:' + readiness.color + ';margin-top:2px">' + readiness.label + '</div>' +
+              '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px">' +
+                '<div style="font-size:9px;color:' + col + '">' + (rs.label||'—') + '</div>' +
+                _univConfidenceBadge(rs.overallConfidence) +
+              '</div>' +
             '</div>' +
           '</div>';
         }).join('');
-        rosterEl.innerHTML = headerHtml + rowsHtml;
+        rosterEl.innerHTML = hdr + rows;
       }
     }
 
-    // Athlete development cards
+    // ── Development cards — server recs + breakdown ───────────────
     var devGrid = document.getElementById('univ-dev-grid');
     if (devGrid) {
       if (!athletes.length) {
         devGrid.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px 0">No athletes in the program yet.</div>';
       } else {
         devGrid.innerHTML = athletes.map(function(a) {
-          var readiness = a.readiness;
-          var recs = a.recs;
-          var engPct = Math.min(100, Math.round((parseFloat(a.engagement)||0) / 8 * 100));
+          var rs   = a.readiness || {};
+          var col  = rs.labelColor || 'var(--muted)';
+          // recs may come pre-attached or need a fetch — use what we have
+          var recs = a.recs || [];
+          var bd   = rs.breakdown || {};
+
+          var dimRows = Object.keys(bd).map(function(key) {
+            var dim = bd[key];
+            var dimCol = dim.score >= dim.maxScore * 0.7 ? 'var(--accent)' : dim.score >= dim.maxScore * 0.4 ? '#FFB800' : 'var(--muted)';
+            return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">' +
+              '<span style="font-size:10px;color:var(--muted);text-transform:capitalize">' + key.replace(/([A-Z])/g,' $1').trim() + '</span>' +
+              '<div style="display:flex;align-items:center;gap:6px">' +
+                '<div style="width:60px;height:3px;background:var(--surface2);border-radius:2px;overflow:hidden">' +
+                  '<div style="height:100%;width:' + Math.round((dim.score/dim.maxScore)*100) + '%;background:' + dimCol + ';border-radius:2px"></div>' +
+                '</div>' +
+                '<span style="font-size:9px;color:' + dimCol + ';font-family:var(--mono);min-width:28px;text-align:right">' + dim.score + '/' + dim.maxScore + '</span>' +
+              '</div>' +
+            '</div>';
+          }).join('');
+
           return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">' +
-            '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">' +
               '<div>' +
                 '<div style="font-size:13px;font-weight:700;color:var(--text)">' + (a.name||'Unnamed') + '</div>' +
-                '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (a.sport||'') + (a.school ? ' · ' + a.school : '') + '</div>' +
+                '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (a.sport||'') + (a.school?' · '+a.school:'') + '</div>' +
               '</div>' +
               '<div style="text-align:right">' +
-                '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:26px;color:' + readiness.color + ';letter-spacing:1px;line-height:1">' + readiness.score + '</div>' +
-                '<div style="font-size:9px;color:' + readiness.color + ';font-weight:700;white-space:nowrap">' + readiness.label + '</div>' +
+                '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:26px;color:' + col + ';letter-spacing:1px;line-height:1">' + (rs.score||0) + '</div>' +
+                '<div style="font-size:9px;color:' + col + ';font-weight:700">' + (rs.label||'—') + '</div>' +
+                '<div style="margin-top:2px">' + _univConfidenceBadge(rs.overallConfidence) + '</div>' +
               '</div>' +
             '</div>' +
-            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">' +
-              '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px">' +
-                '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Reach</div>' +
-                '<div style="font-size:14px;font-weight:700;color:var(--text)">' + _univFmtReach((a.instagram||0)+(a.tiktok||0)) + '</div>' +
-              '</div>' +
-              '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px">' +
-                '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Engagement</div>' +
-                '<div style="font-size:14px;font-weight:700;color:var(--text)">' + (a.engagement||0) + '%</div>' +
-              '</div>' +
-            '</div>' +
+
+            // Score breakdown dimensions
+            (Object.keys(bd).length ? '<div style="margin-bottom:12px">' + dimRows + '</div>' : '') +
+
+            // Freshness
+            (rs.dataFreshness ? '<div style="margin-bottom:12px">' + _univFreshnessBadge(rs.dataFreshness) + '</div>' : '') +
+
+            // Development guidance from server
             (recs.length ? '<div style="border-top:1px solid var(--border);padding-top:12px">' +
               '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Development Guidance</div>' +
               recs.map(function(rec) {
+                var recText = typeof rec === 'string' ? rec : (rec.action || '');
+                var priCol  = rec.priority === 'high' ? 'var(--red)' : rec.priority === 'medium' ? '#FFB800' : 'var(--muted)';
                 return '<div style="display:flex;gap:8px;margin-bottom:8px">' +
-                  '<span style="color:var(--accent);font-size:14px;line-height:1.4;flex-shrink:0">→</span>' +
-                  '<span style="font-size:11px;color:var(--muted);line-height:1.5">' + rec + '</span>' +
+                  '<span style="color:' + priCol + ';font-size:14px;line-height:1.4;flex-shrink:0">→</span>' +
+                  '<span style="font-size:11px;color:var(--muted);line-height:1.5">' + recText + '</span>' +
                 '</div>';
               }).join('') + '</div>' : '') +
+
           '</div>';
         }).join('');
       }
     }
 
-    // Compliance log — activity without monetary values
-    var compLog = document.getElementById('univ-compliance-log');
-    if (compLog) {
-      if (!athletes.length) {
-        compLog.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px 0;text-align:center">No athletes in the program.</div>';
-      } else {
-        var activeAthletes = athletes.filter(function(a){ return a.dealsCount > 0; });
-        if (!activeAthletes.length) {
-          compLog.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px 0;text-align:center">No NIL activity reported yet for athletes in this program.</div>';
-        } else {
-          var headerRow = '<div style="display:grid;grid-template-columns:2fr 1fr 80px 100px;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px">' +
-            ['Athlete','Sport','Activity','Status'].map(function(h){ return '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">' + h + '</div>'; }).join('') + '</div>';
-          var rows = activeAthletes.map(function(a) {
-            return '<div style="display:grid;grid-template-columns:2fr 1fr 80px 100px;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">' +
-              '<div>' +
-                '<div style="font-size:12px;font-weight:600;color:var(--text)">' + (a.name||'—') + '</div>' +
-                '<div style="font-size:11px;color:var(--muted)">' + (a.school||'') + '</div>' +
-              '</div>' +
-              '<div style="font-size:12px;color:var(--muted)">' + (a.sport||'—') + '</div>' +
-              '<div style="font-size:12px;font-family:var(--mono);color:var(--text)">' + a.dealsCount + ' deal' + (a.dealsCount===1?'':'s') + '</div>' +
-              '<div><span style="font-size:10px;padding:3px 8px;border-radius:10px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.25);color:var(--accent);font-weight:600">Tracked</span></div>' +
-            '</div>';
-          }).join('');
-          compLog.innerHTML = headerRow + rows;
-        }
-      }
+    // ── Compliance tab — load from /api/university/compliance ─────
+    _loadUniversityComplianceTab();
+
+    // ── Render generated-at timestamp ─────────────────────────────
+    var tsEl = document.getElementById('univ-generated-at');
+    if (tsEl && data.generatedAt) {
+      tsEl.textContent = 'Data as of ' + new Date(data.generatedAt).toLocaleString();
     }
 
   } catch (err) {
     console.error('[university] Load error:', err.message);
     var errTarget = document.getElementById('univ-roster-list');
     if (errTarget) errTarget.innerHTML = '<div style="color:var(--red);font-size:12px">Could not load program data. Try refreshing.</div>';
+  }
+}
+
+// Load compliance tab from dedicated endpoint
+async function _loadUniversityComplianceTab() {
+  var compLog = document.getElementById('univ-compliance-log');
+  if (!compLog) return;
+  try {
+    var r = await fetch(API_BASE + '/api/university/compliance', { credentials: 'include' });
+    if (!r.ok) { compLog.innerHTML = '<div style="color:var(--muted);font-size:12px">Compliance data unavailable.</div>'; return; }
+    var data = await r.json();
+    if (data.disabled) { compLog.innerHTML = '<div style="color:var(--muted);font-size:12px">Compliance tracking is not enabled.</div>'; return; }
+
+    var athletes = data.athletes || [];
+    if (!athletes.length) {
+      compLog.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px 0;text-align:center">No athletes in the program.</div>';
+      return;
+    }
+
+    var hdr = '<div style="display:grid;grid-template-columns:2fr 80px 80px 1fr;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px">' +
+      ['Athlete','Profile','Freshness','Alerts'].map(function(h){
+        return '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">' + h + '</div>';
+      }).join('') + '</div>';
+
+    var rows = athletes.map(function(a) {
+      var compScore  = a.profileCompleteness && a.profileCompleteness.score || 0;
+      var compCol    = compScore >= 70 ? 'var(--accent)' : compScore >= 40 ? '#FFB800' : 'var(--red)';
+      var alertsHtml = (a.alerts||[]).map(function(al){
+        var alCol = al.severity === 'high' ? 'var(--red)' : al.severity === 'medium' ? '#FFB800' : 'var(--muted)';
+        return '<div style="font-size:10px;color:' + alCol + ';margin-bottom:2px">' + al.message + '</div>';
+      }).join('') || '<div style="font-size:10px;color:var(--accent)">No alerts</div>';
+
+      return '<div style="display:grid;grid-template-columns:2fr 80px 80px 1fr;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--border)">' +
+        '<div>' +
+          '<div style="font-size:12px;font-weight:600;color:var(--text)">' + (a.name||'—') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + (a.sport||'') + (a.school?' · '+a.school:'') + '</div>' +
+        '</div>' +
+        '<div style="font-size:12px;font-weight:700;color:' + compCol + ';font-family:var(--mono)">' + compScore + '%</div>' +
+        '<div>' + _univFreshnessBadge(a.dataFreshness) + '</div>' +
+        '<div>' + alertsHtml + '</div>' +
+      '</div>';
+    }).join('');
+
+    compLog.innerHTML = hdr + rows;
+  } catch (err) {
+    compLog.innerHTML = '<div style="color:var(--muted);font-size:12px">Compliance data could not be loaded.</div>';
   }
 }
 
