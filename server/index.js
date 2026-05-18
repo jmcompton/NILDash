@@ -86,8 +86,8 @@ app.post('/api/auth/signup', async (req, res) => {
   const { name, email, password, role } = req.body;
   if (!name || !email || !password || !role)
     return res.status(400).json({ error: 'All fields required' });
-  if (role !== 'agent')
-    return res.status(400).json({ error: 'NILDash is for sports agents only' });
+  if (!['agent', 'university'].includes(role))
+    return res.status(400).json({ error: 'Invalid role selected.' });
   if (await store.getUserByEmail(email))
     return res.status(400).json({ error: 'Email already registered' });
   // Check if email is approved

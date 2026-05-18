@@ -598,9 +598,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
       <div class="form-group">
         <label class="form-label">I am a...</label>
-        <div class="role-selector" style="display:none">
+        <div class="role-selector">
           <button class="role-btn active" id="roleAgent" onclick="selectRole('agent')">
-            <span class="role-icon"></span>Sports Agent
+            <span class="role-icon">🏈</span>Sports Agent
+          </button>
+          <button class="role-btn" id="roleUniversity" onclick="selectRole('university')">
+            <span class="role-icon">🎓</span>University Portal
           </button>
         </div>
       </div>
@@ -715,6 +718,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="user-name" id="userName">Loading...</div>
           <div class="user-role" id="userRole">agent</div>
         </div>
+      </div>
+      <!-- Admin view mode switcher — only shown for admin role -->
+      <div id="adminModeSwitcher" style="display:none;margin-bottom:8px">
+        <button id="adminSwitchToUniv" onclick="enterUniversityMode()" style="width:100%;padding:9px 14px;background:rgba(132,204,22,0.07);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);color:var(--accent);font-family:var(--mono);font-size:11px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:8px;transition:all 0.15s">🎓 Switch to University View</button>
+        <button id="adminSwitchToAgent" onclick="enterAgentMode()" style="width:100%;padding:9px 14px;background:rgba(132,204,22,0.07);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);color:var(--accent);font-family:var(--mono);font-size:11px;cursor:pointer;text-align:left;display:none;align-items:center;gap:8px;transition:all 0.15s">🏈 Switch to Agent View</button>
       </div>
       <button onclick="toggleTheme()" id="theme-toggle-btn" style="width:100%;padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;gap:8px;transition:all 0.15s">
         <span id="theme-icon"></span><span id="theme-label">Light Mode</span>
@@ -2361,6 +2369,8 @@ async function switchTab(tab) {
 async function selectRole(role) {
   selectedRole = role;
   document.getElementById('roleAgent').classList.toggle('active', role==='agent');
+  const univBtn = document.getElementById('roleUniversity');
+  if (univBtn) univBtn.classList.toggle('active', role==='university');
   const athleteBtn = document.getElementById('roleAthlete');
   if (athleteBtn) athleteBtn.classList.toggle('active', role==='athlete');
 }
@@ -2423,7 +2433,11 @@ async function bootApp() {
   document.getElementById('userRole').textContent = currentUser.role;
   document.getElementById('userAvatar').textContent = currentUser.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   var _isUnivRole = (currentUser.role === 'university' || currentUser.role === 'university_admin');
-  document.getElementById('sidebarRoleLabel').textContent = currentUser.role === 'agent' ? 'Agent Portal' : _isUnivRole ? 'University Portal' : 'Athlete Portal';
+  var _isAdmin    = (currentUser.role === 'admin');
+  document.getElementById('sidebarRoleLabel').textContent = (_isAdmin || currentUser.role === 'agent') ? 'Agent Portal' : _isUnivRole ? 'University Portal' : 'Athlete Portal';
+  // Show admin mode switcher
+  var adminSwitcher = document.getElementById('adminModeSwitcher');
+  if (adminSwitcher) adminSwitcher.style.display = _isAdmin ? 'block' : 'none';
 
   // Restore saved commission rate
   const savedRate = localStorage.getItem('nilCommissionRate');
@@ -5398,7 +5412,50 @@ function openOutreachModal(athleteId, athleteName) {
 //  UNIVERSITY MODE
 // ══════════════════════════════════════════════════════════════════
 
-var _univData = null;
+var _univData     = null;
+var _univViewMode = false; // true when admin is in university view
+
+// Admin: enter university mode without changing DB role
+function enterUniversityMode() {
+  _univViewMode = true;
+  document.getElementById('sidebarRoleLabel').textContent = 'University Portal';
+  // Swap switcher buttons
+  document.getElementById('adminSwitchToUniv').style.display  = 'none';
+  document.getElementById('adminSwitchToAgent').style.display = 'flex';
+  // Hide all agent nav items + sections
+  document.querySelectorAll('.nav-item:not([id^="univ"])').forEach(function(el){ el.style.display = 'none'; });
+  document.querySelectorAll('.nav-section-label:not(#univNavSection)').forEach(function(el){ el.style.display = 'none'; });
+  // Show university nav
+  ['univNavSection','univOverviewNavBtn','univDevelopmentNavBtn','univComplianceNavBtn'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.style.display = 'block';
+  });
+  // Hide client bar
+  var cb = document.querySelector('.client-bar'); if (cb) cb.style.display = 'none';
+  var acr = document.querySelector('[style*="ACTIVE CLIENT"]'); if (acr) acr.style.display = 'none';
+  showView('university-dashboard', document.getElementById('univOverviewNavBtn'));
+  loadUniversityDashboard();
+}
+
+// Admin: return to full agent mode
+function enterAgentMode() {
+  _univViewMode = false;
+  document.getElementById('sidebarRoleLabel').textContent = 'Agent Portal';
+  // Swap switcher buttons
+  document.getElementById('adminSwitchToUniv').style.display  = 'flex';
+  document.getElementById('adminSwitchToAgent').style.display = 'none';
+  // Hide university nav
+  ['univNavSection','univOverviewNavBtn','univDevelopmentNavBtn','univComplianceNavBtn'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
+  // Restore all agent nav items + sections
+  document.querySelectorAll('.nav-item:not([id^="univ"])').forEach(function(el){ el.style.removeProperty('display'); });
+  document.querySelectorAll('.nav-section-label').forEach(function(el){ el.style.removeProperty('display'); });
+  // Keep addAthleteNavBtn hidden for non-admin (admin can see it)
+  // Restore client bar
+  var cb = document.querySelector('.client-bar'); if (cb) cb.style.removeProperty('display');
+  // Go back to command center
+  showView('command', document.querySelector('.nav-item[onclick*="command"]'));
+}
 
 // NIL Readiness Score — 0 to 100, purely developmental framing
 function calcNilReadiness(athlete, dealsCount) {
