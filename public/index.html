@@ -533,6 +533,113 @@ tbody td{padding:11px 14px;vertical-align:middle}
     flex: 1 !important;
   }
 }
+
+/* ── NIL Director Dashboard component classes ── */
+.univ-tab {
+  padding: 10px 18px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+.univ-tab:hover { color: var(--text); }
+.univ-tab-active {
+  color: var(--text) !important;
+  font-weight: 600 !important;
+  border-bottom-color: var(--accent) !important;
+}
+.nil-kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+}
+.nil-kpi-label {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 6px;
+}
+.nil-kpi-val {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 30px;
+  color: var(--text);
+  letter-spacing: 1px;
+  line-height: 1;
+}
+.nil-th {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.nil-tr {
+  display: grid;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+  transition: background 0.1s;
+}
+.nil-tr:hover { background: rgba(255,255,255,0.02); }
+.nil-tr:last-child { border-bottom: none; }
+.nil-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.nil-action-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.nil-action-card:last-child { border-bottom: none; }
+.nil-form-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 5px;
+}
+.nil-form-input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  box-sizing: border-box;
+}
+.nil-form-select {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+}
 </style>
 </head>
 <body>
@@ -703,8 +810,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" id="univOverviewNavBtn" onclick="switchUnivTab('overview');showView('university-dashboard',this)" style="display:none">
         <span class="nav-dot-item"></span>Program Overview
       </button>
-      <button class="nav-item" id="univDevelopmentNavBtn" onclick="switchUnivTab('development');showView('university-dashboard',this)" style="display:none">
-        <span class="nav-dot-item"></span>Athlete Development
+      <button class="nav-item" id="univDevelopmentNavBtn" onclick="switchUnivTab('athletes');showView('university-dashboard',this)" style="display:none">
+        <span class="nav-dot-item"></span>Athlete CRM
       </button>
       <button class="nav-item" id="univComplianceNavBtn" onclick="switchUnivTab('compliance');showView('university-dashboard',this)" style="display:none">
         <span class="nav-dot-item"></span>Compliance Activity
@@ -1124,125 +1231,378 @@ tbody td{padding:11px 14px;vertical-align:middle}
            ══════════════════════════════════════════════════════ -->
       <div id="view-university-dashboard" class="view">
 
-        <!-- University header — name, conference, sport count -->
-        <div id="univ-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
+        <!-- ── University header ─────────────────────────────────────── -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
           <div>
-            <div id="univ-header-name" style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--text);letter-spacing:1px;line-height:1">University Program</div>
+            <div id="univ-header-name" style="font-family:'Bebas Neue',sans-serif;font-size:24px;color:var(--text);letter-spacing:1px;line-height:1">NIL Director Dashboard</div>
             <div id="univ-header-meta" style="font-size:11px;color:var(--muted);margin-top:3px"></div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
-            <button onclick="loadUniversityDashboard()" style="padding:6px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif">&#8635; Refresh</button>
-            <button onclick="switchUnivTab('import')" style="padding:6px 14px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">+ Import Athletes</button>
+            <div id="univ-alert-badge" style="display:none;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);border-radius:var(--r-sm);padding:5px 10px;font-size:11px;font-weight:700;color:#ef4444;cursor:pointer" onclick="switchUnivTab('compliance')">⚠ <span id="univ-alert-count">0</span> alerts</div>
+            <button onclick="_nilDirRefresh()" style="padding:6px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Refresh</button>
+            <button onclick="_nilDirOpenAddDeal()" style="padding:6px 14px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">+ Log Deal</button>
           </div>
         </div>
 
-        <!-- Tab bar -->
-        <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px">
-          <button id="univTab-overview"     onclick="switchUnivTab('overview')"     style="padding:10px 20px;border:none;background:none;color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-1px;letter-spacing:0.02em">Program Overview</button>
-          <button id="univTab-development"  onclick="switchUnivTab('development')"  style="padding:10px 20px;border:none;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:0.02em">Athlete Development</button>
-          <button id="univTab-compliance"   onclick="switchUnivTab('compliance')"   style="padding:10px 20px;border:none;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:0.02em">Compliance Activity</button>
-          <button id="univTab-import"       onclick="switchUnivTab('import')"       style="padding:10px 20px;border:none;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:0.02em">Bulk Import</button>
-          <button id="univTab-intelligence" onclick="switchUnivTab('intelligence')"  style="padding:10px 20px;border:none;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:0.02em">🤖 Auto-Import</button>
+        <!-- ── Tab bar ───────────────────────────────────────────────── -->
+        <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px;overflow-x:auto">
+          <button id="univTab-overview"     onclick="switchUnivTab('overview')"     class="univ-tab univ-tab-active">📊 Overview</button>
+          <button id="univTab-athletes"     onclick="switchUnivTab('athletes')"     class="univ-tab">👥 Athletes</button>
+          <button id="univTab-deals"        onclick="switchUnivTab('deals')"        class="univ-tab">💼 Deals</button>
+          <button id="univTab-compliance"   onclick="switchUnivTab('compliance')"   class="univ-tab">⚠ Compliance</button>
+          <button id="univTab-insights"     onclick="switchUnivTab('insights')"     class="univ-tab">🤖 AI Engine</button>
+          <button id="univTab-activity"     onclick="switchUnivTab('activity')"     class="univ-tab">📝 Activity</button>
+          <button id="univTab-import"       onclick="switchUnivTab('import')"       class="univ-tab">⬆ Import</button>
         </div>
 
-        <!-- ── TAB: Program Overview ── -->
+        <!-- ══════════════════════════════════════════════════════════
+             TAB 1: Overview — KPIs + Daily Actions + Top Earners
+        ═══════════════════════════════════════════════════════════ -->
         <div id="univPanel-overview">
 
-          <!-- KPI row -->
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px" id="univ-kpi-row">
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
-              <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Athletes</div>
-              <div id="univ-kpi-athletes" style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--accent);letter-spacing:1px">—</div>
-            </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
-              <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Avg Engagement</div>
-              <div id="univ-kpi-eng" style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--accent);letter-spacing:1px">—</div>
-            </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
-              <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">NIL Active</div>
-              <div id="univ-kpi-active" style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--accent);letter-spacing:1px">—</div>
-            </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
-              <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Sports</div>
-              <div id="univ-kpi-sports" style="font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--accent);letter-spacing:1px">—</div>
-            </div>
+          <!-- KPI row: 6 metrics -->
+          <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:20px">
+            <div class="nil-kpi-card"><div class="nil-kpi-label">Athletes</div><div id="nd-kpi-athletes" class="nil-kpi-val">—</div></div>
+            <div class="nil-kpi-card"><div class="nil-kpi-label">Active Deals</div><div id="nd-kpi-active-deals" class="nil-kpi-val" style="color:var(--accent)">—</div></div>
+            <div class="nil-kpi-card"><div class="nil-kpi-label">Program Value</div><div id="nd-kpi-value" class="nil-kpi-val" style="color:var(--accent)">—</div></div>
+            <div class="nil-kpi-card"><div class="nil-kpi-label">Pending Deals</div><div id="nd-kpi-pending" class="nil-kpi-val" style="color:#f59e0b">—</div></div>
+            <div class="nil-kpi-card"><div class="nil-kpi-label">Expiring Soon</div><div id="nd-kpi-expiring" class="nil-kpi-val" style="color:#ef4444">—</div></div>
+            <div class="nil-kpi-card"><div class="nil-kpi-label">Disclosures Due</div><div id="nd-kpi-disclosure" class="nil-kpi-val" style="color:#ef4444">—</div></div>
           </div>
 
-          <!-- Program health + data reliability + sync status -->
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
-              <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Program Health</div>
-              <div id="univ-program-health"><div style="color:var(--muted);font-size:12px">Loading...</div></div>
-            </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
-              <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Data Reliability</div>
-              <div id="univ-data-reliability"><div style="color:var(--muted);font-size:12px">Loading...</div></div>
-              <div id="univ-generated-at" style="font-size:10px;color:var(--muted);margin-top:8px"></div>
-            </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-                <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">Roster Sync</div>
-                <button onclick="_univTriggerSync()" title="Run roster reconciliation" style="padding:3px 8px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:4px;color:var(--accent);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Sync</button>
-              </div>
-              <div id="univ-sync-status"><div style="color:var(--muted);font-size:12px">Loading...</div></div>
-            </div>
-          </div>
+          <!-- Daily Actions + Top Earners (2-col) -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
 
-          <!-- Roster state breakdown -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:16px">
-            <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px">Roster State Distribution</div>
-            <div id="univ-roster-state-breakdown"><div style="color:var(--muted);font-size:12px">Run a sync to see state distribution.</div></div>
-          </div>
-
-          <!-- Readiness distribution + sport breakdown -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
-
+            <!-- Daily Actions Panel -->
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">NIL Readiness Distribution</div>
-              <div id="univ-readiness-dist"></div>
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Today's Actions</div>
+                <button onclick="_nilDirLoadActions()" style="padding:3px 8px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻</button>
+              </div>
+              <div id="nd-daily-actions"><div style="color:var(--muted);font-size:11px">Loading actions...</div></div>
             </div>
 
+            <!-- Top Earners + Under-Monetized -->
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">Top Earners</div>
+              <div id="nd-top-earners"><div style="color:var(--muted);font-size:11px">Loading...</div></div>
+              <div style="border-top:1px solid var(--border);margin:14px 0"></div>
+              <div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Under-Monetized (High Reach, No Deals)</div>
+              <div id="nd-under-monetized"><div style="color:var(--muted);font-size:11px">Loading...</div></div>
+            </div>
+
+          </div>
+
+          <!-- Deal pipeline mini-chart + sport breakdown -->
+          <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">Deal Pipeline Status</div>
+              <div id="nd-pipeline-summary"><div style="color:var(--muted);font-size:11px">Loading...</div></div>
+            </div>
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
               <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">Athletes by Sport</div>
-              <div id="univ-sport-breakdown"></div>
+              <div id="nd-sport-breakdown"><div style="color:var(--muted);font-size:11px">Loading...</div></div>
             </div>
-
-          </div>
-
-          <!-- Sport filter pills + roster -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Athlete Roster</div>
-              <div id="univ-sport-pills" style="display:flex;gap:6px;flex-wrap:wrap"></div>
-            </div>
-            <div id="univ-roster-list"></div>
           </div>
 
         </div><!-- /univPanel-overview -->
 
-        <!-- ── TAB: Athlete Development ── -->
-        <div id="univPanel-development" style="display:none">
-          <!-- Sport filter for development tab -->
-          <div id="univ-dev-sport-pills" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px"></div>
-          <div id="univ-dev-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px"></div>
-        </div>
+        <!-- ══════════════════════════════════════════════════════════
+             TAB 2: Athletes CRM
+        ═══════════════════════════════════════════════════════════ -->
+        <div id="univPanel-athletes" style="display:none">
 
-        <!-- ── TAB: Compliance Activity ── -->
-        <div id="univPanel-compliance" style="display:none">
+          <!-- Search + filters -->
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+            <input id="nd-athlete-search" type="text" placeholder="Search by name or sport…"
+              oninput="_nilDirAthleteSearch()"
+              style="flex:1;min-width:180px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none">
+            <select id="nd-athlete-status-filter" onchange="_nilDirAthleteSearch()"
+              style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none">
+              <option value="">All Statuses</option>
+              <option value="active">Active NIL</option>
+              <option value="idle">Idle</option>
+              <option value="no_deals">No Deals</option>
+              <option value="flagged">Flagged</option>
+            </select>
+            <select id="nd-athlete-sport-filter" onchange="_nilDirAthleteSearch()"
+              style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none">
+              <option value="">All Sports</option>
+            </select>
+            <div id="nd-crm-count" style="font-size:11px;color:var(--muted);white-space:nowrap"></div>
+          </div>
 
-          <div style="background:var(--surface);border:1px solid rgba(0,212,255,0.18);border-radius:var(--r);padding:18px;margin-bottom:20px">
-            <div style="font-size:10px;font-weight:700;color:var(--electric);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Compliance Reference</div>
-            <div style="font-size:12px;color:var(--muted);line-height:1.7">
-              Athletes engaging in NIL activity must comply with NCAA guidelines, state law, and school-specific policies. All agreements should include FTC disclosure language. Agents must notify the institution within 72 hours of any signed agreement (SPARTA). This dashboard tracks reported activity only — it is not a substitute for institutional compliance review.
+          <!-- CRM table -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
+            <div style="display:grid;grid-template-columns:2fr 100px 90px 100px 120px 100px 90px;gap:0;padding:10px 16px;border-bottom:1px solid var(--border)">
+              <div class="nil-th">Athlete</div><div class="nil-th">NIL Status</div><div class="nil-th">Deals</div>
+              <div class="nil-th">Value</div><div class="nil-th">Contact</div><div class="nil-th">Reach</div><div class="nil-th">Flags</div>
+            </div>
+            <div id="nd-crm-list"><div style="padding:24px;text-align:center;color:var(--muted);font-size:12px">Loading athlete CRM...</div></div>
+          </div>
+
+        </div><!-- /univPanel-athletes -->
+
+        <!-- ══════════════════════════════════════════════════════════
+             TAB 3: Deal Pipeline
+        ═══════════════════════════════════════════════════════════ -->
+        <div id="univPanel-deals" style="display:none">
+
+          <!-- Filters + Add Deal -->
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+            <input id="nd-deal-search" type="text" placeholder="Search brand or athlete…"
+              oninput="_nilDirDealSearch()"
+              style="flex:1;min-width:180px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none">
+            <select id="nd-deal-status-filter" onchange="_nilDirDealSearch()"
+              style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none">
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="pending">Pending</option>
+              <option value="expiring">Expiring</option>
+              <option value="completed">Completed</option>
+              <option value="rejected">Rejected</option>
+            </select>
+            <button onclick="_nilDirOpenAddDeal()" style="padding:8px 16px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap">+ Log Deal</button>
+          </div>
+
+          <!-- Deal table -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
+            <div style="display:grid;grid-template-columns:1.4fr 1.2fr 90px 80px 90px 100px 80px 70px;gap:0;padding:10px 16px;border-bottom:1px solid var(--border)">
+              <div class="nil-th">Athlete</div><div class="nil-th">Brand</div><div class="nil-th">Value</div>
+              <div class="nil-th">Type</div><div class="nil-th">Status</div><div class="nil-th">Dates</div>
+              <div class="nil-th">Disclosure</div><div class="nil-th">Actions</div>
+            </div>
+            <div id="nd-deal-list"><div style="padding:24px;text-align:center;color:var(--muted);font-size:12px">Loading deals...</div></div>
+          </div>
+
+          <!-- Add Deal modal (inline) -->
+          <div id="nd-add-deal-form" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-top:16px">
+            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:16px">Log New NIL Deal</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+              <div>
+                <div class="nil-form-label">Athlete *</div>
+                <select id="nd-form-athlete" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none">
+                  <option value="">— Select athlete —</option>
+                </select>
+              </div>
+              <div>
+                <div class="nil-form-label">Brand *</div>
+                <input id="nd-form-brand" type="text" placeholder="e.g. Nike, Red Bull" class="nil-form-input">
+              </div>
+              <div>
+                <div class="nil-form-label">Deal Value ($)</div>
+                <input id="nd-form-value" type="number" placeholder="e.g. 2500" class="nil-form-input">
+              </div>
+              <div>
+                <div class="nil-form-label">Deal Type</div>
+                <select id="nd-form-type" class="nil-form-select">
+                  <option value="social">Social Media</option>
+                  <option value="appearance">Appearance</option>
+                  <option value="licensing">Licensing</option>
+                  <option value="ambassador">Ambassador</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <div class="nil-form-label">Status</div>
+                <select id="nd-form-status" class="nil-form-select">
+                  <option value="pending">Pending</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <div>
+                <div class="nil-form-label">Disclosure</div>
+                <select id="nd-form-disclosure" class="nil-form-select">
+                  <option value="pending">Pending</option>
+                  <option value="submitted">Submitted</option>
+                  <option value="approved">Approved</option>
+                  <option value="missing">Missing</option>
+                </select>
+              </div>
+              <div>
+                <div class="nil-form-label">Start Date</div>
+                <input id="nd-form-start" type="date" class="nil-form-input">
+              </div>
+              <div>
+                <div class="nil-form-label">End Date</div>
+                <input id="nd-form-end" type="date" class="nil-form-input">
+              </div>
+            </div>
+            <div style="margin-bottom:12px">
+              <div class="nil-form-label">Notes</div>
+              <textarea id="nd-form-notes" placeholder="Optional notes…" style="width:100%;height:60px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 10px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;resize:vertical;box-sizing:border-box"></textarea>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button onclick="_nilDirSaveDeal()" style="flex:1;padding:9px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Save Deal</button>
+              <button onclick="document.getElementById('nd-add-deal-form').style.display='none'" style="padding:9px 16px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Cancel</button>
             </div>
           </div>
 
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">Reported NIL Activity Log</div>
-            <div id="univ-compliance-log"></div>
+        </div><!-- /univPanel-deals -->
+
+        <!-- ══════════════════════════════════════════════════════════
+             TAB 4: Compliance
+        ═══════════════════════════════════════════════════════════ -->
+        <div id="univPanel-compliance" style="display:none">
+
+          <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:var(--r);padding:14px 18px;margin-bottom:16px;font-size:12px;color:var(--muted);line-height:1.7">
+            Track missing disclosures, expiring deals, and at-risk athletes. All items require manual review. This dashboard reflects data from your university's NIL deal pipeline only.
           </div>
 
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Compliance Alerts</div>
+            <button onclick="_nilDirLoadCompliance()" style="padding:4px 10px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Refresh</button>
+          </div>
+          <div id="nd-compliance-alerts"><div style="color:var(--muted);font-size:12px">Loading...</div></div>
+
         </div><!-- /univPanel-compliance -->
+
+        <!-- ══════════════════════════════════════════════════════════
+             TAB 5: AI Engine — Opportunity Insights
+        ═══════════════════════════════════════════════════════════ -->
+        <div id="univPanel-insights" style="display:none">
+
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
+              AI-generated insights based on your program's real CRM data — not external assumptions. Identifies under-monetized athletes, high-potential targets, and program-level opportunities.
+            </div>
+            <button onclick="_nilDirLoadInsights()" id="nd-insights-btn" style="padding:9px 22px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">🤖 Generate Insights</button>
+          </div>
+          <div id="nd-insights-content"></div>
+
+        </div><!-- /univPanel-insights -->
+
+        <!-- ══════════════════════════════════════════════════════════
+             TAB 6: Activity Log
+        ═══════════════════════════════════════════════════════════ -->
+        <div id="univPanel-activity" style="display:none">
+
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Staff Activity Log</div>
+            <button onclick="_nilDirLoadActivity()" style="padding:4px 10px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Refresh</button>
+          </div>
+          <div id="nd-activity-feed"><div style="color:var(--muted);font-size:12px">Loading activity...</div></div>
+
+        </div><!-- /univPanel-activity -->
+
+        <!-- ══════════════════════════════════════════════════════════
+             TAB 7: Import (Bulk + Auto-Import combined)
+        ═══════════════════════════════════════════════════════════ -->
+        <div id="univPanel-import" style="display:none">
+
+          <!-- Sub-tabs -->
+          <div style="display:flex;gap:8px;margin-bottom:20px">
+            <button id="importSubTab-bulk" onclick="_importSubTab('bulk')" style="padding:7px 16px;background:rgba(132,204,22,0.12);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">📋 Bulk Import</button>
+            <button id="importSubTab-auto" onclick="_importSubTab('auto')" style="padding:7px 16px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">🤖 Auto-Import</button>
+          </div>
+
+          <!-- Bulk Import sub-panel -->
+          <div id="importSubPanel-bulk">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">How to Import</div>
+                <ol style="font-size:12px;color:var(--muted);line-height:1.8;padding-left:16px;margin:0 0 16px 0">
+                  <li>Download the CSV template below</li>
+                  <li>Fill in one athlete per row</li>
+                  <li>Required: <code style="background:var(--surface2);padding:1px 4px;border-radius:3px;font-size:11px">name, sport, school</code></li>
+                  <li>Paste or upload — duplicates auto-skipped</li>
+                </ol>
+                <a href="/api/university/import-template" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;text-decoration:none">↓ Download CSV Template</a>
+              </div>
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                  <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Paste Data or Upload</div>
+                  <div style="display:flex;gap:4px">
+                    <button id="univImportFmtCsv" onclick="_univImportSetFmt('csv')" style="padding:4px 10px;border-radius:var(--r-sm);border:1px solid var(--accent);background:rgba(132,204,22,0.12);color:var(--accent);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--mono)">CSV</button>
+                    <button id="univImportFmtJson" onclick="_univImportSetFmt('json')" style="padding:4px 10px;border-radius:var(--r-sm);border:1px solid var(--border);background:none;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--mono)">JSON</button>
+                  </div>
+                </div>
+                <textarea id="univ-import-textarea" placeholder="name,sport,school,position,instagram,tiktok,engagement,stats,notes&#10;Jane Smith,Basketball,Samford University,Point Guard,8500,12000,6.2,..." style="width:100%;height:120px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px;color:var(--text);font-family:var(--mono);font-size:11px;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
+                  <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);cursor:pointer;font-size:11px;color:var(--muted)">
+                    ↑ Upload file
+                    <input type="file" id="univ-import-file" accept=".csv,.json,.txt" style="display:none" onchange="_univImportFileRead(this)">
+                  </label>
+                  <button onclick="_univRunImport()" style="flex:1;padding:8px 0;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Import Athletes</button>
+                </div>
+              </div>
+            </div>
+            <div id="univ-import-result" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px"></div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Ingestion Pipeline</div>
+                <div style="display:flex;gap:8px">
+                  <button onclick="_univLoadIngestionEvents()" style="padding:4px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Refresh</button>
+                  <button onclick="_univProcessQueue()" style="padding:4px 12px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);color:var(--accent);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">Process Queue</button>
+                </div>
+              </div>
+              <div id="univ-queue-status" style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap"></div>
+              <div id="univ-ingestion-events"><div style="color:var(--muted);font-size:11px">Click Refresh to load ingestion history.</div></div>
+            </div>
+          </div>
+
+          <!-- Auto-Import sub-panel -->
+          <div id="importSubPanel-auto" style="display:none">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">AI-Powered Roster Discovery</div>
+              <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Searches official athletics websites and ESPN. Claude AI extracts athlete data. High-confidence results auto-import; others go to the review queue.</div>
+              <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+                <div>
+                  <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Sport</div>
+                  <select id="intel-sport-select" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;min-width:180px;outline:none">
+                    <option value="">— Select sport —</option>
+                    <option value="football">Football</option>
+                    <option value="basketball">Men's Basketball</option>
+                    <option value="women's basketball">Women's Basketball</option>
+                    <option value="baseball">Baseball</option>
+                    <option value="softball">Softball</option>
+                    <option value="soccer">Soccer</option>
+                    <option value="volleyball">Volleyball</option>
+                    <option value="track & field">Track &amp; Field</option>
+                    <option value="golf">Golf</option>
+                    <option value="tennis">Tennis</option>
+                    <option value="lacrosse">Lacrosse</option>
+                    <option value="wrestling">Wrestling</option>
+                  </select>
+                </div>
+                <button onclick="_intelStartDiscovery()" id="intel-start-btn" style="padding:9px 22px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">🔍 Find Roster</button>
+                <button onclick="_intelLoadReviewQueue()" style="padding:9px 16px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">📋 Review Queue <span id="intel-queue-badge" style="display:none;background:var(--accent);color:#0a0e1a;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px">0</span></button>
+              </div>
+            </div>
+            <div id="intel-progress-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Discovery Job</div>
+                <div id="intel-job-status-badge" style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:9px;background:rgba(132,204,22,0.12);color:var(--accent)">queued</div>
+              </div>
+              <div id="intel-progress-message" style="font-size:13px;color:var(--text);margin-bottom:16px;min-height:20px"></div>
+              <div style="background:var(--surface2);border-radius:4px;height:4px;margin-bottom:16px;overflow:hidden"><div id="intel-progress-bar" style="height:100%;background:var(--accent);width:0%;transition:width 0.5s ease;border-radius:4px"></div></div>
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+                <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center"><div id="intel-cnt-found" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--text)">—</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Found</div></div>
+                <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center"><div id="intel-cnt-imported" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--accent)">—</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Auto-Imported</div></div>
+                <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center"><div id="intel-cnt-queued" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:#f59e0b">—</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Review Queue</div></div>
+                <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center"><div id="intel-cnt-skipped" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--muted)">—</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Skipped</div></div>
+              </div>
+              <div id="intel-sources-list" style="font-size:11px;color:var(--muted)"></div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Recent Discovery Jobs</div>
+                <button onclick="_intelLoadJobs()" style="padding:4px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻</button>
+              </div>
+              <div id="intel-jobs-list"><div style="color:var(--muted);font-size:11px">No discovery jobs yet.</div></div>
+            </div>
+            <div id="intel-review-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px">Review Queue</div><div style="font-size:11px;color:var(--muted)">Confidence 70–94. Approve or reject each athlete.</div></div>
+                <button onclick="document.getElementById('intel-review-panel').style.display='none'" style="padding:4px 10px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">✕</button>
+              </div>
+              <div id="intel-review-list"><div style="color:var(--muted);font-size:11px;text-align:center;padding:24px">Loading...</div></div>
+            </div>
+          </div>
+
+        </div><!-- /univPanel-import -->
 
         <!-- ── TAB: Bulk Import ── -->
         <div id="univPanel-import" style="display:none">
@@ -1309,104 +1669,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
         </div><!-- /univPanel-import -->
 
-        <!-- ── TAB: Auto-Import (Roster Intelligence) ── -->
-        <div id="univPanel-intelligence" style="display:none">
-
-          <!-- Launch section -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Discover &amp; Import Roster</div>
-            <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
-              Searches official athletics websites, conference pages, and ESPN for current roster data.
-              Claude AI extracts athlete information from each page. High-confidence results are imported automatically;
-              uncertain results go to the Review Queue for your approval.
-            </div>
-            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-              <div>
-                <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Sport</div>
-                <select id="intel-sport-select" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;min-width:200px;outline:none">
-                  <option value="">— Select sport —</option>
-                  <option value="football">Football</option>
-                  <option value="basketball">Basketball (Men's)</option>
-                  <option value="women's basketball">Basketball (Women's)</option>
-                  <option value="baseball">Baseball</option>
-                  <option value="softball">Softball</option>
-                  <option value="soccer">Soccer (Women's)</option>
-                  <option value="men's soccer">Soccer (Men's)</option>
-                  <option value="volleyball">Volleyball</option>
-                  <option value="track & field">Track &amp; Field</option>
-                  <option value="cross country">Cross Country</option>
-                  <option value="swimming & diving">Swimming &amp; Diving</option>
-                  <option value="golf">Golf</option>
-                  <option value="tennis">Tennis</option>
-                  <option value="lacrosse">Lacrosse</option>
-                  <option value="wrestling">Wrestling</option>
-                </select>
-              </div>
-              <button onclick="_intelStartDiscovery()" id="intel-start-btn" style="padding:9px 22px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">
-                🔍 Find Roster
-              </button>
-              <button onclick="_intelLoadReviewQueue()" style="padding:9px 16px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">
-                📋 Review Queue <span id="intel-queue-badge" style="display:none;background:var(--accent);color:#0a0e1a;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px">0</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Progress panel (shown when job is running) -->
-          <div id="intel-progress-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Discovery Job</div>
-              <div id="intel-job-status-badge" style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:9px;background:rgba(132,204,22,0.12);color:var(--accent)">queued</div>
-            </div>
-            <div id="intel-progress-message" style="font-size:13px;color:var(--text);margin-bottom:16px;min-height:20px"></div>
-            <!-- Animated progress bar -->
-            <div style="background:var(--surface2);border-radius:4px;height:4px;margin-bottom:16px;overflow:hidden">
-              <div id="intel-progress-bar" style="height:100%;background:var(--accent);width:0%;transition:width 0.5s ease;border-radius:4px"></div>
-            </div>
-            <!-- Counters -->
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
-              <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center">
-                <div id="intel-cnt-found" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--text)">—</div>
-                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Found</div>
-              </div>
-              <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center">
-                <div id="intel-cnt-imported" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--accent)">—</div>
-                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Auto-Imported</div>
-              </div>
-              <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center">
-                <div id="intel-cnt-queued" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:#f59e0b">—</div>
-                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Review Queue</div>
-              </div>
-              <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center">
-                <div id="intel-cnt-skipped" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--muted)">—</div>
-                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Skipped</div>
-              </div>
-            </div>
-            <!-- Source list -->
-            <div id="intel-sources-list" style="font-size:11px;color:var(--muted)"></div>
-          </div>
-
-          <!-- Recent jobs list -->
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Recent Discovery Jobs</div>
-              <button onclick="_intelLoadJobs()" style="padding:4px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻</button>
-            </div>
-            <div id="intel-jobs-list"><div style="color:var(--muted);font-size:11px">No discovery jobs yet. Select a sport above and click Find Roster.</div></div>
-          </div>
-
-          <!-- Review Queue panel -->
-          <div id="intel-review-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-              <div>
-                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px">Review Queue</div>
-                <div style="font-size:11px;color:var(--muted)">Athletes with confidence 70–94. Review and approve or reject each one.</div>
-              </div>
-              <button onclick="document.getElementById('intel-review-panel').style.display='none'" style="padding:4px 10px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Close</button>
-            </div>
-            <div id="intel-review-list"><div style="color:var(--muted);font-size:11px;text-align:center;padding:24px">Loading...</div></div>
-          </div>
-
-        </div><!-- /univPanel-intelligence -->
 
       </div><!-- /view-university-dashboard -->
 
@@ -5752,30 +6014,32 @@ function getDevelopmentRecs(athlete, readiness) {
   return recs.slice(0, 4);
 }
 
-// Tab switcher
+// Tab switcher — NIL Director Dashboard
 function switchUnivTab(tab) {
-  var tabs   = ['overview','development','compliance','import','intelligence'];
+  var tabs   = ['overview','athletes','deals','compliance','insights','activity','import'];
   var panels = {
-    overview:     'univPanel-overview',
-    development:  'univPanel-development',
-    compliance:   'univPanel-compliance',
-    import:       'univPanel-import',
-    intelligence: 'univPanel-intelligence',
+    overview:   'univPanel-overview',
+    athletes:   'univPanel-athletes',
+    deals:      'univPanel-deals',
+    compliance: 'univPanel-compliance',
+    insights:   'univPanel-insights',
+    activity:   'univPanel-activity',
+    import:     'univPanel-import',
   };
   tabs.forEach(function(t) {
     var btn   = document.getElementById('univTab-' + t);
     var panel = document.getElementById(panels[t]);
     var isActive = (t === tab);
     if (btn) {
-      btn.style.color             = isActive ? 'var(--text)'  : 'var(--muted)';
-      btn.style.fontWeight        = isActive ? '600'           : '500';
-      btn.style.borderBottomColor = isActive ? 'var(--accent)' : 'transparent';
+      btn.className = 'univ-tab' + (isActive ? ' univ-tab-active' : '');
     }
     if (panel) panel.style.display = isActive ? 'block' : 'none';
   });
-  // Lazy loads
-  if (tab === 'compliance')   _loadUniversityComplianceTab();
-  if (tab === 'intelligence') _intelLoadJobs();
+  // Lazy loads per tab
+  if (tab === 'athletes')   _nilDirLoadAthletes();
+  if (tab === 'deals')      _nilDirLoadDeals();
+  if (tab === 'compliance') _nilDirLoadCompliance();
+  if (tab === 'activity')   _nilDirLoadActivity();
 }
 
 // Format reach without $ signs, no monetary context
@@ -6038,10 +6302,18 @@ async function loadUniversityDashboard() {
       tsEl.textContent = 'Data as of ' + new Date(data.generatedAt).toLocaleString();
     }
 
+    // ── NIL Director Dashboard panels ────────────────────────────
+    // Load overview metrics and daily actions whenever the dashboard boots
+    if (typeof _nilDirLoadOverview === 'function') _nilDirLoadOverview();
+    if (typeof _nilDirLoadActions  === 'function') _nilDirLoadActions();
+
   } catch (err) {
     console.error('[university] Load error:', err.message);
     var errTarget = document.getElementById('univ-roster-list');
     if (errTarget) errTarget.innerHTML = '<div style="color:var(--red);font-size:12px">Could not load program data. Try refreshing.</div>';
+    // Still try to boot NIL Director panels independently
+    if (typeof _nilDirLoadOverview === 'function') _nilDirLoadOverview();
+    if (typeof _nilDirLoadActions  === 'function') _nilDirLoadActions();
   }
 }
 
@@ -6738,6 +7010,724 @@ async function _intelReject(reviewId, btn) {
     if (btn) { btn.disabled = false; btn.textContent = '✕ Reject'; }
     alert('Error: ' + err.message);
   }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// NIL DIRECTOR DASHBOARD JS
+// ════════════════════════════════════════════════════════════════════════
+
+var _nilDirMetrics  = null;
+var _nilDirAthletes = null;
+var _nilDirDeals    = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function _fmtMoney(n) {
+  var v = parseInt(n) || 0;
+  if (v >= 1000000) return '$' + (v/1000000).toFixed(1) + 'M';
+  if (v >= 1000)    return '$' + Math.round(v/1000) + 'K';
+  return '$' + v.toLocaleString();
+}
+function _fmtReach(n) {
+  var v = parseInt(n) || 0;
+  if (v >= 1000000) return (v/1000000).toFixed(1) + 'M';
+  if (v >= 1000)    return Math.round(v/1000) + 'K';
+  return v > 0 ? String(v) : '—';
+}
+function _fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+}
+function _timeAgo(d) {
+  if (!d) return 'never';
+  var diff = Date.now() - new Date(d).getTime();
+  var days = Math.floor(diff / 86400000);
+  if (days === 0) return 'today';
+  if (days === 1) return '1d ago';
+  if (days < 30)  return days + 'd ago';
+  if (days < 365) return Math.round(days/30) + 'mo ago';
+  return Math.round(days/365) + 'yr ago';
+}
+
+function _nilStatusBadge(status) {
+  var map = {
+    active:   ['var(--accent)', 'rgba(132,204,22,0.12)', 'Active'],
+    idle:     ['#f59e0b',       'rgba(245,158,11,0.12)', 'Idle'],
+    no_deals: ['var(--muted)',  'rgba(255,255,255,0.05)', 'No Deals'],
+  };
+  var s = map[status] || map['no_deals'];
+  return '<span class="nil-status-badge" style="color:' + s[0] + ';background:' + s[1] + '">' + s[2] + '</span>';
+}
+function _dealStatusBadge(status) {
+  var map = {
+    active:    ['var(--accent)', 'rgba(132,204,22,0.12)'],
+    pending:   ['#f59e0b',       'rgba(245,158,11,0.12)'],
+    expiring:  ['#ef4444',       'rgba(239,68,68,0.12)'],
+    completed: ['var(--muted)',  'rgba(255,255,255,0.06)'],
+    rejected:  ['#ef4444',       'rgba(239,68,68,0.08)'],
+  };
+  var s = map[status] || ['var(--muted)', 'rgba(255,255,255,0.05)'];
+  return '<span class="nil-status-badge" style="color:' + s[0] + ';background:' + s[1] + '">' + status + '</span>';
+}
+function _disclosureBadge(d) {
+  var map = {
+    approved:  ['var(--accent)', '✓ Filed'],
+    submitted: ['#00D4FF',       '→ Submitted'],
+    pending:   ['#f59e0b',       '⏳ Pending'],
+    missing:   ['#ef4444',       '⚠ Missing'],
+  };
+  var s = map[d] || ['var(--muted)', d || '—'];
+  return '<span style="font-size:10px;color:' + s[0] + ';font-weight:600">' + s[1] + '</span>';
+}
+function _contactStatusBadge(s) {
+  var map = {
+    active:        ['var(--accent)', 'Active'],
+    in_progress:   ['#00D4FF',       'In Progress'],
+    contacted:     ['#f59e0b',       'Contacted'],
+    not_contacted: ['var(--muted)',  'Not Contacted'],
+  };
+  var b = map[s] || map['not_contacted'];
+  return '<span style="font-size:10px;color:' + b[0] + ';font-weight:600">' + b[1] + '</span>';
+}
+function _actionTypeIcon(type) {
+  return {follow_up:'📞', deal_review:'💼', compliance:'⚠️', renewal:'🔄', outreach:'📧', approval:'✅'}[type] || '•';
+}
+function _priorityColor(p) {
+  if (p >= 8) return '#ef4444';
+  if (p >= 6) return '#f59e0b';
+  return 'var(--muted)';
+}
+
+// ── Main refresh ──────────────────────────────────────────────────────────
+async function _nilDirRefresh() {
+  await _nilDirLoadOverview();
+}
+
+async function _nilDirLoadOverview() {
+  try {
+    var r    = await fetch(API_BASE + '/api/university/nil-dashboard', { credentials: 'include' });
+    var data = await r.json();
+    _nilDirMetrics = data;
+    _nilDirRenderOverview(data);
+  } catch (err) {
+    console.error('[NILDir] overview load failed:', err.message);
+  }
+}
+
+function _nilDirRenderOverview(d) {
+  var deals = d.deals || {};
+  var ath   = d.athletes || {};
+
+  // KPIs
+  var set = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
+  set('nd-kpi-athletes',    ath.total || '0');
+  set('nd-kpi-active-deals', deals.active || '0');
+  set('nd-kpi-value',       _fmtMoney(deals.totalValue));
+  set('nd-kpi-pending',     deals.pending || '0');
+  set('nd-kpi-expiring',    deals.expiringSoon || '0');
+  set('nd-kpi-disclosure',  (deals.disclosurePending || 0) + (deals.disclosureMissing || 0) || '0');
+
+  // Alert badge
+  var alertCount = (deals.disclosureMissing || 0) + (deals.expiringSoon || 0);
+  var alertBadge = document.getElementById('univ-alert-badge');
+  var alertCnt   = document.getElementById('univ-alert-count');
+  if (alertBadge) alertBadge.style.display = alertCount > 0 ? 'block' : 'none';
+  if (alertCnt)   alertCnt.textContent = alertCount;
+
+  // Top Earners
+  var earnEl = document.getElementById('nd-top-earners');
+  if (earnEl) {
+    var earners = d.topEarners || [];
+    earnEl.innerHTML = earners.length ? earners.map(function(a, i) {
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;' + (i < earners.length-1 ? 'border-bottom:1px solid var(--border);' : '') + '">' +
+        '<div>' +
+          '<div style="font-size:12px;font-weight:600;color:var(--text)">' + (a.name || '—') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + (a.sport || '') + ' · ' + a.deal_count + ' deal' + (a.deal_count != 1 ? 's' : '') + '</div>' +
+        '</div>' +
+        '<div style="font-size:14px;font-weight:700;color:var(--accent);font-family:var(--mono)">' + _fmtMoney(a.total_value) + '</div>' +
+      '</div>';
+    }).join('') : '<div style="color:var(--muted);font-size:11px;padding:12px 0;text-align:center">No deals logged yet. <span style="color:var(--accent);cursor:pointer" onclick="switchUnivTab(\'deals\')">Log your first deal →</span></div>';
+  }
+
+  // Under-Monetized
+  var unEl = document.getElementById('nd-under-monetized');
+  if (unEl) {
+    var un = d.underMonetized || [];
+    unEl.innerHTML = un.length ? un.map(function(a) {
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0">' +
+        '<div><span style="font-size:12px;color:var(--text);font-weight:600">' + (a.name || '—') + '</span> <span style="font-size:11px;color:var(--muted)">· ' + (a.sport || '') + '</span></div>' +
+        '<span style="font-size:10px;color:var(--muted)">' + _fmtReach(a.reach) + ' reach</span>' +
+      '</div>';
+    }).join('') : '<div style="color:var(--muted);font-size:11px">All athletes with significant reach have active deals. ✓</div>';
+  }
+
+  // Pipeline summary
+  var pipeEl = document.getElementById('nd-pipeline-summary');
+  if (pipeEl) {
+    var statusMap = [
+      ['Active',    deals.active,    'var(--accent)'],
+      ['Pending',   deals.pending,   '#f59e0b'],
+      ['Expiring',  deals.expiring,  '#ef4444'],
+      ['Completed', deals.completed, 'var(--muted)'],
+    ];
+    var total = deals.total || 1;
+    pipeEl.innerHTML = statusMap.map(function(s) {
+      var pct = Math.round(((s[1] || 0) / total) * 100);
+      return '<div style="margin-bottom:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+          '<span style="font-size:11px;color:var(--text);font-weight:600">' + s[0] + '</span>' +
+          '<span style="font-size:11px;color:var(--muted);font-family:var(--mono)">' + (s[1] || 0) + '</span>' +
+        '</div>' +
+        '<div style="background:var(--surface2);border-radius:3px;height:6px;overflow:hidden">' +
+          '<div style="height:100%;background:' + s[2] + ';width:' + (total > 0 ? pct : 0) + '%;border-radius:3px;transition:width 0.4s"></div>' +
+        '</div>' +
+      '</div>';
+    }).join('') + (deals.total === 0 ? '<div style="color:var(--muted);font-size:11px;text-align:center;padding:12px">No deals in pipeline yet. <span style="color:var(--accent);cursor:pointer" onclick="switchUnivTab(\'deals\')">Log one →</span></div>' : '');
+  }
+
+  // Sport breakdown
+  var sportEl = document.getElementById('nd-sport-breakdown');
+  if (sportEl) {
+    var sports = d.sportBreakdown || [];
+    var maxCount = sports.length ? Math.max.apply(null, sports.map(function(s){ return parseInt(s.count); })) : 1;
+    sportEl.innerHTML = sports.length ? sports.map(function(s) {
+      var pct = Math.round((parseInt(s.count) / maxCount) * 100);
+      return '<div style="margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
+          '<span style="font-size:11px;color:var(--text)">' + s.sport + '</span>' +
+          '<span style="font-size:10px;color:var(--muted);font-family:var(--mono)">' + s.count + '</span>' +
+        '</div>' +
+        '<div style="background:var(--surface2);border-radius:3px;height:5px;overflow:hidden">' +
+          '<div style="height:100%;background:rgba(132,204,22,0.5);width:' + pct + '%;border-radius:3px"></div>' +
+        '</div>' +
+      '</div>';
+    }).join('') : '<div style="color:var(--muted);font-size:11px">No athletes yet.</div>';
+  }
+}
+
+// ── Daily Actions ─────────────────────────────────────────────────────────
+async function _nilDirLoadActions() {
+  var el = document.getElementById('nd-daily-actions');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--muted);font-size:11px">Loading...</div>';
+  try {
+    var r    = await fetch(API_BASE + '/api/university/daily-actions', { credentials: 'include' });
+    var data = await r.json();
+    var actions = data.actions || [];
+    if (!actions.length) {
+      el.innerHTML = '<div style="color:var(--accent);font-size:12px;padding:12px 0;text-align:center">✓ No pending actions — program is in good shape.</div>';
+      return;
+    }
+    el.innerHTML = actions.slice(0, 8).map(function(a) {
+      return '<div class="nil-action-card">' +
+        '<div style="font-size:16px;line-height:1.2;flex-shrink:0">' + _actionTypeIcon(a.action_type) + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px">' + a.title + '</div>' +
+          (a.detail ? '<div style="font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + a.detail + '</div>' : '') +
+          (a.due_date ? '<div style="font-size:10px;color:' + _priorityColor(a.priority) + ';margin-top:3px">Due ' + _fmtDate(a.due_date) + '</div>' : '') +
+        '</div>' +
+        '<button onclick="_nilDirDismissAction(' + a.id + ',this)" title="Dismiss" style="padding:4px 8px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);font-size:10px;cursor:pointer;flex-shrink:0;font-family:\'DM Sans\',sans-serif">✕</button>' +
+      '</div>';
+    }).join('');
+  } catch (err) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:11px">Could not load actions.</div>';
+  }
+}
+
+async function _nilDirDismissAction(actionId, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    await fetch(API_BASE + '/api/university/daily-actions/' + actionId + '/dismiss', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+    });
+    var card = btn ? btn.closest('.nil-action-card') : null;
+    if (card) { card.style.opacity = '0.3'; card.style.pointerEvents = 'none'; }
+    setTimeout(_nilDirLoadActions, 600);
+  } catch (err) {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── Athlete CRM ───────────────────────────────────────────────────────────
+async function _nilDirLoadAthletes() {
+  var el = document.getElementById('nd-crm-list');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px">Loading...</div>';
+  try {
+    var search = (document.getElementById('nd-athlete-search') || {}).value || '';
+    var status = (document.getElementById('nd-athlete-status-filter') || {}).value || '';
+    var sport  = (document.getElementById('nd-athlete-sport-filter') || {}).value || '';
+    var qs     = '?search=' + encodeURIComponent(search) + '&status=' + encodeURIComponent(status) + '&sport=' + encodeURIComponent(sport);
+    var r      = await fetch(API_BASE + '/api/university/athletes/crm' + qs, { credentials: 'include' });
+    var data   = await r.json();
+    _nilDirAthletes = data.athletes || [];
+
+    var cntEl = document.getElementById('nd-crm-count');
+    if (cntEl) cntEl.textContent = _nilDirAthletes.length + ' athlete' + (_nilDirAthletes.length !== 1 ? 's' : '');
+
+    // Populate sport filter dropdown
+    var sportSel = document.getElementById('nd-athlete-sport-filter');
+    if (sportSel && sportSel.options.length <= 1) {
+      var sports = [...new Set(_nilDirAthletes.map(a => a.sport).filter(Boolean))].sort();
+      sports.forEach(function(s) {
+        var opt = document.createElement('option');
+        opt.value = s; opt.textContent = s;
+        sportSel.appendChild(opt);
+      });
+    }
+
+    // Populate deal form athlete dropdown
+    var dealSel = document.getElementById('nd-form-athlete');
+    if (dealSel && dealSel.options.length <= 1) {
+      _nilDirAthletes.forEach(function(a) {
+        var opt = document.createElement('option');
+        opt.value = a.id; opt.textContent = a.name + (a.sport ? ' (' + a.sport + ')' : '');
+        dealSel.appendChild(opt);
+      });
+    }
+
+    if (!_nilDirAthletes.length) {
+      el.innerHTML = '<div style="padding:32px;text-align:center;color:var(--muted);font-size:12px">No athletes match your filters.</div>';
+      return;
+    }
+
+    el.innerHTML = _nilDirAthletes.map(function(a) {
+      var flagsHtml = (a.flags || []).map(function(f) {
+        var col = f.type === 'error' ? '#ef4444' : f.type === 'warning' ? '#f59e0b' : 'var(--muted)';
+        return '<div style="font-size:10px;color:' + col + '">' + f.msg + '</div>';
+      }).join('') || '<span style="font-size:10px;color:rgba(132,204,22,0.6)">✓ Clean</span>';
+
+      return '<div class="nil-tr" style="grid-template-columns:2fr 100px 90px 100px 120px 100px 90px;cursor:pointer" onclick="_nilDirOpenAthlete(\'' + a.id + '\')">' +
+        '<div>' +
+          '<div style="font-size:12px;font-weight:600;color:var(--text)">' + a.name + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + a.sport + (a.position ? ' · ' + a.position : '') + (a.year ? ' · ' + a.year : '') + '</div>' +
+        '</div>' +
+        '<div>' + _nilStatusBadge(a.nilStatus) + '</div>' +
+        '<div style="font-size:12px;font-family:var(--mono);color:var(--text)">' + (a.dealCount || 0) + '</div>' +
+        '<div style="font-size:12px;font-weight:700;color:var(--accent);font-family:var(--mono)">' + (a.totalNilValue > 0 ? _fmtMoney(a.totalNilValue) : '—') + '</div>' +
+        '<div>' + _contactStatusBadge(a.contactStatus) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted);font-family:var(--mono)">' + _fmtReach(a.reach) + '</div>' +
+        '<div>' + flagsHtml + '</div>' +
+      '</div>';
+    }).join('');
+  } catch (err) {
+    el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px">Error: ' + err.message + '</div>';
+  }
+}
+
+function _nilDirAthleteSearch() {
+  clearTimeout(_nilDirAthletes._searchTimer);
+  _nilDirAthletes._searchTimer = setTimeout(_nilDirLoadAthletes, 280);
+}
+if (!_nilDirAthletes) _nilDirAthletes = {};
+
+// ── Athlete detail panel ──────────────────────────────────────────────────
+var _nilDirActiveAthleteId = null;
+
+async function _nilDirOpenAthlete(athleteId) {
+  _nilDirActiveAthleteId = athleteId;
+  // Find athlete data from cached list
+  var ath = (_nilDirAthletes && Array.isArray(_nilDirAthletes)) ? _nilDirAthletes.find(function(a){ return a.id === athleteId; }) : null;
+  var name = ath ? ath.name : 'Athlete';
+
+  // Create or reuse athlete detail modal
+  var modal = document.getElementById('nd-athlete-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'nd-athlete-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px';
+    modal.onclick = function(e) { if (e.target === modal) modal.style.display = 'none'; };
+    document.body.appendChild(modal);
+  }
+
+  modal.style.display = 'flex';
+  modal.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;width:100%;max-width:600px;max-height:80vh;overflow-y:auto">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">' +
+      '<div>' +
+        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;color:var(--text);letter-spacing:1px">' + name + '</div>' +
+        (ath ? '<div style="font-size:11px;color:var(--muted)">' + (ath.sport||'') + (ath.position?' · '+ath.position:'') + (ath.year?' · '+ath.year:'') + '</div>' : '') +
+      '</div>' +
+      '<button onclick="document.getElementById(\'nd-athlete-modal\').style.display=\'none\'" style="padding:6px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer;font-family:\'DM Sans\',sans-serif">✕ Close</button>' +
+    '</div>' +
+    (ath ? '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">' +
+      ['totalNilValue','dealCount','reach'].map(function(k) {
+        var labels = {totalNilValue:'NIL Value', dealCount:'Deals', reach:'Social Reach'};
+        var vals   = {totalNilValue: _fmtMoney(ath.totalNilValue), dealCount: ath.dealCount, reach: _fmtReach(ath.reach)};
+        return '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center">' +
+          '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:22px;color:var(--accent)">' + vals[k] + '</div>' +
+          '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">' + labels[k] + '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>' : '') +
+    '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Add Note</div>' +
+    '<div style="display:flex;gap:8px;margin-bottom:20px">' +
+      '<select id="nd-note-type" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 10px;color:var(--text);font-size:11px;font-family:\'DM Sans\',sans-serif;outline:none">' +
+        '<option value="note">Note</option><option value="call">Call</option><option value="email">Email</option><option value="meeting">Meeting</option>' +
+      '</select>' +
+      '<input id="nd-note-body" type="text" placeholder="Add a note about this athlete…" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 10px;color:var(--text);font-size:11px;font-family:\'DM Sans\',sans-serif;outline:none">' +
+      '<button onclick="_nilDirSaveNote()" style="padding:7px 14px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:11px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">Save</button>' +
+    '</div>' +
+    '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Contact History</div>' +
+    '<div id="nd-athlete-notes-list"><div style="color:var(--muted);font-size:11px">Loading...</div></div>' +
+  '</div>';
+
+  _nilDirLoadAthleteNotes(athleteId);
+}
+
+async function _nilDirLoadAthleteNotes(athleteId) {
+  var el = document.getElementById('nd-athlete-notes-list');
+  if (!el) return;
+  try {
+    var r    = await fetch(API_BASE + '/api/university/athlete-notes/' + athleteId, { credentials: 'include' });
+    var data = await r.json();
+    var notes = data.notes || [];
+    if (!notes.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:12px 0;text-align:center">No notes yet — add the first one above.</div>';
+      return;
+    }
+    var typeIcon = { note: '📝', call: '📞', email: '✉️', meeting: '🤝', alert: '⚠️', system: '⚙️' };
+    el.innerHTML = notes.map(function(n) {
+      return '<div style="padding:10px 0;border-bottom:1px solid var(--border)">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+          '<span style="font-size:14px">' + (typeIcon[n.contact_type] || '•') + '</span>' +
+          (n.subject ? '<span style="font-size:11px;font-weight:600;color:var(--text)">' + n.subject + '</span>' : '') +
+          '<span style="font-size:10px;color:var(--muted);margin-left:auto">' + _timeAgo(n.created_at) + '</span>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--muted);padding-left:22px">' + n.body + '</div>' +
+      '</div>';
+    }).join('');
+  } catch (err) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:11px">Could not load notes.</div>';
+  }
+}
+
+async function _nilDirSaveNote() {
+  var bodyEl = document.getElementById('nd-note-body');
+  var typeEl = document.getElementById('nd-note-type');
+  var body   = bodyEl ? bodyEl.value.trim() : '';
+  if (!body || !_nilDirActiveAthleteId) return;
+  try {
+    await fetch(API_BASE + '/api/university/athlete-notes/' + _nilDirActiveAthleteId, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body, contactType: typeEl ? typeEl.value : 'note' }),
+    });
+    if (bodyEl) bodyEl.value = '';
+    _nilDirLoadAthleteNotes(_nilDirActiveAthleteId);
+  } catch (err) {
+    alert('Error saving note: ' + err.message);
+  }
+}
+
+// ── Deal Pipeline ─────────────────────────────────────────────────────────
+async function _nilDirLoadDeals() {
+  var el = document.getElementById('nd-deal-list');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px">Loading...</div>';
+  try {
+    var search = (document.getElementById('nd-deal-search') || {}).value || '';
+    var status = (document.getElementById('nd-deal-status-filter') || {}).value || '';
+    var qs     = '?search=' + encodeURIComponent(search) + '&status=' + encodeURIComponent(status);
+    var r      = await fetch(API_BASE + '/api/university/deal-pipeline' + qs, { credentials: 'include' });
+    var data   = await r.json();
+    _nilDirDeals = data.deals || [];
+
+    if (!_nilDirDeals.length) {
+      el.innerHTML = '<div style="padding:32px;text-align:center;color:var(--muted);font-size:12px">No deals match filters. <span style="color:var(--accent);cursor:pointer" onclick="_nilDirOpenAddDeal()">Log your first deal →</span></div>';
+      return;
+    }
+
+    el.innerHTML = _nilDirDeals.map(function(d) {
+      return '<div class="nil-tr" style="grid-template-columns:1.4fr 1.2fr 90px 80px 90px 100px 80px 70px">' +
+        '<div>' +
+          '<div style="font-size:12px;font-weight:600;color:var(--text)">' + d.athleteName + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + d.athleteSport + '</div>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--text)">' + d.brand + '</div>' +
+        '<div style="font-size:13px;font-weight:700;color:var(--accent);font-family:var(--mono)">' + _fmtMoney(d.dealValue) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + (d.dealType || '—') + '</div>' +
+        '<div>' + _dealStatusBadge(d.status) + (d.isExpiringSoon ? ' <span style="font-size:9px;color:#ef4444;font-weight:700">EXPIRING</span>' : '') + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">' + (d.startDate ? _fmtDate(d.startDate) : '—') + ' → ' + (d.endDate ? _fmtDate(d.endDate) : '—') + '</div>' +
+        '<div>' + _disclosureBadge(d.disclosureStatus) + '</div>' +
+        '<div style="display:flex;gap:4px">' +
+          '<button onclick="_nilDirQuickStatus(\'' + d.id + '\',\'active\')" title="Mark Active" style="padding:3px 6px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:3px;color:var(--accent);font-size:10px;cursor:pointer;font-family:\'DM Sans\',sans-serif">✓</button>' +
+          '<button onclick="_nilDirDeleteDeal(\'' + d.id + '\',this)" title="Delete" style="padding:3px 6px;background:none;border:1px solid var(--border);border-radius:3px;color:var(--muted);font-size:10px;cursor:pointer;font-family:\'DM Sans\',sans-serif">✕</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch (err) {
+    el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px">Error: ' + err.message + '</div>';
+  }
+}
+
+function _nilDirDealSearch() {
+  clearTimeout(_nilDirDeals._searchTimer);
+  _nilDirDeals._searchTimer = setTimeout(_nilDirLoadDeals, 280);
+}
+if (!_nilDirDeals) _nilDirDeals = {};
+
+function _nilDirOpenAddDeal() {
+  // Switch to deals tab if not already
+  switchUnivTab('deals');
+  // Ensure athlete list loaded in form
+  if (_nilDirAthletes && Array.isArray(_nilDirAthletes) && _nilDirAthletes.length === 0) {
+    _nilDirLoadAthletes();
+  }
+  var form = document.getElementById('nd-add-deal-form');
+  if (form) form.style.display = form.style.display === 'block' ? 'none' : 'block';
+}
+
+async function _nilDirSaveDeal() {
+  var get = function(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  var athleteId = get('nd-form-athlete');
+  var brand     = get('nd-form-brand');
+  if (!athleteId || !brand) { alert('Athlete and brand are required.'); return; }
+
+  var btn = document.querySelector('[onclick="_nilDirSaveDeal()"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  try {
+    var r = await fetch(API_BASE + '/api/university/deal-pipeline', {
+      method:  'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        athleteId,
+        brand,
+        dealValue:        get('nd-form-value') || 0,
+        dealType:         get('nd-form-type'),
+        status:           get('nd-form-status'),
+        disclosureStatus: get('nd-form-disclosure'),
+        startDate:        get('nd-form-start') || null,
+        endDate:          get('nd-form-end') || null,
+        notes:            get('nd-form-notes'),
+      }),
+    });
+    if (!r.ok) throw new Error((await r.json()).error || 'Failed');
+
+    // Clear form
+    ['nd-form-brand','nd-form-value','nd-form-start','nd-form-end','nd-form-notes'].forEach(function(id){
+      var el = document.getElementById(id); if (el) el.value = '';
+    });
+    var form = document.getElementById('nd-add-deal-form');
+    if (form) form.style.display = 'none';
+
+    // Refresh
+    _nilDirLoadDeals();
+    _nilDirLoadOverview();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Deal'; }
+  }
+}
+
+async function _nilDirQuickStatus(dealId, newStatus) {
+  try {
+    await fetch(API_BASE + '/api/university/deal-pipeline/' + dealId, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    _nilDirLoadDeals();
+    _nilDirLoadOverview();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+async function _nilDirDeleteDeal(dealId, btn) {
+  if (!confirm('Delete this deal record?')) return;
+  if (btn) btn.disabled = true;
+  try {
+    await fetch(API_BASE + '/api/university/deal-pipeline/' + dealId, {
+      method: 'DELETE', credentials: 'include',
+    });
+    _nilDirLoadDeals();
+    _nilDirLoadOverview();
+  } catch (err) {
+    if (btn) btn.disabled = false;
+    alert('Error: ' + err.message);
+  }
+}
+
+// ── Compliance ─────────────────────────────────────────────────────────────
+async function _nilDirLoadCompliance() {
+  var el = document.getElementById('nd-compliance-alerts');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--muted);font-size:12px">Loading...</div>';
+  try {
+    var r    = await fetch(API_BASE + '/api/university/compliance-alerts', { credentials: 'include' });
+    var data = await r.json();
+    var alerts = data.alerts || [];
+
+    if (!alerts.length) {
+      el.innerHTML = '<div style="background:rgba(132,204,22,0.06);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r);padding:20px;text-align:center;font-size:13px;color:var(--accent)">✓ No compliance issues found. Program is clean.</div>';
+      return;
+    }
+
+    var sevMap = { high: ['#ef4444', 'rgba(239,68,68,0.08)'], medium: ['#f59e0b','rgba(245,158,11,0.08)'], low: ['var(--muted)','rgba(255,255,255,0.03)'] };
+    el.innerHTML = alerts.map(function(a) {
+      var sev = sevMap[a.severity] || sevMap['low'];
+      var typeIcon = { compliance: '📋', expiring: '⏰', inactive: '💤' }[a.type] || '•';
+      return '<div style="display:flex;align-items:flex-start;gap:12px;padding:14px;background:' + sev[1] + ';border:1px solid rgba(255,255,255,0.06);border-left:3px solid ' + sev[0] + ';border-radius:var(--r-sm);margin-bottom:8px">' +
+        '<div style="font-size:18px;line-height:1;flex-shrink:0">' + typeIcon + '</div>' +
+        '<div style="flex:1">' +
+          '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:3px">' + a.title + '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + a.detail + '</div>' +
+        '</div>' +
+        '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:9px;background:' + sev[1] + ';color:' + sev[0] + ';border:1px solid ' + sev[0] + ';white-space:nowrap">' + a.severity + '</span>' +
+      '</div>';
+    }).join('');
+  } catch (err) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px">Error: ' + err.message + '</div>';
+  }
+}
+
+// ── AI Insights ───────────────────────────────────────────────────────────
+async function _nilDirLoadInsights() {
+  var el  = document.getElementById('nd-insights-content');
+  var btn = document.getElementById('nd-insights-btn');
+  if (!el) return;
+  if (btn) { btn.disabled = true; btn.textContent = '🤖 Analyzing program data…'; }
+  el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px;text-align:center">Analyzing your program\'s CRM data with Claude AI…<br><div style="margin-top:8px;font-size:10px">This may take 10–20 seconds.</div></div>';
+
+  try {
+    var r    = await fetch(API_BASE + '/api/university/opportunities', { credentials: 'include' });
+    var data = await r.json();
+    el.innerHTML = _nilDirRenderInsights(data);
+  } catch (err) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px">Error: ' + err.message + '</div>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Refresh Insights'; }
+  }
+}
+
+function _nilDirRenderInsights(data) {
+  var sections = [];
+
+  if (data.underMonetized && data.underMonetized.length) {
+    sections.push(
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px">' +
+      '<div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">💰 Under-Monetized Athletes</div>' +
+      data.underMonetized.map(function(a) {
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--border)">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">' +
+            '<div><span style="font-size:12px;font-weight:700;color:var(--text)">' + a.athleteName + '</span>' +
+            (a.sport ? ' <span style="font-size:11px;color:var(--muted)">· ' + a.sport + '</span>' : '') + '</div>' +
+            (a.reach ? '<span style="font-size:10px;color:var(--muted);font-family:var(--mono)">' + _fmtReach(a.reach) + ' reach</span>' : '') +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">' + (a.reason || '') + '</div>' +
+          (a.suggestedAction ? '<div style="font-size:11px;color:var(--accent)">→ ' + a.suggestedAction + '</div>' : '') +
+        '</div>';
+      }).join('') +
+      '</div>'
+    );
+  }
+
+  if (data.highPotential && data.highPotential.length) {
+    sections.push(
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px">' +
+      '<div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">⭐ High NIL Potential</div>' +
+      data.highPotential.map(function(a) {
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--border)">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">' +
+            '<div><span style="font-size:12px;font-weight:700;color:var(--text)">' + a.athleteName + '</span>' +
+            (a.sport ? ' <span style="font-size:11px;color:var(--muted)">· ' + a.sport + '</span>' : '') + '</div>' +
+            (a.estimatedRange ? '<span style="font-size:11px;color:var(--accent);font-weight:700">' + a.estimatedRange + '</span>' : '') +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">' + (a.why || '') + '</div>' +
+          (a.brandCategories && a.brandCategories.length ? '<div style="display:flex;gap:4px;flex-wrap:wrap">' + a.brandCategories.map(function(c){ return '<span style="font-size:10px;padding:2px 8px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.2);border-radius:9px;color:var(--accent)">' + c + '</span>'; }).join('') + '</div>' : '') +
+        '</div>';
+      }).join('') +
+      '</div>'
+    );
+  }
+
+  if (data.brandOpportunities && data.brandOpportunities.length) {
+    sections.push(
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px">' +
+      '<div style="font-size:10px;font-weight:700;color:#00D4FF;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">🎯 Brand Opportunities</div>' +
+      data.brandOpportunities.map(function(opp) {
+        var priCol = opp.priority === 'high' ? 'var(--accent)' : opp.priority === 'medium' ? '#f59e0b' : 'var(--muted)';
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--border)">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+            '<div style="font-size:12px;font-weight:700;color:var(--text)">' + opp.title + '</div>' +
+            '<span style="font-size:10px;color:' + priCol + ';font-weight:700">' + (opp.priority || '') + '</span>' +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--muted)">' + (opp.description || '') + '</div>' +
+        '</div>';
+      }).join('') +
+      '</div>'
+    );
+  }
+
+  if (data.programInsights && data.programInsights.length) {
+    sections.push(
+      '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px">' +
+      '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">📊 Program Insights</div>' +
+      data.programInsights.map(function(ins) {
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--border)">' +
+          '<div style="font-size:12px;color:var(--text);margin-bottom:4px">' + (ins.insight || '') + '</div>' +
+          (ins.action ? '<div style="font-size:11px;color:var(--accent)">→ ' + ins.action + '</div>' : '') +
+        '</div>';
+      }).join('') +
+      '</div>'
+    );
+  }
+
+  return sections.join('') || '<div style="color:var(--muted);font-size:12px;padding:20px;text-align:center">No insights generated. Make sure athletes are loaded in the CRM first.</div>';
+}
+
+// ── Activity Feed ─────────────────────────────────────────────────────────
+async function _nilDirLoadActivity() {
+  var el = document.getElementById('nd-activity-feed');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--muted);font-size:12px">Loading...</div>';
+  try {
+    var r    = await fetch(API_BASE + '/api/university/activity-feed?limit=50', { credentials: 'include' });
+    var data = await r.json();
+    var feed = data.feed || [];
+
+    if (!feed.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px;text-align:center">No activity logged yet. Start by adding notes to athletes in the Athletes tab.</div>';
+      return;
+    }
+
+    var typeIcon = { note: '📝', call: '📞', email: '✉️', meeting: '🤝', alert: '⚠️', system: '⚙️' };
+    el.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden">' +
+      feed.map(function(n, i) {
+        return '<div style="display:grid;grid-template-columns:36px 1fr 80px 80px;gap:8px;align-items:start;padding:12px 16px;' + (i < feed.length-1 ? 'border-bottom:1px solid var(--border)' : '') + '">' +
+          '<div style="font-size:18px;text-align:center">' + (typeIcon[n.contact_type] || '•') + '</div>' +
+          '<div>' +
+            '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px">' + (n.athlete_name || 'Unknown') + (n.athlete_sport ? ' <span style="font-weight:400;color:var(--muted)">· '+n.athlete_sport+'</span>' : '') + '</div>' +
+            (n.subject ? '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:2px">' + n.subject + '</div>' : '') +
+            '<div style="font-size:11px;color:var(--muted)">' + n.body + '</div>' +
+          '</div>' +
+          '<div style="font-size:10px;color:var(--muted)">' + n.contact_type + '</div>' +
+          '<div style="font-size:10px;color:var(--muted);text-align:right">' + _timeAgo(n.created_at) + '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  } catch (err) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px">Error: ' + err.message + '</div>';
+  }
+}
+
+// ── Import sub-tab switcher ───────────────────────────────────────────────
+function _importSubTab(sub) {
+  ['bulk','auto'].forEach(function(s) {
+    var btn   = document.getElementById('importSubTab-' + s);
+    var panel = document.getElementById('importSubPanel-' + s);
+    var isActive = s === sub;
+    if (btn) {
+      btn.style.background   = isActive ? 'rgba(132,204,22,0.12)' : 'none';
+      btn.style.borderColor  = isActive ? 'var(--accent)' : 'var(--border)';
+      btn.style.color        = isActive ? 'var(--accent)' : 'var(--muted)';
+      btn.style.fontWeight   = isActive ? '700' : '400';
+    }
+    if (panel) panel.style.display = isActive ? 'block' : 'none';
+  });
+  if (sub === 'auto') _intelLoadJobs();
 }
 
 //  Mobile sidebar toggle

@@ -1795,6 +1795,7 @@ const RosterSyncEngine            = require('./services/university/RosterSyncEng
 const IngestionPipeline           = require('./services/university/IngestionPipeline');
 const RosterAutomationScheduler   = require('./services/university/RosterAutomationScheduler');
 const RosterIntelligenceService   = require('./services/university/RosterIntelligenceService');
+const NILDirectorService          = require('./services/university/NILDirectorService');
 
 // ── University context helper ─────────────────────────────────────────────
 // Resolves the university_id for the current session user.
@@ -2503,6 +2504,188 @@ app.post('/api/university/roster/review/:id/reject', requireAuth, requireUnivers
       reviewedBy: userId,
     });
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// NIL DIRECTOR DASHBOARD ROUTES
+// All require university mode. Scope is always the session user's university.
+// ════════════════════════════════════════════════════════════════════════
+
+// GET /api/university/nil-dashboard
+// Full dashboard metrics: athletes, deals, monthly activity, top earners,
+// under-monetized athletes, sport breakdown.
+app.get('/api/university/nil-dashboard', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const data = await NILDirectorService.getDashboardMetrics(store.pool, universityId);
+    res.json(data);
+  } catch (err) {
+    console.error('[NILDirector] dashboard error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/athletes/crm
+// Athlete CRM with enriched deal data, contact status, risk flags.
+// Query params: search, sport, status (active|idle|no_deals|flagged)
+app.get('/api/university/athletes/crm', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const { search = '', sport = '', status = '' } = req.query;
+    const athletes = await NILDirectorService.getAthleteCRM(store.pool, universityId, { search, sport, status });
+    res.json({ athletes, count: athletes.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/deal-pipeline
+// All deals for this university. Query params: status, search, athleteId
+app.get('/api/university/deal-pipeline', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const { status = '', search = '', athleteId = '' } = req.query;
+    const deals = await NILDirectorService.getDealPipeline(store.pool, universityId, { status, search, athleteId });
+    res.json({ deals, count: deals.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/deal-pipeline
+// Create a new university deal record.
+app.post('/api/university/deal-pipeline', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const { athleteId, brand, dealValue, dealType, status, startDate, endDate, disclosureStatus, notes } = req.body;
+    if (!athleteId || !brand) return res.status(400).json({ error: 'athleteId and brand are required' });
+    const result = await NILDirectorService.createDeal(store.pool, universityId, {
+      athleteId, brand, dealValue, dealType, status, startDate, endDate, disclosureStatus, notes,
+    }, req.session.userId);
+    res.status(201).json(result);
+  } catch (err) {
+    console.error('[NILDirector] create deal error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/university/deal-pipeline/:id
+// Update a deal (status, disclosure, dates, notes, value).
+app.patch('/api/university/deal-pipeline/:id', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    await NILDirectorService.updateDeal(store.pool, req.params.id, req.body, req.session.userId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/university/deal-pipeline/:id
+app.delete('/api/university/deal-pipeline/:id', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    await NILDirectorService.deleteDeal(store.pool, req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/daily-actions
+// Computed action queue for today. Regenerates from CRM state on each call.
+app.get('/api/university/daily-actions', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const actions = await NILDirectorService.getDailyActions(store.pool, universityId);
+    res.json({ actions, count: actions.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/daily-actions/:id/dismiss
+app.post('/api/university/daily-actions/:id/dismiss', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    await NILDirectorService.dismissAction(store.pool, req.params.id, req.session.userId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/opportunities
+// AI-generated insights: under-monetized, high potential, brand opportunities.
+app.get('/api/university/opportunities', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const univRow = await store.pool.query('SELECT name FROM universities WHERE id = $1', [universityId]);
+    const univName = univRow.rows[0]?.name || 'University';
+    const insights = await NILDirectorService.getOpportunityInsights(store.pool, universityId, univName);
+    res.json(insights);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/compliance-alerts
+// Compliance issues: missing disclosures, expiring deals, at-risk athletes.
+app.get('/api/university/compliance-alerts', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const alerts = await NILDirectorService.getComplianceAlerts(store.pool, universityId);
+    res.json({ alerts, count: alerts.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/activity-feed
+// Recent staff notes, calls, emails across all athletes.
+app.get('/api/university/activity-feed', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const feed = await NILDirectorService.getActivityFeed(store.pool, universityId, limit);
+    res.json({ feed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/athlete-notes/:athleteId
+app.get('/api/university/athlete-notes/:athleteId', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const notes = await NILDirectorService.getNotes(store.pool, universityId, req.params.athleteId);
+    res.json({ notes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/athlete-notes/:athleteId
+app.post('/api/university/athlete-notes/:athleteId', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    if (!req.body.body) return res.status(400).json({ error: 'body is required' });
+    const note = await NILDirectorService.addNote(
+      store.pool, universityId, req.params.athleteId,
+      { contactType: req.body.contactType, subject: req.body.subject, body: req.body.body, isPinned: req.body.isPinned },
+      req.session.userId
+    );
+    res.status(201).json(note);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
