@@ -66,7 +66,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'nildash-dev-secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000 },
+  cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
 }));
 
 // ── Auth middleware ────────────────────────────────────────────
