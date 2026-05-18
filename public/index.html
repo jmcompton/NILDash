@@ -895,6 +895,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div id="rate-context-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
             </div>
             <div id="rate-archetype" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
+            <!-- Pricing Strategy -->
+            <div id="rate-strategy" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
+            <!-- Deal Type Rates -->
+            <div id="rate-deal-types" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
+            <!-- Comparable Market -->
+            <div id="rate-comparable-market" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
+            <!-- Momentum Signal -->
+            <div id="rate-momentum" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 14px;margin-top:12px"></div>
+            <!-- How Estimate Was Built -->
+            <div id="rate-estimate-built" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
             <div id="rate-v4-scores" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-top:12px">
               <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">NILViewVal v5.2 — Marketability Scores</div>
               <div id="rate-v4-scores-body"></div>
@@ -921,9 +931,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div id="rate-confidence-note" style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.5"></div>
             </div>
 
-            <!-- SOURCE FOOTER -->
-            <div id="rate-source-footer" style="display:none;font-size:10px;color:var(--muted);margin-top:10px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--r-sm);line-height:1.6">
-              <span style="font-weight:600;color:var(--text)">Sources:</span> NILViewVal v5.2 model · Opendorse 2024 NIL benchmarks · NCAA 2025 median deal data · On3 NIL valuations · 18 agency rate cards · NILDash closed deal database
+            <!-- SOURCE FOOTER + DISCLAIMER -->
+            <div id="rate-source-footer" style="display:none;font-size:10px;color:var(--muted);margin-top:10px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--r-sm);line-height:1.7">
+              <span style="font-weight:600;color:var(--text)">Sources:</span> NCAA 2025 NIL data · Opendorse benchmarks · On3 NIL valuations · Modash CPM data · 18 agency rate cards<br>
+              <span style="color:rgba(255,255,255,0.35)">NIL values vary by market demand, brand fit, timing, and negotiation. Use as a market anchor, not a guarantee.</span>
             </div>
 
             <!-- EXPORT BUTTON -->
@@ -2895,16 +2906,15 @@ async function calcRate() {
       }
     }
     // ── Market Confidence + Reliability panel ───────────────────────────────
-    // Replaces fake-precision score grid with transparent estimation display.
     var archBox = document.getElementById('rate-archetype');
     if (archBox) {
       archBox.style.display = 'block';
       var ct = rate.confTypes   || {};
       var rl = rate.reliability || {};
-      var overallLabel = ct.overall || 'Low';
+      var overallLabel = ct.overall   || 'Low';
+      var relLabel     = rl.label     || 'Moderate';
       var overallColor = overallLabel === 'High' ? '#4ade80' : overallLabel === 'Moderate' ? '#f59e0b' : 'var(--muted)';
-      var relScore = rl.score || 0;
-      var relColor = relScore >= 7 ? '#4ade80' : relScore >= 5 ? '#f59e0b' : 'var(--muted)';
+      var relColor     = (relLabel === 'Very Strong' || relLabel === 'Strong') ? '#4ade80' : relLabel === 'Moderate' ? '#f59e0b' : 'var(--muted)';
 
       function confBar(pct) {
         var c = pct >= 70 ? '#4ade80' : pct >= 45 ? '#f59e0b' : 'rgba(255,255,255,0.15)';
@@ -2913,7 +2923,7 @@ async function calcRate() {
 
       var html = '';
 
-      // Market Confidence header
+      // Market Confidence header + overall badge
       html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
       html +=   '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Market Confidence</div>';
       html +=   '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:' + (overallLabel === 'High' ? 'rgba(74,222,128,0.12)' : overallLabel === 'Moderate' ? 'rgba(245,158,11,0.12)' : 'rgba(255,255,255,0.06)') + ';color:' + overallColor + ';border:1px solid ' + (overallLabel === 'High' ? 'rgba(74,222,128,0.25)' : overallLabel === 'Moderate' ? 'rgba(245,158,11,0.25)' : 'var(--border)') + '">' + overallLabel + '</span>';
@@ -2922,57 +2932,175 @@ async function calcRate() {
       // Confidence type grid
       html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
 
-      // Social data confidence
+      // Social data
       html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">';
       html +=   '<div style="font-size:10px;color:var(--muted)">Social Data</div>';
-      html +=   '<div style="font-size:16px;font-weight:800;color:var(--text)">' + (ct.social || 0) + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>';
-      html +=   confBar(ct.social || 0);
+      html +=   '<div style="font-size:16px;font-weight:800;color:var(--text)">' + (ct.social||0) + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>';
+      html +=   confBar(ct.social||0);
       html += '</div>';
 
-      // Market confidence
+      // Market benchmarks
       html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">';
       html +=   '<div style="font-size:10px;color:var(--muted)">Market Benchmarks</div>';
-      html +=   '<div style="font-size:16px;font-weight:800;color:var(--text)">' + (ct.market || 0) + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>';
-      html +=   confBar(ct.market || 0);
+      html +=   '<div style="font-size:16px;font-weight:800;color:var(--text)">' + (ct.market||0) + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>';
+      html +=   confBar(ct.market||0);
       html += '</div>';
 
-      // Comparable deals confidence
+      // Deal comparables — use label, never show raw 0%
       html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">';
       html +=   '<div style="font-size:10px;color:var(--muted)">Deal Comparables</div>';
       if (ct.comparable > 0) {
         html += '<div style="font-size:16px;font-weight:800;color:var(--text)">' + ct.comparable + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>';
         html += confBar(ct.comparable);
       } else {
-        html += '<div style="font-size:12px;font-weight:700;color:var(--muted);margin-top:4px">No data</div>';
-        html += '<div style="font-size:10px;color:var(--muted);margin-top:3px">Add closed deals to improve</div>';
+        html += '<div style="font-size:12px;font-weight:600;color:var(--muted);margin-top:5px">' + (ct.comparableLabel||'Developing dataset') + '</div>';
+        html += '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4">Using public NIL benchmark sources</div>';
       }
       html += '</div>';
 
-      // Historical deal confidence — always honest
+      // Partnership history — always explicitly honest
       html += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)">';
-      html +=   '<div style="font-size:10px;color:var(--muted)">Deal History</div>';
-      html +=   '<div style="font-size:12px;font-weight:700;color:var(--muted);margin-top:4px">Unavailable</div>';
-      html +=   '<div style="font-size:10px;color:var(--muted);margin-top:3px">No individual history on file</div>';
+      html +=   '<div style="font-size:10px;color:var(--muted)">Partnership History</div>';
+      html +=   '<div style="font-size:12px;font-weight:600;color:var(--muted);margin-top:5px">Not yet established</div>';
+      html +=   '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4">Benchmark estimates applied</div>';
       html += '</div>';
 
       html += '</div>'; // end grid
 
-      // Market Reliability Score
+      // Market Reliability — label-based, no decimal score exposed
+      var relSteps = ['Low','Moderate','Strong','Very Strong'];
+      var relIdx   = relSteps.indexOf(relLabel);
       html += '<div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">';
-      html +=   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+      html +=   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
       html +=     '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Market Reliability</div>';
-      html +=     '<div style="font-size:18px;font-weight:900;color:' + relColor + '">' + relScore + '<span style="font-size:11px;color:var(--muted);font-weight:400">/10</span></div>';
+      html +=     '<div style="font-size:13px;font-weight:800;color:' + relColor + '">' + relLabel + '</div>';
       html +=   '</div>';
-      html +=   '<div style="background:var(--surface2);border-radius:3px;height:5px;margin-bottom:10px"><div style="width:' + Math.min(relScore * 10, 100) + '%;background:' + relColor + ';height:5px;border-radius:3px;transition:width 0.4s"></div></div>';
+      // Segmented indicator bar
+      html +=   '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px">';
+      relSteps.forEach(function(step, i) {
+        var active = i <= relIdx;
+        var stepColor = (step === 'Very Strong' || step === 'Strong') ? '#4ade80' : step === 'Moderate' ? '#f59e0b' : '#f87171';
+        html += '<div style="height:5px;border-radius:3px;background:' + (active ? stepColor : 'rgba(255,255,255,0.08)') + ';transition:background 0.3s"></div>';
+      });
+      html +=   '</div>';
+      // Step labels under the bar
+      html +=   '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px">';
+      relSteps.forEach(function(step, i) {
+        var active = i <= relIdx;
+        html += '<div style="font-size:9px;text-align:center;color:' + (active ? 'var(--text)' : 'var(--muted)') + ';font-weight:' + (i === relIdx ? '700' : '400') + '">' + step + '</div>';
+      });
+      html +=   '</div>';
+      // Strong / Weak signal bullets
       if (rl.strengths && rl.strengths.length) {
-        html += '<div style="font-size:10px;color:var(--muted);margin-bottom:4px"><span style="color:#4ade80">Strong:</span> ' + rl.strengths.join(' · ') + '</div>';
+        html += '<div style="font-size:10px;color:var(--muted);margin-bottom:5px"><span style="color:#4ade80;font-weight:600">Strong signals:</span> ' + rl.strengths.join(' · ') + '</div>';
       }
       if (rl.weaknesses && rl.weaknesses.length) {
-        html += '<div style="font-size:10px;color:var(--muted)"><span style="color:var(--muted)">Weak:</span> ' + rl.weaknesses.join(' · ') + '</div>';
+        html += '<div style="font-size:10px;color:var(--muted)"><span style="font-weight:600">Developing:</span> ' + rl.weaknesses.join(' · ') + '</div>';
       }
       html += '</div>';
 
       archBox.innerHTML = html;
+    }
+
+    // ── Suggested Pricing Strategy ────────────────────────────────────────────
+    var strategyBox = document.getElementById('rate-strategy');
+    if (strategyBox && rate.pricingStrategy) {
+      strategyBox.style.display = 'block';
+      var ps = rate.pricingStrategy;
+      strategyBox.innerHTML =
+        '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Suggested Pricing Strategy</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">' +
+          '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px;text-align:center">' +
+            '<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px">Floor</div>' +
+            '<div style="font-size:15px;font-weight:800;color:var(--text)">$' + (ps.start||0).toLocaleString() + '</div>' +
+            '<div style="font-size:9px;color:var(--muted);margin-top:3px">Do not go lower</div>' +
+          '</div>' +
+          '<div style="background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);padding:10px;text-align:center">' +
+            '<div style="font-size:9px;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px;font-weight:700">Target</div>' +
+            '<div style="font-size:15px;font-weight:800;color:var(--accent)">$' + (ps.target||0).toLocaleString() + '</div>' +
+            '<div style="font-size:9px;color:var(--muted);margin-top:3px">Fair market rate</div>' +
+          '</div>' +
+          '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px;text-align:center">' +
+            '<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px">Stretch</div>' +
+            '<div style="font-size:15px;font-weight:800;color:var(--text)">$' + (ps.stretch||0).toLocaleString() + '</div>' +
+            '<div style="font-size:9px;color:var(--muted);margin-top:3px">Exclusivity premium</div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    // ── Deal Type Rate Breakdown ──────────────────────────────────────────────
+    var dealTypesBox = document.getElementById('rate-deal-types');
+    if (dealTypesBox && rate.dealTypeRates) {
+      dealTypesBox.style.display = 'block';
+      var dtr = rate.dealTypeRates;
+      var dtLabels = {
+        'ig-post':'IG Post','ig-reel':'IG Reel','stories':'Story Set',
+        'bundle':'IG Bundle','appearance-inperson':'Appearance','retainer':'Monthly Retainer'
+      };
+      var dtRows = Object.entries(dtr).map(function(entry) {
+        var key = entry[0]; var val = entry[1];
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04)">' +
+          '<span style="font-size:12px;color:var(--muted)">' + (dtLabels[key]||key) + '</span>' +
+          '<span style="font-size:12px;font-weight:700;color:var(--text)">$' + (val.low||0).toLocaleString() + ' – $' + (val.high||0).toLocaleString() + '</span>' +
+        '</div>';
+      }).join('');
+      dealTypesBox.innerHTML =
+        '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Estimated Rates by Deal Type</div>' +
+        dtRows +
+        '<div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Estimates based on current deliverable selected and athlete profile. Click any deal type above to recalculate.</div>';
+    }
+
+    // ── Comparable Market ─────────────────────────────────────────────────────
+    var compMarketBox = document.getElementById('rate-comparable-market');
+    if (compMarketBox && rate.compNote) {
+      compMarketBox.style.display = 'block';
+      var cn = rate.compNote;
+      compMarketBox.innerHTML =
+        '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">Comparable Market</div>' +
+        '<div style="font-size:12px;color:var(--text);font-weight:600;margin-bottom:4px">' + cn.tierLabel + ' ' + cn.sportLabel + '</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">' + cn.reachLabel + '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px">' +
+          '<div>' +
+            '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">Typical market range</div>' +
+            '<div style="font-size:14px;font-weight:800;color:var(--text)">$' + (rate.cleanLow||rate.low||0).toLocaleString() + ' – $' + (rate.cleanHigh||rate.high||0).toLocaleString() + '</div>' +
+          '</div>' +
+          '<div style="text-align:right">' +
+            '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">Data source</div>' +
+            '<div style="font-size:10px;font-weight:600;color:var(--text)">' + (cn.source||'2025 NIL benchmarks') + '</div>' +
+          '</div>' +
+        '</div>';
+    }
+
+    // ── Momentum Signal ───────────────────────────────────────────────────────
+    var momentumBox = document.getElementById('rate-momentum');
+    if (momentumBox && rate.momentum) {
+      momentumBox.style.display = 'block';
+      var mom = rate.momentum;
+      var momColor = mom.signal === 'Trending Up' ? '#4ade80' :
+                     mom.signal === 'Emerging'     ? '#f59e0b' :
+                     mom.signal === 'Stable'        ? '#60a5fa' : 'var(--muted)';
+      var momIcon  = mom.signal === 'Trending Up'  ? '↑' :
+                     mom.signal === 'Emerging'      ? '→' :
+                     mom.signal === 'Stable'         ? '→' : '—';
+      momentumBox.innerHTML =
+        '<div style="display:flex;align-items:center;justify-content:space-between">' +
+          '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Momentum</div>' +
+          '<span style="font-size:11px;font-weight:700;color:' + momColor + '">' + momIcon + ' ' + mom.signal + '</span>' +
+        '</div>' +
+        (mom.reason ? '<div style="font-size:10px;color:var(--muted);margin-top:5px">' + mom.reason + '</div>' : '');
+    }
+
+    // ── How This Estimate Was Built ───────────────────────────────────────────
+    var builtBox = document.getElementById('rate-estimate-built');
+    if (builtBox && rate.estimateInputs && rate.estimateInputs.length) {
+      builtBox.style.display = 'block';
+      builtBox.innerHTML =
+        '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">How This Estimate Was Built</div>' +
+        '<div style="font-size:11px;color:var(--muted);line-height:1.7">' +
+          rate.estimateInputs.map(function(inp) {
+            return '<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;background:var(--surface2);border-radius:20px;border:1px solid rgba(255,255,255,0.06)">' + inp + '</span>';
+          }).join('') +
+        '</div>';
     }
     document.getElementById('rateAI').classList.add('visible');
 
@@ -3079,7 +3207,15 @@ async function exportRateSheet() {
       <div class="rate-big">$${(rate.cleanLow||rate.low||0).toLocaleString()} – $${(rate.cleanHigh||rate.high||0).toLocaleString()}</div>
       <div class="rate-label">Estimated market range per ${delivLabel}</div>
     </div>
-    <div class="conf">${conf} Confidence · ${rate.reliability?.score||0}/10 Reliability</div>
+    <div class="conf">${conf} Confidence · ${rate.reliability?.label||'Moderate'} Reliability</div>
+  </div>
+  <div class="section">
+    <div class="section-title">Suggested Pricing Strategy</div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="stat-num">$${(rate.pricingStrategy?.start||0).toLocaleString()}</div><div class="stat-lbl">Floor — Don't go lower</div></div>
+      <div class="stat-box" style="background:#e8f5e9"><div class="stat-num" style="color:#2e7d32">$${(rate.pricingStrategy?.target||0).toLocaleString()}</div><div class="stat-lbl">Target — Fair market</div></div>
+      <div class="stat-box"><div class="stat-num">$${(rate.pricingStrategy?.stretch||0).toLocaleString()}</div><div class="stat-lbl">Stretch — With exclusivity</div></div>
+    </div>
   </div>
   <div class="section">
     <div class="section-title">Rate Drivers</div>
@@ -3090,21 +3226,37 @@ async function exportRateSheet() {
     <div class="section-title">Limitations</div>
     ${(rate.rateLimits||[]).map(l=>`<div class="breakdown-row"><span style="color:#999">↓</span> <span class="breakdown-label" style="color:#777">${l}</span></div>`).join('')}
   </div>` : ''}
+  ${rate.dealTypeRates ? `<div class="section">
+    <div class="section-title">Estimated Rates by Deal Type</div>
+    ${Object.entries(rate.dealTypeRates).map(([k,v])=>{
+      const labels={'ig-post':'IG Post','ig-reel':'IG Reel','stories':'Story Set','bundle':'IG Bundle','appearance-inperson':'Appearance','retainer':'Monthly Retainer'};
+      return `<div class="breakdown-row"><span class="breakdown-label">${labels[k]||k}</span><span class="breakdown-val">$${(v.low||0).toLocaleString()} – $${(v.high||0).toLocaleString()}</span></div>`;
+    }).join('')}
+  </div>` : ''}
+  ${rate.compNote ? `<div class="section">
+    <div class="section-title">Comparable Market</div>
+    <div class="breakdown-row"><span class="breakdown-label">Peer group</span><span class="breakdown-val">${rate.compNote.tierLabel} ${rate.compNote.sportLabel}</span></div>
+    <div class="breakdown-row"><span class="breakdown-label">Follower range</span><span class="breakdown-val">${rate.compNote.reachLabel}</span></div>
+    <div class="breakdown-row"><span class="breakdown-label">Data source</span><span class="breakdown-val">${rate.compNote.source}</span></div>
+  </div>` : ''}
   <div class="section">
-    <div class="section-title">Confidence Summary</div>
+    <div class="section-title">Market Confidence Summary</div>
     <div class="stat-grid">
-      <div class="stat-box"><div class="stat-num" style="font-size:16px">${rate.confTypes?.social||0}%</div><div class="stat-lbl">Social Data</div></div>
-      <div class="stat-box"><div class="stat-num" style="font-size:16px">${rate.confTypes?.market||0}%</div><div class="stat-lbl">Market Benchmarks</div></div>
-      <div class="stat-box"><div class="stat-num" style="font-size:14px">${rate.confTypes?.overall||'Low'}</div><div class="stat-lbl">Overall</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:14px">${rate.confTypes?.overall||'Low'}</div><div class="stat-lbl">Overall Confidence</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:14px">${rate.reliability?.label||'Moderate'}</div><div class="stat-lbl">Market Reliability</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:14px">${rate.momentum?.signal||'—'}</div><div class="stat-lbl">Momentum</div></div>
     </div>
     <div class="stat-grid" style="margin-top:8px">
-      <div class="stat-box"><div class="stat-num" style="font-size:16px">${rate.reliability?.score||0}/10</div><div class="stat-lbl">Market Reliability</div></div>
-      <div class="stat-box"><div class="stat-num" style="font-size:14px">${rate.confTypes?.comparable||0 ? rate.confTypes.comparable+'%' : 'None'}</div><div class="stat-lbl">Deal Comparables</div></div>
-      <div class="stat-box"><div class="stat-num" style="font-size:14px">N/A</div><div class="stat-lbl">Deal History</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:15px">${rate.confTypes?.social||0}%</div><div class="stat-lbl">Social Data</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:15px">${rate.confTypes?.market||0}%</div><div class="stat-lbl">Market Data</div></div>
+      <div class="stat-box"><div class="stat-num" style="font-size:14px">${rate.confTypes?.comparableLabel||'Developing'}</div><div class="stat-lbl">Deal Comps</div></div>
     </div>
-    ${(rate.reliability?.strengths||[]).length ? `<div style="margin-top:10px;font-size:11px;color:#2e7d32">Strong: ${(rate.reliability.strengths||[]).join(' · ')}</div>` : ''}
-    ${(rate.reliability?.weaknesses||[]).length ? `<div style="margin-top:4px;font-size:11px;color:#999">Weak: ${(rate.reliability.weaknesses||[]).join(' · ')}</div>` : ''}
+    ${(rate.reliability?.strengths||[]).length ? `<div style="margin-top:10px;font-size:11px;color:#2e7d32">Strong signals: ${(rate.reliability.strengths||[]).join(' · ')}</div>` : ''}
   </div>
+  ${(rate.estimateInputs||[]).length ? `<div class="section">
+    <div class="section-title">How This Estimate Was Built</div>
+    ${(rate.estimateInputs||[]).map(i=>`<div class="breakdown-row"><span class="breakdown-label" style="color:#555">${i}</span></div>`).join('')}
+  </div>` : ''}
   ${rate.comps && rate.comps.length ? `<div class="section">
     <div class="section-title">Comparable Closed Deals (Anonymized)</div>
     ${rate.comps.map(c=>{

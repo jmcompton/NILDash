@@ -339,8 +339,10 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
   // ── Trustworthy output layer ─────────────────────────────────────────────
   // Adds transparent estimation fields — keeps all existing fields intact.
   const {
+    nilViewVal: _nilVV,
     cleanRange, generateRateDrivers, generateRateLimitations,
     calcMarketReliabilityScore, generateConfidenceTypes, generateComparableNote,
+    generateMomentumSignal, generatePricingStrategy,
   } = require('./benchmarks');
   const cleaned     = cleanRange(rate.low, rate.high);
   const rateDrivers = generateRateDrivers(athlete, rate);
@@ -348,6 +350,31 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
   const reliability = calcMarketReliabilityScore(athlete, rate, compCount);
   const confTypes   = generateConfidenceTypes(athlete, rate, compCount);
   const compNote    = generateComparableNote(athlete, rate);
+  const momentum    = generateMomentumSignal(athlete);
+  const pricingStrategy = generatePricingStrategy(rate);
+
+  // Pre-compute clean ranges for key deal types (reuses existing math, no new model)
+  function _cr(t) { const r = _nilVV(athlete, t); return cleanRange(r.low, r.high); }
+  const dealTypeRates = {
+    'ig-post':            _cr('ig-post'),
+    'ig-reel':            _cr('ig-reel'),
+    'stories':            _cr('stories'),
+    'bundle':             _cr('bundle'),
+    'appearance-inperson':_cr('appearance-inperson'),
+    'retainer':           _cr('retainer'),
+  };
+
+  // Inputs used — for "How this estimate was built" transparency panel
+  const estimateInputs = [
+    athlete.instagram > 0   ? 'Instagram reach ('  + (athlete.instagram||0).toLocaleString() + ')' : null,
+    athlete.tiktok > 0      ? 'TikTok reach ('     + (athlete.tiktok||0).toLocaleString() + ')'    : null,
+    athlete.engagement > 0  ? 'Engagement rate ('  + athlete.engagement + '%)'                      : null,
+    athlete.schoolTier      ? 'School visibility (' + athlete.schoolTier + ')'                      : null,
+    athlete.sport           ? 'Sport demand index (' + athlete.sport + ')'                          : null,
+    athlete.position        ? 'Position market index (' + athlete.position + ')'                    : null,
+    athlete.ppg || athlete.rpg ? 'On-field performance stats'                                       : null,
+    'Public NIL benchmark data (NCAA 2025, Opendorse, On3)',
+  ].filter(Boolean);
 
   res.json({
     ...rate,
@@ -362,13 +389,17 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
     confidence,
     confidenceNote,
     // ── Trustworthy output layer (new fields — additive, backward compatible)
-    cleanLow:     cleaned.low,
-    cleanHigh:    cleaned.high,
+    cleanLow:      cleaned.low,
+    cleanHigh:     cleaned.high,
     rateDrivers,
     rateLimits,
     reliability,
     confTypes,
     compNote,
+    momentum,
+    pricingStrategy,
+    dealTypeRates,
+    estimateInputs,
   });
 });
 

@@ -833,17 +833,17 @@ function generateRateLimitations(athlete, rate, compCount) {
   const ig    = parseInt(athlete.instagram) || 0;
   const tt    = parseInt(athlete.tiktok)   || 0;
 
-  if (compCount < 5)                          limits.push('Limited closed deal data for this sport/tier');
-  if (reach < 10000)                          limits.push('Sub-10K following — local deals most realistic');
-  else if (reach < 25000 && er < 5)          limits.push('Micro-tier reach with average engagement');
-  if (er < 3 && er > 0)                      limits.push('Below-average engagement reduces CPM value');
-  if (!ig)                                    limits.push('No Instagram data on file');
-  if (!tt)                                    limits.push('TikTok data not on file (single-platform)');
+  if (compCount < 5)                          limits.push('Benchmark coverage developing for this sport/tier');
+  if (reach < 10000)                          limits.push('Building social reach — local partnerships most accessible');
+  else if (reach < 25000 && er < 5)          limits.push('Growing audience tier — micro-market most viable');
+  if (er < 3 && er > 0)                      limits.push('Engagement trending below platform average');
+  if (!ig)                                    limits.push('Instagram data not yet on file');
+  if (!tt)                                    limits.push('Single-platform presence — TikTok data not on file');
   if (tier && !tier.startsWith('p4') && !tier.startsWith('highmajor'))
-                                              limits.push('Non-P4 tier reduces national brand interest');
-  if (!athlete.position)                      limits.push('Position not specified — using default index');
-  if (!athlete.ppg && !athlete.rpg)          limits.push('No performance stats on file');
-  limits.push('No individual deal history (estimation only)');
+                                              limits.push('Non-P4 school tier — regional brands strongest fit');
+  if (!athlete.position)                      limits.push('Position not specified — market average applied');
+  if (!athlete.ppg && !athlete.rpg)          limits.push('Performance stats not yet added to profile');
+  limits.push('Sponsorship history not yet established');
 
   return limits.slice(0, 4);
 }
@@ -897,8 +897,15 @@ function calcMarketReliabilityScore(athlete, rate, compCount) {
   weaknesses.push('No individual deal history on file');
   if (!tt)              weaknesses.push('TikTok data absent (single-platform)');
 
+  const finalScore = Math.round(Math.min(10, Math.max(1, score)) * 10) / 10;
+  const label =
+    finalScore >= 7.5 ? 'Very Strong' :
+    finalScore >= 6.0 ? 'Strong'      :
+    finalScore >= 4.0 ? 'Moderate'    : 'Low';
+
   return {
-    score: Math.round(Math.min(10, Math.max(1, score)) * 10) / 10,
+    score: finalScore,
+    label,
     strengths: strengths.slice(0, 3),
     weaknesses: weaknesses.slice(0, 3),
   };
@@ -944,7 +951,12 @@ function generateConfidenceTypes(athlete, rate, compCount) {
   const weighted = (social * 0.40) + (market * 0.35) + (comparable * 0.25);
   const overall = weighted >= 68 ? 'High' : weighted >= 48 ? 'Moderate' : 'Low';
 
-  return { social, market, comparable, historical, overall, weighted: Math.round(weighted) };
+  // Human-readable comparable label — avoids showing "0%"
+  const comparableLabel =
+    comparable >= 50 ? 'Moderate coverage'   :
+    comparable > 0   ? 'Developing dataset'  : 'Developing dataset';
+
+  return { social, market, comparable, comparableLabel, historical, overall, weighted: Math.round(weighted) };
 }
 
 /**
@@ -979,11 +991,74 @@ function generateComparableNote(athlete, rate) {
   return { tierLabel, sportLabel, reachLabel, source: '2025 NIL benchmark data' };
 }
 
+/**
+ * Momentum signal — derived from available engagement + profile signals.
+ * Never fabricates: returns 'Insufficient data' when inputs are thin.
+ */
+function generateMomentumSignal(athlete) {
+  const ig     = parseInt(athlete.instagram) || 0;
+  const tt     = parseInt(athlete.tiktok)   || 0;
+  const er     = parseFloat(athlete.engagement) || 0;
+  const reach  = ig + tt;
+  const hasDraft = athlete.draftStatus && athlete.draftStatus.toLowerCase().includes('prospect');
+  const hasStats = !!(athlete.ppg || athlete.rpg);
+
+  // Require some social data to say anything meaningful
+  if (!ig && !tt) return { signal: 'Insufficient data', reason: 'Social data not yet on file' };
+  if (!er)        return { signal: 'Insufficient data', reason: 'Engagement data not available' };
+
+  // Strong upward signals
+  if (er >= 8 && ig > 0 && tt > 0) {
+    return { signal: 'Trending Up', reason: 'High engagement across multiple platforms' };
+  }
+  if (er >= 8 && (hasDraft || hasStats)) {
+    return { signal: 'Trending Up', reason: 'Strong engagement with performance credibility' };
+  }
+  if (er >= 6 && reach >= 50000) {
+    return { signal: 'Trending Up', reason: 'Above-average engagement at growing scale' };
+  }
+  // Emerging — high engagement but early reach
+  if (er >= 7 && reach < 25000) {
+    return { signal: 'Emerging', reason: 'Strong engagement signals early audience loyalty' };
+  }
+  if (er >= 5 && reach < 10000) {
+    return { signal: 'Emerging', reason: 'High-quality audience forming at micro-level' };
+  }
+  // Stable — solid but no strong growth signal
+  if (er >= 4 && reach >= 10000) {
+    return { signal: 'Stable', reason: 'Consistent engagement at established reach level' };
+  }
+  if (er >= 3) {
+    return { signal: 'Stable', reason: 'Average engagement — market rate applies' };
+  }
+
+  return { signal: 'Insufficient data', reason: 'Limited signals available for trend analysis' };
+}
+
+/**
+ * Suggested pricing strategy — start / target / stretch anchored to valuation range.
+ * Uses existing low/mid/high — no new math, just presentation framing.
+ */
+function generatePricingStrategy(rate) {
+  const low  = rate.low  || 0;
+  const mid  = rate.mid  || Math.round((low + (rate.high || 0)) / 2);
+  const high = rate.high || 0;
+
+  // Start: the floor you should never go below (rounded low)
+  // Target: the fair market value (rounded mid)
+  // Stretch: aspirational — add ~20% for exclusivity / premium negotiation room
+  const start   = roundToClean(low);
+  const target  = roundToClean(mid);
+  const stretch = roundToClean(Math.round(high * 1.20));
+
+  return { start, target, stretch };
+}
+
 module.exports = {
   MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal,
   // Trustworthy output layer
   roundToClean, cleanRange,
   generateRateDrivers, generateRateLimitations,
   calcMarketReliabilityScore, generateConfidenceTypes,
-  generateComparableNote,
+  generateComparableNote, generateMomentumSignal, generatePricingStrategy,
 };
