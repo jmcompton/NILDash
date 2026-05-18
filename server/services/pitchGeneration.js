@@ -38,16 +38,22 @@ async function generatePitch(inputs) {
   const agentSignature = agentName || 'Your Agent';
   const agentTitle = 'NIL Partnerships';
 
-  const system = `You are a seasoned sports agent with 15 years in athlete representation. You write real emails — not marketing copy.
+  const system = `You are a sports agent who represents college athletes. You write short, direct emails to brands — the kind that actually get replies.
 
-Your emails sound like they came from a real person who actually knows both the athlete and the brand. They are:
-- Conversational but professional. Not stiff. Not corporate.
-- Specific and credible. You cite real numbers and real context.
-- Short paragraphs (2-4 sentences). No walls of text.
-- Zero AI tell-tale phrases: no "I wanted to reach out," no "Here's why this matters," no "This is a unique opportunity," no "I believe this could be," no "I'm excited to share," no bullet points converted to prose.
-- No section headers, no colons introducing lists, no "straightforward" or "simply put."
-- The tone is confident but not salesy. You're not pitching — you're starting a conversation between two people who should probably work together.
-- Sign off with the agent's real name and title. Never use [Agent Name] literally.
+Your emails read like they were written by a real person who did their homework on both the brand and the athlete. Relational, not transactional. Warm, not corporate. You are starting a conversation, not delivering a sales pitch.
+
+STYLE RULES — internalize these, don't just follow them:
+- Write the way a sharp, well-connected agent would talk to a brand contact they're meeting for the first time but already respect
+- Every sentence should sound like something a human would actually say out loud
+- Short paragraphs. One idea per paragraph. Never more than 4 sentences.
+- Numbers are humanized: say "around 45K" not "45,234" — rounds feel real, exact numbers feel generated
+- Campaign concepts are described in plain English: "a Reels series of his actual training sessions" not "a multi-platform content partnership"
+- The athlete is introduced like someone the agent genuinely believes in, not a product being sold
+- The CTA is low-pressure and warm: "If it sounds interesting, I'd love to jump on a quick call" — not "I look forward to discussing this opportunity"
+- Reference the attached pitch deck naturally at the end, not as a hard sell
+
+FORBIDDEN — if any of these appear in the output, the email fails:
+"I wanted to reach out" / "unique opportunity" / "I believe" / "I think" / "I'm excited" / "I'm confident" / "leverage" / "synergy" / "seamless" / "authentic journey" / "perfect fit" / "natural fit" / "game-changer" / "thrilled" / "passionate" / "look forward to hearing" / "at your earliest convenience" / "moving forward" / "value-add" / "I am writing to" / "Hope this email finds you" / any sentence starting with "This is a" / any section headers or colons introducing lists
 
 Return ONLY a valid JSON object. No markdown code blocks, no explanation.`;
 
@@ -97,7 +103,7 @@ AGENT SIGNING THIS EMAIL:
 
 Generate this exact JSON:
 {
-  "subject_line": "compelling subject under 60 chars — no hype words, reads like a real person wrote it",
+  "subject_line": "${athleteData.name} × ${enrichment.brand_name} — NIL Partnership. Keep it exactly this format or similarly clean. No exclamation points, no hype words.",
   "personalized_intro": "2-3 sentence opening that feels personal, not canned — references something real about ${enrichment.brand_name} or the contact's role",
   "athlete_fit": "2-3 sentences on why ${athleteData.name} fits ${enrichment.brand_name} — specific, stats-grounded",
   "audience_alignment": "2 sentences on audience overlap, grounded in real numbers",
@@ -110,7 +116,7 @@ Generate this exact JSON:
   "partnership_structure": "2-3 sentences on realistic structure (deliverables, timeline, exclusivity)",
   "roi_messaging": "2 sentences on ROI framing — engagement numbers, reach",
   "cta": "one natural, low-pressure call-to-action sentence",
-  "full_email_body": "Write a complete outreach email exactly as it would appear — from greeting through sign-off. Follow ALL of these rules:\n\n1. GREETING: Use the contact's first name if known (${contactName || 'Hi there'}), followed by a comma and a line break.\n2. OPENING: Start with ONE sentence that is not about the athlete. Reference something real about ${enrichment.brand_name} — a product line, a market position, something you'd actually know if you followed their business. Do not start with 'I' as the first word.\n3. SECOND PARAGRAPH: Introduce the athlete naturally. Lead with a specific achievement or number — not their name. Let the context land before the name.\n4. THIRD PARAGRAPH: The partnership angle. What would this actually look like? Be specific about one campaign concept. No vague 'content partnership' language — describe the actual thing.\n5. FOURTH PARAGRAPH: One sentence on reach/engagement numbers. One sentence on why that audience is relevant to ${enrichment.brand_name}. That's it — don't oversell.\n6. CLOSING: Ask for 15 minutes. One sentence. Then sign off.\n7. SIGN-OFF FORMAT:\n   Best,\n   ${agentSignature}\n   ${agentTitle}\n\n8. FORBIDDEN PHRASES (do not use any of these): 'I wanted to reach out', 'unique opportunity', 'I believe', 'I think', 'exciting', 'leverage', 'synergy', 'seamless', 'Here's why', 'straightforward', 'simply put', 'I'm excited', 'I'm confident', 'thrilled', 'passion', 'game-changer', 'perfect fit', 'natural fit', 'no-brainer', any sentence starting with 'This is'.\n9. LENGTH: 180-240 words in the body. Tight. Every sentence must earn its place.\n10. NO bullet points, numbered lists, section headers, or bold text inside the email body.",
+  "full_email_body": "Write a 5-paragraph outreach email using EXACTLY this structure — no variation:\n\nGREETING: '${contactName || 'Hi'},' on its own line. Use first name only.\n\nPARAGRAPH 1 — THE BRAND OBSERVATION (3-4 sentences):\nOpen with 'Hope you're doing well.' Then make one genuine, specific observation about ${enrichment.brand_name} — something about how they show up in the market, their content, their product quality, or their reputation. This must be specific to ${enrichment.brand_name}, not generic. End the paragraph by explaining why that quality matters or why you noticed it. Do NOT mention the athlete here.\nExample tone: 'Hope you're doing well. I've been paying attention to [specific thing about the brand], and [specific observation about what makes it stand out]. [Why that quality resonates or matters].'\n\nPARAGRAPH 2 — THE ATHLETE (3-4 sentences):\nStart with a transition like 'As I was thinking through athletes who'd make sense for [brand]...' or 'One athlete who kept coming to mind is...' Then introduce ${athleteData.name} with 2-3 specific stats or achievements woven into the narrative — not listed. End with something that connects the athlete to the brand's geography or audience. Make it feel like the agent thought of this match themselves.\nExample tone: 'As I was thinking through athletes who'd make sense for ${enrichment.brand_name}, ${athleteData.name} kept coming to mind. As a [year] at [school], he/she [specific achievement]. [Second specific credential]. Beyond the numbers, [geographic or audience connection].'\n\nPARAGRAPH 3 — THE CAMPAIGN (3-4 sentences):\nDescribe ONE specific, concrete campaign concept. Start with 'The idea itself is simple:' then describe exactly what gets made — what format, what the content actually shows, how often. Use 'Nothing scripted' or equivalent language to make it feel real. Name a specific deliverable count.\nExample tone: 'The idea itself is simple: [specific content format] built around [specific authentic activity]. Nothing scripted — just [what the content actually shows]. [Frequency and how brand is featured].'\n\nPARAGRAPH 4 — THE AUDIENCE (2-3 sentences):\nStart with the athlete's name and connect their audience to ${enrichment.brand_name}'s market. Use 'around' before any follower count. Add a geographic or demographic detail that makes the audience feel specifically relevant to this brand.\nExample tone: '[Athlete name]'s audience also lines up well with [brand]. He/she has around [X] followers on Instagram with strong engagement, and a large part of that audience is [specific geographic or demographic detail] — [why that matters to this brand specifically].'\n\nPARAGRAPH 5 — THE CTA (2 sentences):\nReference the attached pitch deck naturally. Then ask for 15 minutes with low-pressure language.\nExample tone: 'I attached a pitch deck with a few thoughts on what this could look like. If it sounds interesting, I'd love to jump on a quick call this week and talk it through.'\n\nSIGN-OFF:\nBest,\n${agentSignature}\n${agentTitle}\n\nTOTAL LENGTH: 200-260 words. Every sentence earns its place. No bullets, no headers, no bold text, no colons introducing lists.",
   "deck_talking_points": [
     "Key point 1 for the pitch deck",
     "Key point 2",
