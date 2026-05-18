@@ -148,8 +148,8 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);lin
       <div class="hero-meta" id="h-meta">—</div>
       <div class="hero-stmt" id="h-stmt">Loading...</div>
       <div class="stat-row">
-        <div class="stat-box"><div class="stat-val" id="h-ig">—</div><div class="stat-lbl">IG Followers</div></div>
-        <div class="stat-box"><div class="stat-val" id="h-tt">—</div><div class="stat-lbl">TikTok</div></div>
+        <div class="stat-box"><div class="stat-val" id="h-mkt">—</div><div class="stat-lbl">Marketability Score</div></div>
+        <div class="stat-box"><div class="stat-val" id="h-aq">—</div><div class="stat-lbl">Audience Quality</div></div>
         <div class="stat-box"><div class="stat-val" id="h-eng">—</div><div class="stat-lbl">Engagement Rate</div></div>
         <div class="stat-box"><div class="stat-val" id="h-reach">—</div><div class="stat-lbl">Total Reach</div></div>
       </div>
@@ -191,15 +191,15 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);lin
 </section>
 <section class="slide" id="s5">
   <div class="eyebrow">Slide 05</div>
-  <h2 class="sec-title">Rate Card</h2>
-  <p class="sec-sub">Market-benchmarked pricing across all standard deliverable types.</p>
-  <table class="rate-tbl"><thead><tr><th>Deliverable</th><th>Rate Range</th><th>Notes</th></tr></thead><tbody id="rate-rows"></tbody></table>
-  <p class="rate-footer">All rates benchmarked from NIL market data. Final pricing subject to campaign scope and negotiation. Represented by NILDash.</p>
+  <h2 class="sec-title">Campaign Deliverables</h2>
+  <p class="sec-sub">What a partnership with this athlete looks like across platforms and formats.</p>
+  <table class="rate-tbl"><thead><tr><th>Deliverable</th><th>Format</th><th>Campaign Value</th></tr></thead><tbody id="rate-rows"></tbody></table>
+  <p class="rate-footer">Deliverables are customized to each campaign. Pricing available upon request — contact the representing agent to discuss scope.</p>
 </section>
 <section class="slide" id="s6">
   <div class="eyebrow">Slide 06</div>
-  <h2 class="sec-title">Partnership Packages</h2>
-  <p class="sec-sub">Structured engagement tiers designed for every campaign scale.</p>
+  <h2 class="sec-title">Partnership Tiers</h2>
+  <p class="sec-sub">Structured engagement options designed for every campaign scale — ask agent for pricing.</p>
   <div class="pkg-row" id="pkg-row"></div>
 </section>
 <section class="slide" id="s7">
@@ -247,8 +247,8 @@ function render(d){
   $('h-name').textContent=nm;
   $('h-meta').innerHTML=[sp,sc,pos,yr?yr+' Year':''].filter(Boolean).join(' &middot; ');
   $('h-stmt').textContent=buildStatement(d,sc2);
-  $('h-ig').textContent=fmt(igN);
-  $('h-tt').textContent=fmt(ttN);
+  $('h-mkt').textContent=(sc2.marketabilityScore||rate.marketabilityScore||'—')+(sc2.marketabilityScore||rate.marketabilityScore?'/100':'');
+  $('h-aq').textContent=(sc2.audienceQuality||rate.audienceQuality||'—')+(sc2.audienceQuality||rate.audienceQuality?'/100':'');
   $('h-eng').textContent=eng?eng+'%':'—';
   $('h-reach').textContent=fmt(tot);
   $('photo-initials').textContent=nm.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
@@ -264,10 +264,31 @@ function render(d){
   ];
   const wg=$('why-grid');wg.innerHTML='';
   whys.forEach(w=>{wg.insertAdjacentHTML('beforeend',`<div class="why-item"><div class="why-num">${w.n}</div><div class="why-lead">${w.l}</div><div class="why-body">${w.b}</div></div>`);});
-  const rawStats=(d.stats||'').split(/[,;\n]/).map(s=>s.trim()).filter(Boolean);
-  const perfItems=rawStats.length>=3?rawStats.slice(0,6).map(s=>{const m=s.match(/^([\d,\.%+kKmM\/]+)\s+(.+)$/);return m?{n:m[1].toUpperCase(),l:m[2],sub:''}:{n:'—',l:s,sub:''};}): [{n:fmt(tot),l:'Total Cross-Platform Reach',sub:'Instagram + TikTok'},{n:(sc2.sponsorshipReadiness||0)+'/100',l:'Sponsorship Readiness',sub:'NILDash Score'},{n:(sc2.audienceQuality||0)+'/100',l:'Audience Quality',sub:'Engagement Authenticity'},{n:eng?eng+'%':'—',l:'Engagement Rate',sub:'Above 1-3% Baseline'},{n:sc2.marketabilityScore?sc2.marketabilityScore+'/100':'—',l:'Marketability Score',sub:'NILDash Rating'},{n:'P4',l:'Program Tier',sub:sc||'Power 4'}];
+  // Priority: AI deck slide3 stats → athlete stats field → generic fallback
+  let perfItems;
+  const aiStats=(d.deck&&d.deck.slide3&&d.deck.slide3.stats)||[];
+  const aiRole=(d.deck&&d.deck.slide3&&d.deck.slide3.role)||'';
+  if(aiStats.length>=2){
+    perfItems=aiStats.slice(0,6).map(s=>{const m=s.match(/^([\d,\.%+kKmM\/\-]+)\s+(.+)$/);return m?{n:m[1].toUpperCase(),l:m[2],sub:aiRole}:{n:'—',l:s,sub:''};});
+    while(perfItems.length<3)perfItems.push({n:'—',l:'Stat not available',sub:''});
+  } else {
+    const rawStats=(d.stats||'').split(/[,;\n]/).map(s=>s.trim()).filter(Boolean);
+    if(rawStats.length>=1){
+      perfItems=rawStats.slice(0,6).map(s=>{const m=s.match(/^([\d,\.%+kKmM\/\-]+)\s+(.+)$/);return m?{n:m[1].toUpperCase(),l:m[2],sub:'Last Season'}:{n:'—',l:s,sub:'Last Season'};});
+      while(perfItems.length<3)perfItems.push({n:(sc2.sponsorshipReadiness||0)+'/100',l:'Sponsorship Readiness',sub:'NILDash Score'});
+    } else {
+      perfItems=[{n:fmt(tot),l:'Total Cross-Platform Reach',sub:'Instagram + TikTok'},{n:(sc2.sponsorshipReadiness||0)+'/100',l:'Sponsorship Readiness',sub:'NILDash Score'},{n:(sc2.audienceQuality||0)+'/100',l:'Audience Quality',sub:'Engagement Authenticity'},{n:eng?eng+'%':'—',l:'Engagement Rate',sub:'Above 1-3% Baseline'},{n:sc2.marketabilityScore?sc2.marketabilityScore+'/100':'—',l:'Marketability Score',sub:'NILDash Rating'},{n:'P4',l:'Program Tier',sub:sc||'Power 4'}];
+    }
+  }
   const pg=$('perf-grid');pg.innerHTML='';
-  perfItems.forEach(p=>{pg.insertAdjacentHTML('beforeend',`<div class="perf-box"><div class="perf-num">${p.n}</div><div class="perf-lbl">${p.l}</div>${p.sub?`<div class="perf-sub">${p.sub}</div>`:''}</div>`);});
+  perfItems.forEach(p=>{
+    if(p.n==='—'||!p.n){
+      // Full-sentence achievement — render as bold quote card
+      pg.insertAdjacentHTML('beforeend',`<div class="perf-box" style="display:flex;flex-direction:column;justify-content:center;text-align:left;padding:28px 24px"><div style="font-size:9px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--uni);margin-bottom:12px;font-family:'JetBrains Mono',monospace">Achievement</div><div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.55">${p.l}</div>${p.sub?`<div style="font-size:10px;color:rgba(244,246,255,0.35);margin-top:8px;letter-spacing:.5px">${p.sub}</div>`:''}</div>`);
+    } else {
+      pg.insertAdjacentHTML('beforeend',`<div class="perf-box"><div class="perf-num">${p.n}</div><div class="perf-lbl">${p.l}</div>${p.sub?`<div class="perf-sub">${p.sub}</div>`:''}</div>`);
+    }
+  });
   Chart.defaults.color='rgba(244,246,255,0.45)';Chart.defaults.font.family="'DM Sans',sans-serif";
   const uniColor=uniData?uniData.c:'#BA0C2F';
   // Platform bar chart - real data only, all positive
@@ -302,13 +323,23 @@ function render(d){
   $('aud-grid').innerHTML=`<div class="aud-box"><div class="aud-platform">Instagram</div><div class="aud-num">${fmt(igN)}</div><div class="aud-eng">${eng?eng+'% Engagement':'Active'}</div><div class="aud-desc">Primary 18–34, lifestyle and sport. High engagement on game-day and training content.</div></div><div class="aud-box"><div class="aud-platform">TikTok</div><div class="aud-num">${fmt(ttN)||'Active'}</div><div class="aud-eng">Growing Presence</div><div class="aud-desc">Younger 16–28 skew. High-velocity distribution ideal for product launches and viral brand moments.</div></div><div class="aud-box" style="border-color:${uniColor}50;background:${uniColor}08"><div class="aud-platform">Combined Reach</div><div class="aud-num" style="color:var(--uni)">${fmt(tot)}</div><div class="aud-eng">Cross-Platform</div><div class="aud-desc">Full-funnel coverage from mass awareness through targeted conversion for ${brand||'your brand'}'s core demographic.</div></div>`;
   $('geo-list').innerHTML=[['Home State / Region','42%'],['National College Fans','29%'],['Midwest / Northeast','19%'],['International','10%']].map(([l,v])=>`<div class="demo-row"><span class="demo-label">${l}</span><span class="demo-val">${v}</span></div>`).join('');
   $('demo-list').innerHTML=[['Ages 18–24','52%'],['Ages 25–34','28%'],['Male','68%'],['Sport/Lifestyle Interest','91%']].map(([l,v])=>`<div class="demo-row"><span class="demo-label">${l}</span><span class="demo-val">${v}</span></div>`).join('');
-  const rows=[{name:'Instagram Reel',r:rt.igReel,note:'Short-form video, 15–60s, brand integration or dedicated post'},{name:'Instagram Post',r:rt.igPost,note:'Static or carousel, permanent feed placement'},{name:'TikTok Video',r:rt.tiktok,note:'Organic-style video, trending sound or original concept'},{name:'Story Set (3 frames)',r:rt.story,note:'Three-frame story sequence, 24-hour placement'},{name:'Full Campaign Bundle',r:rt.bundle,note:'Reel + Post + Story Set, 30-day brand exclusivity'},{name:'Monthly Retainer',r:rt.retainer,note:'Ongoing 4+ pieces/month, exclusivity negotiable'}];
+  const rows=[
+    {name:'Instagram Reel',fmt:'Short-form video (15–60s)',note:'High-impact brand integration with full caption rights and 30-day content window'},
+    {name:'Instagram Post',fmt:'Static or carousel',note:'Permanent feed placement — ideal for product launches and brand awareness campaigns'},
+    {name:'TikTok Video',fmt:'Organic-style video',note:'High-velocity distribution for product drops, trending audio, and viral brand moments'},
+    {name:'Story Set',fmt:'3-frame sequence (24hr)',note:'Direct link placement, limited-time urgency — high click-through for promotional campaigns'},
+    {name:'Full Campaign Bundle',fmt:'Reel + Post + Story Set',note:'Full-funnel coverage with 30-day brand exclusivity across all platforms'},
+    {name:'Monthly Retainer',fmt:'4+ pieces per month',note:'Ongoing partnership with content calendar collaboration and exclusivity options'}
+  ];
   const tb=$('rate-rows');tb.innerHTML='';
-  rows.forEach(row=>{tb.insertAdjacentHTML('beforeend',`<tr><td><span class="dlv-name">${row.name}</span></td><td><span class="dlv-rate">${fmtR(row.r)}</span></td><td><span class="dlv-note">${row.note}</span></td></tr>`);});
-  const mid=(rt.igReel&&rt.igReel.mid)||750;
-  const pkgs=[{tier:'Starter',name:'Brand Awareness',price:moneyR(mid*.8,mid*1.4),per:'per campaign',hot:false,cta:'Inquire Now',items:['1 Instagram Reel or TikTok Video','1 Instagram Story Set (3 frames)','Brand mention in caption','30-day content window','Usage rights for paid amplification']},{tier:'Pro',name:'Growth Partnership',price:moneyR(mid*2,mid*4),per:'per month',hot:true,cta:'Start Partnership',items:['2 Instagram Reels + 2 TikTok Videos','3 Story Sets per month','Dedicated product integration','Campaign creative collaboration','Full commercial usage rights','Monthly performance summary']},{tier:'Elite',name:'Brand Ambassador',price:'$'+Math.round(mid*5).toLocaleString()+'+',per:'per month, negotiated',hot:false,cta:'Schedule a Call',items:['Unlimited content within brand calendar','Category exclusivity across platforms','Event appearances (negotiated)','Co-created campaign development','Direct athlete access for brand shoots']}];
+  rows.forEach(row=>{tb.insertAdjacentHTML('beforeend',`<tr><td><span class="dlv-name">${row.name}</span></td><td><span class="dlv-rate" style="color:var(--muted);font-family:'DM Sans',sans-serif;font-weight:500">${row.fmt}</span></td><td><span class="dlv-note">${row.note}</span></td></tr>`);});
+  const pkgs=[
+    {tier:'Starter',name:'Brand Awareness',pricing:'Ask agent for pricing',pricingNote:'Single campaign',hot:false,cta:'Inquire Now',items:['1 Instagram Reel or TikTok Video','1 Instagram Story Set (3 frames)','Brand mention in caption','30-day content window','Usage rights for paid amplification']},
+    {tier:'Pro',name:'Growth Partnership',pricing:'Ask agent for pricing',pricingNote:'Monthly partnership',hot:true,cta:'Start Partnership',items:['2 Instagram Reels + 2 TikTok Videos','3 Story Sets per month','Dedicated product integration','Campaign creative collaboration','Full commercial usage rights','Monthly performance summary']},
+    {tier:'Elite',name:'Brand Ambassador',pricing:'Ask agent for pricing',pricingNote:'Custom negotiated',hot:false,cta:'Schedule a Call',items:['Unlimited content within brand calendar','Category exclusivity across platforms','Event appearances (negotiated)','Co-created campaign development','Direct athlete access for brand shoots']}
+  ];
   const pr=$('pkg-row');pr.innerHTML='';
-  pkgs.forEach(pk=>{pr.insertAdjacentHTML('beforeend',`<div class="pkg${pk.hot?' hot':''}"><div class="pkg-tier">${pk.tier}</div>${pk.hot?`<div class="pkg-badge">Most Popular</div>`:''}<div class="pkg-name">${pk.name}</div><div class="pkg-price">${pk.price}</div><div class="pkg-per">${pk.per}</div><div class="pkg-div"></div><div class="pkg-lbl">What's Included</div>${pk.items.map(i=>`<div class="pkg-line"><span class="pkg-chk">✓</span><span>${i}</span></div>`).join('')}<button class="pkg-cta" onclick="document.getElementById('s7').scrollIntoView({behavior:'smooth'})">${pk.cta}</button></div>`);});
+  pkgs.forEach(pk=>{pr.insertAdjacentHTML('beforeend',`<div class="pkg${pk.hot?' hot':''}"><div class="pkg-tier">${pk.tier}</div>${pk.hot?`<div class="pkg-badge">Most Popular</div>`:''}<div class="pkg-name">${pk.name}</div><div class="pkg-price" style="font-size:18px;letter-spacing:0">${pk.pricing}</div><div class="pkg-per">${pk.pricingNote}</div><div class="pkg-div"></div><div class="pkg-lbl">What's Included</div>${pk.items.map(i=>`<div class="pkg-line"><span class="pkg-chk">✓</span><span>${i}</span></div>`).join('')}<button class="pkg-cta" onclick="openContactModal()">${pk.cta}</button></div>`);});
   $('cta-name').textContent=nm;$('cta-sport').textContent=[sp,sc].filter(Boolean).join(' — ')||'—';
   const loader=$('loader');loader.style.opacity='0';setTimeout(()=>loader.style.display='none',500);setTimeout(()=>$('s1').classList.add('in'),100);
 }
@@ -332,7 +363,7 @@ async function init(){
     if(!res.ok)throw new Error('Athlete not found (id: '+id+')');
     const data=await res.json();
     data.targetBrand=targetBrand||null;
-    try{const stored=sessionStorage.getItem('nilPitchData_'+id);if(stored){const s=JSON.parse(stored);if(s.photo)data.athletePhoto=s.photo;if(!targetBrand&&s.brand)data.targetBrand=s.brand;}}catch(e){}
+    try{const stored=sessionStorage.getItem('nilPitchData_'+id);if(stored){const s=JSON.parse(stored);if(s.photo)data.athletePhoto=s.photo;if(!targetBrand&&s.brand)data.targetBrand=s.brand;if(s.deck)data.deck=s.deck;}}catch(e){}
     render(data);
   }catch(err){$('loader').innerHTML=`<div style="text-align:center;color:#FF3D5A;font-size:13px;padding:20px;">${err.message}</div>`;}
 }

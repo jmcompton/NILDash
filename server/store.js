@@ -116,6 +116,92 @@ async function init() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  // ── Email Integration Tables (additive — never modifies existing tables) ──
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_accounts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      email_address TEXT NOT NULL,
+      access_token_enc TEXT,
+      refresh_token_enc TEXT,
+      token_expiry TIMESTAMPTZ,
+      status TEXT DEFAULT 'active',
+      last_sync TIMESTAMPTZ,
+      sync_cursor TEXT,
+      display_name TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(user_id, email_address)
+    );
+    CREATE TABLE IF NOT EXISTS email_threads (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      subject TEXT,
+      participant_emails TEXT[],
+      athlete_id TEXT,
+      deal_id TEXT,
+      last_message_at TIMESTAMPTZ,
+      message_count INTEGER DEFAULT 0,
+      has_unread BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS emails (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT,
+      account_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      from_address TEXT,
+      from_name TEXT,
+      to_addresses TEXT[],
+      cc_addresses TEXT[],
+      subject TEXT,
+      body_text TEXT,
+      body_html TEXT,
+      provider_message_id TEXT,
+      provider_thread_id TEXT,
+      sent_at TIMESTAMPTZ,
+      is_read BOOLEAN DEFAULT FALSE,
+      has_attachments BOOLEAN DEFAULT FALSE,
+      athlete_id TEXT,
+      deal_id TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(account_id, provider_message_id)
+    );
+    CREATE TABLE IF NOT EXISTS email_sync_logs (
+      id SERIAL PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      messages_synced INTEGER DEFAULT 0,
+      error_message TEXT,
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      finished_at TIMESTAMPTZ
+    );
+    CREATE TABLE IF NOT EXISTS email_drafts (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      thread_id TEXT,
+      to_addresses TEXT[],
+      cc_addresses TEXT[],
+      subject TEXT,
+      body_html TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch(e => console.error('Email tables init error:', e.message));
+  // Email indexes for performance
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_accounts_user ON email_accounts(user_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails(thread_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_emails_account ON emails(account_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_emails_athlete ON emails(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_user ON email_threads(user_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_threads_athlete ON email_threads(athlete_id)`).catch(() => {});
+
   // Indexes for performance
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_athletes_agent ON athletes(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deals_athlete ON deals(athlete_id)`).catch(() => {});

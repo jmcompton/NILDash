@@ -18,7 +18,7 @@
   --bg:#0A0E1A;--surface:#141929;--surface2:#1E2540;
   --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
   --text:#F0F4FF;--muted:rgba(240,244,255,0.45);
-  --accent:#C8FF00;--accent2:#A8D900;--electric:#00D4FF;--gold:#FFB800;--red:#FF3D5A;
+  --accent:#84CC16;--accent2:#6BAE10;--electric:#00D4FF;--gold:#FFB800;--red:#FF3D5A;
   --head:'DM Sans','Inter',sans-serif;--mono:'JetBrains Mono','DM Mono',monospace;
   --r:12px;--r-sm:8px;
 }
@@ -97,7 +97,7 @@ body::before{display:none}
 .role-selector{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
 .role-btn{padding:14px;border:1px solid var(--border);border-radius:var(--r);background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer;transition:all 0.15s;text-align:center}
 .role-btn .role-icon{font-size:22px;display:block;margin-bottom:6px}
-.role-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(200,241,53,0.08)}
+.role-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(132,204,22,0.08)}
 .btn-primary{width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:13px;border-radius:40px;border:none;cursor:pointer;transition:all 0.2s;margin-top:8px}
 .btn-primary:hover{opacity:0.9;transform:translateY(-1px)}
 .btn-primary:disabled{opacity:0.5;cursor:not-allowed;transform:none}
@@ -109,7 +109,7 @@ body::before{display:none}
 .sidebar{width:200px;min-height:100vh;background:#141929;border-right:1px solid rgba(255,255,255,0.08);position:fixed;left:0;top:0;bottom:0;display:flex;flex-direction:column;z-index:50}
 .sidebar-logo{padding:20px 18px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:11px}
 .nildash-logo-wordmark{font-family:'DM Sans',sans-serif;font-size:21px;font-weight:900;letter-spacing:-0.5px;line-height:1;color:#FFFFFF}
-.nildash-logo-wordmark span{color:#C8FF00}
+.nildash-logo-wordmark span{color:#84CC16}
 .nildash-logo-sub{font-size:8px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-top:4px}
 .logo-text{font-family:'DM Sans',sans-serif;font-size:21px;font-weight:900;letter-spacing:-0.5px;line-height:1;color:#FFFFFF}
 .logo-sub{font-size:8px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:rgba(255,255,255,0.3);margin-top:4px}
@@ -117,12 +117,12 @@ body::before{display:none}
 .nav-section-label{font-size:9px;color:rgba(240,244,255,0.25);letter-spacing:0.16em;text-transform:uppercase;padding:0 10px;margin:14px 0 6px;font-weight:600}
 .nav-item{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:8px;cursor:pointer;color:rgba(240,244,255,0.45);font-size:13px;transition:all 0.12s;margin-bottom:2px;border:none;background:none;width:100%;text-align:left;font-family:'DM Sans',sans-serif;font-weight:400}
 .nav-item:hover{background:rgba(255,255,255,0.06);color:var(--text)}
-.nav-item.active{background:rgba(200,255,0,0.1);color:#C8FF00;border:1px solid rgba(200,255,0,0.18);font-weight:500}
+.nav-item.active{background:rgba(132,204,22,0.1);color:#84CC16;border:1px solid rgba(132,204,22,0.18);font-weight:500}
 .nav-icon{font-size:15px;width:18px;flex-shrink:0;opacity:0.7}
 .nav-item.active .nav-icon{opacity:1}
 .sidebar-bottom{padding:12px;border-top:1px solid rgba(255,255,255,0.08)}
 .user-card{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08)}
-.user-avatar{width:32px;height:32px;border-radius:50%;background:rgba(200,255,0,0.12);color:#C8FF00;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:700;flex-shrink:0;border:2px solid rgba(200,255,0,0.3)}
+.user-avatar{width:32px;height:32px;border-radius:50%;background:rgba(132,204,22,0.12);color:#84CC16;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif;font-size:11px;font-weight:700;flex-shrink:0;border:2px solid rgba(132,204,22,0.3)}
 .user-name{font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .user-role{font-size:10px;color:var(--muted);text-transform:capitalize}
 .logout-btn{width:100%;background:transparent;color:var(--muted);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:8px;font-family:'DM Sans',sans-serif;font-size:11px;cursor:pointer;transition:all 0.15s;margin-top:8px}
@@ -134,7 +134,7 @@ body::before{display:none}
 .breadcrumb{font-size:11px;color:var(--muted);letter-spacing:0.04em;font-family:'DM Sans',sans-serif}
 .breadcrumb span{color:var(--text);font-weight:600}
 .ai-status{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(240,244,255,0.4);font-family:'DM Sans',sans-serif;font-weight:500}
-.ai-status::before{content:'';width:6px;height:6px;border-radius:50%;background:#C8FF00;flex-shrink:0;animation:pulse 2s ease-in-out infinite}
+.ai-status::before{content:'';width:6px;height:6px;border-radius:50%;background:#84CC16;flex-shrink:0;animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
 .content{padding:4px 0 16px 0;width:100%;box-sizing:border-box}
@@ -149,19 +149,19 @@ body::before{display:none}
 .card:hover{border-color:rgba(255,255,255,0.14)}
 .card-title{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08);font-family:'DM Sans',sans-serif}
 .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px}
-.kpi{background:var(--surface);border:1px solid rgba(200,255,0,0.25);border-top:2px solid #C8FF00;border-radius:12px;padding:12px 16px;position:relative;overflow:hidden;transition:all 0.15s;cursor:default}
-.kpi:hover{border-color:rgba(200,255,0,0.25);transform:translateY(-2px)}
+.kpi{background:var(--surface);border:1px solid rgba(132,204,22,0.25);border-top:2px solid #84CC16;border-radius:12px;padding:12px 16px;position:relative;overflow:hidden;transition:all 0.15s;cursor:default}
+.kpi:hover{border-color:rgba(132,204,22,0.25);transform:translateY(-2px)}
 .kpi-label{font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;font-weight:600;font-family:'DM Sans',sans-serif}
-.kpi-val{font-family:'Bebas Neue',sans-serif;font-size:30px;font-weight:400;letter-spacing:1px;color:#C8FF00;line-height:1;-webkit-text-fill-color:#C8FF00;background:none}
+.kpi-val{font-family:'Bebas Neue',sans-serif;font-size:30px;font-weight:400;letter-spacing:1px;color:#84CC16;line-height:1;-webkit-text-fill-color:#84CC16;background:none}
 .kpi-sub{font-size:11px;color:var(--muted);margin-top:6px;font-family:'DM Sans',sans-serif}
 
 /* AI block */
-.ai-block{background:var(--surface2);border:1px solid rgba(255,255,255,0.08);border-left:3px solid #C8FF00;border-radius:12px;padding:18px 22px;display:none}
+.ai-block{background:var(--surface2);border:1px solid rgba(255,255,255,0.08);border-left:3px solid #84CC16;border-radius:12px;padding:18px 22px;display:none}
 .ai-block.visible{display:block}
 .ai-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.08)}
-.ai-label{font-size:10px;color:#C8FF00;letter-spacing:1.5px;text-transform:uppercase;font-weight:600;font-family:'DM Sans',sans-serif}
-.ai-badge{font-size:9px;font-weight:700;letter-spacing:1px;color:#0A0E1A;background:#C8FF00;border-radius:4px;padding:2px 6px;text-transform:uppercase;margin-left:auto}
-.spinner{width:12px;height:12px;border:1.5px solid rgba(200,255,0,0.25);border-top-color:#C8FF00;border-radius:50%;animation:spin 0.7s linear infinite;display:none}
+.ai-label{font-size:10px;color:#84CC16;letter-spacing:1.5px;text-transform:uppercase;font-weight:600;font-family:'DM Sans',sans-serif}
+.ai-badge{font-size:9px;font-weight:700;letter-spacing:1px;color:#0A0E1A;background:#84CC16;border-radius:4px;padding:2px 6px;text-transform:uppercase;margin-left:auto}
+.spinner{width:12px;height:12px;border:1.5px solid rgba(132,204,22,0.25);border-top-color:#84CC16;border-radius:50%;animation:spin 0.7s linear infinite;display:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 .ai-content{font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap;font-family:'DM Sans',sans-serif}
 
@@ -173,21 +173,21 @@ textarea.cmd-input{width:100%;padding:14px 16px;background:var(--surface);color:
 .cmd-footer{padding:10px 12px;background:var(--surface2);border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center;gap:10px}
 .quick-btns{display:flex;gap:6px;flex-wrap:wrap}
 .qb{font-size:10px;padding:5px 10px;border-radius:6px;background:rgba(255,255,255,0.04);color:var(--muted);border:1px solid rgba(255,255,255,0.1);cursor:pointer;transition:all 0.12s;font-family:'DM Sans',sans-serif;font-weight:500}
-.qb:hover{background:#C8FF00;color:#0A0E1A;border-color:#C8FF00}
-.run-btn{background:#C8FF00;color:#0A0E1A;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;padding:9px 22px;border-radius:40px;border:none;cursor:pointer;transition:all 0.15s;flex-shrink:0;letter-spacing:0.3px}
-.run-btn:hover{background:#A8D900}
+.qb:hover{background:#84CC16;color:#0A0E1A;border-color:#84CC16}
+.run-btn{background:#84CC16;color:#0A0E1A;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;padding:9px 22px;border-radius:40px;border:none;cursor:pointer;transition:all 0.15s;flex-shrink:0;letter-spacing:0.3px}
+.run-btn:hover{background:#6BAE10}
 .run-btn:disabled{opacity:0.5;cursor:not-allowed}
 
 /* Roster */
 .roster-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
 .athlete-card{background:var(--surface);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:18px 20px;cursor:pointer;transition:all 0.15s}
-.athlete-card:hover{border-color:rgba(200,255,0,0.3);transform:translateY(-2px)}
-.athlete-card.selected{border-color:rgba(200,255,0,0.5);background:rgba(200,255,0,0.04)}
+.athlete-card:hover{border-color:rgba(132,204,22,0.3);transform:translateY(-2px)}
+.athlete-card.selected{border-color:rgba(132,204,22,0.5);background:rgba(132,204,22,0.04)}
 .ac-name{font-family:'DM Sans',sans-serif;font-size:16px;font-weight:700;margin-bottom:4px;letter-spacing:-0.3px;color:var(--text)}
 .ac-meta{font-size:11px;color:var(--muted);margin-bottom:12px;font-family:'DM Sans',sans-serif}
 .ac-stats{display:flex;gap:8px;flex-wrap:wrap}
 .ac-stat{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:4px 10px;font-size:11px;font-family:'DM Sans',sans-serif}
-.ac-stat span{color:#C8FF00;font-weight:600;font-family:'JetBrains Mono',monospace}
+.ac-stat span{color:#84CC16;font-weight:600;font-family:'JetBrains Mono',monospace}
 
 /* Table */
 .table-wrap{overflow-x:auto}
@@ -197,10 +197,10 @@ tbody tr{border-bottom:1px solid var(--border);transition:background 0.12s}
 tbody tr:last-child{border:none}
 tbody tr:hover{background:var(--surface2)}
 tbody td{padding:11px 14px;vertical-align:middle}
-.score-high{color:#C8FF00;font-weight:600;font-family:'JetBrains Mono',monospace}
+.score-high{color:#84CC16;font-weight:600;font-family:'JetBrains Mono',monospace}
 .score-mid{color:#FFB800;font-weight:600;font-family:'JetBrains Mono',monospace}
 .chip{display:inline-flex;align-items:center;font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;letter-spacing:0.3px;font-family:'DM Sans',sans-serif}
-.chip-green{background:rgba(200,255,0,0.1);color:#C8FF00;border:1px solid rgba(200,255,0,0.2)}
+.chip-green{background:rgba(132,204,22,0.1);color:#84CC16;border:1px solid rgba(132,204,22,0.2)}
 .chip-blue{background:rgba(0,212,255,0.1);color:#00D4FF;border:1px solid rgba(0,212,255,0.2)}
 .chip-red{background:rgba(255,61,90,0.1);color:#FF3D5A;border:1px solid rgba(255,61,90,0.2)}
 .chip-neutral{background:rgba(255,255,255,0.06);color:var(--muted);border:1px solid rgba(255,255,255,0.1)}
@@ -220,10 +220,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .pipe-col-name{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);font-family:'DM Sans',sans-serif}
 .pipe-count{font-size:10px;background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:40px;color:var(--muted);border:1px solid rgba(255,255,255,0.1)}
 .pipe-card{background:var(--surface);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px 16px;margin-bottom:8px;cursor:pointer;transition:all 0.15s}
-.pipe-card:hover{border-color:rgba(200,255,0,0.25);transform:translateY(-1px)}
+.pipe-card:hover{border-color:rgba(132,204,22,0.25);transform:translateY(-1px)}
 .pipe-brand{font-weight:600;font-size:13px;margin-bottom:2px;font-family:'DM Sans',sans-serif;color:var(--text)}
 .pipe-athlete{font-size:11px;color:var(--muted);margin-bottom:8px;font-family:'DM Sans',sans-serif}
-.pipe-amount{font-size:13px;font-weight:700;color:#C8FF00;font-family:'JetBrains Mono',monospace}
+.pipe-amount{font-size:13px;font-weight:700;color:#84CC16;font-family:'JetBrains Mono',monospace}
 .pipe-footer{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.06)}
 
 /* Modal */
@@ -237,13 +237,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
 /* Toast */
 .notif-panel{position:fixed;top:44px;right:0;z-index:100;width:280px;max-height:calc(100vh - 44px);overflow-y:auto;background:var(--surface);border-left:1px solid var(--border);border-bottom:1px solid var(--border);display:none}
 .notif-panel.open{display:block}
-.toast{position:fixed;bottom:20px;right:20px;z-index:999;background:#141929;color:var(--text);border:1px solid rgba(200,255,0,0.4);border-radius:10px;padding:12px 18px;font-size:12px;max-width:320px;opacity:0;transform:translateY(8px);transition:all 0.25s;pointer-events:none;font-family:'DM Sans',sans-serif;font-weight:500}
+.toast{position:fixed;bottom:20px;right:20px;z-index:999;background:#141929;color:var(--text);border:1px solid rgba(132,204,22,0.4);border-radius:10px;padding:12px 18px;font-size:12px;max-width:320px;opacity:0;transform:translateY(8px);transition:all 0.25s;pointer-events:none;font-family:'DM Sans',sans-serif;font-weight:500}
 .toast.show{opacity:1;transform:none}
 
 /* Rate result */
 .rate-result{background:var(--surface2);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;margin-top:16px;display:none}
 .rate-result.visible{display:block}
-.rate-range{font-family:'Bebas Neue',sans-serif;font-size:44px;font-weight:400;color:#C8FF00;letter-spacing:2px;margin-bottom:4px;line-height:1}
+.rate-range{font-family:'Bebas Neue',sans-serif;font-size:44px;font-weight:400;color:#84CC16;letter-spacing:2px;margin-bottom:4px;line-height:1}
 .rate-breakdown{margin-top:14px;display:grid;gap:6px}
 .rb-row{display:flex;justify-content:space-between;font-size:11px;font-family:'DM Sans',sans-serif}
 .rb-label{color:var(--muted)}
@@ -541,13 +541,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
   <div class="mob-logo" style="display:flex;align-items:center;gap:8px">
   <svg width="28" height="28" viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg">
     <rect width="42" height="42" rx="10" fill="#0A0E1A"/>
-    <rect x="1" y="1" width="40" height="40" rx="9" fill="none" stroke="#C8FF00" stroke-width="2"/>
-    <rect x="8" y="9" width="6" height="24" rx="1.5" fill="#C8FF00"/>
-    <polygon points="14,9 21,33 15,33 8,9" fill="#C8FF00"/>
-    <rect x="20" y="9" width="6" height="24" rx="1.5" fill="#C8FF00"/>
-    <rect x="29" y="17" width="5" height="16" rx="1.5" fill="#C8FF00" opacity="0.5"/>
+    <rect x="1" y="1" width="40" height="40" rx="9" fill="none" stroke="#84CC16" stroke-width="2"/>
+    <rect x="8" y="9" width="6" height="24" rx="1.5" fill="#84CC16"/>
+    <polygon points="14,9 21,33 15,33 8,9" fill="#84CC16"/>
+    <rect x="20" y="9" width="6" height="24" rx="1.5" fill="#84CC16"/>
+    <rect x="29" y="17" width="5" height="16" rx="1.5" fill="#84CC16" opacity="0.5"/>
   </svg>
-  <span style="font-family:'DM Sans',sans-serif;font-size:17px;font-weight:900;letter-spacing:-0.5px;color:#FFFFFF">NIL<span style="color:#C8FF00">Dash</span></span>
+  <span style="font-family:'DM Sans',sans-serif;font-size:17px;font-weight:900;letter-spacing:-0.5px;color:#FFFFFF">NIL<span style="color:#84CC16">Dash</span></span>
 </div>
 </div>
 <div id="sidebarOverlay" class="sidebar-overlay" onclick="document.querySelector('.sidebar').classList.remove('open');document.getElementById('sidebarOverlay').classList.remove('open')"></div>
@@ -624,11 +624,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="sidebar-logo">
       <svg width="42" height="42" viewBox="0 0 42 42" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect width="42" height="42" rx="10" fill="#0A0E1A"/>
-        <rect x="1" y="1" width="40" height="40" rx="9" fill="none" stroke="#C8FF00" stroke-width="2"/>
-        <rect x="8" y="9" width="6" height="24" rx="1.5" fill="#C8FF00"/>
-        <polygon points="14,9 21,33 15,33 8,9" fill="#C8FF00"/>
-        <rect x="20" y="9" width="6" height="24" rx="1.5" fill="#C8FF00"/>
-        <rect x="29" y="17" width="5" height="16" rx="1.5" fill="#C8FF00" opacity="0.5"/>
+        <rect x="1" y="1" width="40" height="40" rx="9" fill="none" stroke="#84CC16" stroke-width="2"/>
+        <rect x="8" y="9" width="6" height="24" rx="1.5" fill="#84CC16"/>
+        <polygon points="14,9 21,33 15,33 8,9" fill="#84CC16"/>
+        <rect x="20" y="9" width="6" height="24" rx="1.5" fill="#84CC16"/>
+        <rect x="29" y="17" width="5" height="16" rx="1.5" fill="#84CC16" opacity="0.5"/>
       </svg>
       <div>
         <div class="nildash-logo-wordmark">NIL<span>Dash</span></div>
@@ -646,9 +646,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </button>
       <button class="nav-item" onclick="showView('rate',this)">
         <span class="nav-dot-item"></span>Rate Calculator
-      </button>
-      <button class="nav-item" onclick="showView('negotiate',this)">
-        <span class="nav-dot-item"></span>Negotiate
       </button>
       <button class="nav-item" onclick="showView('team-match',this)">
         <span class="nav-dot-item"></span>Team Match
@@ -686,6 +683,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </button>
       <button class="nav-item" onclick="showView('athlete-portals',this)" id="athletePortalsNavBtn">
         <span class="nav-dot-item"></span>Athlete Portals
+      </button>
+      <div class="nav-section-label">Communication</div>
+      <button class="nav-item" id="emailNavBtn" onclick="showView('email-inbox',this);emailModule.loadInbox()">
+        <span class="nav-dot-item"></span>Email Inbox
+      </button>
+      <button class="nav-item" onclick="showView('settings',this);emailModule.loadAccounts()">
+        <span class="nav-dot-item"></span>Settings
       </button>
     </nav>
 
@@ -732,14 +736,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="kpi"><div class="kpi-label">Pipeline Value</div><div class="kpi-val" id="kpi-pipeline">$0</div><div class="kpi-sub">Active deals</div></div>
           <div class="kpi"><div class="kpi-label">Active Deals</div><div class="kpi-val" id="kpi-deals">0</div><div class="kpi-sub">In progress</div></div>
           <div class="kpi"><div class="kpi-label">Clients</div><div class="kpi-val" id="kpi-clients">0</div><div class="kpi-sub">On roster</div></div>
-          <div class="kpi"><div class="kpi-label">Total NIL Earned</div><div class="kpi-val" id="kpi-total-nil" style="color:#C8FF00;-webkit-text-fill-color:#C8FF00">$0K</div><div class="kpi-sub">Across all clients</div></div>
+          <div class="kpi"><div class="kpi-label">Total NIL Earned</div><div class="kpi-val" id="kpi-total-nil" style="color:#84CC16;-webkit-text-fill-color:#84CC16">$0K</div><div class="kpi-sub">Across all clients</div></div>
         </div>
 
         <div id="dashboard-quick-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
-          <div style="background:var(--surface);border:1px solid rgba(200,255,0,0.2);border-top:2px solid #C8FF00;border-radius:12px;padding:14px 16px">
+          <div style="background:var(--surface);border:1px solid rgba(132,204,22,0.2);border-top:2px solid #84CC16;border-radius:12px;padding:14px 16px">
             <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Quick Actions</div>
             <div style="display:flex;flex-direction:column;gap:6px">
-              <button onclick="showView('rate',document.querySelector('.nav-item[onclick*=rate]'))" style="text-align:left;padding:8px 12px;background:rgba(200,255,0,0.06);border:1px solid rgba(200,255,0,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Calculate Rate for Client</button>
+              <button onclick="showView('rate',document.querySelector('.nav-item[onclick*=rate]'))" style="text-align:left;padding:8px 12px;background:rgba(132,204,22,0.06);border:1px solid rgba(132,204,22,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Calculate Rate for Client</button>
               <button onclick="showView('deals',document.querySelector('.nav-item[onclick*=deals]'))" style="text-align:left;padding:8px 12px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Scan for New Deals</button>
               <button onclick="showView('marketing',document.querySelector('.nav-item[onclick*=marketing]'))" style="text-align:left;padding:8px 12px;background:rgba(255,184,0,0.06);border:1px solid rgba(255,184,0,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Generate Pitch Deck</button>
               <button onclick="showView('contract',document.querySelector('.nav-item[onclick*=contract]'))" style="text-align:left;padding:8px 12px;background:rgba(255,61,90,0.06);border:1px solid rgba(255,61,90,0.15);border-radius:8px;color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Generate Contract</button>
@@ -767,8 +771,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <span class="cmd-top-label">Ask about <span id="cmdClientLabel" style="color:var(--text)">your client</span></span>
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-size:10px;color:var(--muted)">LIVE AI</span>
-              <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="padding:3px 10px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:5px;color:var(--accent);font-size:10px;font-weight:600;cursor:pointer">Pitch Deck</button>
-              <button onclick="if(selectedAthleteId){openOutreachModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="padding:3px 10px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:5px;color:var(--accent);font-size:10px;font-weight:600;cursor:pointer">Outreach</button>
+              <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="padding:3px 10px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:5px;color:var(--accent);font-size:10px;font-weight:600;cursor:pointer">Pitch Deck</button>
+              <button onclick="if(selectedAthleteId){openOutreachModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="padding:3px 10px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:5px;color:var(--accent);font-size:10px;font-weight:600;cursor:pointer">Outreach</button>
             </div>
           </div>
           <textarea class="cmd-input" id="commandInput" placeholder="e.g. 'What are the 10 best deals for my client?' or 'What should I charge Nike?' or 'Give me negotiation leverage for today's call'"></textarea>
@@ -895,8 +899,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">NILViewVal v5.2 — Marketability Scores</div>
               <div id="rate-v4-scores-body"></div>
               <div style="display:flex;gap:8px;margin-top:14px">
-                <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Generate Pitch Deck</button>
-                <button onclick="if(selectedAthleteId){openOutreachModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Generate Outreach</button>
+                <button onclick="if(selectedAthleteId){openBrandKitModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Generate Pitch Deck</button>
+                <button onclick="if(selectedAthleteId){openOutreachModal(selectedAthleteId,(athletes.find(a=>a.id===selectedAthleteId)||{}).name||'Athlete')}" style="flex:1;padding:8px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer">Generate Outreach</button>
               </div>
             </div>
             <div id="rate-floor-notice" style="display:none;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:var(--r-sm);padding:10px 14px;font-size:11px;color:var(--blue);margin-top:12px">
@@ -905,6 +909,28 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Agent Recommendation</div>
               <div id="rate-rec-text" style="font-size:12px;color:var(--text);line-height:1.6"></div>
             </div>
+
+            <!-- COMPARABLE DEALS PANEL -->
+            <div id="rate-comps-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-top:12px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Comparable Deals</div>
+                <div id="rate-confidence-badge" style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:0.04em"></div>
+              </div>
+              <div id="rate-comps-body" style="display:flex;flex-direction:column;gap:6px"></div>
+              <div id="rate-comp-stats" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:grid;grid-template-columns:repeat(3,1fr);gap:8px"></div>
+              <div id="rate-confidence-note" style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.5"></div>
+            </div>
+
+            <!-- SOURCE FOOTER -->
+            <div id="rate-source-footer" style="display:none;font-size:10px;color:var(--muted);margin-top:10px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--r-sm);line-height:1.6">
+              <span style="font-weight:600;color:var(--text)">Sources:</span> NILViewVal v5.2 model · Opendorse 2024 NIL benchmarks · NCAA 2025 median deal data · On3 NIL valuations · 18 agency rate cards · NILDash closed deal database
+            </div>
+
+            <!-- EXPORT BUTTON -->
+            <div id="rate-export-row" style="display:none;margin-top:12px">
+              <button onclick="exportRateSheet()" style="width:100%;padding:10px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;transition:all 0.2s" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Export Rate Sheet PDF</button>
+            </div>
+
             <div class="ai-block" id="rateAI" style="margin-top:16px">
               <div class="ai-header"><div class="spinner" id="rateSpinner"></div><div class="ai-label">Rate Justification Script</div></div>
               <div class="ai-content" id="rateText">Calculate a rate above then click "Get Justification Script" for word-for-word language to defend your price on a call.</div>
@@ -913,29 +939,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div>
       </div>
 
-      <!--  NEGOTIATE  -->
-      <div id="view-negotiate" class="view">
-
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;margin-bottom:16px">
-          <div><label class="form-label-sm">Brand / Deal</label><input class="input-sm" id="negBrand" placeholder="e.g. Nike Air Max"></div>
-          <div><label class="form-label-sm">Their offer</label><input class="input-sm" id="negOffer" placeholder="e.g. $6,500"></div>
-          <div><label class="form-label-sm">Your target</label><input class="input-sm" id="negTarget" placeholder="e.g. $11,000"></div>
-          <button class="run-btn" onclick="runNegotiate()">Build Playbook →</button>
-        </div>
-        <div class="ai-block" id="negAI">
-          <div class="ai-header"><div class="spinner" id="negSpinner"></div><div class="ai-label">Negotiation Playbook</div></div>
-          <div class="ai-content" id="negText"></div>
-        </div>
-        <div style="margin-top:16px">
-          <div class="card-title" style="margin-bottom:10px">Quick Counter Scripts — click to copy</div>
-          <div id="counterScripts" style="display:flex;flex-direction:column;gap:8px">
-            <div class="card" style="cursor:pointer;padding:12px 16px;font-size:12px;line-height:1.7" onclick="copyText(this)">"I appreciate the offer. Based on current comps for athletes at this engagement tier, we're at $11,000. That's actually below what we're seeing for comparable athletes right now."</div>
-            <div class="card" style="cursor:pointer;padding:12px 16px;font-size:12px;line-height:1.7" onclick="copyText(this)">"Can you get to $9,500 with a performance kicker? If the campaign clears 2M impressions we'd add $2,000. Aligns your incentives with ours."</div>
-            <div class="card" style="cursor:pointer;padding:12px 16px;font-size:12px;line-height:1.7" onclick="copyText(this)">"At that level we're pricing below our floor. Let's revisit when your Q3 budget opens. I'd hate for scheduling to be the blocker when the fit is this strong."</div>
-          </div>
-          <div style="font-size:10px;color:var(--muted);margin-top:8px">Click any script to copy</div>
-        </div>
-      </div>
 
       <!--  ANALYTICS  -->
       <div id="view-analytics" class="view">
@@ -1258,7 +1261,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </select>
           </div>
           <div class="form-group-sm"><label class="form-label-sm">Key Stats</label>
-            <input class="input-sm" id="a_stats" placeholder="Auto-filled by AI Lookup, or enter manually"></div>
+            <textarea class="input-sm" id="a_stats" placeholder="Auto-filled by AI Lookup, or enter manually (e.g. 2024: 312 rush yards, 4 TDs | 2025: 847 yards, 9 TDs)" style="min-height:64px;resize:vertical;font-family:inherit;line-height:1.5"></textarea></div>
           <div class="form-group-sm"><label class="form-label-sm">ESPN / MaxPreps Profile URL</label>
             <div style="display:flex;gap:8px">
               <input class="input-sm" id="a_url" placeholder="e.g. https://www.espn.com/college-football/player/_/id/12345" style="flex:1">
@@ -1685,9 +1688,148 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div>
       </div>
 
+  <!-- ── EMAIL INBOX VIEW ─────────────────────────────────────────────── -->
+  <div id="view-email-inbox" class="view">
+    <div class="page-title">Email Inbox</div>
+    <div class="page-sub" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
+      <span>Your connected email conversations</span>
+      <button onclick="emailModule.openComposer('new')" style="font-size:12px;padding:7px 16px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-weight:700;cursor:pointer">+ Compose</button>
+    </div>
+    <div style="margin-bottom:14px">
+      <input id="email-search-input" type="search" placeholder="Search emails…" oninput="emailModule.searchEmails(this.value)" style="width:100%;max-width:400px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+    </div>
+    <!-- Thread list -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:16px">
+      <div id="email-thread-list">
+        <div style="padding:20px;color:var(--muted);font-size:12px;text-align:center">Loading inbox…</div>
+      </div>
+    </div>
+    <!-- Message pane (shown below thread list when a thread is selected) -->
+    <div id="email-message-pane" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;display:none"></div>
+  </div>
+
+  <!-- ── SETTINGS VIEW ──────────────────────────────────────────────────── -->
+  <div id="view-settings" class="view">
+    <div class="page-title">Settings</div>
+    <div class="page-sub">Manage integrations, connected accounts, and preferences</div>
+
+    <!-- Email Integrations -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Email Integrations</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Connect your email to sync conversations with athletes and brands directly in NILDash.</div>
+
+      <!-- Connected accounts list -->
+      <div id="email-accounts-list" style="margin-bottom:16px">
+        <div style="color:var(--muted);font-size:12px">Loading…</div>
+      </div>
+
+      <!-- Connect buttons -->
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Connect an Account</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        <button onclick="emailModule.connectGmail()" style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <span style="font-size:18px">📧</span> Connect Gmail
+        </button>
+        <button onclick="emailModule.connectOutlook()" style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <span style="font-size:18px">📨</span> Connect Outlook / M365
+        </button>
+        <button onclick="emailModule.showImapConnectModal()" style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <span style="font-size:18px">📬</span> Other (Yahoo, iCloud, IMAP)
+        </button>
+      </div>
+      <div style="margin-top:12px;font-size:10px;color:var(--muted);line-height:1.5">
+        🔒 Credentials are encrypted with AES-256. NILDash never stores plaintext tokens. OAuth providers (Gmail, Outlook) never expose your password.
+      </div>
+    </div>
+  </div>
+
   </main>
 </div>
 
+<!-- ── EMAIL: IMAP CONNECT MODAL ─────────────────────────────────────────── -->
+<div id="email-imap-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:500;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:28px;width:100%;max-width:440px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div style="font-size:14px;font-weight:700;color:var(--text)">Connect IMAP / SMTP Account</div>
+      <button onclick="emailModule.closeImapModal()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer">×</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Email Address</label>
+        <input id="imap-email" type="email" placeholder="you@yahoo.com" onblur="emailModule.onImapEmailChange()" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;outline:none">
+      </div>
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Password / App Password</label>
+        <input id="imap-password" type="password" placeholder="App-specific password recommended" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;outline:none">
+      </div>
+      <details style="margin-top:4px">
+        <summary style="font-size:11px;color:var(--muted);cursor:pointer;user-select:none">Advanced IMAP / SMTP Settings (auto-filled for common providers)</summary>
+        <div style="display:grid;grid-template-columns:1fr 80px;gap:8px;margin-top:10px">
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">IMAP Host</label>
+            <input id="imap-host" placeholder="imap.mail.yahoo.com" style="width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Port</label>
+            <input id="imap-port" type="number" value="993" style="width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">SMTP Host</label>
+            <input id="imap-smtp-host" placeholder="smtp.mail.yahoo.com" style="width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+          </div>
+          <div>
+            <label style="font-size:10px;color:var(--muted);display:block;margin-bottom:3px">Port</label>
+            <input id="imap-smtp-port" type="number" value="587" style="width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+          </div>
+        </div>
+      </details>
+      <button id="imap-connect-btn" onclick="emailModule.connectImap()" style="width:100%;padding:11px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-size:13px;font-weight:700;cursor:pointer;margin-top:4px">Connect</button>
+      <div style="font-size:10px;color:var(--muted);text-align:center;line-height:1.5">
+        Yahoo, iCloud, and Outlook (non-OAuth) require an app-specific password.<br>
+        Your password is encrypted with AES-256 and never sent to third parties.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── EMAIL: COMPOSE MODAL ───────────────────────────────────────────────── -->
+<div id="email-compose-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;align-items:flex-end;justify-content:center;padding:20px">
+  <div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);width:100%;max-width:580px;box-shadow:0 20px 60px rgba(0,0,0,0.5);margin-bottom:0">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)">
+      <span style="font-size:13px;font-weight:700;color:var(--text)">New Message</span>
+      <div style="display:flex;gap:8px">
+        <button onclick="emailModule.saveDraftEmail()" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer">Save Draft</button>
+        <button onclick="emailModule.closeComposer()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1">×</button>
+      </div>
+    </div>
+    <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <label style="font-size:11px;color:var(--muted);width:36px;flex-shrink:0">From</label>
+        <select id="compose-from-account" style="flex:1;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+          <option>No accounts connected</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label style="font-size:11px;color:var(--muted);width:36px;flex-shrink:0">To</label>
+        <input id="compose-to" type="email" placeholder="recipient@example.com" style="flex:1;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label style="font-size:11px;color:var(--muted);width:36px;flex-shrink:0">Cc</label>
+        <input id="compose-cc" type="text" placeholder="cc@example.com" style="flex:1;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label style="font-size:11px;color:var(--muted);width:36px;flex-shrink:0">Subj</label>
+        <input id="compose-subject" type="text" placeholder="Subject" style="flex:1;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:10px">
+        <textarea id="compose-body" placeholder="Write your message…" style="width:100%;min-height:180px;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:13px;font-family:inherit;line-height:1.6;resize:vertical;outline:none"></textarea>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;padding-top:4px">
+        <button onclick="emailModule.closeComposer()" style="padding:8px 16px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer">Discard</button>
+        <button id="compose-send-btn" onclick="emailModule.sendComposedEmail()" style="padding:8px 20px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-size:12px;font-weight:700;cursor:pointer">Send →</button>
+      </div>
+    </div>
+  </div>
+</div>
 
       <!-- ADD DEAL MODAL -->
 <!--  ONBOARDING  -->
@@ -1955,6 +2097,7 @@ let currentUser = null;
 let athletes = [];
 let selectedAthleteId = null;
 let selectedRole = 'agent';
+let lastCalculatedRate = null;
 
 //  AUTH 
 async function switchTab(tab) {
@@ -2071,9 +2214,13 @@ async function bootApp() {
   if (kpiAiSubEl) kpiAiSubEl.textContent = health.aiReady ? 'Connected' : 'Key missing';
   // Check if new user needs onboarding
   setTimeout(checkOnboarding, 500);
+  // Init email module (non-blocking — loads accounts + inbox in background)
+  if (typeof emailModule !== 'undefined') {
+    emailModule.init().catch(e => console.warn('[email] init error:', e.message));
+  }
 }
 
-//  SESSION CHECK 
+//  SESSION CHECK
 async function checkSession() {
   try {
     const r = await fetch(`${API_BASE}/api/auth/me`);
@@ -2127,9 +2274,11 @@ async function clearAllResults() {
 
   // Deal scan
   const dealAI = document.getElementById('dealsAI');
-  if (dealAI) { dealAI.classList.remove('visible'); dealAI.innerHTML = ''; }
-  const dealTable = document.getElementById('dealScanTable');
-  if (dealTable) dealTable.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">Run a deal scan to see recommendations</td></tr>';
+  if (dealAI) dealAI.classList.remove('visible');
+  const dealsTxt = document.getElementById('dealsText');
+  if (dealsTxt) dealsTxt.textContent = 'Select a client and click Scan Deals to get AI-ranked recommendations.';
+  const dealsTbody = document.getElementById('dealsTbody');
+  if (dealsTbody) dealsTbody.innerHTML = '<div style="text-align:center;color:var(--muted);padding:24px;font-size:12px">Run a deal scan to see recommendations</div>';
 
   // Rate calculator
   const rateAI = document.getElementById('rateAI');
@@ -2223,8 +2372,8 @@ async function renderRoster() {
         <button onclick="event.stopPropagation();openClientProfile('${a.id}')" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;letter-spacing:0.02em;font-weight:600">Profile</button>
       </div>
       <div style="display:flex;gap:6px;margin-top:4px">
-        <button onclick="event.stopPropagation();openBrandKitModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">Pitch Deck</button>
-        <button onclick="event.stopPropagation();openOutreachModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">Outreach</button>
+        <button onclick="event.stopPropagation();openBrandKitModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">Pitch Deck</button>
+        <button onclick="event.stopPropagation();openOutreachModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">Outreach</button>
       </div>
     </div>`;
   }).join('');
@@ -2394,7 +2543,7 @@ async function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -2492,16 +2641,16 @@ async function renderDealsTable(recs) {
     var timingShort = d.timingNote && d.timingNote.length > 70 ? d.timingNote.substring(0,70)+'...' : (d.timingNote||'');
     var brandSafe = (d.brand||'').replace(/'/g, "\\'");
     var dealTypeLabel = {'post':'IG Post','reel':'IG Reel','ambassador':'Ambassador','appearance':'Appearance','licensing':'Licensing','tiktok':'TikTok','youtube':'YouTube'}[d.dealType] || d.dealType || 'Post';
-    var catColors = {'local':'rgba(200,241,53,0.15);color:var(--accent)','food':'rgba(245,158,11,0.15);color:#f59e0b','restaurant':'rgba(245,158,11,0.15);color:#f59e0b','auto':'rgba(59,130,246,0.15);color:#60a5fa','gym':'rgba(239,68,68,0.15);color:#f87171','finance':'rgba(16,185,129,0.15);color:#34d399','bank':'rgba(16,185,129,0.15);color:#34d399'};
+    var catColors = {'local':'rgba(132,204,22,0.15);color:var(--accent)','food':'rgba(245,158,11,0.15);color:#f59e0b','restaurant':'rgba(245,158,11,0.15);color:#f59e0b','auto':'rgba(59,130,246,0.15);color:#60a5fa','gym':'rgba(239,68,68,0.15);color:#f87171','finance':'rgba(16,185,129,0.15);color:#34d399','bank':'rgba(16,185,129,0.15);color:#34d399'};
     var catStyle = catColors[d.category] || 'rgba(255,255,255,0.06);color:var(--muted)';
-    return '<div style="background:var(--surface2);border:1px solid '+(isTop?'rgba(200,241,53,0.3)':'var(--border)')+';border-radius:var(--r);padding:18px 20px">' +
+    return '<div style="background:var(--surface2);border:1px solid '+(isTop?'rgba(132,204,22,0.3)':'var(--border)')+';border-radius:var(--r);padding:18px 20px">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
         '<div style="flex:1;min-width:220px">' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:11px;color:var(--muted)">#'+(d.rank||i+1)+'</span>' +
             '<span style="font-size:15px;font-weight:700;color:var(--text)">'+(d.brand||'Brand')+'</span>' +
-            (isLocal ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(200,241,53,0.15);color:var(--accent);font-weight:700">LOCAL</span>' : '') +
-            (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(200,241,53,0.08);color:var(--accent);border:1px solid rgba(200,241,53,0.2)">BEST FIT</span>' : '') +
+            (isLocal ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.15);color:var(--accent);font-weight:700">LOCAL</span>' : '') +
+            (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:var(--accent);border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
           '</div>' +
           '<div style="font-size:12px;color:var(--text);margin-bottom:8px;line-height:1.5;font-weight:500">'+(d.campaign||'')+'</div>' +
           '<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">'+(d.rationale||'')+'</div>' +
@@ -2633,9 +2782,7 @@ async function prefillOutreach(brand) {
   showToast('Brand pre-filled — write your outreach');
 }
 async function prefillNeg(brand, rate) {
-  document.getElementById('negBrand').value = brand;
-  if (rate && rate.includes('–')) document.getElementById('negTarget').value = rate.split('–')[1].replace('$','').trim();
-  showView('negotiate', document.querySelectorAll('.nav-item')[3]);
+  // Negotiate view removed — no-op
 }
 
 //  AI: RATE 
@@ -2648,6 +2795,7 @@ async function calcRate() {
       body: JSON.stringify({ athleteId: selectedAthleteId, deliverableType: type }),
     }).then(r=>r.json());
     if (rate.error) { showToast('Error: ' + rate.error); return; }
+    lastCalculatedRate = { ...rate, deliverableType: type };
     const result = document.getElementById('rateResult');
     result.classList.add('visible');
     document.getElementById('rateRange').textContent = '$' + (rate.low||0).toLocaleString() + ' – $' + (rate.high||0).toLocaleString();
@@ -2772,58 +2920,187 @@ async function calcRate() {
       archBox.innerHTML = html;
     }
     document.getElementById('rateAI').classList.add('visible');
+
+    // COMPARABLE DEALS PANEL
+    const compsPanel = document.getElementById('rate-comps-panel');
+    const compsBody = document.getElementById('rate-comps-body');
+    const compStatsEl = document.getElementById('rate-comp-stats');
+    const confidenceBadge = document.getElementById('rate-confidence-badge');
+    const confidenceNote = document.getElementById('rate-confidence-note');
+    if (compsPanel) {
+      const dealTypeLabels = {'ig-post':'IG Post','ig-reel':'IG Reel','tiktok':'TikTok','ambassador':'Ambassador','appearance':'Appearance','licensing':'Licensing','retainer':'Retainer','bundle':'Bundle'};
+      const confColors = {'High':'rgba(74,222,128,0.15);color:#4ade80;border:1px solid rgba(74,222,128,0.3)','Medium':'rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)','Low':'rgba(255,255,255,0.06);color:var(--muted);border:1px solid var(--border)'};
+      const conf = rate.confidence || 'Low';
+      confidenceBadge.style.cssText = 'font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:0.04em;background:' + (confColors[conf] || confColors['Low']);
+      confidenceBadge.textContent = conf + ' Confidence';
+      confidenceNote.textContent = rate.confidenceNote || '';
+
+      if (rate.comps && rate.comps.length > 0) {
+        compsBody.innerHTML = rate.comps.map(function(c) {
+          const fmtFollowers = c.followers >= 1000000 ? (c.followers/1000000).toFixed(1)+'M' : c.followers >= 1000 ? Math.round(c.followers/1000)+'K' : c.followers;
+          const dealLabel = dealTypeLabels[c.dealType] || c.dealType || 'Deal';
+          const sport = c.sport ? c.sport.charAt(0).toUpperCase()+c.sport.slice(1) : '';
+          const tier = c.tier ? c.tier.replace('p4-','P4 ').replace('mid-','Mid ') : '';
+          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--surface2);border-radius:var(--r-sm);border:1px solid var(--border)">' +
+            '<div style="font-size:11px;color:var(--muted)">' +
+              '<span style="color:var(--text);font-weight:600">' + sport + ' · ' + tier + '</span>' +
+              ' &nbsp;·&nbsp; ' + fmtFollowers + ' reach' +
+              ' &nbsp;·&nbsp; ' + (c.engagement||0).toFixed(1) + '% eng' +
+              (c.year ? ' &nbsp;·&nbsp; ' + c.year : '') +
+            '</div>' +
+            '<div style="font-size:12px;font-weight:700;color:var(--accent);white-space:nowrap;margin-left:12px">$' + (c.value||0).toLocaleString() + ' <span style="font-size:10px;color:var(--muted);font-weight:400">' + dealLabel + '</span></div>' +
+          '</div>';
+        }).join('');
+      } else {
+        compsBody.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:8px 0">No closed deals logged for this sport/tier yet. Rates above are model-based.</div>';
+      }
+
+      if (rate.compStats) {
+        const cs = rate.compStats;
+        compStatsEl.innerHTML = [
+          ['Avg Closed Deal', '$' + cs.avg.toLocaleString()],
+          ['Range', '$' + cs.min.toLocaleString() + ' – $' + cs.max.toLocaleString()],
+          ['Data Points', cs.count + ' deals']
+        ].map(function(item) {
+          return '<div style="text-align:center;background:var(--surface2);border-radius:var(--r-sm);padding:8px">' +
+            '<div style="font-size:9px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.06em">' + item[0] + '</div>' +
+            '<div style="font-size:13px;font-weight:700;color:var(--text)">' + item[1] + '</div>' +
+          '</div>';
+        }).join('');
+        compStatsEl.style.display = 'grid';
+      } else {
+        compStatsEl.style.display = 'none';
+      }
+      compsPanel.style.display = 'block';
+    }
+    document.getElementById('rate-source-footer').style.display = 'block';
+    document.getElementById('rate-export-row').style.display = 'block';
+
   } catch(e) { showToast('Error: ' + e.message); }
+}
+
+async function exportRateSheet() {
+  const ath = athletes.find(a => a.id === selectedAthleteId);
+  if (!ath || !lastCalculatedRate) { showToast('Calculate a rate first'); return; }
+  const rate = lastCalculatedRate;
+  const delivType = document.getElementById('rateDeliverable').value;
+  const delivLabels = {'ig-reel':'IG Reel','ig-post':'IG Post','tiktok':'TikTok Video','bundle':'IG Bundle','retainer':'Monthly Retainer','appearance-inperson':'In-Person Appearance'};
+  const delivLabel = delivLabels[delivType] || delivType.replace(/-/g,' ');
+  const conf = rate.confidence || 'Model-based';
+  const w = window.open('', '_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rate Sheet — ${ath.name}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;color:#111;padding:48px;max-width:760px;margin:0 auto}
+    .header{border-bottom:3px solid #111;padding-bottom:20px;margin-bottom:28px}
+    .logo{font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;color:#555;margin-bottom:8px}
+    h1{font-size:28px;font-weight:800;letter-spacing:-0.02em;margin-bottom:4px}
+    .sub{font-size:13px;color:#666}
+    .rate-hero{background:#f5f5f5;border-radius:10px;padding:24px 28px;margin:24px 0;display:flex;align-items:center;justify-content:space-between}
+    .rate-big{font-size:36px;font-weight:900;letter-spacing:-0.02em}
+    .rate-label{font-size:12px;color:#666;margin-top:3px}
+    .conf{font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;background:#e8f5e9;color:#2e7d32}
+    .section{margin-bottom:24px}
+    .section-title{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#999;margin-bottom:12px;border-bottom:1px solid #eee;padding-bottom:6px}
+    .breakdown-row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
+    .breakdown-label{color:#555}
+    .breakdown-val{font-weight:700}
+    .comp-row{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#f9f9f9;border-radius:6px;margin-bottom:6px;font-size:12px}
+    .comp-val{font-weight:800;color:#111}
+    .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:10px}
+    .stat-box{background:#f5f5f5;border-radius:8px;padding:14px;text-align:center}
+    .stat-num{font-size:20px;font-weight:800}
+    .stat-lbl{font-size:10px;color:#999;margin-top:2px;text-transform:uppercase;letter-spacing:1px}
+    .footer{margin-top:32px;padding-top:16px;border-top:1px solid #eee;font-size:10px;color:#aaa;line-height:1.7}
+    @media print{body{padding:32px}}
+  </style></head><body>
+  <div class="header">
+    <div class="logo">NILDash · Rate Sheet</div>
+    <h1>${ath.name}</h1>
+    <div class="sub">${ath.sport||''} · ${ath.position||''} · ${ath.school||''} · Generated ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
+  </div>
+  <div class="rate-hero">
+    <div>
+      <div class="rate-big">$${(rate.low||0).toLocaleString()} – $${(rate.high||0).toLocaleString()}</div>
+      <div class="rate-label">Recommended range per ${delivLabel}</div>
+    </div>
+    <div class="conf">${conf} Confidence</div>
+  </div>
+  <div class="section">
+    <div class="section-title">How This Rate Was Built</div>
+    ${Object.entries({
+      'Effective Reach': rate.breakdown?.reach ? rate.breakdown.reach.toLocaleString()+' followers' : null,
+      'Sport Multiplier': rate.breakdown?.sportMult ? rate.breakdown.sportMult+'×' : null,
+      'School Tier Multiplier': rate.breakdown?.schoolMult ? rate.breakdown.schoolMult+'×' : null,
+      'Position Multiplier': rate.breakdown?.posMult && rate.breakdown.posMult!=='1.00' ? rate.breakdown.posMult+'×' : null,
+      'Engagement Bonus': rate.breakdown?.engMult ? rate.breakdown.engMult+'×' : null,
+      'Cross-Platform Bonus': rate.breakdown?.crossPlatform && rate.breakdown.crossPlatform!=='1.00' ? rate.breakdown.crossPlatform+'×' : null,
+      'Implied CPM': rate.breakdown?.cpm ? '$'+rate.breakdown.cpm+' per 1,000 impressions' : null,
+      'Total Multiplier': rate.breakdown?.totalMult ? rate.breakdown.totalMult+'×' : null,
+    }).filter(([,v])=>v).map(([k,v])=>`<div class="breakdown-row"><span class="breakdown-label">${k}</span><span class="breakdown-val">${v}</span></div>`).join('')}
+  </div>
+  ${rate.comps && rate.comps.length ? `<div class="section">
+    <div class="section-title">Comparable Closed Deals (Anonymized)</div>
+    ${rate.comps.map(c=>{
+      const fmtF = c.followers>=1000000?(c.followers/1000000).toFixed(1)+'M':c.followers>=1000?Math.round(c.followers/1000)+'K':c.followers;
+      return `<div class="comp-row"><span>${(c.sport||'').charAt(0).toUpperCase()+(c.sport||'').slice(1)} · ${(c.tier||'').replace('p4-','P4 ').replace('mid-','Mid ')} · ${fmtF} reach · ${(c.engagement||0).toFixed(1)}% eng</span><span class="comp-val">$${(c.value||0).toLocaleString()}</span></div>`;
+    }).join('')}
+    ${rate.compStats?`<div class="stat-grid">
+      <div class="stat-box"><div class="stat-num">$${rate.compStats.avg.toLocaleString()}</div><div class="stat-lbl">Avg Closed</div></div>
+      <div class="stat-box"><div class="stat-num">$${rate.compStats.min.toLocaleString()}</div><div class="stat-lbl">Floor</div></div>
+      <div class="stat-box"><div class="stat-num">${rate.compStats.count}</div><div class="stat-lbl">Data Points</div></div>
+    </div>`:''}
+  </div>`:''}
+  <div class="footer">
+    <strong>Sources:</strong> NILViewVal v5.2 model · Opendorse 2024 NIL benchmarks · NCAA 2025 median deal data · On3 NIL valuations · 18 agency rate cards · NILDash closed deal database<br>
+    This rate sheet is a negotiating tool. Final pricing subject to campaign scope, exclusivity, and mutual agreement. Represented by NILDash.
+  </div>
+  <script>window.onload=()=>setTimeout(()=>window.print(),400)<\/script>
+  </body></html>`);
+  w.document.close();
 }
 
 async function getRateScript() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
-  const type = document.getElementById('rateDeliverable').value;
-  const rate = await fetch(`${API_BASE}/api/ai/rate`, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ athleteId: selectedAthleteId, deliverableType: type }),
-  }).then(r=>r.json()).catch(()=>({mid:10000}));
-
+  if (!lastCalculatedRate) { showToast('Calculate a rate first, then click Get Justification Script'); return; }
+  const ath = athletes.find(a => a.id === selectedAthleteId);
   const txt = document.getElementById('rateText');
   const spinner = document.getElementById('rateSpinner');
   document.getElementById('rateAI').classList.add('visible');
-  spinner.style.display = 'block'; txt.textContent = '';
+  spinner.style.display = 'block';
+  txt.textContent = '';
   try {
-    const ath = athletes.find(a=>a.id===selectedAthleteId);
-    const msg = `Write a 5-sentence script the agent reads aloud to justify $${rate.mid||10000} for a ${type} deal with ${ath?.name||'this athlete'}. Include engagement rate vs industry average, school premium, CPM comparison to paid digital ads, and close with a question. Use quotation marks. Be confident and factual.`;
-    const r2 = await fetch(`${API_BASE}/api/ai/ask`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
+    const mid = lastCalculatedRate.mid || Math.round(((lastCalculatedRate.low||0) + (lastCalculatedRate.high||0)) / 2) || 10000;
+    const type = lastCalculatedRate.deliverableType || 'ig-reel';
+    const engagement = ath?.engagement || 4.2;
+    const reach = ((ath?.instagram||0) + (ath?.tiktok||0)).toLocaleString();
+    const msg = `You are a sports agent. Write a confident 5-sentence word-for-word script to justify charging $${mid.toLocaleString()} for a ${type} NIL deal with ${ath?.name||'this athlete'} (${ath?.sport||'athlete'}, ${ath?.school||'college'}).
+
+Key facts to weave in naturally:
+- Their engagement rate is ${engagement}% vs. 2.1% industry average for paid influencers
+- Total social reach: ${reach} followers
+- Rate range: $${(lastCalculatedRate.low||0).toLocaleString()} – $${(lastCalculatedRate.high||0).toLocaleString()}
+- CPM comparison: brand gets ~$13 CPM vs $25-45 CPM for paid IG ads
+
+Use quotation marks. End with a closing question to the brand. Be confident, data-driven, and conversational.`;
+    const r = await fetch(`${API_BASE}/api/ai/ask`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ athleteId: selectedAthleteId, message: msg }),
     });
-    const data = await r2.json();
-    if (data.error) { txt.textContent = ' ' + data.error; }
-    else { txt.textContent = data.response || 'No response.'; }
-  } catch(e) { txt.textContent = ' ' + e.message; }
+    const data = await r.json();
+    if (data.error) {
+      const isOverloaded = (data.error||'').toLowerCase().includes('overload') || (data.error||'').includes('529');
+      txt.textContent = isOverloaded ? "Anthropic's servers are busy — please try again in a moment." : 'Error: ' + data.error;
+    } else {
+      txt.textContent = data.response || 'No response received.';
+    }
+  } catch(e) {
+    txt.textContent = 'Error: ' + e.message;
+  }
   spinner.style.display = 'none';
 }
 
-//  AI: NEGOTIATE 
-async function runNegotiate() {
-  if (!selectedAthleteId) { showToast('Select a client first'); return; }
-  const brand = document.getElementById('negBrand').value;
-  if (!brand) { showToast('Enter a brand name'); return; }
-  const box = document.getElementById('negAI');
-  const txt = document.getElementById('negText');
-  box.classList.add('visible'); txt.textContent = '';
-  document.getElementById('negSpinner').style.display = 'block';
-  try {
-    const {playbook,error} = await fetch(`${API_BASE}/api/ai/negotiate`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        athleteId: selectedAthleteId, brand,
-        theirOffer: document.getElementById('negOffer').value,
-        agentTarget: document.getElementById('negTarget').value,
-      }),
-    }).then(r=>r.json());
-    if(error) throw new Error(error);
-    txt.textContent = playbook;
-  } catch(e) { txt.textContent = ' ' + e.message; }
-  document.getElementById('negSpinner').style.display = 'none';
-}
 
 //  PIPELINE 
 async function loadPipeline() {
@@ -2968,7 +3245,7 @@ async function fetchFromUrl() {
       body: JSON.stringify({ url })
     });
     const data = await r.json();
-    if (!data.found) { status.textContent = 'Could not extract data - try a different URL'; btn.disabled = false; btn.textContent = 'Import'; return; }
+    if (!data.found) { status.textContent = data.error || 'Could not extract data — try the AI Lookup button instead'; btn.disabled = false; btn.textContent = 'Import'; return; }
     if (data.name) document.getElementById('a_name').value = data.name;
     if (data.school) document.getElementById('a_school').value = data.school;
     if (data.position) document.getElementById('a_pos').value = data.position;
@@ -3009,13 +3286,18 @@ async function lookupPlayer() {
     if (data.instagram) document.getElementById('a_ig').value = data.instagram;
     if (data.tiktok) document.getElementById('a_tt').value = data.tiktok;
     if (data.engagement) document.getElementById('a_eng').value = data.engagement;
-    if (data.notes) document.getElementById('a_notes').value = data.notes;
     if (data.schoolTier) { const s = document.getElementById('a_tier'); for (let o of s.options) { if (o.value === data.schoolTier) { s.value = o.value; break; } } }
     if (data.sport) { const s = document.getElementById('a_sport'); for (let o of s.options) { if (o.value === data.sport) { s.value = o.value; break; } } }
-    if (data.hometown) { const n = document.getElementById('a_notes'); if (!n.value) n.value = data.hometown; }
-    const summary = [data.school, data.position, data.year, data.stats].filter(Boolean).join(' · ');
-    status.innerHTML = '<span style="color:var(--accent)"> Loaded — review and save</span> · ' + summary;
-    showToast('Player data loaded — please verify before saving!');
+    // For transfers: append previous school context to notes
+    let notesVal = data.notes || '';
+    if (data.previousSchool) notesVal = (notesVal ? notesVal + ' ' : '') + 'Transfer from ' + data.previousSchool + '.';
+    if (notesVal) document.getElementById('a_notes').value = notesVal;
+    if (!notesVal && data.hometown) document.getElementById('a_notes').value = data.hometown;
+    const isTransfer = data.previousSchool || (data.year||'').toLowerCase().includes('transfer');
+    const transferNote = isTransfer && data.previousSchool ? ' · Stats from ' + data.previousSchool : '';
+    const summary = [data.school, data.position, data.year].filter(Boolean).join(' · ');
+    status.innerHTML = '<span style="color:var(--accent)">Loaded — review and save</span> · ' + summary + (transferNote ? '<span style="color:#f59e0b"> ' + transferNote + '</span>' : '');
+    showToast(isTransfer ? 'Transfer found — stats from previous school. Verify before saving.' : 'Player data loaded — verify before saving!');
   } catch(e) {
     status.textContent = 'Lookup failed: ' + e.message;
   }
@@ -3598,7 +3880,7 @@ async function renderTeamMatch(teams) {
   `;
 
   document.getElementById('tm-results').innerHTML = teams.map((t, i) => `
-    <div class="card" style="margin-bottom:10px;cursor:pointer;border:${i===0?'1px solid rgba(200,241,53,0.4)':'1px solid var(--border)'}" onclick="toggleTmDetail('tm-detail-${i}')">
+    <div class="card" style="margin-bottom:10px;cursor:pointer;border:${i===0?'1px solid rgba(132,204,22,0.4)':'1px solid var(--border)'}" onclick="toggleTmDetail('tm-detail-${i}')">
       <div style="display:grid;grid-template-columns:28px 1fr auto;gap:0 16px;align-items:start">
         <div style="font-size:18px;font-weight:500;color:var(--muted);padding-top:2px">${i+1}</div>
         <div>
@@ -3979,6 +4261,7 @@ renderNotifPanel();
 <script src="/analytics.js"></script>
 <script src="/help.js"></script>
 <script src="/nil-extras.js"></script>
+<script src="/email.js"></script>
 <script>
 //  Marketing View Logic 
 //  Marketing View Logic 

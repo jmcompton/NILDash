@@ -309,8 +309,45 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
   const athlete = await store.getAthlete(req.body.athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const deliverableType = req.body.deliverableType || 'ig-reel';
-  // Use static calculation only — live rate was causing 502s
-  res.json({ ...ai.calculateRate(athlete, deliverableType), liveData: false });
+  const rate = ai.calculateRate(athlete, deliverableType);
+
+  // Pull comparable deals from the database
+  const [compStats, recentComps] = await Promise.all([
+    store.getCompStats(athlete.sport, athlete.schoolTier),
+    store.getComps(athlete.sport, athlete.schoolTier, 5)
+  ]);
+
+  const compCount = parseInt(compStats?.count || 0);
+  const confidence = compCount >= 20 ? 'High' : compCount >= 5 ? 'Medium' : 'Low';
+  const confidenceNote = compCount >= 20
+    ? `Based on ${compCount} comparable closed deals in this sport/tier`
+    : compCount >= 5
+    ? `Based on ${compCount} comparable deals — more data will improve accuracy`
+    : 'Limited comp data for this sport/tier — rate based on NILViewVal model benchmarks';
+
+  const comps = recentComps.map(c => ({
+    sport: c.sport,
+    tier: c.school_tier,
+    followers: parseInt(c.followers),
+    engagement: parseFloat(c.engagement),
+    dealType: c.deal_type,
+    value: parseInt(c.deal_value),
+    year: c.year_in_school || null
+  }));
+
+  res.json({
+    ...rate,
+    liveData: false,
+    comps,
+    compStats: compCount > 0 ? {
+      count: compCount,
+      avg: Math.round(parseFloat(compStats.avg_value)),
+      min: Math.round(parseFloat(compStats.min_value)),
+      max: Math.round(parseFloat(compStats.max_value))
+    } : null,
+    confidence,
+    confidenceNote
+  });
 });
 
 app.post('/api/ai/negotiate', requireAuth, aiLimiter, async (req, res) => {
@@ -437,25 +474,82 @@ app.post('/api/ai/player-fetch', requireAuth, async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'url required' });
   try {
+    // ESPN, 247Sports, MaxPreps all block server scraping.
+    // Extract player name + sport from the URL and run AI lookup instead.
+    const knownBlocked = /espn\.com|247sports\.com|maxpreps\.com|on3\.com|rivals\.com/i.test(url);
+    if (knownBlocked) {
+      // ESPN: /college-football/player/_/id/123/nate-frazier
+      // 247:  /player/nate-frazier-46123456/
+      // MaxPreps: /nate-frazier/...
+      const slugMatch = url.match(/\/([a-z]+-[a-z]+(?:-[a-z]+)*)\/?(?:\?|$|\d)/i)
+        || url.match(/\/([a-z]+-[a-z]+(?:-[a-z]+)*)(?:-\d+)?\/?$/i);
+      const rawName = slugMatch ? slugMatch[1].replace(/-/g, ' ') : '';
+
+      const sportMatch = url.match(/college-(football|basketball|baseball|soccer|softball|volleyball|hockey|lacrosse|wrestling|gymnastics|swimming|tennis|golf|track)/i)
+        || url.match(/\/(football|basketball|baseball|soccer|softball|volleyball|hockey|lacrosse|wrestling|gymnastics|swimming|tennis|golf|track)\//i);
+      const sport = sportMatch ? sportMatch[1] : '';
+
+      if (!rawName) return res.json({ found: false, error: 'Could not parse player name from URL — try the AI Lookup button instead.' });
+
+      const prompt = `You are a college sports database. Look up: ${rawName}${sport ? ' (' + sport + ')' : ''}.
+
+Pull ALL available seasons of stats — do not limit to one year. Format the stats field as a full career log:
+"2023: [stats] | 2024: [stats] | 2025: [stats if available]"
+
+For each season include the actual numbers (PPG/RPG/APG for basketball, rush yards/TDs/YPC or rec/yards/TDs for football, ERA/AVG/HR for baseball, etc). If a season is unavailable in your training data, omit it — do not fabricate numbers.
+
+Also include:
+- Transfer history (previous schools and when they transferred)
+- Recruiting ranking (star rating, class year)
+- Any awards or honors per season
+- Draft projection if applicable
+
+Return this JSON:
+{
+  "found": true,
+  "name": "full name",
+  "school": "current school",
+  "previousSchool": "previous school if transfer, else null",
+  "sport": "sport",
+  "position": "position abbreviation",
+  "year": "eligibility year (Freshman/Sophomore/Junior/Senior/Grad Transfer)",
+  "stats": "full career stats log: 2023: X | 2024: X | 2025: X",
+  "height": "e.g. 6-1",
+  "weight": "e.g. 215 lbs",
+  "hometown": "city, state",
+  "instagram": 0,
+  "tiktok": 0,
+  "engagement": 0,
+  "schoolTier": "p4-top10|p4-mid|p4-lower|mid-top|mid-lower|highmajor-top",
+  "notes": "recruiting ranking, awards by season, transfer history, draft projection"
+}
+
+Return ONLY the JSON. No markdown, no explanation.`;
+      const raw = await ai.oneShot(prompt, 'You are a precise college sports database. Return only verified career statistics across all seasons. Never fabricate numbers. Return only valid JSON.', 5000);
+      const cleaned = raw.replace(/```json/g,'').replace(/```/g,'').trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return res.json({ found: false });
+      return res.json(JSON.parse(jsonMatch[0]));
+    }
+
+    // Non-blocked URL — attempt direct scrape
     const https = require('https');
     const http = require('http');
     const client = url.startsWith('https') ? https : http;
     const pageText = await new Promise((resolve, reject) => {
-      client.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } }, (res) => {
+      client.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' } }, (r) => {
         let data = '';
-        res.on('data', d => data += d);
-        res.on('end', () => resolve(data));
+        r.on('data', d => data += d);
+        r.on('end', () => resolve(data));
       }).on('error', reject);
     });
-    // Detect blocked HTML response
     if (pageText.trim().startsWith('<!') || pageText.includes('Access Denied') || pageText.includes('403 Forbidden')) {
-      return res.status(422).json({ error: 'This site blocks automated access. Use the AI Lookup button instead.' });
+      return res.json({ found: false, error: 'This site blocks automated access. Use the AI Lookup button instead.' });
     }
-    // Strip HTML tags and limit length
     const text = pageText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').substring(0, 8000);
-    const prompt = 'Extract college athlete info from this page text and return as JSON. Page: ' + text + '. Return this JSON: {"found":true,"name":"full name","school":"school","sport":"sport","position":"position","year":"year","stats":"key stats","height":"height","weight":"weight","hometown":"city state","notes":"bio and achievements"}. Return ONLY JSON.';
+    const prompt = 'Extract college athlete info from this page text and return as JSON. Page: ' + text + '. Return this JSON: {"found":true,"name":"full name","school":"school","sport":"sport","position":"position","year":"year","stats":"key stats","notes":"bio and achievements"}. Return ONLY JSON.';
     const raw = await ai.oneShot(prompt, 'You extract structured athlete data from web pages. Return only valid JSON.');
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const cleaned = raw.replace(/```json/g,'').replace(/```/g,'').trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return res.json({ found: false });
     res.json(JSON.parse(jsonMatch[0]));
@@ -469,10 +563,24 @@ app.post('/api/ai/player-fetch', requireAuth, async (req, res) => {
 app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
   const { name, school, sport } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
-  const prompt = 'Look up college athlete: ' + name + (school ? ' at ' + school : '') + (sport ? ' (' + sport + ')' : '') + '. Search ESPN, 247Sports, On3, and school athletic websites for their current 2025-26 stats. Also search for their Instagram and TikTok accounts. Return this JSON - use real verified data where available, and your training knowledge as fallback for anything you cannot find via search. Always return found:true. {"found":true,"name":"full name","school":"school name","sport":"sport","position":"position abbrev","year":"Freshman or Sophomore or Junior or Senior or Grad Transfer","stats":"current season stats if found, or career highlights","height":"height","weight":"weight","hometown":"city state","instagram":0,"tiktok":0,"engagement":0,"schoolTier":"p4-top10 or p4-mid or p4-lower or mid-top or mid-lower or highmajor-top","notes":"bio, awards, rankings"}. Return ONLY JSON no markdown.';
+  const prompt = `You are a college sports database. Look up this athlete and return ONLY accurate, verified data from your training knowledge. Do NOT guess or fabricate stats.
+
+ATHLETE: ${name}${school ? ' — currently at ' + school : ''}${sport ? ' (' + sport + ')' : ''}
+
+CRITICAL RULES:
+- Pull ALL available seasons — format stats as a career log: "2023: [stats at School A] | 2024: [stats at School B] | 2025: [stats if available]"
+- If this athlete transferred, include stats from EVERY school they played at, labeled by school and season
+- "year" field = eligibility year (Freshman/Sophomore/Junior/Senior/Grad Transfer) — not years at current school
+- Use real stat numbers (PPG/RPG/APG, rush yards/TDs/YPC, ERA/AVG, etc). If a season is not in your training data, omit it — do not invent numbers
+- schoolTier for CURRENT school: p4-top10 = Alabama/Georgia/Ohio State tier | p4-mid = mid-P4 | p4-lower = lower P4 | highmajor-top = top Big East/A-10 | mid-top/mid-lower = mid-major
+
+Return this JSON — use null for anything you cannot verify:
+{"found":true,"name":"full legal name","school":"current school","previousSchool":"most recent previous school if transfer, else null","sport":"sport","position":"position abbreviation","year":"eligibility year","stats":"full career log: 2023 at X: stats | 2024 at Y: stats | 2025: stats if available","height":"e.g. 6-4","weight":"e.g. 215 lbs","hometown":"city, state","instagram":0,"tiktok":0,"engagement":0,"schoolTier":"p4-top10|p4-mid|p4-lower|mid-top|mid-lower|highmajor-top","notes":"recruiting ranking, awards by season, transfer history, draft projection"}
+
+Return ONLY the JSON object. No markdown, no explanation.`;
   try {
-    const raw = await ai.oneShot(prompt, 'You are a comprehensive college sports database with knowledge of thousands of college athletes. Always return found:true with best available data based on your training knowledge. Return only valid JSON.', 4000);
-    const cleaned = raw.replace(/`/g, '').replace(/json/g, '').trim();
+    const raw = await ai.oneShot(prompt, 'You are a precise college sports database. Return only verified facts. Never fabricate statistics. Return only valid JSON.', 4000);
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return res.json({ found: false });
     res.json(JSON.parse(jsonMatch[0]));
@@ -1321,6 +1429,19 @@ app.get('/api/pitch-data/:athleteId', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── Email Integration ─────────────────────────────────────────────────────────
+// All email routes isolated in server/routes/email.js — no existing logic touched.
+const emailRoutes = require('./routes/email');
+app.use('/api/email', requireAuth, emailRoutes);
+
+// Start background email sync poller (fire-and-forget — never blocks startup)
+try {
+  const emailSync = require('./services/emailSync');
+  emailSync.startPoller();
+} catch (e) {
+  console.warn('[email] Sync poller failed to start:', e.message);
+}
 
 // ── PWA static assets — explicit routes so catchall doesn't eat them ──
 app.get('/manifest.json', (req, res) => {

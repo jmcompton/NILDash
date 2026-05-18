@@ -202,13 +202,26 @@ async function streamResponse(athlete, message, role, res) {
 
 async function oneShot(prompt, system, maxTokens) {
   const ai = getClient();
-  const msg = await ai.messages.create({
-    model: 'claude-opus-4-5',
-    max_tokens: maxTokens || 8000,
-    system: system || 'You are a precise NIL deal analyst.',
-    messages: [{ role: 'user', content: prompt }],
-  });
-  return msg.content[0].text;
+  const delays = [2000, 5000, 10000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      const msg = await ai.messages.create({
+        model: 'claude-opus-4-5',
+        max_tokens: maxTokens || 8000,
+        system: system || 'You are a precise NIL deal analyst.',
+        messages: [{ role: 'user', content: prompt }],
+      });
+      return msg.content[0].text;
+    } catch (err) {
+      const isOverloaded = err?.status === 529 || err?.error?.type === 'overloaded_error' || (err?.message || '').includes('overloaded');
+      if (isOverloaded && attempt < delays.length) {
+        console.warn(`Anthropic overloaded — retrying in ${delays[attempt]/1000}s (attempt ${attempt + 1})`);
+        await new Promise(r => setTimeout(r, delays[attempt]));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 async function oneShotWithSearch(prompt, systemPrompt) {
