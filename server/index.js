@@ -1709,6 +1709,67 @@ try {
   console.warn('[outreach] Engine failed to load:', e.message);
 }
 
+// ── University Dashboard ──────────────────────────────────────────────────────
+app.get('/api/university/dashboard', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+
+    // Athletes for this account
+    const athleteRows = await store.pool.query(
+      'SELECT * FROM athletes WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId]
+    );
+    const athletes = athleteRows.rows;
+
+    // Deal / outreach counts per athlete
+    let dealMap = {};
+    try {
+      const dealRows = await store.pool.query(
+        `SELECT athlete_id, COUNT(*) AS deal_count
+         FROM outreach_logs WHERE user_id = $1 GROUP BY athlete_id`,
+        [userId]
+      );
+      dealRows.rows.forEach(r => { dealMap[r.athlete_id] = parseInt(r.deal_count) || 0; });
+    } catch (_) { /* table may not exist for all installs */ }
+
+    // Build per-athlete summary (no monetary framing)
+    const summaries = athletes.map(a => {
+      const d = (a.data && typeof a.data === 'object') ? { ...a.data, id: a.id } : a;
+      const reach = (parseInt(d.instagram) || 0) + (parseInt(d.tiktok) || 0);
+      return {
+        id: a.id,
+        name:       d.name       || 'Unnamed Athlete',
+        sport:      d.sport      || 'Unknown',
+        school:     d.school     || '',
+        instagram:  parseInt(d.instagram)  || 0,
+        tiktok:     parseInt(d.tiktok)     || 0,
+        engagement: parseFloat(d.engagement) || 0,
+        stats:      d.stats      || '',
+        notes:      d.notes      || '',
+        schoolTier: d.schoolTier || '',
+        reach,
+        dealsCount: dealMap[a.id] || 0,
+      };
+    });
+
+    // Aggregates
+    const sportBreakdown = {};
+    summaries.forEach(s => {
+      sportBreakdown[s.sport] = (sportBreakdown[s.sport] || 0) + 1;
+    });
+
+    const totalDeals = summaries.reduce((sum, s) => sum + s.dealsCount, 0);
+    const avgEngagement = summaries.length > 0
+      ? +(summaries.reduce((sum, s) => sum + s.engagement, 0) / summaries.length).toFixed(1)
+      : 0;
+
+    res.json({ athletes: summaries, sportBreakdown, totalAthletes: summaries.length, totalDeals, avgEngagement });
+  } catch (err) {
+    console.error('[university] Dashboard error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── PWA static assets — explicit routes so catchall doesn't eat them ──
 app.get('/manifest.json', (req, res) => {
   res.setHeader('Content-Type', 'application/manifest+json');
