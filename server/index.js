@@ -1782,7 +1782,8 @@ try {
 // ── University Mode Routes ────────────────────────────────────────────────────
 // All routes gated by requireAuth + requireUniversityMode.
 // Services enforced: ProgramAggregationService, ComplianceActivityService,
-//                    ReadinessEngine, DataIntegrityLayer, BulkImportService.
+//                    ReadinessEngine, DataIntegrityLayer, BulkImportService,
+//                    RosterSyncEngine, RosterSourceRegistry.
 // Forbidden: NILViewVal, outreach_logs, brand_match_scores, brand_contacts,
 //            company_enrichment, valuation, pricing.
 
@@ -1790,6 +1791,7 @@ const ProgramAggregationService  = require('./services/university/ProgramAggrega
 const ComplianceActivityService   = require('./services/university/ComplianceActivityService');
 const { computeReadiness, getDevelopmentRecommendations } = require('./services/university/ReadinessEngine');
 const BulkImportService           = require('./services/university/BulkImportService');
+const RosterSyncEngine            = require('./services/university/RosterSyncEngine');
 
 // ── University context helper ─────────────────────────────────────────────
 // Resolves the university_id for the current session user.
@@ -1887,18 +1889,40 @@ app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (
       };
     });
 
+    // Attach sync status + roster state breakdown to dashboard response
+    const syncStatus = await RosterSyncEngine.getSyncStatus(store.pool, universityId)
+      .catch(() => null);
+
+    // Roster state summary (from athlete_roster_states table)
+    let rosterStateSummary = null;
+    try {
+      const stateRows = await store.pool.query(
+        `SELECT status, COUNT(*) AS n
+         FROM athlete_roster_states WHERE university_id = $1
+         GROUP BY status`,
+        [universityId]
+      );
+      rosterStateSummary = { active:0, probable:0, uncertain:0, inactive:0, unknown:0 };
+      stateRows.rows.forEach(r => {
+        const s = r.status;
+        if (rosterStateSummary[s] !== undefined) rosterStateSummary[s] = parseInt(r.n);
+      });
+    } catch (_) {}
+
     res.json({
       university,
       universityId,
-      athletes:      athleteSummaries,
+      athletes:          athleteSummaries,
       overview,
+      syncStatus,
+      rosterStateSummary,
       // Legacy flat fields preserved for backward compat with existing frontend
-      sportBreakdown:  overview.sportBreakdown,
-      totalAthletes:   overview.totalAthletes,
-      avgEngagement:   overview.avgEngagementRate?.value ?? 0,
-      programHealth:   overview.programHealth,
-      dataReliability: overview.dataReliability,
-      generatedAt:     overview.generatedAt,
+      sportBreakdown:    overview.sportBreakdown,
+      totalAthletes:     overview.totalAthletes,
+      avgEngagement:     overview.avgEngagementRate?.value ?? 0,
+      programHealth:     overview.programHealth,
+      dataReliability:   overview.dataReliability,
+      generatedAt:       overview.generatedAt,
     });
   } catch (err) {
     console.error('[university] Dashboard error:', err.message);
@@ -1987,9 +2011,8 @@ app.get('/api/university/compliance', requireAuth, requireUniversityMode, async 
 });
 
 // POST /api/university/bulk-import
-// Import athletes from CSV or JSON. Returns BulkImportResult.
-// Content-Type: application/json — body: { format: 'csv'|'json', data: '<raw string>' }
-// OR multipart is not supported here — clients base64 or send raw text in body.
+// Import athletes from CSV or JSON. Triggers roster sync after successful import.
+// Body: { format: 'csv'|'json', data: '<raw string>' }
 app.post('/api/university/bulk-import', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId   = req.session.userId;
@@ -2013,7 +2036,19 @@ app.post('/api/university/bulk-import', requireAuth, requireUniversityMode, asyn
     );
 
     console.log(`[university] Bulk import: ${result.imported} imported, ${result.skipped} skipped, ${result.failed} failed`);
-    res.json(result);
+
+    // Trigger roster sync event-driven after any successful import
+    // Non-blocking — runs async, result attached to response
+    let syncResult = null;
+    if (result.imported > 0) {
+      syncResult = await RosterSyncEngine.runSync(store.pool, {
+        universityId,
+        triggeredBy: 'import',
+        userId,
+      }).catch(e => ({ ok: false, error: e.message }));
+    }
+
+    res.json({ ...result, syncResult });
   } catch (err) {
     console.error('[university] Bulk import error:', err.message);
     res.status(500).json({ error: err.message });
@@ -2027,6 +2062,166 @@ app.get('/api/university/import-template', requireAuth, requireUniversityMode, (
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename="nildash-athlete-import-template.csv"');
   res.send(csv);
+});
+
+// ── Roster Sync Engine routes ─────────────────────────────────────────────
+
+// POST /api/university/sync/trigger
+// Manually trigger a full roster reconciliation.
+app.post('/api/university/sync/trigger', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+    }
+
+    const { sport } = req.body; // optional sport filter
+    const result = await RosterSyncEngine.runSync(store.pool, {
+      universityId,
+      sport: sport || null,
+      triggeredBy: 'manual',
+      userId,
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[university] Sync trigger error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/sync/status
+// Current sync health: last run, freshness score, snapshot summary.
+app.get('/api/university/sync/status', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+    }
+
+    const status = await RosterSyncEngine.getSyncStatus(store.pool, universityId);
+    res.json({ universityId, ...status });
+  } catch (err) {
+    console.error('[university] Sync status error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/roster/snapshots
+// Version history — list of snapshots for rollback/audit.
+app.get('/api/university/roster/snapshots', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+    }
+
+    const limit     = Math.min(parseInt(req.query.limit) || 10, 50);
+    const snapshots = await RosterSyncEngine.listSnapshots(store.pool, universityId, limit);
+    res.json({ universityId, snapshots });
+  } catch (err) {
+    console.error('[university] Snapshots error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/roster/rollback
+// Restore roster to a previous snapshot state.
+// Creates a new snapshot (never deletes history).
+app.post('/api/university/roster/rollback', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+    }
+
+    const { snapshotId } = req.body;
+    if (!snapshotId) {
+      return res.status(400).json({ error: 'snapshotId is required' });
+    }
+
+    const result = await RosterSyncEngine.rollback(store.pool, {
+      universityId,
+      snapshotId,
+      userId,
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[university] Rollback error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/roster/state
+// Current reconciled state for all athletes in the program.
+// Includes status (active/probable/uncertain/inactive/unknown) + confidence scores.
+app.get('/api/university/roster/state', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) {
+      return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+    }
+
+    // Join athlete data with roster state
+    const rows = await store.pool.query(
+      `SELECT a.id, a.data, a.created_at, a.updated_at,
+              ars.status, ars.confidence_score, ars.lifecycle_stage,
+              ars.supporting_sources, ars.conflicting_sources,
+              ars.last_reconciled_at
+       FROM athletes a
+       LEFT JOIN athlete_roster_states ars ON ars.athlete_id = a.id
+       WHERE a.data->>'university_id' = $1
+       ORDER BY a.created_at ASC`,
+      [universityId]
+    );
+
+    const athletes = rows.rows.map(r => {
+      const d = (r.data && typeof r.data === 'object') ? r.data : {};
+      return {
+        id:                r.id,
+        name:              d.name        || 'Unknown',
+        sport:             d.sport       || '',
+        position:          d.position    || '',
+        school:            d.school      || '',
+        instagram:         parseInt(d.instagram)    || 0,
+        tiktok:            parseInt(d.tiktok)       || 0,
+        engagement:        parseFloat(d.engagement) || 0,
+        status:            r.status            || 'unknown',
+        confidenceScore:   r.confidence_score  || 0,
+        lifecycleStage:    r.lifecycle_stage   || 'unknown',
+        supportingSources: r.supporting_sources || [],
+        conflictingSources: r.conflicting_sources || [],
+        lastReconciledAt:  r.last_reconciled_at || null,
+        hasConflict:       (r.conflicting_sources || []).length > 0,
+      };
+    });
+
+    // State summary
+    const summary = { active:0, probable:0, uncertain:0, inactive:0, unknown:0 };
+    athletes.forEach(a => {
+      if (summary[a.status] !== undefined) summary[a.status]++;
+      else summary.unknown++;
+    });
+
+    const syncStatus = await RosterSyncEngine.getSyncStatus(store.pool, universityId);
+
+    res.json({
+      universityId,
+      athletes,
+      summary,
+      syncStatus,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[university] Roster state error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── PWA static assets — explicit routes so catchall doesn't eat them ──

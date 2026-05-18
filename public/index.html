@@ -1167,8 +1167,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
           </div>
 
-          <!-- Program health + data timestamp -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <!-- Program health + data reliability + sync status -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
               <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Program Health</div>
               <div id="univ-program-health"><div style="color:var(--muted);font-size:12px">Loading...</div></div>
@@ -1178,6 +1178,19 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div id="univ-data-reliability"><div style="color:var(--muted);font-size:12px">Loading...</div></div>
               <div id="univ-generated-at" style="font-size:10px;color:var(--muted);margin-top:8px"></div>
             </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">Roster Sync</div>
+                <button onclick="_univTriggerSync()" title="Run roster reconciliation" style="padding:3px 8px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:4px;color:var(--accent);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Sync</button>
+              </div>
+              <div id="univ-sync-status"><div style="color:var(--muted);font-size:12px">Loading...</div></div>
+            </div>
+          </div>
+
+          <!-- Roster state breakdown -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:16px">
+            <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px">Roster State Distribution</div>
+            <div id="univ-roster-state-breakdown"><div style="color:var(--muted);font-size:12px">Run a sync to see state distribution.</div></div>
           </div>
 
           <!-- Readiness distribution + sport breakdown -->
@@ -5830,6 +5843,14 @@ async function loadUniversityDashboard() {
     var relEl = document.getElementById('univ-data-reliability');
     if (relEl) { relEl.innerHTML = _univReliabilityBar(reliability); }
 
+    // ── Sync status card ──────────────────────────────────────────
+    var syncEl = document.getElementById('univ-sync-status');
+    if (syncEl) { syncEl.innerHTML = _univRenderSyncStatus(data.syncStatus); }
+
+    // ── Roster state breakdown ────────────────────────────────────
+    var rsbEl = document.getElementById('univ-roster-state-breakdown');
+    if (rsbEl) { rsbEl.innerHTML = _univRenderRosterStateBreakdown(data.rosterStateSummary, athletes.length); }
+
     // ── Readiness distribution ─────────────────────────────────────
     var dist   = overview.readinessDistribution || {};
     var distEl = document.getElementById('univ-readiness-dist');
@@ -5961,6 +5982,97 @@ function _univRenderDevCards(athletes) {
         }).join('') + '</div>' : '') +
     '</div>';
   }).join('');
+}
+
+// ── Roster Sync Engine UI helpers ─────────────────────────────────────────
+
+function _univRenderSyncStatus(syncStatus) {
+  if (!syncStatus) {
+    return '<div style="font-size:11px;color:var(--muted)">No sync data yet. Run a sync to begin.</div>';
+  }
+  if (syncStatus.error) {
+    return '<div style="font-size:11px;color:var(--muted)">Sync tables pending migration.</div>';
+  }
+
+  var score = syncStatus.freshnessScore || 0;
+  var label = syncStatus.syncHealthLabel || 'Unknown';
+  var col   = score >= 75 ? 'var(--accent)' : score >= 50 ? '#00D4FF' : score >= 25 ? '#FFB800' : 'var(--muted)';
+
+  var lastRun  = syncStatus.lastSyncRun;
+  var snapshot = syncStatus.currentSnapshot;
+  var lastTime = lastRun && (lastRun.completed_at || lastRun.started_at)
+    ? new Date(lastRun.completed_at || lastRun.started_at).toLocaleString()
+    : 'Never';
+
+  var html =
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+      '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;color:' + col + ';letter-spacing:1px;line-height:1">' + score + '</div>' +
+      '<div>' +
+        '<div style="font-size:12px;font-weight:700;color:var(--text)">' + label + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">Freshness score</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-size:10px;color:var(--muted);margin-bottom:4px">Last sync: ' + lastTime + '</div>';
+
+  if (snapshot) {
+    html += '<div style="font-size:10px;color:var(--muted)">Snapshot: ' +
+      snapshot.active_count + ' active · ' +
+      snapshot.probable_count + ' probable · ' +
+      snapshot.uncertain_count + ' uncertain' +
+    '</div>';
+  }
+
+  return html;
+}
+
+function _univRenderRosterStateBreakdown(summary, totalAthletes) {
+  if (!summary) {
+    return '<div style="font-size:11px;color:var(--muted)">Run a roster sync to see state distribution.</div>';
+  }
+  var total = totalAthletes || 1;
+  var states = [
+    { key: 'active',    label: 'Active',    color: '#84CC16',              desc: 'Confirmed on roster' },
+    { key: 'probable',  label: 'Probable',  color: '#00D4FF',              desc: 'Likely on roster' },
+    { key: 'uncertain', label: 'Uncertain', color: '#FFB800',              desc: 'Conflicting data' },
+    { key: 'inactive',  label: 'Inactive',  color: 'rgba(240,244,255,0.3)',desc: 'Transferred / graduated' },
+    { key: 'unknown',   label: 'Unknown',   color: 'var(--muted)',         desc: 'Insufficient data' },
+  ];
+  return '<div style="display:flex;gap:0;flex-wrap:wrap">' +
+    states.map(function(s) {
+      var count = summary[s.key] || 0;
+      var pct   = Math.round((count / total) * 100);
+      return '<div style="flex:1;min-width:80px;text-align:center;padding:8px 4px">' +
+        '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:24px;color:' + s.color + ';letter-spacing:1px;line-height:1">' + count + '</div>' +
+        '<div style="font-size:10px;font-weight:700;color:var(--text);margin-top:2px">' + s.label + '</div>' +
+        '<div style="font-size:9px;color:var(--muted)">' + pct + '%</div>' +
+        '<div style="font-size:9px;color:var(--muted);margin-top:2px;line-height:1.3">' + s.desc + '</div>' +
+      '</div>';
+    }).join('') +
+  '</div>';
+}
+
+// Manual sync trigger (Sync button in header card)
+async function _univTriggerSync() {
+  var syncEl = document.getElementById('univ-sync-status');
+  if (syncEl) syncEl.innerHTML = '<div style="font-size:11px;color:var(--muted)">Running sync...</div>';
+
+  try {
+    var r = await fetch(API_BASE + '/api/university/sync/trigger', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    var result = await r.json();
+    if (result.ok) {
+      // Reload dashboard to reflect new state
+      await loadUniversityDashboard();
+    } else {
+      if (syncEl) syncEl.innerHTML = '<div style="font-size:11px;color:#FFB800">Sync failed: ' + (result.error || 'Unknown error') + '</div>';
+    }
+  } catch (err) {
+    if (syncEl) syncEl.innerHTML = '<div style="font-size:11px;color:var(--red)">Network error: ' + err.message + '</div>';
+  }
 }
 
 // ── Bulk Import UI helpers ────────────────────────────────────────────────
