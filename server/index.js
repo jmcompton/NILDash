@@ -1792,6 +1792,8 @@ const ComplianceActivityService   = require('./services/university/ComplianceAct
 const { computeReadiness, getDevelopmentRecommendations } = require('./services/university/ReadinessEngine');
 const BulkImportService           = require('./services/university/BulkImportService');
 const RosterSyncEngine            = require('./services/university/RosterSyncEngine');
+const IngestionPipeline           = require('./services/university/IngestionPipeline');
+const RosterAutomationScheduler   = require('./services/university/RosterAutomationScheduler');
 
 // ── University context helper ─────────────────────────────────────────────
 // Resolves the university_id for the current session user.
@@ -2011,8 +2013,12 @@ app.get('/api/university/compliance', requireAuth, requireUniversityMode, async 
 });
 
 // POST /api/university/bulk-import
-// Import athletes from CSV or JSON. Triggers roster sync after successful import.
-// Body: { format: 'csv'|'json', data: '<raw string>' }
+// All data flows through the Ingestion Pipeline:
+//   Parse CSV/JSON → ingestBatch (creates ingestion_events) →
+//   processQueue (resolve + dedup + write athletes) → runSync (roster state)
+//
+// BulkImportService handles parse + validate only.
+// IngestionPipeline handles write + dedup + entity resolution.
 app.post('/api/university/bulk-import', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId   = req.session.userId;
@@ -2031,16 +2037,50 @@ app.post('/api/university/bulk-import', requireAuth, requireUniversityMode, asyn
       return res.status(400).json({ error: 'format must be "csv" or "json"' });
     }
 
-    const result = await BulkImportService.bulkImport(
+    // ── Step 1: Parse raw input (validation + normalization from BulkImportService)
+    // Use BulkImportService for parse+validate only — it still writes as fallback
+    // for immediate UI feedback, then ingestion pipeline processes for dedup+sync.
+    const parseResult = await BulkImportService.bulkImport(
       store.pool, rawData, format, userId, universityId, userRole
     );
 
-    console.log(`[university] Bulk import: ${result.imported} imported, ${result.skipped} skipped, ${result.failed} failed`);
+    // ── Step 2: Route parsed records through the Ingestion Pipeline
+    // Parse the raw data again for ingestion events (CSV/JSON → raw objects)
+    let rawRecords = [];
+    try {
+      if (format === 'json') {
+        rawRecords = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+        if (!Array.isArray(rawRecords)) rawRecords = [];
+      } else {
+        // Re-use the internal CSV parser via a lightweight re-parse
+        const lines   = rawData.replace(/^﻿/, '').trim().split(/\r?\n/).filter(l => l.trim());
+        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase().replace(/\s+/g, '_'));
+        rawRecords = lines.slice(1).map(line => {
+          const vals = line.split(',').map(v => v.replace(/^"|"$/g, '').trim());
+          const obj  = {};
+          headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
+          return obj;
+        });
+      }
+    } catch (_) {}
 
-    // Trigger roster sync event-driven after any successful import
-    // Non-blocking — runs async, result attached to response
+    // Create ingestion events for audit trail + entity resolution tracking
+    let ingestionResult = { queued: 0, duplicates: 0, failed: 0 };
+    if (rawRecords.length > 0) {
+      ingestionResult = await IngestionPipeline.ingestBatch(store.pool, {
+        records:      rawRecords,
+        sourceType:   'bulk_import',
+        sourceId:     'src-import',
+        universityId,
+        userId,
+      }).catch(e => ({ queued: 0, error: e.message }));
+    }
+
+    console.log(`[university] Bulk import: ${parseResult.imported} written, ${ingestionResult.queued} events queued`);
+
+    // ── Step 3: Trigger roster sync
     let syncResult = null;
-    if (result.imported > 0) {
+    if (parseResult.imported > 0) {
       syncResult = await RosterSyncEngine.runSync(store.pool, {
         universityId,
         triggeredBy: 'import',
@@ -2048,7 +2088,12 @@ app.post('/api/university/bulk-import', requireAuth, requireUniversityMode, asyn
       }).catch(e => ({ ok: false, error: e.message }));
     }
 
-    res.json({ ...result, syncResult });
+    res.json({
+      ...parseResult,
+      ingestionEvents: ingestionResult,
+      syncResult,
+      pipeline: 'ingestion_pipeline_v2',
+    });
   } catch (err) {
     console.error('[university] Bulk import error:', err.message);
     res.status(500).json({ error: err.message });
@@ -2224,6 +2269,131 @@ app.get('/api/university/roster/state', requireAuth, requireUniversityMode, asyn
   }
 });
 
+// ── Ingestion Pipeline routes ─────────────────────────────────────────────
+
+// POST /api/university/ingestion/ingest
+// Manually submit a single athlete record through the ingestion pipeline.
+// Creates an ingestion event — does NOT write to athletes table directly.
+app.post('/api/university/ingestion/ingest', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+
+    const { payload, sourceType = 'manual' } = req.body;
+    if (!payload || typeof payload !== 'object') {
+      return res.status(400).json({ error: 'payload object required' });
+    }
+
+    const event = await IngestionPipeline.ingest(store.pool, {
+      sourceType,
+      sourceId:    sourceType === 'manual' ? 'src-manual' : 'src-import',
+      rawPayload:  payload,
+      universityId,
+      userId,
+    });
+
+    res.json(event);
+  } catch (err) {
+    console.error('[university] Ingest error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/ingestion/process
+// Process the pending ingestion queue for this university.
+// Resolves events → writes athletes → triggers sync.
+app.post('/api/university/ingestion/process', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+
+    const result = await IngestionPipeline.processQueue(store.pool, {
+      universityId,
+      agentId: userId,
+      limit:   parseInt(req.body?.limit) || 100,
+    });
+
+    // Auto-sync after processing
+    if (result.committed > 0) {
+      RosterSyncEngine.runSync(store.pool, {
+        universityId,
+        triggeredBy: 'import',
+        userId,
+      }).catch(e => console.warn('[university] Post-process sync failed:', e.message));
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error('[university] Ingestion process error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/ingestion/events
+// Recent ingestion events with resolution decisions. Full audit trail.
+app.get('/api/university/ingestion/events', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+
+    const limit  = Math.min(parseInt(req.query.limit) || 50, 200);
+    const events = await IngestionPipeline.getRecentEvents(store.pool, universityId, limit);
+    const status = await IngestionPipeline.getQueueStatus(store.pool, universityId);
+
+    res.json({ universityId, events, queueStatus: status });
+  } catch (err) {
+    console.error('[university] Ingestion events error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/ingestion/queue
+// Current queue status (counts by status).
+app.get('/api/university/ingestion/queue', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+
+    const status = await IngestionPipeline.getQueueStatus(store.pool, universityId);
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Automation Scheduler routes ───────────────────────────────────────────
+
+// GET /api/university/scheduler/status
+// Full scheduler health: tick history, per-university sync times, isRunning flag.
+app.get('/api/university/scheduler/status', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const status = await RosterAutomationScheduler.getStatus(store.pool);
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/scheduler/trigger
+// Force an immediate deep sync + queue processing for this university.
+app.post('/api/university/scheduler/trigger', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+
+    const result = await RosterAutomationScheduler.forceTrigger(store.pool, { universityId, userId });
+    res.json(result);
+  } catch (err) {
+    console.error('[university] Scheduler trigger error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── PWA static assets — explicit routes so catchall doesn't eat them ──
 app.get('/manifest.json', (req, res) => {
   res.setHeader('Content-Type', 'application/manifest+json');
@@ -2270,5 +2440,15 @@ app.listen(PORT, async () => {
     }
   } catch (err) {
     console.warn('[migrations] Migration run failed (non-fatal):', err.message);
+  }
+
+  // ── Start Roster Automation Scheduler ────────────────────────────
+  // Runs inside this process — resilient across restarts via DB timestamps.
+  // Light sync every 6h, deep sync every 24h, tick every 30min.
+  try {
+    RosterAutomationScheduler.start(store.pool);
+    console.log('[scheduler] ✅ Roster Automation Scheduler started');
+  } catch (err) {
+    console.warn('[scheduler] Scheduler start failed (non-fatal):', err.message);
   }
 });

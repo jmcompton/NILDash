@@ -1290,7 +1290,21 @@ tbody td{padding:11px 14px;vertical-align:middle}
           </div>
 
           <!-- Import result -->
-          <div id="univ-import-result" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px"></div>
+          <div id="univ-import-result" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px"></div>
+
+          <!-- Ingestion pipeline status -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Ingestion Pipeline</div>
+              <div style="display:flex;gap:8px">
+                <button onclick="_univLoadIngestionEvents()" style="padding:4px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Refresh</button>
+                <button onclick="_univProcessQueue()" style="padding:4px 12px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);color:var(--accent);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">Process Queue</button>
+              </div>
+            </div>
+            <div id="univ-queue-status" style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap"></div>
+            <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Recent Events</div>
+            <div id="univ-ingestion-events"><div style="color:var(--muted);font-size:11px">Click Refresh to load ingestion history.</div></div>
+          </div>
 
         </div><!-- /univPanel-import -->
 
@@ -6128,10 +6142,9 @@ async function _univRunImport() {
     return;
   }
 
-  // Show loading
   if (resultEl) {
     resultEl.style.display = 'block';
-    resultEl.innerHTML = '<div style="color:var(--muted);font-size:12px">Importing...</div>';
+    resultEl.innerHTML = '<div style="color:var(--muted);font-size:12px">Importing through ingestion pipeline...</div>';
   }
 
   try {
@@ -6144,51 +6157,64 @@ async function _univRunImport() {
     var result = await resp.json();
 
     if (!resp.ok) {
-      resultEl.innerHTML = '<div style="color:var(--red);font-size:12px">Error: ' + (result.error || 'Import failed') + '</div>';
+      if (resultEl) resultEl.innerHTML = '<div style="color:var(--red);font-size:12px">Error: ' + (result.error || 'Import failed') + '</div>';
       return;
     }
 
-    // Build result summary
-    var statusColor = result.failed > 0 ? '#FFB800' : 'var(--accent)';
+    // ── Result summary ─────────────────────────────────────────────
+    var ie   = result.ingestionEvents || {};
+    var sync = result.syncResult || {};
+
     var html =
       '<div style="display:flex;gap:20px;margin-bottom:16px;flex-wrap:wrap">' +
-        _univImportStat(result.imported, 'Imported', 'var(--accent)') +
-        _univImportStat(result.skipped,  'Skipped',  '#00D4FF') +
-        _univImportStat(result.failed,   'Failed',   result.failed > 0 ? 'var(--red)' : 'var(--muted)') +
-        _univImportStat(result.total,    'Total',    'var(--muted)') +
+        _univImportStat(result.imported,    'Written',  'var(--accent)') +
+        _univImportStat(result.skipped,     'Skipped',  '#00D4FF') +
+        _univImportStat(ie.queued || 0,     'Queued',   '#FFB800') +
+        _univImportStat(ie.duplicates || 0, 'Dupes',    'var(--muted)') +
+        _univImportStat(result.failed || 0, 'Failed',   result.failed > 0 ? 'var(--red)' : 'var(--muted)') +
       '</div>';
 
+    // Pipeline status
+    html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 12px;background:var(--surface2);border-radius:var(--r-sm)">' +
+      '<span style="font-size:10px;color:var(--muted)">Pipeline:</span>' +
+      '<span style="font-size:10px;font-family:var(--mono);color:var(--accent)">ingestion_pipeline_v2</span>' +
+      (sync.ok ? '&nbsp;·&nbsp;<span style="font-size:10px;color:var(--accent)">✓ Roster sync complete</span>'
+               : (sync.error ? '&nbsp;·&nbsp;<span style="font-size:10px;color:#FFB800">Sync pending</span>' : '')) +
+    '</div>';
+
     if (result.athletes && result.athletes.length) {
-      html += '<div style="margin-bottom:10px">' +
-        '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Imported Athletes</div>' +
+      html += '<div style="margin-bottom:12px">' +
+        '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Athletes Written</div>' +
         result.athletes.map(function(a) {
-          return '<div style="font-size:11px;color:var(--text);padding:3px 0;border-bottom:1px solid var(--border)">' +
-            a.name + ' <span style="color:var(--muted)">· ' + a.sport + '</span>' +
+          return '<div style="font-size:11px;color:var(--text);padding:4px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">' +
+            '<span>' + a.name + ' <span style="color:var(--muted)">· ' + a.sport + '</span></span>' +
+            '<span style="font-size:9px;color:var(--accent);font-family:var(--mono)">✓</span>' +
           '</div>';
         }).join('') + '</div>';
     }
 
     if (result.skippedNames && result.skippedNames.length) {
-      html += '<div style="margin-bottom:10px">' +
-        '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Skipped (duplicates)</div>' +
+      html += '<details style="margin-bottom:10px">' +
+        '<summary style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;cursor:pointer;margin-bottom:6px">Skipped (' + result.skippedNames.length + ')</summary>' +
         result.skippedNames.map(function(n) {
           return '<div style="font-size:11px;color:var(--muted);padding:2px 0">' + n + '</div>';
-        }).join('') + '</div>';
+        }).join('') + '</details>';
     }
 
     if (result.errors && result.errors.length) {
-      html += '<div>' +
-        '<div style="font-size:9px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Errors</div>' +
+      html += '<details open>' +
+        '<summary style="font-size:9px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.08em;cursor:pointer;margin-bottom:6px">Errors (' + result.errors.length + ')</summary>' +
         result.errors.map(function(e) {
           return '<div style="font-size:11px;color:var(--red);padding:2px 0">Row ' + (e.row||'?') + ': ' + e.message + (e.field ? ' (' + e.field + ')' : '') + '</div>';
-        }).join('') + '</div>';
+        }).join('') + '</details>';
     }
 
     if (resultEl) resultEl.innerHTML = html;
 
-    // Reload dashboard if anything was imported
+    // Auto-reload ingestion events panel + dashboard
+    _univLoadIngestionEvents();
     if (result.imported > 0) {
-      setTimeout(function() { loadUniversityDashboard(); }, 1200);
+      setTimeout(function() { loadUniversityDashboard(); }, 1500);
     }
 
   } catch (err) {
@@ -6197,10 +6223,84 @@ async function _univRunImport() {
 }
 
 function _univImportStat(n, label, color) {
-  return '<div style="text-align:center">' +
-    '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;color:' + color + ';letter-spacing:1px;line-height:1">' + (n||0) + '</div>' +
+  return '<div style="text-align:center;min-width:48px">' +
+    '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:26px;color:' + color + ';letter-spacing:1px;line-height:1">' + (n||0) + '</div>' +
     '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">' + label + '</div>' +
   '</div>';
+}
+
+// ── Ingestion Pipeline event viewer ───────────────────────────────────────
+
+async function _univLoadIngestionEvents() {
+  var eventsEl = document.getElementById('univ-ingestion-events');
+  var queueEl  = document.getElementById('univ-queue-status');
+  if (eventsEl) eventsEl.innerHTML = '<div style="color:var(--muted);font-size:11px">Loading...</div>';
+
+  try {
+    var r = await fetch(API_BASE + '/api/university/ingestion/events?limit=30', { credentials: 'include' });
+    if (!r.ok) { if (eventsEl) eventsEl.innerHTML = '<div style="color:var(--muted);font-size:11px">Ingestion tables pending migration.</div>'; return; }
+    var data = await r.json();
+    var qs   = data.queueStatus || {};
+    var evs  = data.events      || [];
+
+    // Queue status badges
+    if (queueEl) {
+      var statusColors = { pending:'#FFB800', committed:'var(--accent)', failed:'var(--red)', partial:'#00D4FF', duplicate:'var(--muted)', resolving:'#9333ea' };
+      queueEl.innerHTML = Object.entries(qs.byStatus || {}).map(function(entry) {
+        var s = entry[0], info = entry[1];
+        var col = statusColors[s] || 'var(--muted)';
+        return '<div style="display:flex;align-items:center;gap:6px;padding:4px 10px;background:var(--surface2);border-radius:10px;font-size:10px">' +
+          '<span style="color:' + col + ';font-weight:700">' + info.count + '</span>' +
+          '<span style="color:var(--muted)">' + s + '</span>' +
+        '</div>';
+      }).join('') || '<div style="font-size:11px;color:var(--muted)">No events yet.</div>';
+    }
+
+    // Event list
+    if (eventsEl) {
+      if (!evs.length) {
+        eventsEl.innerHTML = '<div style="color:var(--muted);font-size:11px;padding:12px 0;text-align:center">No ingestion events yet. Import athletes to begin.</div>';
+        return;
+      }
+      var statusIcons = { committed:'✓', failed:'✗', pending:'⋯', partial:'!', duplicate:'=', resolving:'↻' };
+      var matchColors = { exact:'var(--accent)', probable:'#00D4FF', new_entity:'#FFB800', conflict:'var(--red)', skipped:'var(--muted)' };
+      eventsEl.innerHTML = evs.map(function(e) {
+        var icon     = statusIcons[e.status] || '?';
+        var iconCol  = e.status === 'committed' ? 'var(--accent)' : e.status === 'failed' ? 'var(--red)' : '#FFB800';
+        var matchCol = matchColors[e.match_type] || 'var(--muted)';
+        return '<div style="display:grid;grid-template-columns:20px 1fr 80px 80px 80px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px">' +
+          '<span style="color:' + iconCol + ';font-weight:700;font-family:var(--mono)">' + icon + '</span>' +
+          '<div>' +
+            '<span style="color:var(--text)">' + (e.athlete_name || 'Unknown') + '</span>' +
+            '<span style="color:var(--muted)"> · ' + (e.athlete_sport || '') + '</span>' +
+          '</div>' +
+          '<span style="color:var(--muted);font-size:10px">' + e.source_type + '</span>' +
+          '<span style="color:' + matchCol + ';font-size:10px;font-family:var(--mono)">' + (e.match_type || '—') + '</span>' +
+          '<span style="color:var(--muted);font-size:10px">' + (e.match_score != null ? (parseFloat(e.match_score)*100).toFixed(0) + '%' : '—') + '</span>' +
+        '</div>';
+      }).join('');
+    }
+  } catch (err) {
+    if (eventsEl) eventsEl.innerHTML = '<div style="color:var(--muted);font-size:11px">Could not load: ' + err.message + '</div>';
+  }
+}
+
+async function _univProcessQueue() {
+  var eventsEl = document.getElementById('univ-ingestion-events');
+  if (eventsEl) eventsEl.innerHTML = '<div style="color:var(--muted);font-size:11px">Processing queue...</div>';
+  try {
+    var r = await fetch(API_BASE + '/api/university/ingestion/process', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ limit: 100 }),
+    });
+    var result = await r.json();
+    // Reload events panel + dashboard
+    _univLoadIngestionEvents();
+    if ((result.committed || 0) > 0) setTimeout(loadUniversityDashboard, 1200);
+  } catch (err) {
+    if (eventsEl) eventsEl.innerHTML = '<div style="color:var(--red);font-size:11px">Queue process failed: ' + err.message + '</div>';
+  }
 }
 
 // Load compliance tab from dedicated endpoint
