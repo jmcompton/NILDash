@@ -131,6 +131,8 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Not found' });
+  // Refresh session role on every /me call — handles sessions that predate role storage
+  if (!req.session.role) req.session.role = user.role;
   res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
 });
 

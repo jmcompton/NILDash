@@ -20,9 +20,9 @@ const AGENT_ROLES      = new Set(['agent', 'admin']);
 // ── requireUniversityMode ─────────────────────────────────────────
 // Gate for all /api/university/* routes.
 // Requires authenticated session + university/admin role.
-// Also enforces the feature flag — if university mode is disabled globally,
-// no university route is reachable regardless of role.
-function requireUniversityMode(req, res, next) {
+// Falls back to DB lookup when session.role is missing (handles sessions
+// that predate role storage — e.g. existing admin sessions).
+async function requireUniversityMode(req, res, next) {
   // Feature flag gate first
   if (!FEATURE_UNIVERSITY_MODE) {
     return res.status(503).json({
@@ -36,8 +36,21 @@ function requireUniversityMode(req, res, next) {
     return res.status(401).json({ error: 'Not authenticated' });
   }
 
-  // Role check — role is stored on session at login
-  const role = req.session.role;
+  // Role resolution — session first, DB fallback for legacy sessions
+  let role = req.session.role;
+  if (!role) {
+    try {
+      const store = require('../store');
+      const user  = await store.getUser(req.session.userId);
+      if (user) {
+        role = user.role;
+        req.session.role = role; // persist for subsequent requests
+      }
+    } catch (e) {
+      console.warn('[modeGuard] DB role fallback failed:', e.message);
+    }
+  }
+
   if (!UNIVERSITY_ROLES.has(role)) {
     return res.status(403).json({
       error: 'University Mode access only.',
