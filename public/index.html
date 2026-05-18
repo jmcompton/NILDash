@@ -7733,10 +7733,13 @@ async function _espnFetchRoster() {
 
     _espnPreviewAthletes = data.athletes;
     var team = data.team || {};
+    var season = data.season || '';
     document.getElementById('espn-preview-title').textContent =
-      (team.name || school) + ' — ' + sport + ' (' + data.count + ' athletes)';
-    document.getElementById('espn-preview-sub').textContent =
-      'Review below, then click Import All to add to your program.';
+      (team.name || school) + ' — ' + sport + (season ? '  ·  ' + season + ' season' : '') + '  ·  ' + data.count + ' athletes';
+    var espnDate = data.espnTs ? new Date(data.espnTs).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    document.getElementById('espn-preview-sub').innerHTML =
+      'Source: ESPN' + (espnDate ? ' · pulled ' + espnDate : '') +
+      ' &nbsp;—&nbsp; <span style="color:#f59e0b">Transfer portal moves may take 2–4 weeks to appear on ESPN. Review before importing.</span>';
 
     // Render preview table
     var tbody = document.getElementById('espn-preview-tbody');

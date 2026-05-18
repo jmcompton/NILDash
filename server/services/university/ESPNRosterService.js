@@ -103,16 +103,30 @@ async function findTeamId(sportPath, schoolName) {
   return bestScore >= 60 ? best : null;
 }
 
+// Resolve current ESPN season year (season ends in the spring, so May 2026 → 2026)
+function currentESPNSeasonYear() {
+  const now   = new Date();
+  const month = now.getMonth() + 1; // 1-12
+  const year  = now.getFullYear();
+  // ESPN season year = year the season ends.
+  // College basketball ends April; football ends January.
+  // After July, the new season hasn't started — still show the year that just passed.
+  return year;
+}
+
 // Fetch and normalize roster for a given ESPN team ID + sport path
 async function fetchRosterById(sportPath, teamId) {
-  const url    = `${ESPN_BASE}/${sportPath}/teams/${teamId}/roster`;
+  const seasonYear = currentESPNSeasonYear();
+  const url    = `${ESPN_BASE}/${sportPath}/teams/${teamId}/roster?season=${seasonYear}`;
   const result = await espnFetch(url);
 
   if (!result.ok || !result.data) {
     return { athletes: [], error: result.error || `ESPN API returned ${result.status}` };
   }
 
-  const raw = result.data?.athletes || [];
+  const raw        = result.data?.athletes || [];
+  const seasonMeta = result.data?.season   || {};
+  const espnTs     = result.data?.timestamp || null;
 
   const athletes = raw
     .filter(a => a.fullName || (a.firstName && a.lastName))
@@ -134,13 +148,17 @@ async function fetchRosterById(sportPath, teamId) {
         height:   a.height   ? inchesToDisplay(a.height) : null,
         weight:   a.weight   ? Math.round(a.weight)      : null,
         hometown,
-        high_school: null,   // ESPN doesn't carry HS data
+        high_school: null,
         major:       null,
         espn_id:  a.id       || null,
       };
     });
 
-  return { athletes };
+  return {
+    athletes,
+    season:    seasonMeta.displayName || String(seasonYear),
+    espnTs,    // ISO timestamp from ESPN response header
+  };
 }
 
 // ── Main export: get roster by school name + sport ────────────────────────
@@ -164,17 +182,19 @@ async function getRoster(schoolName, sport) {
   }
 
   // 2. Fetch roster
-  const { athletes, error } = await fetchRosterById(sportPath, team.id);
+  const { athletes, error, season, espnTs } = await fetchRosterById(sportPath, team.id);
   if (error) return { athletes: [], team, error };
 
   return {
     athletes,
     team: {
-      id:          team.id,
-      name:        team.displayName,
-      location:    team.location,
+      id:           team.id,
+      name:         team.displayName,
+      location:     team.location,
       abbreviation: team.abbreviation,
     },
+    season,   // e.g. "2025-26"
+    espnTs,   // ISO timestamp from ESPN — when ESPN last updated this record
     sportPath,
   };
 }

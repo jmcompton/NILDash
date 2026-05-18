@@ -2413,7 +2413,13 @@ app.post('/api/university/roster/espn', requireAuth, requireUniversityMode, asyn
     if (result.error && !result.athletes?.length) {
       return res.status(422).json({ error: result.error });
     }
-    res.json({ athletes: result.athletes, team: result.team, count: result.athletes.length });
+    res.json({
+      athletes: result.athletes,
+      team:     result.team,
+      season:   result.season,
+      espnTs:   result.espnTs,
+      count:    result.athletes.length,
+    });
   } catch (err) {
     console.error('[roster/espn]', err.message);
     res.status(500).json({ error: err.message });
