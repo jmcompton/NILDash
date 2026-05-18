@@ -1481,15 +1481,119 @@ tbody td{padding:11px 14px;vertical-align:middle}
         ═══════════════════════════════════════════════════════════ -->
         <div id="univPanel-import" style="display:none">
 
-          <!-- Sub-tabs -->
-          <div style="display:flex;gap:8px;margin-bottom:20px">
-            <button id="importSubTab-bulk" onclick="_importSubTab('bulk')" style="padding:7px 16px;background:rgba(132,204,22,0.12);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Bulk Import</button>
-            <button id="importSubTab-auto" onclick="_importSubTab('auto')" style="padding:7px 16px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Auto-Import</button>
+          <!-- Method tabs -->
+          <div style="display:flex;gap:6px;margin-bottom:24px;border-bottom:1px solid var(--border)">
+            <button id="importTab-espn" onclick="_importSetMethod('espn')"
+              style="padding:9px 18px;background:none;border:none;border-bottom:2px solid var(--accent);color:var(--text);font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:-1px">ESPN Import</button>
+            <button id="importTab-paste" onclick="_importSetMethod('paste')"
+              style="padding:9px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:-1px">Paste Roster</button>
+            <button id="importTab-csv" onclick="_importSetMethod('csv')"
+              style="padding:9px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:500;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:-1px">Upload CSV</button>
           </div>
 
-          <!-- Bulk Import sub-panel -->
-          <div id="importSubPanel-bulk">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+          <!-- ── ESPN Import (primary) ──────────────────────────────── -->
+          <div id="importPanel-espn">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px;margin-bottom:16px">
+              <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:4px">Automated Roster Import via ESPN</div>
+              <div style="font-size:12px;color:var(--muted);margin-bottom:20px;line-height:1.6">Enter the school name and sport. NILDash pulls the current roster directly from ESPN's database — no scraping, no manual steps.</div>
+              <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+                <div>
+                  <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">School</div>
+                  <input id="espn-school-input" type="text" placeholder="e.g. Samford"
+                    style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:9px 14px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;width:220px;outline:none">
+                </div>
+                <div>
+                  <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Sport</div>
+                  <select id="espn-sport-select" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:9px 14px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;min-width:200px;outline:none">
+                    <option value="">— Select sport —</option>
+                    <option value="football">Football</option>
+                    <option value="basketball">Men's Basketball</option>
+                    <option value="women's basketball">Women's Basketball</option>
+                    <option value="baseball">Baseball</option>
+                    <option value="softball">Softball</option>
+                    <option value="women's soccer">Women's Soccer</option>
+                    <option value="men's soccer">Men's Soccer</option>
+                    <option value="volleyball">Volleyball</option>
+                    <option value="lacrosse">Lacrosse</option>
+                    <option value="women's lacrosse">Women's Lacrosse</option>
+                  </select>
+                </div>
+                <button id="espn-fetch-btn" onclick="_espnFetchRoster()"
+                  style="padding:9px 28px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">
+                  Pull Roster
+                </button>
+              </div>
+            </div>
+
+            <!-- Preview + confirm -->
+            <div id="espn-preview-panel" style="display:none">
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                  <div>
+                    <div id="espn-preview-title" style="font-size:13px;font-weight:700;color:var(--text)">Preview</div>
+                    <div id="espn-preview-sub" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button onclick="_espnCancelPreview()" style="padding:7px 16px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Cancel</button>
+                    <button id="espn-commit-btn" onclick="_espnCommitImport()" style="padding:7px 20px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Import All</button>
+                  </div>
+                </div>
+                <div style="overflow-x:auto">
+                  <table style="width:100%;border-collapse:collapse;font-size:11px">
+                    <thead>
+                      <tr style="border-bottom:1px solid var(--border)">
+                        <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">#</th>
+                        <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">Name</th>
+                        <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">Pos</th>
+                        <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">Yr</th>
+                        <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">Ht</th>
+                        <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">Wt</th>
+                        <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">Hometown</th>
+                      </tr>
+                    </thead>
+                    <tbody id="espn-preview-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div id="espn-result-msg" style="display:none;margin-top:12px;padding:14px 16px;border-radius:var(--r-sm);font-size:12px;font-weight:600"></div>
+          </div>
+
+          <!-- ── Paste Roster ──────────────────────────────────────── -->
+          <div id="importPanel-paste" style="display:none">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
+              <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:4px">Paste from Athletics Website</div>
+              <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Go to your team's roster page → Select All (Ctrl+A) → Copy (Ctrl+C) → Paste below. Works with any athletics website.</div>
+              <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+                <div style="flex:1;min-width:180px">
+                  <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.06em">School</div>
+                  <input id="paste-school-input" type="text" placeholder="e.g. Samford University" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box">
+                </div>
+                <div style="min-width:160px">
+                  <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.06em">Sport</div>
+                  <input id="paste-sport-input" type="text" placeholder="e.g. Men's Basketball" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none;box-sizing:border-box">
+                </div>
+              </div>
+              <textarea id="paste-roster-textarea" placeholder="Paste the roster page content here..." style="width:100%;height:180px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;color:var(--text);font-family:var(--mono);font-size:11px;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+              <button id="paste-extract-btn" onclick="_pasteExtractRoster()" style="margin-top:10px;padding:9px 24px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Extract Athletes with AI</button>
+            </div>
+            <div id="paste-preview-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+                <div id="paste-preview-title" style="font-size:12px;font-weight:700;color:var(--text)"></div>
+                <div style="display:flex;gap:8px">
+                  <button onclick="document.getElementById('paste-preview-panel').style.display='none'" style="padding:6px 14px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif">Cancel</button>
+                  <button id="paste-commit-btn" onclick="_pasteCommitImport()" style="padding:6px 18px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Import All</button>
+                </div>
+              </div>
+              <div id="paste-preview-list" style="font-size:11px;color:var(--muted)"></div>
+            </div>
+            <div id="paste-result-msg" style="display:none;margin-top:12px;padding:14px 16px;border-radius:var(--r-sm);font-size:12px;font-weight:600"></div>
+          </div>
+
+          <!-- ── CSV Upload ────────────────────────────────────────── -->
+          <div id="importPanel-csv" style="display:none">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
               <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
                 <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">How to Import</div>
                 <ol style="font-size:12px;color:var(--muted);line-height:1.8;padding-left:16px;margin:0 0 16px 0">
@@ -1502,13 +1606,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
               </div>
               <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                  <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Paste Data or Upload</div>
+                  <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Paste or Upload</div>
                   <div style="display:flex;gap:4px">
                     <button id="univImportFmtCsv" onclick="_univImportSetFmt('csv')" style="padding:4px 10px;border-radius:var(--r-sm);border:1px solid var(--accent);background:rgba(132,204,22,0.12);color:var(--accent);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--mono)">CSV</button>
                     <button id="univImportFmtJson" onclick="_univImportSetFmt('json')" style="padding:4px 10px;border-radius:var(--r-sm);border:1px solid var(--border);background:none;color:var(--muted);font-size:10px;font-weight:700;cursor:pointer;font-family:var(--mono)">JSON</button>
                   </div>
                 </div>
-                <textarea id="univ-import-textarea" placeholder="name,sport,school,position,instagram,tiktok,engagement,stats,notes&#10;Jane Smith,Basketball,Samford University,Point Guard,8500,12000,6.2,..." style="width:100%;height:120px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px;color:var(--text);font-family:var(--mono);font-size:11px;resize:vertical;box-sizing:border-box;outline:none"></textarea>
+                <textarea id="univ-import-textarea" placeholder="name,sport,school,position&#10;Jane Smith,Basketball,Samford University,Point Guard" style="width:100%;height:120px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px;color:var(--text);font-family:var(--mono);font-size:11px;resize:vertical;box-sizing:border-box;outline:none"></textarea>
                 <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
                   <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);cursor:pointer;font-size:11px;color:var(--muted)">
                     ↑ Upload file
@@ -1519,81 +1623,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
               </div>
             </div>
             <div id="univ-import-result" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px"></div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Ingestion Pipeline</div>
-                <div style="display:flex;gap:8px">
-                  <button onclick="_univLoadIngestionEvents()" style="padding:4px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻ Refresh</button>
-                  <button onclick="_univProcessQueue()" style="padding:4px 12px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);color:var(--accent);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">Process Queue</button>
-                </div>
-              </div>
-              <div id="univ-queue-status" style="display:flex;gap:16px;margin-bottom:14px;flex-wrap:wrap"></div>
-              <div id="univ-ingestion-events"><div style="color:var(--muted);font-size:11px">Click Refresh to load ingestion history.</div></div>
-            </div>
           </div>
-
-          <!-- Auto-Import sub-panel -->
-          <div id="importSubPanel-auto" style="display:none">
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
-              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">AI-Powered Roster Discovery</div>
-              <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">Searches official athletics websites and ESPN. Claude AI extracts athlete data. High-confidence results auto-import; others go to the review queue.</div>
-              <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
-                <div>
-                  <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">School</div>
-                  <input id="intel-school-input" type="text" placeholder="e.g. Samford University"
-                    style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;min-width:200px;outline:none">
-                </div>
-                <div>
-                  <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Sport</div>
-                  <select id="intel-sport-select" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;min-width:180px;outline:none">
-                    <option value="">— Select sport —</option>
-                    <option value="football">Football</option>
-                    <option value="basketball">Men's Basketball</option>
-                    <option value="women's basketball">Women's Basketball</option>
-                    <option value="baseball">Baseball</option>
-                    <option value="softball">Softball</option>
-                    <option value="soccer">Soccer</option>
-                    <option value="volleyball">Volleyball</option>
-                    <option value="track & field">Track &amp; Field</option>
-                    <option value="golf">Golf</option>
-                    <option value="tennis">Tennis</option>
-                    <option value="lacrosse">Lacrosse</option>
-                    <option value="wrestling">Wrestling</option>
-                  </select>
-                </div>
-                <button onclick="_intelStartDiscovery()" id="intel-start-btn" style="padding:9px 22px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Find Roster</button>
-                <button onclick="_intelLoadReviewQueue()" style="padding:9px 16px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Review Queue <span id="intel-queue-badge" style="display:none;background:var(--accent);color:#0a0e1a;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px">0</span></button>
-              </div>
-            </div>
-            <div id="intel-progress-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Discovery Job</div>
-                <div id="intel-job-status-badge" style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:9px;background:rgba(132,204,22,0.12);color:var(--accent)">queued</div>
-              </div>
-              <div id="intel-progress-message" style="font-size:13px;color:var(--text);margin-bottom:16px;min-height:20px"></div>
-              <div style="background:var(--surface2);border-radius:4px;height:4px;margin-bottom:16px;overflow:hidden"><div id="intel-progress-bar" style="height:100%;background:var(--accent);width:0%;transition:width 0.5s ease;border-radius:4px"></div></div>
-              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
-                <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center"><div id="intel-cnt-found" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--text)">—</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Found</div></div>
-                <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center"><div id="intel-cnt-imported" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--accent)">—</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Auto-Imported</div></div>
-                <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center"><div id="intel-cnt-queued" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:#f59e0b">—</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Review Queue</div></div>
-                <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center"><div id="intel-cnt-skipped" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--muted)">—</div><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Skipped</div></div>
-              </div>
-              <div id="intel-sources-list" style="font-size:11px;color:var(--muted)"></div>
-            </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Recent Discovery Jobs</div>
-                <button onclick="_intelLoadJobs()" style="padding:4px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻</button>
-              </div>
-              <div id="intel-jobs-list"><div style="color:var(--muted);font-size:11px">No discovery jobs yet.</div></div>
-            </div>
-            <div id="intel-review-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-                <div><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px">Review Queue</div><div style="font-size:11px;color:var(--muted)">Confidence 70–94. Approve or reject each athlete.</div></div>
-                <button onclick="document.getElementById('intel-review-panel').style.display='none'" style="padding:4px 10px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">✕</button>
-              </div>
-              <div id="intel-review-list"><div style="color:var(--muted);font-size:11px;text-align:center;padding:24px">Loading...</div></div>
-            </div>
           </div>
 
         </div><!-- /univPanel-import -->
@@ -7651,20 +7681,185 @@ async function _nilDirLoadActivity() {
 }
 
 // ── Import sub-tab switcher ───────────────────────────────────────────────
-function _importSubTab(sub) {
-  ['bulk','auto'].forEach(function(s) {
-    var btn   = document.getElementById('importSubTab-' + s);
-    var panel = document.getElementById('importSubPanel-' + s);
-    var isActive = s === sub;
+function _importSubTab(sub) { _importSetMethod(sub === 'bulk' ? 'csv' : 'espn'); }
+
+// ── Import method switcher ────────────────────────────────────────────────
+var _espnPreviewAthletes = null;
+var _pastePreviewAthletes = null;
+
+function _importSetMethod(method) {
+  var methods = ['espn','paste','csv'];
+  methods.forEach(function(m) {
+    var btn   = document.getElementById('importTab-' + m);
+    var panel = document.getElementById('importPanel-' + m);
+    var isActive = m === method;
     if (btn) {
-      btn.style.background   = isActive ? 'rgba(132,204,22,0.12)' : 'none';
-      btn.style.borderColor  = isActive ? 'var(--accent)' : 'var(--border)';
-      btn.style.color        = isActive ? 'var(--accent)' : 'var(--muted)';
-      btn.style.fontWeight   = isActive ? '700' : '400';
+      btn.style.borderBottomColor = isActive ? 'var(--accent)' : 'transparent';
+      btn.style.color             = isActive ? 'var(--text)' : 'var(--muted)';
+      btn.style.fontWeight        = isActive ? '700' : '500';
     }
     if (panel) panel.style.display = isActive ? 'block' : 'none';
   });
-  if (sub === 'auto') _intelLoadJobs();
+  // Pre-fill school from loaded university data
+  if (method === 'espn' || method === 'paste') {
+    var univName = (_univData && _univData.university && _univData.university.name) || '';
+    var espnEl = document.getElementById('espn-school-input');
+    var pasteEl = document.getElementById('paste-school-input');
+    if (espnEl  && !espnEl.value  && univName) espnEl.value  = univName;
+    if (pasteEl && !pasteEl.value && univName) pasteEl.value = univName;
+  }
+}
+
+// ── ESPN Import ──────────────────────────────────────────────────────────
+async function _espnFetchRoster() {
+  var school = (document.getElementById('espn-school-input') || {}).value.trim();
+  var sport  = (document.getElementById('espn-sport-select') || {}).value.trim();
+  if (!school) { alert('Enter a school name.'); return; }
+  if (!sport)  { alert('Select a sport.'); return; }
+
+  var btn = document.getElementById('espn-fetch-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Pulling…'; }
+  document.getElementById('espn-preview-panel').style.display = 'none';
+  _espnShowResult('', '');
+
+  try {
+    var r = await fetch(API_BASE + '/api/university/roster/espn', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schoolName: school, sport }),
+    });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'ESPN fetch failed');
+
+    _espnPreviewAthletes = data.athletes;
+    var team = data.team || {};
+    document.getElementById('espn-preview-title').textContent =
+      (team.name || school) + ' — ' + sport + ' (' + data.count + ' athletes)';
+    document.getElementById('espn-preview-sub').textContent =
+      'Review below, then click Import All to add to your program.';
+
+    // Render preview table
+    var tbody = document.getElementById('espn-preview-tbody');
+    tbody.innerHTML = data.athletes.map(function(a) {
+      return '<tr style="border-bottom:1px solid var(--border)">' +
+        '<td style="padding:7px 10px;color:var(--muted)">' + (a.number || '—') + '</td>' +
+        '<td style="padding:7px 10px;color:var(--text);font-weight:600">' + (a.name || '—') + '</td>' +
+        '<td style="padding:7px 10px;color:var(--muted)">' + (a.position || '—') + '</td>' +
+        '<td style="padding:7px 10px;color:var(--muted)">' + (a.year || '—') + '</td>' +
+        '<td style="padding:7px 10px;color:var(--muted)">' + (a.height || '—') + '</td>' +
+        '<td style="padding:7px 10px;color:var(--muted)">' + (a.weight ? a.weight + ' lbs' : '—') + '</td>' +
+        '<td style="padding:7px 10px;color:var(--muted)">' + (a.hometown || '—') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    document.getElementById('espn-preview-panel').style.display = 'block';
+  } catch (err) {
+    _espnShowResult('error', 'Error: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Pull Roster'; }
+  }
+}
+
+async function _espnCommitImport() {
+  if (!_espnPreviewAthletes || !_espnPreviewAthletes.length) return;
+  var school = (document.getElementById('espn-school-input') || {}).value.trim();
+  var sport  = (document.getElementById('espn-sport-select') || {}).value.trim();
+  var btn    = document.getElementById('espn-commit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  try {
+    var r = await fetch(API_BASE + '/api/university/roster/import-commit', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athletes: _espnPreviewAthletes, schoolName: school, sport }),
+    });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Import failed');
+    document.getElementById('espn-preview-panel').style.display = 'none';
+    _espnPreviewAthletes = null;
+    _espnShowResult('success', 'Imported ' + data.inserted + ' athletes. ' + (data.skipped ? data.skipped + ' skipped.' : ''));
+    if (typeof _nilDirRefresh === 'function') setTimeout(_nilDirRefresh, 800);
+  } catch (err) {
+    _espnShowResult('error', 'Error: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Import All'; }
+  }
+}
+
+function _espnCancelPreview() {
+  document.getElementById('espn-preview-panel').style.display = 'none';
+  _espnPreviewAthletes = null;
+}
+
+function _espnShowResult(type, msg) {
+  var el = document.getElementById('espn-result-msg');
+  if (!el) return;
+  if (!msg) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.style.background = type === 'success' ? 'rgba(132,204,22,0.08)' : 'rgba(239,68,68,0.08)';
+  el.style.border     = '1px solid ' + (type === 'success' ? 'rgba(132,204,22,0.25)' : 'rgba(239,68,68,0.3)');
+  el.style.color      = type === 'success' ? 'var(--accent)' : '#ef4444';
+  el.textContent      = msg;
+}
+
+// ── Paste Import ─────────────────────────────────────────────────────────
+async function _pasteExtractRoster() {
+  var text   = (document.getElementById('paste-roster-textarea') || {}).value.trim();
+  var school = (document.getElementById('paste-school-input')    || {}).value.trim();
+  var sport  = (document.getElementById('paste-sport-input')     || {}).value.trim();
+  if (!text)   { alert('Paste some roster content first.'); return; }
+  if (!school) { alert('Enter a school name.'); return; }
+  var btn = document.getElementById('paste-extract-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Extracting…'; }
+  document.getElementById('paste-preview-panel').style.display = 'none';
+
+  try {
+    var r = await fetch(API_BASE + '/api/university/roster/parse-text', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, universityName: school, sport }),
+    });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Extraction failed');
+    _pastePreviewAthletes = data.athletes;
+    document.getElementById('paste-preview-title').textContent = data.count + ' athletes found';
+    document.getElementById('paste-preview-list').innerHTML = data.athletes.map(function(a) {
+      return '<div style="display:flex;gap:12px;padding:6px 0;border-bottom:1px solid var(--border)">' +
+        '<span style="color:var(--text);font-weight:600;min-width:160px">' + (a.name || '—') + '</span>' +
+        '<span style="color:var(--muted)">' + [a.position, a.year, a.height, a.hometown].filter(Boolean).join(' · ') + '</span>' +
+      '</div>';
+    }).join('');
+    document.getElementById('paste-preview-panel').style.display = 'block';
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Extract Athletes with AI'; }
+  }
+}
+
+async function _pasteCommitImport() {
+  if (!_pastePreviewAthletes || !_pastePreviewAthletes.length) return;
+  var school = (document.getElementById('paste-school-input') || {}).value.trim();
+  var sport  = (document.getElementById('paste-sport-input')  || {}).value.trim();
+  var btn    = document.getElementById('paste-commit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  try {
+    var r = await fetch(API_BASE + '/api/university/roster/import-commit', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athletes: _pastePreviewAthletes, schoolName: school, sport }),
+    });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Import failed');
+    document.getElementById('paste-preview-panel').style.display = 'none';
+    _pastePreviewAthletes = null;
+    document.getElementById('paste-result-msg').style.display = 'block';
+    document.getElementById('paste-result-msg').textContent = 'Imported ' + data.inserted + ' athletes.';
+    if (typeof _nilDirRefresh === 'function') setTimeout(_nilDirRefresh, 800);
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Import All'; }
+  }
 }
 
 //  Mobile sidebar toggle

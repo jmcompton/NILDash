@@ -2396,7 +2396,165 @@ app.post('/api/university/scheduler/trigger', requireAuth, requireUniversityMode
   }
 });
 
+const ESPNRosterService = require('./services/university/ESPNRosterService');
+
 // ── Roster Intelligence routes ────────────────────────────────────────────
+
+// POST /api/university/roster/espn
+// Fully automated: school name + sport → ESPN API → structured athlete list.
+// Returns preview array; call /import-commit to write to DB.
+app.post('/api/university/roster/espn', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const { schoolName, sport } = req.body;
+    if (!schoolName) return res.status(400).json({ error: 'schoolName is required' });
+    if (!sport)      return res.status(400).json({ error: 'sport is required' });
+
+    const result = await ESPNRosterService.getRoster(schoolName, sport);
+    if (result.error && !result.athletes?.length) {
+      return res.status(422).json({ error: result.error });
+    }
+    res.json({ athletes: result.athletes, team: result.team, count: result.athletes.length });
+  } catch (err) {
+    console.error('[roster/espn]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/roster/import-commit
+// Takes an athletes preview array and commits them to the CRM.
+app.post('/api/university/roster/import-commit', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    let universityId = await resolveSessionUniversity(userId);
+    const { athletes, schoolName, sport } = req.body;
+    if (!Array.isArray(athletes) || !athletes.length) {
+      return res.status(400).json({ error: 'No athletes to import' });
+    }
+
+    if (!universityId && schoolName) {
+      const byName = await store.pool.query(
+        'SELECT id FROM universities WHERE LOWER(name) = LOWER($1) LIMIT 1', [schoolName]
+      );
+      universityId = byName.rows[0]?.id
+        || ('univ-' + schoolName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+    }
+
+    let inserted = 0, skipped = 0;
+    for (const a of athletes) {
+      if (!a.name || a.name.trim().length < 2) { skipped++; continue; }
+      const id = 'ath-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+      const data = {
+        name:         a.name.trim(),
+        sport:        sport || a.sport || 'Unknown',
+        school:       schoolName || 'Unknown',
+        position:     a.position || null,
+        number:       a.number   || null,
+        year:         a.year     || null,
+        height:       a.height   || null,
+        weight:       a.weight   || null,
+        hometown:     a.hometown || null,
+        high_school:  a.high_school || null,
+        major:        a.major    || null,
+        espn_id:      a.espn_id  || null,
+        university_id: universityId,
+        source:       'espn_import',
+      };
+      try {
+        await store.pool.query(
+          `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
+           VALUES ($1, $2, $3, NOW(), NOW())
+           ON CONFLICT (id) DO NOTHING`,
+          [id, userId, JSON.stringify(data)]
+        );
+        inserted++;
+      } catch { skipped++; }
+    }
+
+    res.json({ ok: true, inserted, skipped, total: athletes.length });
+  } catch (err) {
+    console.error('[roster/import-commit]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/roster/parse-text
+// Director pastes copied roster text → Claude extracts athletes → preview returned.
+// No scraping, no bot issues — director provides the content directly.
+app.post('/api/university/roster/parse-text', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const { text, sport = 'Unknown', universityName = 'Unknown University' } = req.body;
+    if (!text || text.trim().length < 20) {
+      return res.status(400).json({ error: 'Please paste some roster text first.' });
+    }
+    const { fetchAndExtract } = require('./services/university/WebExtractionService');
+    // Re-use Claude extraction but pass text directly (skip HTTP fetch)
+    const { getClient } = require('./ai');
+    const client = getClient();
+    const prompt = `You are extracting structured athlete roster data that a user has copied and pasted from a university athletics website.
+
+University: ${universityName}
+Sport: ${sport}
+
+The text below was pasted directly from a roster page — it may include HTML fragments, table text, or plain text in various formats. Extract every athlete you can find.
+
+Pasted content:
+---
+${text.slice(0, 80000)}
+---
+
+For each athlete, return a JSON object with:
+- name: full name (string, required)
+- number: jersey number (string or null)
+- position: position abbreviation or full name (string or null)
+- year: academic year — Fr, So, Jr, Sr, Grad, RS Fr, etc. (string or null)
+- height: height like "6-2" (string or null)
+- weight: weight in lbs as integer (or null)
+- hometown: city, state (string or null)
+- high_school: high school name (string or null)
+- major: academic major (string or null)
+
+Rules:
+1. Extract players/roster members only — not coaches or staff.
+2. Use null for missing fields — do not guess.
+3. Return ONLY valid JSON, no markdown, no explanation.
+
+Return format: {"athletes": [...], "note": "optional note"}`;
+
+    const message = await client.messages.create({
+      model: 'claude-opus-4-5',
+      max_tokens: 4096,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const raw = message.content?.[0]?.text || '';
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.status(422).json({ error: 'Could not parse athletes from that text. Try selecting more of the page.' });
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const athletes = (parsed.athletes || []).filter(a => a.name && a.name.trim().length > 1);
+
+    res.json({ athletes, count: athletes.length, note: parsed.note || null });
+  } catch (err) {
+    console.error('[roster/parse-text]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/roster/fetch-url
+// Director provides a direct URL → we fetch + Claude extracts → preview returned.
+app.post('/api/university/roster/fetch-url', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const { url, sport = 'Unknown', universityName = 'Unknown University' } = req.body;
+    if (!url || !url.startsWith('http')) return res.status(400).json({ error: 'A valid URL is required.' });
+    const { fetchAndExtract } = require('./services/university/WebExtractionService');
+    const result = await fetchAndExtract(url, { universityName, sport, sourceUrl: url, isJson: false });
+    if (!result.ok) return res.status(422).json({ error: `Could not reach that URL (${result.error || result.status}). Try pasting the text instead.` });
+    res.json({ athletes: result.athletes, count: result.athletes.length, note: result.extractionNotes });
+  } catch (err) {
+    console.error('[roster/fetch-url]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // POST /api/university/roster/discover
 // Start a new roster discovery job for a university + sport.
