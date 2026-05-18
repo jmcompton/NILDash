@@ -10,7 +10,7 @@
 
 'use strict';
 
-const { oneShot } = require('../ai');
+const { oneShot, FEATURE_EMAIL_V2 } = require('../ai');
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -38,7 +38,33 @@ async function generatePitch(inputs) {
   const agentSignature = agentName || 'Your Agent';
   const agentTitle = 'NIL Partnerships';
 
-  const system = `You are a sports agent who represents college athletes. You write short, direct emails to brands — the kind that actually get replies.
+  // ── System prompt: v2 vs legacy ──────────────────────────────
+  const system = FEATURE_EMAIL_V2
+    ? `You are a NIL agent or operator who books deals for college athletes. You write emails the way a real person would — short, direct, and easy to reply to. Not a pitch deck. Not marketing copy. An email.
+
+The goal of every email is to start a conversation — not close the deal. One idea, clearly stated, low pressure.
+
+VOICE:
+- Read like an email from someone who actually knows what they're talking about
+- Slightly understated — the athlete's record should speak, not your enthusiasm
+- Conversational but not casual to the point of being sloppy
+- One idea per paragraph, never more than 3 sentences per paragraph
+
+LENGTH: 150–175 words for full_email_body. Every sentence earns its place.
+
+STRUCTURE (follow this order, no extras):
+1. One observational opener about the brand — something specific, not flattery. Attach to a brief intro line.
+2. Who the athlete is — 1 short paragraph, 1–2 facts that matter
+3. One content idea — plain English. What it actually is. No over-explaining.
+4. Audience connection — 1–2 lines, grounded, not effusive
+5. Soft close — "Happy to share more if helpful." or similar. Mention pitch deck naturally.
+6. Sign off: Name, Role
+
+FORBIDDEN — any of these in full_email_body causes the output to fail:
+"The idea itself is simple" / "As I was thinking through" / "One athlete who kept coming to mind" / "stands out because" / "Hope you're doing well" as a standalone sentence / "I wanted to reach out" / "unique opportunity" / "perfect fit" / "natural fit" / "game-changer" / "thrilled" / "passionate" / "I'm excited" / "I'm confident" / "synergy" / "leverage" / "seamless" / "authentic journey" / "look forward to hearing" / "at your earliest convenience" / "if it sounds interesting, I'd love to jump on a call" / "moving forward" / "value-add" / "I am writing to" / "Hope this email finds you" / any sentence starting with "This is a" / any section headers or colons introducing bullet lists
+
+Return ONLY valid JSON. No markdown code blocks.`
+    : `You are a sports agent who represents college athletes. You write short, direct emails to brands — the kind that actually get replies.
 
 Your emails read like they were written by a real person who did their homework on both the brand and the athlete. Relational, not transactional. Warm, not corporate. You are starting a conversation, not delivering a sales pitch.
 
@@ -61,6 +87,38 @@ Return ONLY a valid JSON object. No markdown code blocks, no explanation.`;
   const partnershipOpps = safeParseArray(matchScore?.partnership_opportunities);
   const contactTitle = contact?.title || 'Brand Partnerships Team';
   const contactName = contact?.name ? contact.name.split(' ')[0] : null;
+
+  // ── Email body instruction — v2 vs legacy ─────────────────────
+  const emailBodyInstruction = FEATURE_EMAIL_V2
+    ? `Write a short, direct outreach email from ${agentSignature} to ${contactName || 'the contact'}.
+
+Greeting: "${contactName || 'Hi'}," on its own line.
+
+Paragraph 1 (2-3 sentences): Open with one specific, observational remark about ${enrichment.brand_name} — something you'd notice if you actually follow the brand. Attach a brief line on why you're writing. Do NOT start with "Hope you're doing well." Do not flatter.
+
+Paragraph 2 (2-3 sentences): Introduce ${athleteData.name} — who they are and one or two facts that actually matter. Keep it grounded.
+
+Paragraph 3 (2-3 sentences): Describe one content idea in plain English. What it is. How it naturally involves ${enrichment.brand_name}. Do not over-explain or use any campaign jargon.
+
+Paragraph 4 (1-2 sentences): How ${athleteData.name}'s audience lines up with ${enrichment.brand_name}. Specific, not effusive.
+
+Paragraph 5 (2 sentences): "I've attached a quick overview if helpful." Then a soft close — "Happy to share more if it's worth a conversation." or similar.
+
+Sign off:
+Best,
+${agentSignature}
+${agentTitle}
+
+Total: 150-175 words. No headers. No bullets. No bold text. Reads like a real email from a real person.`
+    : `Write a 5-paragraph outreach email.
+Greeting: "${contactName || 'Hi'}," on its own line.
+P1 (2-3 sentences): Observation about ${enrichment.brand_name}.
+P2 (2-3 sentences): Introduce ${athleteData.name} with 1-2 key credentials.
+P3 (2-3 sentences): One specific campaign idea in plain English.
+P4 (1-2 sentences): Audience alignment — grounded, use "around" before numbers.
+P5 (2 sentences): Soft close referencing the attached pitch deck.
+Sign off: Best, ${agentSignature} / ${agentTitle}
+Total: 160-200 words. No bullets. No headers.`;
 
   const prompt = `Write a complete NIL partnership outreach pitch package.
 
@@ -103,26 +161,26 @@ AGENT SIGNING THIS EMAIL:
 
 Generate this exact JSON:
 {
-  "subject_line": "${athleteData.name} × ${enrichment.brand_name} — NIL Partnership. Keep it exactly this format or similarly clean. No exclamation points, no hype words.",
-  "personalized_intro": "2-3 sentence opening that feels personal, not canned — references something real about ${enrichment.brand_name} or the contact's role",
-  "athlete_fit": "2-3 sentences on why ${athleteData.name} fits ${enrichment.brand_name} — specific, stats-grounded",
-  "audience_alignment": "2 sentences on audience overlap, grounded in real numbers",
+  "subject_line": "${athleteData.name} × ${enrichment.brand_name} — NIL. Clean format. No exclamation points.",
+  "personalized_intro": "1-2 sentences — one specific, observational opening about ${enrichment.brand_name}. Not flattery. Not generic.",
+  "athlete_fit": "2 sentences — why ${athleteData.name} fits ${enrichment.brand_name}, grounded in stats or geography",
+  "audience_alignment": "1-2 sentences on audience overlap, specific and grounded",
   "campaign_ideas": [
-    "Specific campaign idea 1",
-    "Specific campaign idea 2",
-    "Specific campaign idea 3"
+    "One plain-English content idea — what it actually is, nothing over-explained",
+    "Second concrete idea",
+    "Third concrete idea"
   ],
-  "value_proposition": "3-4 sentences on what ${enrichment.brand_name} gets — concrete, not vague",
-  "partnership_structure": "2-3 sentences on realistic structure (deliverables, timeline, exclusivity)",
-  "roi_messaging": "2 sentences on ROI framing — engagement numbers, reach",
-  "cta": "one natural, low-pressure call-to-action sentence",
-  "full_email_body": "Write a 5-paragraph outreach email using EXACTLY this structure — no variation:\n\nGREETING: '${contactName || 'Hi'},' on its own line. Use first name only.\n\nPARAGRAPH 1 — THE BRAND OBSERVATION (3-4 sentences):\nOpen with 'Hope you're doing well.' Then make one genuine, specific observation about ${enrichment.brand_name} — something about how they show up in the market, their content, their product quality, or their reputation. This must be specific to ${enrichment.brand_name}, not generic. End the paragraph by explaining why that quality matters or why you noticed it. Do NOT mention the athlete here.\nExample tone: 'Hope you're doing well. I've been paying attention to [specific thing about the brand], and [specific observation about what makes it stand out]. [Why that quality resonates or matters].'\n\nPARAGRAPH 2 — THE ATHLETE (3-4 sentences):\nStart with a transition like 'As I was thinking through athletes who'd make sense for [brand]...' or 'One athlete who kept coming to mind is...' Then introduce ${athleteData.name} with 2-3 specific stats or achievements woven into the narrative — not listed. End with something that connects the athlete to the brand's geography or audience. Make it feel like the agent thought of this match themselves.\nExample tone: 'As I was thinking through athletes who'd make sense for ${enrichment.brand_name}, ${athleteData.name} kept coming to mind. As a [year] at [school], he/she [specific achievement]. [Second specific credential]. Beyond the numbers, [geographic or audience connection].'\n\nPARAGRAPH 3 — THE CAMPAIGN (3-4 sentences):\nDescribe ONE specific, concrete campaign concept. Start with 'The idea itself is simple:' then describe exactly what gets made — what format, what the content actually shows, how often. Use 'Nothing scripted' or equivalent language to make it feel real. Name a specific deliverable count.\nExample tone: 'The idea itself is simple: [specific content format] built around [specific authentic activity]. Nothing scripted — just [what the content actually shows]. [Frequency and how brand is featured].'\n\nPARAGRAPH 4 — THE AUDIENCE (2-3 sentences):\nStart with the athlete's name and connect their audience to ${enrichment.brand_name}'s market. Use 'around' before any follower count. Add a geographic or demographic detail that makes the audience feel specifically relevant to this brand.\nExample tone: '[Athlete name]'s audience also lines up well with [brand]. He/she has around [X] followers on Instagram with strong engagement, and a large part of that audience is [specific geographic or demographic detail] — [why that matters to this brand specifically].'\n\nPARAGRAPH 5 — THE CTA (2 sentences):\nReference the attached pitch deck naturally. Then ask for 15 minutes with low-pressure language.\nExample tone: 'I attached a pitch deck with a few thoughts on what this could look like. If it sounds interesting, I'd love to jump on a quick call this week and talk it through.'\n\nSIGN-OFF:\nBest,\n${agentSignature}\n${agentTitle}\n\nTOTAL LENGTH: 200-260 words. Every sentence earns its place. No bullets, no headers, no bold text, no colons introducing lists.",
+  "value_proposition": "2-3 sentences on what ${enrichment.brand_name} actually gets — concrete, not vague",
+  "partnership_structure": "2 sentences — realistic deliverables and timeline",
+  "roi_messaging": "1-2 sentences on reach and engagement — use 'around' before any follower number",
+  "cta": "Happy to share more if helpful.",
+  "full_email_body": "${emailBodyInstruction}",
   "deck_talking_points": [
-    "Key point 1 for the pitch deck",
-    "Key point 2",
-    "Key point 3",
-    "Key point 4",
-    "Key point 5"
+    "Specific point 1 — grounded in athlete data",
+    "Specific point 2",
+    "Specific point 3",
+    "Specific point 4",
+    "Specific point 5"
   ]
 }`;
 

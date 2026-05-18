@@ -205,6 +205,10 @@ const MODEL_FAST  = 'claude-haiku-4-5';
 // Standard model for quality writing (pitch emails, brand kit)
 const MODEL_STANDARD = 'claude-opus-4-5';
 
+// ── Feature flags ─────────────────────────────────────────────────────────────
+// Set to false to revert to legacy email generation prompts
+const FEATURE_EMAIL_V2 = true;
+
 async function oneShot(prompt, system, maxTokens, model) {
   const ai = getClient();
   const delays = [2000, 5000, 10000];
@@ -451,44 +455,90 @@ Return ONLY this JSON — no markdown, no extra keys, no code fences:
 
 async function generateOutreach(athlete, targetBrand, category, outreachType, goal) {
   const rate = nilViewVal(athlete, 'ig-reel');
-  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
 
-  const prompt = `You are an elite sports agent writing ${outreachType} outreach for ${athlete.name} targeting ${targetBrand}.
-
-ATHLETE:
-Name: ${athlete.name} | ${athlete.sport || 'athlete'} | ${athlete.position || ''} at ${athlete.school || 'Unknown'}
+  // ── Legacy prompt (feature_email_v2 = false) ──────────────────
+  if (!FEATURE_EMAIL_V2) {
+    const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+    const legacyPrompt = `You are an elite sports agent writing ${outreachType} outreach for ${athlete.name} targeting ${targetBrand}.
+ATHLETE: ${athlete.name} | ${athlete.sport || 'athlete'} | ${athlete.position || ''} at ${athlete.school || 'Unknown'}
 Instagram: ${(athlete.instagram||0).toLocaleString()} followers | TikTok: ${(athlete.tiktok||0).toLocaleString()} followers
 Engagement: ${athlete.engagement || 0}% | Stats: ${athlete.stats || 'N/A'}
-Marketability Score: ${rate.marketabilityScore}/100
-
-DEAL CONTEXT:
-Target brand: ${targetBrand}
-Category: ${category || 'general'}
-Goal: ${goal ? '$' + parseInt(goal).toLocaleString() : 'Market rate'}
-NIL Rate range: $${rate.low.toLocaleString()} – $${rate.high.toLocaleString()} per post
-
-Generate outreach messages. Return ONLY JSON:
-{
-  "sponsorshipEmail": {
-    "subject": "compelling email subject line",
-    "body": "full professional email — 150-200 words, specific to this athlete and brand, includes stats, rates, and a clear ask"
-  },
-  "instagramDm": "casual but professional DM under 150 characters — attention-grabbing opener, specific to this brand",
-  "partnershipProposal": "2-3 paragraph formal proposal — brand fit explanation, deliverables, rate range, next steps",
-  "followUpEmail": {
-    "subject": "follow-up subject line",
-    "body": "brief 75-100 word follow-up email for 1 week after no response — adds new value, not desperate"
-  }
-}`;
-
-  try {
-    const raw = await oneShot(prompt, "You are an elite sports agent writing brand outreach with deep knowledge of NIL partnerships. Return only valid JSON.", 8000);
+DEAL CONTEXT: Target brand: ${targetBrand} | Category: ${category || 'general'} | Goal: ${goal ? '$' + parseInt(goal).toLocaleString() : 'Market rate'}
+Generate outreach messages. Return ONLY JSON: {"sponsorshipEmail":{"subject":"subject","body":"full email 150-200 words"},"instagramDm":"DM under 150 chars","partnershipProposal":"2-3 paragraph proposal","followUpEmail":{"subject":"follow-up subject","body":"75-100 word follow-up"}}`;
+    const raw = await oneShot(legacyPrompt, 'You are an elite sports agent writing brand outreach. Return only valid JSON.', 8000);
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
     return JSON.parse(match[0]);
+  }
+
+  // ── v2: human operator voice ──────────────────────────────────
+  const ig   = athlete.instagram || 0;
+  const tt   = athlete.tiktok    || 0;
+  const er   = athlete.engagement || 0;
+  const igFmt = ig >= 1000 ? 'around ' + Math.round(ig / 1000) + 'K' : String(ig);
+  const ttFmt = tt >= 1000 ? 'around ' + Math.round(tt / 1000) + 'K' : (tt > 0 ? String(tt) : null);
+
+  // Only pass the 1-2 most useful stats — not a full stat line
+  const statsLine = athlete.stats ? athlete.stats.split('|')[0].trim() : null;
+
+  const system = `You are a NIL agent or operator writing cold outreach to brand contacts. You write the way real operators text and email — short, direct, observational. Not a marketer. Not a PR agency. Not a pitch deck.
+
+Your emails:
+- Feel handwritten, not generated
+- Are 150–175 words maximum for the main email
+- Use conversational language a human would actually say
+- Reference the brand subtly — never over-explain their strategy back to them
+- Introduce the athlete briefly with only 1–2 relevant facts
+- Describe ONE simple content idea in plain English
+- Close with "Happy to share more if helpful." or similar — never pushy
+
+FORBIDDEN — using any of these causes immediate failure:
+"The idea itself is simple" / "As I was thinking through" / "stands out because" / "Hope you're doing well" as standalone opener / "I wanted to reach out" / "unique opportunity" / "perfect fit" / "natural fit" / "synergy" / "leverage" / "seamless" / "authentic journey" / "game-changer" / "thrilled" / "passionate" / "I'm excited" / "I'm confident" / "look forward to hearing" / "at your earliest convenience" / "if it sounds interesting, I'd love to jump on a call" / "moving forward" / "value-add" / "I am writing to" / any section headers / any bullet points in the email body
+
+Return only valid JSON. No markdown.`;
+
+  const prompt = `Write NIL outreach for ${athlete.name} to ${targetBrand}.
+
+ATHLETE:
+- ${athlete.name}, ${athlete.sport || 'athlete'}${athlete.position ? ' (' + athlete.position + ')' : ''}, ${athlete.school || 'college'}
+- Instagram: ${igFmt}${ttFmt ? ' | TikTok: ' + ttFmt : ''}
+- Engagement: ${er}%${statsLine ? '\n- Key stat: ' + statsLine : ''}
+${athlete.notes ? '- Context: ' + athlete.notes.substring(0, 120) : ''}
+
+BRAND: ${targetBrand}
+Category: ${category || 'consumer brand'}
+
+TARGET EMAIL STYLE:
+- Open by referencing something observable about ${targetBrand} (their market presence, product, footprint)
+- Introduce ${athlete.name} in 1–2 sentences — only the most relevant credential
+- Describe one simple content idea without over-explaining it
+- 1–2 lines on audience alignment
+- Close with "Happy to share more if helpful." or equivalent
+- Sign off: Name, Role — nothing else
+
+Return ONLY this JSON:
+{
+  "sponsorshipEmail": {
+    "subject": "${athlete.name} × ${targetBrand} — NIL",
+    "body": "Full email — 150-175 words, no bullets, no headers, reads like a real human email"
+  },
+  "instagramDm": "Under 140 chars — casual opener that sounds like a real DM, not a pitch. Reference one specific thing about the brand.",
+  "partnershipProposal": "2 short paragraphs — what the partnership is and why this athlete, written plainly without pitch language. No bullet lists. No headers.",
+  "followUpEmail": {
+    "subject": "Re: ${athlete.name} × ${targetBrand}",
+    "body": "60–80 word follow-up for 7 days after no response. Adds one new angle or observation. Ends with soft out — 'no worries if timing isn't right'."
+  }
+}`;
+
+  try {
+    const raw = await oneShot(prompt, system, 4000, MODEL_STANDARD);
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON');
+    return JSON.parse(match[0]);
   } catch(err) {
-    console.error('Outreach error:', err.message);
+    console.error('[generateOutreach v2] error:', err.message);
     throw err;
   }
 }
@@ -496,6 +546,7 @@ Generate outreach messages. Return ONLY JSON:
 module.exports = {
   MODEL_FAST,
   MODEL_STANDARD,
+  FEATURE_EMAIL_V2,
   streamResponse,
   oneShot,
   oneShotWithSearch,

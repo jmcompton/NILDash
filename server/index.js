@@ -603,18 +603,56 @@ app.post('/api/ai/outreach', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, brand, category, contact, goal } = req.body;
   const athlete = await store.getAthlete(athleteId);
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-  const prompt = 'You are a sports agent writing cold outreach to ' + brand + ' for athlete ' + athlete.name + '.' +
-    ' Athlete: ' + athlete.sport + ', ' + (athlete.position||'') + ', ' + (athlete.school||'') +
-    ', ' + (athlete.instagram||0).toLocaleString() + ' Instagram, ' + (athlete.tiktok||0).toLocaleString() + ' TikTok, ' + (athlete.engagement||0) + '% engagement.' +
-    ' Stats: ' + (athlete.stats||'not provided') + '.' +
-    (contact ? ' Contact: ' + contact + '.' : '') +
-    (goal ? ' Deal goal: $' + parseInt(goal).toLocaleString() + '.' : '') +
-    ' Category: ' + (category||'general') + '.' +
-    ' Return ONLY JSON: {"emailSubject":"subject","email":"full email","instagram":"DM under 150 chars","linkedin":"message under 200 chars"}' +
-    ' Be specific to this athlete. Confident, not salesy. No placeholders.';
+
+  const ig  = parseInt(athlete.instagram) || 0;
+  const tt  = parseInt(athlete.tiktok)   || 0;
+  const igFmt = ig >= 1000 ? 'around ' + Math.round(ig / 1000) + 'K' : (ig > 0 ? String(ig) : null);
+  const ttFmt = tt >= 1000 ? 'around ' + Math.round(tt / 1000) + 'K' : (tt > 0 ? String(tt) : null);
+  const statsSnippet = athlete.stats ? athlete.stats.split('|')[0].trim() : null;
+  const contactFirstName = contact ? contact.split(/[\s,]+/)[0] : null;
+
+  const system = `You are a NIL agent writing short, direct cold outreach emails. You sound like a real person — not a marketer, not an AI. Every sentence earns its place.
+
+FORBIDDEN phrases — any of these cause immediate failure:
+"The idea itself is simple" / "As I was thinking through" / "Hope you're doing well" as standalone / "I wanted to reach out" / "unique opportunity" / "perfect fit" / "natural fit" / "synergy" / "leverage" / "game-changer" / "thrilled" / "passionate" / "look forward to hearing" / "at your earliest convenience" / "if it sounds interesting, I'd love to jump on a call this week" / "value-add" / "I am writing to" / "seamless" / "authentic journey" / any bullet points or headers in the email
+
+Return only valid JSON. No markdown.`;
+
+  const prompt = `Write outreach from a NIL agent representing ${athlete.name} to ${brand}.
+
+ATHLETE:
+- ${athlete.name}, ${athlete.sport || 'athlete'}${athlete.position ? ' (' + athlete.position + ')' : ''}, ${athlete.school || 'college'}
+${igFmt ? '- Instagram: ' + igFmt : ''}${ttFmt ? ' | TikTok: ' + ttFmt : ''}
+- Engagement: ${athlete.engagement || 0}%
+${statsSnippet ? '- Key stat: ' + statsSnippet : ''}
+
+BRAND: ${brand} | Category: ${category || 'consumer brand'}
+${contactFirstName ? 'Contact first name: ' + contactFirstName : ''}
+${goal ? 'Deal goal: $' + parseInt(goal).toLocaleString() : ''}
+
+EMAIL RULES:
+- Open with one observational line about ${brand} — subtle, not flattering
+- Introduce ${athlete.name} in 1–2 sentences, only the most relevant credential
+- Describe one simple content idea in plain English, no over-explaining
+- 1–2 lines connecting the athlete's audience to ${brand}
+- Close with "Happy to share more if helpful." or similar — never pushy
+- 140–170 words total. No headers. No bullets.
+
+INSTAGRAM DM: Under 140 chars. Sounds like a real DM. References something specific about ${brand}. Not a pitch opener.
+
+LINKEDIN: Under 180 chars. Professional but human. One sentence on why ${athlete.name} and ${brand} make sense.
+
+Return ONLY this JSON:
+{
+  "emailSubject": "${athlete.name} × ${brand}",
+  "email": "Full email body — 140-170 words, reads like a real human email",
+  "instagram": "Under 140 char DM",
+  "linkedin": "Under 180 char LinkedIn message"
+}`;
+
   try {
-    const raw = await ai.oneShot(prompt, "You are a sports agent writing brand outreach with deep knowledge of NIL brand partnerships and marketing campaigns. Return only valid JSON.", 8000);
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const raw = await ai.oneShot(prompt, system, 4000, ai.MODEL_STANDARD);
+    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Generation failed' });
     res.json(JSON.parse(match[0]));
