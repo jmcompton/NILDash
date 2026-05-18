@@ -2620,7 +2620,7 @@ async function runDealScan() {
   try {
     const {recommendations, error} = await fetch(`${API_BASE}/api/ai/deals`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ athleteId: selectedAthleteId }),
+      body: JSON.stringify({ athleteId: selectedAthleteId, excludeBrands: window._excludeDealBrands || [] }),
     }).then(r=>r.json());
     if(error) throw new Error(error);
     renderDealsTable(recommendations);
@@ -2766,11 +2766,8 @@ async function trackDealScanAction(brand, dealType, action) {
 async function runDealsRefresh() {
   var btn = document.getElementById('deals-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Refreshing...'; }
-  // Store current brands to exclude
-  var currentBrands = [];
-  document.querySelectorAll('#deals-results [data-brand]').forEach(function(el) {
-    currentBrands.push(el.getAttribute('data-brand'));
-  });
+  // Exclude all currently displayed brands so AI returns 6 fresh ones
+  var currentBrands = (window._dealScanResults || []).map(function(d) { return d.brand; }).filter(Boolean);
   window._excludeDealBrands = currentBrands;
   await runDealScan();
   window._excludeDealBrands = [];

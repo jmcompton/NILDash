@@ -298,7 +298,8 @@ app.post('/api/ai/deals', requireAuth, aiLimiter, async (req, res) => {
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
   const user = await store.getUser(req.session.userId);
   try {
-    const recommendations = await ai.getDealRecommendations(athlete, user.role);
+    const excludeBrands = Array.isArray(req.body.excludeBrands) ? req.body.excludeBrands : [];
+    const recommendations = await ai.getDealRecommendations(athlete, user.role, excludeBrands);
     res.json({ recommendations });
   } catch (err) {
     res.status(500).json({ error: err.message });

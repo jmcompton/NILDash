@@ -200,19 +200,30 @@ async function streamResponse(athlete, message, role, res) {
   res.end();
 }
 
-async function oneShot(prompt, system, maxTokens) {
+// Fast model for quick structured tasks (deal scan, enrichment, contact discovery)
+const MODEL_FAST  = 'claude-haiku-4-5';
+// Standard model for quality writing (pitch emails, brand kit)
+const MODEL_STANDARD = 'claude-opus-4-5';
+
+async function oneShot(prompt, system, maxTokens, model) {
   const ai = getClient();
   const delays = [2000, 5000, 10000];
+  const useModel = model || MODEL_STANDARD;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
       const msg = await ai.messages.create({
-        model: 'claude-opus-4-5',
-        max_tokens: maxTokens || 8000,
+        model: useModel,
+        max_tokens: maxTokens || 2000,
         system: system || 'You are a precise NIL deal analyst.',
         messages: [{ role: 'user', content: prompt }],
       });
       return msg.content[0].text;
     } catch (err) {
+      // If fast model fails, fall back to standard automatically
+      if (model === MODEL_FAST && attempt === 0 && err?.status === 404) {
+        console.warn('[oneShot] Fast model unavailable, falling back to standard');
+        return oneShot(prompt, system, maxTokens, MODEL_STANDARD);
+      }
       const isOverloaded = err?.status === 529 || err?.error?.type === 'overloaded_error' || (err?.message || '').includes('overloaded');
       if (isOverloaded && attempt < delays.length) {
         console.warn(`Anthropic overloaded — retrying in ${delays[attempt]/1000}s (attempt ${attempt + 1})`);
@@ -249,7 +260,7 @@ async function calculateRateLive(athlete, deliverableType) {
     + 'Return ONLY this JSON (no markdown):\n'
     + '{"low":0,"mid":0,"high":0,"marketContext":"2 sentences on live data found","breakdown":{"reach":0,"sportMult":0,"schoolMult":0,"engMult":0,"delivMult":0,"cpm":"0.00"}}';
   try {
-    const raw = await oneShot(prompt, 'You are a NIL market analyst with comprehensive knowledge of 2025-2026 NIL market rates. Return only valid JSON.', 4000);
+    const raw = await oneShot(prompt, 'You are a NIL market analyst with comprehensive knowledge of 2025-2026 NIL market rates. Return only valid JSON.', 1000, MODEL_FAST);
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON found');
@@ -264,13 +275,17 @@ function calculateRate(athlete, deliverableType) {
   return nilViewVal(athlete, deliverableType || 'ig-reel');
 }
 
-async function getDealRecommendations(athlete, role) {
+async function getDealRecommendations(athlete, role, excludeBrands) {
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
   const school = athlete.school || 'Unknown';
   const city = school.replace('University','').replace('College','').replace('of','').trim();
   const sport = athlete.sport || 'football';
+
+  const exclusionLine = excludeBrands && excludeBrands.length > 0
+    ? `\nEXCLUDE THESE BRANDS COMPLETELY — do not suggest them under any circumstances: ${excludeBrands.join(', ')}\nYou must return 6 DIFFERENT brands from this list.`
+    : '';
 
   const prompt = `You are a NIL deal researcher. Find 6 real brand opportunities for this athlete.
 
@@ -279,6 +294,7 @@ SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).to
 STATS: ${athlete.stats||'N/A'}
 MARKETABILITY SCORE: ${rate.marketabilityScore}/100
 TOP CATEGORIES: ${(rate.sponsorCategories||[]).map(c=>c.name).join(', ')}
+${exclusionLine}
 
 Search for:
 1. Real local businesses in ${city} that sponsor college athletes
@@ -289,6 +305,7 @@ RULES:
 - At least 3 of the 6 must be REAL named local businesses near ${city}
 - Do NOT include Nike, Adidas, Gatorade unless confirmed they do NIL at this tier
 - Each brand must have a specific reason why they fit THIS athlete
+- Every brand must be different from every other brand in this list
 
 Return ONLY a JSON array of 6 deals:
 [{
@@ -304,7 +321,7 @@ Return ONLY a JSON array of 6 deals:
 }]`;
 
   try {
-    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Use your comprehensive knowledge of real local businesses, regional brands, and documented NIL programs to identify genuine opportunities.', 8000);
+    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Use your comprehensive knowledge of real local businesses, regional brands, and documented NIL programs to identify genuine opportunities.', 2000, MODEL_FAST);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
@@ -421,7 +438,7 @@ Return ONLY this JSON — no markdown, no extra keys, no code fences:
 }`;
 
   try {
-    const raw = await oneShot(prompt, 'You are a senior NIL agency strategist. Return only valid JSON. No markdown, no code fences, no preamble. Every field must be specific to this athlete and brand — no placeholder text, no generic statements.');
+    const raw = await oneShot(prompt, 'You are a senior NIL agency strategist. Return only valid JSON. No markdown, no code fences, no preamble. Every field must be specific to this athlete and brand — no placeholder text, no generic statements.', 2000, MODEL_STANDARD);
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON found in response');
