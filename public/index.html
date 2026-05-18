@@ -1528,20 +1528,22 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <!-- Preview + confirm -->
             <div id="espn-preview-panel" style="display:none">
               <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
                   <div>
                     <div id="espn-preview-title" style="font-size:13px;font-weight:700;color:var(--text)">Preview</div>
                     <div id="espn-preview-sub" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
                   </div>
                   <div style="display:flex;gap:8px">
                     <button onclick="_espnCancelPreview()" style="padding:7px 16px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Cancel</button>
-                    <button id="espn-commit-btn" onclick="_espnCommitImport()" style="padding:7px 20px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Import All</button>
+                    <button id="espn-commit-btn" onclick="_espnCommitImport()" style="padding:7px 20px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Import <span id="espn-import-count"></span></button>
                   </div>
                 </div>
+                <div id="espn-preview-count" style="font-size:11px;color:var(--muted);margin-bottom:14px"></div>
                 <div style="overflow-x:auto">
                   <table style="width:100%;border-collapse:collapse;font-size:11px">
                     <thead>
                       <tr style="border-bottom:1px solid var(--border)">
+                        <th style="width:32px"></th>
                         <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">#</th>
                         <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">Name</th>
                         <th style="text-align:left;padding:6px 10px;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">Pos</th>
@@ -1553,6 +1555,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
                     </thead>
                     <tbody id="espn-preview-tbody"></tbody>
                   </table>
+                </div>
+                <!-- Add player row -->
+                <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+                  <button onclick="_espnShowAddRow()" id="espn-add-btn" style="padding:6px 14px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif">+ Add Player</button>
+                  <div id="espn-add-row" style="display:none;margin-top:10px;display:none">
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
+                      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em">Name *</div><input id="add-name" placeholder="Full name" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 10px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;width:160px;outline:none"></div>
+                      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em">#</div><input id="add-number" placeholder="0" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 8px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;width:48px;outline:none"></div>
+                      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em">Pos</div><input id="add-position" placeholder="G" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 8px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;width:56px;outline:none"></div>
+                      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em">Yr</div><input id="add-year" placeholder="Fr" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 8px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;width:48px;outline:none"></div>
+                      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em">Ht</div><input id="add-height" placeholder="6-2" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 8px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;width:56px;outline:none"></div>
+                      <div><div style="font-size:9px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em">Wt</div><input id="add-weight" placeholder="185" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 8px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;width:56px;outline:none"></div>
+                      <div style="flex:1;min-width:120px"><div style="font-size:9px;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em">Hometown</div><input id="add-hometown" placeholder="City, ST" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 10px;color:var(--text);font-size:11px;font-family:'DM Sans',sans-serif;width:100%;outline:none;box-sizing:border-box"></div>
+                      <button onclick="_espnAddPlayer()" style="padding:6px 16px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:11px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Add</button>
+                      <button onclick="_espnHideAddRow()" style="padding:6px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif">Cancel</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -7731,30 +7750,17 @@ async function _espnFetchRoster() {
     var data = await r.json();
     if (!r.ok) throw new Error(data.error || 'ESPN fetch failed');
 
-    _espnPreviewAthletes = data.athletes;
-    var team = data.team || {};
+    _espnPreviewAthletes = data.athletes.slice(); // copy so edits don't mutate original
+    var team   = data.team   || {};
     var season = data.season || '';
     document.getElementById('espn-preview-title').textContent =
-      (team.name || school) + ' — ' + sport + (season ? '  ·  ' + season + ' season' : '') + '  ·  ' + data.count + ' athletes';
+      (team.name || school) + ' — ' + sport + (season ? '  ·  ' + season + ' season' : '');
     var espnDate = data.espnTs ? new Date(data.espnTs).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
     document.getElementById('espn-preview-sub').innerHTML =
       'Source: ESPN' + (espnDate ? ' · pulled ' + espnDate : '') +
       ' &nbsp;—&nbsp; <span style="color:#f59e0b">Transfer portal moves may take 2–4 weeks to appear on ESPN. Review before importing.</span>';
 
-    // Render preview table
-    var tbody = document.getElementById('espn-preview-tbody');
-    tbody.innerHTML = data.athletes.map(function(a) {
-      return '<tr style="border-bottom:1px solid var(--border)">' +
-        '<td style="padding:7px 10px;color:var(--muted)">' + (a.number || '—') + '</td>' +
-        '<td style="padding:7px 10px;color:var(--text);font-weight:600">' + (a.name || '—') + '</td>' +
-        '<td style="padding:7px 10px;color:var(--muted)">' + (a.position || '—') + '</td>' +
-        '<td style="padding:7px 10px;color:var(--muted)">' + (a.year || '—') + '</td>' +
-        '<td style="padding:7px 10px;color:var(--muted)">' + (a.height || '—') + '</td>' +
-        '<td style="padding:7px 10px;color:var(--muted)">' + (a.weight ? a.weight + ' lbs' : '—') + '</td>' +
-        '<td style="padding:7px 10px;color:var(--muted)">' + (a.hometown || '—') + '</td>' +
-      '</tr>';
-    }).join('');
-
+    _espnRenderPreview();
     document.getElementById('espn-preview-panel').style.display = 'block';
   } catch (err) {
     _espnShowResult('error', 'Error: ' + err.message);
@@ -7791,6 +7797,91 @@ async function _espnCommitImport() {
 function _espnCancelPreview() {
   document.getElementById('espn-preview-panel').style.display = 'none';
   _espnPreviewAthletes = null;
+  _espnHideAddRow();
+}
+
+// Render the editable preview table from _espnPreviewAthletes
+function _espnRenderPreview() {
+  var athletes = _espnPreviewAthletes || [];
+  var n = athletes.length;
+
+  // Update count displays
+  var countEl = document.getElementById('espn-preview-count');
+  if (countEl) countEl.textContent = n + ' player' + (n !== 1 ? 's' : '') + ' — remove anyone who has transferred, then click Import.';
+  var importCountEl = document.getElementById('espn-import-count');
+  if (importCountEl) importCountEl.textContent = n + (n !== 1 ? ' Athletes' : ' Athlete');
+
+  var tbody = document.getElementById('espn-preview-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = athletes.map(function(a, idx) {
+    return '<tr id="espn-row-' + idx + '" style="border-bottom:1px solid var(--border)">' +
+      '<td style="padding:6px 4px 6px 10px;width:28px">' +
+        '<button onclick="_espnRemovePlayer(' + idx + ')" title="Remove" ' +
+          'style="background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;padding:2px 4px;border-radius:3px;line-height:1" ' +
+          'onmouseover="this.style.color=\'#ef4444\';this.style.background=\'rgba(239,68,68,0.08)\'" ' +
+          'onmouseout="this.style.color=\'var(--muted)\';this.style.background=\'none\'">✕</button>' +
+      '</td>' +
+      '<td style="padding:7px 10px;color:var(--muted);font-family:var(--mono)">' + (a.number || '—') + '</td>' +
+      '<td style="padding:7px 10px;color:var(--text);font-weight:600">' + (a.name || '—') + '</td>' +
+      '<td style="padding:7px 10px;color:var(--muted)">' + (a.position || '—') + '</td>' +
+      '<td style="padding:7px 10px;color:var(--muted)">' + (a.year || '—') + '</td>' +
+      '<td style="padding:7px 10px;color:var(--muted)">' + (a.height || '—') + '</td>' +
+      '<td style="padding:7px 10px;color:var(--muted)">' + (a.weight ? a.weight + ' lbs' : '—') + '</td>' +
+      '<td style="padding:7px 10px;color:var(--muted)">' + (a.hometown || '—') + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+// Remove a player by index and re-render
+function _espnRemovePlayer(idx) {
+  if (!_espnPreviewAthletes) return;
+  _espnPreviewAthletes.splice(idx, 1);
+  _espnRenderPreview();
+}
+
+// Show/hide the add-player form
+function _espnShowAddRow() {
+  var row = document.getElementById('espn-add-row');
+  var btn = document.getElementById('espn-add-btn');
+  if (row) row.style.display = 'block';
+  if (btn) btn.style.display = 'none';
+  var nameInput = document.getElementById('add-name');
+  if (nameInput) nameInput.focus();
+}
+
+function _espnHideAddRow() {
+  var row = document.getElementById('espn-add-row');
+  var btn = document.getElementById('espn-add-btn');
+  if (row) row.style.display = 'none';
+  if (btn) btn.style.display = 'inline-block';
+  // Clear fields
+  ['add-name','add-number','add-position','add-year','add-height','add-weight','add-hometown'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+}
+
+// Add a manually entered player to the preview
+function _espnAddPlayer() {
+  var name = (document.getElementById('add-name') || {}).value.trim();
+  if (!name) { document.getElementById('add-name').style.borderColor = '#ef4444'; return; }
+  var player = {
+    name:     name,
+    number:   (document.getElementById('add-number')   || {}).value.trim() || null,
+    position: (document.getElementById('add-position') || {}).value.trim() || null,
+    year:     (document.getElementById('add-year')     || {}).value.trim() || null,
+    height:   (document.getElementById('add-height')   || {}).value.trim() || null,
+    weight:   parseInt((document.getElementById('add-weight') || {}).value) || null,
+    hometown: (document.getElementById('add-hometown') || {}).value.trim() || null,
+    espn_id:  null,
+  };
+  if (!_espnPreviewAthletes) _espnPreviewAthletes = [];
+  _espnPreviewAthletes.push(player);
+  _espnHideAddRow();
+  _espnRenderPreview();
+  // Scroll the new row into view
+  var tbody = document.getElementById('espn-preview-tbody');
+  if (tbody && tbody.lastChild) tbody.lastChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 function _espnShowResult(type, msg) {
