@@ -207,6 +207,72 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult) {
   });
 }
 
+// ── Email Renderer ────────────────────────────────────────────────────────────
+
+/**
+ * Converts the AI-generated plain-text email body into proper HTML.
+ * Splits on blank lines, renders each paragraph as <p>, detects the
+ * sign-off line and replaces the AI signature with a proper block.
+ */
+function renderProfessionalEmail(rawBody, agentName, agentEmail, deck, athleteData, enrichment) {
+  const BASE = 'font-family:Georgia,"Times New Roman",serif;font-size:14px;line-height:1.75;color:#1a1a1a';
+  const PARA = 'margin:0 0 18px 0';
+  const MUTED = 'color:#555;font-size:13px';
+
+  // Normalise and split into paragraphs
+  const paragraphs = rawBody
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/)
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  const htmlParts = [];
+  let signoffFound = false;
+
+  for (const para of paragraphs) {
+    if (signoffFound) break; // drop AI-generated name lines after "Best,"
+
+    const isSignoff = /^(Best|Regards|Sincerely|Thanks|Warm regards|Kind regards),?$/i.test(para.trim());
+    if (isSignoff) {
+      signoffFound = true;
+      htmlParts.push(`<p style="${PARA}">${para.trim()}</p>`);
+      continue;
+    }
+
+    // Opening salutation — render in normal weight (Dear X,)
+    const isGreeting = htmlParts.length === 0 && /^(Dear|Hi|Hello)\s/i.test(para);
+    if (isGreeting) {
+      htmlParts.push(`<p style="${PARA}">${para}</p>`);
+      continue;
+    }
+
+    // Body paragraph — replace single newlines with spaces so they flow
+    htmlParts.push(`<p style="${PARA}">${para.replace(/\n/g, ' ')}</p>`);
+  }
+
+  // If no sign-off was found in the AI output, add one
+  if (!signoffFound) htmlParts.push(`<p style="${PARA}">Best,</p>`);
+
+  // Professional signature block
+  const sig = [
+    `<p style="margin:6px 0 0 0;font-weight:700">${agentName || 'NIL Agent'}</p>`,
+    `<p style="margin:2px 0;${MUTED}">NIL Partnerships</p>`,
+    `<p style="margin:2px 0;${MUTED}">NILDash</p>`,
+    agentEmail ? `<p style="margin:2px 0"><a href="mailto:${agentEmail}" style="color:#BA0C2F;text-decoration:none">${agentEmail}</a></p>` : '',
+  ].filter(Boolean).join('\n');
+
+  // Attachment note (plain, below signature)
+  const attachNote = deck?.file_path
+    ? `<p style="margin:24px 0 0 0;${MUTED};border-top:1px solid #e0e0e0;padding-top:12px">Pitch deck attached: ${athleteData.name} × ${enrichment.brand_name}</p>`
+    : '';
+
+  return `<div style="${BASE};max-width:600px;padding:0">
+${htmlParts.join('\n')}
+${sig}
+${attachNote}
+</div>`;
+}
+
 // ── Step Implementations ──────────────────────────────────────────────────────
 
 async function buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment, contact, pitch, deck, dealScanResult) {
@@ -215,11 +281,16 @@ async function buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment
   const id = 'out_' + crypto.randomBytes(8).toString('hex');
   const athleteData = athlete.data || athlete;
 
-  // Build HTML email body
-  const bodyHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;color:#333">
-    <p>${(pitch.full_email_body || '').replace(/\n/g, '<br>')}</p>
-    ${deck?.file_path ? `<p><em>📎 Pitch deck attached: ${athleteData.name} × ${enrichment.brand_name}</em></p>` : ''}
-  </div>`;
+  // Load agent info for the signature block
+  let agentName = null, agentEmail = null;
+  try {
+    const ar = await pool.query('SELECT name, email FROM users WHERE id=$1', [agentId]);
+    agentName  = ar.rows[0]?.name  || null;
+    agentEmail = ar.rows[0]?.email || null;
+  } catch (_) {}
+
+  // Build professional HTML email body
+  const bodyHtml = renderProfessionalEmail(pitch.full_email_body || '', agentName, agentEmail, deck, athleteData, enrichment);
 
   const r = await pool.query(
     `INSERT INTO outreach_logs (

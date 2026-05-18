@@ -1,9 +1,8 @@
 // server/services/deckGeneration.js
 // DeckGenerationService — Part 5 of the NIL Outreach Automation Engine.
 //
-// Generates a brand-specific pitch deck PDF for athlete + brand pairs.
-// Uses the SAME generateAthleteBrandKit() AI function as the Marketing tab pitch deck,
-// then renders the resulting 6-slide JSON into a PDF with pdfkit.
+// Generates a one-page "why this athlete fits this brand" PDF brief.
+// Replaces the 6-slide format with a single focused page.
 //
 // SAFETY: reads from brand_match_scores, company_enrichment.
 //         writes only to pitch_decks (new table).
@@ -16,7 +15,7 @@ const crypto  = require('crypto');
 const fs      = require('fs');
 const path    = require('path');
 const { pool } = require('../store');
-const { generateAthleteBrandKit } = require('../ai');
+const { oneShot } = require('../ai');
 
 let PDFDocument;
 try { PDFDocument = require('pdfkit'); } catch (e) {
@@ -49,16 +48,13 @@ async function generateDeck(inputs) {
 
   ensureOutputDir();
 
-  // ── Call the same AI as the Marketing tab pitch deck ──────────────────────
-  // Set targetBrand so generateAthleteBrandKit tailors every slide to this brand
-  const athleteForKit = { ...athleteData, targetBrand: enrichment.brand_name };
-  let slideData;
+  // ── Generate one-pager content via AI ────────────────────────────────────
+  let onePager;
   try {
-    slideData = await generateAthleteBrandKit(athleteForKit);
+    onePager = await generateOnePagerContent(athleteData, enrichment, matchScore, pitch);
   } catch (e) {
-    console.error('[deckGeneration] generateAthleteBrandKit failed:', e.message);
-    // Fall back to a minimal slide structure so the rest of the pipeline continues
-    slideData = buildFallbackSlideData(athleteData, enrichment, matchScore, pitch);
+    console.error('[deckGeneration] generateOnePagerContent failed:', e.message);
+    onePager = buildFallbackOnePager(athleteData, enrichment, matchScore, pitch);
   }
 
   const id       = 'deck_' + crypto.randomBytes(8).toString('hex');
@@ -67,9 +63,9 @@ async function generateDeck(inputs) {
   const filePath = path.join(OUTPUT_DIR, filename);
 
   if (PDFDocument) {
-    await renderBrandKitPDF(filePath, athleteData, enrichment, matchScore, slideData);
+    await renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, onePager);
   } else {
-    console.warn('[deckGeneration] pdfkit unavailable — saving slide data only');
+    console.warn('[deckGeneration] pdfkit unavailable — saving content only');
   }
 
   const r = await pool.query(
@@ -82,13 +78,82 @@ async function generateDeck(inputs) {
       id, agentId, athleteId, enrichment.brand_name,
       enrichment.id, matchScore?.id,
       PDFDocument ? filePath : null,
-      JSON.stringify(slideData),
+      JSON.stringify(onePager),
       version,
     ]
   );
 
   logEvent(null, agentId, 'deck_generated', { id, brand: enrichment.brand_name, athleteId });
   return r.rows[0];
+}
+
+// ── One-Pager AI Content Generator ───────────────────────────────────────────
+
+async function generateOnePagerContent(athleteData, enrichment, matchScore, pitch) {
+  const brand = enrichment.brand_name;
+  const ig    = formatFollowers(athleteData.instagram);
+  const tt    = formatFollowers(athleteData.tiktok);
+
+  const prompt = `You are a NIL agency strategist writing a one-page partnership brief.
+
+ATHLETE: ${athleteData.name}
+Sport: ${athleteData.sport || 'N/A'} | Position: ${athleteData.position || 'N/A'} | Year: ${athleteData.year || 'N/A'}
+School: ${athleteData.school || 'N/A'}
+Stats: ${athleteData.stats || 'N/A'}
+Notes: ${athleteData.notes || 'N/A'}
+Instagram: ${ig} | TikTok: ${tt} | Engagement: ${athleteData.engagement || 'N/A'}%
+
+BRAND: ${brand}
+Industry: ${enrichment.industry || 'N/A'}
+Description: ${enrichment.description || 'N/A'}
+Match score: ${matchScore?.compatibility_score || 'N/A'}/100
+
+Write content for a ONE-PAGE brief answering: why is this athlete the right partner for ${brand}?
+
+RULES — follow every one:
+- No AI buzzwords: no "unique", "synergy", "leverage", "perfect fit", "natural fit", "authentic journey", "exciting", "game-changer", "seamlessly", "resonate", "innovative", "dynamic"
+- Be specific to this athlete's actual stats and this brand's actual products
+- Reasons must be facts, not opinions
+- Campaign must describe what literally gets made (what's filmed, where, what platform)
+- Everything must be based on real data above — no invented credentials
+
+Return ONLY this JSON, no markdown:
+{
+  "tagline": "One plain sentence. Why this athlete and this brand make sense together right now. Max 20 words.",
+  "reasons": [
+    "Fact-based reason — references actual numbers or known brand attributes. Max 30 words.",
+    "Fact-based reason. Max 30 words.",
+    "Fact-based reason. Max 30 words."
+  ],
+  "campaign": {
+    "title": "Campaign name — specific to ${brand}. Max 8 words.",
+    "description": "What gets made: what's filmed, where, which platform, what the deliverable is. 2 sentences. No vague language."
+  },
+  "audienceNote": "One sentence: who specifically follows this athlete and why that audience is worth reaching for ${brand}."
+}`;
+
+  const raw = await oneShot(prompt,
+    'Return only valid JSON. No markdown. No preamble. Be specific to this athlete and brand.', 1500);
+  const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+  const match = clean.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('No JSON in AI response');
+  return JSON.parse(match[0]);
+}
+
+function buildFallbackOnePager(athleteData, enrichment, matchScore, pitch) {
+  return {
+    tagline: `${athleteData.name} brings ${formatFollowers(athleteData.instagram)} Instagram followers to ${enrichment.brand_name}.`,
+    reasons: [
+      `${formatFollowers(athleteData.instagram)} Instagram followers and ${athleteData.engagement || '—'}% engagement rate.`,
+      `${athleteData.sport || 'Athlete'} at ${athleteData.school || 'a top program'} with measurable on-field performance.`,
+      pitch?.audience_alignment || `Audience demographics align with ${enrichment.brand_name}'s target market.`,
+    ],
+    campaign: {
+      title: `${enrichment.brand_name} × ${athleteData.name}`,
+      description: pitch?.campaign_ideas?.[0] || `Content series featuring ${athleteData.name} using ${enrichment.brand_name} products across Instagram and TikTok.`,
+    },
+    audienceNote: pitch?.audience_alignment || `${athleteData.name}'s audience is concentrated in ${athleteData.school || 'college sports'} communities.`,
+  };
 }
 
 /**
@@ -112,19 +177,28 @@ async function getDecksForAthleteBrand(agentId, athleteId, brandName) {
   return r.rows;
 }
 
-// ── PDF Rendering — mirrors the Marketing tab pitch deck (generateAthleteBrandKit format) ─────
+// ── PDF Rendering — One-Page Partnership Brief ────────────────────────────────
 
 /**
- * renderBrandKitPDF — renders the 6-slide JSON from generateAthleteBrandKit() into a PDF.
- * Slide structure:
- *   slide1: { headline, intro }
- *   slide2: { bullets[] }
- *   slide3: { stats[], role }
- *   slide4: { instagram, tiktok, engagement, audienceSummary, growthSignal }
- *   slide5: { categories[]: { name, reason } }
- *   slide6: { activations[]: { title, description } }
+ * renderOnePagerPDF
+ * Produces a single LETTER-sized page answering: why this athlete for this brand?
+ * Layout (all Y values are absolute — no doc.y drift):
+ *   Y   0–  5  accent bar
+ *   Y   5– 90  header: label, athlete name, brand name
+ *   Y  90–155  5 stat pills: Sport | School | Instagram | TikTok | Engagement
+ *   Y 155–165  section divider
+ *   Y 165–185  "WHY THIS WORKS" label
+ *   Y 185–335  3 reason cards (46px each + 8px gap)
+ *   Y 335–350  section divider
+ *   Y 350–370  "CAMPAIGN CONCEPT" label
+ *   Y 370–480  campaign box: title + description
+ *   Y 480–495  section divider
+ *   Y 495–515  "THE AUDIENCE" label
+ *   Y 515–580  audience note text
+ *   Y 590–650  CTA box (accent)
+ *   Y 650–792  score badges + footer
  */
-async function renderBrandKitPDF(filePath, athleteData, enrichment, matchScore, kit) {
+async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, onePager) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 0, autoFirstPage: true });
     const stream = fs.createWriteStream(filePath);
@@ -132,10 +206,11 @@ async function renderBrandKitPDF(filePath, athleteData, enrichment, matchScore, 
 
     const ACCENT = '#BA0C2F';
     const DARK   = '#06080F';
-    const SURF   = '#0D1020';
+    const SURF   = '#141828';
     const WHITE  = '#F4F6FF';
     const MUTED  = '#8B91A8';
-    const W = 612; const H = 792; const PAD = 50; const CW = W - PAD * 2;
+    const LIGHT  = '#C8CCE0';
+    const W = 612; const H = 792; const PAD = 44; const CW = W - PAD * 2;
 
     function tr(text, max) {
       if (!text) return '';
@@ -143,270 +218,123 @@ async function renderBrandKitPDF(filePath, athleteData, enrichment, matchScore, 
       return s.length > max ? s.slice(0, max - 1) + '…' : s;
     }
 
-    function slideBackground(useDark) {
-      doc.rect(0, 0, W, H).fill(useDark ? DARK : SURF);
-      doc.rect(0, 0, W, 5).fill(ACCENT);
+    function sectionLabel(label, y) {
+      doc.fill(ACCENT).fontSize(7.5).font('Helvetica-Bold')
+         .text(label, PAD, y, { width: CW, characterSpacing: 2 });
+      doc.rect(PAD, y + 13, 32, 1.5).fill(ACCENT);
     }
 
-    function slideHeader(title, sub) {
-      doc.fill(ACCENT).fontSize(8).font('Helvetica-Bold')
-         .text(title, PAD, 18, { width: CW, characterSpacing: 2 });
-      doc.rect(PAD, 32, 40, 1.5).fill(ACCENT);
-      if (sub) {
-        doc.fill(MUTED).fontSize(10).font('Helvetica')
-           .text(tr(sub, 80), PAD, 38, { width: CW });
-      }
-    }
-
-    function footer() {
-      doc.fill(MUTED).fontSize(7.5).font('Helvetica')
-         .text('NILDash — Powered by AI', PAD, H - 22, { width: CW, align: 'center', characterSpacing: 0.5 });
-    }
-
-    // ── SLIDE 1: COVER ────────────────────────────────────────────────────────
+    // ── BACKGROUND ────────────────────────────────────────────────────────────
     doc.rect(0, 0, W, H).fill(DARK);
+
+    // ── TOP ACCENT BAR ────────────────────────────────────────────────────────
     doc.rect(0, 0, W, 5).fill(ACCENT);
-    doc.fill(ACCENT).fontSize(8).font('Helvetica-Bold')
-       .text('NIL PARTNERSHIP PROPOSAL', PAD, 22, { width: CW, characterSpacing: 2 });
-    doc.rect(PAD, 36, 40, 1.5).fill(ACCENT);
 
-    const headline = tr(kit.slide1?.headline || `${athleteData.name} × ${enrichment.brand_name}`, 72);
-    doc.fill(WHITE).fontSize(28).font('Helvetica-Bold')
-       .text(headline, PAD, 80, { width: CW, lineGap: 3 });
+    // ── HEADER BLOCK  Y 5–90 ──────────────────────────────────────────────────
+    doc.fill(ACCENT).fontSize(7.5).font('Helvetica-Bold')
+       .text('NIL PARTNERSHIP BRIEF', PAD, 16, { width: CW, characterSpacing: 2 });
+    doc.rect(PAD, 28, 32, 1.5).fill(ACCENT);
 
-    const intro = tr(kit.slide1?.intro || '', 200);
-    doc.fill(MUTED).fontSize(11.5).font('Helvetica')
-       .text(intro || ' ', PAD, 164, { width: CW, lineGap: 3 });
+    // Athlete name
+    doc.fill(WHITE).fontSize(26).font('Helvetica-Bold')
+       .text(tr(athleteData.name || 'Athlete', 40), PAD, 36, { width: CW });
 
-    doc.rect(PAD, 248, CW, 0.75).fill('#1C2030');
+    // "for Brand" on same line as name
+    const nameWidth = doc.widthOfString(tr(athleteData.name || 'Athlete', 40), { fontSize: 26 });
+    doc.fill(MUTED).fontSize(14).font('Helvetica')
+       .text(`for ${tr(enrichment.brand_name, 30)}`, PAD, 68, { width: CW });
 
-    // 4 stat boxes
-    const bW = (CW - 12 * 3) / 4;
-    [
-      { label: 'SPORT',     value: tr((athleteData.sport || 'N/A').toUpperCase(), 12) },
-      { label: 'SCHOOL',    value: tr(athleteData.school || 'N/A', 14) },
-      { label: 'INSTAGRAM', value: formatFollowers(athleteData.instagram) },
-      { label: 'TIKTOK',    value: formatFollowers(athleteData.tiktok) },
-    ].forEach((s, i) => {
-      const bX = PAD + i * (bW + 12);
-      doc.rect(bX, 268, bW, 70).fill(SURF);
-      doc.rect(bX, 268, bW, 3).fill(ACCENT);
-      doc.fill(ACCENT).fontSize(18).font('Helvetica-Bold')
-         .text(s.value, bX + 6, 282, { width: bW - 12, align: 'center' });
-      doc.fill(MUTED).fontSize(7).font('Helvetica')
-         .text(s.label, bX + 6, 320, { width: bW - 12, align: 'center', characterSpacing: 1.5 });
+    // ── HORIZONTAL RULE  Y 90 ────────────────────────────────────────────────
+    doc.rect(PAD, 92, CW, 0.75).fill('#2A3050');
+
+    // ── STAT PILLS  Y 98–155 ─────────────────────────────────────────────────
+    const stats = [
+      { label: 'SPORT',       value: tr((athleteData.sport || '—').toUpperCase(), 10) },
+      { label: 'SCHOOL',      value: tr(athleteData.school || '—', 12) },
+      { label: 'INSTAGRAM',   value: formatFollowers(athleteData.instagram) },
+      { label: 'TIKTOK',      value: formatFollowers(athleteData.tiktok) },
+      { label: 'ENGAGEMENT',  value: `${athleteData.engagement || '—'}%` },
+    ];
+    const pillW = (CW - 8 * 4) / 5;
+    stats.forEach((s, i) => {
+      const px = PAD + i * (pillW + 8);
+      doc.rect(px, 100, pillW, 52).fill(SURF);
+      doc.rect(px, 100, pillW, 2.5).fill(ACCENT);
+      doc.fill(ACCENT).fontSize(14).font('Helvetica-Bold')
+         .text(s.value, px + 4, 112, { width: pillW - 8, align: 'center' });
+      doc.fill(MUTED).fontSize(6.5).font('Helvetica')
+         .text(s.label, px + 4, 136, { width: pillW - 8, align: 'center', characterSpacing: 1 });
     });
 
-    // Match score + engagement badges
+    // ── WHY THIS WORKS  Y 162–335 ────────────────────────────────────────────
+    doc.rect(PAD, 158, CW, 0.75).fill('#2A3050');
+    sectionLabel('WHY THIS WORKS', 164);
+
+    const reasons = (onePager.reasons || []).slice(0, 3);
+    const cardH = 46;
+    reasons.forEach((reason, i) => {
+      const rText = typeof reason === 'string' ? reason : JSON.stringify(reason);
+      const ry = 184 + i * (cardH + 6);
+      doc.rect(PAD, ry, CW, cardH).fill(SURF);
+      doc.rect(PAD, ry, 3, cardH).fill(ACCENT);
+      doc.fill(WHITE).fontSize(10.5).font('Helvetica')
+         .text(tr(rText, 140), PAD + 12, ry + 9, { width: CW - 18, lineGap: 2 });
+    });
+
+    // ── CAMPAIGN CONCEPT  Y 342–480 ──────────────────────────────────────────
+    doc.rect(PAD, 340, CW, 0.75).fill('#2A3050');
+    sectionLabel('CAMPAIGN CONCEPT', 346);
+
+    const campTitle = tr(onePager.campaign?.title || 'Partnership Campaign', 60);
+    const campDesc  = tr(onePager.campaign?.description || '', 240);
+
+    doc.rect(PAD, 366, CW, 108).fill(SURF);
+    doc.rect(PAD, 366, CW, 2.5).fill(ACCENT);
+    doc.fill(WHITE).fontSize(12).font('Helvetica-Bold')
+       .text(campTitle, PAD + 14, 378, { width: CW - 28 });
+    doc.fill(LIGHT).fontSize(10.5).font('Helvetica')
+       .text(campDesc, PAD + 14, 398, { width: CW - 28, lineGap: 3 });
+
+    // ── AUDIENCE  Y 484–575 ───────────────────────────────────────────────────
+    doc.rect(PAD, 482, CW, 0.75).fill('#2A3050');
+    sectionLabel('THE AUDIENCE', 488);
+
+    const audNote = tr(onePager.audienceNote || '', 220);
+    doc.rect(PAD, 508, CW, 58).fill(SURF);
+    doc.rect(PAD, 508, 3, 58).fill(ACCENT);
+    doc.fill(LIGHT).fontSize(10.5).font('Helvetica')
+       .text(audNote, PAD + 14, 520, { width: CW - 24, lineGap: 3 });
+
+    // ── CTA BOX  Y 578–640 ────────────────────────────────────────────────────
+    doc.rect(PAD, 578, CW, 58).fill(ACCENT);
+    const ctaText = tr(onePager.tagline || `${athleteData.name} is the right fit for ${enrichment.brand_name}.`, 100);
+    doc.fill(DARK).fontSize(12).font('Helvetica-Bold')
+       .text(ctaText, PAD + 18, 598, { width: CW - 36, align: 'center', lineGap: 3 });
+
+    // ── SCORE BADGES  Y 650–690 ───────────────────────────────────────────────
+    let bx = PAD;
     if (matchScore?.compatibility_score) {
-      doc.rect(PAD, 358, 120, 32).fill(ACCENT);
-      doc.fill(DARK).fontSize(12).font('Helvetica-Bold')
-         .text(`${matchScore.compatibility_score}% MATCH`, PAD, 367, { width: 120, align: 'center' });
+      doc.rect(bx, 652, 118, 28).fill(ACCENT);
+      doc.fill(DARK).fontSize(10.5).font('Helvetica-Bold')
+         .text(`${matchScore.compatibility_score}% BRAND MATCH`, bx, 660, { width: 118, align: 'center' });
+      bx += 130;
     }
     if (athleteData.engagement) {
-      const ex = matchScore?.compatibility_score ? PAD + 132 : PAD;
-      doc.rect(ex, 358, 120, 32).fill(SURF);
-      doc.rect(ex, 358, 120, 2).fill(ACCENT);
-      doc.fill(WHITE).fontSize(12).font('Helvetica-Bold')
-         .text(`${athleteData.engagement}% ENG`, ex, 367, { width: 120, align: 'center' });
+      doc.rect(bx, 652, 118, 28).fill(SURF);
+      doc.rect(bx, 652, 118, 2).fill(ACCENT);
+      doc.fill(WHITE).fontSize(10.5).font('Helvetica-Bold')
+         .text(`${athleteData.engagement}% ENGAGEMENT`, bx, 660, { width: 118, align: 'center' });
     }
 
-    footer();
-
-    // ── SLIDE 2: WHY THIS PARTNERSHIP ─────────────────────────────────────────
-    doc.addPage();
-    slideBackground(false);
-    slideHeader('WHY THIS PARTNERSHIP', `${athleteData.name} × ${enrichment.brand_name}`);
-
-    const bullets = safeParseArray(kit.slide2?.bullets).slice(0, 5);
-    const bulletCardH = bullets.length > 4 ? 106 : 116;
-    bullets.forEach((bullet, i) => {
-      const bText = typeof bullet === 'string' ? bullet : (bullet.text || '');
-      const dashIdx = bText.indexOf(' — ');
-      const lead = dashIdx > 0 ? bText.slice(0, dashIdx) : bText;
-      const body = dashIdx > 0 ? bText.slice(dashIdx + 3) : '';
-      const cardY = 58 + i * (bulletCardH + 7);
-      doc.rect(PAD, cardY, CW, bulletCardH).fill(DARK);
-      doc.rect(PAD, cardY, 4, bulletCardH).fill(ACCENT);
-      doc.fill(ACCENT).fontSize(20).font('Helvetica-Bold')
-         .text(String(i + 1).padStart(2, '0'), PAD + 10, cardY + 10, { width: 28 });
-      doc.fill(WHITE).fontSize(11).font('Helvetica-Bold')
-         .text(tr(lead, 80), PAD + 46, cardY + 10, { width: CW - 58 });
-      if (body) {
-        doc.fill(MUTED).fontSize(10).font('Helvetica')
-           .text(tr(body, 160), PAD + 46, cardY + 28, { width: CW - 58, lineGap: 2 });
-      }
-    });
-
-    footer();
-
-    // ── SLIDE 3: ON-FIELD PERFORMANCE ─────────────────────────────────────────
-    doc.addPage();
-    slideBackground(true);
-    slideHeader('ON-FIELD PERFORMANCE', 'The competitive credentials that matter');
-
-    const perfStats = safeParseArray(kit.slide3?.stats).slice(0, 3);
-    const pW = (CW - 14 * 2) / 3;
-    perfStats.forEach((stat, i) => {
-      const pX = PAD + i * (pW + 14);
-      const st = typeof stat === 'string' ? stat : JSON.stringify(stat);
-      const m = st.match(/^([0-9,.x\-]+\s*(?:x|st|nd|rd|th|%|K|M|pts?|yds?|rec|TD|ppg|reb|ast|blk)?)\s+(.+)$/i);
-      const num = m ? m[1].trim() : st.slice(0, 10);
-      const lbl = m ? tr(m[2].trim(), 28) : '';
-      doc.rect(pX, 56, pW, 86).fill(SURF);
-      doc.rect(pX, 56, pW, 3).fill(ACCENT);
-      doc.fill(ACCENT).fontSize(26).font('Helvetica-Bold')
-         .text(num, pX + 6, 70, { width: pW - 12, align: 'center' });
-      if (lbl) {
-        doc.fill(MUTED).fontSize(8.5).font('Helvetica')
-           .text(lbl.toUpperCase(), pX + 6, 104, { width: pW - 12, align: 'center', characterSpacing: 0.5 });
-      }
-    });
-
-    const role = tr(kit.slide3?.role || '', 180);
-    if (role) {
-      doc.rect(PAD, 152, CW, 0.75).fill('#1C2030');
-      doc.fill(WHITE).fontSize(12.5).font('Helvetica')
-         .text(role, PAD, 162, { width: CW, lineGap: 3 });
-    }
-
-    const details = [
-      ['Sport',    athleteData.sport    || 'N/A'],
-      ['Position', athleteData.position || 'N/A'],
-      ['Year',     athleteData.year     || 'N/A'],
-      ['School',   tr(athleteData.school || 'N/A', 40)],
-      ['Stats',    tr(athleteData.stats  || 'See full profile', 60)],
-    ];
-    let dY = 222;
-    details.forEach(([lbl, val]) => {
-      doc.fill(MUTED).fontSize(8).font('Helvetica')
-         .text(lbl.toUpperCase(), PAD, dY, { width: 90, characterSpacing: 1 });
-      doc.fill(WHITE).fontSize(11).font('Helvetica-Bold')
-         .text(val, PAD + 100, dY, { width: CW - 100 });
-      doc.rect(PAD, dY + 17, CW, 0.5).fill('#1C2030');
-      dY += 28;
-    });
-
-    footer();
-
-    // ── SLIDE 4: AUDIENCE & REACH ─────────────────────────────────────────────
-    doc.addPage();
-    slideBackground(false);
-    slideHeader('AUDIENCE & REACH', `Why ${tr(enrichment.brand_name, 30)} needs this audience`);
-
-    const platforms = [
-      { label: 'INSTAGRAM',   value: formatFollowers(athleteData.instagram || kit.slide4?.instagram), sub: 'Followers' },
-      { label: 'TIKTOK',      value: formatFollowers(athleteData.tiktok    || kit.slide4?.tiktok),    sub: 'Followers' },
-      { label: 'ENGAGEMENT',  value: `${athleteData.engagement || kit.slide4?.engagement || '—'}%`,  sub: 'Avg Engagement' },
-    ];
-    const platW = (CW - 14 * 2) / 3;
-    platforms.forEach((p, i) => {
-      const pX = PAD + i * (platW + 14);
-      doc.rect(pX, 56, platW, 78).fill(DARK);
-      doc.rect(pX, 56, platW, 3).fill(ACCENT);
-      doc.fill(MUTED).fontSize(7).font('Helvetica')
-         .text(p.label, pX + 6, 68, { width: platW - 12, align: 'center', characterSpacing: 1.5 });
-      doc.fill(WHITE).fontSize(26).font('Helvetica-Bold')
-         .text(p.value, pX + 6, 80, { width: platW - 12, align: 'center' });
-      doc.fill(MUTED).fontSize(8).font('Helvetica')
-         .text(p.sub, pX + 6, 116, { width: platW - 12, align: 'center' });
-    });
-
-    const audSum = tr(kit.slide4?.audienceSummary || '', 260);
-    doc.rect(PAD, 146, CW, 0.75).fill('#1C2030');
-    doc.fill(WHITE).fontSize(12.5).font('Helvetica')
-       .text(audSum || ' ', PAD, 158, { width: CW, lineGap: 3 });
-
-    const grow = tr(kit.slide4?.growthSignal || '', 120);
-    if (grow) {
-      doc.rect(PAD, 248, CW, 36).fill(DARK);
-      doc.rect(PAD, 248, 3, 36).fill(ACCENT);
-      doc.fill(ACCENT).fontSize(11).font('Helvetica-Bold')
-         .text('↑  ' + grow, PAD + 14, 260, { width: CW - 20 });
-    }
-
-    footer();
-
-    // ── SLIDE 5: PARTNERSHIP CATEGORIES ──────────────────────────────────────
-    doc.addPage();
-    slideBackground(true);
-    slideHeader('PARTNERSHIP CATEGORIES', `Tailored to ${tr(enrichment.brand_name, 30)}`);
-
-    const cats = safeParseArray(kit.slide5?.categories).slice(0, 4);
-    cats.forEach((cat, i) => {
-      const name   = typeof cat === 'string' ? cat : (cat.name   || 'Category');
-      const reason = typeof cat === 'object'  ? (cat.reason || '') : '';
-      const cY = 56 + i * 152;
-      doc.rect(PAD, cY, CW, 142).fill(SURF);
-      doc.rect(PAD, cY, 4, 142).fill(ACCENT);
-      doc.fill(WHITE).fontSize(13).font('Helvetica-Bold')
-         .text(tr(name, 60), PAD + 14, cY + 14, { width: CW - 28 });
-      doc.fill(MUTED).fontSize(10.5).font('Helvetica')
-         .text(tr(reason, 220), PAD + 14, cY + 34, { width: CW - 28, lineGap: 2 });
-    });
-
-    footer();
-
-    // ── SLIDE 6: CAMPAIGN ACTIVATIONS ─────────────────────────────────────────
-    doc.addPage();
-    slideBackground(false);
-    slideHeader('CAMPAIGN ACTIVATIONS', 'What we build together');
-
-    const acts = safeParseArray(kit.slide6?.activations).slice(0, 3);
-    acts.forEach((act, i) => {
-      const title = typeof act === 'string' ? act : tr(act.title || 'Campaign', 60);
-      const desc  = typeof act === 'object'  ? tr(act.description || '', 240) : '';
-      const aY = 56 + i * 150;
-      doc.rect(PAD, aY, CW, 140).fill(DARK);
-      doc.rect(PAD, aY, CW, 3).fill(ACCENT);
-      doc.fill(WHITE).fontSize(13).font('Helvetica-Bold')
-         .text(title, PAD + 14, aY + 14, { width: CW - 28 });
-      doc.fill(MUTED).fontSize(10.5).font('Helvetica')
-         .text(desc || ' ', PAD + 14, aY + 34, { width: CW - 28, lineGap: 2 });
-    });
-
-    // CTA
-    const ctaY = 56 + acts.length * 150 + 14;
-    if (ctaY + 58 < H - 36) {
-      doc.rect(PAD, ctaY, CW, 56).fill(ACCENT);
-      doc.fill(DARK).fontSize(12.5).font('Helvetica-Bold')
-         .text(
-           tr(`Ready to discuss how ${athleteData.name} can represent ${enrichment.brand_name}?`, 90),
-           PAD + 16, ctaY + 14, { width: CW - 32, align: 'center', lineGap: 3 }
-         );
-    }
-
-    footer();
+    // ── BOTTOM ACCENT BAR + FOOTER ────────────────────────────────────────────
+    doc.rect(0, H - 28, W, 28).fill('#0A0C14');
+    doc.fill(MUTED).fontSize(7.5).font('Helvetica')
+       .text('NILDash — AI-Powered NIL Intelligence', PAD, H - 19, { width: CW, align: 'center', characterSpacing: 0.5 });
 
     doc.end();
     stream.on('finish', resolve);
     stream.on('error', reject);
   });
-}
-
-// ── PDF shared header helper ──────────────────────────────────────────────────
-
-function brandKitHeader(doc, title, subtitle, accent, white, muted, pad) {
-  doc.fill(accent).fontSize(10).font('Helvetica-Bold')
-     .text(title, pad, 28, { characterSpacing: 2 });
-  doc.rect(pad, 46, 48, 2).fill(accent);
-  if (subtitle) {
-    doc.fill(muted).fontSize(11).font('Helvetica')
-       .text(subtitle, pad, 56, { width: doc.page.width - pad * 2 });
-  }
-}
-
-// ── Fallback slide data (if AI call fails) ────────────────────────────────────
-
-function buildFallbackSlideData(athleteData, enrichment, matchScore, pitch) {
-  return {
-    slide1: { headline: `${athleteData.name} × ${enrichment.brand_name}`, intro: pitch?.value_proposition || 'A compelling NIL partnership opportunity.' },
-    slide2: { bullets: safeParseArray(matchScore?.campaign_ideas).map(i => typeof i === 'string' ? i : JSON.stringify(i)) },
-    slide3: { stats: [athleteData.stats || 'Top performer'], role: matchScore?.reasoning || '' },
-    slide4: { instagram: String(athleteData.instagram || 0), tiktok: String(athleteData.tiktok || 0), engagement: String(athleteData.engagement || 0), audienceSummary: pitch?.audience_alignment || '', growthSignal: '' },
-    slide5: { categories: safeParseArray(matchScore?.partnership_opportunities).map(o => typeof o === 'string' ? { name: o, reason: '' } : { name: o.type || o.description || '', reason: o.estimated_value_range || '' }) },
-    slide6: { activations: safeParseArray(pitch?.campaign_ideas || []).map(a => typeof a === 'string' ? { title: a, description: '' } : a) },
-  };
 }
 
 // ── Utility ───────────────────────────────────────────────────────────────────
