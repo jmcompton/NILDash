@@ -134,6 +134,51 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
   // Refresh session role on every /me call — handles sessions that predate role storage
   if (!req.session.role) req.session.role = user.role;
   res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+
+// ── One-time admin seed endpoint — Samford demo data ──────────────
+// Requires admin session. Self-removes after first successful run
+// by checking for existing seed records.
+}).post('/api/admin/seed-samford', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+
+  const agentId = user.id;
+  const athletes = [
+    { id:'samford-demo-001', name:'Marcus Webb',    sport:'Football',           position:'Wide Receiver',  school:'Samford University', schoolTier:'G5', instagram:18400, tiktok:22100, engagement:5.2, stats:'68 rec, 1,024 yds, 9 TD (2024)',               notes:'Birmingham native. Business major. Training content and fan engagement on social.' },
+    { id:'samford-demo-002', name:'Jordan Tate',    sport:'Basketball',         position:'Point Guard',    school:'Samford University', schoolTier:'G5', instagram:9800,  tiktok:14300, engagement:6.8, stats:'17.4 PPG, 6.1 APG, 1.9 SPG (2024-25)',          notes:'SoCon All-Conference honorable mention. Behind-the-scenes campus content.' },
+    { id:'samford-demo-003', name:'Ava Hollins',    sport:"Women's Soccer",     position:'Midfielder',     school:'Samford University', schoolTier:'G5', instagram:7200,  tiktok:5100,  engagement:7.4, stats:'8 goals, 5 assists (2024)',                      notes:'Pre-med student. Active in local community volunteering. Lifestyle and campus content.' },
+    { id:'samford-demo-004', name:'Caleb Norris',   sport:'Baseball',           position:'Pitcher',        school:'Samford University', schoolTier:'G5', instagram:4100,  tiktok:3600,  engagement:4.1, stats:'2.87 ERA, 89 K, 7-3 record (2024)',               notes:'Junior. High engagement when active. Minimal posting frequency.' },
+    { id:'samford-demo-005', name:'Deja Monroe',    sport:"Women's Basketball", position:'Small Forward',  school:'Samford University', schoolTier:'G5', instagram:12600, tiktok:19800, engagement:8.3, stats:'14.2 PPG, 7.8 RPG (2024-25)',                     notes:'Most followed athlete in the program. Active creator — training, travel, fashion.' },
+    { id:'samford-demo-006', name:'Tyler Okafor',   sport:'Football',           position:'Linebacker',     school:'Samford University', schoolTier:'G5', instagram:3200,  tiktok:1800,  engagement:3.9, stats:'88 tackles, 6.5 TFL, 3 sacks (2024)',              notes:'' },
+    { id:'samford-demo-007', name:'Priya Nair',     sport:'Track & Field',      position:'Sprints',        school:'Samford University', schoolTier:'G5', instagram:2900,  tiktok:6700,  engagement:9.1, stats:'11.42s 100m PR, SoCon qualifier 2024',             notes:'High engagement despite smaller following. Training clips perform well on TikTok.' },
+    { id:'samford-demo-008', name:'Cole Hutchins',  sport:'Football',           position:'Quarterback',    school:'Samford University', schoolTier:'G5', instagram:31200, tiktok:28900, engagement:4.7, stats:'2,841 pass yds, 24 TD, 7 INT (2024)',              notes:'Starting QB and de facto face of the program.' },
+  ];
+
+  let inserted = 0, skipped = 0;
+  for (const athlete of athletes) {
+    const { id, ...data } = athlete;
+    try {
+      const result = await store.pool.query(
+        `INSERT INTO athletes (id, agent_id, data, created_at, updated_at, last_updated_at)
+         VALUES ($1,$2,$3,NOW(),NOW(),NOW())
+         ON CONFLICT (id) DO NOTHING`,
+        [id, agentId, JSON.stringify(data)]
+      );
+      if (result.rowCount > 0) inserted++; else skipped++;
+    } catch (_) {
+      // last_updated_at may not exist yet — fallback
+      try {
+        const r2 = await store.pool.query(
+          `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
+           VALUES ($1,$2,$3,NOW(),NOW())
+           ON CONFLICT (id) DO NOTHING`,
+          [id, agentId, JSON.stringify(data)]
+        );
+        if (r2.rowCount > 0) inserted++; else skipped++;
+      } catch (e2) { console.error('[seed]', athlete.name, e2.message); }
+    }
+  }
+  res.json({ ok: true, inserted, skipped, total: athletes.length, program: 'Samford University' });
 });
 
 // ── Athletes ───────────────────────────────────────────────────
@@ -1732,7 +1777,7 @@ app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (
 
     // Fetch athletes — shared table, read-only from university context
     const athleteRows = await store.pool.query(
-      'SELECT * FROM athletes WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT * FROM athletes WHERE agent_id = $1 ORDER BY created_at DESC',
       [userId]
     );
     const athletes = athleteRows.rows;
@@ -1844,7 +1889,7 @@ app.get('/api/university/compliance', requireAuth, requireUniversityMode, async 
     const userRole = req.session.role;
 
     const athleteRows = await store.pool.query(
-      'SELECT * FROM athletes WHERE user_id = $1 ORDER BY created_at DESC',
+      'SELECT * FROM athletes WHERE agent_id = $1 ORDER BY created_at DESC',
       [userId]
     );
 
