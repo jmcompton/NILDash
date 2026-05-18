@@ -135,48 +135,67 @@ async function runDiscovery(enrichmentRecord) {
   const size = enrichmentRecord.brand_size || 'regional';
   const description = enrichmentRecord.description || '';
   const website = enrichmentRecord.website || '';
+  const socialLinks = enrichmentRecord.social_links
+    ? (typeof enrichmentRecord.social_links === 'string'
+        ? enrichmentRecord.social_links
+        : JSON.stringify(enrichmentRecord.social_links))
+    : '';
 
-  const system = `You are a contact intelligence API for a NIL sports agency.
-Return ONLY a valid JSON array of contact objects. No markdown, no explanation.
-IMPORTANT: Do NOT fabricate specific email addresses, phone numbers, or LinkedIn URLs.
-For email, use null OR infer the likely format (e.g. firstname.lastname@company.com) with low confidence.
-For LinkedIn, use null unless you have high confidence in the profile URL.`;
+  const system = `You are an elite sports marketing intelligence agent with deep knowledge of brand marketing teams.
+Your job is to identify REAL, NAMED individuals who handle NIL deals and athlete sponsorships at companies.
+Return ONLY a valid JSON array. No markdown, no explanation, no preamble.
 
-  const prompt = `Find the best decision makers to contact at "${brand}" for a college athlete NIL partnership.
+RULES:
+- Always try to return a real person's name and title. Use your knowledge of the company's marketing leadership.
+- For well-known brands (Nike, Gatorade, Red Bull, national retail chains, major CPG brands), you likely know who runs their sports marketing or partnerships team — use that knowledge.
+- For email: infer the corporate format if you know it (e.g. first@company.com, first.last@company.com). Set confidence low if inferred.
+- For LinkedIn: only include a URL if you are confident it is accurate (https://linkedin.com/in/firstname-lastname-XXXXXX format).
+- Never fabricate phone numbers — always null.
+- Sort contacts by relevance: NIL/athlete-relations contacts first, then broader partnerships, then general marketing.`;
 
-Company context:
+  const prompt = `I need to send a college athlete NIL partnership proposal to someone at "${brand}".
+
+Company profile:
 - Industry: ${industry}
 - Size: ${size}
-- Description: ${description}
 - Website: ${website}
+- Description: ${description}
+${socialLinks ? `- Social/links: ${socialLinks}` : ''}
 
-I need to identify people in these roles (in priority order):
-1. Athlete Relations / NIL partnerships
-2. Brand Partnerships / Sponsorships
-3. Sports Marketing
-4. Influencer Marketing / Creator Partnerships
-5. VP/Director of Marketing
-6. PR / Communications
+YOUR TASK: Search your knowledge of "${brand}" and identify the REAL people who handle:
+1. NIL deals / athlete sponsorships / college partnerships (HIGHEST PRIORITY — name this person if known)
+2. Brand partnerships / sponsorship deals
+3. Sports marketing or influencer/creator marketing
+4. Marketing VP or CMO (decision authority)
+5. PR or communications (secondary contact)
 
-Return a JSON array of up to 6 contacts. For each contact:
-{
-  "name": "Full Name or null if unknown",
-  "title": "Job Title",
-  "email": "email@company.com or null",
-  "phone": null,
-  "linkedin": "https://linkedin.com/in/... or null",
-  "contact_type": one of: "athlete_relations" | "nil" | "partnership" | "sponsorship" | "sports_marketing" | "influencer" | "marketing_director" | "marketing" | "pr" | "general",
-  "confidence_score": 0.0 to 1.0,
-  "source": "public_record" | "company_website" | "linkedin" | "ai_inference",
-  "outreach_notes": "why this person is the right contact and how to approach them"
-}
+For EACH person, think:
+- What is their actual name? (LinkedIn, press releases, company website "About" page, news coverage of sponsorship announcements)
+- What is their exact title?
+- What email format does ${brand} use? (firstname@, f.lastname@, firstname.lastname@?)
+- Do they have a public LinkedIn profile?
 
-If you cannot identify specific people, create role-based entries (e.g., "Partnerships Team") with low confidence.
-Always return at least 2 entries even if speculative.`;
+Return a JSON array of up to 5 contacts:
+[
+  {
+    "name": "First Last (REAL person's name, or null only if truly unknown)",
+    "title": "Exact job title",
+    "email": "inferred or known email address, or null",
+    "phone": null,
+    "linkedin": "https://linkedin.com/in/profile or null",
+    "contact_type": "athlete_relations" | "nil" | "partnership" | "sponsorship" | "sports_marketing" | "influencer" | "marketing_director" | "marketing" | "pr" | "general",
+    "confidence_score": 0.0 to 1.0 (0.8+ = known from public record, 0.5 = inferred from role/company, 0.2 = speculative),
+    "source": "public_record" | "company_website" | "linkedin" | "ai_inference",
+    "outreach_notes": "1-2 sentences: why this person handles NIL deals at ${brand} and the best angle to approach them"
+  }
+]
+
+IMPORTANT: If you know this brand has a dedicated sports marketing or NIL team, name them. If you know the CMO or VP Marketing, include them as secondary. Do NOT return generic placeholders if you can name real people.
+Always return at least 2 contacts.`;
 
   let raw;
   try {
-    raw = await oneShot(prompt, system, 2000);
+    raw = await oneShot(prompt, system, 2500);
   } catch (e) {
     console.error('[contactDiscovery] AI call failed:', e.message);
     return buildFallbackContacts(brand);

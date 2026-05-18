@@ -2,8 +2,8 @@
 // DeckGenerationService — Part 5 of the NIL Outreach Automation Engine.
 //
 // Generates a brand-specific pitch deck PDF for athlete + brand pairs.
-// Uses pdfkit (already in package.json — no new dependencies).
-// Saves PDF to /tmp/ (Railway ephemeral storage) and records metadata in pitch_decks.
+// Uses the SAME generateAthleteBrandKit() AI function as the Marketing tab pitch deck,
+// then renders the resulting 6-slide JSON into a PDF with pdfkit.
 //
 // SAFETY: reads from brand_match_scores, company_enrichment.
 //         writes only to pitch_decks (new table).
@@ -16,6 +16,7 @@ const crypto  = require('crypto');
 const fs      = require('fs');
 const path    = require('path');
 const { pool } = require('../store');
+const { generateAthleteBrandKit } = require('../ai');
 
 let PDFDocument;
 try { PDFDocument = require('pdfkit'); } catch (e) {
@@ -37,6 +38,9 @@ const OUTPUT_DIR = process.env.DECK_OUTPUT_DIR || '/tmp/nildash-decks';
  *   pitch:       pitch object from PitchGenerationService
  * }
  *
+ * Uses the SAME generateAthleteBrandKit() AI as the Marketing tab — sets
+ * athlete.targetBrand to the brand name so the deck is fully brand-specific.
+ *
  * Returns pitch_decks DB record with file_path.
  */
 async function generateDeck(inputs) {
@@ -45,15 +49,25 @@ async function generateDeck(inputs) {
 
   ensureOutputDir();
 
+  // ── Call the same AI as the Marketing tab pitch deck ──────────────────────
+  // Set targetBrand so generateAthleteBrandKit tailors every slide to this brand
+  const athleteForKit = { ...athleteData, targetBrand: enrichment.brand_name };
+  let slideData;
+  try {
+    slideData = await generateAthleteBrandKit(athleteForKit);
+  } catch (e) {
+    console.error('[deckGeneration] generateAthleteBrandKit failed:', e.message);
+    // Fall back to a minimal slide structure so the rest of the pipeline continues
+    slideData = buildFallbackSlideData(athleteData, enrichment, matchScore, pitch);
+  }
+
   const id       = 'deck_' + crypto.randomBytes(8).toString('hex');
   const version  = await getNextVersion(agentId, athleteId, enrichment.brand_name);
   const filename = `${id}_v${version}.pdf`;
   const filePath = path.join(OUTPUT_DIR, filename);
 
-  const slideData = buildSlideData(athleteData, enrichment, matchScore, pitch);
-
   if (PDFDocument) {
-    await renderPDF(filePath, athleteData, enrichment, matchScore, pitch, slideData);
+    await renderBrandKitPDF(filePath, athleteData, enrichment, matchScore, slideData);
   } else {
     console.warn('[deckGeneration] pdfkit unavailable — saving slide data only');
   }
@@ -98,133 +112,238 @@ async function getDecksForAthleteBrand(agentId, athleteId, brandName) {
   return r.rows;
 }
 
-// ── PDF Rendering ─────────────────────────────────────────────────────────────
+// ── PDF Rendering — mirrors the Marketing tab pitch deck (generateAthleteBrandKit format) ─────
 
-async function renderPDF(filePath, athleteData, enrichment, matchScore, pitch, slideData) {
+/**
+ * renderBrandKitPDF — renders the 6-slide JSON from generateAthleteBrandKit() into a PDF.
+ * Slide structure:
+ *   slide1: { headline, intro }
+ *   slide2: { bullets[] }
+ *   slide3: { stats[], role }
+ *   slide4: { instagram, tiktok, engagement, audienceSummary, growthSignal }
+ *   slide5: { categories[]: { name, reason } }
+ *   slide6: { activations[]: { title, description } }
+ */
+async function renderBrandKitPDF(filePath, athleteData, enrichment, matchScore, kit) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 50 });
+    const doc = new PDFDocument({ size: 'LETTER', margin: 0 });
     const stream = fs.createWriteStream(filePath);
     doc.pipe(stream);
 
-    const ACCENT  = '#84CC16'; // NILDash lime green
-    const DARK    = '#111827';
-    const MUTED   = '#6B7280';
-    const WHITE   = '#FFFFFF';
-    const SURFACE = '#1F2937';
+    const ACCENT = '#BA0C2F'; // NIL crimson — matches pitch.html --uni color
+    const DARK   = '#06080F';
+    const SURF   = '#0D1020';
+    const WHITE  = '#F4F6FF';
+    const MUTED  = '#8B91A8';
+    const W      = doc.page.width;   // 612
+    const H      = doc.page.height;  // 792
+    const PAD    = 56;
 
-    // ── Slide 1: Cover ──────────────────────────────────────────────────────
-    doc.rect(0, 0, doc.page.width, doc.page.height).fill(DARK);
-    doc.fill(ACCENT).fontSize(32).font('Helvetica-Bold')
-       .text(athleteData.name || 'Athlete', 50, 180, { align: 'center', width: doc.page.width - 100 });
-    doc.fill(WHITE).fontSize(18).font('Helvetica')
-       .text('×', 50, 225, { align: 'center', width: doc.page.width - 100 });
-    doc.fill(WHITE).fontSize(26).font('Helvetica-Bold')
-       .text(enrichment.brand_name, 50, 250, { align: 'center', width: doc.page.width - 100 });
-    doc.fill(MUTED).fontSize(13).font('Helvetica')
-       .text('NIL Partnership Proposal', 50, 300, { align: 'center', width: doc.page.width - 100 });
-    doc.fill(MUTED).fontSize(10)
-       .text(`${athleteData.sport || ''} | ${athleteData.school || ''}`, 50, 325, { align: 'center', width: doc.page.width - 100 });
+    // ── Slide 1: Cover (headline + intro) ────────────────────────────────────
+    doc.rect(0, 0, W, H).fill(DARK);
+    // accent bar top
+    doc.rect(0, 0, W, 6).fill(ACCENT);
 
-    // Score badge
-    if (matchScore?.compatibility_score) {
-      doc.fill(ACCENT).roundedRect(doc.page.width / 2 - 40, 380, 80, 40, 8).fill(ACCENT);
-      doc.fill(DARK).fontSize(14).font('Helvetica-Bold')
-         .text(`${matchScore.compatibility_score}% FIT`, doc.page.width / 2 - 40, 394, { width: 80, align: 'center' });
+    const headline = (kit.slide1?.headline || `${athleteData.name} × ${enrichment.brand_name}`);
+    const intro    = kit.slide1?.intro || '';
+    const score    = matchScore?.compatibility_score;
+
+    // athlete name big
+    doc.fill(ACCENT).fontSize(11).font('Helvetica-Bold')
+       .text('NIL PARTNERSHIP PROPOSAL', PAD, 60, { characterSpacing: 2 });
+    doc.rect(PAD, 80, 48, 2).fill(ACCENT);
+
+    doc.fill(WHITE).fontSize(36).font('Helvetica-Bold')
+       .text(headline, PAD, 110, { width: W - PAD * 2, lineGap: 4 });
+
+    if (intro) {
+      doc.fill(MUTED).fontSize(13).font('Helvetica')
+         .text(intro, PAD, doc.y + 18, { width: W - PAD * 2, lineGap: 5 });
     }
 
-    doc.fill(MUTED).fontSize(9).font('Helvetica')
-       .text('Prepared by NILDash', 50, doc.page.height - 60, { align: 'center', width: doc.page.width - 100 });
-
-    // ── Slide 2: Athlete Overview ────────────────────────────────────────────
-    doc.addPage();
-    slideHeader(doc, 'ATHLETE OVERVIEW', ACCENT, DARK, WHITE);
-
-    const stats = [
-      ['Sport',        athleteData.sport || 'N/A'],
-      ['School',       athleteData.school || 'N/A'],
-      ['Position',     athleteData.position || 'N/A'],
-      ['Year',         athleteData.year || 'N/A'],
-      ['Instagram',    formatFollowers(athleteData.instagram) + ' followers'],
-      ['TikTok',       formatFollowers(athleteData.tiktok) + ' followers'],
-      ['Engagement',   (athleteData.engagement || 0) + '%'],
-      ['Stats',        athleteData.stats || 'N/A'],
+    // Stats row from athlete data
+    const statY = 380;
+    const statItems = [
+      { label: 'SPORT',      value: (athleteData.sport || 'N/A').toUpperCase() },
+      { label: 'SCHOOL',     value: athleteData.school || 'N/A' },
+      { label: 'INSTAGRAM',  value: formatFollowers(athleteData.instagram) },
+      { label: 'TIKTOK',     value: formatFollowers(athleteData.tiktok) },
     ];
+    const boxW = (W - PAD * 2 - 12 * 3) / 4;
+    statItems.forEach((s, i) => {
+      const bx = PAD + i * (boxW + 12);
+      doc.rect(bx, statY, boxW, 70).fill(SURF);
+      doc.rect(bx, statY, boxW, 3).fill(ACCENT);
+      doc.fill(ACCENT).fontSize(22).font('Helvetica-Bold')
+         .text(s.value, bx + 10, statY + 14, { width: boxW - 20, align: 'center' });
+      doc.fill(MUTED).fontSize(8).font('Helvetica')
+         .text(s.label, bx + 10, statY + 46, { width: boxW - 20, align: 'center', characterSpacing: 1.5 });
+    });
 
-    let y = 130;
-    for (const [label, value] of stats) {
-      doc.fill(MUTED).fontSize(9).font('Helvetica').text(label.toUpperCase(), 50, y);
-      doc.fill(WHITE).fontSize(12).font('Helvetica-Bold').text(value, 160, y);
-      y += 28;
+    if (score) {
+      const bx = PAD;
+      doc.rect(bx, statY + 86, 100, 36).fill(ACCENT);
+      doc.fill(DARK).fontSize(13).font('Helvetica-Bold')
+         .text(`${score}% MATCH`, bx, statY + 97, { width: 100, align: 'center' });
     }
 
-    // ── Slide 3: Audience Analytics ──────────────────────────────────────────
+    doc.fill(MUTED).fontSize(8).font('Helvetica')
+       .text('Prepared by NILDash — AI-Powered NIL Intelligence', PAD, H - 32,
+             { width: W - PAD * 2, align: 'center', characterSpacing: 1 });
+
+    // ── Slide 2: Why Us (bullets) ────────────────────────────────────────────
     doc.addPage();
-    slideHeader(doc, 'AUDIENCE & REACH', ACCENT, DARK, WHITE);
+    doc.rect(0, 0, W, H).fill(SURF);
+    doc.rect(0, 0, W, 6).fill(ACCENT);
+    brandKitHeader(doc, 'WHY THIS PARTNERSHIP', `${athleteData.name} × ${enrichment.brand_name}`, ACCENT, WHITE, MUTED, PAD);
 
-    addBodyText(doc, pitch.audience_alignment || 'Strong audience alignment identified.', WHITE, 130);
-    addBodyText(doc, pitch.value_proposition || '', MUTED, 220);
-
-    // ── Slide 4: Brand Alignment ─────────────────────────────────────────────
-    doc.addPage();
-    slideHeader(doc, 'BRAND ALIGNMENT', ACCENT, DARK, WHITE);
-
-    addBodyText(doc, pitch.athlete_fit || '', WHITE, 130);
-    addBodyText(doc, matchScore?.reasoning || '', MUTED, 220);
-
-    if (pitch.deck_talking_points?.length) {
-      doc.fill(ACCENT).fontSize(10).font('Helvetica-Bold').text('KEY POINTS', 50, 310);
-      let py = 330;
-      for (const point of pitch.deck_talking_points.slice(0, 5)) {
-        doc.fill(WHITE).fontSize(11).font('Helvetica')
-           .text('• ' + point, 50, py, { width: doc.page.width - 100 });
-        py += 22;
+    const bullets = safeParseArray(kit.slide2?.bullets);
+    let by = 140;
+    bullets.slice(0, 5).forEach((bullet, i) => {
+      // numbered card
+      doc.rect(PAD, by, W - PAD * 2, 64).fill(DARK);
+      doc.rect(PAD, by, 4, 64).fill(ACCENT);
+      doc.fill(ACCENT).fontSize(22).font('Helvetica-Bold')
+         .text(String(i + 1).padStart(2, '0'), PAD + 16, by + 10);
+      const bulletText = typeof bullet === 'string' ? bullet : (bullet.text || JSON.stringify(bullet));
+      const [lead, ...rest] = bulletText.split(' — ');
+      doc.fill(WHITE).fontSize(11).font('Helvetica-Bold')
+         .text(lead, PAD + 56, by + 10, { width: W - PAD * 2 - 72 });
+      if (rest.length) {
+        doc.fill(MUTED).fontSize(10).font('Helvetica')
+           .text(rest.join(' — '), PAD + 56, doc.y + 2, { width: W - PAD * 2 - 72 });
       }
-    }
+      by += 76;
+    });
 
-    // ── Slide 5: Partnership Opportunities ───────────────────────────────────
+    // ── Slide 3: Performance / Stats ─────────────────────────────────────────
     doc.addPage();
-    slideHeader(doc, 'PARTNERSHIP OPPORTUNITIES', ACCENT, DARK, WHITE);
+    doc.rect(0, 0, W, H).fill(DARK);
+    doc.rect(0, 0, W, 6).fill(ACCENT);
+    brandKitHeader(doc, 'ON-FIELD PERFORMANCE', 'Competitive credentials that matter', ACCENT, WHITE, MUTED, PAD);
 
-    const ideas = safeParseArray(matchScore?.campaign_ideas);
-    const opps  = safeParseArray(matchScore?.partnership_opportunities);
+    const perfStats = safeParseArray(kit.slide3?.stats);
+    const role      = kit.slide3?.role || '';
+    const pboxW     = (W - PAD * 2 - 14 * 2) / 3;
+    perfStats.slice(0, 3).forEach((stat, i) => {
+      const bx = PAD + i * (pboxW + 14);
+      doc.rect(bx, 140, pboxW, 90).fill(SURF);
+      doc.rect(bx, 140, pboxW, 3).fill(ACCENT);
+      const statText = typeof stat === 'string' ? stat : JSON.stringify(stat);
+      // Split on common patterns: "12 PPG", "3x All-Conference"
+      const parts = statText.match(/^(\S+(?:\s\S+)?)\s+(.+)$/) || [null, statText, ''];
+      doc.fill(ACCENT).fontSize(28).font('Helvetica-Bold')
+         .text(parts[1] || statText, bx + 8, 152, { width: pboxW - 16, align: 'center' });
+      if (parts[2]) {
+        doc.fill(MUTED).fontSize(9).font('Helvetica')
+           .text(parts[2].toUpperCase(), bx + 8, 190, { width: pboxW - 16, align: 'center', characterSpacing: 1 });
+      }
+    });
 
-    let oy = 130;
-    doc.fill(ACCENT).fontSize(10).font('Helvetica-Bold').text('CAMPAIGN IDEAS', 50, oy);
-    oy += 20;
-    for (const idea of ideas.slice(0, 3)) {
-      doc.fill(WHITE).fontSize(11).font('Helvetica')
-         .text('• ' + (typeof idea === 'string' ? idea : JSON.stringify(idea)), 50, oy, { width: doc.page.width - 100 });
-      oy += 22;
+    if (role) {
+      doc.rect(PAD, 252, W - PAD * 2, 1).fill('#1C2030');
+      doc.fill(WHITE).fontSize(14).font('Helvetica')
+         .text(role, PAD, 270, { width: W - PAD * 2, lineGap: 4 });
     }
 
-    oy += 10;
-    doc.fill(ACCENT).fontSize(10).font('Helvetica-Bold').text('PARTNERSHIP TYPES', 50, oy);
-    oy += 20;
-    for (const opp of opps.slice(0, 3)) {
-      const label = typeof opp === 'string' ? opp : (opp.description || opp.type || JSON.stringify(opp));
-      const range = typeof opp === 'object' ? (' — ' + (opp.estimated_value_range || '')) : '';
-      doc.fill(WHITE).fontSize(11).font('Helvetica')
-         .text('• ' + label + range, 50, oy, { width: doc.page.width - 100 });
-      oy += 22;
-    }
+    // Athlete detail table
+    const details = [
+      ['Position', athleteData.position || 'N/A'],
+      ['Year',     athleteData.year || 'N/A'],
+      ['School',   athleteData.school || 'N/A'],
+      ['Stats',    athleteData.stats || 'See full profile'],
+    ];
+    let dy = 340;
+    details.forEach(([lbl, val]) => {
+      doc.fill(MUTED).fontSize(9).font('Helvetica').text(lbl.toUpperCase(), PAD, dy, { characterSpacing: 1 });
+      doc.fill(WHITE).fontSize(11).font('Helvetica-Bold').text(val, PAD + 100, dy);
+      doc.rect(PAD, dy + 18, W - PAD * 2, 1).fill('#1C2030');
+      dy += 28;
+    });
 
-    // ── Slide 6: CTA ─────────────────────────────────────────────────────────
+    // ── Slide 4: Audience & Social ───────────────────────────────────────────
     doc.addPage();
-    doc.rect(0, 0, doc.page.width, doc.page.height).fill(DARK);
-    slideHeader(doc, 'LET\'S PARTNER', ACCENT, DARK, WHITE);
+    doc.rect(0, 0, W, H).fill(SURF);
+    doc.rect(0, 0, W, 6).fill(ACCENT);
+    brandKitHeader(doc, 'AUDIENCE & REACH', 'Why this audience is valuable to your brand', ACCENT, WHITE, MUTED, PAD);
 
-    addBodyText(doc, pitch.partnership_structure || 'We propose an initial partnership campaign.', WHITE, 130);
-    addBodyText(doc, pitch.roi_messaging || '', MUTED, 210);
+    // Platform boxes
+    const platforms = [
+      { label: 'INSTAGRAM', value: formatFollowers(athleteData.instagram || kit.slide4?.instagram), sub: 'Followers' },
+      { label: 'TIKTOK',    value: formatFollowers(athleteData.tiktok || kit.slide4?.tiktok),    sub: 'Followers' },
+      { label: 'ENGAGEMENT', value: (athleteData.engagement || kit.slide4?.engagement || 'N/A') + '%', sub: 'Avg Rate' },
+    ];
+    const platW = (W - PAD * 2 - 14 * 2) / 3;
+    platforms.forEach((p, i) => {
+      const bx = PAD + i * (platW + 14);
+      doc.rect(bx, 140, platW, 80).fill(DARK);
+      doc.fill(MUTED).fontSize(8).font('Helvetica').text(p.label, bx + 8, 152, { width: platW - 16, align: 'center', characterSpacing: 1.5 });
+      doc.fill(WHITE).fontSize(30).font('Helvetica-Bold').text(p.value, bx + 8, 166, { width: platW - 16, align: 'center' });
+      doc.fill(MUTED).fontSize(9).font('Helvetica').text(p.sub, bx + 8, 200, { width: platW - 16, align: 'center' });
+    });
 
-    // CTA box
-    doc.rect(50, 280, doc.page.width - 100, 50).fill(ACCENT);
-    doc.fill(DARK).fontSize(14).font('Helvetica-Bold')
-       .text(pitch.cta || 'Would you be open to a call this week?', 50, 296,
-             { width: doc.page.width - 100, align: 'center' });
+    if (kit.slide4?.audienceSummary) {
+      doc.rect(PAD, 242, W - PAD * 2, 1).fill('#1C2030');
+      doc.fill(WHITE).fontSize(13).font('Helvetica')
+         .text(kit.slide4.audienceSummary, PAD, 258, { width: W - PAD * 2, lineGap: 4 });
+    }
+    if (kit.slide4?.growthSignal) {
+      doc.fill(ACCENT).fontSize(11).font('Helvetica-Bold')
+         .text('↑  ' + kit.slide4.growthSignal, PAD, doc.y + 16, { width: W - PAD * 2 });
+    }
 
-    doc.fill(MUTED).fontSize(9).font('Helvetica')
-       .text('NILDash — AI-Powered NIL Intelligence', 50, doc.page.height - 60,
-             { align: 'center', width: doc.page.width - 100 });
+    // ── Slide 5: Brand Categories ─────────────────────────────────────────────
+    doc.addPage();
+    doc.rect(0, 0, W, H).fill(DARK);
+    doc.rect(0, 0, W, 6).fill(ACCENT);
+    brandKitHeader(doc, 'PARTNERSHIP CATEGORIES', `Tailored to ${enrichment.brand_name}`, ACCENT, WHITE, MUTED, PAD);
+
+    const cats = safeParseArray(kit.slide5?.categories);
+    let cy = 140;
+    cats.slice(0, 4).forEach(cat => {
+      const name   = typeof cat === 'string' ? cat : (cat.name || 'Category');
+      const reason = typeof cat === 'object' ? (cat.reason || '') : '';
+      doc.rect(PAD, cy, W - PAD * 2, reason ? 68 : 44).fill(SURF);
+      doc.rect(PAD, cy, 4, reason ? 68 : 44).fill(ACCENT);
+      doc.fill(WHITE).fontSize(12).font('Helvetica-Bold').text(name, PAD + 16, cy + 10, { width: W - PAD * 2 - 32 });
+      if (reason) {
+        doc.fill(MUTED).fontSize(10).font('Helvetica')
+           .text(reason, PAD + 16, cy + 28, { width: W - PAD * 2 - 32, lineGap: 3 });
+      }
+      cy += (reason ? 68 : 44) + 10;
+    });
+
+    // ── Slide 6: Activations / CTA ────────────────────────────────────────────
+    doc.addPage();
+    doc.rect(0, 0, W, H).fill(SURF);
+    doc.rect(0, 0, W, 6).fill(ACCENT);
+    brandKitHeader(doc, 'CAMPAIGN ACTIVATIONS', `What we can build together`, ACCENT, WHITE, MUTED, PAD);
+
+    const activations = safeParseArray(kit.slide6?.activations);
+    let av = 140;
+    activations.slice(0, 3).forEach(act => {
+      const title = typeof act === 'string' ? act : (act.title || 'Campaign Idea');
+      const desc  = typeof act === 'object' ? (act.description || '') : '';
+      const boxH  = desc ? 90 : 50;
+      doc.rect(PAD, av, W - PAD * 2, boxH).fill(DARK);
+      doc.rect(PAD, av, W - PAD * 2, 3).fill(ACCENT);
+      doc.fill(WHITE).fontSize(13).font('Helvetica-Bold').text(title, PAD + 16, av + 14, { width: W - PAD * 2 - 32 });
+      if (desc) {
+        doc.fill(MUTED).fontSize(11).font('Helvetica')
+           .text(desc, PAD + 16, av + 34, { width: W - PAD * 2 - 32, lineGap: 3 });
+      }
+      av += boxH + 12;
+    });
+
+    // CTA footer
+    const ctaY = H - 120;
+    doc.rect(PAD, ctaY, W - PAD * 2, 56).fill(ACCENT);
+    doc.fill(DARK).fontSize(16).font('Helvetica-Bold')
+       .text(`Let's discuss how ${athleteData.name} can represent ${enrichment.brand_name}`, PAD + 20, ctaY + 10, { width: W - PAD * 2 - 40, align: 'center', lineGap: 3 });
+
+    doc.fill(MUTED).fontSize(8).font('Helvetica')
+       .text('NILDash — AI-Powered NIL Intelligence', PAD, H - 32,
+             { width: W - PAD * 2, align: 'center', characterSpacing: 1 });
 
     doc.end();
     stream.on('finish', resolve);
@@ -232,32 +351,28 @@ async function renderPDF(filePath, athleteData, enrichment, matchScore, pitch, s
   });
 }
 
-// ── PDF helpers ───────────────────────────────────────────────────────────────
+// ── PDF shared header helper ──────────────────────────────────────────────────
 
-function slideHeader(doc, title, accent, dark, white) {
-  doc.rect(0, 0, doc.page.width, doc.page.height).fill(dark);
-  doc.rect(0, 0, doc.page.width, 80).fill('#111827');
+function brandKitHeader(doc, title, subtitle, accent, white, muted, pad) {
   doc.fill(accent).fontSize(10).font('Helvetica-Bold')
-     .text(title, 50, 30, { width: doc.page.width - 100 });
-  doc.rect(50, 55, 60, 2).fill(accent);
+     .text(title, pad, 28, { characterSpacing: 2 });
+  doc.rect(pad, 46, 48, 2).fill(accent);
+  if (subtitle) {
+    doc.fill(muted).fontSize(11).font('Helvetica')
+       .text(subtitle, pad, 56, { width: doc.page.width - pad * 2 });
+  }
 }
 
-function addBodyText(doc, text, color, y) {
-  if (!text) return;
-  doc.fill(color).fontSize(12).font('Helvetica')
-     .text(text, 50, y, { width: doc.page.width - 100, lineGap: 4 });
-}
+// ── Fallback slide data (if AI call fails) ────────────────────────────────────
 
-// ── Slide data (used even when PDF unavailable) ───────────────────────────────
-
-function buildSlideData(athleteData, enrichment, matchScore, pitch) {
+function buildFallbackSlideData(athleteData, enrichment, matchScore, pitch) {
   return {
-    slide1: { type: 'cover', athlete: athleteData.name, brand: enrichment.brand_name, score: matchScore?.compatibility_score },
-    slide2: { type: 'athlete', sport: athleteData.sport, school: athleteData.school, instagram: athleteData.instagram, tiktok: athleteData.tiktok, engagement: athleteData.engagement, stats: athleteData.stats },
-    slide3: { type: 'audience', content: pitch.audience_alignment, value_prop: pitch.value_proposition },
-    slide4: { type: 'alignment', athlete_fit: pitch.athlete_fit, reasoning: matchScore?.reasoning, talking_points: pitch.deck_talking_points },
-    slide5: { type: 'opportunities', campaign_ideas: safeParseArray(matchScore?.campaign_ideas), partnership_types: safeParseArray(matchScore?.partnership_opportunities) },
-    slide6: { type: 'cta', partnership_structure: pitch.partnership_structure, roi: pitch.roi_messaging, cta: pitch.cta },
+    slide1: { headline: `${athleteData.name} × ${enrichment.brand_name}`, intro: pitch?.value_proposition || 'A compelling NIL partnership opportunity.' },
+    slide2: { bullets: safeParseArray(matchScore?.campaign_ideas).map(i => typeof i === 'string' ? i : JSON.stringify(i)) },
+    slide3: { stats: [athleteData.stats || 'Top performer'], role: matchScore?.reasoning || '' },
+    slide4: { instagram: String(athleteData.instagram || 0), tiktok: String(athleteData.tiktok || 0), engagement: String(athleteData.engagement || 0), audienceSummary: pitch?.audience_alignment || '', growthSignal: '' },
+    slide5: { categories: safeParseArray(matchScore?.partnership_opportunities).map(o => typeof o === 'string' ? { name: o, reason: '' } : { name: o.type || o.description || '', reason: o.estimated_value_range || '' }) },
+    slide6: { activations: safeParseArray(pitch?.campaign_ideas || []).map(a => typeof a === 'string' ? { title: a, description: '' } : a) },
   };
 }
 
