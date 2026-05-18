@@ -319,8 +319,6 @@ router.get('/follow-ups', async (req, res) => {
 // ── Internal helper: delegate email send to existing service ──────────────────
 
 async function sendViaEmailService(req, emailAccountId, toEmail, log) {
-  // Reuse the email account + provider logic by loading it directly
-  // This avoids HTTP-to-self and maintains session context
   const emailStore = require('../services/emailStore');
   const account = await emailStore.getEmailAccountWithTokens(emailAccountId);
   if (!account || account.user_id !== req.session.userId) throw new Error('Email account not found');
@@ -329,16 +327,35 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   const accessToken  = account.access_token_enc  ? decrypt(account.access_token_enc)  : null;
   const refreshToken = account.refresh_token_enc ? decrypt(account.refresh_token_enc) : null;
 
+  // ── Load deck PDF as attachment if available ──────────────────────────────
+  let attachments = [];
+  if (log.deck_id) {
+    try {
+      const deckSvc = require('../services/deckGeneration');
+      const deck = await deckSvc.getDeckById(log.deck_id);
+      if (deck?.file_path && fs.existsSync(deck.file_path)) {
+        const pdfData = fs.readFileSync(deck.file_path).toString('base64');
+        const safeName = `${(log.brand_name || 'NIL').replace(/[^a-z0-9]/gi, '_')}_PitchDeck.pdf`;
+        attachments = [{ filename: safeName, mimeType: 'application/pdf', data: pdfData }];
+        console.log('[outreach/send] Attaching deck PDF:', safeName);
+      } else {
+        console.warn('[outreach/send] Deck file not found on disk (ephemeral storage cleared?)');
+      }
+    } catch (e) {
+      console.warn('[outreach/send] Could not load deck for attachment:', e.message);
+    }
+  }
+
   let result;
   if (account.provider === 'gmail') {
     const gmail = require('../services/providers/gmail');
     result = await gmail.sendEmail(accessToken, refreshToken, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html,
+      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments,
     });
   } else if (account.provider === 'outlook' || account.provider === 'microsoft365') {
     const outlook = require('../services/providers/outlook');
     result = await outlook.sendEmail(accessToken, refreshToken, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html,
+      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments,
     });
   } else {
     const imapProvider = require('../services/providers/imap');

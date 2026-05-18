@@ -99,7 +99,7 @@ async function fetchMessages(accessToken, _refreshToken, cursor, maxResults = 50
   return { messages: normalized, nextCursor };
 }
 
-async function sendEmail(accessToken, _refreshToken, { to, cc, subject, bodyHtml, threadId }) {
+async function sendEmail(accessToken, _refreshToken, { to, cc, subject, bodyHtml, threadId, attachments }) {
   if (!MicrosoftGraph) throw new Error('@microsoft/microsoft-graph-client not installed');
   const client = getGraphClient(accessToken);
 
@@ -110,12 +110,21 @@ async function sendEmail(accessToken, _refreshToken, { to, cc, subject, bodyHtml
     ccRecipients: toAddressList(cc),
   };
 
+  // Attach PDF if provided (Graph API inline attachment format)
+  if (attachments && attachments.length > 0) {
+    message.attachments = attachments.map(att => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: att.filename,
+      contentType: att.mimeType || 'application/octet-stream',
+      contentBytes: att.data, // base64 string
+    }));
+  }
+
   if (threadId) {
-    // Reply within thread
     await client.api(`/me/messages/${threadId}/reply`).post({ message });
     return { providerMessageId: null, providerThreadId: threadId };
   } else {
-    const sent = await client.api('/me/sendMail').post({ message: { ...message, isDraft: false } });
+    await client.api('/me/sendMail').post({ message: { ...message, isDraft: false } });
     return { providerMessageId: null, providerThreadId: null };
   }
 }

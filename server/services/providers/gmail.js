@@ -139,8 +139,9 @@ async function fetchMessages(accessToken, refreshToken, cursor, maxResults = 50)
 
 /**
  * Send an email via Gmail API.
+ * attachments: [{ filename, mimeType, data }] where data is base64-encoded string
  */
-async function sendEmail(accessToken, refreshToken, { to, cc, subject, bodyHtml, threadId }) {
+async function sendEmail(accessToken, refreshToken, { to, cc, subject, bodyHtml, threadId, attachments }) {
   const client = createOAuth2Client();
   client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
   const gmail = google.gmail({ version: 'v1', auth: client });
@@ -148,7 +149,7 @@ async function sendEmail(accessToken, refreshToken, { to, cc, subject, bodyHtml,
   const profile = await gmail.users.getProfile({ userId: 'me' });
   const from = profile.data.emailAddress;
 
-  const mime = buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId });
+  const mime = buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachments: attachments || [] });
   const encoded = Buffer.from(mime).toString('base64url');
 
   const res = await gmail.users.messages.send({
@@ -222,24 +223,66 @@ function parseAddressList(raw) {
   return raw.split(/,\s*/).map(a => a.trim()).filter(Boolean);
 }
 
-function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId }) {
-  const boundary = `nildash_${Date.now()}`;
+function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachments }) {
   const toStr = Array.isArray(to) ? to.join(', ') : (to || '');
-  const ccStr = cc && cc.length ? `Cc: ${Array.isArray(cc) ? cc.join(', ') : cc}\r\n` : '';
-  return [
+  const ccStr = cc && cc.length ? `Cc: ${Array.isArray(cc) ? cc.join(', ') : cc}` : '';
+
+  if (!attachments || attachments.length === 0) {
+    // Simple email — multipart/alternative (existing behaviour)
+    const boundary = `nildash_${Date.now()}`;
+    return [
+      `From: ${from}`,
+      `To: ${toStr}`,
+      ...(ccStr ? [ccStr] : []),
+      `Subject: ${subject || ''}`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/html; charset=utf-8',
+      '',
+      bodyHtml || '',
+      `--${boundary}--`,
+    ].join('\r\n');
+  }
+
+  // Email with attachments — multipart/mixed wrapping multipart/alternative + parts
+  const outerB = `nildash_outer_${Date.now()}`;
+  const innerB = `nildash_inner_${Date.now() + 1}`;
+
+  const lines = [
     `From: ${from}`,
     `To: ${toStr}`,
-    ccStr.trimEnd(),
+    ...(ccStr ? [ccStr] : []),
     `Subject: ${subject || ''}`,
     'MIME-Version: 1.0',
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `Content-Type: multipart/mixed; boundary="${outerB}"`,
     '',
-    `--${boundary}`,
+    `--${outerB}`,
+    `Content-Type: multipart/alternative; boundary="${innerB}"`,
+    '',
+    `--${innerB}`,
     'Content-Type: text/html; charset=utf-8',
     '',
     bodyHtml || '',
-    `--${boundary}--`,
-  ].filter(l => l !== undefined).join('\r\n');
+    `--${innerB}--`,
+  ];
+
+  for (const att of attachments) {
+    // Split base64 into 76-char lines per RFC 2045
+    const b64Lines = (att.data || '').match(/.{1,76}/g) || [];
+    lines.push(
+      `--${outerB}`,
+      `Content-Type: ${att.mimeType || 'application/octet-stream'}; name="${att.filename}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${att.filename}"`,
+      '',
+      ...b64Lines,
+    );
+  }
+
+  lines.push(`--${outerB}--`);
+  return lines.join('\r\n');
 }
 
 module.exports = { isAvailable, getAuthUrl, exchangeCode, refreshAccessToken, fetchMessages, sendEmail };

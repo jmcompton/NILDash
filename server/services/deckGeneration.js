@@ -126,224 +126,257 @@ async function getDecksForAthleteBrand(agentId, athleteId, brandName) {
  */
 async function renderBrandKitPDF(filePath, athleteData, enrichment, matchScore, kit) {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: 0 });
+    const doc = new PDFDocument({ size: 'LETTER', margin: 0, autoFirstPage: true });
     const stream = fs.createWriteStream(filePath);
     doc.pipe(stream);
 
-    const ACCENT = '#BA0C2F'; // NIL crimson — matches pitch.html --uni color
+    const ACCENT = '#BA0C2F';
     const DARK   = '#06080F';
     const SURF   = '#0D1020';
     const WHITE  = '#F4F6FF';
     const MUTED  = '#8B91A8';
-    const W      = doc.page.width;   // 612
-    const H      = doc.page.height;  // 792
-    const PAD    = 56;
+    const W = 612; const H = 792; const PAD = 50; const CW = W - PAD * 2;
 
-    // ── Slide 1: Cover (headline + intro) ────────────────────────────────────
-    doc.rect(0, 0, W, H).fill(DARK);
-    // accent bar top
-    doc.rect(0, 0, W, 6).fill(ACCENT);
-
-    const headline = (kit.slide1?.headline || `${athleteData.name} × ${enrichment.brand_name}`);
-    const intro    = kit.slide1?.intro || '';
-    const score    = matchScore?.compatibility_score;
-
-    // athlete name big
-    doc.fill(ACCENT).fontSize(11).font('Helvetica-Bold')
-       .text('NIL PARTNERSHIP PROPOSAL', PAD, 60, { characterSpacing: 2 });
-    doc.rect(PAD, 80, 48, 2).fill(ACCENT);
-
-    doc.fill(WHITE).fontSize(36).font('Helvetica-Bold')
-       .text(headline, PAD, 110, { width: W - PAD * 2, lineGap: 4 });
-
-    if (intro) {
-      doc.fill(MUTED).fontSize(13).font('Helvetica')
-         .text(intro, PAD, doc.y + 18, { width: W - PAD * 2, lineGap: 5 });
+    function tr(text, max) {
+      if (!text) return '';
+      const s = String(text);
+      return s.length > max ? s.slice(0, max - 1) + '…' : s;
     }
 
-    // Stats row from athlete data
-    const statY = 380;
-    const statItems = [
-      { label: 'SPORT',      value: (athleteData.sport || 'N/A').toUpperCase() },
-      { label: 'SCHOOL',     value: athleteData.school || 'N/A' },
-      { label: 'INSTAGRAM',  value: formatFollowers(athleteData.instagram) },
-      { label: 'TIKTOK',     value: formatFollowers(athleteData.tiktok) },
-    ];
-    const boxW = (W - PAD * 2 - 12 * 3) / 4;
-    statItems.forEach((s, i) => {
-      const bx = PAD + i * (boxW + 12);
-      doc.rect(bx, statY, boxW, 70).fill(SURF);
-      doc.rect(bx, statY, boxW, 3).fill(ACCENT);
-      doc.fill(ACCENT).fontSize(22).font('Helvetica-Bold')
-         .text(s.value, bx + 10, statY + 14, { width: boxW - 20, align: 'center' });
-      doc.fill(MUTED).fontSize(8).font('Helvetica')
-         .text(s.label, bx + 10, statY + 46, { width: boxW - 20, align: 'center', characterSpacing: 1.5 });
+    function slideBackground(useDark) {
+      doc.rect(0, 0, W, H).fill(useDark ? DARK : SURF);
+      doc.rect(0, 0, W, 5).fill(ACCENT);
+    }
+
+    function slideHeader(title, sub) {
+      doc.fill(ACCENT).fontSize(8).font('Helvetica-Bold')
+         .text(title, PAD, 18, { width: CW, characterSpacing: 2 });
+      doc.rect(PAD, 32, 40, 1.5).fill(ACCENT);
+      if (sub) {
+        doc.fill(MUTED).fontSize(10).font('Helvetica')
+           .text(tr(sub, 80), PAD, 38, { width: CW });
+      }
+    }
+
+    function footer() {
+      doc.fill(MUTED).fontSize(7.5).font('Helvetica')
+         .text('NILDash — Powered by AI', PAD, H - 22, { width: CW, align: 'center', characterSpacing: 0.5 });
+    }
+
+    // ── SLIDE 1: COVER ────────────────────────────────────────────────────────
+    doc.rect(0, 0, W, H).fill(DARK);
+    doc.rect(0, 0, W, 5).fill(ACCENT);
+    doc.fill(ACCENT).fontSize(8).font('Helvetica-Bold')
+       .text('NIL PARTNERSHIP PROPOSAL', PAD, 22, { width: CW, characterSpacing: 2 });
+    doc.rect(PAD, 36, 40, 1.5).fill(ACCENT);
+
+    const headline = tr(kit.slide1?.headline || `${athleteData.name} × ${enrichment.brand_name}`, 72);
+    doc.fill(WHITE).fontSize(28).font('Helvetica-Bold')
+       .text(headline, PAD, 80, { width: CW, lineGap: 3 });
+
+    const intro = tr(kit.slide1?.intro || '', 200);
+    doc.fill(MUTED).fontSize(11.5).font('Helvetica')
+       .text(intro || ' ', PAD, 164, { width: CW, lineGap: 3 });
+
+    doc.rect(PAD, 248, CW, 0.75).fill('#1C2030');
+
+    // 4 stat boxes
+    const bW = (CW - 12 * 3) / 4;
+    [
+      { label: 'SPORT',     value: tr((athleteData.sport || 'N/A').toUpperCase(), 12) },
+      { label: 'SCHOOL',    value: tr(athleteData.school || 'N/A', 14) },
+      { label: 'INSTAGRAM', value: formatFollowers(athleteData.instagram) },
+      { label: 'TIKTOK',    value: formatFollowers(athleteData.tiktok) },
+    ].forEach((s, i) => {
+      const bX = PAD + i * (bW + 12);
+      doc.rect(bX, 268, bW, 70).fill(SURF);
+      doc.rect(bX, 268, bW, 3).fill(ACCENT);
+      doc.fill(ACCENT).fontSize(18).font('Helvetica-Bold')
+         .text(s.value, bX + 6, 282, { width: bW - 12, align: 'center' });
+      doc.fill(MUTED).fontSize(7).font('Helvetica')
+         .text(s.label, bX + 6, 320, { width: bW - 12, align: 'center', characterSpacing: 1.5 });
     });
 
-    if (score) {
-      const bx = PAD;
-      doc.rect(bx, statY + 86, 100, 36).fill(ACCENT);
-      doc.fill(DARK).fontSize(13).font('Helvetica-Bold')
-         .text(`${score}% MATCH`, bx, statY + 97, { width: 100, align: 'center' });
+    // Match score + engagement badges
+    if (matchScore?.compatibility_score) {
+      doc.rect(PAD, 358, 120, 32).fill(ACCENT);
+      doc.fill(DARK).fontSize(12).font('Helvetica-Bold')
+         .text(`${matchScore.compatibility_score}% MATCH`, PAD, 367, { width: 120, align: 'center' });
+    }
+    if (athleteData.engagement) {
+      const ex = matchScore?.compatibility_score ? PAD + 132 : PAD;
+      doc.rect(ex, 358, 120, 32).fill(SURF);
+      doc.rect(ex, 358, 120, 2).fill(ACCENT);
+      doc.fill(WHITE).fontSize(12).font('Helvetica-Bold')
+         .text(`${athleteData.engagement}% ENG`, ex, 367, { width: 120, align: 'center' });
     }
 
-    doc.fill(MUTED).fontSize(8).font('Helvetica')
-       .text('Prepared by NILDash — AI-Powered NIL Intelligence', PAD, H - 32,
-             { width: W - PAD * 2, align: 'center', characterSpacing: 1 });
+    footer();
 
-    // ── Slide 2: Why Us (bullets) ────────────────────────────────────────────
+    // ── SLIDE 2: WHY THIS PARTNERSHIP ─────────────────────────────────────────
     doc.addPage();
-    doc.rect(0, 0, W, H).fill(SURF);
-    doc.rect(0, 0, W, 6).fill(ACCENT);
-    brandKitHeader(doc, 'WHY THIS PARTNERSHIP', `${athleteData.name} × ${enrichment.brand_name}`, ACCENT, WHITE, MUTED, PAD);
+    slideBackground(false);
+    slideHeader('WHY THIS PARTNERSHIP', `${athleteData.name} × ${enrichment.brand_name}`);
 
-    const bullets = safeParseArray(kit.slide2?.bullets);
-    let by = 140;
-    bullets.slice(0, 5).forEach((bullet, i) => {
-      // numbered card
-      doc.rect(PAD, by, W - PAD * 2, 64).fill(DARK);
-      doc.rect(PAD, by, 4, 64).fill(ACCENT);
-      doc.fill(ACCENT).fontSize(22).font('Helvetica-Bold')
-         .text(String(i + 1).padStart(2, '0'), PAD + 16, by + 10);
-      const bulletText = typeof bullet === 'string' ? bullet : (bullet.text || JSON.stringify(bullet));
-      const [lead, ...rest] = bulletText.split(' — ');
+    const bullets = safeParseArray(kit.slide2?.bullets).slice(0, 5);
+    const bulletCardH = bullets.length > 4 ? 106 : 116;
+    bullets.forEach((bullet, i) => {
+      const bText = typeof bullet === 'string' ? bullet : (bullet.text || '');
+      const dashIdx = bText.indexOf(' — ');
+      const lead = dashIdx > 0 ? bText.slice(0, dashIdx) : bText;
+      const body = dashIdx > 0 ? bText.slice(dashIdx + 3) : '';
+      const cardY = 58 + i * (bulletCardH + 7);
+      doc.rect(PAD, cardY, CW, bulletCardH).fill(DARK);
+      doc.rect(PAD, cardY, 4, bulletCardH).fill(ACCENT);
+      doc.fill(ACCENT).fontSize(20).font('Helvetica-Bold')
+         .text(String(i + 1).padStart(2, '0'), PAD + 10, cardY + 10, { width: 28 });
       doc.fill(WHITE).fontSize(11).font('Helvetica-Bold')
-         .text(lead, PAD + 56, by + 10, { width: W - PAD * 2 - 72 });
-      if (rest.length) {
+         .text(tr(lead, 80), PAD + 46, cardY + 10, { width: CW - 58 });
+      if (body) {
         doc.fill(MUTED).fontSize(10).font('Helvetica')
-           .text(rest.join(' — '), PAD + 56, doc.y + 2, { width: W - PAD * 2 - 72 });
+           .text(tr(body, 160), PAD + 46, cardY + 28, { width: CW - 58, lineGap: 2 });
       }
-      by += 76;
     });
 
-    // ── Slide 3: Performance / Stats ─────────────────────────────────────────
+    footer();
+
+    // ── SLIDE 3: ON-FIELD PERFORMANCE ─────────────────────────────────────────
     doc.addPage();
-    doc.rect(0, 0, W, H).fill(DARK);
-    doc.rect(0, 0, W, 6).fill(ACCENT);
-    brandKitHeader(doc, 'ON-FIELD PERFORMANCE', 'Competitive credentials that matter', ACCENT, WHITE, MUTED, PAD);
+    slideBackground(true);
+    slideHeader('ON-FIELD PERFORMANCE', 'The competitive credentials that matter');
 
-    const perfStats = safeParseArray(kit.slide3?.stats);
-    const role      = kit.slide3?.role || '';
-    const pboxW     = (W - PAD * 2 - 14 * 2) / 3;
-    perfStats.slice(0, 3).forEach((stat, i) => {
-      const bx = PAD + i * (pboxW + 14);
-      doc.rect(bx, 140, pboxW, 90).fill(SURF);
-      doc.rect(bx, 140, pboxW, 3).fill(ACCENT);
-      const statText = typeof stat === 'string' ? stat : JSON.stringify(stat);
-      // Split on common patterns: "12 PPG", "3x All-Conference"
-      const parts = statText.match(/^(\S+(?:\s\S+)?)\s+(.+)$/) || [null, statText, ''];
-      doc.fill(ACCENT).fontSize(28).font('Helvetica-Bold')
-         .text(parts[1] || statText, bx + 8, 152, { width: pboxW - 16, align: 'center' });
-      if (parts[2]) {
-        doc.fill(MUTED).fontSize(9).font('Helvetica')
-           .text(parts[2].toUpperCase(), bx + 8, 190, { width: pboxW - 16, align: 'center', characterSpacing: 1 });
+    const perfStats = safeParseArray(kit.slide3?.stats).slice(0, 3);
+    const pW = (CW - 14 * 2) / 3;
+    perfStats.forEach((stat, i) => {
+      const pX = PAD + i * (pW + 14);
+      const st = typeof stat === 'string' ? stat : JSON.stringify(stat);
+      const m = st.match(/^([0-9,.x\-]+\s*(?:x|st|nd|rd|th|%|K|M|pts?|yds?|rec|TD|ppg|reb|ast|blk)?)\s+(.+)$/i);
+      const num = m ? m[1].trim() : st.slice(0, 10);
+      const lbl = m ? tr(m[2].trim(), 28) : '';
+      doc.rect(pX, 56, pW, 86).fill(SURF);
+      doc.rect(pX, 56, pW, 3).fill(ACCENT);
+      doc.fill(ACCENT).fontSize(26).font('Helvetica-Bold')
+         .text(num, pX + 6, 70, { width: pW - 12, align: 'center' });
+      if (lbl) {
+        doc.fill(MUTED).fontSize(8.5).font('Helvetica')
+           .text(lbl.toUpperCase(), pX + 6, 104, { width: pW - 12, align: 'center', characterSpacing: 0.5 });
       }
     });
 
+    const role = tr(kit.slide3?.role || '', 180);
     if (role) {
-      doc.rect(PAD, 252, W - PAD * 2, 1).fill('#1C2030');
-      doc.fill(WHITE).fontSize(14).font('Helvetica')
-         .text(role, PAD, 270, { width: W - PAD * 2, lineGap: 4 });
+      doc.rect(PAD, 152, CW, 0.75).fill('#1C2030');
+      doc.fill(WHITE).fontSize(12.5).font('Helvetica')
+         .text(role, PAD, 162, { width: CW, lineGap: 3 });
     }
 
-    // Athlete detail table
     const details = [
+      ['Sport',    athleteData.sport    || 'N/A'],
       ['Position', athleteData.position || 'N/A'],
-      ['Year',     athleteData.year || 'N/A'],
-      ['School',   athleteData.school || 'N/A'],
-      ['Stats',    athleteData.stats || 'See full profile'],
+      ['Year',     athleteData.year     || 'N/A'],
+      ['School',   tr(athleteData.school || 'N/A', 40)],
+      ['Stats',    tr(athleteData.stats  || 'See full profile', 60)],
     ];
-    let dy = 340;
+    let dY = 222;
     details.forEach(([lbl, val]) => {
-      doc.fill(MUTED).fontSize(9).font('Helvetica').text(lbl.toUpperCase(), PAD, dy, { characterSpacing: 1 });
-      doc.fill(WHITE).fontSize(11).font('Helvetica-Bold').text(val, PAD + 100, dy);
-      doc.rect(PAD, dy + 18, W - PAD * 2, 1).fill('#1C2030');
-      dy += 28;
+      doc.fill(MUTED).fontSize(8).font('Helvetica')
+         .text(lbl.toUpperCase(), PAD, dY, { width: 90, characterSpacing: 1 });
+      doc.fill(WHITE).fontSize(11).font('Helvetica-Bold')
+         .text(val, PAD + 100, dY, { width: CW - 100 });
+      doc.rect(PAD, dY + 17, CW, 0.5).fill('#1C2030');
+      dY += 28;
     });
 
-    // ── Slide 4: Audience & Social ───────────────────────────────────────────
-    doc.addPage();
-    doc.rect(0, 0, W, H).fill(SURF);
-    doc.rect(0, 0, W, 6).fill(ACCENT);
-    brandKitHeader(doc, 'AUDIENCE & REACH', 'Why this audience is valuable to your brand', ACCENT, WHITE, MUTED, PAD);
+    footer();
 
-    // Platform boxes
+    // ── SLIDE 4: AUDIENCE & REACH ─────────────────────────────────────────────
+    doc.addPage();
+    slideBackground(false);
+    slideHeader('AUDIENCE & REACH', `Why ${tr(enrichment.brand_name, 30)} needs this audience`);
+
     const platforms = [
-      { label: 'INSTAGRAM', value: formatFollowers(athleteData.instagram || kit.slide4?.instagram), sub: 'Followers' },
-      { label: 'TIKTOK',    value: formatFollowers(athleteData.tiktok || kit.slide4?.tiktok),    sub: 'Followers' },
-      { label: 'ENGAGEMENT', value: (athleteData.engagement || kit.slide4?.engagement || 'N/A') + '%', sub: 'Avg Rate' },
+      { label: 'INSTAGRAM',   value: formatFollowers(athleteData.instagram || kit.slide4?.instagram), sub: 'Followers' },
+      { label: 'TIKTOK',      value: formatFollowers(athleteData.tiktok    || kit.slide4?.tiktok),    sub: 'Followers' },
+      { label: 'ENGAGEMENT',  value: `${athleteData.engagement || kit.slide4?.engagement || '—'}%`,  sub: 'Avg Engagement' },
     ];
-    const platW = (W - PAD * 2 - 14 * 2) / 3;
+    const platW = (CW - 14 * 2) / 3;
     platforms.forEach((p, i) => {
-      const bx = PAD + i * (platW + 14);
-      doc.rect(bx, 140, platW, 80).fill(DARK);
-      doc.fill(MUTED).fontSize(8).font('Helvetica').text(p.label, bx + 8, 152, { width: platW - 16, align: 'center', characterSpacing: 1.5 });
-      doc.fill(WHITE).fontSize(30).font('Helvetica-Bold').text(p.value, bx + 8, 166, { width: platW - 16, align: 'center' });
-      doc.fill(MUTED).fontSize(9).font('Helvetica').text(p.sub, bx + 8, 200, { width: platW - 16, align: 'center' });
+      const pX = PAD + i * (platW + 14);
+      doc.rect(pX, 56, platW, 78).fill(DARK);
+      doc.rect(pX, 56, platW, 3).fill(ACCENT);
+      doc.fill(MUTED).fontSize(7).font('Helvetica')
+         .text(p.label, pX + 6, 68, { width: platW - 12, align: 'center', characterSpacing: 1.5 });
+      doc.fill(WHITE).fontSize(26).font('Helvetica-Bold')
+         .text(p.value, pX + 6, 80, { width: platW - 12, align: 'center' });
+      doc.fill(MUTED).fontSize(8).font('Helvetica')
+         .text(p.sub, pX + 6, 116, { width: platW - 12, align: 'center' });
     });
 
-    if (kit.slide4?.audienceSummary) {
-      doc.rect(PAD, 242, W - PAD * 2, 1).fill('#1C2030');
-      doc.fill(WHITE).fontSize(13).font('Helvetica')
-         .text(kit.slide4.audienceSummary, PAD, 258, { width: W - PAD * 2, lineGap: 4 });
-    }
-    if (kit.slide4?.growthSignal) {
+    const audSum = tr(kit.slide4?.audienceSummary || '', 260);
+    doc.rect(PAD, 146, CW, 0.75).fill('#1C2030');
+    doc.fill(WHITE).fontSize(12.5).font('Helvetica')
+       .text(audSum || ' ', PAD, 158, { width: CW, lineGap: 3 });
+
+    const grow = tr(kit.slide4?.growthSignal || '', 120);
+    if (grow) {
+      doc.rect(PAD, 248, CW, 36).fill(DARK);
+      doc.rect(PAD, 248, 3, 36).fill(ACCENT);
       doc.fill(ACCENT).fontSize(11).font('Helvetica-Bold')
-         .text('↑  ' + kit.slide4.growthSignal, PAD, doc.y + 16, { width: W - PAD * 2 });
+         .text('↑  ' + grow, PAD + 14, 260, { width: CW - 20 });
     }
 
-    // ── Slide 5: Brand Categories ─────────────────────────────────────────────
-    doc.addPage();
-    doc.rect(0, 0, W, H).fill(DARK);
-    doc.rect(0, 0, W, 6).fill(ACCENT);
-    brandKitHeader(doc, 'PARTNERSHIP CATEGORIES', `Tailored to ${enrichment.brand_name}`, ACCENT, WHITE, MUTED, PAD);
+    footer();
 
-    const cats = safeParseArray(kit.slide5?.categories);
-    let cy = 140;
-    cats.slice(0, 4).forEach(cat => {
-      const name   = typeof cat === 'string' ? cat : (cat.name || 'Category');
-      const reason = typeof cat === 'object' ? (cat.reason || '') : '';
-      doc.rect(PAD, cy, W - PAD * 2, reason ? 68 : 44).fill(SURF);
-      doc.rect(PAD, cy, 4, reason ? 68 : 44).fill(ACCENT);
-      doc.fill(WHITE).fontSize(12).font('Helvetica-Bold').text(name, PAD + 16, cy + 10, { width: W - PAD * 2 - 32 });
-      if (reason) {
-        doc.fill(MUTED).fontSize(10).font('Helvetica')
-           .text(reason, PAD + 16, cy + 28, { width: W - PAD * 2 - 32, lineGap: 3 });
-      }
-      cy += (reason ? 68 : 44) + 10;
+    // ── SLIDE 5: PARTNERSHIP CATEGORIES ──────────────────────────────────────
+    doc.addPage();
+    slideBackground(true);
+    slideHeader('PARTNERSHIP CATEGORIES', `Tailored to ${tr(enrichment.brand_name, 30)}`);
+
+    const cats = safeParseArray(kit.slide5?.categories).slice(0, 4);
+    cats.forEach((cat, i) => {
+      const name   = typeof cat === 'string' ? cat : (cat.name   || 'Category');
+      const reason = typeof cat === 'object'  ? (cat.reason || '') : '';
+      const cY = 56 + i * 152;
+      doc.rect(PAD, cY, CW, 142).fill(SURF);
+      doc.rect(PAD, cY, 4, 142).fill(ACCENT);
+      doc.fill(WHITE).fontSize(13).font('Helvetica-Bold')
+         .text(tr(name, 60), PAD + 14, cY + 14, { width: CW - 28 });
+      doc.fill(MUTED).fontSize(10.5).font('Helvetica')
+         .text(tr(reason, 220), PAD + 14, cY + 34, { width: CW - 28, lineGap: 2 });
     });
 
-    // ── Slide 6: Activations / CTA ────────────────────────────────────────────
-    doc.addPage();
-    doc.rect(0, 0, W, H).fill(SURF);
-    doc.rect(0, 0, W, 6).fill(ACCENT);
-    brandKitHeader(doc, 'CAMPAIGN ACTIVATIONS', `What we can build together`, ACCENT, WHITE, MUTED, PAD);
+    footer();
 
-    const activations = safeParseArray(kit.slide6?.activations);
-    let av = 140;
-    activations.slice(0, 3).forEach(act => {
-      const title = typeof act === 'string' ? act : (act.title || 'Campaign Idea');
-      const desc  = typeof act === 'object' ? (act.description || '') : '';
-      const boxH  = desc ? 90 : 50;
-      doc.rect(PAD, av, W - PAD * 2, boxH).fill(DARK);
-      doc.rect(PAD, av, W - PAD * 2, 3).fill(ACCENT);
-      doc.fill(WHITE).fontSize(13).font('Helvetica-Bold').text(title, PAD + 16, av + 14, { width: W - PAD * 2 - 32 });
-      if (desc) {
-        doc.fill(MUTED).fontSize(11).font('Helvetica')
-           .text(desc, PAD + 16, av + 34, { width: W - PAD * 2 - 32, lineGap: 3 });
-      }
-      av += boxH + 12;
+    // ── SLIDE 6: CAMPAIGN ACTIVATIONS ─────────────────────────────────────────
+    doc.addPage();
+    slideBackground(false);
+    slideHeader('CAMPAIGN ACTIVATIONS', 'What we build together');
+
+    const acts = safeParseArray(kit.slide6?.activations).slice(0, 3);
+    acts.forEach((act, i) => {
+      const title = typeof act === 'string' ? act : tr(act.title || 'Campaign', 60);
+      const desc  = typeof act === 'object'  ? tr(act.description || '', 240) : '';
+      const aY = 56 + i * 150;
+      doc.rect(PAD, aY, CW, 140).fill(DARK);
+      doc.rect(PAD, aY, CW, 3).fill(ACCENT);
+      doc.fill(WHITE).fontSize(13).font('Helvetica-Bold')
+         .text(title, PAD + 14, aY + 14, { width: CW - 28 });
+      doc.fill(MUTED).fontSize(10.5).font('Helvetica')
+         .text(desc || ' ', PAD + 14, aY + 34, { width: CW - 28, lineGap: 2 });
     });
 
-    // CTA footer
-    const ctaY = H - 120;
-    doc.rect(PAD, ctaY, W - PAD * 2, 56).fill(ACCENT);
-    doc.fill(DARK).fontSize(16).font('Helvetica-Bold')
-       .text(`Let's discuss how ${athleteData.name} can represent ${enrichment.brand_name}`, PAD + 20, ctaY + 10, { width: W - PAD * 2 - 40, align: 'center', lineGap: 3 });
+    // CTA
+    const ctaY = 56 + acts.length * 150 + 14;
+    if (ctaY + 58 < H - 36) {
+      doc.rect(PAD, ctaY, CW, 56).fill(ACCENT);
+      doc.fill(DARK).fontSize(12.5).font('Helvetica-Bold')
+         .text(
+           tr(`Ready to discuss how ${athleteData.name} can represent ${enrichment.brand_name}?`, 90),
+           PAD + 16, ctaY + 14, { width: CW - 32, align: 'center', lineGap: 3 }
+         );
+    }
 
-    doc.fill(MUTED).fontSize(8).font('Helvetica')
-       .text('NILDash — AI-Powered NIL Intelligence', PAD, H - 32,
-             { width: W - PAD * 2, align: 'center', characterSpacing: 1 });
+    footer();
 
     doc.end();
     stream.on('finish', resolve);
