@@ -1142,6 +1142,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <button id="univTab-development"  onclick="switchUnivTab('development')"  style="padding:10px 20px;border:none;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:0.02em">Athlete Development</button>
           <button id="univTab-compliance"   onclick="switchUnivTab('compliance')"   style="padding:10px 20px;border:none;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:0.02em">Compliance Activity</button>
           <button id="univTab-import"       onclick="switchUnivTab('import')"       style="padding:10px 20px;border:none;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:0.02em">Bulk Import</button>
+          <button id="univTab-intelligence" onclick="switchUnivTab('intelligence')"  style="padding:10px 20px;border:none;background:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;letter-spacing:0.02em">🤖 Auto-Import</button>
         </div>
 
         <!-- ── TAB: Program Overview ── -->
@@ -1307,6 +1308,105 @@ tbody td{padding:11px 14px;vertical-align:middle}
           </div>
 
         </div><!-- /univPanel-import -->
+
+        <!-- ── TAB: Auto-Import (Roster Intelligence) ── -->
+        <div id="univPanel-intelligence" style="display:none">
+
+          <!-- Launch section -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Discover &amp; Import Roster</div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
+              Searches official athletics websites, conference pages, and ESPN for current roster data.
+              Claude AI extracts athlete information from each page. High-confidence results are imported automatically;
+              uncertain results go to the Review Queue for your approval.
+            </div>
+            <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+              <div>
+                <div style="font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em">Sport</div>
+                <select id="intel-sport-select" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;min-width:200px;outline:none">
+                  <option value="">— Select sport —</option>
+                  <option value="football">Football</option>
+                  <option value="basketball">Basketball (Men's)</option>
+                  <option value="women's basketball">Basketball (Women's)</option>
+                  <option value="baseball">Baseball</option>
+                  <option value="softball">Softball</option>
+                  <option value="soccer">Soccer (Women's)</option>
+                  <option value="men's soccer">Soccer (Men's)</option>
+                  <option value="volleyball">Volleyball</option>
+                  <option value="track & field">Track &amp; Field</option>
+                  <option value="cross country">Cross Country</option>
+                  <option value="swimming & diving">Swimming &amp; Diving</option>
+                  <option value="golf">Golf</option>
+                  <option value="tennis">Tennis</option>
+                  <option value="lacrosse">Lacrosse</option>
+                  <option value="wrestling">Wrestling</option>
+                </select>
+              </div>
+              <button onclick="_intelStartDiscovery()" id="intel-start-btn" style="padding:9px 22px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">
+                🔍 Find Roster
+              </button>
+              <button onclick="_intelLoadReviewQueue()" style="padding:9px 16px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">
+                📋 Review Queue <span id="intel-queue-badge" style="display:none;background:var(--accent);color:#0a0e1a;border-radius:9px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px">0</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Progress panel (shown when job is running) -->
+          <div id="intel-progress-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Discovery Job</div>
+              <div id="intel-job-status-badge" style="font-size:10px;font-weight:700;padding:3px 10px;border-radius:9px;background:rgba(132,204,22,0.12);color:var(--accent)">queued</div>
+            </div>
+            <div id="intel-progress-message" style="font-size:13px;color:var(--text);margin-bottom:16px;min-height:20px"></div>
+            <!-- Animated progress bar -->
+            <div style="background:var(--surface2);border-radius:4px;height:4px;margin-bottom:16px;overflow:hidden">
+              <div id="intel-progress-bar" style="height:100%;background:var(--accent);width:0%;transition:width 0.5s ease;border-radius:4px"></div>
+            </div>
+            <!-- Counters -->
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+              <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center">
+                <div id="intel-cnt-found" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--text)">—</div>
+                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Found</div>
+              </div>
+              <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center">
+                <div id="intel-cnt-imported" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--accent)">—</div>
+                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Auto-Imported</div>
+              </div>
+              <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center">
+                <div id="intel-cnt-queued" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:#f59e0b">—</div>
+                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Review Queue</div>
+              </div>
+              <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px;text-align:center">
+                <div id="intel-cnt-skipped" style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--muted)">—</div>
+                <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:2px">Skipped</div>
+              </div>
+            </div>
+            <!-- Source list -->
+            <div id="intel-sources-list" style="font-size:11px;color:var(--muted)"></div>
+          </div>
+
+          <!-- Recent jobs list -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Recent Discovery Jobs</div>
+              <button onclick="_intelLoadJobs()" style="padding:4px 12px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">↻</button>
+            </div>
+            <div id="intel-jobs-list"><div style="color:var(--muted);font-size:11px">No discovery jobs yet. Select a sport above and click Find Roster.</div></div>
+          </div>
+
+          <!-- Review Queue panel -->
+          <div id="intel-review-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <div>
+                <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:2px">Review Queue</div>
+                <div style="font-size:11px;color:var(--muted)">Athletes with confidence 70–94. Review and approve or reject each one.</div>
+              </div>
+              <button onclick="document.getElementById('intel-review-panel').style.display='none'" style="padding:4px 10px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">✕ Close</button>
+            </div>
+            <div id="intel-review-list"><div style="color:var(--muted);font-size:11px;text-align:center;padding:24px">Loading...</div></div>
+          </div>
+
+        </div><!-- /univPanel-intelligence -->
 
       </div><!-- /view-university-dashboard -->
 
@@ -5654,12 +5754,13 @@ function getDevelopmentRecs(athlete, readiness) {
 
 // Tab switcher
 function switchUnivTab(tab) {
-  var tabs   = ['overview','development','compliance','import'];
+  var tabs   = ['overview','development','compliance','import','intelligence'];
   var panels = {
-    overview:    'univPanel-overview',
-    development: 'univPanel-development',
-    compliance:  'univPanel-compliance',
-    import:      'univPanel-import',
+    overview:     'univPanel-overview',
+    development:  'univPanel-development',
+    compliance:   'univPanel-compliance',
+    import:       'univPanel-import',
+    intelligence: 'univPanel-intelligence',
   };
   tabs.forEach(function(t) {
     var btn   = document.getElementById('univTab-' + t);
@@ -5672,8 +5773,9 @@ function switchUnivTab(tab) {
     }
     if (panel) panel.style.display = isActive ? 'block' : 'none';
   });
-  // Load compliance tab lazily
-  if (tab === 'compliance') _loadUniversityComplianceTab();
+  // Lazy loads
+  if (tab === 'compliance')   _loadUniversityComplianceTab();
+  if (tab === 'intelligence') _intelLoadJobs();
 }
 
 // Format reach without $ signs, no monetary context
@@ -6346,6 +6448,295 @@ async function _loadUniversityComplianceTab() {
     compLog.innerHTML = hdr + rows;
   } catch (err) {
     compLog.innerHTML = '<div style="color:var(--muted);font-size:12px">Compliance data could not be loaded.</div>';
+  }
+}
+
+// ── Roster Intelligence UI ────────────────────────────────────────────────
+
+var _intelPollInterval = null;
+var _intelActiveJobId  = null;
+
+// Status → progress bar %
+var _intelStatusPct = {
+  queued: 5, discovering: 20, extracting: 45, validating: 70, importing: 88, completed: 100, failed: 0,
+};
+var _intelStatusLabels = {
+  queued: 'Queued…', discovering: 'Searching sources…', extracting: 'Extracting athletes with AI…',
+  validating: 'Cross-validating…', importing: 'Importing to CRM…', completed: 'Complete', failed: 'Failed',
+};
+
+async function _intelStartDiscovery() {
+  var sportSelect = document.getElementById('intel-sport-select');
+  var sport       = sportSelect ? sportSelect.value : '';
+  if (!sport) {
+    alert('Please select a sport first.');
+    return;
+  }
+
+  var btn = document.getElementById('intel-start-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+
+  try {
+    var r = await fetch(API_BASE + '/api/university/roster/discover', {
+      method:      'POST',
+      credentials: 'include',
+      headers:     { 'Content-Type': 'application/json' },
+      body:        JSON.stringify({ sport }),
+    });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed to start job');
+
+    _intelActiveJobId = data.jobId;
+    _intelShowProgressPanel(true);
+    _intelStartPolling(data.jobId);
+    _intelLoadJobs();
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 Find Roster'; }
+  }
+}
+
+function _intelShowProgressPanel(show) {
+  var panel = document.getElementById('intel-progress-panel');
+  if (panel) panel.style.display = show ? 'block' : 'none';
+}
+
+function _intelStartPolling(jobId) {
+  if (_intelPollInterval) clearInterval(_intelPollInterval);
+  _intelPollInterval = setInterval(function() {
+    _intelPollJob(jobId);
+  }, 2500);
+  _intelPollJob(jobId); // immediate first poll
+}
+
+async function _intelPollJob(jobId) {
+  try {
+    var r    = await fetch(API_BASE + '/api/university/roster/discovery/' + jobId, { credentials: 'include' });
+    var job  = await r.json();
+    _intelUpdateProgressUI(job);
+
+    if (job.status === 'completed' || job.status === 'failed') {
+      clearInterval(_intelPollInterval);
+      _intelPollInterval = null;
+      // Refresh jobs list
+      _intelLoadJobs();
+      // If items queued for review, update badge
+      if (job.athletes_queued > 0) {
+        _intelUpdateQueueBadge(job.athletes_queued);
+      }
+      // Reload main dashboard if athletes were imported
+      if ((job.athletes_imported || 0) > 0) {
+        setTimeout(loadUniversityDashboard, 1500);
+      }
+    }
+  } catch (err) {
+    // Network blip — keep polling
+  }
+}
+
+function _intelUpdateProgressUI(job) {
+  var statusBadge = document.getElementById('intel-job-status-badge');
+  var progressMsg = document.getElementById('intel-progress-message');
+  var progressBar = document.getElementById('intel-progress-bar');
+
+  if (statusBadge) {
+    statusBadge.textContent = job.status;
+    var isError = job.status === 'failed';
+    statusBadge.style.background = isError ? 'rgba(239,68,68,0.12)' : 'rgba(132,204,22,0.12)';
+    statusBadge.style.color      = isError ? '#ef4444' : 'var(--accent)';
+  }
+
+  if (progressMsg) {
+    progressMsg.textContent = job.progress_message || _intelStatusLabels[job.status] || job.status;
+    if (job.status === 'failed' && job.error_message) {
+      progressMsg.textContent += ' — ' + job.error_message;
+      progressMsg.style.color = '#ef4444';
+    } else {
+      progressMsg.style.color = 'var(--text)';
+    }
+  }
+
+  if (progressBar) {
+    progressBar.style.width = (_intelStatusPct[job.status] || 0) + '%';
+    progressBar.style.background = job.status === 'failed' ? '#ef4444' : 'var(--accent)';
+  }
+
+  // Counters
+  var cnt = function(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = val != null ? val : '—';
+  };
+  cnt('intel-cnt-found',    job.athletes_found);
+  cnt('intel-cnt-imported', job.athletes_imported);
+  cnt('intel-cnt-queued',   job.athletes_queued);
+  cnt('intel-cnt-skipped',  job.athletes_skipped);
+
+  // Sources
+  var sourcesEl = document.getElementById('intel-sources-list');
+  if (sourcesEl && job.sources && job.sources.length) {
+    var tierColors = { 1: 'var(--accent)', 2: '#00D4FF', 3: 'var(--muted)' };
+    var fetchIcons = { fetched: '✓', failed: '✗', empty: '○', blocked: '⊘', pending: '…' };
+    sourcesEl.innerHTML = '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Sources Attempted</div>' +
+      job.sources.map(function(s) {
+        var tierColor  = tierColors[s.source_tier] || 'var(--muted)';
+        var fetchIcon  = fetchIcons[s.fetch_status] || '?';
+        var iconColor  = s.fetch_status === 'fetched' ? 'var(--accent)' : s.fetch_status === 'failed' ? '#ef4444' : 'var(--muted)';
+        return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">' +
+          '<span style="color:' + iconColor + ';font-size:13px;width:14px;text-align:center">' + fetchIcon + '</span>' +
+          '<span style="color:' + tierColor + ';font-size:9px;font-weight:700;width:36px">T' + s.source_tier + '</span>' +
+          '<span style="color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + s.url + '">' + (s.source_label || s.url) + '</span>' +
+          (s.athletes_extracted > 0 ? '<span style="color:var(--accent);font-size:10px;font-family:var(--mono)">' + s.athletes_extracted + ' found</span>' : '') +
+          (s.fetch_ms ? '<span style="color:var(--muted);font-size:9px;font-family:var(--mono)">' + s.fetch_ms + 'ms</span>' : '') +
+        '</div>';
+      }).join('');
+  }
+}
+
+function _intelUpdateQueueBadge(count) {
+  var badge = document.getElementById('intel-queue-badge');
+  if (!badge) return;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? 'inline-block' : 'none';
+}
+
+async function _intelLoadJobs() {
+  var listEl = document.getElementById('intel-jobs-list');
+  if (!listEl) return;
+
+  try {
+    var r    = await fetch(API_BASE + '/api/university/roster/discovery?limit=10', { credentials: 'include' });
+    var data = await r.json();
+    var jobs = data.jobs || [];
+
+    if (!jobs.length) {
+      listEl.innerHTML = '<div style="color:var(--muted);font-size:11px">No discovery jobs yet.</div>';
+      return;
+    }
+
+    var statusColors = {
+      completed: 'var(--accent)', failed: '#ef4444', queued: 'var(--muted)',
+      discovering: '#00D4FF', extracting: '#00D4FF', validating: '#f59e0b', importing: '#f59e0b',
+    };
+
+    listEl.innerHTML = '<div style="display:grid;grid-template-columns:1fr 80px 70px 70px 70px 80px;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">' +
+      ['Sport','Status','Found','Imported','Queue','Date'].map(function(h){return '<div>'+h+'</div>';}).join('') + '</div>' +
+      jobs.map(function(j) {
+        var sc    = statusColors[j.status] || 'var(--muted)';
+        var dt    = j.started_at ? new Date(j.started_at).toLocaleDateString() : '—';
+        return '<div style="display:grid;grid-template-columns:1fr 80px 70px 70px 70px 80px;gap:6px;padding:7px 0;border-bottom:1px solid var(--border);align-items:center">' +
+          '<div style="font-size:11px;color:var(--text);font-weight:600">' + (j.sport || '—') + '</div>' +
+          '<div style="font-size:10px;color:' + sc + ';font-weight:700">' + j.status + '</div>' +
+          '<div style="font-size:11px;color:var(--muted);font-family:var(--mono)">' + (j.athletes_found != null ? j.athletes_found : '—') + '</div>' +
+          '<div style="font-size:11px;color:var(--accent);font-family:var(--mono)">' + (j.athletes_imported != null ? j.athletes_imported : '—') + '</div>' +
+          '<div style="font-size:11px;color:#f59e0b;font-family:var(--mono)">' + (j.athletes_queued != null ? j.athletes_queued : '—') + '</div>' +
+          '<div style="font-size:10px;color:var(--muted)">' + dt + '</div>' +
+        '</div>';
+      }).join('');
+  } catch (err) {
+    if (listEl) listEl.innerHTML = '<div style="color:var(--muted);font-size:11px">Could not load jobs: ' + err.message + '</div>';
+  }
+}
+
+async function _intelLoadReviewQueue() {
+  var panel   = document.getElementById('intel-review-panel');
+  var listEl  = document.getElementById('intel-review-list');
+  if (panel)  panel.style.display = 'block';
+  if (listEl) listEl.innerHTML = '<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px">Loading…</div>';
+
+  try {
+    var r    = await fetch(API_BASE + '/api/university/roster/review-queue?status=pending&limit=50', { credentials: 'include' });
+    var data = await r.json();
+    var items = data.items || [];
+
+    _intelUpdateQueueBadge(items.length);
+
+    if (!items.length) {
+      listEl.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:32px">No pending items in the review queue. 🎉</div>';
+      return;
+    }
+
+    listEl.innerHTML = items.map(function(item) {
+      var athlete  = typeof item.athlete_data === 'string' ? JSON.parse(item.athlete_data) : item.athlete_data;
+      var confCol  = item.confidence_score >= 85 ? 'var(--accent)' : item.confidence_score >= 75 ? '#f59e0b' : '#ef4444';
+      var sources  = (item.source_urls || []).slice(0, 2);
+
+      var fields = [
+        ['Sport',     athlete.sport     || item.sport],
+        ['Position',  athlete.position],
+        ['Year',      athlete.year],
+        ['Height',    athlete.height],
+        ['Hometown',  athlete.hometown],
+      ].filter(function(f){ return f[1]; });
+
+      return '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:14px;margin-bottom:10px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">' +
+          '<div>' +
+            '<div style="font-size:13px;font-weight:700;color:var(--text)">' + (athlete.name || 'Unknown') + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + (item.university_name || '') + '</div>' +
+          '</div>' +
+          '<div style="text-align:right">' +
+            '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:28px;color:' + confCol + ';letter-spacing:1px;line-height:1">' + item.confidence_score + '</div>' +
+            '<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Confidence</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
+          fields.map(function(f){
+            return '<span style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:10px;color:var(--muted)">' +
+              '<span style="color:var(--text);font-weight:600">' + f[0] + ':</span> ' + f[1] + '</span>';
+          }).join('') +
+        '</div>' +
+        (sources.length ? '<div style="font-size:9px;color:var(--muted);margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + sources.join(' | ') + '">Sources: ' + sources.join(' | ') + '</div>' : '') +
+        '<div style="display:flex;gap:8px">' +
+          '<button onclick="_intelApprove(' + item.id + ',this)" style="flex:1;padding:8px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0e1a;font-size:12px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">✓ Approve &amp; Import</button>' +
+          '<button onclick="_intelReject(' + item.id + ',this)" style="flex:1;padding:8px;background:none;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;cursor:pointer;font-family:\'DM Sans\',sans-serif">✕ Reject</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch (err) {
+    if (listEl) listEl.innerHTML = '<div style="color:var(--muted);font-size:11px">Could not load review queue: ' + err.message + '</div>';
+  }
+}
+
+async function _intelApprove(reviewId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Approving…'; }
+  try {
+    var r = await fetch(API_BASE + '/api/university/roster/review/' + reviewId + '/approve', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    var data = await r.json();
+    if (data.ok) {
+      // Remove the card
+      var card = btn.closest('[style*="surface2"]');
+      if (card) { card.style.opacity = '0.4'; card.style.pointerEvents = 'none'; }
+      // Find + update sibling reject btn
+      var container = btn.closest('div[style*="display:flex"]');
+      if (container) container.innerHTML = '<div style="font-size:12px;color:var(--accent);font-weight:600">✓ Imported</div>';
+      setTimeout(function() { _intelLoadReviewQueue(); loadUniversityDashboard(); }, 1200);
+    }
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Approve & Import'; }
+    alert('Error: ' + err.message);
+  }
+}
+
+async function _intelReject(reviewId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Rejecting…'; }
+  try {
+    var r = await fetch(API_BASE + '/api/university/roster/review/' + reviewId + '/reject', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    var data = await r.json();
+    if (data.ok) {
+      var container = btn.closest('div[style*="display:flex"]');
+      if (container) container.innerHTML = '<div style="font-size:12px;color:var(--muted)">Rejected</div>';
+      setTimeout(_intelLoadReviewQueue, 1000);
+    }
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = '✕ Reject'; }
+    alert('Error: ' + err.message);
   }
 }
 

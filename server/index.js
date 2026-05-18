@@ -1794,6 +1794,7 @@ const BulkImportService           = require('./services/university/BulkImportSer
 const RosterSyncEngine            = require('./services/university/RosterSyncEngine');
 const IngestionPipeline           = require('./services/university/IngestionPipeline');
 const RosterAutomationScheduler   = require('./services/university/RosterAutomationScheduler');
+const RosterIntelligenceService   = require('./services/university/RosterIntelligenceService');
 
 // ── University context helper ─────────────────────────────────────────────
 // Resolves the university_id for the current session user.
@@ -2390,6 +2391,119 @@ app.post('/api/university/scheduler/trigger', requireAuth, requireUniversityMode
     res.json(result);
   } catch (err) {
     console.error('[university] Scheduler trigger error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Roster Intelligence routes ────────────────────────────────────────────
+
+// POST /api/university/roster/discover
+// Start a new roster discovery job for a university + sport.
+// Returns immediately with jobId. Poll GET /discovery/:jobId for status.
+app.post('/api/university/roster/discover', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+
+    const { sport, universityName } = req.body;
+    if (!sport) return res.status(400).json({ error: 'sport is required' });
+
+    // Resolve university name if not supplied
+    let univName = universityName;
+    if (!univName) {
+      const univRow = await store.pool.query('SELECT name FROM universities WHERE id = $1', [universityId]);
+      univName = univRow.rows[0]?.name || 'Unknown University';
+    }
+
+    const jobId = await RosterIntelligenceService.startDiscoveryJob(store.pool, {
+      universityId,
+      universityName: univName,
+      sport,
+      triggeredBy: 'manual',
+      agentId: userId,
+    });
+
+    res.json({ jobId, status: 'queued', message: 'Discovery job started' });
+  } catch (err) {
+    console.error('[university] Roster discover error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/roster/discovery/:jobId
+// Poll job status — returns current status, counters, and source details.
+app.get('/api/university/roster/discovery/:jobId', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const job = await RosterIntelligenceService.getJobStatus(store.pool, req.params.jobId);
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    res.json(job);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/roster/discovery
+// List recent discovery jobs for this university.
+app.get('/api/university/roster/discovery', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+
+    const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+    const jobs  = await RosterIntelligenceService.listJobs(store.pool, { universityId, limit });
+    res.json({ jobs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/university/roster/review-queue
+// Pending athletes awaiting human approval.
+app.get('/api/university/roster/review-queue', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId       = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
+
+    const status = req.query.status || 'pending';
+    const limit  = Math.min(parseInt(req.query.limit) || 50, 200);
+    const items  = await RosterIntelligenceService.getReviewQueue(store.pool, { universityId, status, limit });
+    res.json({ items, count: items.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/roster/review/:id/approve
+// Approve a queued athlete — imports into CRM.
+app.post('/api/university/roster/review/:id/approve', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const result = await RosterIntelligenceService.approveReviewItem(store.pool, {
+      reviewId:   parseInt(req.params.id, 10),
+      reviewedBy: userId,
+      agentId:    userId,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error('[university] Review approve error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/university/roster/review/:id/reject
+// Reject a queued athlete — marks as rejected, no import.
+app.post('/api/university/roster/review/:id/reject', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const result = await RosterIntelligenceService.rejectReviewItem(store.pool, {
+      reviewId:   parseInt(req.params.id, 10),
+      reviewedBy: userId,
+    });
+    res.json(result);
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
