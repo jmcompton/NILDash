@@ -129,6 +129,36 @@ const CONFERENCE_DOMAINS = {
   'ASUN':     'asunsports.org',
 };
 
+// ── Sidearm Sports JSON API sport codes ──────────────────────────────────
+// Sidearm CMS exposes a JSON roster API used by ~80% of NCAA programs.
+// Trust weight 95: structured data, no HTML parsing required.
+const SIDEARM_SPORT_CODES = {
+  'football':              'FB',
+  'basketball':            'MBB',
+  "men's basketball":      'MBB',
+  "women's basketball":    'WBB',
+  'baseball':              'BASE',
+  'softball':              'SB',
+  "women's soccer":        'WSOC',
+  "men's soccer":          'MSOC',
+  'soccer':                'WSOC',
+  'volleyball':            'VB',
+  "women's volleyball":    'VB',
+  'track & field':         'OTRF',
+  'cross country':         'MXC',
+  'swimming & diving':     'SWIM',
+  'golf':                  'MGOLF',
+  "women's golf":          'WGOLF',
+  'tennis':                'MTEN',
+  "women's tennis":        'WTEN',
+  'lacrosse':              'MLAX',
+  "women's lacrosse":      'WLAX',
+  'wrestling':             'WRES',
+  'gymnastics':            'GYM',
+  'field hockey':          'FH',
+  'rowing':                'ROW',
+};
+
 // ── Resolve school info ───────────────────────────────────────────────────
 function resolveSchool(universityName) {
   const key = universityName.toLowerCase().trim();
@@ -164,6 +194,31 @@ function discoverSources(universityName, sport) {
   const school = resolveSchool(universityName);
   const slugs  = resolveSportSlugs(sport);
   const sources = [];
+
+  // ── TIER 0: Sidearm Sports JSON API ──────────────────────────
+  // Direct JSON endpoint — structured data, no HTML parsing needed.
+  // Only available for known schools (domain required).
+  const sportKey = sport.toLowerCase().trim();
+  const sidearmCode = SIDEARM_SPORT_CODES[sportKey]
+    || Object.entries(SIDEARM_SPORT_CODES).find(([k]) => sportKey.includes(k) || k.includes(sportKey))?.[1];
+
+  if (school.domain && sidearmCode) {
+    sources.push({
+      tier:        0,
+      label:       'Sidearm JSON API',
+      url:         `https://www.${school.domain}/services/roster.ashx?format=json&sport=${sidearmCode}&seasonid=&s=`,
+      trustWeight: 95,
+      isJson:      true,   // flag for the extraction service to parse directly
+    });
+    // Some schools use the newer Sidearm API path
+    sources.push({
+      tier:        0,
+      label:       'Sidearm JSON API (v2)',
+      url:         `https://www.${school.domain}/roster.ashx?format=json&sport=${sidearmCode}`,
+      trustWeight: 93,
+      isJson:      true,
+    });
+  }
 
   // ── TIER 1: Official athletics site ──────────────────────────────
   if (school.domain) {
@@ -230,4 +285,4 @@ function discoverSources(universityName, sport) {
   });
 }
 
-module.exports = { discoverSources, resolveSchool, resolveSportSlugs, SCHOOL_DOMAINS };
+module.exports = { discoverSources, resolveSchool, resolveSportSlugs, SCHOOL_DOMAINS, SIDEARM_SPORT_CODES };

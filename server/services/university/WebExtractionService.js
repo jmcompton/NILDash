@@ -84,24 +84,32 @@ async function fetchWithRetry(url, attempt = 0) {
 }
 
 // ── HTML cleaning ─────────────────────────────────────────────────────────
-// Removes script/style/nav/footer tags and collapses whitespace.
-// Keeps tables, lists, and headings — where roster data typically lives.
+// Removes noise (scripts, styles, SVGs, event handlers) but KEEPS the HTML
+// structure — class names, table/list markup, and tag semantics are what
+// allow Claude to recognize and group athlete records reliably.
 function cleanHtml(html) {
   if (!html) return '';
 
   let cleaned = html
-    // Remove script blocks (including contents)
+    // Remove all <script> blocks entirely (JS code, not useful)
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    // Remove style blocks
+    // Remove all <style> blocks
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    // Remove nav, header, footer, aside blocks
-    .replace(/<(nav|header|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-    // Remove HTML comments
-    .replace(/<!--[\s\S]*?-->/g, '')
+    // Remove <noscript> blocks
+    .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, '')
     // Remove SVG blocks
     .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, '')
-    // Strip remaining tags (keep text content)
-    .replace(/<[^>]+>/g, ' ')
+    // Remove HTML comments
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // Strip inline event handlers (onclick, onload, etc.)
+    .replace(/ on\w+="[^"]*"/gi, '')
+    .replace(/ on\w+='[^']*'/gi, '')
+    // Strip inline style attributes (verbose, no semantic value)
+    .replace(/ style="[^"]*"/gi, '')
+    .replace(/ style='[^']*'/gi, '')
+    // Strip data-* attributes except data-name, data-position, data-year, data-number
+    // (those sometimes carry roster data on Sidearm sites)
+    .replace(/ data-(?!name|position|year|number|class|hometown)[a-z-]+="[^"]*"/gi, '')
     // Collapse whitespace
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -136,6 +144,8 @@ University: ${universityName}
 Sport: ${sport}
 Source URL: ${sourceUrl}
 
+The content below is cleaned HTML from the roster page — HTML tags and class names are preserved to help you identify athlete records. Sidearm Sports CMS (used by most NCAA programs) wraps each player in elements with classes like "roster_player", "s-person-card", "roster-card", etc. Look for repeating patterns of player cards/rows.
+
 Page content:
 ---
 ${cleanedText}
@@ -157,7 +167,7 @@ Rules:
 2. Do not extract coaches, staff, or support personnel.
 3. If a field is not present on the page, use null — do not guess.
 4. Return ONLY valid JSON — no explanation, no markdown, no extra text.
-5. If the page does not contain a roster (404, redirect, wrong page), return {"athletes":[],"note":"no roster found"}.
+5. If the page does not contain a roster (404, redirect, wrong page, CAPTCHA, or login wall), return {"athletes":[],"note":"no roster found"}.
 
 Return format:
 {"athletes": [...], "note": "optional extraction note"}`;
@@ -202,6 +212,33 @@ Return format:
   }
 }
 
+// ── Parse Sidearm JSON API response directly ──────────────────────────────
+function parseSidearmJson(rawJson) {
+  try {
+    const parsed = typeof rawJson === 'string' ? JSON.parse(rawJson) : rawJson;
+
+    // Sidearm returns { roster: [...] } or { players: [...] } or just an array
+    const list = parsed.roster || parsed.players || parsed.data || (Array.isArray(parsed) ? parsed : null);
+    if (!list || !list.length) return { athletes: [], extractionNotes: 'Sidearm API: empty roster' };
+
+    const athletes = list.map(p => ({
+      name:        [p.firstname, p.lastname].filter(Boolean).join(' ').trim() || p.name_full || p.name || null,
+      number:      p.jersey != null ? String(p.jersey).trim() : null,
+      position:    p.position || p.pos || null,
+      year:        p.academic_year || p['class'] || p.year || null,
+      height:      p.height || (p.height_ft != null ? `${p.height_ft}-${p.height_in || 0}` : null),
+      weight:      p.weight ? parseInt(p.weight, 10) || null : null,
+      hometown:    [p.hometown_city, p.hometown_state || p.hometown_country].filter(Boolean).join(', ') || p.hometown || null,
+      high_school: p.highschool || p.high_school || null,
+      major:       p.major || null,
+    })).filter(a => a.name && a.name.length > 1);
+
+    return { athletes, extractionNotes: `Sidearm JSON API: ${athletes.length} athletes parsed directly` };
+  } catch (err) {
+    return { athletes: [], extractionNotes: `Sidearm JSON parse error: ${err.message}` };
+  }
+}
+
 // ── Main export: fetch + extract from a single URL ────────────────────────
 // Returns:
 //   { ok, status, athletes[], fetchMs, extractionNotes, error? }
@@ -223,7 +260,21 @@ async function fetchAndExtract(url, context) {
     };
   }
 
-  // 2. Clean HTML
+  // 2a. If source is flagged as JSON (Sidearm API), parse directly — no Claude needed
+  if (context.isJson) {
+    const extraction = parseSidearmJson(fetchResult.html);
+    return {
+      ok:              true,
+      status:          fetchResult.status,
+      athletes:        extraction.athletes,
+      fetchMs,
+      extractionNotes: extraction.extractionNotes,
+      redirected:      fetchResult.redirected,
+      finalUrl:        fetchResult.finalUrl,
+    };
+  }
+
+  // 2b. HTML path: clean then send to Claude
   const cleanedText = cleanHtml(fetchResult.html);
 
   // 3. Extract via Claude
@@ -247,7 +298,9 @@ async function fetchAndExtractAll(sources, context, { stopEarlyOnTier1 = true } 
   const results = [];
 
   for (const source of sources) {
-    const result = await fetchAndExtract(source.url, context);
+    // Merge source-level flags (like isJson) into context for this fetch
+    const sourceContext = { ...context, isJson: !!source.isJson };
+    const result = await fetchAndExtract(source.url, sourceContext);
     results.push({ source, ...result });
 
     // Early exit: if Tier 1 gave us a good result, skip lower tiers
