@@ -116,8 +116,22 @@ async function init() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  // ── Athlete Deliverables (contract ingestion calendar) ────────────────────
+  // ── Athlete Contracts + Deliverables + Calendar (production-grade, idempotent) ─
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS athlete_contracts (
+      id TEXT PRIMARY KEY,
+      athlete_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      filename TEXT,
+      brand TEXT,
+      file_hash TEXT,
+      raw_text TEXT,
+      start_date DATE,
+      end_date DATE,
+      extraction_status TEXT DEFAULT 'pending',
+      extraction_attempts INTEGER DEFAULT 0,
+      uploaded_at TIMESTAMPTZ DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS athlete_deliverables (
       id SERIAL PRIMARY KEY,
       athlete_id TEXT NOT NULL,
@@ -128,20 +142,72 @@ async function init() {
       brand TEXT,
       status TEXT DEFAULT 'pending',
       recurrence TEXT,
+      recurrence_rule TEXT,
+      ai_confidence_score INTEGER DEFAULT 0,
+      source TEXT DEFAULT 'ai_extracted',
       sort_order INTEGER DEFAULT 0,
+      manually_edited BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
-    CREATE TABLE IF NOT EXISTS athlete_contracts (
+    CREATE TABLE IF NOT EXISTS athlete_calendar_events (
       id TEXT PRIMARY KEY,
       athlete_id TEXT NOT NULL,
       agent_id TEXT NOT NULL,
-      filename TEXT,
+      deliverable_id INTEGER,
+      contract_id TEXT,
+      title TEXT NOT NULL,
+      event_date DATE NOT NULL,
       brand TEXT,
-      uploaded_at TIMESTAMPTZ DEFAULT NOW()
+      color TEXT,
+      status TEXT DEFAULT 'pending',
+      is_generated BOOLEAN DEFAULT TRUE,
+      recurrence_instance BOOLEAN DEFAULT FALSE,
+      manually_modified BOOLEAN DEFAULT FALSE,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
-  `).catch(e => console.error('Deliverables tables init error:', e.message));
+    CREATE TABLE IF NOT EXISTS contract_audit_log (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      athlete_id TEXT,
+      contract_id TEXT,
+      action_type TEXT NOT NULL,
+      status TEXT,
+      metadata JSONB DEFAULT '{}',
+      error_message TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch(e => console.error('Contract system tables init error:', e.message));
+
+  // Additive column migrations — safe to run on existing DBs
+  const _contractMigrations = [
+    `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS file_hash TEXT`,
+    `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS raw_text TEXT`,
+    `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS start_date DATE`,
+    `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS end_date DATE`,
+    `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS extraction_status TEXT DEFAULT 'pending'`,
+    `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS extraction_attempts INTEGER DEFAULT 0`,
+    `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS recurrence_rule TEXT`,
+    `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS ai_confidence_score INTEGER DEFAULT 0`,
+    `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'ai_extracted'`,
+    `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS manually_edited BOOLEAN DEFAULT FALSE`,
+  ];
+  for (const sql of _contractMigrations) {
+    await pool.query(sql).catch(() => {});
+  }
+
+  // Idempotency: file_hash unique index (partial — skips NULLs from old rows)
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_file_hash ON athlete_contracts(file_hash) WHERE file_hash IS NOT NULL`).catch(() => {});
+  // Prevent duplicate calendar events per deliverable + date
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cal_events_deliv_date ON athlete_calendar_events(deliverable_id, event_date) WHERE deliverable_id IS NOT NULL`).catch(() => {});
+  // Performance indexes
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deliverables_athlete ON athlete_deliverables(athlete_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deliverables_agent ON athlete_deliverables(agent_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_cal_events_athlete ON athlete_calendar_events(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_cal_events_agent ON athlete_calendar_events(agent_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_cal_events_date ON athlete_calendar_events(event_date)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_agent ON contract_audit_log(agent_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_contract ON contract_audit_log(contract_id)`).catch(() => {});
   // ── Email Integration Tables (additive — never modifies existing tables) ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_accounts (

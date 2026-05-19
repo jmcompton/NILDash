@@ -940,7 +940,7 @@ async function uploadAthleteContract(athleteId) {
   var formData = new FormData();
   formData.append("contract", file);
 
-  statusEl.textContent = "Extracting deliverables...";
+  statusEl.innerHTML = "<span style='color:var(--accent)'>⚙ Extracting deliverables...</span>";
   btn.disabled = true;
   btn.textContent = "Processing...";
 
@@ -951,138 +951,177 @@ async function uploadAthleteContract(athleteId) {
       body: formData,
     });
     var data = await resp.json();
-    if (!resp.ok) {
-      statusEl.textContent = "Error: " + (data.error || resp.statusText);
+
+    if (!resp.ok && resp.status !== 202) {
+      statusEl.innerHTML = "<span style='color:#ef4444'>✗ " + (data.error || resp.statusText) + "</span>";
       btn.disabled = false;
       btn.textContent = "Choose Contract File";
       return;
     }
-    statusEl.textContent = data.deliverableCount + " deliverables extracted from " + (data.brand || "contract") + ".";
+
+    if (data.duplicate) {
+      statusEl.innerHTML = "<span style='color:var(--muted)'>↩ Already processed — showing existing data.</span>";
+    } else if (data.extractionStatus === 'manual_review_required') {
+      statusEl.innerHTML = "<span style='color:#f59e0b'>⚠ Queued for manual review — AI could not extract deliverables.</span>";
+    } else {
+      var msg = "✓ " + data.deliverableCount + " deliverables";
+      if (data.calendarEventCount) msg += " → " + data.calendarEventCount + " calendar events";
+      if (data.brand) msg += " (" + data.brand + ")";
+      if (data.lowConfidenceCount) msg += " · " + data.lowConfidenceCount + " low-confidence";
+      statusEl.innerHTML = "<span style='color:#4ade80'>" + msg + "</span>";
+    }
+
     btn.disabled = false;
     btn.textContent = "Upload Another";
     fileInput.value = "";
-    // Refresh calendar
-    await loadAthleteDeliverables(athleteId);
+    await loadAthleteCalendar(athleteId);
   } catch (e) {
-    statusEl.textContent = "Error: " + e.message;
+    statusEl.innerHTML = "<span style='color:#ef4444'>✗ " + e.message + "</span>";
     btn.disabled = false;
     btn.textContent = "Choose Contract File";
   }
 }
 
-async function loadAthleteDeliverables(athleteId) {
+// Load from the new /calendar endpoint (calendar events, not raw deliverables)
+async function loadAthleteCalendar(athleteId) {
   var calEl = document.getElementById("athlete-calendar-" + athleteId);
   if (!calEl) return;
   calEl.innerHTML = "<div style='color:var(--muted);font-size:11px;padding:8px'>Loading calendar...</div>";
   try {
     var API_BASE = window.API_BASE || "";
-    var resp = await fetch(API_BASE + "/api/athletes/" + athleteId + "/deliverables");
+    var viewYear  = calEl._calYear  || new Date().getFullYear();
+    var viewMonth = calEl._calMonth != null ? calEl._calMonth : new Date().getMonth();
+
+    var url = API_BASE + "/api/athletes/" + athleteId + "/calendar?year=" + viewYear + "&month=" + (viewMonth + 1);
+    var resp = await fetch(url);
     var data = await resp.json();
     if (!resp.ok) {
-      calEl.innerHTML = "<div style='color:#ef4444;font-size:11px;padding:8px'>Error loading deliverables.</div>";
+      calEl.innerHTML = "<div style='color:#ef4444;font-size:11px;padding:8px'>Error loading calendar.</div>";
       return;
     }
-    renderAthleteCalendar(athleteId, data.deliverables || []);
+    calEl._calYear  = viewYear;
+    calEl._calMonth = viewMonth;
+    calEl._events   = data.events || [];
+    renderAthleteCalendar(athleteId, data.events || []);
   } catch (e) {
     calEl.innerHTML = "<div style='color:#ef4444;font-size:11px;padding:8px'>Error: " + e.message + "</div>";
   }
 }
 
-// Color palette for brands (rotates by brand name hash)
-var BRAND_COLORS = ['#60a5fa','#C8F135','#f59e0b','#a78bfa','#4ade80','#f87171','#34d399','#fb923c'];
+// Legacy alias — called from older UI wiring that passes deliverables
+async function loadAthleteDeliverables(athleteId) {
+  await loadAthleteCalendar(athleteId);
+}
+
+// Color palette (deterministic brand hash — matches server-side brandColor)
+var BRAND_COLORS = ['#6366f1','#8b5cf6','#ec4899','#ef4444','#f97316','#eab308','#22c55e','#14b8a6','#06b6d4','#3b82f6'];
 function brandColor(brand) {
   if (!brand) return BRAND_COLORS[0];
   var h = 0;
-  for (var i = 0; i < brand.length; i++) h = (h * 31 + brand.charCodeAt(i)) & 0xffffffff;
-  return BRAND_COLORS[Math.abs(h) % BRAND_COLORS.length];
+  for (var i = 0; i < brand.length; i++) h = ((h * 31) + brand.charCodeAt(i)) >>> 0;
+  return BRAND_COLORS[h % BRAND_COLORS.length];
 }
 
-function renderAthleteCalendar(athleteId, deliverables) {
+function renderAthleteCalendar(athleteId, events) {
   var calEl = document.getElementById("athlete-calendar-" + athleteId);
   if (!calEl) return;
 
-  if (!deliverables.length) {
-    calEl.innerHTML = "<div style='font-size:11px;color:var(--muted);text-align:center;padding:16px'>No deliverables yet. Upload a contract to populate the calendar.</div>";
+  if (!events.length) {
+    calEl.innerHTML =
+      "<div style='font-size:11px;color:var(--muted);text-align:center;padding:20px 16px'>" +
+        "No deliverables yet.<br>Upload a contract to populate the calendar." +
+      "</div>";
     return;
   }
 
-  // Determine the month range to show (current month to latest due_date or +2 months)
   var now = new Date();
-  var viewYear  = now.getFullYear();
-  var viewMonth = now.getMonth(); // 0-indexed
-
-  // Allow navigation — store state on the element
-  if (calEl._calYear  != null) viewYear  = calEl._calYear;
-  if (calEl._calMonth != null) viewMonth = calEl._calMonth;
+  var viewYear  = calEl._calYear  != null ? calEl._calYear  : now.getFullYear();
+  var viewMonth = calEl._calMonth != null ? calEl._calMonth : now.getMonth();
   calEl._calYear  = viewYear;
   calEl._calMonth = viewMonth;
-  calEl._deliverables = deliverables;
+  calEl._events   = events;
 
-  // Build a map: "YYYY-MM-DD" → [deliverable, ...]
-  var byDate = {};
+  // Build date → events map
+  var byDate  = {};
   var undated = [];
-  deliverables.forEach(function(d) {
-    if (d.due_date) {
-      var key = d.due_date.split('T')[0];
+  events.forEach(function(ev) {
+    var rawDate = ev.event_date || ev.due_date;
+    if (rawDate) {
+      var key = rawDate.split('T')[0];
       if (!byDate[key]) byDate[key] = [];
-      byDate[key].push(d);
+      byDate[key].push(ev);
     } else {
-      undated.push(d);
+      undated.push(ev);
     }
   });
 
-  // Month name
-  var MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-  var monthLabel = MONTH_NAMES[viewMonth] + " " + viewYear;
-
-  // Build calendar grid
-  var firstDay = new Date(viewYear, viewMonth, 1).getDay(); // 0=Sun
+  var MONTH_NAMES = ["January","February","March","April","May","June",
+                     "July","August","September","October","November","December"];
+  var monthLabel  = MONTH_NAMES[viewMonth] + " " + viewYear;
+  var firstDay    = new Date(viewYear, viewMonth, 1).getDay();
   var daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  var todayStr = now.toISOString().split('T')[0];
+  var todayStr    = now.toISOString().split('T')[0];
 
+  // Calendar grid
   var cells = "";
-  // Header cells
   ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach(function(d) {
     cells += "<div style='text-align:center;font-size:9px;font-weight:700;color:var(--muted);padding:4px 0;text-transform:uppercase'>" + d + "</div>";
   });
-  // Empty leading cells
-  for (var i = 0; i < firstDay; i++) {
-    cells += "<div></div>";
-  }
-  // Day cells
+  for (var i = 0; i < firstDay; i++) cells += "<div></div>";
+
   for (var day = 1; day <= daysInMonth; day++) {
     var dateStr = viewYear + "-" + String(viewMonth + 1).padStart(2,"0") + "-" + String(day).padStart(2,"0");
-    var events  = byDate[dateStr] || [];
+    var dayEvts = byDate[dateStr] || [];
     var isToday = (dateStr === todayStr);
-    var eventDots = events.slice(0, 3).map(function(ev) {
-      var color = brandColor(ev.brand);
-      return "<div title='" + (ev.deliverable_description||'').replace(/'/g,"&apos;") + "' style='margin-bottom:1px;font-size:8px;background:" + color + "20;border-left:2px solid " + color + ";color:" + color + ";padding:1px 3px;border-radius:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer' onclick='showDeliverableDetail(" + JSON.stringify(ev) + ")'>" +
-        (ev.brand || 'Deliverable') +
+
+    var dots = dayEvts.slice(0, 3).map(function(ev) {
+      var c    = brandColor(ev.brand);
+      var done = (ev.status === "done" || ev.status === "completed");
+      var label = ev.brand || ev.title || "Event";
+      var recIcon = ev.recurrence_instance ? " ↻" : "";
+      var lowConf = (ev.ai_confidence_score > 0 && ev.ai_confidence_score < 70) ? " ⚠" : "";
+      return "<div title='" + (ev.title||"").replace(/'/g,"&apos;") + "'" +
+        " onclick='showCalendarEventDetail(" + JSON.stringify(ev) + ")'" +
+        " style='margin-bottom:1px;font-size:8px;background:" + c + "20;" +
+        "border-left:2px solid " + c + ";color:" + c + ";padding:1px 3px;border-radius:2px;" +
+        "overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer;" +
+        (done ? "opacity:0.45;text-decoration:line-through;" : "") + "'>" +
+        label + recIcon + lowConf +
       "</div>";
     }).join("");
-    var hasMore = events.length > 3 ? "<div style='font-size:7px;color:var(--muted)'>+" + (events.length - 3) + " more</div>" : "";
+    var hasMore = dayEvts.length > 3
+      ? "<div style='font-size:7px;color:var(--muted)'>+" + (dayEvts.length - 3) + " more</div>"
+      : "";
 
-    cells += "<div style='min-height:52px;border-radius:4px;padding:3px;" +
-      (isToday ? "background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.3)" : "background:var(--surface2);border:1px solid var(--border)") +
+    cells += "<div style='min-height:54px;border-radius:4px;padding:3px;" +
+      (isToday
+        ? "background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.3)"
+        : "background:var(--surface2);border:1px solid var(--border)") +
       "'>" +
-      "<div style='font-size:10px;font-weight:" + (isToday ? "700" : "500") + ";color:" + (isToday ? "var(--accent)" : "var(--text)") + ";margin-bottom:2px'>" + day + "</div>" +
-      eventDots + hasMore +
+      "<div style='font-size:10px;font-weight:" + (isToday ? "700" : "500") + ";color:" +
+        (isToday ? "var(--accent)" : "var(--text)") + ";margin-bottom:2px'>" + day + "</div>" +
+      dots + hasMore +
     "</div>";
   }
 
-  // Undated list
+  // Undated section
   var undatedHtml = "";
   if (undated.length) {
     undatedHtml = "<div style='margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)'>" +
-      "<div style='font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px'>No date assigned</div>" +
-      undated.map(function(d) {
-        var color = brandColor(d.brand);
-        var done = d.status === "done";
+      "<div style='font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px'>No date assigned</div>" +
+      undated.map(function(ev) {
+        var c    = brandColor(ev.brand);
+        var done = (ev.status === "done");
         return "<div style='display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)'>" +
-          "<div style='width:6px;height:6px;border-radius:50%;background:" + color + ";flex-shrink:0'></div>" +
-          "<div style='flex:1;font-size:11px;color:" + (done ? "var(--muted)" : "var(--text)") + ";text-decoration:" + (done ? "line-through" : "none") + "'>" + (d.deliverable_description||"Deliverable") + "</div>" +
-          "<div style='font-size:10px;color:" + color + "'>" + (d.brand||"") + "</div>" +
-          "<button onclick='toggleDeliverableDone(" + d.id + "," + JSON.stringify(athleteId) + "," + JSON.stringify(d.status) + ")' style='font-size:9px;padding:2px 6px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer'>" + (done ? "Undo" : "Done") + "</button>" +
+          "<div style='width:6px;height:6px;border-radius:50%;background:" + c + ";flex-shrink:0'></div>" +
+          "<div style='flex:1;font-size:11px;color:" + (done ? "var(--muted)" : "var(--text)") + ";text-decoration:" + (done ? "line-through" : "none") + "'>" +
+            (ev.title || ev.deliverable_description || "Deliverable") +
+          "</div>" +
+          "<div style='font-size:10px;color:" + c + "'>" + (ev.brand||"") + "</div>" +
+          "<button onclick='toggleCalendarEventDone(" + JSON.stringify(ev.id) + "," + JSON.stringify(athleteId) + "," + JSON.stringify(ev.status) + ")'" +
+            " style='font-size:9px;padding:2px 6px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer'>" +
+            (done ? "Undo" : "Done") +
+          "</button>" +
         "</div>";
       }).join("") +
     "</div>";
@@ -1090,65 +1129,136 @@ function renderAthleteCalendar(athleteId, deliverables) {
 
   // Brand legend
   var brands = [];
-  deliverables.forEach(function(d) { if (d.brand && brands.indexOf(d.brand) === -1) brands.push(d.brand); });
+  events.forEach(function(ev) { if (ev.brand && brands.indexOf(ev.brand) === -1) brands.push(ev.brand); });
   var legendHtml = brands.map(function(b) {
     return "<span style='display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text);margin-right:8px'>" +
       "<span style='width:8px;height:8px;border-radius:50%;background:" + brandColor(b) + ";display:inline-block'></span>" + b +
     "</span>";
   }).join("");
 
-  // Status count
-  var done = deliverables.filter(function(d){ return d.status === "done"; }).length;
-  var pending = deliverables.length - done;
+  // Progress stats
+  var doneCount    = events.filter(function(ev){ return ev.status === "done" || ev.status === "completed"; }).length;
+  var pendingCount = events.length - doneCount;
+  var pct = events.length ? Math.round(doneCount / events.length * 100) : 0;
 
   calEl.innerHTML =
-    // Header with nav
+    // Nav header
     "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:8px'>" +
       "<button onclick='calNavMonth(" + JSON.stringify(athleteId) + ",-1)' style='background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 8px;cursor:pointer;font-size:12px'>&lt;</button>" +
       "<span style='font-size:12px;font-weight:700;color:var(--text)'>" + monthLabel + "</span>" +
       "<button onclick='calNavMonth(" + JSON.stringify(athleteId) + ",1)' style='background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 8px;cursor:pointer;font-size:12px'>&gt;</button>" +
     "</div>" +
-    // Progress strip
-    "<div style='display:flex;gap:10px;margin-bottom:8px'>" +
-      "<span style='font-size:10px;color:var(--muted)'>" + pending + " pending</span>" +
-      "<span style='font-size:10px;color:#4ade80'>" + done + " done</span>" +
+    // Progress bar
+    "<div style='margin-bottom:8px'>" +
+      "<div style='display:flex;justify-content:space-between;margin-bottom:3px'>" +
+        "<span style='font-size:10px;color:var(--muted)'>" + pendingCount + " pending</span>" +
+        "<span style='font-size:10px;color:#4ade80'>" + doneCount + " done · " + pct + "%</span>" +
+      "</div>" +
+      "<div style='height:3px;background:var(--border);border-radius:2px'>" +
+        "<div style='height:3px;width:" + pct + "%;background:#4ade80;border-radius:2px;transition:width .3s'></div>" +
+      "</div>" +
     "</div>" +
-    // Brand legend
-    (legendHtml ? "<div style='margin-bottom:8px'>" + legendHtml + "</div>" : "") +
-    // Calendar grid
+    // Legend
+    (legendHtml ? "<div style='margin-bottom:8px;display:flex;flex-wrap:wrap;gap:4px'>" + legendHtml + "</div>" : "") +
+    // Grid
     "<div style='display:grid;grid-template-columns:repeat(7,1fr);gap:3px'>" + cells + "</div>" +
-    undatedHtml;
+    // Undated
+    undatedHtml +
+    // Recurrence legend
+    "<div style='margin-top:8px;font-size:9px;color:var(--muted)'>↻ = recurring &nbsp; ⚠ = low confidence</div>";
 }
 
 function calNavMonth(athleteId, delta) {
   var calEl = document.getElementById("athlete-calendar-" + athleteId);
   if (!calEl) return;
-  var m = (calEl._calMonth || 0) + delta;
-  var y = calEl._calYear || new Date().getFullYear();
-  if (m > 11) { m = 0; y++; }
-  if (m < 0)  { m = 11; y--; }
+  var m = ((calEl._calMonth || 0) + delta + 12) % 12;
+  var y = (calEl._calYear  || new Date().getFullYear()) + (delta > 0 && (calEl._calMonth || 0) === 11 ? 1 : delta < 0 && (calEl._calMonth || 0) === 0 ? -1 : 0);
   calEl._calMonth = m;
   calEl._calYear  = y;
-  renderAthleteCalendar(athleteId, calEl._deliverables || []);
+  loadAthleteCalendar(athleteId);
 }
 
+function showCalendarEventDetail(ev) {
+  // Build a modal overlay instead of alert()
+  var existing = document.getElementById("cal-event-modal");
+  if (existing) existing.remove();
+
+  var c      = brandColor(ev.brand);
+  var date   = (ev.event_date || ev.due_date) ? new Date((ev.event_date || ev.due_date)).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}) : "No date";
+  var status = ev.status || "pending";
+  var done   = status === "done" || status === "completed";
+  var recStr = ev.recurrence_instance ? "<span style='color:var(--muted);font-size:10px'>↻ Recurring</span>" : "";
+  var confStr = ev.ai_confidence_score
+    ? "<span style='font-size:10px;color:" + (ev.ai_confidence_score >= 70 ? "#4ade80" : "#f59e0b") + "'>" +
+      "AI confidence: " + ev.ai_confidence_score + "%</span>"
+    : "";
+
+  var overlay = document.createElement("div");
+  overlay.id = "cal-event-modal";
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;";
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML =
+    "<div style='background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:380px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,.5)'>" +
+      "<div style='display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px'>" +
+        "<div style='flex:1'>" +
+          "<div style='width:10px;height:10px;border-radius:50%;background:" + c + ";margin-bottom:8px'></div>" +
+          "<div style='font-size:13px;font-weight:700;color:var(--text);line-height:1.4'>" + (ev.title || ev.deliverable_description || "Deliverable") + "</div>" +
+        "</div>" +
+        "<button onclick='document.getElementById(\"cal-event-modal\").remove()' style='background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 0 0 12px'>✕</button>" +
+      "</div>" +
+      "<div style='display:grid;gap:8px;font-size:11px'>" +
+        "<div style='display:flex;justify-content:space-between'><span style='color:var(--muted)'>Brand</span><span style='color:" + c + ";font-weight:700'>" + (ev.brand || "—") + "</span></div>" +
+        "<div style='display:flex;justify-content:space-between'><span style='color:var(--muted)'>Due</span><span style='color:var(--text)'>" + date + "</span></div>" +
+        "<div style='display:flex;justify-content:space-between'><span style='color:var(--muted)'>Status</span>" +
+          "<span style='color:" + (done ? "#4ade80" : "#f59e0b") + ";font-weight:700;text-transform:capitalize'>" + status + "</span></div>" +
+        (recStr ? "<div>" + recStr + "</div>" : "") +
+        (confStr ? "<div>" + confStr + "</div>" : "") +
+      "</div>" +
+      "<div style='margin-top:16px;display:flex;gap:8px'>" +
+        "<button onclick='_markCalEventDone(" + JSON.stringify(ev) + ")' style='flex:1;padding:8px;border-radius:6px;border:1px solid " + (done ? "var(--border)" : "#4ade80") + ";background:" + (done ? "transparent" : "rgba(74,222,128,.12)") + ";color:" + (done ? "var(--muted)" : "#4ade80") + ";font-size:11px;cursor:pointer;font-weight:700'>" +
+          (done ? "Mark Pending" : "Mark Done") +
+        "</button>" +
+        "<button onclick='document.getElementById(\"cal-event-modal\").remove()' style='padding:8px 16px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;cursor:pointer'>Close</button>" +
+      "</div>" +
+    "</div>";
+  document.body.appendChild(overlay);
+}
+
+async function _markCalEventDone(ev) {
+  var newStatus = (ev.status === "done" || ev.status === "completed") ? "pending" : "done";
+  var athleteId = ev.athlete_id;
+  if (!athleteId) { document.getElementById("cal-event-modal")?.remove(); return; }
+  try {
+    var API_BASE = window.API_BASE || "";
+    await fetch(API_BASE + "/api/athletes/" + athleteId + "/calendar/" + ev.id, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    document.getElementById("cal-event-modal")?.remove();
+    await loadAthleteCalendar(athleteId);
+  } catch (e) { console.error("Mark done error:", e); }
+}
+
+// Legacy alias from undated list click handler
 function showDeliverableDetail(d) {
-  var desc  = d.deliverable_description || "Deliverable";
-  var brand = d.brand || "Unknown";
-  var date  = d.due_date ? new Date(d.due_date).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}) : "No date";
-  var status = d.status || "pending";
-  alert(brand + " — " + desc + "\nDue: " + date + "\nStatus: " + status);
+  showCalendarEventDetail(d);
 }
 
-async function toggleDeliverableDone(deliverableId, athleteId, currentStatus) {
+async function toggleCalendarEventDone(eventId, athleteId, currentStatus) {
   var newStatus = (currentStatus === "done") ? "pending" : "done";
   try {
     var API_BASE = window.API_BASE || "";
-    await fetch(API_BASE + "/api/athletes/" + athleteId + "/deliverables/" + deliverableId, {
+    await fetch(API_BASE + "/api/athletes/" + athleteId + "/calendar/" + eventId, {
       method: "PATCH",
-      headers: {"Content-Type":"application/json"},
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
     });
-    await loadAthleteDeliverables(athleteId);
-  } catch (e) { console.error("Toggle deliverable error:", e); }
+    await loadAthleteCalendar(athleteId);
+  } catch (e) { console.error("Toggle error:", e); }
+}
+
+// Legacy alias from inline button handlers
+async function toggleDeliverableDone(deliverableId, athleteId, currentStatus) {
+  await toggleCalendarEventDone(deliverableId, athleteId, currentStatus);
 }

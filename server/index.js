@@ -1341,9 +1341,11 @@ app.get('/api/dashboard/followups', requireAuth, async (req, res) => {
   }
 });
 
-// ── Contract Upload + Deliverables Calendar ───────────────────
-const multer = require('multer');
-const mammoth = require('mammoth');
+// ── Contract Upload Pipeline (production-grade, idempotent) ──────────────
+const multer  = require('multer');
+const { processContractUpload, writeAudit } = require('./services/contractExtraction');
+const { generateDates, toRRule, describeRRule } = require('./services/calendarRecurrence');
+
 const contractUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
@@ -1351,183 +1353,330 @@ const contractUpload = multer({
     const ok = file.mimetype === 'application/pdf' ||
                file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
                file.mimetype === 'application/msword';
-    if (ok) cb(null, true);
-    else cb(new Error('Only PDF and DOCX files are accepted'));
+    cb(ok ? null : new Error('Only PDF and DOCX files are accepted'), ok);
   },
 });
 
-// POST /api/athletes/:id/contracts/extract
-// Upload a PDF or DOCX contract → AI extracts deliverables → stored in athlete_deliverables
+// ── Ownership guard (reusable) ─────────────────────────────────────────────
+async function requireAthleteOwner(req, res) {
+  const athlete = await store.getAthlete(req.params.id);
+  if (!athlete) { res.status(404).json({ error: 'Athlete not found' }); return null; }
+  if (athlete.agentId !== req.session.userId) { res.status(403).json({ error: 'Forbidden' }); return null; }
+  return athlete;
+}
+
+// ── POST /api/athletes/:id/contracts/extract ──────────────────────────────
+// Upload PDF/DOCX → AI extracts deliverables → atomic DB write → calendar events
 app.post('/api/athletes/:id/contracts/extract', requireAuth, aiLimiter, contractUpload.single('contract'), async (req, res) => {
   try {
     const athleteId = req.params.id;
-    const athlete = await store.getAthlete(athleteId);
-    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-    if (athlete.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-    const { originalname, mimetype, buffer } = req.file;
+    const result = await processContractUpload({
+      pool:      store.pool,
+      ai,
+      athleteId,
+      agentId:   req.session.userId,
+      file:      req.file,
+      brandHint: req.body.brand || null,
+    });
 
-    // Extract text from the file
-    let contractText = '';
-    if (mimetype === 'application/pdf') {
-      // Use Anthropic's native PDF support — send as base64 document
-      const base64Pdf = buffer.toString('base64');
-      const Anthropic = require('@anthropic-ai/sdk');
-      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-      const extractResp = await anthropic.messages.create({
-        model: 'claude-opus-4-5',
-        max_tokens: 4096,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'document',
-              source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
-            },
-            {
-              type: 'text',
-              text: 'Extract all the text from this contract document. Return only the raw text, no formatting changes.',
-            },
-          ],
-        }],
+    if (result.duplicate) {
+      return res.status(200).json({
+        ok: true,
+        duplicate: true,
+        message: 'Contract already processed. Returning existing data.',
+        ...result,
       });
-      contractText = extractResp.content[0]?.text || '';
-    } else {
-      // DOCX → text via mammoth
-      const result = await mammoth.extractRawText({ buffer });
-      contractText = result.value || '';
     }
 
-    if (!contractText || contractText.trim().length < 50) {
-      return res.status(422).json({ error: 'Could not extract text from the file. Please ensure it contains readable text.' });
-    }
-
-    // Ask Claude to extract structured deliverables
-    const extractionPrompt = `You are a contract analyst. Read this NIL (Name Image Likeness) contract and extract all deliverables.
-
-CONTRACT TEXT:
-${contractText.substring(0, 12000)}
-
-Extract every deliverable, deadline, and payment milestone. For each one return:
-- deliverable_description: exactly what the athlete must do
-- due_date: ISO date (YYYY-MM-DD) or null if unclear/open-ended
-- brand: the brand/sponsor name from the contract
-- recurrence: "monthly", "weekly", "one-time", or null
-- contract_duration_months: number (infer from contract start/end dates, or null)
-
-IMPORTANT: For recurring deliverables (e.g. "1 post per month for 6 months"), return ONE entry with recurrence="monthly" and the contract_duration_months filled in. Do NOT expand them into multiple rows — the system will auto-generate them.
-
-Return ONLY valid JSON array:
-[{"deliverable_description":"...","due_date":"2025-08-01","brand":"Nike","recurrence":"monthly","contract_duration_months":6},...]
-
-If no clear date, set due_date to null. Extract ALL deliverables including social posts, appearances, content creation, payment milestones.`;
-
-    const raw = await ai.oneShot(extractionPrompt, 'You are a legal contract analyst specializing in NIL athlete contracts. Return only valid JSON arrays. No markdown.', 2000);
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const si = cleaned.indexOf('[');
-    const ei = cleaned.lastIndexOf(']');
-    if (si === -1 || ei <= si) throw new Error('Could not parse deliverables from contract');
-
-    const deliverables = JSON.parse(cleaned.substring(si, ei + 1));
-    if (!Array.isArray(deliverables) || deliverables.length === 0) {
-      return res.status(422).json({ error: 'No deliverables found in the contract.' });
-    }
-
-    // Save contract record
-    const contractId = 'contract-' + Date.now();
-    const brandName = req.body.brand || deliverables[0]?.brand || 'Unknown Brand';
-    await store.pool.query(
-      `INSERT INTO athlete_contracts (id, athlete_id, agent_id, filename, brand) VALUES ($1,$2,$3,$4,$5)`,
-      [contractId, athleteId, req.session.userId, originalname, brandName]
-    );
-
-    // Expand recurring deliverables into individual rows
-    const rows = [];
-    for (const d of deliverables) {
-      const recurrence = d.recurrence || 'one-time';
-      const dur = parseInt(d.contract_duration_months) || 1;
-      const brand = d.brand || brandName;
-      const desc = d.deliverable_description || 'Deliverable';
-
-      if (recurrence === 'monthly' && d.due_date && dur > 1) {
-        // Generate monthly entries
-        const startDate = new Date(d.due_date);
-        for (let m = 0; m < dur; m++) {
-          const dt = new Date(startDate);
-          dt.setMonth(dt.getMonth() + m);
-          rows.push({ desc: desc + ` (Month ${m + 1} of ${dur})`, due: dt.toISOString().split('T')[0], brand, recurrence, contractId });
-        }
-      } else if (recurrence === 'weekly' && d.due_date && dur > 0) {
-        const startDate = new Date(d.due_date);
-        const weeks = dur * 4;
-        for (let w = 0; w < Math.min(weeks, 52); w++) {
-          const dt = new Date(startDate);
-          dt.setDate(dt.getDate() + w * 7);
-          rows.push({ desc: desc + ` (Week ${w + 1})`, due: dt.toISOString().split('T')[0], brand, recurrence, contractId });
-        }
-      } else {
-        rows.push({ desc, due: d.due_date || null, brand, recurrence: recurrence !== 'one-time' ? recurrence : null, contractId });
-      }
-    }
-
-    // Insert all rows
-    let insertedCount = 0;
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      await store.pool.query(
-        `INSERT INTO athlete_deliverables (athlete_id, agent_id, contract_id, deliverable_description, due_date, brand, recurrence, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [athleteId, req.session.userId, row.contractId, row.desc, row.due || null, row.brand, row.recurrence, i]
-      );
-      insertedCount++;
-    }
-
-    res.json({ ok: true, contractId, deliverableCount: insertedCount, brand: brandName, filename: originalname });
+    const statusCode = result.extractionStatus === 'completed' ? 200 : 202;
+    res.status(statusCode).json({ ok: true, ...result });
   } catch (e) {
     console.error('[contract extract]', e.message);
-    res.status(500).json({ error: e.message || 'Contract extraction failed' });
+    const code = e.statusCode || 500;
+    res.status(code).json({ error: e.message || 'Contract extraction failed' });
   }
 });
 
-// GET /api/athletes/:id/deliverables
+// ── GET /api/athletes/:id/contracts ──────────────────────────────────────
+app.get('/api/athletes/:id/contracts', requireAuth, async (req, res) => {
+  try {
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+    const r = await store.pool.query(
+      `SELECT id, athlete_id, agent_id, filename, brand, start_date, end_date,
+              extraction_status, uploaded_at
+         FROM athlete_contracts
+        WHERE athlete_id=$1 AND agent_id=$2
+        ORDER BY uploaded_at DESC`,
+      [req.params.id, req.session.userId]
+    );
+    res.json({ contracts: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── DELETE /api/athletes/:id/contracts/:cid ───────────────────────────────
+// Cascade: deletes deliverables + calendar events for this contract
+app.delete('/api/athletes/:id/contracts/:cid', requireAuth, async (req, res) => {
+  const client = await store.pool.connect();
+  try {
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+
+    await client.query('BEGIN');
+    // Delete calendar events first (FK to deliverables)
+    await client.query(
+      `DELETE FROM athlete_calendar_events WHERE contract_id=$1 AND agent_id=$2`,
+      [req.params.cid, req.session.userId]
+    );
+    // Delete deliverables
+    await client.query(
+      `DELETE FROM athlete_deliverables WHERE contract_id=$1 AND agent_id=$2`,
+      [req.params.cid, req.session.userId]
+    );
+    // Delete contract
+    await client.query(
+      `DELETE FROM athlete_contracts WHERE id=$1 AND agent_id=$2`,
+      [req.params.cid, req.session.userId]
+    );
+    await client.query('COMMIT');
+
+    await writeAudit(store.pool, {
+      agentId: req.session.userId, athleteId: req.params.id, contractId: req.params.cid,
+      actionType: 'contract_deleted', status: 'deleted',
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { client.release(); }
+});
+
+// ── GET /api/athletes/:id/deliverables ────────────────────────────────────
 app.get('/api/athletes/:id/deliverables', requireAuth, async (req, res) => {
   try {
-    const athleteId = req.params.id;
-    // Enforce row-level security: agent can only see their own athletes' deliverables
-    const athlete = await store.getAthlete(athleteId);
-    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-    if (athlete.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
 
-    const r = await store.pool.query(
-      `SELECT * FROM athlete_deliverables WHERE athlete_id=$1 AND agent_id=$2 ORDER BY due_date ASC NULLS LAST, sort_order ASC`,
-      [athleteId, req.session.userId]
-    );
+    const { brand, status, contract_id } = req.query;
+    let sql = `SELECT * FROM athlete_deliverables WHERE athlete_id=$1 AND agent_id=$2`;
+    const params = [req.params.id, req.session.userId];
+    if (brand)       { sql += ` AND brand ILIKE $${params.push('%' + brand + '%')}`; }
+    if (status)      { sql += ` AND status=$${params.push(status)}`; }
+    if (contract_id) { sql += ` AND contract_id=$${params.push(contract_id)}`; }
+    sql += ` ORDER BY due_date ASC NULLS LAST, sort_order ASC`;
+
+    const r = await store.pool.query(sql, params);
     res.json({ deliverables: r.rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// PATCH /api/athletes/:id/deliverables/:did
+// ── PATCH /api/athletes/:id/deliverables/:did ─────────────────────────────
 app.patch('/api/athletes/:id/deliverables/:did', requireAuth, async (req, res) => {
   try {
-    const { status } = req.body;
-    if (!status) return res.status(400).json({ error: 'status required' });
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+
+    const allowed = ['status', 'due_date', 'brand', 'deliverable_description'];
+    const updates = [];
+    const params  = [];
+    for (const field of allowed) {
+      if (req.body[field] !== undefined) {
+        params.push(req.body[field]);
+        updates.push(`${field}=$${params.length}`);
+      }
+    }
+    if (!updates.length) return res.status(400).json({ error: 'No valid fields to update' });
+    params.push(true); updates.push(`manually_edited=$${params.length}`);
+    params.push(req.params.did, req.params.id, req.session.userId);
+
     const r = await store.pool.query(
-      `UPDATE athlete_deliverables SET status=$1 WHERE id=$2 AND athlete_id=$3 AND agent_id=$4 RETURNING *`,
-      [status, req.params.did, req.params.id, req.session.userId]
+      `UPDATE athlete_deliverables SET ${updates.join(',')}
+        WHERE id=$${params.length - 2} AND athlete_id=$${params.length - 1} AND agent_id=$${params.length}
+        RETURNING *`,
+      params
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Deliverable not found' });
     res.json({ deliverable: r.rows[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /api/athletes/:id/deliverables/:did
+// ── DELETE /api/athletes/:id/deliverables/:did ────────────────────────────
 app.delete('/api/athletes/:id/deliverables/:did', requireAuth, async (req, res) => {
   try {
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+
+    // Remove associated generated calendar events too
+    await store.pool.query(
+      `DELETE FROM athlete_calendar_events WHERE deliverable_id=$1 AND agent_id=$2 AND manually_modified=FALSE`,
+      [req.params.did, req.session.userId]
+    );
     await store.pool.query(
       `DELETE FROM athlete_deliverables WHERE id=$1 AND athlete_id=$2 AND agent_id=$3`,
       [req.params.did, req.params.id, req.session.userId]
     );
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── GET /api/athletes/:id/calendar ────────────────────────────────────────
+// Returns calendar events for a given month (or all) — athlete-scoped, agent-owned
+app.get('/api/athletes/:id/calendar', requireAuth, async (req, res) => {
+  try {
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+
+    const { year, month, brand, contract_id } = req.query;
+    let sql = `SELECT ace.*, ad.ai_confidence_score, ad.source as deliverable_source
+                 FROM athlete_calendar_events ace
+                 LEFT JOIN athlete_deliverables ad ON ad.id = ace.deliverable_id
+                WHERE ace.athlete_id=$1 AND ace.agent_id=$2`;
+    const params = [req.params.id, req.session.userId];
+
+    if (year && month) {
+      const y = parseInt(year, 10), m = parseInt(month, 10);
+      const start = `${y}-${String(m).padStart(2,'0')}-01`;
+      const endDt = new Date(y, m, 0);
+      const end   = `${y}-${String(m).padStart(2,'0')}-${endDt.getDate()}`;
+      params.push(start, end);
+      sql += ` AND ace.event_date BETWEEN $${params.length - 1} AND $${params.length}`;
+    }
+    if (brand)       { params.push('%' + brand + '%');       sql += ` AND ace.brand ILIKE $${params.length}`; }
+    if (contract_id) { params.push(contract_id);             sql += ` AND ace.contract_id=$${params.length}`; }
+    sql += ` ORDER BY ace.event_date ASC, ace.brand ASC`;
+
+    const r = await store.pool.query(sql, params);
+    res.json({ events: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── POST /api/athletes/:id/calendar/generate ──────────────────────────────
+// Regenerate calendar events from all deliverables (preserves manually_modified)
+app.post('/api/athletes/:id/calendar/generate', requireAuth, async (req, res) => {
+  const client = await store.pool.connect();
+  try {
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+
+    const athleteId = req.params.id;
+    const agentId   = req.session.userId;
+    const { contract_id } = req.body; // optional: regenerate for one contract only
+
+    await client.query('BEGIN');
+
+    // Delete generated events that have NOT been manually modified
+    let delSql = `DELETE FROM athlete_calendar_events
+                   WHERE athlete_id=$1 AND agent_id=$2 AND is_generated=TRUE AND manually_modified=FALSE`;
+    const delParams = [athleteId, agentId];
+    if (contract_id) { delParams.push(contract_id); delSql += ` AND contract_id=$3`; }
+    await client.query(delSql, delParams);
+
+    // Fetch deliverables to regenerate
+    let dSql = `SELECT * FROM athlete_deliverables WHERE athlete_id=$1 AND agent_id=$2`;
+    const dParams = [athleteId, agentId];
+    if (contract_id) { dParams.push(contract_id); dSql += ` AND contract_id=$3`; }
+    const deliverables = await client.query(dSql, dParams);
+
+    const { brandColor } = require('./services/contractExtraction');
+    let generated = 0;
+
+    for (const d of deliverables.rows) {
+      const rrule = d.recurrence_rule || toRRule(d.recurrence, null);
+      if (!rrule || !d.due_date) continue;
+
+      const dates = generateDates(rrule, d.due_date.toISOString().split('T')[0]);
+      const color = brandColor(d.brand);
+
+      for (const date of dates) {
+        const id = 'evt-' + require('crypto').randomBytes(8).toString('hex');
+        await client.query(
+          `INSERT INTO athlete_calendar_events
+             (id, athlete_id, agent_id, deliverable_id, contract_id, title, event_date,
+              brand, color, status, is_generated, recurrence_instance, manually_modified)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',TRUE,TRUE,FALSE)
+           ON CONFLICT (deliverable_id, event_date) DO NOTHING`,
+          [id, athleteId, agentId, d.id, d.contract_id, d.deliverable_description,
+           date, d.brand, color]
+        );
+        generated++;
+      }
+    }
+
+    await client.query('COMMIT');
+
+    await writeAudit(store.pool, {
+      agentId, athleteId, contractId: contract_id || null,
+      actionType: 'calendar_regenerated', status: 'completed',
+      metadata: { generated, contract_id: contract_id || 'all' },
+    });
+
+    res.json({ ok: true, generated });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: e.message });
+  } finally { client.release(); }
+});
+
+// ── PATCH /api/athletes/:id/calendar/:eid ────────────────────────────────
+// Manual edit of a calendar event — marks manually_modified=TRUE so regen preserves it
+app.patch('/api/athletes/:id/calendar/:eid', requireAuth, async (req, res) => {
+  try {
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+
+    const allowed = ['title', 'event_date', 'status', 'notes', 'brand'];
+    const updates = [];
+    const params  = [];
+    for (const field of allowed) {
+      if (req.body[field] !== undefined) {
+        params.push(req.body[field]);
+        updates.push(`${field}=$${params.length}`);
+      }
+    }
+    if (!updates.length) return res.status(400).json({ error: 'No valid fields to update' });
+    params.push(true); updates.push(`manually_modified=$${params.length}`);
+    params.push(req.params.eid, req.params.id, req.session.userId);
+
+    const r = await store.pool.query(
+      `UPDATE athlete_calendar_events SET ${updates.join(',')}
+        WHERE id=$${params.length - 2} AND athlete_id=$${params.length - 1} AND agent_id=$${params.length}
+        RETURNING *`,
+      params
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Calendar event not found' });
+    res.json({ event: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── DELETE /api/athletes/:id/calendar/:eid ───────────────────────────────
+app.delete('/api/athletes/:id/calendar/:eid', requireAuth, async (req, res) => {
+  try {
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+    await store.pool.query(
+      `DELETE FROM athlete_calendar_events WHERE id=$1 AND athlete_id=$2 AND agent_id=$3`,
+      [req.params.eid, req.params.id, req.session.userId]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── GET /api/contracts/audit ─────────────────────────────────────────────
+// Agent audit log — paginated, agent-scoped
+app.get('/api/contracts/audit', requireAuth, async (req, res) => {
+  try {
+    const limit  = Math.min(parseInt(req.query.limit  || '50', 10), 200);
+    const offset = Math.max(parseInt(req.query.offset || '0',  10), 0);
+    const r = await store.pool.query(
+      `SELECT * FROM contract_audit_log WHERE agent_id=$1
+        ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      [req.session.userId, limit, offset]
+    );
+    res.json({ entries: r.rows, limit, offset });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
