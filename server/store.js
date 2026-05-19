@@ -435,6 +435,251 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_automation_runs_agent ON automation_runs(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_workflow_events_run ON workflow_events(run_id)`).catch(() => {});
 
+
+  // ── University Mode Schema (additive — never breaks agent or athlete tables) ──
+  // Creates all 18 tables the university services query. Safe to run on existing
+  // DBs — every statement uses CREATE TABLE IF NOT EXISTS.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS universities (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      short_name  TEXT,
+      conference  TEXT,
+      location    TEXT,
+      logo_url    TEXT,
+      primary_color TEXT,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS university_deal_pipeline (
+      id                 TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id      TEXT NOT NULL,
+      athlete_id         TEXT NOT NULL,
+      brand              TEXT NOT NULL,
+      deal_value         INTEGER DEFAULT 0,
+      deal_type          TEXT DEFAULT 'other',
+      status             TEXT DEFAULT 'pending',
+      start_date         DATE,
+      end_date           DATE,
+      disclosure_status  TEXT DEFAULT 'pending',
+      notes              TEXT,
+      created_by         TEXT,
+      created_at         TIMESTAMPTZ DEFAULT NOW(),
+      updated_at         TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS athlete_contact_log (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      athlete_id      TEXT NOT NULL,
+      contact_type    TEXT NOT NULL,
+      subject         TEXT,
+      body            TEXT,
+      created_by      TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS nil_activity_log (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT,
+      athlete_id      TEXT,
+      user_id         TEXT,
+      activity_type   TEXT NOT NULL,
+      brand           TEXT,
+      deal_value      INTEGER,
+      metadata        JSONB DEFAULT '{}',
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS university_daily_actions (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      action_type     TEXT NOT NULL,
+      athlete_id      TEXT,
+      priority        TEXT DEFAULT 'medium',
+      message         TEXT,
+      metadata        JSONB DEFAULT '{}',
+      resolved        BOOLEAN DEFAULT FALSE,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS ingestion_events (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      user_id         TEXT,
+      source_type     TEXT NOT NULL,
+      source_id       TEXT,
+      content_hash    TEXT,
+      raw_payload     JSONB NOT NULL,
+      normalized      JSONB,
+      status          TEXT DEFAULT 'queued',
+      resolution_id   TEXT,
+      confidence      INTEGER DEFAULT 0,
+      error_message   TEXT,
+      processed_at    TIMESTAMPTZ,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS athlete_entity_links (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      athlete_id      TEXT NOT NULL,
+      ingestion_event_id TEXT,
+      source_type     TEXT,
+      source_id       TEXT,
+      confidence      INTEGER DEFAULT 0,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS athlete_roster_states (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      athlete_id      TEXT NOT NULL,
+      status          TEXT DEFAULT 'unknown',
+      source          TEXT,
+      confidence      INTEGER DEFAULT 0,
+      detected_at     TIMESTAMPTZ DEFAULT NOW(),
+      resolved_at     TIMESTAMPTZ,
+      metadata        JSONB DEFAULT '{}',
+      UNIQUE (university_id, athlete_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS roster_sync_runs (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      triggered_by    TEXT,
+      user_id         TEXT,
+      status          TEXT DEFAULT 'running',
+      athletes_found  INTEGER DEFAULT 0,
+      athletes_added  INTEGER DEFAULT 0,
+      athletes_updated INTEGER DEFAULT 0,
+      error_message   TEXT,
+      started_at      TIMESTAMPTZ DEFAULT NOW(),
+      completed_at    TIMESTAMPTZ
+    );
+
+    CREATE TABLE IF NOT EXISTS roster_snapshots (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      sport           TEXT,
+      snapshot_data   JSONB NOT NULL DEFAULT '[]',
+      athlete_count   INTEGER DEFAULT 0,
+      source          TEXT,
+      created_by      TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS roster_snapshot_athletes (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      snapshot_id     TEXT NOT NULL,
+      university_id   TEXT NOT NULL,
+      name            TEXT,
+      sport           TEXT,
+      position        TEXT,
+      year            TEXT,
+      raw_data        JSONB DEFAULT '{}',
+      committed       BOOLEAN DEFAULT FALSE,
+      athlete_id      TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS roster_state_history (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      athlete_id      TEXT NOT NULL,
+      old_status      TEXT,
+      new_status      TEXT NOT NULL,
+      reason          TEXT,
+      changed_by      TEXT,
+      changed_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS roster_review_queue (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      ingestion_event_id TEXT,
+      athlete_name    TEXT,
+      sport           TEXT,
+      school          TEXT,
+      reason          TEXT,
+      status          TEXT DEFAULT 'pending',
+      resolved_by     TEXT,
+      resolved_at     TIMESTAMPTZ,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS roster_discovery_sources (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      sport           TEXT NOT NULL,
+      source_type     TEXT NOT NULL,
+      url             TEXT,
+      confidence      INTEGER DEFAULT 50,
+      last_crawled_at TIMESTAMPTZ,
+      created_at      TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (university_id, sport, url)
+    );
+
+    CREATE TABLE IF NOT EXISTS roster_discovery_jobs (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      sport           TEXT,
+      status          TEXT DEFAULT 'pending',
+      sources_tried   INTEGER DEFAULT 0,
+      athletes_found  INTEGER DEFAULT 0,
+      error_message   TEXT,
+      started_at      TIMESTAMPTZ DEFAULT NOW(),
+      completed_at    TIMESTAMPTZ
+    );
+
+    CREATE TABLE IF NOT EXISTS roster_intelligence_log (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL,
+      sport           TEXT,
+      action          TEXT NOT NULL,
+      result          TEXT,
+      athlete_count   INTEGER DEFAULT 0,
+      metadata        JSONB DEFAULT '{}',
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS university_sync_health (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT NOT NULL UNIQUE,
+      last_sync_at    TIMESTAMPTZ,
+      last_sync_status TEXT,
+      consecutive_failures INTEGER DEFAULT 0,
+      athlete_count   INTEGER DEFAULT 0,
+      updated_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS automation_scheduler_log (
+      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      university_id   TEXT,
+      job_type        TEXT NOT NULL,
+      status          TEXT NOT NULL,
+      duration_ms     INTEGER,
+      error_message   TEXT,
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch(e => console.error('University schema init error:', e.message));
+
+  // university_id column on users (needed for university mode scoping)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS university_id TEXT`).catch(() => {});
+
+  // University schema indexes
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_univ_deals_university ON university_deal_pipeline(university_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_univ_deals_athlete ON university_deal_pipeline(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_contact_log_athlete ON athlete_contact_log(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_nil_activity_univ ON nil_activity_log(university_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_nil_activity_athlete ON nil_activity_log(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ingestion_events_univ ON ingestion_events(university_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ingestion_events_hash ON ingestion_events(content_hash)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_roster_states_univ ON athlete_roster_states(university_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_snap_athletes_snap ON roster_snapshot_athletes(snapshot_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_review_queue_univ ON roster_review_queue(university_id)`).catch(() => {});
+
   console.log('Database tables ready');
 }
 

@@ -767,6 +767,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('contract',this)">
         <span class="nav-dot-item"></span>Contract
       </button>
+      <button class="nav-item" onclick="showView('pdf-scan',this)" id="pdfScanNavBtn">
+        <span class="nav-dot-item"></span>PDF Scanner
+      </button>
       <button class="nav-item" onclick="showView('analytics',this)">
         <span class="nav-dot-item"></span>Analytics
       </button>
@@ -1659,6 +1662,109 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div><!-- /univ-body-flex -->
       </div><!-- /view-university-dashboard -->
 
+      <!--  PDF SCANNER  -->
+      <div id="view-pdf-scan" class="view">
+        <div class="page-title">PDF Scanner</div>
+        <div class="page-sub">Upload a NIL contract PDF or DOCX to extract deliverables and run competitive market analysis</div>
+
+        <!-- Upload zone -->
+        <div id="pdf-scan-dropzone" class="card" style="border:2px dashed var(--border);text-align:center;padding:40px 24px;cursor:pointer;transition:border-color 0.2s;margin-bottom:20px"
+             onclick="document.getElementById('pdf-scan-file').click()"
+             ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+             ondragleave="this.style.borderColor='var(--border)'"
+             ondrop="event.preventDefault();this.style.borderColor='var(--border)';handlePdfScanDrop(event)">
+          <div style="font-size:32px;margin-bottom:10px">📄</div>
+          <div style="font-weight:600;font-size:14px;color:var(--fg)">Drop a PDF or DOCX here</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">or click to browse · Max 25 MB</div>
+          <input type="file" id="pdf-scan-file" accept=".pdf,.docx,.doc" style="display:none" onchange="runPdfScan(this.files[0])">
+        </div>
+
+        <!-- Status bar -->
+        <div id="pdf-scan-status" style="display:none;margin-bottom:16px;padding:12px 16px;border-radius:var(--r-sm);font-size:12px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);color:var(--accent)">
+          <span id="pdf-scan-status-text">Analyzing…</span>
+        </div>
+
+        <!-- Results grid — hidden until scan completes -->
+        <div id="pdf-scan-results" style="display:none">
+
+          <!-- Row 1: Contract summary + Market grade side by side -->
+          <div style="display:grid;grid-template-columns:1fr 220px;gap:16px;margin-bottom:16px;align-items:start">
+
+            <!-- Contract summary -->
+            <div class="card" style="padding:16px 20px">
+              <div class="card-title" style="margin-bottom:10px">Contract Summary</div>
+              <div id="pdf-scan-summary" style="font-size:12px;color:var(--muted);line-height:1.7"></div>
+            </div>
+
+            <!-- Market grade -->
+            <div class="card" style="padding:16px 20px;text-align:center">
+              <div class="card-title" style="margin-bottom:6px">Market Grade</div>
+              <div id="pdf-scan-grade" style="font-size:52px;font-weight:800;line-height:1;margin:8px 0">—</div>
+              <div id="pdf-scan-grade-label" style="font-size:11px;color:var(--muted)"></div>
+            </div>
+          </div>
+
+          <!-- Row 2: Deliverables table -->
+          <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
+            <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+              <span class="card-title" style="margin:0">Extracted Deliverables</span>
+              <span id="pdf-scan-deliv-count" style="font-size:11px;color:var(--muted)"></span>
+            </div>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:12px" id="pdf-scan-deliv-table">
+                <thead>
+                  <tr style="background:var(--panel);border-bottom:1px solid var(--border)">
+                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Deliverable</th>
+                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Type</th>
+                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Due</th>
+                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Recurrence</th>
+                    <th style="padding:8px 14px;text-align:right;font-weight:600;color:var(--muted)">Confidence</th>
+                  </tr>
+                </thead>
+                <tbody id="pdf-scan-deliv-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Row 3: Risk flags + Negotiation tips side by side -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+            <!-- Risk flags -->
+            <div class="card" style="padding:16px 20px">
+              <div class="card-title" style="margin-bottom:10px">⚠ Risk Flags</div>
+              <ul id="pdf-scan-risks" style="margin:0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.8"></ul>
+            </div>
+
+            <!-- Negotiation tips -->
+            <div class="card" style="padding:16px 20px">
+              <div class="card-title" style="margin-bottom:10px">💡 Negotiation Tips</div>
+              <ul id="pdf-scan-tips" style="margin:0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.8"></ul>
+            </div>
+          </div>
+
+          <!-- Row 4: Key terms + Comparable deals -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+            <!-- Key terms -->
+            <div class="card" style="padding:16px 20px">
+              <div class="card-title" style="margin-bottom:10px">📋 Key Contract Terms</div>
+              <div id="pdf-scan-terms" style="font-size:12px;color:var(--muted);line-height:1.8"></div>
+            </div>
+
+            <!-- Comparable deals -->
+            <div class="card" style="padding:16px 20px">
+              <div class="card-title" style="margin-bottom:10px">📊 Market Benchmarks</div>
+              <div id="pdf-scan-benchmarks" style="font-size:12px;color:var(--muted);line-height:1.8"></div>
+            </div>
+          </div>
+
+          <!-- Scan again button -->
+          <div style="text-align:center;margin-top:8px">
+            <button class="run-btn" onclick="resetPdfScan()" style="padding:8px 24px;font-size:12px">↑ Scan Another File</button>
+          </div>
+        </div><!-- /pdf-scan-results -->
+      </div><!-- /view-pdf-scan -->
+
       <!--  ANALYTICS  -->
       <div id="view-analytics" class="view">
 
@@ -1899,9 +2005,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="card-title">Client Details</div>
           <div class="form-group-sm"><label class="form-label-sm">Full Name *</label>
             <div style="display:flex;gap:8px">
-              <input class="input-sm" id="a_name" placeholder="e.g. Paige Briggs" style="flex:1">
+              <input class="input-sm" id="a_name" placeholder="e.g. Paige Briggs" style="flex:1"
+                     onkeydown="if(event.key==='Enter'){event.preventDefault();lookupPlayer();}">
               <button class="run-btn" onclick="lookupPlayer()" id="lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">AI Lookup</button>
             </div>
+            <div style="font-size:10px;color:var(--muted);margin-top:3px;opacity:0.7">💡 Enter school &amp; sport first for best results · Press Enter to search</div>
             <div id="lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
             <!-- Candidate picker — shown when lookup returns multiple matches -->
             <div id="lookup-candidates" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden"></div>
@@ -3075,7 +3183,7 @@ async function bootApp() {
     showView('athlete-dashboard', null);
     loadAthleteDashboard();
     // Hide entire agent nav for athletes
-    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-deal-close','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals','view-university-dashboard'];
+    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-deal-close','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-pdf-scan','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals','view-university-dashboard'];
     agentOnlyEls.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -3452,7 +3560,7 @@ async function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', 'deal-close':'Deal Close Mode', pipeline:'Deal Pipeline', 'team-match':'Agent Intelligence', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
+    negotiate:'Negotiation Intel', 'deal-close':'Deal Close Mode', pipeline:'Deal Pipeline', 'team-match':'Agent Intelligence', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','deal-close','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -4847,18 +4955,21 @@ async function lookupPlayer() {
       const c = data.candidates[0];
       const summary = [c.school, c.position, c.year].filter(Boolean).join(' · ');
       const src = _sourceIcon(c.source);
-      status.innerHTML = '<span style="color:var(--accent)">Loaded — review and save</span> · ' + summary +
-        ' <span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(200,241,53,0.1);color:var(--accent)">✓ ' + src + ' ' + c.confidence + '%</span>';
+      const conf = parseInt(c.confidence || 0, 10);
+      const confColor = conf >= 90 ? '#22c55e' : conf >= 75 ? '#eab308' : '#f97316';
+      status.innerHTML = '<span style="color:var(--accent)">✓ Loaded — review and save</span> · ' + summary +
+        ' <span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(0,0,0,0.15);color:' + confColor + ';font-weight:600">' + src + ' ' + conf + '%</span>';
       showToast('Player found via ' + (c.sourceLabel || src) + ' — review before saving!');
     } else {
       // Multiple candidates or lower confidence — show picker
       const best = data.candidates[0];
       const conf = best.confidence || 0;
+      const schoolHint = !school ? ' <span style="color:var(--muted);font-size:10px">· Add school for better results</span>' : '';
       status.innerHTML =
         (data.candidates.length === 1
-          ? '<span style="color:#f59e0b">1 possible match</span>'
-          : '<span style="color:#f59e0b">' + data.candidates.length + ' candidates found</span>') +
-        ' · Select the correct athlete below';
+          ? '<span style="color:#f59e0b">⚠ 1 possible match</span>'
+          : '<span style="color:#f59e0b">⚠ ' + data.candidates.length + ' candidates</span>') +
+        ' · Select the correct athlete below' + schoolHint;
       renderLookupCandidates(data.candidates, status, candEl);
     }
   } catch(e) {
@@ -4880,6 +4991,148 @@ let lastComplianceResult = null;
 
 let lastContract = '';
     let commFilter = 'all';
+
+// ── PDF SCANNER ────────────────────────────────────────────────────────────
+const PDF_SCAN_TYPE_LABELS = {
+  social_post:'Social Post', story:'Story', appearance:'Appearance',
+  content_creation:'Content', payment_milestone:'Payment', other:'Other'
+};
+
+function handlePdfScanDrop(e) {
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  runPdfScan(file);
+}
+
+async function runPdfScan(file) {
+  if (!file) return;
+  const allowed = ['application/pdf','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/msword'];
+  if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|docx|doc)$/i)) {
+    showToast('Please upload a PDF or DOCX file'); return;
+  }
+
+  // Show status, hide results
+  const statusBar  = document.getElementById('pdf-scan-status');
+  const statusText = document.getElementById('pdf-scan-status-text');
+  const results    = document.getElementById('pdf-scan-results');
+  const dropzone   = document.getElementById('pdf-scan-dropzone');
+
+  statusBar.style.display  = 'block';
+  results.style.display    = 'none';
+  dropzone.style.display   = 'none';
+  statusText.textContent   = `Extracting text from ${file.name}…`;
+
+  const form = new FormData();
+  form.append('pdf', file);
+
+  try {
+    statusText.textContent = 'Running AI analysis — this takes 10–20 seconds…';
+    const r = await fetch(`${API_BASE}/api/pdf/analyze`, { method: 'POST', body: form });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || `Server error ${r.status}`);
+    }
+    const data = await r.json();
+    renderPdfScanResults(data, file.name);
+    statusBar.style.display = 'none';
+    results.style.display   = 'block';
+  } catch(e) {
+    statusText.textContent = '⚠ ' + e.message;
+    statusBar.style.background = 'rgba(239,68,68,0.08)';
+    statusBar.style.borderColor = 'rgba(239,68,68,0.25)';
+    statusBar.style.color = '#ef4444';
+    setTimeout(() => { resetPdfScan(); }, 6000);
+  }
+}
+
+function resetPdfScan() {
+  document.getElementById('pdf-scan-results').style.display  = 'none';
+  document.getElementById('pdf-scan-status').style.display   = 'none';
+  document.getElementById('pdf-scan-dropzone').style.display = 'block';
+  // Reset status bar colors
+  const statusBar = document.getElementById('pdf-scan-status');
+  statusBar.style.background   = 'rgba(99,102,241,0.08)';
+  statusBar.style.borderColor  = 'rgba(99,102,241,0.2)';
+  statusBar.style.color        = 'var(--accent)';
+  // Clear file input so same file can be re-uploaded
+  const fi = document.getElementById('pdf-scan-file');
+  if (fi) fi.value = '';
+}
+
+function renderPdfScanResults(data, filename) {
+  const ex = data.extraction || {};
+  const mkt = data.market || {};
+
+  // Summary
+  const sumEl = document.getElementById('pdf-scan-summary');
+  const summaryParts = [];
+  if (filename)       summaryParts.push(`<strong>File:</strong> ${filename}`);
+  if (ex.brand)       summaryParts.push(`<strong>Brand:</strong> ${ex.brand}`);
+  if (ex.start_date)  summaryParts.push(`<strong>Start:</strong> ${ex.start_date}`);
+  if (ex.end_date)    summaryParts.push(`<strong>End:</strong> ${ex.end_date}`);
+  if (ex.total_value) summaryParts.push(`<strong>Value:</strong> ${ex.total_value}`);
+  sumEl.innerHTML = summaryParts.join('<br>') || '<span style="color:var(--muted)">No summary extracted</span>';
+
+  // Market grade
+  const grade = (mkt.market_grade || '—').toUpperCase();
+  const gradeEl = document.getElementById('pdf-scan-grade');
+  const gradeLabelEl = document.getElementById('pdf-scan-grade-label');
+  gradeEl.textContent = grade;
+  const gradeColors = { 'A+':'#22c55e','A':'#22c55e','B+':'#84cc16','B':'#84cc16','C':'#eab308','D':'#f97316','F':'#ef4444','—':'var(--muted)' };
+  gradeEl.style.color = gradeColors[grade] || 'var(--muted)';
+  gradeLabelEl.textContent = mkt.grade_label || '';
+
+  // Deliverables table
+  const deliverables = Array.isArray(ex.deliverables) ? ex.deliverables : [];
+  document.getElementById('pdf-scan-deliv-count').textContent = `${deliverables.length} item${deliverables.length !== 1 ? 's' : ''}`;
+  const tbody = document.getElementById('pdf-scan-deliv-body');
+  if (!deliverables.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--muted)">No deliverables extracted</td></tr>';
+  } else {
+    tbody.innerHTML = deliverables.map(d => {
+      const conf = parseInt(d.confidence_score || 0, 10);
+      const confColor = conf >= 85 ? '#22c55e' : conf >= 70 ? '#eab308' : '#ef4444';
+      const typeLabel = PDF_SCAN_TYPE_LABELS[d.deliverable_type] || d.deliverable_type || '—';
+      const rec = d.recurrence && d.recurrence !== 'one-time' ? `<span style="font-size:10px;background:rgba(99,102,241,0.12);color:var(--accent);padding:1px 5px;border-radius:3px">${d.recurrence}</span>` : '—';
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:10px 14px;max-width:280px">${d.description || '—'}</td>
+        <td style="padding:10px 14px;white-space:nowrap">${typeLabel}</td>
+        <td style="padding:10px 14px;white-space:nowrap;color:var(--muted)">${d.due_date || '—'}</td>
+        <td style="padding:10px 14px">${rec}</td>
+        <td style="padding:10px 14px;text-align:right;white-space:nowrap">
+          <span style="color:${confColor};font-weight:600">${conf}%</span>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Risk flags
+  const risks = Array.isArray(ex.risk_flags) ? ex.risk_flags : [];
+  const risksEl = document.getElementById('pdf-scan-risks');
+  risksEl.innerHTML = risks.length
+    ? risks.map(r => `<li style="color:#f87171">${r}</li>`).join('')
+    : '<li style="list-style:none;color:var(--muted)">No major risks detected</li>';
+
+  // Negotiation tips
+  const tips = Array.isArray(mkt.negotiation_tips) ? mkt.negotiation_tips : [];
+  const tipsEl = document.getElementById('pdf-scan-tips');
+  tipsEl.innerHTML = tips.length
+    ? tips.map(t => `<li>${t}</li>`).join('')
+    : '<li style="list-style:none;color:var(--muted)">No tips available</li>';
+
+  // Key terms
+  const terms = Array.isArray(ex.key_terms) ? ex.key_terms : [];
+  document.getElementById('pdf-scan-terms').innerHTML = terms.length
+    ? terms.map(t => `<div style="padding:3px 0;border-bottom:1px solid var(--border)">${t}</div>`).join('')
+    : '<span style="color:var(--muted)">—</span>';
+
+  // Market benchmarks
+  const benchmarks = Array.isArray(mkt.benchmarks) ? mkt.benchmarks : [];
+  document.getElementById('pdf-scan-benchmarks').innerHTML = benchmarks.length
+    ? benchmarks.map(b => `<div style="padding:3px 0;border-bottom:1px solid var(--border)">${b}</div>`).join('')
+    : '<span style="color:var(--muted)">—</span>';
+}
+// ── /PDF SCANNER ──────────────────────────────────────────────────────────
 
 async function loadAnalytics() {
   const body = document.getElementById('analytics-body');

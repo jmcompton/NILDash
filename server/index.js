@@ -3299,6 +3299,174 @@ app.get('/sw.js', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'sw.js'));
 });
 
+// ── PDF Contract Scanner — standalone (no athlete required) ──────────────
+// POST /api/pdf/analyze
+// Upload any PDF contract → extract text → AI extracts deliverables +
+// runs market rate analysis → returns structured JSON.
+// Does NOT write to DB — purely analytical / read-only.
+const pdfScanUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
+  fileFilter: (req, file, cb) => {
+    const ok = file.mimetype === 'application/pdf' ||
+               file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+               file.mimetype === 'application/msword';
+    cb(ok ? null : new Error('Only PDF and DOCX files accepted'), ok);
+  },
+});
+
+app.post('/api/pdf/analyze', requireAuth, aiLimiter, pdfScanUpload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const { buffer, mimetype, originalname } = req.file;
+
+    // ── Step 1: Extract raw text ────────────────────────────────────
+    let rawText = '';
+    if (mimetype === 'application/pdf') {
+      const Anthropic = require('@anthropic-ai/sdk');
+      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const resp = await anthropic.messages.create({
+        model: 'claude-opus-4-20250514',
+        max_tokens: 4096,
+        messages: [{ role: 'user', content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } },
+          { type: 'text', text: 'Extract all text from this contract document verbatim. Return only the raw text.' },
+        ]}],
+      });
+      rawText = resp.content[0]?.text || '';
+    } else {
+      const mammoth = require('mammoth');
+      const result  = await mammoth.extractRawText({ buffer });
+      rawText = result.value || '';
+    }
+
+    if (!rawText || rawText.trim().length < 50) {
+      return res.status(422).json({ error: 'Could not extract readable text from this file.' });
+    }
+
+    // ── Step 2: Deliverable extraction ─────────────────────────────
+    const extractPrompt = `You are a senior sports attorney analyzing an NIL contract.
+
+CONTRACT TEXT:
+${rawText.substring(0, 14000)}
+
+Extract ALL deliverables, obligations, and payment milestones. Return JSON:
+{
+  "brand": "brand name",
+  "start_date": "YYYY-MM-DD or null",
+  "end_date": "YYYY-MM-DD or null",
+  "total_compensation": 0,
+  "payment_schedule": "description or null",
+  "exclusivity": "none | category | full | null",
+  "territory": "description or null",
+  "deliverables": [
+    {
+      "description": "exactly what athlete must do",
+      "type": "social_post | story | appearance | content | payment | other",
+      "due_date": "YYYY-MM-DD or null",
+      "recurrence": "monthly | weekly | biweekly | one-time | null",
+      "contract_duration_months": null,
+      "platform": "instagram | tiktok | youtube | in-person | null",
+      "confidence": 90
+    }
+  ],
+  "key_terms": ["list of notable clauses"],
+  "risk_flags": [
+    { "severity": "high | medium | low", "issue": "short description", "detail": "explanation" }
+  ]
+}
+
+Return ONLY valid JSON. No markdown.`;
+
+    // ── Step 3: Market analysis ─────────────────────────────────────
+    const analysisPrompt = `You are an NIL market analyst with knowledge of current college athlete deal benchmarks.
+
+CONTRACT SUMMARY (extracted):
+${rawText.substring(0, 5000)}
+
+Analyze this NIL contract against current market rates and return JSON:
+{
+  "market_grade": "A | B | C | D | F",
+  "market_grade_label": "Above Market | At Market | Below Market | Well Below Market",
+  "market_summary": "2-3 sentence plain English verdict",
+  "benchmarks": [
+    { "metric": "label", "contract_value": "what this contract says", "market_rate": "typical range", "verdict": "good | fair | below" }
+  ],
+  "negotiation_tips": ["actionable tip 1", "actionable tip 2", "actionable tip 3"],
+  "comparable_deals": [
+    { "description": "brief deal comp", "value": "$X,000", "sport": "sport", "tier": "school tier" }
+  ]
+}
+
+Return ONLY valid JSON. No markdown.`;
+
+    // Run both AI calls in parallel
+    const [extractRaw, analysisRaw] = await Promise.all([
+      ai.oneShot(extractPrompt, 'You are a legal contract analyst. Return only valid JSON. No markdown.', 3500),
+      ai.oneShot(analysisPrompt, 'You are an NIL market analyst. Return only valid JSON. No markdown.', 2000),
+    ]);
+
+    // Parse extraction
+    let extracted = {};
+    try {
+      const clean = extractRaw.replace(/```json/gi,'').replace(/```/g,'').trim();
+      const m = clean.match(/\{[\s\S]*\}/);
+      if (m) extracted = JSON.parse(m[0]);
+    } catch (e) { extracted = { deliverables: [], risk_flags: [] }; }
+
+    // Parse market analysis
+    let analysis = {};
+    try {
+      const clean = analysisRaw.replace(/```json/gi,'').replace(/```/g,'').trim();
+      const m = clean.match(/\{[\s\S]*\}/);
+      if (m) analysis = JSON.parse(m[0]);
+    } catch (e) { analysis = {}; }
+
+    // Normalize deliverable_type field (server uses "type", frontend expects "deliverable_type")
+    if (Array.isArray(extracted.deliverables)) {
+      extracted.deliverables = extracted.deliverables.map(d => ({
+        ...d,
+        deliverable_type: d.deliverable_type || d.type || 'other',
+        confidence_score: d.confidence_score || d.confidence || 0,
+      }));
+    }
+    // Flatten risk_flags to string array if objects
+    if (Array.isArray(extracted.risk_flags)) {
+      extracted.risk_flags = extracted.risk_flags.map(r =>
+        typeof r === 'string' ? r : (r.issue ? `[${(r.severity||'').toUpperCase()}] ${r.issue}: ${r.detail||''}` : JSON.stringify(r))
+      );
+    }
+
+    res.json({
+      ok: true,
+      filename: originalname,
+      textLength: rawText.length,
+      extraction: {
+        brand: extracted.brand || null,
+        start_date: extracted.start_date || null,
+        end_date: extracted.end_date || null,
+        total_value: extracted.total_compensation ? `$${Number(extracted.total_compensation).toLocaleString()}` : null,
+        deliverables: extracted.deliverables || [],
+        key_terms: extracted.key_terms || [],
+        risk_flags: extracted.risk_flags || [],
+      },
+      market: {
+        market_grade: analysis.market_grade || '—',
+        grade_label: analysis.market_grade_label || '',
+        market_summary: analysis.market_summary || '',
+        benchmarks: Array.isArray(analysis.benchmarks)
+          ? analysis.benchmarks.map(b => `${b.metric}: ${b.contract_value} (market: ${b.market_rate}) — ${b.verdict}`)
+          : [],
+        negotiation_tips: analysis.negotiation_tips || [],
+        comparable_deals: analysis.comparable_deals || [],
+      },
+    });
+  } catch (e) {
+    console.error('[pdf/analyze]', e.message);
+    res.status(500).json({ error: e.message || 'PDF analysis failed' });
+  }
+});
+
 app.use('/icons', (req, res, next) => {
   res.setHeader('Cache-Control', 'public, max-age=86400');
   next();
