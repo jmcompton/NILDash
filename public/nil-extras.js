@@ -191,9 +191,32 @@ async function loadAthletePortals() {
         "<span id='portal-status-" + a.id + "' style='font-size:10px;padding:3px 10px;border-radius:40px;background:rgba(255,255,255,0.06);color:var(--muted)'>Loading...</span>" +
       "</div>" +
       "<div id='portal-controls-" + a.id + "' style='display:none'>" +
-        "<div style='font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px'>Visibility controls</div>" +
-        "<div style='display:flex;flex-direction:column;gap:6px;margin-bottom:12px'>" + visControls + "</div>" +
-        "<div id='portal-invite-section-" + a.id + "'></div>" +
+        // ── Tabs: Visibility / Calendar ────────────────────────────────────────
+        "<div style='display:flex;gap:4px;margin-bottom:12px'>" +
+          "<button id='ptab-vis-" + a.id + "' onclick='switchPortalTab(" + JSON.stringify(a.id) + ",\"vis\")' style='flex:1;padding:6px;font-size:11px;font-weight:700;border-radius:5px;border:1px solid var(--accent);background:var(--accent);color:#000;cursor:pointer'>Visibility</button>" +
+          "<button id='ptab-cal-" + a.id + "' onclick='switchPortalTab(" + JSON.stringify(a.id) + ",\"cal\")' style='flex:1;padding:6px;font-size:11px;font-weight:700;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer'>Calendar</button>" +
+        "</div>" +
+        // Visibility panel
+        "<div id='ptab-panel-vis-" + a.id + "'>" +
+          "<div style='font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px'>Visibility controls</div>" +
+          "<div style='display:flex;flex-direction:column;gap:6px;margin-bottom:12px'>" + visControls + "</div>" +
+          "<div id='portal-invite-section-" + a.id + "'></div>" +
+        "</div>" +
+        // Calendar panel (hidden by default)
+        "<div id='ptab-panel-cal-" + a.id + "' style='display:none'>" +
+          // Contract upload
+          "<div style='margin-bottom:12px;padding:12px;background:var(--surface2);border-radius:8px;border:1px dashed var(--border)'>" +
+            "<div style='font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px'>Upload NIL Contract</div>" +
+            "<div style='font-size:11px;color:var(--muted);margin-bottom:8px'>Upload a PDF or DOCX — AI extracts deliverables and adds them to this athlete's calendar.</div>" +
+            "<input type='file' accept='.pdf,.docx,.doc' id='contract-file-" + a.id + "' style='display:none' onchange='uploadAthleteContract(" + JSON.stringify(a.id) + ")'>" +
+            "<button onclick='document.getElementById(\"contract-file-" + a.id + "\").click()' id='contract-upload-btn-" + a.id + "' style='padding:7px 14px;background:var(--accent);border:none;border-radius:5px;color:#000;font-size:11px;font-weight:700;cursor:pointer'>Choose Contract File</button>" +
+            "<span id='contract-upload-status-" + a.id + "' style='font-size:11px;color:var(--muted);margin-left:8px'></span>" +
+          "</div>" +
+          // Calendar view
+          "<div id='athlete-calendar-" + a.id + "'>" +
+            "<div style='font-size:11px;color:var(--muted);text-align:center;padding:16px'>No deliverables yet. Upload a contract to populate the calendar.</div>" +
+          "</div>" +
+        "</div>" +
       "</div>" +
       "<button onclick='togglePortalCard(" + JSON.stringify(a.id) + ")' style='width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:7px;cursor:pointer;margin-top:8px' id='portal-expand-btn-" + a.id + "'>Manage portal</button>" +
     "</div>";
@@ -251,6 +274,25 @@ function togglePortalCard(athleteId) {
   var isOpen = controls.style.display !== "none";
   controls.style.display = isOpen ? "none" : "block";
   btn.textContent = isOpen ? "Manage portal" : "Close";
+  if (!isOpen) {
+    // Load calendar when expanding
+    loadAthleteDeliverables(athleteId);
+  }
+}
+
+function switchPortalTab(athleteId, tab) {
+  var tabs = ["vis", "cal"];
+  tabs.forEach(function(t) {
+    var panel = document.getElementById("ptab-panel-" + t + "-" + athleteId);
+    var btn   = document.getElementById("ptab-" + t + "-" + athleteId);
+    if (!panel || !btn) return;
+    var active = (t === tab);
+    panel.style.display = active ? "block" : "none";
+    btn.style.background = active ? "var(--accent)" : "transparent";
+    btn.style.color       = active ? "#000" : "var(--muted)";
+    btn.style.borderColor = active ? "var(--accent)" : "var(--border)";
+  });
+  if (tab === "cal") loadAthleteDeliverables(athleteId);
 }
 
 async function sendAthleteInvite(athleteId) {
@@ -884,4 +926,229 @@ function printPitchDeck() {
   win.document.close();
   win.focus();
   setTimeout(function(){ win.print(); }, 500);
+}
+
+// ── Contract Upload + Athlete Deliverables Calendar ──────────────────────────
+
+async function uploadAthleteContract(athleteId) {
+  var fileInput = document.getElementById("contract-file-" + athleteId);
+  var statusEl  = document.getElementById("contract-upload-status-" + athleteId);
+  var btn       = document.getElementById("contract-upload-btn-" + athleteId);
+  if (!fileInput || !fileInput.files || !fileInput.files.length) return;
+
+  var file = fileInput.files[0];
+  var formData = new FormData();
+  formData.append("contract", file);
+
+  statusEl.textContent = "Extracting deliverables...";
+  btn.disabled = true;
+  btn.textContent = "Processing...";
+
+  try {
+    var API_BASE = window.API_BASE || "";
+    var resp = await fetch(API_BASE + "/api/athletes/" + athleteId + "/contracts/extract", {
+      method: "POST",
+      body: formData,
+    });
+    var data = await resp.json();
+    if (!resp.ok) {
+      statusEl.textContent = "Error: " + (data.error || resp.statusText);
+      btn.disabled = false;
+      btn.textContent = "Choose Contract File";
+      return;
+    }
+    statusEl.textContent = data.deliverableCount + " deliverables extracted from " + (data.brand || "contract") + ".";
+    btn.disabled = false;
+    btn.textContent = "Upload Another";
+    fileInput.value = "";
+    // Refresh calendar
+    await loadAthleteDeliverables(athleteId);
+  } catch (e) {
+    statusEl.textContent = "Error: " + e.message;
+    btn.disabled = false;
+    btn.textContent = "Choose Contract File";
+  }
+}
+
+async function loadAthleteDeliverables(athleteId) {
+  var calEl = document.getElementById("athlete-calendar-" + athleteId);
+  if (!calEl) return;
+  calEl.innerHTML = "<div style='color:var(--muted);font-size:11px;padding:8px'>Loading calendar...</div>";
+  try {
+    var API_BASE = window.API_BASE || "";
+    var resp = await fetch(API_BASE + "/api/athletes/" + athleteId + "/deliverables");
+    var data = await resp.json();
+    if (!resp.ok) {
+      calEl.innerHTML = "<div style='color:#ef4444;font-size:11px;padding:8px'>Error loading deliverables.</div>";
+      return;
+    }
+    renderAthleteCalendar(athleteId, data.deliverables || []);
+  } catch (e) {
+    calEl.innerHTML = "<div style='color:#ef4444;font-size:11px;padding:8px'>Error: " + e.message + "</div>";
+  }
+}
+
+// Color palette for brands (rotates by brand name hash)
+var BRAND_COLORS = ['#60a5fa','#C8F135','#f59e0b','#a78bfa','#4ade80','#f87171','#34d399','#fb923c'];
+function brandColor(brand) {
+  if (!brand) return BRAND_COLORS[0];
+  var h = 0;
+  for (var i = 0; i < brand.length; i++) h = (h * 31 + brand.charCodeAt(i)) & 0xffffffff;
+  return BRAND_COLORS[Math.abs(h) % BRAND_COLORS.length];
+}
+
+function renderAthleteCalendar(athleteId, deliverables) {
+  var calEl = document.getElementById("athlete-calendar-" + athleteId);
+  if (!calEl) return;
+
+  if (!deliverables.length) {
+    calEl.innerHTML = "<div style='font-size:11px;color:var(--muted);text-align:center;padding:16px'>No deliverables yet. Upload a contract to populate the calendar.</div>";
+    return;
+  }
+
+  // Determine the month range to show (current month to latest due_date or +2 months)
+  var now = new Date();
+  var viewYear  = now.getFullYear();
+  var viewMonth = now.getMonth(); // 0-indexed
+
+  // Allow navigation — store state on the element
+  if (calEl._calYear  != null) viewYear  = calEl._calYear;
+  if (calEl._calMonth != null) viewMonth = calEl._calMonth;
+  calEl._calYear  = viewYear;
+  calEl._calMonth = viewMonth;
+  calEl._deliverables = deliverables;
+
+  // Build a map: "YYYY-MM-DD" → [deliverable, ...]
+  var byDate = {};
+  var undated = [];
+  deliverables.forEach(function(d) {
+    if (d.due_date) {
+      var key = d.due_date.split('T')[0];
+      if (!byDate[key]) byDate[key] = [];
+      byDate[key].push(d);
+    } else {
+      undated.push(d);
+    }
+  });
+
+  // Month name
+  var MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  var monthLabel = MONTH_NAMES[viewMonth] + " " + viewYear;
+
+  // Build calendar grid
+  var firstDay = new Date(viewYear, viewMonth, 1).getDay(); // 0=Sun
+  var daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  var todayStr = now.toISOString().split('T')[0];
+
+  var cells = "";
+  // Header cells
+  ["Su","Mo","Tu","We","Th","Fr","Sa"].forEach(function(d) {
+    cells += "<div style='text-align:center;font-size:9px;font-weight:700;color:var(--muted);padding:4px 0;text-transform:uppercase'>" + d + "</div>";
+  });
+  // Empty leading cells
+  for (var i = 0; i < firstDay; i++) {
+    cells += "<div></div>";
+  }
+  // Day cells
+  for (var day = 1; day <= daysInMonth; day++) {
+    var dateStr = viewYear + "-" + String(viewMonth + 1).padStart(2,"0") + "-" + String(day).padStart(2,"0");
+    var events  = byDate[dateStr] || [];
+    var isToday = (dateStr === todayStr);
+    var eventDots = events.slice(0, 3).map(function(ev) {
+      var color = brandColor(ev.brand);
+      return "<div title='" + (ev.deliverable_description||'').replace(/'/g,"&apos;") + "' style='margin-bottom:1px;font-size:8px;background:" + color + "20;border-left:2px solid " + color + ";color:" + color + ";padding:1px 3px;border-radius:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer' onclick='showDeliverableDetail(" + JSON.stringify(ev) + ")'>" +
+        (ev.brand || 'Deliverable') +
+      "</div>";
+    }).join("");
+    var hasMore = events.length > 3 ? "<div style='font-size:7px;color:var(--muted)'>+" + (events.length - 3) + " more</div>" : "";
+
+    cells += "<div style='min-height:52px;border-radius:4px;padding:3px;" +
+      (isToday ? "background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.3)" : "background:var(--surface2);border:1px solid var(--border)") +
+      "'>" +
+      "<div style='font-size:10px;font-weight:" + (isToday ? "700" : "500") + ";color:" + (isToday ? "var(--accent)" : "var(--text)") + ";margin-bottom:2px'>" + day + "</div>" +
+      eventDots + hasMore +
+    "</div>";
+  }
+
+  // Undated list
+  var undatedHtml = "";
+  if (undated.length) {
+    undatedHtml = "<div style='margin-top:12px;padding:10px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)'>" +
+      "<div style='font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px'>No date assigned</div>" +
+      undated.map(function(d) {
+        var color = brandColor(d.brand);
+        var done = d.status === "done";
+        return "<div style='display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)'>" +
+          "<div style='width:6px;height:6px;border-radius:50%;background:" + color + ";flex-shrink:0'></div>" +
+          "<div style='flex:1;font-size:11px;color:" + (done ? "var(--muted)" : "var(--text)") + ";text-decoration:" + (done ? "line-through" : "none") + "'>" + (d.deliverable_description||"Deliverable") + "</div>" +
+          "<div style='font-size:10px;color:" + color + "'>" + (d.brand||"") + "</div>" +
+          "<button onclick='toggleDeliverableDone(" + d.id + "," + JSON.stringify(athleteId) + "," + JSON.stringify(d.status) + ")' style='font-size:9px;padding:2px 6px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer'>" + (done ? "Undo" : "Done") + "</button>" +
+        "</div>";
+      }).join("") +
+    "</div>";
+  }
+
+  // Brand legend
+  var brands = [];
+  deliverables.forEach(function(d) { if (d.brand && brands.indexOf(d.brand) === -1) brands.push(d.brand); });
+  var legendHtml = brands.map(function(b) {
+    return "<span style='display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--text);margin-right:8px'>" +
+      "<span style='width:8px;height:8px;border-radius:50%;background:" + brandColor(b) + ";display:inline-block'></span>" + b +
+    "</span>";
+  }).join("");
+
+  // Status count
+  var done = deliverables.filter(function(d){ return d.status === "done"; }).length;
+  var pending = deliverables.length - done;
+
+  calEl.innerHTML =
+    // Header with nav
+    "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:8px'>" +
+      "<button onclick='calNavMonth(" + JSON.stringify(athleteId) + ",-1)' style='background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 8px;cursor:pointer;font-size:12px'>&lt;</button>" +
+      "<span style='font-size:12px;font-weight:700;color:var(--text)'>" + monthLabel + "</span>" +
+      "<button onclick='calNavMonth(" + JSON.stringify(athleteId) + ",1)' style='background:transparent;border:1px solid var(--border);border-radius:4px;color:var(--text);padding:3px 8px;cursor:pointer;font-size:12px'>&gt;</button>" +
+    "</div>" +
+    // Progress strip
+    "<div style='display:flex;gap:10px;margin-bottom:8px'>" +
+      "<span style='font-size:10px;color:var(--muted)'>" + pending + " pending</span>" +
+      "<span style='font-size:10px;color:#4ade80'>" + done + " done</span>" +
+    "</div>" +
+    // Brand legend
+    (legendHtml ? "<div style='margin-bottom:8px'>" + legendHtml + "</div>" : "") +
+    // Calendar grid
+    "<div style='display:grid;grid-template-columns:repeat(7,1fr);gap:3px'>" + cells + "</div>" +
+    undatedHtml;
+}
+
+function calNavMonth(athleteId, delta) {
+  var calEl = document.getElementById("athlete-calendar-" + athleteId);
+  if (!calEl) return;
+  var m = (calEl._calMonth || 0) + delta;
+  var y = calEl._calYear || new Date().getFullYear();
+  if (m > 11) { m = 0; y++; }
+  if (m < 0)  { m = 11; y--; }
+  calEl._calMonth = m;
+  calEl._calYear  = y;
+  renderAthleteCalendar(athleteId, calEl._deliverables || []);
+}
+
+function showDeliverableDetail(d) {
+  var desc  = d.deliverable_description || "Deliverable";
+  var brand = d.brand || "Unknown";
+  var date  = d.due_date ? new Date(d.due_date).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}) : "No date";
+  var status = d.status || "pending";
+  alert(brand + " — " + desc + "\nDue: " + date + "\nStatus: " + status);
+}
+
+async function toggleDeliverableDone(deliverableId, athleteId, currentStatus) {
+  var newStatus = (currentStatus === "done") ? "pending" : "done";
+  try {
+    var API_BASE = window.API_BASE || "";
+    await fetch(API_BASE + "/api/athletes/" + athleteId + "/deliverables/" + deliverableId, {
+      method: "PATCH",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ status: newStatus }),
+    });
+    await loadAthleteDeliverables(athleteId);
+  } catch (e) { console.error("Toggle deliverable error:", e); }
 }

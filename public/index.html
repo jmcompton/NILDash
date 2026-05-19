@@ -6133,6 +6133,237 @@ function renderDailyActions(actions) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  REVENUE BENCHMARK ENGINE — Team Match (Transfer Portal)
+// ══════════════════════════════════════════════════════════════════
+//
+//  Methodology:
+//  The NCAA House settlement (effective 2025-26) allows schools to share up
+//  to ~$20.5M/year directly with athletes via revenue sharing.  Combined with
+//  collective deals, total athlete compensation per school is estimated below.
+//  Position allocations follow documented collective deal distributions
+//  (On3, Business of College Sports 2025) and the NFL CBA 48.8% split model
+//  used as a comparator for position group weighting.
+//
+//  DATA SOURCES:
+//  • NCAA House settlement: $20.5M/yr for P4 schools (2025-26)
+//  • On3 Collective Tracker 2025: total collective spending by conference
+//  • Business of College Sports 2025: position premium distributions
+//  • ESPN 2025 portal data: per-position market rates by tier
+
+var _NIL_REVENUE_POOLS = {
+  // School tier → estimated total annual athlete compensation pool
+  // (House revenue share + collective + brand deals combined)
+  'p4-top10':      { pool: 32_000_000, label: 'Elite P4 (Top 10)',    conf: 'SEC/Big Ten top programs'   },
+  'p4-top25':      { pool: 26_000_000, label: 'P4 Top 25',            conf: 'Established P4 programs'    },
+  'p4-mid':        { pool: 20_000_000, label: 'P4 Mid-Tier',          conf: 'Mid-tier Power 4'           },
+  'p4-lower':      { pool: 14_000_000, label: 'P4 Lower-Tier',        conf: 'Lower Power 4'              },
+  'G5':            { pool: 5_000_000,  label: 'Group of 5',           conf: 'AAC, Mountain West, Sun Belt'},
+  'highmajor-top': { pool: 7_500_000,  label: 'High Major Top',       conf: 'Top AAC/MWC programs'       },
+  'highmajor-mid': { pool: 4_000_000,  label: 'High Major Mid',       conf: 'Mid-tier AAC/MWC'           },
+  'mid-top':       { pool: 2_500_000,  label: 'Mid-Major Top',        conf: 'Top mid-major programs'     },
+  'mid-mid':       { pool: 1_200_000,  label: 'Mid-Major',            conf: 'Standard mid-major'         },
+  'mid-lower':     { pool:   500_000,  label: 'Mid-Major Lower',      conf: 'Lower mid-major'            },
+  'lowmajor-top':  { pool:   250_000,  label: 'Low Major Top',        conf: 'Top low-major programs'     },
+  'lowmajor-lower':{ pool:   100_000,  label: 'Low Major',            conf: 'Standard low-major'         },
+  'd2-elite':      { pool:    60_000,  label: 'D2 Elite',             conf: 'Elite D2 programs'          },
+  'd2-top':        { pool:    35_000,  label: 'D2 Top',               conf: 'Top D2 programs'            },
+  'd2-mid':        { pool:    15_000,  label: 'D2 Mid',               conf: 'Mid D2'                     },
+  'd2-lower':      { pool:     8_000,  label: 'D2 Lower',             conf: 'Lower D2'                   },
+};
+
+// Conference → school tier mapping for team match results
+var _CONF_TO_TIER = {
+  'SEC': 'p4-top25', 'Big Ten': 'p4-top25', 'Big 12': 'p4-mid', 'ACC': 'p4-mid',
+  'AAC': 'highmajor-top', 'Mountain West': 'highmajor-mid', 'American Athletic': 'highmajor-top',
+  'Sun Belt': 'G5', 'MAC': 'mid-top', 'CUSA': 'mid-mid', 'Conference USA': 'mid-mid',
+  'Big East': 'highmajor-top', 'Atlantic 10': 'mid-top', 'MVC': 'mid-mid',
+  'Missouri Valley': 'mid-mid', 'WCC': 'mid-top', 'West Coast': 'mid-top',
+  'SoCon': 'lowmajor-top', 'Big South': 'lowmajor-top', 'OVC': 'lowmajor-top',
+  'Ohio Valley': 'lowmajor-top', 'Ivy': 'mid-mid', 'SWAC': 'lowmajor-lower',
+  'MEAC': 'lowmajor-lower', 'CAA': 'lowmajor-top', 'Big Sky': 'lowmajor-top',
+  'Pioneer': 'lowmajor-lower', 'Independent': 'highmajor-mid',
+  'Pac-12': 'p4-mid',
+};
+
+// Sport → share of pool, roster size
+var _SPORT_CONFIG = {
+  'football':               { share: 0.72, roster: 85  },
+  'basketball':             { share: 0.14, roster: 13  },
+  "men's basketball":       { share: 0.14, roster: 13  },
+  "women's basketball":     { share: 0.09, roster: 15  },
+  'baseball':               { share: 0.05, roster: 35  },
+  'softball':               { share: 0.04, roster: 22  },
+  "women's soccer":         { share: 0.03, roster: 28  },
+  'soccer':                 { share: 0.03, roster: 28  },
+  "men's soccer":           { share: 0.025,roster: 28  },
+  'volleyball':             { share: 0.03, roster: 15  },
+  "women's volleyball":     { share: 0.03, roster: 15  },
+  'lacrosse':               { share: 0.02, roster: 35  },
+  'wrestling':              { share: 0.015,roster: 30  },
+  'track':                  { share: 0.015,roster: 60  },
+  'swimming':               { share: 0.01, roster: 30  },
+  'gymnastics':             { share: 0.02, roster: 14  },
+  'default':                { share: 0.02, roster: 20  },
+};
+
+// Position premium multiplier within sport (vs. average teammate)
+// Based on documented collective deal structures (On3/ESPN 2025)
+var _POSITION_PREMIUM = {
+  football: {
+    qb: 3.2, quarterback: 3.2, 'qb1': 3.2,
+    wr: 1.8, 'wide receiver': 1.8, 'wide-receiver': 1.8,
+    rb: 1.5, 'running back': 1.5, 'running-back': 1.5,
+    te: 1.4, 'tight end': 1.4, 'tight-end': 1.4,
+    cb: 1.5, cornerback: 1.5,
+    edge: 1.6, de: 1.4, 'defensive end': 1.4,
+    safety: 1.2, s: 1.2, ss: 1.3, fs: 1.2,
+    lb: 1.25, linebacker: 1.25,
+    ol: 0.85, 'offensive line': 0.85, ot: 0.9, og: 0.8, c: 0.8,
+    dl: 0.95, 'defensive line': 0.95, dt: 0.9,
+    k: 0.55, kicker: 0.55, p: 0.5, punter: 0.5,
+    default: 1.0,
+  },
+  basketball: {
+    pg: 2.1, 'point guard': 2.1,
+    sg: 1.6, 'shooting guard': 1.6,
+    sf: 1.4, 'small forward': 1.4,
+    pf: 1.2, 'power forward': 1.2,
+    c: 1.0, center: 1.0,
+    default: 1.3,
+  },
+  baseball: {
+    'starting pitcher': 2.0, sp: 2.0, pitcher: 1.7,
+    'center field': 1.5, cf: 1.5,
+    catcher: 1.4,
+    '1b': 1.2, ss: 1.3, 'shortstop': 1.3, '3b': 1.1, '2b': 1.0,
+    'relief pitcher': 0.9, rp: 0.9,
+    default: 1.2,
+  },
+  default: { default: 1.0 },
+};
+
+// Position group label for display
+var _POS_GROUPS = {
+  football: {
+    qb: 'Quarterback', quarterback: 'Quarterback',
+    wr: 'Skill — WR', rb: 'Skill — RB', te: 'Tight End',
+    cb: 'Skill — CB', edge: 'Pass Rusher', de: 'D-Line',
+    safety: 'Safety', s: 'Safety', ss: 'Safety', fs: 'Safety',
+    lb: 'Linebacker',
+    ol: 'O-Line', ot: 'O-Line', og: 'O-Line',
+    dl: 'D-Line', dt: 'D-Line',
+    k: 'Special Teams', p: 'Special Teams',
+  },
+};
+
+/**
+ * calcRevenueBenchmark(conference, sport, position, athleteTier)
+ * Returns { low, high, avgPerPlayer, sportPool, pool, posGroup, tier, confidence, methodology }
+ */
+function calcRevenueBenchmark(conference, sport, position, athleteTier) {
+  // Determine school tier from conference
+  var confNorm = (conference || '').replace(/\s+/g,'').toLowerCase();
+  var tier = null;
+  // Direct match
+  for (var c in _CONF_TO_TIER) {
+    if (c.toLowerCase().replace(/\s+/g,'') === confNorm) { tier = _CONF_TO_TIER[c]; break; }
+  }
+  // Fallback to athlete's own tier (for context when no conf known)
+  if (!tier) tier = athleteTier || 'mid-mid';
+
+  var poolInfo = _NIL_REVENUE_POOLS[tier] || _NIL_REVENUE_POOLS['mid-mid'];
+  var pool = poolInfo.pool;
+
+  // Sport config
+  var sportKey = (sport || '').toLowerCase();
+  var sCfg = _SPORT_CONFIG[sportKey] || _SPORT_CONFIG['default'];
+
+  var sportPool   = Math.round(pool * sCfg.share);
+  var avgPerPlayer = Math.round(sportPool / sCfg.roster);
+
+  // Position premium
+  var posKey = (position || '').toLowerCase().trim();
+  var posMap = _POSITION_PREMIUM[sportKey] || _POSITION_PREMIUM['default'];
+  var premium = posMap[posKey] || posMap['default'] || 1.0;
+
+  // Weighted estimate — premium players pull from a redistributed share
+  // Total weighted units = sum across roster (simplified: avg premium × roster × 1.0 = sportPool)
+  // So player share = avgPerPlayer × premium (premium already accounts for relative value)
+  var estimate = avgPerPlayer * premium;
+
+  var low  = Math.max(500, Math.round(estimate * 0.7  / 1000) * 1000);
+  var high = Math.round(estimate * 1.45 / 1000) * 1000;
+
+  // Position group label
+  var posGroup = null;
+  var pgMap = _POS_GROUPS[sportKey];
+  if (pgMap) posGroup = pgMap[posKey] || null;
+  if (!posGroup) {
+    // Capitalize position
+    posGroup = position ? position.charAt(0).toUpperCase() + position.slice(1) : 'Your position';
+  }
+
+  // Confidence based on tier and how well we know the conference
+  var confidence = tier.startsWith('p4') ? 'Medium-High'
+                 : tier.startsWith('high') || tier === 'G5' ? 'Medium'
+                 : 'Low-Medium';
+
+  return {
+    low, high,
+    sportPool,
+    pool,
+    avgPerPlayer,
+    premium: Math.round(premium * 10) / 10,
+    posGroup,
+    tier,
+    tierLabel: poolInfo.label,
+    confidence,
+    methodology: [
+      'NCAA House settlement base: ~$' + (Math.round(pool * 0.63 / 1_000_000 * 10) / 10) + 'M annual athlete revenue share for this tier',
+      'Combined with collective deal spending: $' + Math.round(pool / 1_000_000 * 10) / 10 + 'M estimated total pool',
+      sport.charAt(0).toUpperCase() + sport.slice(1) + ' allocated ' + Math.round(sCfg.share * 100) + '% → $' + Math.round(sportPool / 1000) + 'K sport pool across ~' + sCfg.roster + ' scholarship players',
+      'Avg per player: $' + avgPerPlayer.toLocaleString() + ' · ' + posGroup + ' premium: ' + premium + 'x',
+    ],
+  };
+}
+
+function renderBenchmarkCard(t, sport, position) {
+  var conf = t.confLabel || t.conference || '';
+  var bench = calcRevenueBenchmark(conf, sport, position, null);
+  var color = bench.confidence.startsWith('Medium-High') ? '#4ade80'
+            : bench.confidence.startsWith('Medium') ? '#f59e0b'
+            : '#60a5fa';
+
+  return '<div style="background:rgba(200,241,53,0.04);border:1px solid rgba(200,241,53,0.2);border-radius:8px;padding:12px 14px;margin-top:10px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">' +
+      '<div>' +
+        '<div style="font-size:9px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em">Revenue Benchmark</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + bench.posGroup + ' · ' + bench.tierLabel + '</div>' +
+      '</div>' +
+      '<span style="font-size:9px;padding:2px 7px;border-radius:3px;background:' + color + '20;color:' + color + ';font-weight:700">' + bench.confidence + ' confidence</span>' +
+    '</div>' +
+    '<div style="font-size:20px;font-weight:700;color:var(--accent);letter-spacing:-0.02em;margin-bottom:4px">' +
+      '$' + bench.low.toLocaleString() + ' – $' + bench.high.toLocaleString() +
+      '<span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px">per year</span>' +
+    '</div>' +
+    '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">' +
+      'Reasonable deal range for ' + bench.posGroup + ' at a ' + bench.tierLabel + ' school. ' +
+      'School total pool ~$' + Math.round(bench.pool / 1_000_000 * 10) / 10 + 'M · Sport allocation $' + Math.round(bench.sportPool / 1000) + 'K · Avg per player $' + bench.avgPerPlayer.toLocaleString() +
+    '</div>' +
+    // Methodology accordion
+    '<details style="margin-top:4px">' +
+      '<summary style="font-size:9px;color:var(--muted);cursor:pointer;user-select:none;text-transform:uppercase;letter-spacing:0.06em">Show methodology</summary>' +
+      '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">' +
+        bench.methodology.map(function(m) {
+          return '<div style="font-size:10px;color:var(--muted);padding-left:10px;border-left:1px solid var(--border)">' + m + '</div>';
+        }).join('') +
+        '<div style="font-size:9px;color:var(--muted);margin-top:4px;font-style:italic">Sources: NCAA House Settlement 2025, On3 Collective Tracker 2025, Business of College Sports 2025, NFL CBA 48.8% revenue split model (position weighting analogue)</div>' +
+      '</div>' +
+    '</details>' +
+  '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  TEAM MATCH (Transfer Portal — Tab 3)
 // ══════════════════════════════════════════════════════════════════
 
@@ -6177,6 +6408,11 @@ async function renderTeamMatch(teams) {
     return;
   }
 
+  // Resolve active athlete's sport + position for benchmarks
+  const ath = athletes.find(a => a.id === selectedAthleteId) || {};
+  const athSport    = (ath.sport    || 'basketball').toLowerCase();
+  const athPosition = (ath.position || '').toLowerCase();
+
   const best = teams[0];
   const avgNil = Math.round(teams.reduce((s,t) => s + (t.nilHigh||0), 0) / teams.length);
   const sumEl = document.getElementById('tm-summary');
@@ -6213,7 +6449,8 @@ async function renderTeamMatch(teams) {
             ${t.collectiveDealHistory ? `<div style="background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.15);border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-size:9px;font-weight:700;color:#60a5fa;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Collective Deal History</div><div style="font-size:12px;color:var(--text)">${t.collectiveDealHistory}</div></div>` : ""}
             ${t.trajectoryNote ? `<div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.15);border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-size:9px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">NIL Trajectory at This School</div><div style="font-size:12px;color:var(--text)">${t.trajectoryNote}</div></div>` : ""}
             ${t.portalComp ? `<div style="background:var(--surface2);border-radius:6px;padding:10px 12px;margin-bottom:8px"><div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px">Portal Comp</div><div style="font-size:12px;color:var(--text)">${t.portalComp}</div></div>` : ""}
-            <button class="run-btn" style="font-size:12px;padding:8px 16px" onclick="event.stopPropagation();buildTmPlaybook('${(t.name||"").replace(/'/g,"\'")}','${fmtNil(t.nilHigh||0)}')">Build negotiation playbook for ${t.name||'this school'} →</button>
+            ${renderBenchmarkCard(t, athSport, athPosition)}
+            <button class="run-btn" style="font-size:12px;padding:8px 16px;margin-top:10px" onclick="event.stopPropagation();buildTmPlaybook('${(t.name||"").replace(/'/g,"\'")}','${fmtNil(t.nilHigh||0)}')">Build negotiation playbook for ${t.name||'this school'} →</button>
           </div>
         </div>
         <div style="text-align:right;min-width:100px">

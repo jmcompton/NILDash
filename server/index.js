@@ -1353,6 +1353,196 @@ app.get('/api/dashboard/followups', requireAuth, async (req, res) => {
   }
 });
 
+// ── Contract Upload + Deliverables Calendar ───────────────────
+const multer = require('multer');
+const mammoth = require('mammoth');
+const contractUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+  fileFilter: (req, file, cb) => {
+    const ok = file.mimetype === 'application/pdf' ||
+               file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+               file.mimetype === 'application/msword';
+    if (ok) cb(null, true);
+    else cb(new Error('Only PDF and DOCX files are accepted'));
+  },
+});
+
+// POST /api/athletes/:id/contracts/extract
+// Upload a PDF or DOCX contract → AI extracts deliverables → stored in athlete_deliverables
+app.post('/api/athletes/:id/contracts/extract', requireAuth, aiLimiter, contractUpload.single('contract'), async (req, res) => {
+  try {
+    const athleteId = req.params.id;
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    if (athlete.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const { originalname, mimetype, buffer } = req.file;
+
+    // Extract text from the file
+    let contractText = '';
+    if (mimetype === 'application/pdf') {
+      // Use Anthropic's native PDF support — send as base64 document
+      const base64Pdf = buffer.toString('base64');
+      const Anthropic = require('@anthropic-ai/sdk');
+      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      const extractResp = await anthropic.messages.create({
+        model: 'claude-opus-4-5',
+        max_tokens: 4096,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
+            },
+            {
+              type: 'text',
+              text: 'Extract all the text from this contract document. Return only the raw text, no formatting changes.',
+            },
+          ],
+        }],
+      });
+      contractText = extractResp.content[0]?.text || '';
+    } else {
+      // DOCX → text via mammoth
+      const result = await mammoth.extractRawText({ buffer });
+      contractText = result.value || '';
+    }
+
+    if (!contractText || contractText.trim().length < 50) {
+      return res.status(422).json({ error: 'Could not extract text from the file. Please ensure it contains readable text.' });
+    }
+
+    // Ask Claude to extract structured deliverables
+    const extractionPrompt = `You are a contract analyst. Read this NIL (Name Image Likeness) contract and extract all deliverables.
+
+CONTRACT TEXT:
+${contractText.substring(0, 12000)}
+
+Extract every deliverable, deadline, and payment milestone. For each one return:
+- deliverable_description: exactly what the athlete must do
+- due_date: ISO date (YYYY-MM-DD) or null if unclear/open-ended
+- brand: the brand/sponsor name from the contract
+- recurrence: "monthly", "weekly", "one-time", or null
+- contract_duration_months: number (infer from contract start/end dates, or null)
+
+IMPORTANT: For recurring deliverables (e.g. "1 post per month for 6 months"), return ONE entry with recurrence="monthly" and the contract_duration_months filled in. Do NOT expand them into multiple rows — the system will auto-generate them.
+
+Return ONLY valid JSON array:
+[{"deliverable_description":"...","due_date":"2025-08-01","brand":"Nike","recurrence":"monthly","contract_duration_months":6},...]
+
+If no clear date, set due_date to null. Extract ALL deliverables including social posts, appearances, content creation, payment milestones.`;
+
+    const raw = await ai.oneShot(extractionPrompt, 'You are a legal contract analyst specializing in NIL athlete contracts. Return only valid JSON arrays. No markdown.', 2000);
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const si = cleaned.indexOf('[');
+    const ei = cleaned.lastIndexOf(']');
+    if (si === -1 || ei <= si) throw new Error('Could not parse deliverables from contract');
+
+    const deliverables = JSON.parse(cleaned.substring(si, ei + 1));
+    if (!Array.isArray(deliverables) || deliverables.length === 0) {
+      return res.status(422).json({ error: 'No deliverables found in the contract.' });
+    }
+
+    // Save contract record
+    const contractId = 'contract-' + Date.now();
+    const brandName = req.body.brand || deliverables[0]?.brand || 'Unknown Brand';
+    await store.pool.query(
+      `INSERT INTO athlete_contracts (id, athlete_id, agent_id, filename, brand) VALUES ($1,$2,$3,$4,$5)`,
+      [contractId, athleteId, req.session.userId, originalname, brandName]
+    );
+
+    // Expand recurring deliverables into individual rows
+    const rows = [];
+    for (const d of deliverables) {
+      const recurrence = d.recurrence || 'one-time';
+      const dur = parseInt(d.contract_duration_months) || 1;
+      const brand = d.brand || brandName;
+      const desc = d.deliverable_description || 'Deliverable';
+
+      if (recurrence === 'monthly' && d.due_date && dur > 1) {
+        // Generate monthly entries
+        const startDate = new Date(d.due_date);
+        for (let m = 0; m < dur; m++) {
+          const dt = new Date(startDate);
+          dt.setMonth(dt.getMonth() + m);
+          rows.push({ desc: desc + ` (Month ${m + 1} of ${dur})`, due: dt.toISOString().split('T')[0], brand, recurrence, contractId });
+        }
+      } else if (recurrence === 'weekly' && d.due_date && dur > 0) {
+        const startDate = new Date(d.due_date);
+        const weeks = dur * 4;
+        for (let w = 0; w < Math.min(weeks, 52); w++) {
+          const dt = new Date(startDate);
+          dt.setDate(dt.getDate() + w * 7);
+          rows.push({ desc: desc + ` (Week ${w + 1})`, due: dt.toISOString().split('T')[0], brand, recurrence, contractId });
+        }
+      } else {
+        rows.push({ desc, due: d.due_date || null, brand, recurrence: recurrence !== 'one-time' ? recurrence : null, contractId });
+      }
+    }
+
+    // Insert all rows
+    let insertedCount = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      await store.pool.query(
+        `INSERT INTO athlete_deliverables (athlete_id, agent_id, contract_id, deliverable_description, due_date, brand, recurrence, sort_order) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [athleteId, req.session.userId, row.contractId, row.desc, row.due || null, row.brand, row.recurrence, i]
+      );
+      insertedCount++;
+    }
+
+    res.json({ ok: true, contractId, deliverableCount: insertedCount, brand: brandName, filename: originalname });
+  } catch (e) {
+    console.error('[contract extract]', e.message);
+    res.status(500).json({ error: e.message || 'Contract extraction failed' });
+  }
+});
+
+// GET /api/athletes/:id/deliverables
+app.get('/api/athletes/:id/deliverables', requireAuth, async (req, res) => {
+  try {
+    const athleteId = req.params.id;
+    // Enforce row-level security: agent can only see their own athletes' deliverables
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    if (athlete.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+
+    const r = await store.pool.query(
+      `SELECT * FROM athlete_deliverables WHERE athlete_id=$1 AND agent_id=$2 ORDER BY due_date ASC NULLS LAST, sort_order ASC`,
+      [athleteId, req.session.userId]
+    );
+    res.json({ deliverables: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH /api/athletes/:id/deliverables/:did
+app.patch('/api/athletes/:id/deliverables/:did', requireAuth, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'status required' });
+    const r = await store.pool.query(
+      `UPDATE athlete_deliverables SET status=$1 WHERE id=$2 AND athlete_id=$3 AND agent_id=$4 RETURNING *`,
+      [status, req.params.did, req.params.id, req.session.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Deliverable not found' });
+    res.json({ deliverable: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/athletes/:id/deliverables/:did
+app.delete('/api/athletes/:id/deliverables/:did', requireAuth, async (req, res) => {
+  try {
+    await store.pool.query(
+      `DELETE FROM athlete_deliverables WHERE id=$1 AND athlete_id=$2 AND agent_id=$3`,
+      [req.params.did, req.params.id, req.session.userId]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Catch-all → frontend ───────────────────────────────────────
 // ── Calendar Events ───────────────────────────────────────────
 app.get('/api/calendar/events', requireAuth, async (req, res) => {

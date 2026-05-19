@@ -116,6 +116,32 @@ async function init() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  // ── Athlete Deliverables (contract ingestion calendar) ────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS athlete_deliverables (
+      id SERIAL PRIMARY KEY,
+      athlete_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      contract_id TEXT,
+      deliverable_description TEXT NOT NULL,
+      due_date DATE,
+      brand TEXT,
+      status TEXT DEFAULT 'pending',
+      recurrence TEXT,
+      sort_order INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS athlete_contracts (
+      id TEXT PRIMARY KEY,
+      athlete_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      filename TEXT,
+      brand TEXT,
+      uploaded_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch(e => console.error('Deliverables tables init error:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deliverables_athlete ON athlete_deliverables(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deliverables_agent ON athlete_deliverables(agent_id)`).catch(() => {});
   // ── Email Integration Tables (additive — never modifies existing tables) ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_accounts (
