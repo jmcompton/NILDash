@@ -1899,10 +1899,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="card-title">Client Details</div>
           <div class="form-group-sm"><label class="form-label-sm">Full Name *</label>
             <div style="display:flex;gap:8px">
-              <input class="input-sm" id="a_name" placeholder="e.g. Marcus Johnson" style="flex:1">
+              <input class="input-sm" id="a_name" placeholder="e.g. Paige Briggs" style="flex:1">
               <button class="run-btn" onclick="lookupPlayer()" id="lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">AI Lookup</button>
             </div>
             <div id="lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+            <!-- Candidate picker — shown when lookup returns multiple matches -->
+            <div id="lookup-candidates" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden"></div>
           </div>
 
           <div class="form-row" style="margin-bottom:12px">
@@ -2751,6 +2753,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <button onclick="obLookupPlayer()" id="ob-lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px;background:var(--accent);color:#000;border:none;border-radius:var(--r-sm);font-family:var(--mono);cursor:pointer;font-weight:700">AI Lookup</button>
         </div>
         <div id="ob-lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+        <div id="ob-lookup-candidates" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden"></div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
@@ -4686,45 +4689,182 @@ async function fetchFromUrl() {
 }
 
 //  PLAYER LOOKUP 
+// ── AI Lookup — fills Add Client form with candidate data ───────────────────
+function _applyLookupCandidate(data) {
+  // Fill every form field with the candidate's data
+  if (data.name)     document.getElementById('a_name').value = data.name;
+  if (data.school)   document.getElementById('a_school').value = data.school;
+  if (data.position) document.getElementById('a_pos').value = data.position;
+  if (data.stats)    document.getElementById('a_stats').value = data.stats;
+  if (data.instagram)document.getElementById('a_ig').value = data.instagram;
+  if (data.tiktok)   document.getElementById('a_tt').value = data.tiktok;
+  if (data.engagement)document.getElementById('a_eng').value = data.engagement;
+
+  if (data.year) {
+    const s = document.getElementById('a_year');
+    for (let o of s.options) { if (o.value.toLowerCase() === data.year.toLowerCase()) { s.value = o.value; break; } }
+  }
+  if (data.schoolTier) {
+    const s = document.getElementById('a_tier');
+    for (let o of s.options) { if (o.value === data.schoolTier) { s.value = o.value; break; } }
+  }
+  if (data.sport) {
+    const s = document.getElementById('a_sport');
+    for (let o of s.options) {
+      if (o.value.toLowerCase() === (data.sport||'').toLowerCase() ||
+          o.text.toLowerCase() === (data.sport||'').toLowerCase()) { s.value = o.value; break; }
+    }
+  }
+  let notesVal = data.notes || '';
+  if (data.previousSchool) notesVal = (notesVal ? notesVal + ' ' : '') + 'Transfer from ' + data.previousSchool + '.';
+  if (notesVal) document.getElementById('a_notes').value = notesVal;
+  else if (data.hometown) document.getElementById('a_notes').value = data.hometown;
+}
+
+function _confidenceColor(conf) {
+  if (conf >= 90) return '#4ade80';
+  if (conf >= 75) return '#C8F135';
+  if (conf >= 60) return '#f59e0b';
+  return '#ef4444';
+}
+
+function _confidenceLabel(conf) {
+  if (conf >= 95) return 'Verified';
+  if (conf >= 85) return 'High';
+  if (conf >= 70) return 'Medium';
+  return 'Low';
+}
+
+function _sourceIcon(source) {
+  if ((source||'').includes('espn')) return 'ESPN';
+  return 'AI';
+}
+
+function renderLookupCandidates(candidates, statusEl, candidatesEl) {
+  if (!candidates || !candidates.length) return;
+
+  candidatesEl.style.display = 'block';
+  candidatesEl.innerHTML = candidates.map((c, i) => {
+    const conf  = c.confidence || 0;
+    const color = _confidenceColor(conf);
+    const label = _confidenceLabel(conf);
+    const src   = _sourceIcon(c.source);
+    const detail = [c.position, c.year, c.hometown].filter(Boolean).join(' · ');
+
+    return '<div style="padding:10px 12px;' +
+      (i < candidates.length - 1 ? 'border-bottom:1px solid var(--border);' : '') +
+      (c.best ? 'background:rgba(200,241,53,0.04)' : 'background:var(--surface)') +
+      '">' +
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+            '<span style="font-size:13px;font-weight:700;color:var(--text)">' + (c.name||'Unknown') + '</span>' +
+            (c.best ? '<span style="font-size:9px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.06em">Best match</span>' : '') +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-top:2px;display:flex;flex-wrap:wrap;gap:5px">' +
+            '<span style="background:var(--surface2);padding:1px 7px;border-radius:4px">' + (c.school||'School unknown') + '</span>' +
+            '<span style="background:var(--surface2);padding:1px 7px;border-radius:4px">' + (c.sport||'Sport unknown') + '</span>' +
+            (detail ? '<span style="color:var(--muted)">' + detail + '</span>' : '') +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">' +
+            '<div style="width:60px;height:3px;border-radius:2px;background:var(--surface2);overflow:hidden">' +
+              '<div style="width:' + Math.min(conf,100) + '%;height:100%;background:' + color + ';border-radius:2px"></div>' +
+            '</div>' +
+            '<span style="font-size:9px;color:' + color + ';font-weight:700">' + label + ' ' + conf + '%</span>' +
+            '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(255,255,255,0.06);color:var(--muted)">' + src + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<button onclick="selectLookupCandidate(' + i + ')" ' +
+          'style="flex-shrink:0;padding:6px 12px;background:' + (c.best ? 'var(--accent)' : 'var(--surface2)') + ';' +
+          'border:1px solid ' + (c.best ? 'var(--accent)' : 'var(--border)') + ';border-radius:5px;' +
+          'color:' + (c.best ? '#000' : 'var(--text)') + ';font-size:11px;font-weight:700;cursor:pointer">Select</button>' +
+      '</div>' +
+    '</div>';
+  }).join('') +
+  // Dismiss button
+  '<div style="padding:8px 12px;border-top:1px solid var(--border);text-align:center">' +
+    '<button onclick="dismissLookupCandidates()" style="font-size:10px;color:var(--muted);background:transparent;border:none;cursor:pointer">None match — fill in manually</button>' +
+  '</div>';
+}
+
+// Stored candidates array for selection
+let _lookupCandidates = [];
+
+function selectLookupCandidate(idx) {
+  const c = _lookupCandidates[idx];
+  if (!c) return;
+  _applyLookupCandidate(c);
+  document.getElementById('lookup-candidates').style.display = 'none';
+  const statusEl = document.getElementById('lookup-status');
+  const isTransfer = c.previousSchool || (c.year||'').toLowerCase().includes('transfer');
+  const summary = [c.school, c.position, c.year].filter(Boolean).join(' · ');
+  statusEl.innerHTML = '<span style="color:var(--accent)">Loaded — review and save</span> · ' + summary +
+    (isTransfer ? ' <span style="color:#f59e0b">· Transfer from ' + c.previousSchool + '</span>' : '');
+  showToast(isTransfer
+    ? 'Transfer found — verify stats before saving.'
+    : 'Player data loaded — review before saving!');
+}
+
+function dismissLookupCandidates() {
+  document.getElementById('lookup-candidates').style.display = 'none';
+  document.getElementById('lookup-status').textContent = 'No match selected — fill in manually.';
+  _lookupCandidates = [];
+}
+
 async function lookupPlayer() {
-  const name = document.getElementById('a_name').value.trim();
+  const name   = document.getElementById('a_name').value.trim();
   if (!name) { showToast('Enter a player name first'); return; }
   const school = document.getElementById('a_school').value.trim();
-  const sport = document.getElementById('a_sport').value;
-  const btn = document.getElementById('lookup-btn');
+  const sport  = document.getElementById('a_sport').value;
+  const btn    = document.getElementById('lookup-btn');
   const status = document.getElementById('lookup-status');
-  btn.disabled = true; btn.textContent = 'Looking up...';
-  status.textContent = 'Searching for player data...';
+  const candEl = document.getElementById('lookup-candidates');
+
+  btn.disabled = true; btn.textContent = 'Searching...';
+  status.textContent = 'Running multi-stage lookup' + (school ? ' for ' + school : '') + '...';
+  candEl.style.display = 'none';
+  candEl.innerHTML = '';
+  _lookupCandidates = [];
+
   try {
     const r = await fetch(`${API_BASE}/api/ai/player-lookup`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ name, school, sport })
     });
     const data = await r.json();
-    if (!data.found) { status.textContent = 'Player not found - fill in manually'; btn.disabled = false; btn.textContent = 'Lookup'; return; }
-    if (data.school) document.getElementById('a_school').value = data.school;
-    if (data.position) document.getElementById('a_pos').value = data.position;
-    if (data.year) { const s = document.getElementById('a_year'); for (let o of s.options) { if (o.value.toLowerCase() === data.year.toLowerCase()) { s.value = o.value; break; } } }
-    if (data.stats) document.getElementById('a_stats').value = data.stats;
-    if (data.instagram) document.getElementById('a_ig').value = data.instagram;
-    if (data.tiktok) document.getElementById('a_tt').value = data.tiktok;
-    if (data.engagement) document.getElementById('a_eng').value = data.engagement;
-    if (data.schoolTier) { const s = document.getElementById('a_tier'); for (let o of s.options) { if (o.value === data.schoolTier) { s.value = o.value; break; } } }
-    if (data.sport) { const s = document.getElementById('a_sport'); for (let o of s.options) { if (o.value === data.sport) { s.value = o.value; break; } } }
-    // For transfers: append previous school context to notes
-    let notesVal = data.notes || '';
-    if (data.previousSchool) notesVal = (notesVal ? notesVal + ' ' : '') + 'Transfer from ' + data.previousSchool + '.';
-    if (notesVal) document.getElementById('a_notes').value = notesVal;
-    if (!notesVal && data.hometown) document.getElementById('a_notes').value = data.hometown;
-    const isTransfer = data.previousSchool || (data.year||'').toLowerCase().includes('transfer');
-    const transferNote = isTransfer && data.previousSchool ? ' · Stats from ' + data.previousSchool : '';
-    const summary = [data.school, data.position, data.year].filter(Boolean).join(' · ');
-    status.innerHTML = '<span style="color:var(--accent)">Loaded — review and save</span> · ' + summary + (transferNote ? '<span style="color:#f59e0b"> ' + transferNote + '</span>' : '');
-    showToast(isTransfer ? 'Transfer found — stats from previous school. Verify before saving.' : 'Player data loaded — verify before saving!');
+
+    if (!data.found || !data.candidates || !data.candidates.length) {
+      status.innerHTML = '<span style="color:var(--muted)">No match found — try adding school &amp; sport, or fill in manually.</span>';
+      btn.disabled = false; btn.textContent = 'AI Lookup';
+      return;
+    }
+
+    _lookupCandidates = data.candidates;
+
+    if (data.autoSelect && data.candidates.length === 1) {
+      // High-confidence single match — auto-fill like before
+      _applyLookupCandidate(data.candidates[0]);
+      const c = data.candidates[0];
+      const summary = [c.school, c.position, c.year].filter(Boolean).join(' · ');
+      const src = _sourceIcon(c.source);
+      status.innerHTML = '<span style="color:var(--accent)">Loaded — review and save</span> · ' + summary +
+        ' <span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(200,241,53,0.1);color:var(--accent)">✓ ' + src + ' ' + c.confidence + '%</span>';
+      showToast('Player found via ' + (c.sourceLabel || src) + ' — review before saving!');
+    } else {
+      // Multiple candidates or lower confidence — show picker
+      const best = data.candidates[0];
+      const conf = best.confidence || 0;
+      status.innerHTML =
+        (data.candidates.length === 1
+          ? '<span style="color:#f59e0b">1 possible match</span>'
+          : '<span style="color:#f59e0b">' + data.candidates.length + ' candidates found</span>') +
+        ' · Select the correct athlete below';
+      renderLookupCandidates(data.candidates, status, candEl);
+    }
   } catch(e) {
     status.textContent = 'Lookup failed: ' + e.message;
   }
-  btn.disabled = false; btn.textContent = 'Lookup';
+  btn.disabled = false; btn.textContent = 'AI Lookup';
 }
 
 //  BRAND OUTREACH 
@@ -6517,35 +6657,109 @@ window.addEventListener('DOMContentLoaded', checkSession);
       if (step) step.style.display = 'block';
     }
 
-    async function obLookupPlayer() {
-      const name = document.getElementById('ob-athlete-name').value.trim();
-      if (!name) { showToast('Enter athlete name first'); return; }
-      const btn = document.getElementById('ob-lookup-btn');
+    // ── Onboarding athlete lookup — same multi-stage pipeline ──────────────
+    let _obLookupCandidates = [];
+
+    function _obApplyCandidate(data) {
+      if (data.name)      document.getElementById('ob-athlete-name').value     = data.name;
+      if (data.school)    document.getElementById('ob-athlete-school').value   = data.school;
+      if (data.position)  document.getElementById('ob-athlete-pos').value      = data.position;
+      if (data.year)      document.getElementById('ob-athlete-year').value     = data.year;
+      if (data.stats)     document.getElementById('ob-athlete-stats').value    = data.stats;
+      if (data.instagram) document.getElementById('ob-athlete-ig').value       = data.instagram;
+      if (data.tiktok)    document.getElementById('ob-athlete-tt').value       = data.tiktok;
+      if (data.engagement)document.getElementById('ob-athlete-eng').value      = data.engagement;
+      if (data.schoolTier)document.getElementById('ob-athlete-tier').value     = data.schoolTier;
+      if (data.sport) {
+        const s = document.getElementById('ob-athlete-sport');
+        for (let o of s.options) {
+          if (o.value.toLowerCase() === (data.sport||'').toLowerCase() ||
+              o.text.toLowerCase()  === (data.sport||'').toLowerCase()) { s.value = o.value; break; }
+        }
+      }
+    }
+
+    function selectObCandidate(idx) {
+      const c = _obLookupCandidates[idx];
+      if (!c) return;
+      _obApplyCandidate(c);
+      document.getElementById('ob-lookup-candidates').style.display = 'none';
       const status = document.getElementById('ob-lookup-status');
-      btn.disabled = true; btn.textContent = 'Looking up...';
-      status.textContent = 'Searching for ' + name + '...';
+      status.style.color = 'var(--accent)';
+      status.textContent = 'Loaded: ' + [c.school, c.position, c.year].filter(Boolean).join(' · ');
+      showToast('Player loaded — review before adding!');
+    }
+
+    function renderObCandidates(candidates) {
+      const candEl  = document.getElementById('ob-lookup-candidates');
+      const statusEl = document.getElementById('ob-lookup-status');
+      if (!candidates || !candidates.length) return;
+      _obLookupCandidates = candidates;
+      candEl.style.display = 'block';
+      candEl.innerHTML = candidates.map((c, i) => {
+        const conf  = c.confidence || 0;
+        const color = _confidenceColor(conf);
+        const label = _confidenceLabel(conf);
+        const detail= [c.position, c.year].filter(Boolean).join(' · ');
+        return '<div style="padding:10px 12px;' + (i < candidates.length-1 ? 'border-bottom:1px solid var(--border);' : '') + (c.best?'background:rgba(200,241,53,0.04)':'background:var(--surface)') + '">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="font-size:13px;font-weight:700;color:var(--text)">' + (c.name||'Unknown') + (c.best ? ' <span style="font-size:9px;color:var(--accent)">★</span>' : '') + '</div>' +
+              '<div style="font-size:11px;color:var(--muted)">' + [c.school, c.sport, detail].filter(Boolean).join(' · ') + '</div>' +
+              '<div style="display:flex;align-items:center;gap:5px;margin-top:3px">' +
+                '<div style="width:50px;height:3px;border-radius:2px;background:rgba(255,255,255,0.1)">' +
+                  '<div style="width:' + Math.min(conf,100) + '%;height:100%;background:' + color + ';border-radius:2px"></div>' +
+                '</div>' +
+                '<span style="font-size:9px;color:' + color + '">' + label + ' ' + conf + '%</span>' +
+              '</div>' +
+            '</div>' +
+            '<button onclick="selectObCandidate(' + i + ')" style="padding:5px 12px;background:' + (c.best?'var(--accent)':'var(--surface2)') + ';border:1px solid ' + (c.best?'var(--accent)':'var(--border)') + ';border-radius:5px;color:' + (c.best?'#000':'var(--text)') + ';font-size:11px;font-weight:700;cursor:pointer">Select</button>' +
+          '</div>' +
+        '</div>';
+      }).join('') +
+      '<div style="padding:6px 12px;border-top:1px solid var(--border);text-align:center">' +
+        '<button onclick="document.getElementById(\'ob-lookup-candidates\').style.display=\'none\'" style="font-size:10px;color:var(--muted);background:transparent;border:none;cursor:pointer">Fill in manually instead</button>' +
+      '</div>';
+    }
+
+    async function obLookupPlayer() {
+      const name   = document.getElementById('ob-athlete-name').value.trim();
+      if (!name) { showToast('Enter athlete name first'); return; }
+      const school = document.getElementById('ob-athlete-school')?.value?.trim() || '';
+      const sport  = document.getElementById('ob-athlete-sport')?.value || '';
+      const btn    = document.getElementById('ob-lookup-btn');
+      const status = document.getElementById('ob-lookup-status');
+      const candEl = document.getElementById('ob-lookup-candidates');
+
+      btn.disabled = true; btn.textContent = 'Searching...';
+      status.textContent = 'Running multi-stage lookup' + (school ? ' for ' + school : '') + '...';
+      status.style.color = 'var(--muted)';
+      candEl.style.display = 'none';
+      _obLookupCandidates = [];
+
       try {
         const r = await fetch(`${API_BASE}/api/ai/player-lookup`, {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ name })
+          body: JSON.stringify({ name, school, sport })
         });
         const data = await r.json();
-        if (data.found) {
-          if (data.school) document.getElementById('ob-athlete-school').value = data.school;
-          if (data.sport) document.getElementById('ob-athlete-sport').value = data.sport;
-          if (data.position) document.getElementById('ob-athlete-pos').value = data.position;
-          if (data.year) document.getElementById('ob-athlete-year').value = data.year;
-          if (data.stats) document.getElementById('ob-athlete-stats').value = data.stats;
-          if (data.instagram) document.getElementById('ob-athlete-ig').value = data.instagram;
-          if (data.tiktok) document.getElementById('ob-athlete-tt').value = data.tiktok;
-          if (data.engagement) document.getElementById('ob-athlete-eng').value = data.engagement;
-          if (data.schoolTier) document.getElementById('ob-athlete-tier').value = data.schoolTier;
-          status.textContent = ' Found! Review and save.';
+
+        if (!data.found || !data.candidates || !data.candidates.length) {
+          status.textContent = 'No match found — try adding school &amp; sport, or fill in manually.';
+        } else if (data.autoSelect && data.candidates.length === 1) {
+          _obApplyCandidate(data.candidates[0]);
+          const c = data.candidates[0];
           status.style.color = 'var(--accent)';
+          status.textContent = 'Loaded: ' + [c.school, c.position, c.year].filter(Boolean).join(' · ') + ' · ' + (c.sourceLabel||'AI');
+          showToast('Player loaded via ' + (c.sourceLabel||'AI') + ' — review before adding!');
         } else {
-          status.textContent = 'Not found — fill in manually.';
+          status.textContent = data.candidates.length + ' candidate' + (data.candidates.length>1?'s':'') + ' found — select below';
+          renderObCandidates(data.candidates);
         }
-      } catch(e) { status.textContent = 'Lookup failed — fill in manually.'; }
+      } catch(e) {
+        status.textContent = 'Lookup failed — fill in manually.';
+        console.error('obLookupPlayer error:', e);
+      }
       btn.disabled = false; btn.textContent = 'AI Lookup';
     }
 

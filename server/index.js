@@ -875,33 +875,21 @@ Return ONLY the JSON. No markdown, no explanation.`;
 });
 
 // -- Player Lookup --
+// ── Multi-Stage Athlete Entity Resolution ─────────────────────────────────
+// Stage 1: Normalize inputs (school aliases, sport variants)
+// Stage 2A: ESPN live roster fetch → name scoring (fast, authoritative)
+// Stage 2B: AI enrichment/fallback (stats, social, career context)
+// Stage 3: Merge, rank, return up to 3 candidates with confidence scores
 app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
   const { name, school, sport } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
-  const prompt = `You are a college sports database. Look up this athlete and return ONLY accurate, verified data from your training knowledge. Do NOT guess or fabricate stats.
-
-ATHLETE: ${name}${school ? ' — currently at ' + school : ''}${sport ? ' (' + sport + ')' : ''}
-
-CRITICAL RULES:
-- Pull ALL available seasons — format stats as a career log: "2023: [stats at School A] | 2024: [stats at School B] | 2025: [stats if available]"
-- If this athlete transferred, include stats from EVERY school they played at, labeled by school and season
-- "year" field = eligibility year (Freshman/Sophomore/Junior/Senior/Grad Transfer) — not years at current school
-- Use real stat numbers (PPG/RPG/APG, rush yards/TDs/YPC, ERA/AVG, etc). If a season is not in your training data, omit it — do not invent numbers
-- schoolTier for CURRENT school: p4-top10 = Alabama/Georgia/Ohio State tier | p4-mid = mid-P4 | p4-lower = lower P4 | highmajor-top = top Big East/A-10 | mid-top/mid-lower = mid-major
-
-Return this JSON — use null for anything you cannot verify:
-{"found":true,"name":"full legal name","school":"current school","previousSchool":"most recent previous school if transfer, else null","sport":"sport","position":"position abbreviation","year":"eligibility year","stats":"full career log: 2023 at X: stats | 2024 at Y: stats | 2025: stats if available","height":"e.g. 6-4","weight":"e.g. 215 lbs","hometown":"city, state","instagram":0,"tiktok":0,"engagement":0,"schoolTier":"p4-top10|p4-mid|p4-lower|mid-top|mid-lower|highmajor-top","notes":"recruiting ranking, awards by season, transfer history, draft projection"}
-
-Return ONLY the JSON object. No markdown, no explanation.`;
   try {
-    const raw = await ai.oneShot(prompt, 'You are a precise college sports database. Return only verified facts. Never fabricate statistics. Return only valid JSON.', 4000);
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.json({ found: false });
-    res.json(JSON.parse(jsonMatch[0]));
+    const { resolveAthlete } = require('./services/athleteLookup');
+    const result = await resolveAthlete(ai, { name, school, sport });
+    res.json(result);
   } catch (err) {
-    console.error('Lookup error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error('[player-lookup]', err.message);
+    res.status(500).json({ error: err.message, found: false });
   }
 });
 
