@@ -2351,62 +2351,109 @@ tbody td{padding:11px 14px;vertical-align:middle}
         ══════════════════════════════════════════════ -->
         <div id="intel-pane-hq">
 
-          <!-- KPI Strip -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px">
-            <div class="kpi"><div class="kpi-label">Total Clients</div><div class="kpi-val" id="intel-kpi-clients" style="font-size:26px">—</div><div class="kpi-sub">On roster</div></div>
-            <div class="kpi"><div class="kpi-label">Needs Attention</div><div class="kpi-val" id="intel-kpi-attention" style="font-size:26px;color:#f59e0b">—</div><div class="kpi-sub">No contact 7+ days</div></div>
-            <div class="kpi"><div class="kpi-label">Hot Prospects</div><div class="kpi-val" id="intel-kpi-hot" style="font-size:26px;color:var(--accent)">—</div><div class="kpi-sub">NIL score 75+</div></div>
+          <!-- ── KPI Strip ── -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px">
+            <div class="kpi"><div class="kpi-label">Active Clients</div><div class="kpi-val" id="intel-kpi-clients" style="font-size:26px">—</div><div class="kpi-sub">On roster</div></div>
+            <div class="kpi"><div class="kpi-label">Needs Contact</div><div class="kpi-val" id="intel-kpi-attention" style="font-size:26px;color:#f59e0b">—</div><div class="kpi-sub">7+ days silent</div></div>
+            <div class="kpi"><div class="kpi-label">High Opportunity</div><div class="kpi-val" id="intel-kpi-hot" style="font-size:26px;color:var(--accent)">—</div><div class="kpi-sub">NIL score 75+</div></div>
             <div class="kpi"><div class="kpi-label">Active Deals</div><div class="kpi-val" id="intel-kpi-active-deals" style="font-size:26px;color:#60a5fa">—</div><div class="kpi-sub">In pipeline</div></div>
+            <div class="kpi"><div class="kpi-label">Revenue at Risk</div><div class="kpi-val" id="intel-kpi-churn" style="font-size:26px;color:#ef4444">—</div><div class="kpi-sub">Churn risk 60+</div></div>
           </div>
 
-          <!-- Two-column layout -->
-          <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start">
+          <!-- ── What Changed Since Yesterday (compact full-width feed) ── -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 18px;margin-bottom:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+              <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.06em">What Changed Since Yesterday</div>
+              <span style="font-size:9px;color:var(--muted)" id="intel-feed-ts"></span>
+            </div>
+            <div id="intel-daily-feed" style="display:flex;gap:8px;flex-wrap:wrap">
+              <span style="font-size:11px;color:var(--muted)">Loading daily diff...</span>
+            </div>
+          </div>
 
-            <!-- LEFT: AI Actions + Priority List -->
+          <!-- ── Main two-column layout ── -->
+          <div style="display:grid;grid-template-columns:1fr 310px;gap:16px;align-items:start">
+
+            <!-- LEFT col -->
             <div>
-              <!-- AI Daily Action Panel -->
-              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:16px">
+              <!-- Today's Priority Actions -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:14px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
                   <div>
                     <div style="font-size:13px;font-weight:700;color:var(--text)">Today's Priority Actions</div>
-                    <div style="font-size:10px;color:var(--muted);margin-top:2px" id="intel-actions-ts">AI-generated from your CRM data</div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:2px" id="intel-actions-ts">AI-ranked from your live CRM</div>
                   </div>
                   <button onclick="loadDailyActions(true)" id="intel-actions-btn" style="font-size:11px;padding:6px 14px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:6px;color:var(--accent);cursor:pointer;font-weight:700">↻ Refresh</button>
                 </div>
                 <div id="intel-actions-list">
-                  <div style="text-align:center;padding:28px 0">
-                    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Generate AI-powered priorities based on your CRM, deals, and roster activity.</div>
+                  <div style="text-align:center;padding:24px 0">
+                    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">AI reads your entire CRM and tells you exactly who to contact and why.</div>
                     <button onclick="loadDailyActions(true)" style="padding:10px 28px;background:var(--accent);color:#000;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">Generate Today's Actions →</button>
                   </div>
                 </div>
               </div>
 
-              <!-- Priority Prospect List -->
-              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-                  <div style="font-size:13px;font-weight:700;color:var(--text)">Priority Roster — Opportunity Ranked</div>
-                  <button onclick="showIntelTab('roster')" style="font-size:10px;color:var(--accent);background:transparent;border:none;cursor:pointer;font-weight:700">See all →</button>
+              <!-- Hidden Opportunities Engine -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:14px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                  <div style="font-size:13px;font-weight:700;color:var(--text)">Hidden Opportunities</div>
+                  <span style="font-size:9px;padding:2px 7px;border-radius:3px;background:rgba(200,241,53,0.12);color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Underutilized</span>
                 </div>
-                <div id="intel-priority-list"><div style="color:var(--muted);font-size:12px;padding:12px 0">Loading...</div></div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:12px">High NIL score · weak relationship · no active deals</div>
+                <div id="intel-hidden-opps"><div style="color:var(--muted);font-size:12px;padding:8px 0">Loading...</div></div>
+              </div>
+
+              <!-- Money Left on the Table -->
+              <div style="background:var(--surface);border:1px solid rgba(239,68,68,0.2);border-radius:var(--r);padding:18px 20px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                  <div style="font-size:13px;font-weight:700;color:var(--text)">Money Left on the Table</div>
+                  <span style="font-size:9px;padding:2px 7px;border-radius:3px;background:rgba(239,68,68,0.1);color:#ef4444;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Revenue Gap</span>
+                </div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:12px">Estimated annual NIL value for athletes with zero active deals</div>
+                <div id="intel-money-table"><div style="color:var(--muted);font-size:12px;padding:8px 0">Loading...</div></div>
               </div>
             </div>
 
-            <!-- RIGHT: Risk Flags + Position Heat Map -->
+            <!-- RIGHT col -->
             <div>
-              <!-- Risk Flags -->
-              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:16px">
-                <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px">Risk Flags</div>
-                <div id="intel-risk-flags"><div style="color:var(--muted);font-size:12px;padding:8px 0">Loading...</div></div>
+              <!-- Momentum Movers -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Momentum Movers</div>
+                <div id="intel-momentum"><div style="color:var(--muted);font-size:11px;padding:4px 0">Loading...</div></div>
               </div>
-              <!-- Position Heat Map -->
-              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px">
-                <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Position Heat Map</div>
-                <div style="font-size:10px;color:var(--muted);margin-bottom:14px">Avg NIL opportunity score by position</div>
-                <div id="intel-heat-map"><div style="color:var(--muted);font-size:12px">No roster data</div></div>
+
+              <!-- Churn Risk Detector -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Silent Churn Risk</div>
+                <div style="font-size:9px;color:var(--muted);margin-bottom:12px">Athletes at risk of disengagement</div>
+                <div id="intel-churn-list"><div style="color:var(--muted);font-size:11px;padding:4px 0">Loading...</div></div>
+              </div>
+
+              <!-- Opportunity Matrix (2×2) -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px">
+                <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Opportunity Matrix</div>
+                <div style="font-size:9px;color:var(--muted);margin-bottom:12px">NIL score vs relationship strength</div>
+                <div id="intel-opp-matrix"></div>
+                <div id="intel-matrix-legend" style="margin-top:10px"></div>
               </div>
             </div>
 
+          </div><!-- /two-col -->
+
+          <!-- ── Warm Introduction Engine (full-width, collapsible) ── -->
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-top:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="var w=document.getElementById('intel-warm-body');w.style.display=w.style.display==='none'?'block':'none'">
+              <div>
+                <div style="font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.06em">Warm Introduction Paths</div>
+                <div style="font-size:9px;color:var(--muted);margin-top:2px">Reach new athletes through existing relationships</div>
+              </div>
+              <span style="font-size:11px;color:var(--muted)">▾ expand</span>
+            </div>
+            <div id="intel-warm-body" style="display:none;margin-top:12px">
+              <div id="intel-warm-intros"><div style="color:var(--muted);font-size:11px">Loading...</div></div>
+            </div>
           </div>
+
         </div><!-- /intel-pane-hq -->
 
         <!-- ══════════════════════════════════════════════
@@ -5200,16 +5247,38 @@ async function loadCalendar() {
 //  INIT 
 
 // ══════════════════════════════════════════════════════════════════
-//  AGENT INTELLIGENCE SYSTEM
+//  AGENT INTELLIGENCE — REVENUE OPERATING SYSTEM
 // ══════════════════════════════════════════════════════════════════
 
-var _intelDeals = null;      // flat [{...deal, athleteId, athleteName}]
+var _intelDeals        = null;
 var _dailyActionsCache = null;
-var _dailyActionsDate = null;
+var _dailyActionsDate  = null;
+var _SNAP_KEY          = 'nildash_intel_snap_v2';
 
-// ── Boot: collect all deals from cache, render HQ ─────────────────
+// ── localStorage snapshot helpers ─────────────────────────────────
+function _saveSnap(athList, dealsList) {
+  try {
+    var snap = {
+      date:       new Date().toDateString(),
+      athleteIds: athList.map(function(a) { return a.id; }),
+      scores:     {},
+      relStr:     {},
+      dealStages: {}
+    };
+    athList.forEach(function(a) {
+      snap.scores[a.id]  = nilOpportunityScore(a, dealsList);
+      snap.relStr[a.id]  = relationshipStrengthScore(a, dealsList);
+    });
+    dealsList.forEach(function(d) { if (d.id) snap.dealStages[d.id] = d.stage || ''; });
+    localStorage.setItem(_SNAP_KEY, JSON.stringify(snap));
+  } catch(e) {}
+}
+function _loadSnap() {
+  try { return JSON.parse(localStorage.getItem(_SNAP_KEY) || 'null'); } catch(e) { return null; }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────
 async function loadIntelHQ() {
-  // Pull from already-warm cache populated during loadAthletes()
   _intelDeals = [];
   (athletes || []).forEach(function(a) {
     var cached = window._athleteDealsCache && window._athleteDealsCache[a.id];
@@ -5217,13 +5286,20 @@ async function loadIntelHQ() {
       cached.forEach(function(d) { _intelDeals.push(Object.assign({}, d, { athleteId: a.id, athleteName: a.name })); });
     }
   });
+  var yesterday = _loadSnap();
   renderIntelKPIs();
+  renderDailyFeed(yesterday);
   renderPriorityList();
-  renderRiskFlags();
-  renderPositionHeatMap();
+  renderMomentumMovers(yesterday);
+  renderHiddenOpportunities();
+  renderMoneyLeftOnTable();
+  renderChurnRisk();
+  renderOpportunityMatrix();
+  // Save today's snapshot for tomorrow
+  setTimeout(function() { _saveSnap(athletes, _intelDeals); }, 2000);
 }
 
-// ── Tab switcher ───────────────────────────────────────────────────
+// ── Tab switcher ─────────────────────────────────────────────────
 function showIntelTab(tab) {
   ['hq', 'roster', 'portal'].forEach(function(t) {
     var pane = document.getElementById('intel-pane-' + t);
@@ -5340,17 +5416,443 @@ function getAthleteRiskFlags(athlete, dealsList) {
   return flags;
 }
 
+// ── Relationship Strength Score (0–100) ──────────────────────────
+function relationshipStrengthScore(athlete, dealsList) {
+  var score = 15;
+  var days  = getDaysSinceContact(athlete, dealsList);
+  var myDeals = (dealsList || []).filter(function(d) { return d.athleteId === athlete.id; });
+
+  // Recency bonus
+  if      (days === 0)             score += 35;
+  else if (days <= 3)              score += 30;
+  else if (days <= 7)              score += 25;
+  else if (days <= 14)             score += 18;
+  else if (days <= 30)             score += 10;
+  else if (days <= 60)             score += 4;
+  else if (days < 999)             score += 1;
+  // days === 999 (never) = +0
+
+  // Deal activity
+  var hasClosed = myDeals.some(function(d) { return d.stage === 'Closed'; });
+  var hasActive = myDeals.some(function(d) { return ['Closing','Negotiating'].includes(d.stage); });
+  if (hasClosed)      score += 25;
+  else if (hasActive) score += 18;
+  else if (myDeals.length) score += 8;
+  if (myDeals.length >= 3) score += 10;
+  if (myDeals.length >= 5) score += 5;
+
+  // Notes presence
+  if ((athlete.notes || '') + (athlete.agentNote || '')) score += 5;
+
+  // Manual status override modifier
+  var relStatus = athlete.relationshipStatus || '';
+  if (relStatus === 'signed')        score += 5;
+  else if (relStatus === 'active')   score += 3;
+  else if (relStatus === 'in-discussion') score += 2;
+  else if (relStatus === 'former-client') score -= 5;
+
+  return Math.min(100, Math.max(0, Math.round(score)));
+}
+
+// ── Churn Risk Score (0–100, higher = more risk) ──────────────────
+function churnRiskScore(athlete, dealsList) {
+  var risk  = 0;
+  var days  = getDaysSinceContact(athlete, dealsList);
+  var year  = (athlete.year || '').toLowerCase();
+  var notes = ((athlete.notes || '') + ' ' + (athlete.agentNote || '')).toLowerCase();
+  var myDeals = (dealsList || []).filter(function(d) { return d.athleteId === athlete.id; });
+
+  // Contact recency
+  if      (days === 999) risk += 50;
+  else if (days >= 60)   risk += 40;
+  else if (days >= 45)   risk += 30;
+  else if (days >= 30)   risk += 20;
+  else if (days >= 15)   risk += 8;
+  else if (days >= 7)    risk += 3;
+
+  // Graduating senior
+  if (year.includes('sr') || year.includes('senior')) risk += 20;
+
+  // Transfer / exit signals in notes
+  if (notes.includes('transfer') || notes.includes('portal'))       risk += 20;
+  if (notes.includes('leaving') || notes.includes('gone'))          risk += 15;
+  if (notes.includes('decommit') || notes.includes('uncommitted'))  risk += 10;
+
+  // Stalled deals
+  var now = Date.now();
+  myDeals.forEach(function(d) {
+    var updated = new Date(d.updatedAt || d.createdAt || 0).getTime();
+    var staleDays = Math.floor((now - updated) / 86400000);
+    if (d.stage === 'Negotiating' && staleDays > 21) risk += 15;
+    if (d.stage === 'Outreach Sent' && staleDays > 14) risk += 8;
+  });
+
+  // No social data
+  var reach = (parseInt(athlete.instagram)||0) + (parseInt(athlete.tiktok)||0);
+  if (!reach) risk += 5;
+
+  return Math.min(100, Math.max(0, Math.round(risk)));
+}
+
+// ── Estimate Annual NIL Value ─────────────────────────────────────
+function estimateAnnualNIL(athlete) {
+  var score = nilOpportunityScore(athlete, []);
+  var reach = (parseInt(athlete.instagram)||0) + (parseInt(athlete.tiktok)||0);
+  if (score >= 88 || reach > 1000000) return { low: 100000, high: 500000, label: '$100K–$500K' };
+  if (score >= 78 || reach > 300000)  return { low:  30000, high: 120000, label:  '$30K–$120K' };
+  if (score >= 68 || reach > 100000)  return { low:  10000, high:  50000, label:  '$10K–$50K'  };
+  if (score >= 58 || reach > 30000)   return { low:   3000, high:  15000, label:   '$3K–$15K'  };
+  return { low: 500, high: 5000, label: '$500–$5K' };
+}
+
 // ── KPI strip ─────────────────────────────────────────────────────
 function renderIntelKPIs() {
   var deals = _intelDeals || [];
   var needsAttention = athletes.filter(function(a) { return getDaysSinceContact(a, deals) > 7; }).length;
   var hot            = athletes.filter(function(a) { return nilOpportunityScore(a, deals) >= 75; }).length;
   var activeDeals    = deals.filter(function(d) { return d.stage && d.stage !== 'Closed'; }).length;
+  var churnRisk      = athletes.filter(function(a) { return churnRiskScore(a, deals) >= 60; }).length;
   var set = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
   set('intel-kpi-clients', athletes.length);
   set('intel-kpi-attention', needsAttention);
   set('intel-kpi-hot', hot);
   set('intel-kpi-active-deals', activeDeals);
+  set('intel-kpi-churn', churnRisk);
+}
+
+// ── What Changed Since Yesterday ──────────────────────────────────
+function renderDailyFeed(yesterday) {
+  var el = document.getElementById('intel-daily-feed');
+  var ts = document.getElementById('intel-feed-ts');
+  if (!el) return;
+
+  var deals   = _intelDeals || [];
+  var today   = new Date().toDateString();
+  var events  = [];
+
+  if (!yesterday || yesterday.date === today) {
+    // First run today — just show baseline established
+    if (!yesterday) {
+      el.innerHTML = '<span style="font-size:11px;color:var(--muted)">Baseline established — check back tomorrow for daily changes.</span>';
+      if (ts) ts.textContent = 'First session today';
+      return;
+    }
+  }
+
+  // New athletes
+  var prevIds = yesterday.athleteIds || [];
+  athletes.forEach(function(a) {
+    if (!prevIds.includes(a.id)) events.push({ type: 'new', label: a.name + ' added to roster', color: 'var(--accent)' });
+  });
+  prevIds.forEach(function(id) {
+    if (!athletes.find(function(a) { return a.id === id; })) events.push({ type: 'removed', label: 'Athlete removed from roster', color: '#6b7280' });
+  });
+
+  // Score changes
+  var prevScores = yesterday.scores || {};
+  athletes.forEach(function(a) {
+    var now  = nilOpportunityScore(a, deals);
+    var prev = prevScores[a.id];
+    if (prev === undefined) return;
+    var delta = now - prev;
+    if (delta >= 5)  events.push({ type: 'up',   label: a.name + ' NIL score +' + delta,        color: 'var(--accent)' });
+    if (delta <= -5) events.push({ type: 'down',  label: a.name + ' NIL score ' + delta,         color: '#f59e0b'       });
+  });
+
+  // Deal stage advances
+  var prevStages = yesterday.dealStages || {};
+  var stageOrder = { 'Prospecting':0, 'Outreach Sent':1, 'Negotiating':2, 'Closing':3, 'Closed':4 };
+  deals.forEach(function(d) {
+    var prev = prevStages[d.id];
+    if (prev && prev !== d.stage) {
+      var prevRank = stageOrder[prev] || 0;
+      var nowRank  = stageOrder[d.stage] || 0;
+      if (nowRank > prevRank) events.push({ type: 'deal', label: (d.brand || 'Deal') + ' → ' + d.stage + (d.athleteName ? ' (' + d.athleteName + ')' : ''), color: '#60a5fa' });
+    }
+  });
+
+  // Hit 30-day stale threshold today
+  athletes.forEach(function(a) {
+    var days = getDaysSinceContact(a, deals);
+    if (days === 30) events.push({ type: 'stale', label: a.name + ' hit 30 days with no contact', color: '#ef4444' });
+  });
+
+  if (!events.length) {
+    el.innerHTML = '<span style="font-size:11px;color:#4ade80">No major changes since yesterday — all clear.</span>';
+  } else {
+    var typeIcon = { up: '↑', down: '↓', new: '+', removed: '−', deal: '→', stale: '!' };
+    el.innerHTML = events.slice(0, 10).map(function(ev) {
+      return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:4px 9px;border-radius:20px;background:' + ev.color + '15;color:' + ev.color + ';border:1px solid ' + ev.color + '30;font-weight:600;white-space:nowrap">' +
+        (typeIcon[ev.type] || '•') + ' ' + ev.label + '</span>';
+    }).join('');
+    if (events.length > 10) el.innerHTML += '<span style="font-size:10px;color:var(--muted);padding:4px 8px">+' + (events.length - 10) + ' more</span>';
+  }
+  if (ts) ts.textContent = today;
+}
+
+// ── Momentum Movers ───────────────────────────────────────────────
+function renderMomentumMovers(yesterday) {
+  var el = document.getElementById('intel-momentum');
+  if (!el) return;
+  var deals = _intelDeals || [];
+
+  if (!yesterday) {
+    el.innerHTML = '<div style="font-size:10px;color:var(--muted);padding:4px 0">Baseline set today — momentum tracked from tomorrow.</div>';
+    return;
+  }
+
+  var prevScores = yesterday.scores || {};
+  var movers = athletes.map(function(a) {
+    var now   = nilOpportunityScore(a, deals);
+    var prev  = prevScores[a.id];
+    var delta = (prev !== undefined) ? now - prev : 0;
+    return { a: a, now: now, delta: delta };
+  }).filter(function(m) { return Math.abs(m.delta) >= 3; })
+    .sort(function(x, y) { return Math.abs(y.delta) - Math.abs(x.delta); });
+
+  if (!movers.length) {
+    el.innerHTML = '<div style="font-size:10px;color:var(--muted);padding:4px 0">No significant score changes since yesterday.</div>';
+    return;
+  }
+
+  el.innerHTML = movers.slice(0, 6).map(function(m) {
+    var up    = m.delta >= 0;
+    var color = up ? 'var(--accent)' : '#f59e0b';
+    var sign  = up ? '+' : '';
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">' +
+      '<div>' +
+        '<div style="font-size:11px;font-weight:700;color:var(--text)">' + m.a.name + '</div>' +
+        '<div style="font-size:9px;color:var(--muted)">' + (m.a.sport||'') + (m.a.school?' · '+m.a.school:'') + '</div>' +
+      '</div>' +
+      '<div style="text-align:right">' +
+        '<div style="font-size:13px;font-weight:800;color:' + color + '">' + sign + m.delta + '</div>' +
+        '<div style="font-size:9px;color:var(--muted)">score: ' + m.now + '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ── Hidden Opportunities Engine ───────────────────────────────────
+function renderHiddenOpportunities() {
+  var el = document.getElementById('intel-hidden-opps');
+  if (!el) return;
+  var deals = _intelDeals || [];
+
+  var opps = athletes.filter(function(a) {
+    var score  = nilOpportunityScore(a, deals);
+    var relStr = relationshipStrengthScore(a, deals);
+    var active = deals.filter(function(d) { return d.athleteId === a.id && d.stage !== 'Closed'; }).length;
+    return score >= 65 && relStr < 50 && active === 0;
+  }).map(function(a) {
+    return { a: a, score: nilOpportunityScore(a, deals), rel: relationshipStrengthScore(a, deals), est: estimateAnnualNIL(a) };
+  }).sort(function(x, y) { return y.score - x.score; });
+
+  if (!opps.length) {
+    el.innerHTML = '<div style="font-size:11px;color:#4ade80;padding:4px 0">No hidden opportunities — all high-score athletes have active deals.</div>';
+    return;
+  }
+
+  el.innerHTML = opps.slice(0, 5).map(function(item) {
+    var a = item.a;
+    var days = getDaysSinceContact(a, deals);
+    var daysStr = days === 999 ? 'Never contacted' : days + 'd since contact';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="width:36px;height:36px;border-radius:50%;border:2px solid var(--accent);background:rgba(200,241,53,0.08);display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+        '<span style="font-size:12px;font-weight:800;color:var(--accent)">' + item.score + '</span>' +
+      '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:12px;font-weight:700;color:var(--text)">' + a.name + '</div>' +
+        '<div style="font-size:10px;color:var(--muted)">' + (a.sport||'') + (a.school?' · '+a.school:'') + '</div>' +
+        '<div style="font-size:9px;color:#f59e0b;margin-top:2px">' + daysStr + ' · Rel strength: ' + item.rel + '</div>' +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--accent)">' + item.est.label + '</div>' +
+        '<div style="font-size:8px;color:var(--muted)">est. annual</div>' +
+        '<button onclick="selectedAthleteId=\'' + a.id + '\';document.getElementById(\'activeAthlete\').value=\'' + a.id + '\';showView(\'outreach\',null)" style="margin-top:4px;font-size:9px;padding:3px 8px;background:var(--accent);border:none;border-radius:4px;color:#000;font-weight:700;cursor:pointer">Contact</button>' +
+      '</div>' +
+    '</div>';
+  }).join('') + (opps.length > 5 ? '<div style="font-size:10px;color:var(--muted);padding-top:8px">+ ' + (opps.length - 5) + ' more — filter by score 65+ in Roster Intel</div>' : '');
+}
+
+// ── Money Left on the Table ───────────────────────────────────────
+function renderMoneyLeftOnTable() {
+  var el = document.getElementById('intel-money-table');
+  if (!el) return;
+  var deals = _intelDeals || [];
+
+  var missed = athletes.filter(function(a) {
+    var active = deals.filter(function(d) { return d.athleteId === a.id && d.stage !== 'Closed'; }).length;
+    return active === 0 && nilOpportunityScore(a, deals) >= 55;
+  }).map(function(a) {
+    return { a: a, score: nilOpportunityScore(a, deals), est: estimateAnnualNIL(a) };
+  }).sort(function(x, y) { return y.est.high - x.est.high; });
+
+  if (!missed.length) {
+    el.innerHTML = '<div style="font-size:11px;color:#4ade80;padding:4px 0">All scoreable athletes have active deals.</div>';
+    return;
+  }
+
+  var totalLow  = missed.reduce(function(s, m) { return s + m.est.low;  }, 0);
+  var totalHigh = missed.reduce(function(s, m) { return s + m.est.high; }, 0);
+  var fmt = function(n) { return n >= 1000000 ? '$'+(n/1000000).toFixed(1)+'M' : n >= 1000 ? '$'+Math.round(n/1000)+'K' : '$'+n; };
+
+  el.innerHTML =
+    '<div style="padding:10px 12px;border-radius:6px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);margin-bottom:10px">' +
+      '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">Estimated untapped annual revenue (' + missed.length + ' athletes)</div>' +
+      '<div style="font-size:18px;font-weight:800;color:#ef4444">' + fmt(totalLow) + ' – ' + fmt(totalHigh) + '</div>' +
+    '</div>' +
+    missed.slice(0, 4).map(function(item) {
+      var a = item.a;
+      var scoreColor = item.score >= 75 ? 'var(--accent)' : '#f59e0b';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">' +
+        '<div>' +
+          '<div style="font-size:11px;font-weight:700;color:var(--text)">' + a.name + '</div>' +
+          '<div style="font-size:9px;color:var(--muted)">' + (a.sport||'') + (a.school?' · '+a.school:'') + '</div>' +
+        '</div>' +
+        '<div style="text-align:right">' +
+          '<div style="font-size:11px;font-weight:700;color:' + scoreColor + '">' + item.est.label + '/yr</div>' +
+          '<div style="font-size:8px;color:var(--muted)">NIL score ' + item.score + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('') + (missed.length > 4 ? '<div style="font-size:10px;color:var(--muted);padding-top:6px">+ ' + (missed.length - 4) + ' more athletes with zero active deals</div>' : '');
+}
+
+// ── Silent Churn Risk ─────────────────────────────────────────────
+function renderChurnRisk() {
+  var el = document.getElementById('intel-churn-list');
+  if (!el) return;
+  var deals = _intelDeals || [];
+
+  var risked = athletes.map(function(a) {
+    return { a: a, risk: churnRiskScore(a, deals), days: getDaysSinceContact(a, deals) };
+  }).filter(function(item) { return item.risk >= 30; })
+    .sort(function(x, y) { return y.risk - x.risk; });
+
+  if (!risked.length) {
+    el.innerHTML = '<div style="font-size:10px;color:#4ade80;padding:4px 0">No significant churn risk detected.</div>';
+    return;
+  }
+
+  el.innerHTML = risked.slice(0, 6).map(function(item) {
+    var a = item.a;
+    var riskColor = item.risk >= 70 ? '#ef4444' : item.risk >= 50 ? '#f59e0b' : '#6b7280';
+    var barWidth  = item.risk + '%';
+    var daysLabel = item.days === 999 ? 'Never contacted' : item.days + 'd silent';
+    return '<div style="padding:7px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--text)">' + a.name + '</div>' +
+        '<div style="font-size:11px;font-weight:800;color:' + riskColor + '">' + item.risk + '</div>' +
+      '</div>' +
+      '<div style="height:3px;background:var(--surface2);border-radius:2px;margin-bottom:4px">' +
+        '<div style="width:' + barWidth + ';height:100%;background:' + riskColor + ';border-radius:2px;transition:width 0.4s"></div>' +
+      '</div>' +
+      '<div style="font-size:9px;color:var(--muted)">' + daysLabel + (a.year && (a.year.toLowerCase().includes('sr') || a.year.toLowerCase().includes('senior')) ? ' · Graduating' : '') + '</div>' +
+    '</div>';
+  }).join('') + (risked.length > 6 ? '<div style="font-size:10px;color:var(--muted);padding-top:6px">+ ' + (risked.length - 6) + ' more at risk</div>' : '');
+}
+
+// ── Opportunity Matrix (2×2) ──────────────────────────────────────
+function renderOpportunityMatrix() {
+  var el = document.getElementById('intel-opp-matrix');
+  var leg = document.getElementById('intel-matrix-legend');
+  if (!el || !athletes.length) {
+    if (el) el.innerHTML = '<div style="color:var(--muted);font-size:11px">No roster data</div>';
+    return;
+  }
+  var deals = _intelDeals || [];
+
+  // Quadrant thresholds
+  var NIL_HIGH = 65, REL_HIGH = 50;
+  var quads = {
+    HH: { label: 'Revenue Engine',   sub: 'High NIL + Strong rel',   color: 'var(--accent)', bg: 'rgba(200,241,53,0.08)',  athletes: [] },
+    HL: { label: 'Hidden Gold',      sub: 'High NIL + Weak rel',     color: '#f59e0b',        bg: 'rgba(245,158,11,0.08)', athletes: [] },
+    LH: { label: 'Loyal Base',       sub: 'Low NIL + Strong rel',    color: '#60a5fa',        bg: 'rgba(96,165,250,0.08)', athletes: [] },
+    LL: { label: 'Cold Prospects',   sub: 'Low NIL + Weak rel',      color: '#6b7280',        bg: 'rgba(107,114,128,0.06)', athletes: [] }
+  };
+
+  athletes.forEach(function(a) {
+    var nilSc = nilOpportunityScore(a, deals);
+    var relSc = relationshipStrengthScore(a, deals);
+    var key = (nilSc >= NIL_HIGH ? 'H' : 'L') + (relSc >= REL_HIGH ? 'H' : 'L');
+    quads[key].athletes.push(a);
+  });
+
+  // 2×2 grid
+  el.style.display = 'grid';
+  el.style.gridTemplateColumns = '1fr 1fr';
+  el.style.gap = '6px';
+  el.innerHTML = [
+    { key:'HH', pos:'top-left'  }, { key:'HL', pos:'top-right'    },
+    { key:'LH', pos:'bot-left'  }, { key:'LL', pos:'bot-right'    }
+  ].map(function(cell) {
+    var q = quads[cell.key];
+    var dotStr = q.athletes.slice(0, 8).map(function(a) {
+      return '<span title="' + a.name + '" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + q.color + ';margin:1px"></span>';
+    }).join('') + (q.athletes.length > 8 ? '<span style="font-size:8px;color:' + q.color + '">+' + (q.athletes.length - 8) + '</span>' : '');
+
+    return '<div style="background:' + q.bg + ';border:1px solid ' + q.color + '30;border-radius:6px;padding:10px 10px 8px">' +
+      '<div style="font-size:10px;font-weight:800;color:' + q.color + ';margin-bottom:2px">' + q.label + '</div>' +
+      '<div style="font-size:8px;color:var(--muted);margin-bottom:6px">' + q.sub + '</div>' +
+      '<div style="font-size:20px;font-weight:800;color:' + q.color + ';margin-bottom:4px">' + q.athletes.length + '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:1px">' + dotStr + '</div>' +
+    '</div>';
+  }).join('');
+
+  // Legend
+  if (leg) leg.innerHTML =
+    '<div style="font-size:8px;color:var(--muted);text-align:center">NIL ≥' + NIL_HIGH + ' = High   ·   Relationship ≥' + REL_HIGH + ' = Strong</div>';
+}
+
+// ── Warm Introduction Paths ───────────────────────────────────────
+function renderWarmIntros() {
+  var el = document.getElementById('intel-warm-intros');
+  if (!el) return;
+  var deals = _intelDeals || [];
+
+  // Group by school
+  var bySchool = {};
+  athletes.forEach(function(a) {
+    var school = (a.school || '').trim();
+    if (!school) return;
+    if (!bySchool[school]) bySchool[school] = [];
+    bySchool[school].push(a);
+  });
+
+  var paths = [];
+  Object.keys(bySchool).forEach(function(school) {
+    var group = bySchool[school];
+    if (group.length < 2) return;
+    // Find strong relationships (rel strength >= 55)
+    var warm  = group.filter(function(a) { return relationshipStrengthScore(a, deals) >= 55; });
+    var cold  = group.filter(function(a) { return relationshipStrengthScore(a, deals) < 45; });
+    warm.forEach(function(w) {
+      cold.forEach(function(c) {
+        paths.push({ school: school, via: w, target: c,
+          viaStr: getRelationshipLabel(getRelationshipStatus(w, deals)) });
+      });
+    });
+  });
+
+  if (!paths.length) {
+    el.innerHTML = '<div style="font-size:11px;color:var(--muted)">No warm paths detected. Add more athletes from the same schools to reveal introduction opportunities.</div>';
+    return;
+  }
+
+  el.style.display = 'grid';
+  el.style.gridTemplateColumns = 'repeat(auto-fill,minmax(260px,1fr))';
+  el.style.gap = '10px';
+  el.innerHTML = paths.slice(0, 6).map(function(p) {
+    return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px">' +
+      '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">' + p.school + '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+        '<div style="font-size:11px;font-weight:700;color:var(--accent)">' + p.via.name + '</div>' +
+        '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(200,241,53,0.12);color:var(--accent)">' + p.viaStr + '</span>' +
+        '<span style="font-size:11px;color:var(--muted)">→</span>' +
+        '<div style="font-size:11px;font-weight:700;color:var(--text)">' + p.target.name + '</div>' +
+      '</div>' +
+      '<div style="font-size:9px;color:var(--muted);margin-top:6px">Ask ' + p.via.name.split(' ')[0] + ' to introduce you to ' + p.target.name.split(' ')[0] + ' — same program, stronger path than cold outreach.</div>' +
+    '</div>';
+  }).join('');
 }
 
 // ── Priority Prospect List (HQ tab) ──────────────────────────────
@@ -5365,16 +5867,24 @@ function renderPriorityList() {
   }
 
   var scored = athletes.map(function(a) {
-    return { a: a, score: nilOpportunityScore(a, deals), status: getRelationshipStatus(a, deals), days: getDaysSinceContact(a, deals), flags: getAthleteRiskFlags(a, deals) };
+    return {
+      a:      a,
+      score:  nilOpportunityScore(a, deals),
+      rel:    relationshipStrengthScore(a, deals),
+      churn:  churnRiskScore(a, deals),
+      status: getRelationshipStatus(a, deals),
+      days:   getDaysSinceContact(a, deals)
+    };
   }).sort(function(x, y) { return y.score - x.score; });
 
   el.innerHTML = scored.slice(0, 10).map(function(item) {
-    var a = item.a;
-    var sc = item.score;
+    var a          = item.a;
+    var sc         = item.score;
     var scoreColor = sc >= 75 ? 'var(--accent)' : sc >= 55 ? '#f59e0b' : '#6b7280';
     var relColor   = getRelationshipColor(item.status);
     var relLabel   = getRelationshipLabel(item.status);
-    var reach      = (parseInt(a.instagram) || 0) + (parseInt(a.tiktok) || 0);
+    var churnColor = item.churn >= 60 ? '#ef4444' : item.churn >= 40 ? '#f59e0b' : '#4ade80';
+    var reach      = (parseInt(a.instagram)||0) + (parseInt(a.tiktok)||0);
     var reachStr   = reach > 1000000 ? (reach/1000000).toFixed(1)+'M' : reach > 1000 ? Math.round(reach/1000)+'K' : (reach||'—');
     var daysStr    = item.days === 999 ? 'Never' : item.days === 0 ? 'Today' : item.days + 'd ago';
 
@@ -5384,79 +5894,17 @@ function renderPriorityList() {
       '</div>' +
       '<div style="flex:1;min-width:0">' +
         '<div style="font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (a.name || 'Unknown') + '</div>' +
-        '<div style="font-size:10px;color:var(--muted);margin-top:1px">' + [(a.position || null), (a.sport || null), (a.school || null)].filter(Boolean).join(' · ') + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:1px">' + [(a.position||null),(a.sport||null),(a.school||null)].filter(Boolean).join(' · ') + '</div>' +
         '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">' +
           '<span style="font-size:9px;padding:1px 6px;border-radius:3px;background:' + relColor + '20;color:' + relColor + ';font-weight:700">' + relLabel + '</span>' +
-          item.flags.slice(0, 2).map(function(f) { return '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:' + f.color + '15;color:' + f.color + '">' + f.label + '</span>'; }).join('') +
+          '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:' + churnColor + '15;color:' + churnColor + '">Risk ' + item.churn + '</span>' +
+          '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(96,165,250,0.1);color:#60a5fa">Rel ' + item.rel + '</span>' +
         '</div>' +
       '</div>' +
       '<div style="text-align:right;flex-shrink:0">' +
         '<div style="font-size:9px;color:var(--muted)">Last contact</div>' +
         '<div style="font-size:11px;font-weight:700;color:' + (item.days > 14 && item.days < 999 ? '#f59e0b' : item.days === 999 ? '#ef4444' : 'var(--muted)') + '">' + daysStr + '</div>' +
         '<div style="font-size:9px;color:var(--muted);margin-top:2px">' + reachStr + ' reach</div>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-}
-
-// ── Risk Flags panel (HQ tab) ─────────────────────────────────────
-function renderRiskFlags() {
-  var el = document.getElementById('intel-risk-flags');
-  if (!el) return;
-  var deals = _intelDeals || [];
-
-  var flagged = [];
-  athletes.forEach(function(a) {
-    var flags = getAthleteRiskFlags(a, deals);
-    if (flags.length) flagged.push({ a: a, flags: flags });
-  });
-
-  if (!flagged.length) {
-    el.innerHTML = '<div style="color:#4ade80;font-size:12px;padding:6px 0">No risk flags — roster looks healthy!</div>';
-    return;
-  }
-
-  el.innerHTML = flagged.slice(0, 7).map(function(item) {
-    return '<div style="padding:8px 0;border-bottom:1px solid var(--border)">' +
-      '<div style="font-size:12px;font-weight:700;color:var(--text)">' + item.a.name + '</div>' +
-      '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">' +
-        item.flags.map(function(f) {
-          return '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:' + f.color + '15;color:' + f.color + ';border:1px solid ' + f.color + '30">' + f.label + '</span>';
-        }).join('') +
-      '</div>' +
-    '</div>';
-  }).join('') + (flagged.length > 7 ? '<div style="font-size:10px;color:var(--muted);padding-top:8px">+ ' + (flagged.length - 7) + ' more — see Roster Intel tab</div>' : '');
-}
-
-// ── Position Heat Map (HQ tab) ───────────────────────────────────
-function renderPositionHeatMap() {
-  var el = document.getElementById('intel-heat-map');
-  if (!el || !athletes.length) { if (el) el.innerHTML = '<div style="color:var(--muted);font-size:12px">No roster data</div>'; return; }
-  var deals = _intelDeals || [];
-
-  var posGroups = {};
-  athletes.forEach(function(a) {
-    var pos = ((a.position || 'N/A').toUpperCase().trim().split('/')[0] || 'N/A').substring(0, 4);
-    if (!posGroups[pos]) posGroups[pos] = [];
-    posGroups[pos].push(nilOpportunityScore(a, deals));
-  });
-
-  var posArr = Object.keys(posGroups).map(function(pos) {
-    var scores = posGroups[pos];
-    var avg = Math.round(scores.reduce(function(s, x) { return s + x; }, 0) / scores.length);
-    return { pos: pos, avg: avg, count: scores.length };
-  }).sort(function(a, b) { return b.avg - a.avg; });
-
-  el.innerHTML = posArr.slice(0, 10).map(function(item) {
-    var color = item.avg >= 75 ? 'var(--accent)' : item.avg >= 55 ? '#f59e0b' : '#6b7280';
-    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
-      '<div style="width:36px;font-size:10px;font-weight:700;color:var(--muted);text-align:right;flex-shrink:0">' + item.pos + '</div>' +
-      '<div style="flex:1;height:18px;background:var(--surface2);border-radius:4px;overflow:hidden;position:relative">' +
-        '<div style="width:' + item.avg + '%;height:100%;background:' + color + ';opacity:0.35;border-radius:4px;transition:width 0.4s"></div>' +
-        '<div style="position:absolute;inset:0;display:flex;align-items:center;padding:0 8px;gap:6px">' +
-          '<span style="font-size:9px;font-weight:800;color:' + color + '">' + item.avg + '</span>' +
-          '<span style="font-size:8px;color:var(--muted)">(' + item.count + (item.count === 1 ? ' athlete' : ' athletes') + ')</span>' +
-        '</div>' +
       '</div>' +
     '</div>';
   }).join('');
@@ -5528,19 +5976,22 @@ function renderRosterIntel() {
   el.style.gap = '12px';
 
   el.innerHTML = filtered.map(function(a) {
-    var score     = nilOpportunityScore(a, deals);
-    var status    = getRelationshipStatus(a, deals);
-    var flags     = getAthleteRiskFlags(a, deals);
-    var relColor  = getRelationshipColor(status);
-    var scoreColor= score >= 75 ? 'var(--accent)' : score >= 55 ? '#f59e0b' : '#6b7280';
-    var reach     = (parseInt(a.instagram)||0) + (parseInt(a.tiktok)||0);
-    var reachStr  = reach > 1000000 ? (reach/1000000).toFixed(1)+'M' : reach > 1000 ? Math.round(reach/1000)+'K' : reach > 0 ? reach : '—';
-    var myDeals   = deals.filter(function(d) { return d.athleteId === a.id; });
-    var days      = getDaysSinceContact(a, deals);
-    var daysStr   = days === 999 ? 'Never' : days === 0 ? 'Today' : days + 'd ago';
-    var daysColor = days === 999 ? '#ef4444' : days > 14 ? '#f59e0b' : 'var(--muted)';
+    var score      = nilOpportunityScore(a, deals);
+    var relStr     = relationshipStrengthScore(a, deals);
+    var churnRisk  = churnRiskScore(a, deals);
+    var status     = getRelationshipStatus(a, deals);
+    var relColor   = getRelationshipColor(status);
+    var scoreColor = score >= 75 ? 'var(--accent)' : score >= 55 ? '#f59e0b' : '#6b7280';
+    var churnColor = churnRisk >= 60 ? '#ef4444' : churnRisk >= 40 ? '#f59e0b' : '#4ade80';
+    var relStrColor= relStr >= 60 ? 'var(--accent)' : relStr >= 35 ? '#60a5fa' : '#6b7280';
+    var reach      = (parseInt(a.instagram)||0) + (parseInt(a.tiktok)||0);
+    var reachStr   = reach > 1000000 ? (reach/1000000).toFixed(1)+'M' : reach > 1000 ? Math.round(reach/1000)+'K' : reach > 0 ? reach : '—';
+    var myDeals    = deals.filter(function(d) { return d.athleteId === a.id; });
+    var days       = getDaysSinceContact(a, deals);
+    var daysStr    = days === 999 ? 'Never' : days === 0 ? 'Today' : days + 'd ago';
+    var daysColor  = days === 999 ? '#ef4444' : days > 14 ? '#f59e0b' : 'var(--muted)';
+    var est        = estimateAnnualNIL(a);
 
-    // Relationship dropdown
     var relOpts = ['not-contacted','outreach-sent','in-discussion','active','signed','former-client'];
     var relDrop = '<select onchange="updateRelationshipStatus(\'' + a.id + '\',this.value)" ' +
       'style="font-size:10px;padding:3px 6px;background:' + relColor + '18;border:1px solid ' + relColor + '50;border-radius:4px;color:' + relColor + ';cursor:pointer;font-weight:700;outline:none;font-family:inherit">' +
@@ -5548,37 +5999,52 @@ function renderRosterIntel() {
         return '<option value="' + opt + '"' + (status === opt ? ' selected' : '') + '>' + getRelationshipLabel(opt) + '</option>';
       }).join('') + '</select>';
 
-    var safeName = (a.name || '').replace(/'/g, "\\'");
+    var borderColor = score >= 75 ? 'rgba(200,241,53,0.22)' : churnRisk >= 60 ? 'rgba(239,68,68,0.2)' : 'var(--border)';
 
-    return '<div style="background:var(--surface);border:1px solid ' + (score >= 75 ? 'rgba(200,241,53,0.22)' : 'var(--border)') + ';border-radius:var(--r);padding:16px;position:relative;transition:border-color 0.15s">' +
-      // Score badge
+    return '<div style="background:var(--surface);border:1px solid ' + borderColor + ';border-radius:var(--r);padding:16px;position:relative;transition:border-color 0.15s">' +
+      // NIL score badge
       '<div style="position:absolute;top:14px;right:14px;width:46px;height:46px;border-radius:50%;border:2px solid ' + scoreColor + ';background:' + scoreColor + '10;display:flex;align-items:center;justify-content:center">' +
         '<div style="text-align:center"><div style="font-size:14px;font-weight:800;color:' + scoreColor + ';line-height:1">' + score + '</div><div style="font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">NIL</div></div>' +
       '</div>' +
       // Name + info
       '<div style="padding-right:58px;margin-bottom:8px">' +
         '<div style="font-size:14px;font-weight:700;color:var(--text)">' + (a.name || 'Unknown') + '</div>' +
-        '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + [(a.position || null), (a.sport || null)].filter(Boolean).join(' · ') + '</div>' +
-        (a.school ? '<div style="font-size:10px;color:var(--muted);opacity:0.7">' + a.school + (a.schoolTier ? ' (' + a.schoolTier + ')' : '') + '</div>' : '') +
+        '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + [(a.position||null),(a.sport||null)].filter(Boolean).join(' · ') + '</div>' +
+        (a.school ? '<div style="font-size:10px;color:var(--muted);opacity:0.7">' + a.school + (a.schoolTier?' ('+a.schoolTier+')':'') + '</div>' : '') +
       '</div>' +
-      // Relationship + year
+      // Relationship dropdown + year
       '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">' +
         relDrop +
         (a.year ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:var(--surface2);color:var(--muted)">' + a.year + '</span>' : '') +
       '</div>' +
-      // Stats grid
-      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">' +
-        '<div style="background:var(--surface2);border-radius:4px;padding:6px 8px"><div style="font-size:8px;color:var(--muted);text-transform:uppercase">Reach</div><div style="font-size:12px;font-weight:700;color:var(--text)">' + reachStr + '</div></div>' +
-        '<div style="background:var(--surface2);border-radius:4px;padding:6px 8px"><div style="font-size:8px;color:var(--muted);text-transform:uppercase">Deals</div><div style="font-size:12px;font-weight:700;color:var(--text)">' + myDeals.length + '</div></div>' +
-        '<div style="background:var(--surface2);border-radius:4px;padding:6px 8px"><div style="font-size:8px;color:var(--muted);text-transform:uppercase">Contact</div><div style="font-size:12px;font-weight:700;color:' + daysColor + '">' + daysStr + '</div></div>' +
+      // Three score bars
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:10px">' +
+        '<div style="background:var(--surface2);border-radius:4px;padding:6px 7px">' +
+          '<div style="font-size:7px;color:var(--muted);text-transform:uppercase;margin-bottom:3px">Rel Strength</div>' +
+          '<div style="height:3px;background:rgba(255,255,255,0.06);border-radius:2px;margin-bottom:3px"><div style="width:' + relStr + '%;height:100%;background:' + relStrColor + ';border-radius:2px"></div></div>' +
+          '<div style="font-size:11px;font-weight:700;color:' + relStrColor + '">' + relStr + '</div>' +
+        '</div>' +
+        '<div style="background:var(--surface2);border-radius:4px;padding:6px 7px">' +
+          '<div style="font-size:7px;color:var(--muted);text-transform:uppercase;margin-bottom:3px">Churn Risk</div>' +
+          '<div style="height:3px;background:rgba(255,255,255,0.06);border-radius:2px;margin-bottom:3px"><div style="width:' + churnRisk + '%;height:100%;background:' + churnColor + ';border-radius:2px"></div></div>' +
+          '<div style="font-size:11px;font-weight:700;color:' + churnColor + '">' + churnRisk + '</div>' +
+        '</div>' +
+        '<div style="background:var(--surface2);border-radius:4px;padding:6px 7px">' +
+          '<div style="font-size:7px;color:var(--muted);text-transform:uppercase;margin-bottom:3px">Est. Annual</div>' +
+          '<div style="font-size:9px;font-weight:700;color:var(--accent);margin-top:6px">' + est.label + '</div>' +
+        '</div>' +
       '</div>' +
-      // Risk flags
-      (flags.length ? '<div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:10px">' + flags.map(function(f) { return '<span style="font-size:8px;padding:2px 6px;border-radius:3px;background:' + f.color + '12;color:' + f.color + ';border:1px solid ' + f.color + '25">' + f.label + '</span>'; }).join('') + '</div>' : '') +
+      // Stats row
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:10px">' +
+        '<div style="background:var(--surface2);border-radius:4px;padding:5px 7px"><div style="font-size:7px;color:var(--muted);text-transform:uppercase">Reach</div><div style="font-size:11px;font-weight:700;color:var(--text)">' + reachStr + '</div></div>' +
+        '<div style="background:var(--surface2);border-radius:4px;padding:5px 7px"><div style="font-size:7px;color:var(--muted);text-transform:uppercase">Deals</div><div style="font-size:11px;font-weight:700;color:var(--text)">' + myDeals.length + '</div></div>' +
+        '<div style="background:var(--surface2);border-radius:4px;padding:5px 7px"><div style="font-size:7px;color:var(--muted);text-transform:uppercase">Contact</div><div style="font-size:11px;font-weight:700;color:' + daysColor + '">' + daysStr + '</div></div>' +
+      '</div>' +
       // Action buttons
-      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-        '<button onclick="showView(\'outreach\',null)" style="flex:1;font-size:10px;padding:6px 8px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;border-radius:5px;cursor:pointer;font-weight:600">Outreach</button>' +
-        '<button onclick="selectedAthleteId=\'' + a.id + '\';document.getElementById(\'activeAthlete\').value=\'' + a.id + '\';showView(\'deals\',null)" style="flex:1;font-size:10px;padding:6px 8px;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.2);color:var(--accent);border-radius:5px;cursor:pointer;font-weight:600">Deal Scan</button>' +
-        '<button onclick="selectedAthleteId=\'' + a.id + '\';document.getElementById(\'activeAthlete\').value=\'' + a.id + '\';showIntelTab(\'portal\')" style="flex:1;font-size:10px;padding:6px 8px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);color:#a78bfa;border-radius:5px;cursor:pointer;font-weight:600">Portal</button>' +
+      '<div style="display:flex;gap:5px;flex-wrap:wrap">' +
+        '<button onclick="showView(\'outreach\',null)" style="flex:1;font-size:10px;padding:5px 6px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;border-radius:5px;cursor:pointer;font-weight:600">Outreach</button>' +
+        '<button onclick="selectedAthleteId=\'' + a.id + '\';document.getElementById(\'activeAthlete\').value=\'' + a.id + '\';showView(\'deals\',null)" style="flex:1;font-size:10px;padding:5px 6px;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.2);color:var(--accent);border-radius:5px;cursor:pointer;font-weight:600">Deal Scan</button>' +
+        '<button onclick="selectedAthleteId=\'' + a.id + '\';document.getElementById(\'activeAthlete\').value=\'' + a.id + '\';showIntelTab(\'portal\')" style="flex:1;font-size:10px;padding:5px 6px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);color:#a78bfa;border-radius:5px;cursor:pointer;font-weight:600">Portal</button>' +
       '</div>' +
     '</div>';
   }).join('');
