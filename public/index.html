@@ -516,6 +516,15 @@ tbody td{padding:11px 14px;vertical-align:middle}
     flex-direction: column !important;
   }
 
+  /* Agent Intelligence — collapse two-col layout on mobile */
+  #intel-pane-hq > div:last-child {
+    grid-template-columns: 1fr !important;
+  }
+  #intel-tab-btn-hq, #intel-tab-btn-roster, #intel-tab-btn-portal {
+    padding: 6px 10px !important;
+    font-size: 11px !important;
+  }
+
   /* Commission table */
   [id*="commission"] table,
   [id*="pipeline"] table {
@@ -2327,75 +2336,187 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
 <!--  TEAM MATCH  -->
       <div id="view-team-match" class="view">
+        <div class="page-title">Agent Intelligence</div>
+        <div class="page-sub">AI-powered daily workflow — priorities, opportunity scoring, and roster intelligence</div>
 
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px">
-          <div><label class="form-label-sm">Conference</label>
-            <select class="select-sm" id="tm-conf">
-              <option value="any">Any conference</option>
-              <optgroup label="Power 4">
-              <option value="SEC">SEC</option>
-              <option value="Big Ten">Big Ten</option>
-              <option value="ACC">ACC</option>
-              <option value="Big 12">Big 12</option>
-              </optgroup>
-              <optgroup label="High Major">
-              <option value="AAC">AAC (American)</option>
-              <option value="Mountain West">Mountain West</option>
-              <option value="Pac-12">Pac-12</option>
-              <option value="Independent">Independent</option>
-              </optgroup>
-              <optgroup label="Mid Major">
-              <option value="Sun Belt">Sun Belt</option>
-              <option value="MAC">MAC</option>
-              <option value="CUSA">Conference USA</option>
-              <option value="Big East">Big East</option>
-              <option value="Atlantic 10">Atlantic 10</option>
-              <option value="MVC">Missouri Valley</option>
-              <option value="WCC">West Coast</option>
-              <option value="SoCon">Southern Conference</option>
-              <option value="Big South">Big South</option>
-              <option value="OVC">Ohio Valley</option>
-              <option value="Ivy">Ivy League</option>
-              </optgroup>
-              <optgroup label="FCS">
-              <option value="MEAC">MEAC</option>
-              <option value="SWAC">SWAC</option>
-              <option value="CAA">CAA</option>
-              <option value="Big Sky">Big Sky</option>
-              <option value="Pioneer">Pioneer League</option>
-              </optgroup>
-            </select>
-          </div>
-          <div><label class="form-label-sm">Min NIL / year</label>
-            <select class="select-sm" id="tm-minnil">
-              <option value="0" selected>Any amount</option>
-              <option value="100000">$100K+</option>
-              <option value="250000">$250K+</option>
-              <option value="500000">$500K+</option>
-              <option value="1000000">$1M+</option>
-            </select>
-          </div>
-          <div><label class="form-label-sm">Sort by</label>
-            <select class="select-sm" id="tm-sort">
-              <option value="fit">Fit score</option>
-              <option value="nil">NIL value</option>
-              <option value="exposure">Pro exposure</option>
-            </select>
-          </div>
-          <div style="display:flex;align-items:flex-end">
-            <button class="run-btn" style="width:100%" id="tm-run-btn" onclick="runTeamMatch()">Scan Teams →</button>
-          </div>
+        <!-- ── Tab Navigation ── -->
+        <div style="display:flex;gap:4px;margin-bottom:20px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px;width:fit-content">
+          <button id="intel-tab-btn-hq" onclick="showIntelTab('hq')" style="padding:7px 18px;border-radius:6px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:var(--accent);color:#000;font-family:'DM Sans',sans-serif;transition:all 0.15s">📊 Daily HQ</button>
+          <button id="intel-tab-btn-roster" onclick="showIntelTab('roster')" style="padding:7px 18px;border-radius:6px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;transition:all 0.15s">🎯 Roster Intel</button>
+          <button id="intel-tab-btn-portal" onclick="showIntelTab('portal')" style="padding:7px 18px;border-radius:6px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:transparent;color:var(--muted);font-family:'DM Sans',sans-serif;transition:all 0.15s">🔄 Transfer Portal</button>
         </div>
-        <div id="tm-summary" style="display:none"></div>
-        <div id="tm-results"></div>
-        <div class="ai-block" id="tm-playbook-block">
-          <div class="ai-header">
-            <div class="spinner" id="tm-spinner"></div>
-            <div class="ai-label" id="tm-playbook-label">Negotiation Playbook</div>
+
+        <!-- ══════════════════════════════════════════════
+             TAB 1 — DAILY HQ
+        ══════════════════════════════════════════════ -->
+        <div id="intel-pane-hq">
+
+          <!-- KPI Strip -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:20px">
+            <div class="kpi"><div class="kpi-label">Total Clients</div><div class="kpi-val" id="intel-kpi-clients" style="font-size:26px">—</div><div class="kpi-sub">On roster</div></div>
+            <div class="kpi"><div class="kpi-label">Needs Attention</div><div class="kpi-val" id="intel-kpi-attention" style="font-size:26px;color:#f59e0b">—</div><div class="kpi-sub">No contact 7+ days</div></div>
+            <div class="kpi"><div class="kpi-label">Hot Prospects</div><div class="kpi-val" id="intel-kpi-hot" style="font-size:26px;color:var(--accent)">—</div><div class="kpi-sub">NIL score 75+</div></div>
+            <div class="kpi"><div class="kpi-label">Active Deals</div><div class="kpi-val" id="intel-kpi-active-deals" style="font-size:26px;color:#60a5fa">—</div><div class="kpi-sub">In pipeline</div></div>
           </div>
-          <div class="ai-content" id="tm-playbook-text"></div>
-        </div>
-      </div>
+
+          <!-- Two-column layout -->
+          <div style="display:grid;grid-template-columns:1fr 320px;gap:16px;align-items:start">
+
+            <!-- LEFT: AI Actions + Priority List -->
+            <div>
+              <!-- AI Daily Action Panel -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:16px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+                  <div>
+                    <div style="font-size:13px;font-weight:700;color:var(--text)">⚡ Today's Priority Actions</div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:2px" id="intel-actions-ts">AI-generated from your CRM data</div>
+                  </div>
+                  <button onclick="loadDailyActions(true)" id="intel-actions-btn" style="font-size:11px;padding:6px 14px;background:rgba(200,241,53,0.1);border:1px solid rgba(200,241,53,0.3);border-radius:6px;color:var(--accent);cursor:pointer;font-weight:700">↻ Refresh</button>
+                </div>
+                <div id="intel-actions-list">
+                  <div style="text-align:center;padding:28px 0">
+                    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Generate AI-powered priorities based on your CRM, deals, and roster activity.</div>
+                    <button onclick="loadDailyActions(true)" style="padding:10px 28px;background:var(--accent);color:#000;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">Generate Today's Actions →</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Priority Prospect List -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+                  <div style="font-size:13px;font-weight:700;color:var(--text)">🏆 Priority Roster — Opportunity Ranked</div>
+                  <button onclick="showIntelTab('roster')" style="font-size:10px;color:var(--accent);background:transparent;border:none;cursor:pointer;font-weight:700">See all →</button>
+                </div>
+                <div id="intel-priority-list"><div style="color:var(--muted);font-size:12px;padding:12px 0">Loading...</div></div>
+              </div>
+            </div>
+
+            <!-- RIGHT: Risk Flags + Position Heat Map -->
+            <div>
+              <!-- Risk Flags -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;margin-bottom:16px">
+                <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px">⚠️ Risk Flags</div>
+                <div id="intel-risk-flags"><div style="color:var(--muted);font-size:12px;padding:8px 0">Loading...</div></div>
+              </div>
+              <!-- Position Heat Map -->
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px">
+                <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">📍 Position Heat Map</div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:14px">Avg NIL opportunity score by position</div>
+                <div id="intel-heat-map"><div style="color:var(--muted);font-size:12px">No roster data</div></div>
+              </div>
+            </div>
+
+          </div>
+        </div><!-- /intel-pane-hq -->
+
+        <!-- ══════════════════════════════════════════════
+             TAB 2 — ROSTER INTEL
+        ══════════════════════════════════════════════ -->
+        <div id="intel-pane-roster" style="display:none">
+
+          <!-- Filters -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end">
+            <div><label class="form-label-sm">Sport</label>
+              <select class="select-sm" id="ri-sport" onchange="renderRosterIntel()">
+                <option value="all">All sports</option>
+                <option value="football">Football</option>
+                <option value="basketball">Basketball</option>
+                <option value="baseball">Baseball</option>
+                <option value="softball">Softball</option>
+                <option value="soccer">Soccer</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div><label class="form-label-sm">Relationship</label>
+              <select class="select-sm" id="ri-rel" onchange="renderRosterIntel()">
+                <option value="all">All stages</option>
+                <option value="not-contacted">Not Contacted</option>
+                <option value="outreach-sent">Outreach Sent</option>
+                <option value="in-discussion">In Discussion</option>
+                <option value="active">Active</option>
+                <option value="signed">Signed</option>
+                <option value="former-client">Former Client</option>
+              </select>
+            </div>
+            <div><label class="form-label-sm">Sort by</label>
+              <select class="select-sm" id="ri-sort" onchange="renderRosterIntel()">
+                <option value="score">NIL Score ↓</option>
+                <option value="name">Name A–Z</option>
+                <option value="relationship">Relationship stage</option>
+                <option value="contact">Last contact</option>
+                <option value="sport">Sport</option>
+              </select>
+            </div>
+            <div><label class="form-label-sm">Min Score</label>
+              <select class="select-sm" id="ri-minscore" onchange="renderRosterIntel()">
+                <option value="0">Any</option>
+                <option value="50">50+</option>
+                <option value="65">65+</option>
+                <option value="75">75+ Hot</option>
+                <option value="85">85+ Elite</option>
+              </select>
+            </div>
+            <div><label class="form-label-sm">Search</label>
+              <input class="input-sm" id="ri-search" placeholder="Name, school, position..." oninput="renderRosterIntel()" style="width:190px">
+            </div>
+          </div>
+
+          <div id="roster-intel-count" style="font-size:11px;color:var(--muted);margin-bottom:12px"></div>
+          <div id="roster-intel-grid"></div>
+        </div><!-- /intel-pane-roster -->
+
+        <!-- ══════════════════════════════════════════════
+             TAB 3 — TRANSFER PORTAL (existing Team Match)
+        ══════════════════════════════════════════════ -->
+        <div id="intel-pane-portal" style="display:none">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:16px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:6px">
+            🔄 <strong style="color:var(--text)">Transfer Portal Intelligence</strong> — Select an active client above, then scan for the best NIL transfer destinations ranked by fit score, NIL value, and pro exposure.
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px">
+            <div><label class="form-label-sm">Conference</label>
+              <select class="select-sm" id="tm-conf">
+                <option value="any">Any conference</option>
+                <optgroup label="Power 4">
+                  <option value="SEC">SEC</option><option value="Big Ten">Big Ten</option><option value="ACC">ACC</option><option value="Big 12">Big 12</option>
+                </optgroup>
+                <optgroup label="High Major">
+                  <option value="AAC">AAC</option><option value="Mountain West">Mountain West</option><option value="Pac-12">Pac-12</option><option value="Independent">Independent</option>
+                </optgroup>
+                <optgroup label="Mid Major">
+                  <option value="Sun Belt">Sun Belt</option><option value="MAC">MAC</option><option value="CUSA">Conference USA</option><option value="Big East">Big East</option><option value="Atlantic 10">Atlantic 10</option><option value="MVC">Missouri Valley</option><option value="WCC">West Coast</option><option value="SoCon">Southern Conference</option><option value="Big South">Big South</option><option value="OVC">Ohio Valley</option><option value="Ivy">Ivy League</option>
+                </optgroup>
+                <optgroup label="FCS">
+                  <option value="MEAC">MEAC</option><option value="SWAC">SWAC</option><option value="CAA">CAA</option><option value="Big Sky">Big Sky</option><option value="Pioneer">Pioneer League</option>
+                </optgroup>
+              </select>
+            </div>
+            <div><label class="form-label-sm">Min NIL / year</label>
+              <select class="select-sm" id="tm-minnil">
+                <option value="0" selected>Any amount</option>
+                <option value="100000">$100K+</option><option value="250000">$250K+</option><option value="500000">$500K+</option><option value="1000000">$1M+</option>
+              </select>
+            </div>
+            <div><label class="form-label-sm">Sort by</label>
+              <select class="select-sm" id="tm-sort">
+                <option value="fit">Fit score</option><option value="nil">NIL value</option><option value="exposure">Pro exposure</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:flex-end">
+              <button class="run-btn" style="width:100%" id="tm-run-btn" onclick="runTeamMatch()">Scan Transfer Portal →</button>
+            </div>
+          </div>
+          <div id="tm-summary" style="display:none"></div>
+          <div id="tm-results"></div>
+          <div class="ai-block" id="tm-playbook-block">
+            <div class="ai-header">
+              <div class="spinner" id="tm-spinner"></div>
+              <div class="ai-label" id="tm-playbook-label">Negotiation Playbook</div>
+            </div>
+            <div class="ai-content" id="tm-playbook-text"></div>
+          </div>
+        </div><!-- /intel-pane-portal -->
+
+      </div><!-- /view-team-match -->
 
   <!-- ── EMAIL INBOX VIEW ─────────────────────────────────────────────── -->
   <div id="view-email-inbox" class="view">
@@ -3281,7 +3402,7 @@ async function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', 'deal-close':'Deal Close Mode', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
+    negotiate:'Negotiation Intel', 'deal-close':'Deal Close Mode', pipeline:'Deal Pipeline', 'team-match':'Agent Intelligence', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','deal-close','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -3293,6 +3414,7 @@ async function showView(id, btn) {
   if (id === 'athlete-portals') loadAthletePortals();
   if (id === 'contract') prefillContract();
   if (id === 'deal-close') onDealCloseViewOpen();
+  if (id === 'team-match') setTimeout(loadIntelHQ, 80);
 }
 async function prefillContract() {
   if (!selectedAthleteId) return;
@@ -5077,7 +5199,481 @@ async function loadCalendar() {
 
 //  INIT 
 
-//  TEAM MATCH 
+// ══════════════════════════════════════════════════════════════════
+//  AGENT INTELLIGENCE SYSTEM
+// ══════════════════════════════════════════════════════════════════
+
+var _intelDeals = null;      // flat [{...deal, athleteId, athleteName}]
+var _dailyActionsCache = null;
+var _dailyActionsDate = null;
+
+// ── Boot: collect all deals from cache, render HQ ─────────────────
+async function loadIntelHQ() {
+  // Pull from already-warm cache populated during loadAthletes()
+  _intelDeals = [];
+  (athletes || []).forEach(function(a) {
+    var cached = window._athleteDealsCache && window._athleteDealsCache[a.id];
+    if (cached && Array.isArray(cached)) {
+      cached.forEach(function(d) { _intelDeals.push(Object.assign({}, d, { athleteId: a.id, athleteName: a.name })); });
+    }
+  });
+  renderIntelKPIs();
+  renderPriorityList();
+  renderRiskFlags();
+  renderPositionHeatMap();
+}
+
+// ── Tab switcher ───────────────────────────────────────────────────
+function showIntelTab(tab) {
+  ['hq', 'roster', 'portal'].forEach(function(t) {
+    var pane = document.getElementById('intel-pane-' + t);
+    var btn  = document.getElementById('intel-tab-btn-' + t);
+    if (!pane || !btn) return;
+    var active = (t === tab);
+    pane.style.display = active ? 'block' : 'none';
+    btn.style.background = active ? 'var(--accent)' : 'transparent';
+    btn.style.color = active ? '#000' : 'var(--muted)';
+  });
+  if (tab === 'roster') renderRosterIntel();
+  // Portal tab needs the athlete bar visible
+  var bar = document.getElementById('athleteBar');
+  if (bar) bar.style.display = 'flex';
+}
+
+// ── NIL Opportunity Score (1–99) ──────────────────────────────────
+function nilOpportunityScore(athlete, dealsList) {
+  var score = 38;
+
+  // Social reach — biggest signal
+  var reach = (parseInt(athlete.instagram) || 0) + (parseInt(athlete.tiktok) || 0) + (parseInt(athlete.twitter) || 0);
+  if      (reach > 1000000) score += 22;
+  else if (reach > 500000)  score += 18;
+  else if (reach > 200000)  score += 14;
+  else if (reach > 100000)  score += 10;
+  else if (reach > 50000)   score += 7;
+  else if (reach > 10000)   score += 4;
+  else if (reach > 1000)    score += 1;
+
+  // Engagement rate
+  var er = parseFloat(athlete.engagement) || 0;
+  if      (er > 8) score += 10;
+  else if (er > 5) score += 7;
+  else if (er > 3) score += 4;
+  else if (er > 1) score += 1;
+
+  // Sport visibility premium
+  var sport = (athlete.sport || '').toLowerCase();
+  if      (sport.includes('football'))                               score += 12;
+  else if (sport.includes('basketball'))                             score += 10;
+  else if (sport.includes('baseball') || sport.includes('softball')) score += 6;
+  else if (sport.includes('soccer') || sport.includes('track'))      score += 4;
+  else                                                               score += 2;
+
+  // School tier
+  var tier = (athlete.schoolTier || '').toLowerCase();
+  if      (tier.includes('power') || tier.includes('p4') || tier.includes('p5')) score += 8;
+  else if (tier.includes('high major') || tier.includes('aac') || tier.includes('mwc')) score += 5;
+  else if (tier.includes('mid'))                                     score += 3;
+
+  // Academic year (peak NIL window = JR/SO)
+  var year = (athlete.year || '').toLowerCase();
+  if      (year.includes('jr') || year.includes('junior'))          score += 6;
+  else if (year.includes('so') || year.includes('sophomore'))       score += 5;
+  else if (year.includes('fr') || year.includes('freshman'))        score += 4;
+  else if (year.includes('sr') || year.includes('senior'))          score += 2;
+
+  // CRM activity signals
+  var myDeals = (dealsList || []).filter(function(d) { return d.athleteId === athlete.id; });
+  if      (myDeals.length > 3) score += 8;
+  else if (myDeals.length > 1) score += 5;
+  else if (myDeals.length > 0) score += 3;
+
+  // Has real performance stats
+  if ((athlete.ppg && parseFloat(athlete.ppg) > 0) || (athlete.apg && parseFloat(athlete.apg) > 0)) score += 3;
+
+  return Math.min(99, Math.max(1, Math.round(score)));
+}
+
+// ── Relationship status (auto-derived from deals) ─────────────────
+function getRelationshipStatus(athlete, dealsList) {
+  if (athlete.relationshipStatus) return athlete.relationshipStatus;
+  var myDeals = (dealsList || []).filter(function(d) { return d.athleteId === athlete.id; });
+  if (myDeals.some(function(d) { return d.stage === 'Closed'; }))                           return 'signed';
+  if (myDeals.some(function(d) { return d.stage === 'Closing' || d.stage === 'Negotiating'; })) return 'in-discussion';
+  if (myDeals.some(function(d) { return d.stage === 'Outreach Sent'; }))                    return 'outreach-sent';
+  if (myDeals.length > 0) return 'outreach-sent';
+  return 'not-contacted';
+}
+
+var _relLabels = { 'not-contacted':'Not Contacted', 'outreach-sent':'Outreach Sent', 'in-discussion':'In Discussion', 'active':'Active', 'signed':'Signed', 'former-client':'Former Client' };
+var _relColors = { 'not-contacted':'#6b7280', 'outreach-sent':'#60a5fa', 'in-discussion':'#f59e0b', 'active':'#4ade80', 'signed':'#C8F135', 'former-client':'#a78bfa' };
+
+function getRelationshipLabel(s) { return _relLabels[s] || 'Not Contacted'; }
+function getRelationshipColor(s) { return _relColors[s] || '#6b7280'; }
+
+// ── Days since last deal activity ─────────────────────────────────
+function getDaysSinceContact(athlete, dealsList) {
+  var myDeals = (dealsList || []).filter(function(d) { return d.athleteId === athlete.id; });
+  if (!myDeals.length) return 999;
+  var latest = myDeals.reduce(function(best, d) {
+    var dt = new Date(d.updatedAt || d.createdAt || 0);
+    return dt > best ? dt : best;
+  }, new Date(0));
+  return Math.max(0, Math.floor((Date.now() - latest.getTime()) / 86400000));
+}
+
+// ── Risk flag detection ───────────────────────────────────────────
+function getAthleteRiskFlags(athlete, dealsList) {
+  var flags = [];
+  var days  = getDaysSinceContact(athlete, dealsList);
+  var year  = (athlete.year || '').toLowerCase();
+  var reach = (parseInt(athlete.instagram) || 0) + (parseInt(athlete.tiktok) || 0);
+  var notes = ((athlete.notes || '') + ' ' + (athlete.agentNote || '')).toLowerCase();
+
+  if (days > 30 && days < 999) flags.push({ label: 'Stale (' + days + 'd)',    color: '#f59e0b', icon: '⏰' });
+  if (days === 999)             flags.push({ label: 'Never contacted',           color: '#ef4444', icon: '🔴' });
+  if (year.includes('sr') || year.includes('senior')) flags.push({ label: 'Graduating soon', color: '#f59e0b', icon: '🎓' });
+  if (reach === 0)              flags.push({ label: 'No social data',            color: '#6b7280', icon: '📊' });
+  if (!athlete.sport)           flags.push({ label: 'Missing sport',            color: '#6b7280', icon: '❓' });
+  if (notes.includes('transfer') || notes.includes('portal')) flags.push({ label: 'Transfer risk', color: '#ef4444', icon: '🔄' });
+
+  return flags;
+}
+
+// ── KPI strip ─────────────────────────────────────────────────────
+function renderIntelKPIs() {
+  var deals = _intelDeals || [];
+  var needsAttention = athletes.filter(function(a) { return getDaysSinceContact(a, deals) > 7; }).length;
+  var hot            = athletes.filter(function(a) { return nilOpportunityScore(a, deals) >= 75; }).length;
+  var activeDeals    = deals.filter(function(d) { return d.stage && d.stage !== 'Closed'; }).length;
+  var set = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
+  set('intel-kpi-clients', athletes.length);
+  set('intel-kpi-attention', needsAttention);
+  set('intel-kpi-hot', hot);
+  set('intel-kpi-active-deals', activeDeals);
+}
+
+// ── Priority Prospect List (HQ tab) ──────────────────────────────
+function renderPriorityList() {
+  var el = document.getElementById('intel-priority-list');
+  if (!el) return;
+  var deals = _intelDeals || [];
+
+  if (!athletes.length) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px 0">No athletes on roster. <button onclick="showView(\'add-athlete\',null)" style="color:var(--accent);background:none;border:none;cursor:pointer;font-weight:700">Add a client →</button></div>';
+    return;
+  }
+
+  var scored = athletes.map(function(a) {
+    return { a: a, score: nilOpportunityScore(a, deals), status: getRelationshipStatus(a, deals), days: getDaysSinceContact(a, deals), flags: getAthleteRiskFlags(a, deals) };
+  }).sort(function(x, y) { return y.score - x.score; });
+
+  el.innerHTML = scored.slice(0, 10).map(function(item) {
+    var a = item.a;
+    var sc = item.score;
+    var scoreColor = sc >= 75 ? 'var(--accent)' : sc >= 55 ? '#f59e0b' : '#6b7280';
+    var relColor   = getRelationshipColor(item.status);
+    var relLabel   = getRelationshipLabel(item.status);
+    var reach      = (parseInt(a.instagram) || 0) + (parseInt(a.tiktok) || 0);
+    var reachStr   = reach > 1000000 ? (reach/1000000).toFixed(1)+'M' : reach > 1000 ? Math.round(reach/1000)+'K' : (reach||'—');
+    var daysStr    = item.days === 999 ? 'Never' : item.days === 0 ? 'Today' : item.days + 'd ago';
+
+    return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="width:42px;height:42px;border-radius:50%;border:2px solid ' + scoreColor + ';background:' + scoreColor + '12;display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+        '<span style="font-size:13px;font-weight:800;color:' + scoreColor + '">' + sc + '</span>' +
+      '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + (a.name || 'Unknown') + '</div>' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:1px">' + [(a.position || null), (a.sport || null), (a.school || null)].filter(Boolean).join(' · ') + '</div>' +
+        '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap">' +
+          '<span style="font-size:9px;padding:1px 6px;border-radius:3px;background:' + relColor + '20;color:' + relColor + ';font-weight:700">' + relLabel + '</span>' +
+          item.flags.slice(0, 2).map(function(f) { return '<span style="font-size:9px;padding:1px 5px;border-radius:3px;background:' + f.color + '15;color:' + f.color + '">' + f.icon + ' ' + f.label + '</span>'; }).join('') +
+        '</div>' +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0">' +
+        '<div style="font-size:9px;color:var(--muted)">Last contact</div>' +
+        '<div style="font-size:11px;font-weight:700;color:' + (item.days > 14 && item.days < 999 ? '#f59e0b' : item.days === 999 ? '#ef4444' : 'var(--muted)') + '">' + daysStr + '</div>' +
+        '<div style="font-size:9px;color:var(--muted);margin-top:2px">' + reachStr + ' reach</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ── Risk Flags panel (HQ tab) ─────────────────────────────────────
+function renderRiskFlags() {
+  var el = document.getElementById('intel-risk-flags');
+  if (!el) return;
+  var deals = _intelDeals || [];
+
+  var flagged = [];
+  athletes.forEach(function(a) {
+    var flags = getAthleteRiskFlags(a, deals);
+    if (flags.length) flagged.push({ a: a, flags: flags });
+  });
+
+  if (!flagged.length) {
+    el.innerHTML = '<div style="color:#4ade80;font-size:12px;padding:6px 0">✓ No risk flags — roster looks healthy!</div>';
+    return;
+  }
+
+  el.innerHTML = flagged.slice(0, 7).map(function(item) {
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--border)">' +
+      '<div style="font-size:12px;font-weight:700;color:var(--text)">' + item.a.name + '</div>' +
+      '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">' +
+        item.flags.map(function(f) {
+          return '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:' + f.color + '15;color:' + f.color + ';border:1px solid ' + f.color + '30">' + f.icon + ' ' + f.label + '</span>';
+        }).join('') +
+      '</div>' +
+    '</div>';
+  }).join('') + (flagged.length > 7 ? '<div style="font-size:10px;color:var(--muted);padding-top:8px">+ ' + (flagged.length - 7) + ' more — see Roster Intel tab</div>' : '');
+}
+
+// ── Position Heat Map (HQ tab) ───────────────────────────────────
+function renderPositionHeatMap() {
+  var el = document.getElementById('intel-heat-map');
+  if (!el || !athletes.length) { if (el) el.innerHTML = '<div style="color:var(--muted);font-size:12px">No roster data</div>'; return; }
+  var deals = _intelDeals || [];
+
+  var posGroups = {};
+  athletes.forEach(function(a) {
+    var pos = ((a.position || 'N/A').toUpperCase().trim().split('/')[0] || 'N/A').substring(0, 4);
+    if (!posGroups[pos]) posGroups[pos] = [];
+    posGroups[pos].push(nilOpportunityScore(a, deals));
+  });
+
+  var posArr = Object.keys(posGroups).map(function(pos) {
+    var scores = posGroups[pos];
+    var avg = Math.round(scores.reduce(function(s, x) { return s + x; }, 0) / scores.length);
+    return { pos: pos, avg: avg, count: scores.length };
+  }).sort(function(a, b) { return b.avg - a.avg; });
+
+  el.innerHTML = posArr.slice(0, 10).map(function(item) {
+    var color = item.avg >= 75 ? 'var(--accent)' : item.avg >= 55 ? '#f59e0b' : '#6b7280';
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+      '<div style="width:36px;font-size:10px;font-weight:700;color:var(--muted);text-align:right;flex-shrink:0">' + item.pos + '</div>' +
+      '<div style="flex:1;height:18px;background:var(--surface2);border-radius:4px;overflow:hidden;position:relative">' +
+        '<div style="width:' + item.avg + '%;height:100%;background:' + color + ';opacity:0.35;border-radius:4px;transition:width 0.4s"></div>' +
+        '<div style="position:absolute;inset:0;display:flex;align-items:center;padding:0 8px;gap:6px">' +
+          '<span style="font-size:9px;font-weight:800;color:' + color + '">' + item.avg + '</span>' +
+          '<span style="font-size:8px;color:var(--muted)">(' + item.count + (item.count === 1 ? ' athlete' : ' athletes') + ')</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ── Roster Intel Tab ──────────────────────────────────────────────
+function renderRosterIntel() {
+  var el = document.getElementById('roster-intel-grid');
+  if (!el) return;
+
+  // Sync deals from cache if not already loaded
+  if (!_intelDeals) {
+    _intelDeals = [];
+    (athletes || []).forEach(function(a) {
+      var cached = window._athleteDealsCache && window._athleteDealsCache[a.id];
+      if (cached) cached.forEach(function(d) { _intelDeals.push(Object.assign({}, d, { athleteId: a.id, athleteName: a.name })); });
+    });
+  }
+  var deals = _intelDeals;
+
+  // Read filters
+  var sportFilter = (document.getElementById('ri-sport') || {}).value || 'all';
+  var relFilter   = (document.getElementById('ri-rel')   || {}).value || 'all';
+  var sortBy      = (document.getElementById('ri-sort')  || {}).value || 'score';
+  var minScore    = parseInt((document.getElementById('ri-minscore') || {}).value) || 0;
+  var search      = ((document.getElementById('ri-search') || {}).value || '').toLowerCase().trim();
+
+  var filtered = (athletes || []).filter(function(a) {
+    var sport = (a.sport || '').toLowerCase();
+    if (sportFilter !== 'all') {
+      if (sportFilter === 'other') {
+        if (['football','basketball','baseball','softball','soccer'].some(function(s) { return sport.includes(s); })) return false;
+      } else if (!sport.includes(sportFilter)) return false;
+    }
+    var status = getRelationshipStatus(a, deals);
+    if (relFilter !== 'all' && status !== relFilter) return false;
+    if (nilOpportunityScore(a, deals) < minScore) return false;
+    if (search) {
+      var haystack = [(a.name||''),(a.sport||''),(a.school||''),(a.position||''),(a.year||'')].join(' ').toLowerCase();
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  var relOrder = { signed:0, active:1, 'in-discussion':2, 'outreach-sent':3, 'former-client':4, 'not-contacted':5 };
+  filtered.sort(function(a, b) {
+    if (sortBy === 'score')        return nilOpportunityScore(b, deals) - nilOpportunityScore(a, deals);
+    if (sortBy === 'name')         return (a.name||'').localeCompare(b.name||'');
+    if (sortBy === 'relationship') return (relOrder[getRelationshipStatus(a,deals)]||5) - (relOrder[getRelationshipStatus(b,deals)]||5);
+    if (sortBy === 'contact')      return getDaysSinceContact(a, deals) - getDaysSinceContact(b, deals);
+    if (sortBy === 'sport')        return (a.sport||'').localeCompare(b.sport||'');
+    return 0;
+  });
+
+  // Update count
+  var countEl = document.getElementById('roster-intel-count');
+  if (countEl) countEl.textContent = filtered.length + ' athlete' + (filtered.length !== 1 ? 's' : '') + ' shown';
+
+  if (!filtered.length) {
+    el.style.display = 'block';
+    el.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:40px;text-align:center">No athletes match your filters.</div>';
+    return;
+  }
+
+  // Render cards
+  el.style.display = 'grid';
+  el.style.gridTemplateColumns = 'repeat(auto-fill,minmax(290px,1fr))';
+  el.style.gap = '12px';
+
+  el.innerHTML = filtered.map(function(a) {
+    var score     = nilOpportunityScore(a, deals);
+    var status    = getRelationshipStatus(a, deals);
+    var flags     = getAthleteRiskFlags(a, deals);
+    var relColor  = getRelationshipColor(status);
+    var scoreColor= score >= 75 ? 'var(--accent)' : score >= 55 ? '#f59e0b' : '#6b7280';
+    var reach     = (parseInt(a.instagram)||0) + (parseInt(a.tiktok)||0);
+    var reachStr  = reach > 1000000 ? (reach/1000000).toFixed(1)+'M' : reach > 1000 ? Math.round(reach/1000)+'K' : reach > 0 ? reach : '—';
+    var myDeals   = deals.filter(function(d) { return d.athleteId === a.id; });
+    var days      = getDaysSinceContact(a, deals);
+    var daysStr   = days === 999 ? 'Never' : days === 0 ? 'Today' : days + 'd ago';
+    var daysColor = days === 999 ? '#ef4444' : days > 14 ? '#f59e0b' : 'var(--muted)';
+
+    // Relationship dropdown
+    var relOpts = ['not-contacted','outreach-sent','in-discussion','active','signed','former-client'];
+    var relDrop = '<select onchange="updateRelationshipStatus(\'' + a.id + '\',this.value)" ' +
+      'style="font-size:10px;padding:3px 6px;background:' + relColor + '18;border:1px solid ' + relColor + '50;border-radius:4px;color:' + relColor + ';cursor:pointer;font-weight:700;outline:none;font-family:inherit">' +
+      relOpts.map(function(opt) {
+        return '<option value="' + opt + '"' + (status === opt ? ' selected' : '') + '>' + getRelationshipLabel(opt) + '</option>';
+      }).join('') + '</select>';
+
+    var safeName = (a.name || '').replace(/'/g, "\\'");
+
+    return '<div style="background:var(--surface);border:1px solid ' + (score >= 75 ? 'rgba(200,241,53,0.22)' : 'var(--border)') + ';border-radius:var(--r);padding:16px;position:relative;transition:border-color 0.15s">' +
+      // Score badge
+      '<div style="position:absolute;top:14px;right:14px;width:46px;height:46px;border-radius:50%;border:2px solid ' + scoreColor + ';background:' + scoreColor + '10;display:flex;align-items:center;justify-content:center">' +
+        '<div style="text-align:center"><div style="font-size:14px;font-weight:800;color:' + scoreColor + ';line-height:1">' + score + '</div><div style="font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">NIL</div></div>' +
+      '</div>' +
+      // Name + info
+      '<div style="padding-right:58px;margin-bottom:8px">' +
+        '<div style="font-size:14px;font-weight:700;color:var(--text)">' + (a.name || 'Unknown') + '</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + [(a.position || null), (a.sport || null)].filter(Boolean).join(' · ') + '</div>' +
+        (a.school ? '<div style="font-size:10px;color:var(--muted);opacity:0.7">' + a.school + (a.schoolTier ? ' (' + a.schoolTier + ')' : '') + '</div>' : '') +
+      '</div>' +
+      // Relationship + year
+      '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">' +
+        relDrop +
+        (a.year ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:var(--surface2);color:var(--muted)">' + a.year + '</span>' : '') +
+      '</div>' +
+      // Stats grid
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px">' +
+        '<div style="background:var(--surface2);border-radius:4px;padding:6px 8px"><div style="font-size:8px;color:var(--muted);text-transform:uppercase">Reach</div><div style="font-size:12px;font-weight:700;color:var(--text)">' + reachStr + '</div></div>' +
+        '<div style="background:var(--surface2);border-radius:4px;padding:6px 8px"><div style="font-size:8px;color:var(--muted);text-transform:uppercase">Deals</div><div style="font-size:12px;font-weight:700;color:var(--text)">' + myDeals.length + '</div></div>' +
+        '<div style="background:var(--surface2);border-radius:4px;padding:6px 8px"><div style="font-size:8px;color:var(--muted);text-transform:uppercase">Contact</div><div style="font-size:12px;font-weight:700;color:' + daysColor + '">' + daysStr + '</div></div>' +
+      '</div>' +
+      // Risk flags
+      (flags.length ? '<div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:10px">' + flags.map(function(f) { return '<span style="font-size:8px;padding:2px 6px;border-radius:3px;background:' + f.color + '12;color:' + f.color + ';border:1px solid ' + f.color + '25">' + f.icon + ' ' + f.label + '</span>'; }).join('') + '</div>' : '') +
+      // Action buttons
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        '<button onclick="showView(\'outreach\',null)" style="flex:1;font-size:10px;padding:6px 8px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;border-radius:5px;cursor:pointer;font-weight:600">✉ Outreach</button>' +
+        '<button onclick="selectedAthleteId=\'' + a.id + '\';document.getElementById(\'activeAthlete\').value=\'' + a.id + '\';showView(\'deals\',null)" style="flex:1;font-size:10px;padding:6px 8px;background:rgba(200,241,53,0.08);border:1px solid rgba(200,241,53,0.2);color:var(--accent);border-radius:5px;cursor:pointer;font-weight:600">⚡ Scan</button>' +
+        '<button onclick="selectedAthleteId=\'' + a.id + '\';document.getElementById(\'activeAthlete\').value=\'' + a.id + '\';showIntelTab(\'portal\')" style="flex:1;font-size:10px;padding:6px 8px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);color:#a78bfa;border-radius:5px;cursor:pointer;font-weight:600">🔄 Portal</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ── Save relationship status to server ────────────────────────────
+async function updateRelationshipStatus(athleteId, status) {
+  var ath = athletes.find(function(a) { return a.id === athleteId; });
+  if (!ath) return;
+  try {
+    await fetch(API_BASE + '/api/athletes/' + athleteId, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({}, ath, { relationshipStatus: status }))
+    });
+    // Update local caches
+    [athletes, window._allAthletes].forEach(function(arr) {
+      if (!arr) return;
+      var i = arr.findIndex(function(a) { return a.id === athleteId; });
+      if (i !== -1) arr[i].relationshipStatus = status;
+    });
+    if (typeof showToast === 'function') showToast('Relationship updated');
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('Error saving relationship');
+  }
+}
+
+// ── AI Daily Actions ─────────────────────────────────────────────
+async function loadDailyActions(force) {
+  var today = new Date().toDateString();
+  if (!force && _dailyActionsCache && _dailyActionsDate === today) {
+    renderDailyActions(_dailyActionsCache);
+    return;
+  }
+
+  var el  = document.getElementById('intel-actions-list');
+  var btn = document.getElementById('intel-actions-btn');
+  if (!el) return;
+
+  el.innerHTML = '<div style="display:flex;align-items:center;gap:10px;padding:20px;color:var(--muted);font-size:12px"><div class="spinner" style="display:inline-block;flex-shrink:0"></div>Generating today\'s priorities from your CRM...</div>';
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating...'; }
+
+  try {
+    var r = await fetch(API_BASE + '/api/intelligence/daily-actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    var data = await r.json();
+    if (data.error) throw new Error(data.error);
+    _dailyActionsCache = data.actions;
+    _dailyActionsDate  = today;
+    renderDailyActions(data.actions);
+    var ts = document.getElementById('intel-actions-ts');
+    if (ts) ts.textContent = 'Generated ' + new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' });
+  } catch(e) {
+    if (el) el.innerHTML = '<div style="color:var(--red);font-size:12px;padding:12px">' + e.message + ' — <button onclick="loadDailyActions(true)" style="color:var(--accent);background:none;border:none;cursor:pointer;font-weight:700">Retry</button></div>';
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+}
+
+function renderDailyActions(actions) {
+  var el = document.getElementById('intel-actions-list');
+  if (!el || !actions || !actions.length) {
+    if (el) el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px">No actions generated. <button onclick="loadDailyActions(true)" style="color:var(--accent);background:none;border:none;cursor:pointer">Try again</button></div>';
+    return;
+  }
+
+  var priCfg = {
+    HIGH:   { color:'#ef4444', bg:'rgba(239,68,68,0.06)',   border:'rgba(239,68,68,0.2)',   icon:'🔴' },
+    MEDIUM: { color:'#f59e0b', bg:'rgba(245,158,11,0.06)',  border:'rgba(245,158,11,0.2)',  icon:'🟡' },
+    LOW:    { color:'#6b7280', bg:'rgba(107,114,128,0.04)', border:'rgba(107,114,128,0.15)', icon:'⚪' }
+  };
+  var typeIcons = { 'follow-up':'📞', outreach:'✉️', review:'📋', alert:'⚠️', opportunity:'⚡' };
+
+  el.innerHTML = actions.map(function(action) {
+    var cfg  = priCfg[action.priority] || priCfg.LOW;
+    var icon = typeIcons[action.type] || '✓';
+    return '<div style="display:flex;gap:10px;padding:11px 12px;border-radius:6px;background:' + cfg.bg + ';border:1px solid ' + cfg.border + ';margin-bottom:7px">' +
+      '<div style="font-size:15px;flex-shrink:0;padding-top:1px">' + icon + '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;flex-wrap:wrap">' +
+          '<span style="font-size:12px;font-weight:700;color:var(--text)">' + (action.action || '') + '</span>' +
+          '<span style="font-size:8px;font-weight:800;padding:2px 6px;border-radius:3px;background:' + cfg.color + '22;color:' + cfg.color + ';letter-spacing:0.04em">' + (action.priority || '') + '</span>' +
+        '</div>' +
+        '<div style="font-size:11px;color:var(--muted);line-height:1.5">' + (action.why || '') + '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  TEAM MATCH (Transfer Portal — Tab 3)
+// ══════════════════════════════════════════════════════════════════
+
 async function runTeamMatch() {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
   const btn = document.getElementById('tm-run-btn');

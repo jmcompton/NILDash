@@ -980,6 +980,80 @@ app.post('/api/ai/generate-outreach', requireAuth, aiLimiter, async (req, res) =
   }
 });
 
+// ── Agent Intelligence: Daily Actions ─────────────────────────────
+app.post('/api/intelligence/daily-actions', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    const agentAthletes = await store.getAthletesByAgent(req.session.userId);
+    const agentDeals    = await store.getDealsByAgent(req.session.userId);
+
+    if (!agentAthletes.length) {
+      return res.json({ actions: [], generated: new Date().toISOString() });
+    }
+
+    // Build concise CRM snapshot (cap at 20 athletes to keep prompt tight)
+    const athleteContext = agentAthletes.slice(0, 20).map(a => {
+      const myDeals   = agentDeals.filter(d => d.athleteId === a.id);
+      const latest    = myDeals.reduce((best, d) => {
+        const dt = new Date(d.updatedAt || d.createdAt || 0);
+        return dt > best ? dt : best;
+      }, new Date(0));
+      const daysSince = myDeals.length ? Math.floor((Date.now() - latest.getTime()) / 86400000) : -1;
+      const status    = a.relationshipStatus || (
+        myDeals.some(d => d.stage === 'Closed')                                        ? 'signed' :
+        myDeals.some(d => ['Closing', 'Negotiating'].includes(d.stage))                ? 'in-discussion' :
+        myDeals.some(d => d.stage === 'Outreach Sent' || d.stage === 'Prospecting')    ? 'outreach-sent' :
+        myDeals.length > 0                                                              ? 'outreach-sent' :
+                                                                                          'not-contacted'
+      );
+      const activeDeals = myDeals.filter(d => d.stage && d.stage !== 'Closed').length;
+      const yearFlag    = (a.year || '').toLowerCase().includes('sr') ? ' [SENIOR]' : '';
+      return `${a.name} (${a.sport || 'unknown'}@${a.school || 'unknown'}${yearFlag}): ` +
+             `status=${status} active_deals=${activeDeals} last_contact=${daysSince < 0 ? 'NEVER' : daysSince + 'd_ago'}`;
+    }).join('\n');
+
+    const today = new Date().toLocaleDateString('en-US', {
+      weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
+    });
+
+    const prompt =
+`You are an AI assistant for a professional NIL sports agent. Based on their CRM data, generate today's top 6 priority actions.
+
+CRM SNAPSHOT (${agentAthletes.length} total athletes):
+${athleteContext}
+
+Today: ${today}
+
+RULES:
+- Reference specific athletes by name from the roster above
+- Prioritize: athletes not contacted in 14+ days, stalled deals, seniors (graduation = lost client), hot opportunities
+- Be concrete: "Text Marcus to schedule Nike call" not "follow up with client"
+- Assign 2 HIGH, 3 MEDIUM, 1 LOW priorities
+- Vary action types: mix phone calls, emails, deal reviews, and opportunity checks
+
+Return ONLY a valid JSON array of exactly 6 objects:
+[{"priority":"HIGH","action":"Call [Name] to follow up on [Brand] deal","why":"Deal stalled in Negotiating for 21 days — window closing fast","athlete":"[Name]","type":"follow-up"}]
+
+Valid types: follow-up, outreach, review, opportunity, alert`;
+
+    const raw = await ai.oneShot(
+      prompt,
+      'You are a NIL agent AI assistant. Return ONLY a valid JSON array. No markdown fences, no preamble, no explanation.',
+      3000
+    );
+
+    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const si = cleaned.indexOf('[');
+    const ei = cleaned.lastIndexOf(']');
+    if (si === -1 || ei <= si) throw new Error('No JSON array in AI response');
+
+    const actions = JSON.parse(cleaned.substring(si, ei + 1));
+    res.json({ actions: actions.slice(0, 8), generated: new Date().toISOString() });
+  } catch (e) {
+    console.error('daily-actions error:', e.message);
+    res.status(500).json({ error: 'AI service error: ' + e.message });
+  }
+});
+
 // ── Team Match endpoint ────────────────────────────────────────
 app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, sortBy } = req.body;
