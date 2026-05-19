@@ -2483,6 +2483,27 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
   }
 });
 
+// DELETE /api/university/roster/purge-imports
+// Admin-only: removes all university-imported roster athletes from the DB.
+// These are athletes with source='espn_import' or 'university_import' that should
+// never appear in the agent portal.
+app.delete('/api/university/roster/purge-imports', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (user.role !== 'admin' && user.role !== 'university') {
+      return res.status(403).json({ error: 'Admin or university role required' });
+    }
+    const result = await store.pool.query(
+      `DELETE FROM athletes
+       WHERE data->>'source' IN ('espn_import','university_import')
+       RETURNING id`
+    );
+    res.json({ ok: true, deleted: result.rowCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/university/roster/parse-text
 // Director pastes copied roster text → Claude extracts athletes → preview returned.
 // No scraping, no bot issues — director provides the content directly.

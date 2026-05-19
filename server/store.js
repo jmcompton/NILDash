@@ -387,7 +387,13 @@ async function getAthlete(id) {
   return { id: r.rows[0].id, agentId: r.rows[0].agent_id, ...r.rows[0].data };
 }
 async function getAthletesByAgent(agentId) {
-  const r = await pool.query('SELECT * FROM athletes WHERE agent_id=$1', [agentId]);
+  // Exclude university-imported roster athletes — those belong to the University Portal only
+  const r = await pool.query(
+    `SELECT * FROM athletes WHERE agent_id=$1
+       AND (data->>'source' IS DISTINCT FROM 'espn_import')
+       AND (data->>'source' IS DISTINCT FROM 'university_import')`,
+    [agentId]
+  );
   return r.rows.map(row => ({ id: row.id, agentId: row.agent_id, ...row.data }));
 }
 async function saveAthlete(id, data) {
