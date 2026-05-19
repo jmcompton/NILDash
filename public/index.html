@@ -130,14 +130,14 @@ body::before{display:none}
 
 #appScreen{display:flex;min-height:100vh}
 .main{margin-left:200px;flex:1;min-height:100vh;position:relative;z-index:1;width:calc(100% - 200px);overflow-x:hidden}
-.topbar{position:sticky;top:0;z-index:40;background:#0A0E1A;border-bottom:1px solid rgba(255,255,255,0.08);padding:0;height:44px;display:flex;align-items:center;justify-content:space-between}
+.topbar{position:sticky;top:0;z-index:40;background:#0A0E1A;border-bottom:1px solid rgba(255,255,255,0.08);padding:0 36px;height:44px;display:flex;align-items:center;justify-content:space-between}
 .breadcrumb{font-size:11px;color:var(--muted);letter-spacing:0.04em;font-family:'DM Sans',sans-serif}
 .breadcrumb span{color:var(--text);font-weight:600}
 .ai-status{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(240,244,255,0.4);font-family:'DM Sans',sans-serif;font-weight:500}
 .ai-status::before{content:'';width:6px;height:6px;border-radius:50%;background:#84CC16;flex-shrink:0;animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-.content{padding:4px 0 16px 0;width:100%;box-sizing:border-box}
+.content{padding:28px 36px 24px 36px;width:100%;box-sizing:border-box}
 
 /*  VIEWS  */
 .view{display:none;min-height:0;padding:0}.view.active{display:block;min-height:0;padding:0}
