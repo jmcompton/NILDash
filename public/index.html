@@ -1643,7 +1643,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
             <div id="univ-import-result" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px"></div>
           </div>
-          </div>
 
         </div><!-- /univPanel-import -->
 
@@ -3009,7 +3008,7 @@ async function populateAthleteSelect() {
 async function clearAllResults() {
   // Command center
   const cmdOut = document.getElementById('commandOutput');
-  if (cmdOut) { cmdOut.classList.remove('visible'); cmdOut.innerHTML = ''; }
+  if (cmdOut) { cmdOut.classList.remove('visible'); const ct = document.getElementById('commandText'); if (ct) ct.textContent = ''; }
 
   // Deal scan
   const dealAI = document.getElementById('dealsAI');
@@ -3329,20 +3328,24 @@ async function runCommand() {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let result = '';
+    let buffer = '';
+    let done2 = false;
     outputEl.textContent = '';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete last line in buffer
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const text = line.slice(6);
-          if (text === '[DONE]') break;
-          try { const parsed = JSON.parse(text); result += parsed.text || ''; } catch(e) { result += text; }
-          outputEl.textContent = result;
-        }
+        if (!line.startsWith('data: ')) continue;
+        const text = line.slice(6).trim();
+        if (text === '[DONE]') { done2 = true; break; }
+        try { const parsed = JSON.parse(text); result += parsed.text || ''; }
+        catch(e) { /* skip malformed chunk */ }
+        outputEl.textContent = result;
       }
+      if (done2) break;
     }
     if (!result) outputEl.textContent = 'No response received.';
   } catch(e) { outputEl.textContent = '\u274c ' + e.message; }

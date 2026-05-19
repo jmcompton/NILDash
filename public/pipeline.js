@@ -18,8 +18,9 @@
       board.innerHTML = STAGES.map(function(stage) {
         var stageDeals = allDeals.filter(function(d) { return d.stage === stage; });
         var color = STAGE_COLORS[stage] || '#6b7280';
+        var minH = stageDeals.length > 0 ? '300px' : '80px';
         var colHtml = '<div class="nil-pipe-col" data-stage="' + stage + '" ' +
-          'style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);min-height:300px;' +
+          'style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);min-height:' + minH + ';' +
           'transition:background 0.15s" ' +
           'ondragover="NILPipeline.onDragOver(event)" ' +
           'ondrop="NILPipeline.onDrop(event)" ' +
