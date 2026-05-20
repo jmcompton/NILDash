@@ -112,13 +112,13 @@ var NILCal = (function () {
     var html = '';
     // Blank leading cells
     for (var i = 0; i < firstDay; i++) {
-      html += '<div style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2);opacity:0.3"></div>';
+      html += '<div style="min-height:120px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2);opacity:0.3"></div>';
     }
     for (var d = 1; d <= daysInMonth; d++) {
       var dateStr = calYear + '-' + pad(calMonth + 1) + '-' + pad(d);
       var dayEvs  = byDate[dateStr] || [];
       var isToday = dateStr === today;
-      html += '<div onclick="NILCal.selectDay(\'' + dateStr + '\')" style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:5px;cursor:pointer;' + (isToday ? 'background:rgba(99,102,241,0.06)' : '') + '">';
+      html += '<div onclick="NILCal.selectDay(\'' + dateStr + '\')" style="min-height:120px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:5px;cursor:pointer;' + (isToday ? 'background:rgba(99,102,241,0.06)' : '') + '">';
       html += '<div style="font-size:11px;font-weight:' + (isToday ? '700' : '400') + ';color:' + (isToday ? 'var(--accent)' : 'var(--muted)') + ';margin-bottom:3px">' + d + '</div>';
       var shown = dayEvs.slice(0, 3);
       for (var e = 0; e < shown.length; e++) {
@@ -134,7 +134,7 @@ var NILCal = (function () {
     var total = firstDay + daysInMonth;
     var trailing = total % 7 === 0 ? 0 : 7 - (total % 7);
     for (var i = 0; i < trailing; i++) {
-      html += '<div style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2);opacity:0.3"></div>';
+      html += '<div style="min-height:120px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2);opacity:0.3"></div>';
     }
     grid.innerHTML = html;
 
