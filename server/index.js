@@ -3626,13 +3626,17 @@ app.get('/api/agent/calendar', requireAuth, async (req, res) => {
 
     const eventsResult = await store.pool.query(sql, params);
 
-    // Build distinct athlete list for filter dropdown
+    // Always return ALL athletes under this agent (not just those with events)
     const athleteListResult = await store.pool.query(
-      `SELECT DISTINCT ace.athlete_id, a.data->>'name' as name FROM athlete_calendar_events ace JOIN athletes a ON ace.athlete_id = a.id WHERE ace.agent_id=$1`,
+      `SELECT id, data->>'name' as name FROM athletes
+        WHERE agent_id=$1
+          AND (data->>'source' IS DISTINCT FROM 'espn_import')
+          AND (data->>'source' IS DISTINCT FROM 'university_import')
+        ORDER BY (data->>'name') ASC`,
       [agentId]
     );
 
-    res.json({ events: eventsResult.rows, athleteList: athleteListResult.rows });
+    res.json({ events: eventsResult.rows, athleteList: athleteListResult.rows.map(r => ({ id: r.id, name: r.name })) });
   } catch (e) {
     console.error('[agent/calendar]', e.message);
     res.status(500).json({ error: e.message });
@@ -3725,6 +3729,107 @@ app.get('/api/agent/outreach', requireAuth, async (req, res) => {
     res.json({ messages: r.rows });
   } catch (e) {
     console.error('[agent/outreach]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/pdf/save ───────────────────────────────────────────────────
+// Saves PDF Scanner extraction results to DB: contract record + deliverables + calendar events
+app.post('/api/pdf/save', requireAuth, async (req, res) => {
+  try {
+    const { athleteId, filename, brand, deliverables } = req.body;
+    if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
+    if (!Array.isArray(deliverables) || !deliverables.length)
+      return res.status(400).json({ error: 'No deliverables to save' });
+
+    const agentId = req.session.userId;
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete || athlete.agentId !== agentId)
+      return res.status(403).json({ error: 'Forbidden' });
+
+    const { brandColor } = require('./services/contractExtraction');
+    const { toRRule, generateDates } = require('./services/calendarRecurrence');
+    const crypto = require('crypto');
+
+    // Create contract record
+    const contractId = 'contract-' + crypto.randomBytes(8).toString('hex');
+    const contractBrand = brand || 'Unknown Brand';
+    await store.pool.query(
+      `INSERT INTO athlete_contracts
+         (id, athlete_id, agent_id, filename, brand, extraction_status, extraction_attempts, uploaded_at)
+       VALUES ($1,$2,$3,$4,$5,'completed',1,NOW())
+       ON CONFLICT (id) DO NOTHING`,
+      [contractId, athleteId, agentId, filename || 'PDF Scanner Upload', contractBrand]
+    );
+
+    let savedDeliverables = 0;
+    let savedEvents = 0;
+
+    const client = await store.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      for (let i = 0; i < deliverables.length; i++) {
+        const d = deliverables[i];
+        const desc = (d.description || d.deliverable_description || '').trim();
+        if (!desc) continue;
+
+        const recurrence = d.recurrence && d.recurrence !== 'one-time' ? d.recurrence : null;
+        const rrule = toRRule(recurrence, d.contract_duration_months || null);
+        const dueDate = d.due_date || null;
+        const evBrand = contractBrand;
+        const confidence = parseInt(d.confidence_score || d.confidence || 0, 10);
+
+        const dr = await client.query(
+          `INSERT INTO athlete_deliverables
+             (athlete_id, agent_id, contract_id, deliverable_description, due_date, brand,
+              status, recurrence, recurrence_rule, ai_confidence_score, source, sort_order)
+           VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,'ai_extracted',$10)
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [athleteId, agentId, contractId, desc, dueDate, evBrand,
+           recurrence, rrule, confidence, i]
+        );
+
+        if (dr.rows.length) {
+          savedDeliverables++;
+          const deliverableId = dr.rows[0].id;
+          const color = brandColor(evBrand);
+
+          // Generate calendar events for this deliverable
+          if (dueDate) {
+            const dates = rrule
+              ? generateDates(rrule, dueDate, { durationMonths: d.contract_duration_months })
+              : [dueDate];
+
+            for (const date of dates) {
+              const evId = 'evt-' + crypto.randomBytes(8).toString('hex');
+              await client.query(
+                `INSERT INTO athlete_calendar_events
+                   (id, athlete_id, agent_id, deliverable_id, contract_id, title, event_date,
+                    brand, color, status, is_generated, recurrence_instance, manually_modified)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',TRUE,$10,FALSE)
+                 ON CONFLICT (deliverable_id, event_date) DO NOTHING`,
+                [evId, athleteId, agentId, deliverableId, contractId, desc, date,
+                 evBrand, color, dates.length > 1]
+              );
+              savedEvents++;
+            }
+          }
+        }
+      }
+
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    res.json({ ok: true, contractId, savedDeliverables, savedEvents, athleteName: athlete.name });
+  } catch (e) {
+    console.error('[pdf/save]', e.message);
     res.status(500).json({ error: e.message });
   }
 });

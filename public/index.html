@@ -1718,7 +1718,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <!--  PDF SCANNER  -->
       <div id="view-pdf-scan" class="view">
         <div class="page-title">PDF Scanner</div>
-        <div class="page-sub">Upload a NIL contract PDF or DOCX to extract deliverables and run competitive market analysis</div>
+        <div class="page-sub">Upload a NIL contract PDF or DOCX to extract deliverables and save them to the calendar</div>
+
+        <!-- Athlete selector -->
+        <div class="card" style="padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:14px">
+          <label class="form-label-sm" style="white-space:nowrap;margin:0;font-weight:600">Select Athlete *</label>
+          <select class="select-sm" id="pdf-scan-athlete" style="flex:1;max-width:320px" onchange="_pdfScanAthleteId=this.value">
+            <option value="">— choose athlete —</option>
+          </select>
+          <div id="pdf-scan-athlete-error" style="font-size:11px;color:#ef4444;display:none">Please select an athlete before uploading a contract</div>
+        </div>
 
         <!-- Upload zone -->
         <div id="pdf-scan-dropzone" class="card" style="border:2px dashed var(--border);text-align:center;padding:40px 24px;cursor:pointer;transition:border-color 0.2s;margin-bottom:20px"
@@ -1780,6 +1789,18 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="card" style="padding:16px 20px;margin-bottom:16px">
             <div class="card-title" style="margin-bottom:10px">📋 Key Contract Terms</div>
             <div id="pdf-scan-terms" style="font-size:12px;color:var(--muted);line-height:1.8"></div>
+          </div>
+
+          <!-- Save to Calendar -->
+          <div class="card" style="padding:18px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+            <div>
+              <div style="font-weight:600;font-size:13px;color:var(--fg)">Save to Calendar</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">Write these deliverables to the selected athlete's calendar</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+              <div id="pdf-save-status" style="font-size:12px;color:var(--muted)"></div>
+              <button class="run-btn" id="pdf-save-btn" onclick="savePdfToCalendar()" style="padding:9px 20px;font-size:12px;background:#6366f1;color:#fff;border:none">Save to Calendar →</button>
+            </div>
           </div>
 
           <!-- Scan again button -->
@@ -3726,6 +3747,7 @@ async function showView(id, btn) {
   if (id === 'contract') prefillContract();
   if (id === 'deal-close') onDealCloseViewOpen();
   if (id === 'team-match') setTimeout(loadIntelHQ, 80);
+  if (id === 'pdf-scan') loadPdfScanAthletes();
 }
 async function prefillContract() {
   if (!selectedAthleteId) return;
@@ -5151,6 +5173,23 @@ const PDF_SCAN_TYPE_LABELS = {
   content_creation:'Content', payment_milestone:'Payment', other:'Other'
 };
 
+let _pdfScanAthleteId = '';
+let _pdfScanLastExtraction = null; // stores last result for save
+
+async function loadPdfScanAthletes() {
+  const sel = document.getElementById('pdf-scan-athlete');
+  if (!sel) return;
+  try {
+    const r = await fetch(`${API_BASE}/api/athletes`);
+    const data = await r.json();
+    const athletes = Array.isArray(data) ? data : (data.athletes || []);
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— choose athlete —</option>' +
+      athletes.map(a => `<option value="${a.id}" ${a.id === cur ? 'selected' : ''}>${a.name || a.id}</option>`).join('');
+    _pdfScanAthleteId = sel.value;
+  } catch(e) { console.warn('PDF scan athlete load failed', e); }
+}
+
 function handlePdfScanDrop(e) {
   const file = e.dataTransfer.files[0];
   if (!file) return;
@@ -5163,6 +5202,21 @@ async function runPdfScan(file) {
   if (!allowed.includes(file.type) && !file.name.match(/\.(pdf|docx|doc)$/i)) {
     showToast('Please upload a PDF or DOCX file'); return;
   }
+
+  // Athlete required
+  const athleteSel = document.getElementById('pdf-scan-athlete');
+  _pdfScanAthleteId = athleteSel ? athleteSel.value : _pdfScanAthleteId;
+  const errEl = document.getElementById('pdf-scan-athlete-error');
+  if (!_pdfScanAthleteId) {
+    if (errEl) errEl.style.display = 'inline';
+    if (athleteSel) athleteSel.focus();
+    // Reset file input so user can retry
+    const fi = document.getElementById('pdf-scan-file');
+    if (fi) fi.value = '';
+    return;
+  }
+  if (errEl) errEl.style.display = 'none';
+  _pdfScanLastExtraction = null;
 
   // Show status, hide results
   const statusBar  = document.getElementById('pdf-scan-status');
@@ -5186,6 +5240,13 @@ async function runPdfScan(file) {
       throw new Error(err.error || `Server error ${r.status}`);
     }
     const data = await r.json();
+    // Store extraction for save step
+    _pdfScanLastExtraction = { data, filename: file.name };
+    // Reset save status
+    const saveStatus = document.getElementById('pdf-save-status');
+    const saveBtn    = document.getElementById('pdf-save-btn');
+    if (saveStatus) saveStatus.textContent = '';
+    if (saveBtn)    { saveBtn.disabled = false; saveBtn.textContent = 'Save to Calendar →'; }
     renderPdfScanResults(data, file.name);
     statusBar.style.display = 'none';
     results.style.display   = 'block';
@@ -5210,6 +5271,50 @@ function resetPdfScan() {
   // Clear file input so same file can be re-uploaded
   const fi = document.getElementById('pdf-scan-file');
   if (fi) fi.value = '';
+  _pdfScanLastExtraction = null;
+}
+
+async function savePdfToCalendar() {
+  if (!_pdfScanLastExtraction) { showToast('No scan results to save'); return; }
+  if (!_pdfScanAthleteId) { showToast('Select an athlete first'); return; }
+
+  const saveBtn    = document.getElementById('pdf-save-btn');
+  const saveStatus = document.getElementById('pdf-save-status');
+  saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+  saveStatus.textContent = '';
+
+  const ex          = _pdfScanLastExtraction.data.extraction || {};
+  const deliverables = ex.deliverables || [];
+  const athleteSel  = document.getElementById('pdf-scan-athlete');
+  const athleteName = athleteSel ? (athleteSel.options[athleteSel.selectedIndex]?.text || '') : '';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/pdf/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        athleteId:    _pdfScanAthleteId,
+        filename:     _pdfScanLastExtraction.filename,
+        brand:        ex.brand || '',
+        deliverables: deliverables.map(d => ({
+          description:            d.description || d.deliverable_description || '',
+          due_date:               d.due_date || null,
+          recurrence:             d.recurrence || null,
+          contract_duration_months: d.contract_duration_months || null,
+          confidence_score:       d.confidence_score || d.confidence || 0,
+          deliverable_type:       d.deliverable_type || 'other',
+        })),
+      }),
+    });
+    const result = await r.json();
+    if (!r.ok) throw new Error(result.error || 'Save failed');
+
+    saveBtn.textContent = '✓ Saved';
+    saveStatus.innerHTML = `<span style="color:#22c55e">${result.savedDeliverables} deliverable${result.savedDeliverables !== 1 ? 's' : ''} saved to ${athleteName}'s calendar · ${result.savedEvents} calendar event${result.savedEvents !== 1 ? 's' : ''} created</span>`;
+  } catch(e) {
+    saveBtn.disabled = false; saveBtn.textContent = 'Save to Calendar →';
+    saveStatus.innerHTML = `<span style="color:#ef4444">Save failed: ${e.message}</span>`;
+  }
 }
 
 function renderPdfScanResults(data, filename) {
