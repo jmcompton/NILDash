@@ -211,6 +211,8 @@ async function init() {
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_file_hash ON athlete_contracts(file_hash) WHERE file_hash IS NOT NULL`).catch(() => {});
   // Prevent duplicate calendar events per deliverable + date
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cal_events_deliv_date ON athlete_calendar_events(deliverable_id, event_date) WHERE deliverable_id IS NOT NULL`).catch(() => {});
+  // Prevent duplicate deliverables from re-uploads of the same contract
+  await pool.query(`ALTER TABLE athlete_deliverables ADD CONSTRAINT athlete_deliverables_unique UNIQUE (athlete_id, contract_id, deliverable_description, due_date)`).catch(() => {});
   // Performance indexes
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deliverables_athlete ON athlete_deliverables(athlete_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deliverables_agent ON athlete_deliverables(agent_id)`).catch(() => {});

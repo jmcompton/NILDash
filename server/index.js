@@ -3785,7 +3785,7 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
              (athlete_id, agent_id, contract_id, deliverable_description, due_date, brand,
               status, recurrence, recurrence_rule, ai_confidence_score, source, sort_order)
            VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,'ai_extracted',$10)
-           ON CONFLICT DO NOTHING
+           ON CONFLICT ON CONSTRAINT athlete_deliverables_unique DO NOTHING
            RETURNING id`,
           [athleteId, agentId, contractId, desc, dueDate, evBrand,
            recurrence, rrule, confidence, i]
