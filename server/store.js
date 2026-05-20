@@ -23,6 +23,8 @@ async function init() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS athlete_id TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_id TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_tier TEXT DEFAULT 'basic';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN DEFAULT FALSE;
     CREATE TABLE IF NOT EXISTS athletes (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,

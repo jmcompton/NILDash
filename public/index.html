@@ -657,57 +657,112 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="auth-logo">NILDash</div>
     <div class="auth-sub">NIL INTELLIGENCE PLATFORM</div>
 
-    <div class="auth-tabs">
-      <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
-      <button class="auth-tab" onclick="switchTab('signup')">Create Account</button>
-    </div>
-
-    <!-- LOGIN -->
-    <div id="loginForm">
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input class="form-input" id="loginEmail" type="email" placeholder="you@example.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Password</label>
-        <input class="form-input" id="loginPassword" type="password" placeholder="••••••••">
-      </div>
-      <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign In →</button>
-      <div class="auth-error" id="loginError"></div>
-      <div style="text-align:center;margin-top:12px"><a href="/reset" style="font-size:11px;color:var(--muted);text-decoration:none">Forgot password?</a></div>
-      <div style="text-align:center;margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">
-        <span style="font-size:12px;color:var(--muted)">Don't have an account? </span>
-        <a href="/landing" style="font-size:12px;color:var(--accent);text-decoration:none">Request Access →</a>
+    <!-- Role chooser (shown first) -->
+    <div id="authRoleChooser">
+      <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:20px">Who are you signing in as?</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+        <button class="role-btn" onclick="chooseAuthRole('agent')" style="padding:20px 10px">
+          <span class="role-icon">🏈</span>
+          <div style="font-weight:700;font-size:13px;margin-bottom:2px">Agent</div>
+          <div style="font-size:10px;color:var(--muted)">Agency / sports agent</div>
+        </button>
+        <button class="role-btn" onclick="chooseAuthRole('athlete')" style="padding:20px 10px">
+          <span class="role-icon">⚡</span>
+          <div style="font-weight:700;font-size:13px;margin-bottom:2px">Athlete</div>
+          <div style="font-size:10px;color:var(--muted)">My agent set up my account</div>
+        </button>
       </div>
     </div>
 
-    <!-- SIGNUP -->
-    <div id="signupForm" style="display:none">
-      <div class="form-group">
-        <label class="form-label">Full Name</label>
-        <input class="form-input" id="signupName" placeholder="Your name">
+    <!-- Agent login/signup tabs (hidden until role chosen) -->
+    <div id="authAgentPanel" style="display:none">
+      <div class="auth-tabs">
+        <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
+        <button class="auth-tab" onclick="switchTab('signup')">Create Account</button>
       </div>
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input class="form-input" id="signupEmail" type="email" placeholder="you@example.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Password</label>
-        <input class="form-input" id="signupPassword" type="password" placeholder="Min 6 characters">
-      </div>
-      <div class="form-group">
-        <label class="form-label">I am a...</label>
-        <div class="role-selector">
-          <button class="role-btn active" id="roleAgent" onclick="selectRole('agent')">
-            <span class="role-icon">🏈</span>Sports Agent
-          </button>
-          <button class="role-btn" id="roleUniversity" onclick="selectRole('university')">
-            <span class="role-icon">🎓</span>University Portal
-          </button>
+      <div id="loginForm">
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" id="loginEmail" type="email" placeholder="you@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" id="loginPassword" type="password" placeholder="••••••••">
+        </div>
+        <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign In →</button>
+        <div class="auth-error" id="loginError"></div>
+        <div style="text-align:center;margin-top:12px"><a href="/reset" style="font-size:11px;color:var(--muted);text-decoration:none">Forgot password?</a></div>
+        <div style="text-align:center;margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">
+          <span style="font-size:12px;color:var(--muted)">Don't have an account? </span>
+          <a href="/landing" style="font-size:12px;color:var(--accent);text-decoration:none">Request Access →</a>
         </div>
       </div>
-      <button class="btn-primary" id="signupBtn" onclick="doSignup()">Create Account →</button>
-      <div class="auth-error" id="signupError"></div>
+      <div id="signupForm" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input class="form-input" id="signupName" placeholder="Your name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" id="signupEmail" type="email" placeholder="you@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" id="signupPassword" type="password" placeholder="Min 6 characters">
+        </div>
+        <div class="form-group">
+          <label class="form-label">I am a...</label>
+          <div class="role-selector">
+            <button class="role-btn active" id="roleAgent" onclick="selectRole('agent')">
+              <span class="role-icon">🏈</span>Sports Agent
+            </button>
+            <button class="role-btn" id="roleUniversity" onclick="selectRole('university')">
+              <span class="role-icon">🎓</span>University Portal
+            </button>
+          </div>
+        </div>
+        <button class="btn-primary" id="signupBtn" onclick="doSignup()">Create Account →</button>
+        <div class="auth-error" id="signupError"></div>
+      </div>
+      <div style="text-align:center;margin-top:14px">
+        <button onclick="chooseAuthRole(null)" style="background:transparent;border:none;color:var(--muted);font-size:11px;cursor:pointer">← Back</button>
+      </div>
+    </div>
+
+    <!-- Athlete login panel (hidden until role chosen) -->
+    <div id="authAthletePanel" style="display:none">
+      <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:8px;padding:10px 14px;margin-bottom:18px;font-size:11px;color:var(--muted)">
+        Your agent created your account. Use the email and temporary password they sent you.
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input class="form-input" id="athLoginEmail" type="email" placeholder="your@email.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input class="form-input" id="athLoginPassword" type="password" placeholder="••••••••">
+      </div>
+      <button class="btn-primary" id="athLoginBtn" onclick="doAthleteLogin()">Sign In →</button>
+      <div class="auth-error" id="athLoginError"></div>
+      <div style="text-align:center;margin-top:14px">
+        <button onclick="chooseAuthRole(null)" style="background:transparent;border:none;color:var(--muted);font-size:11px;cursor:pointer">← Back</button>
+      </div>
+    </div>
+
+    <!-- Forced password reset panel (shown after first athlete login) -->
+    <div id="authResetPanel" style="display:none">
+      <div style="font-size:15px;font-weight:700;color:var(--fg);margin-bottom:6px">Set a new password</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:20px">You're required to set a new password before continuing.</div>
+      <div class="form-group">
+        <label class="form-label">New Password</label>
+        <input class="form-input" id="resetNewPassword" type="password" placeholder="Min 6 characters">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Confirm Password</label>
+        <input class="form-input" id="resetConfirmPassword" type="password" placeholder="Same as above">
+      </div>
+      <button class="btn-primary" onclick="doForcedReset()">Set Password & Continue →</button>
+      <div class="auth-error" id="resetError"></div>
     </div>
   </div>
 </div>
@@ -769,9 +824,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </button>
       <button class="nav-item" onclick="showView('pdf-scan',this)" id="pdfScanNavBtn">
         <span class="nav-dot-item"></span>PDF Scanner
-      </button>
-      <button class="nav-item" onclick="showView('ops-calendar',this)" id="opsCalNavBtn">
-        <span class="nav-dot-item"></span>Ops Calendar
       </button>
       <button class="nav-item" onclick="showView('analytics',this)">
         <span class="nav-dot-item"></span>Analytics
@@ -1739,62 +1791,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div><!-- /pdf-scan-results -->
       </div><!-- /view-pdf-scan -->
 
-      <!--  OPS CALENDAR  -->
-      <div id="view-ops-calendar" class="view">
-        <div class="page-title">Ops Calendar</div>
-        <div class="page-sub">All athlete deliverables across your entire roster — unified operations view</div>
-
-        <!-- Filters row -->
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px">
-          <select class="select-sm" id="ops-cal-filter-athlete" onchange="loadOpsCalendar()" style="min-width:160px">
-            <option value="">All Athletes</option>
-          </select>
-          <select class="select-sm" id="ops-cal-filter-brand" onchange="loadOpsCalendar()" style="min-width:140px">
-            <option value="">All Brands</option>
-          </select>
-          <select class="select-sm" id="ops-cal-filter-status" onchange="loadOpsCalendar()" style="min-width:130px">
-            <option value="">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="completed">Completed</option>
-            <option value="overdue">Overdue</option>
-          </select>
-          <div style="margin-left:auto;display:flex;gap:8px">
-            <button class="run-btn" id="ops-cal-view-toggle" onclick="toggleOpsCalView()" style="padding:7px 14px;font-size:11px">List View</button>
-            <button onclick="loadOpsCalendar()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:11px">↻ Refresh</button>
-          </div>
-        </div>
-
-        <!-- Nav row -->
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
-          <button onclick="opsCalNav(-1)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">←</button>
-          <div id="ops-cal-label" style="font-size:15px;font-weight:700;color:var(--text);min-width:160px;text-align:center"></div>
-          <button onclick="opsCalNav(1)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">→</button>
-          <button onclick="opsCalToday()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px">Today</button>
-        </div>
-
-        <!-- Calendar grid (monthly view) -->
-        <div id="ops-cal-grid-wrap" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:20px">
-          <div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--surface2);border-bottom:1px solid var(--border)">
-            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Sun</div>
-            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Mon</div>
-            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Tue</div>
-            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Wed</div>
-            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Thu</div>
-            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Fri</div>
-            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Sat</div>
-          </div>
-          <div id="ops-cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr)"></div>
-        </div>
-
-        <!-- List view (hidden by default) -->
-        <div id="ops-cal-list-wrap" style="display:none;margin-bottom:20px"></div>
-
-        <!-- Day detail panel -->
-        <div id="ops-cal-day-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px">
-          <div id="ops-cal-day-label" style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px"></div>
-          <div id="ops-cal-day-list"></div>
-        </div>
-      </div><!-- /view-ops-calendar -->
 
       <!--  ANALYTICS  -->
       <div id="view-analytics" class="view">
@@ -2349,26 +2345,45 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
       <!-- CALENDAR -->
       <div id="view-calendar" class="view">
-        <div class="page-title">Deal Calendar</div>
-        <div class="page-sub">All deadlines, follow-ups, and campaign dates</div>
+        <div class="page-title">Deliverables Calendar</div>
+        <div class="page-sub">All contract deliverables across your roster — single source of truth</div>
 
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
-          <div style="display:flex;align-items:center;gap:8px">
-            <button onclick="NILCal.prevMonth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">&#8592;</button>
-            <div id="cal-month-label" style="font-size:15px;font-weight:700;color:var(--text);min-width:160px;text-align:center"></div>
-            <button onclick="NILCal.nextMonth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">&#8594;</button>
-            <button onclick="NILCal.today()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px">Today</button>
-          </div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:10px;height:10px;background:#4ade80;border-radius:50%;display:inline-block"></span>Closing</div>
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:10px;height:10px;background:var(--accent);border-radius:50%;display:inline-block"></span>Negotiating</div>
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:10px;height:10px;background:#60a5fa;border-radius:50%;display:inline-block"></span>Outreach</div>
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:10px;height:10px;background:#6b7280;border-radius:50%;display:inline-block"></span>Prospecting</div>
-            <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)"><span style="width:10px;height:10px;background:#a78bfa;border-radius:50%;display:inline-block"></span>Custom</div>
+        <!-- Filters + controls row -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+          <select class="select-sm" id="cal-filter-athlete" onchange="NILCal.applyFilter()" style="min-width:155px">
+            <option value="">All Athletes</option>
+          </select>
+          <select class="select-sm" id="cal-filter-brand" onchange="NILCal.applyFilter()" style="min-width:140px">
+            <option value="">All Brands</option>
+          </select>
+          <select class="select-sm" id="cal-filter-status" onchange="NILCal.applyFilter()" style="min-width:130px">
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="completed">Completed</option>
+            <option value="overdue">Overdue</option>
+          </select>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button id="cal-list-toggle" onclick="NILCal.toggleListMode()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:11px">☰ List View</button>
+            <button onclick="NILCal.reload()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:11px">↻</button>
           </div>
         </div>
 
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:20px">
+        <!-- Month nav -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+          <button onclick="NILCal.prevMonth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">←</button>
+          <div id="cal-month-label" style="font-size:15px;font-weight:700;color:var(--text);min-width:160px;text-align:center"></div>
+          <button onclick="NILCal.nextMonth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">→</button>
+          <button onclick="NILCal.today()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px">Today</button>
+        </div>
+
+        <!-- Empty state -->
+        <div id="cal-empty-state" style="display:none;text-align:center;padding:48px 24px;color:var(--muted);font-size:13px">
+          <div style="font-size:32px;margin-bottom:12px">📅</div>
+          No deliverables yet — upload a contract in the <strong>PDF Scanner</strong> to populate this calendar.
+        </div>
+
+        <!-- Monthly grid (default) -->
+        <div id="cal-grid-wrap" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:20px">
           <div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--surface2);border-bottom:1px solid var(--border)">
             <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Sun</div>
             <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Mon</div>
@@ -2381,14 +2396,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr)"></div>
         </div>
 
+        <!-- List view (hidden by default) -->
+        <div id="cal-list-wrap" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:20px"></div>
+
+        <!-- Day detail panel -->
         <div id="cal-selected-events" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px">
           <div id="cal-selected-label" style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px"></div>
           <div id="cal-selected-list"></div>
-        </div>
-
-        <div style="margin-bottom:28px">
-          <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px">Upcoming Deadlines</div>
-          <div id="cal-deadlines" style="color:var(--muted);font-size:12px">Loading...</div>
         </div>
       </div>
 
@@ -3154,7 +3168,68 @@ let selectedAthleteId = null;
 let selectedRole = 'agent';
 let lastCalculatedRate = null;
 
-//  AUTH 
+//  AUTH
+function chooseAuthRole(role) {
+  document.getElementById('authRoleChooser').style.display  = role ? 'none' : 'block';
+  document.getElementById('authAgentPanel').style.display   = role === 'agent'   ? 'block' : 'none';
+  document.getElementById('authAthletePanel').style.display = role === 'athlete' ? 'block' : 'none';
+  document.getElementById('authResetPanel').style.display   = 'none';
+}
+
+async function doAthleteLogin() {
+  const email    = document.getElementById('athLoginEmail').value.trim();
+  const password = document.getElementById('athLoginPassword').value;
+  const errEl    = document.getElementById('athLoginError');
+  const btn      = document.getElementById('athLoginBtn');
+  if (!email || !password) { errEl.textContent = 'Email and password required'; return; }
+  btn.disabled = true; btn.textContent = 'Signing in...';
+  errEl.textContent = '';
+  try {
+    const r = await fetch(`${API_BASE}/api/auth/login`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email, password })
+    });
+    const data = await r.json();
+    if (!r.ok) { errEl.textContent = data.error || 'Login failed'; btn.disabled=false; btn.textContent='Sign In →'; return; }
+    if (data.role !== 'athlete') { errEl.textContent = 'No athlete account found with this email'; btn.disabled=false; btn.textContent='Sign In →'; return; }
+    if (data.passwordResetRequired) {
+      // Show forced reset panel
+      document.getElementById('authAthletePanel').style.display = 'none';
+      document.getElementById('authResetPanel').style.display   = 'block';
+      btn.disabled=false; btn.textContent='Sign In →';
+      return;
+    }
+    // Success — boot as athlete
+    document.getElementById('authScreen').classList.add('hidden');
+    bootApp(data);
+  } catch(e) {
+    errEl.textContent = 'Connection error — try again'; btn.disabled=false; btn.textContent='Sign In →';
+  }
+}
+
+async function doForcedReset() {
+  const newPass  = document.getElementById('resetNewPassword').value;
+  const confirm  = document.getElementById('resetConfirmPassword').value;
+  const errEl    = document.getElementById('resetError');
+  if (!newPass || newPass.length < 6) { errEl.textContent = 'Password must be at least 6 characters'; return; }
+  if (newPass !== confirm) { errEl.textContent = 'Passwords do not match'; return; }
+  errEl.textContent = '';
+  try {
+    const r = await fetch(`${API_BASE}/api/auth/change-password`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ newPassword: newPass })
+    });
+    const data = await r.json();
+    if (!r.ok) { errEl.textContent = data.error || 'Reset failed'; return; }
+    // Now load /me to boot the app
+    const me = await fetch(`${API_BASE}/api/auth/me`).then(r=>r.json());
+    document.getElementById('authScreen').classList.add('hidden');
+    bootApp(me);
+  } catch(e) {
+    errEl.textContent = 'Error — try again';
+  }
+}
+
 async function switchTab(tab) {
   document.querySelectorAll('.auth-tab').forEach((t,i) => t.classList.toggle('active', (i===0&&tab==='login')||(i===1&&tab==='signup')));
   document.getElementById('loginForm').style.display  = tab==='login'  ? 'block' : 'none';
@@ -3181,6 +3256,12 @@ async function doLogin() {
     });
     const data = await r.json();
     if (!r.ok) { err.textContent = data.error; return; }
+    if (data.passwordResetRequired) {
+      document.getElementById('authAgentPanel').style.display = 'none';
+      document.getElementById('authResetPanel').style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Sign In →';
+      return;
+    }
     currentUser = data;
     bootApp();
   } catch(e) { err.textContent = 'Connection error. Is the server running?'; }
@@ -3251,7 +3332,7 @@ async function bootApp() {
     loadAthleteCalendarPortal();
     loadAthleteOutreachHistory();
     // Hide entire agent nav for athletes
-    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-deal-close','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-pdf-scan','view-ops-calendar','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals','view-university-dashboard'];
+    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-deal-close','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-pdf-scan','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals','view-university-dashboard'];
     agentOnlyEls.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -3572,7 +3653,13 @@ async function addAthlete() {
       }),
     });
     const data = await r.json();
-    if (!r.ok) { err.textContent = data.error; return; }
+    if (!r.ok) {
+      if (data.code === 'SEAT_LIMIT_REACHED') {
+        showToast('Athlete limit reached on your current plan — upgrade to add more athletes');
+        return;
+      }
+      err.textContent = data.error; return;
+    }
     athletes.push(data);
     renderRoster(); populateAthleteSelect();
     selectAthlete(data.id);
@@ -3628,7 +3715,7 @@ async function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', 'deal-close':'Deal Close Mode', pipeline:'Deal Pipeline', 'team-match':'Agent Intelligence', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', 'ops-calendar':'Ops Calendar', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
+    negotiate:'Negotiation Intel', 'deal-close':'Deal Close Mode', pipeline:'Deal Pipeline', 'team-match':'Agent Intelligence', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','deal-close','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -3639,7 +3726,6 @@ async function showView(id, btn) {
   if (id === 'roster') renderRoster();
   if (id === 'athlete-portals') loadAthletePortals();
   if (id === 'contract') prefillContract();
-  if (id === 'ops-calendar') loadOpsCalendar();
   if (id === 'deal-close') onDealCloseViewOpen();
   if (id === 'team-match') setTimeout(loadIntelHQ, 80);
 }
@@ -5180,145 +5266,6 @@ function renderPdfScanResults(data, filename) {
 }
 // ── /PDF SCANNER ──────────────────────────────────────────────────────────
 
-// ── OPS CALENDAR ───────────────────────────────────────────────────────────
-let _opsCal = { year: new Date().getFullYear(), month: new Date().getMonth(), events: [], listMode: false };
-
-async function loadOpsCalendar() {
-  const athleteFilter = document.getElementById('ops-cal-filter-athlete')?.value || '';
-  const brandFilter   = document.getElementById('ops-cal-filter-brand')?.value   || '';
-  const statusFilter  = document.getElementById('ops-cal-filter-status')?.value  || '';
-  const { year, month } = _opsCal;
-
-  let url = `${API_BASE}/api/agent/calendar?year=${year}&month=${month + 1}`;
-  if (athleteFilter) url += `&athlete_id=${encodeURIComponent(athleteFilter)}`;
-  if (brandFilter)   url += `&brand=${encodeURIComponent(brandFilter)}`;
-  if (statusFilter)  url += `&status=${encodeURIComponent(statusFilter)}`;
-
-  try {
-    const r = await fetch(url);
-    const data = await r.json();
-    _opsCal.events = data.events || [];
-
-    // Populate athlete filter
-    const athleteSel = document.getElementById('ops-cal-filter-athlete');
-    if (athleteSel && data.athleteList) {
-      const cur = athleteSel.value;
-      athleteSel.innerHTML = '<option value="">All Athletes</option>' +
-        data.athleteList.map(a => `<option value="${a.id}" ${a.id===cur?'selected':''}>${a.name}</option>`).join('');
-    }
-    // Populate brand filter
-    const brandSel = document.getElementById('ops-cal-filter-brand');
-    if (brandSel) {
-      const brands = [...new Set(_opsCal.events.map(e => e.brand).filter(Boolean))].sort();
-      const curB = brandSel.value;
-      brandSel.innerHTML = '<option value="">All Brands</option>' +
-        brands.map(b => `<option value="${b}" ${b===curB?'selected':''}>${b}</option>`).join('');
-    }
-
-    _opsCal.listMode ? renderOpsCalList() : renderOpsCalGrid();
-    updateOpsCalLabel();
-  } catch(e) {
-    console.error('Ops calendar load error:', e);
-  }
-}
-
-function updateOpsCalLabel() {
-  const lbl = document.getElementById('ops-cal-label');
-  if (lbl) lbl.textContent = new Date(_opsCal.year, _opsCal.month).toLocaleString('default', { month: 'long', year: 'numeric' });
-}
-
-function opsCalNav(dir) {
-  _opsCal.month += dir;
-  if (_opsCal.month > 11) { _opsCal.month = 0; _opsCal.year++; }
-  if (_opsCal.month < 0)  { _opsCal.month = 11; _opsCal.year--; }
-  loadOpsCalendar();
-}
-
-function opsCalToday() {
-  const n = new Date();
-  _opsCal.year = n.getFullYear(); _opsCal.month = n.getMonth();
-  loadOpsCalendar();
-}
-
-function toggleOpsCalView() {
-  _opsCal.listMode = !_opsCal.listMode;
-  const btn = document.getElementById('ops-cal-view-toggle');
-  if (btn) btn.textContent = _opsCal.listMode ? 'Month View' : 'List View';
-  document.getElementById('ops-cal-grid-wrap').style.display = _opsCal.listMode ? 'none' : 'block';
-  document.getElementById('ops-cal-list-wrap').style.display = _opsCal.listMode ? 'block' : 'none';
-  _opsCal.listMode ? renderOpsCalList() : renderOpsCalGrid();
-}
-
-function renderOpsCalGrid() {
-  const grid = document.getElementById('ops-cal-grid');
-  if (!grid) return;
-  const { year, month, events } = _opsCal;
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date().toISOString().split('T')[0];
-
-  const byDate = {};
-  for (const ev of events) {
-    const d = ev.event_date ? ev.event_date.split('T')[0] : null;
-    if (d) { if (!byDate[d]) byDate[d] = []; byDate[d].push(ev); }
-  }
-
-  let html = '';
-  for (let i = 0; i < firstDay; i++) html += '<div style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2)"></div>';
-
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const dayEvs = byDate[dateStr] || [];
-    const isToday = dateStr === today;
-    html += `<div onclick="opsCalSelectDay('${dateStr}')" style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:6px;cursor:pointer;${isToday?'background:rgba(99,102,241,0.06)':''}">
-      <div style="font-size:11px;font-weight:600;color:${isToday?'var(--accent)':'var(--muted)'};margin-bottom:4px">${d}</div>
-      ${dayEvs.slice(0,3).map(ev => `<div style="font-size:9px;padding:2px 4px;border-radius:3px;margin-bottom:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:${ev.color||'#6366f1'}22;color:${ev.color||'#6366f1'};border-left:2px solid ${ev.color||'#6366f1'}" title="${ev.athlete_name||''}: ${ev.title}">${ev.athlete_name ? ev.athlete_name.split(' ').pop() + ' · ' : ''}${ev.title}</div>`).join('')}
-      ${dayEvs.length > 3 ? `<div style="font-size:9px;color:var(--muted)">+${dayEvs.length - 3} more</div>` : ''}
-    </div>`;
-  }
-  grid.innerHTML = html;
-}
-
-function renderOpsCalList() {
-  const wrap = document.getElementById('ops-cal-list-wrap');
-  if (!wrap) return;
-  const { events } = _opsCal;
-  if (!events.length) { wrap.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:32px">No deliverables this month</div>'; return; }
-
-  const sorted = [...events].sort((a,b) => (a.event_date||'').localeCompare(b.event_date||''));
-  const today = new Date().toISOString().split('T')[0];
-  wrap.innerHTML = sorted.map(ev => {
-    const d = ev.event_date ? ev.event_date.split('T')[0] : '—';
-    const overdue = d !== '—' && d < today && ev.status !== 'completed';
-    const statusColor = ev.status === 'completed' ? '#22c55e' : overdue ? '#ef4444' : 'var(--muted)';
-    return `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12px">
-      <div style="width:3px;min-height:40px;border-radius:2px;background:${ev.color||'#6366f1'};flex-shrink:0"></div>
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ev.title}</div>
-        <div style="color:var(--muted);margin-top:2px">${ev.athlete_name||'Unknown Athlete'} · ${ev.brand||'—'}</div>
-      </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="color:${overdue?'#ef4444':'var(--muted)'};">${d}</div>
-        <div style="color:${statusColor};font-size:10px;text-transform:capitalize;margin-top:2px">${overdue?'Overdue':ev.status||'pending'}</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function opsCalSelectDay(dateStr) {
-  const dayEvs = _opsCal.events.filter(e => e.event_date && e.event_date.split('T')[0] === dateStr);
-  const panel = document.getElementById('ops-cal-day-panel');
-  const lbl   = document.getElementById('ops-cal-day-label');
-  const list  = document.getElementById('ops-cal-day-list');
-  if (!dayEvs.length) { panel.style.display = 'none'; return; }
-  panel.style.display = 'block';
-  lbl.textContent = new Date(dateStr + 'T12:00:00').toLocaleDateString('default', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) + ` — ${dayEvs.length} deliverable${dayEvs.length>1?'s':''}`;
-  list.innerHTML = dayEvs.map(ev => `<div style="padding:8px 10px;border-radius:6px;margin-bottom:6px;background:${ev.color||'#6366f1'}11;border:1px solid ${ev.color||'#6366f1'}33;font-size:12px">
-    <div style="font-weight:600;color:var(--fg)">${ev.title}</div>
-    <div style="color:var(--muted);margin-top:3px">${ev.athlete_name||''} · ${ev.brand||''} · <span style="text-transform:capitalize">${ev.status||'pending'}</span></div>
-  </div>`).join('');
-}
-// ── /OPS CALENDAR ──────────────────────────────────────────────────────────
 
 // ── ATHLETE CALENDAR + OUTREACH ────────────────────────────────────────────
 async function loadAthleteCalendarPortal() {
@@ -5360,6 +5307,20 @@ async function loadAthleteOutreachHistory() {
       <div style="color:var(--muted);font-size:10px;margin-top:4px">${new Date(m.created_at).toLocaleDateString()}</div>
     </div>`).join('');
   } catch(e) {}
+}
+
+async function createAthleteAccount(athleteId) {
+  const email = prompt('Enter athlete email address to create their login account:');
+  if (!email || !email.includes('@')) { showToast('Valid email required'); return; }
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/create-athlete-account`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ athleteId, email })
+    });
+    const data = await r.json();
+    if (!r.ok) { showToast(data.error || 'Failed to create account'); return; }
+    showToast('✓ Account created — welcome email sent to ' + email);
+  } catch(e) { showToast('Error: ' + e.message); }
 }
 
 async function sendAthleteOutreach() {
@@ -5905,7 +5866,7 @@ async function makeGoogleCalLink(title, date, description) {
 }
 
 async function loadCalendar() {
-  await NILCal.load(athletes, API_BASE);
+  await NILCal.load([], API_BASE);
 }
 
 //  INIT 

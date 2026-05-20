@@ -115,12 +115,47 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   const user = await store.getUserByEmailWithPassword(email);
   if (!user) return res.status(401).json({ error: 'Invalid email or password' });
 
+  // Inactive athlete accounts (removed by agent)
+  if (user.role === 'athlete' && user.agent_id) {
+    const agentExists = await store.pool.query('SELECT id FROM users WHERE id=$1', [user.agent_id]).catch(() => ({ rows: [] }));
+    // Don't block login here — agent account may just be inactive, keep access
+  }
+
   const ok = await bcrypt.compare(password, user.password);
   if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
 
   req.session.userId = user.id;
   req.session.role   = user.role;
-  res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+  res.json({
+    id: user.id, name: user.name, email: user.email, role: user.role,
+    passwordResetRequired: user.password_reset_required || false,
+    athleteId: user.athlete_id || null,
+    agentId: user.agent_id || null,
+  });
+});
+
+// ── Force password reset (athlete first login) ────────────────────────────
+app.post('/api/auth/change-password', requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6)
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    const user = await store.getUserWithPassword(req.session.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    // If currentPassword provided, verify it (skip check for forced-reset flow)
+    if (currentPassword) {
+      const ok = await bcrypt.compare(currentPassword, user.password);
+      if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    const hash = await bcrypt.hash(newPassword, 10);
+    await store.pool.query(
+      'UPDATE users SET password=$1, password_reset_required=FALSE, updated_at=NOW() WHERE id=$2',
+      [hash, req.session.userId]
+    );
+    res.json({ ok: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -133,7 +168,13 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Not found' });
   // Refresh session role on every /me call — handles sessions that predate role storage
   if (!req.session.role) req.session.role = user.role;
-  res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+  res.json({
+    id: user.id, name: user.name, email: user.email, role: user.role,
+    passwordResetRequired: user.password_reset_required || false,
+    athleteId: user.athlete_id || null,
+    agentId: user.agent_id || null,
+    plan: user.plan || 'basic', planTier: user.plan_tier || 'basic',
+  });
 
 // ── Admin seed + university link endpoint ─────────────────────────
 // POST /api/admin/seed-samford
@@ -216,10 +257,63 @@ app.get('/api/athletes', requireAuth, async (req, res) => {
   res.json(athletes);
 });
 
+// ── Seat limit helper ─────────────────────────────────────────────────────
+function getSeatLimit(plan) {
+  if (!plan) return 10;
+  const p = String(plan).toLowerCase();
+  if (p.includes('unlimited') || p.includes('enterprise') || p.includes('599')) return null;
+  if (p.includes('pro') || p.includes('499')) return 20;
+  return 10; // basic, beta, $299, etc.
+}
+
+// ── Seat status endpoint ──────────────────────────────────────────────────
+app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user) return res.status(404).json({ error: 'Not found' });
+    const plan = user.plan_tier || user.plan || 'basic';
+    const seatLimit = getSeatLimit(plan);
+    const countR = await store.pool.query(
+      `SELECT COUNT(*) FROM athletes WHERE agent_id=$1
+         AND (data->>'source' IS DISTINCT FROM 'espn_import')
+         AND (data->>'source' IS DISTINCT FROM 'university_import')`,
+      [req.session.userId]
+    );
+    const currentCount = parseInt(countR.rows[0].count, 10);
+    res.json({
+      plan, seatLimit, currentCount,
+      hasSeats: seatLimit === null || currentCount < seatLimit,
+      seatsFull: seatLimit !== null && currentCount >= seatLimit,
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
+
+  // ── Seat limit check ─────────────────────────────────────────
+  const plan = user.plan_tier || user.plan || 'basic';
+  const seatLimit = getSeatLimit(plan);
+  if (seatLimit !== null) {
+    const countR = await store.pool.query(
+      `SELECT COUNT(*) FROM athletes WHERE agent_id=$1
+         AND (data->>'source' IS DISTINCT FROM 'espn_import')
+         AND (data->>'source' IS DISTINCT FROM 'university_import')`,
+      [req.session.userId]
+    );
+    const currentCount = parseInt(countR.rows[0].count, 10);
+    if (currentCount >= seatLimit) {
+      return res.status(403).json({
+        error: `You've reached your athlete limit (${seatLimit}) on your current plan. Upgrade to add more athletes.`,
+        code: 'SEAT_LIMIT_REACHED',
+        seatLimit,
+        currentCount,
+      });
+    }
+  }
+
   const id = 'ath-' + Date.now();
   const athlete = await store.saveAthlete(id, {
     id, agentId: user.id, name, sport, position: position || '',
@@ -235,6 +329,87 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     createdAt: new Date().toISOString(),
   });
   res.status(201).json(athlete);
+});
+
+// ── Agent-initiated athlete account creation ──────────────────────────────
+// Creates both the athlete profile AND the athlete login account, sends welcome email
+app.post('/api/agent/create-athlete-account', requireAuth, async (req, res) => {
+  try {
+    const agent = await store.getUser(req.session.userId);
+    if (!agent) return res.status(403).json({ error: 'Forbidden' });
+
+    const { athleteId, email, name } = req.body;
+    if (!athleteId || !email) return res.status(400).json({ error: 'athleteId and email required' });
+
+    // Verify athlete belongs to this agent
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete || athlete.agentId !== req.session.userId)
+      return res.status(403).json({ error: 'Athlete not found or not yours' });
+
+    // Check if athlete already has an account
+    const existing = await store.pool.query('SELECT id FROM users WHERE athlete_id=$1', [athleteId]);
+    if (existing.rows.length > 0)
+      return res.status(400).json({ error: 'This athlete already has an account' });
+
+    // Check if email already used
+    if (await store.getUserByEmail(email))
+      return res.status(400).json({ error: 'Email already registered' });
+
+    // Generate temp password
+    const tempPassword = require('crypto').randomBytes(6).toString('hex'); // e.g. "a3f9b2c1d4"
+    const hash = await bcrypt.hash(tempPassword, 10);
+    const userId = 'athlete-user-' + Date.now();
+
+    await store.saveUser(userId, {
+      id: userId,
+      name: name || athlete.name || email,
+      email,
+      password: hash,
+      role: 'athlete',
+      athleteId,
+      agentId: req.session.userId,
+      createdAt: new Date().toISOString(),
+    });
+
+    // Mark as requiring password reset
+    await store.pool.query(
+      'UPDATE users SET password_reset_required=TRUE WHERE id=$1',
+      [userId]
+    );
+
+    // Send welcome email
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    try {
+      await resend.emails.send({
+        from: 'NILDash <noreply@mynildash.com>',
+        to: [email],
+        subject: `Welcome to NILDash — your athlete portal is ready`,
+        html: `
+          <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px">
+            <h2 style="color:#6366f1">Welcome to NILDash, ${athlete.name || name}!</h2>
+            <p>Your agent <strong>${agent.name}</strong> has set up your personal NIL dashboard.</p>
+            <p>Here are your login details:</p>
+            <div style="background:#f4f4f5;border-radius:8px;padding:20px;margin:20px 0">
+              <p style="margin:0 0 8px"><strong>Login page:</strong> <a href="${appUrl}">${appUrl}</a></p>
+              <p style="margin:0 0 8px"><strong>Email:</strong> ${email}</p>
+              <p style="margin:0"><strong>Temporary password:</strong> <code style="background:#e4e4e7;padding:2px 6px;border-radius:4px">${tempPassword}</code></p>
+            </div>
+            <p><strong>Important:</strong> You'll be asked to set a new password on your first login.</p>
+            <p>Click "I'm an Athlete" on the login page and sign in with the credentials above.</p>
+            <a href="${appUrl}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:8px">Go to NILDash →</a>
+          </div>
+        `,
+      });
+    } catch(emailErr) {
+      console.warn('[create-athlete-account] email send failed:', emailErr.message);
+      // Don't fail the request if email fails
+    }
+
+    res.json({ ok: true, userId, tempPassword, message: 'Account created and welcome email sent' });
+  } catch(e) {
+    console.error('[create-athlete-account]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.put('/api/athletes/:id', requireAuth, async (req, res) => {
