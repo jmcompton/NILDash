@@ -5234,7 +5234,7 @@ async function runPdfScan(file) {
 
   try {
     statusText.textContent = 'Running AI analysis — this takes 10–20 seconds…';
-    const r = await fetch(`${API_BASE}/api/pdf/analyze`, { method: 'POST', body: form });
+    const r = await fetch(`${API_BASE}/api/pdf/analyze`, { method: 'POST', credentials: 'include', body: form });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.error || `Server error ${r.status}`);
