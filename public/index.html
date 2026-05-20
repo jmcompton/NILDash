@@ -5291,6 +5291,7 @@ async function savePdfToCalendar() {
   try {
     const r = await fetch(`${API_BASE}/api/pdf/save`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         athleteId:    _pdfScanAthleteId,
