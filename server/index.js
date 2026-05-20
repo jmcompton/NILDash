@@ -3378,33 +3378,8 @@ Extract ALL deliverables, obligations, and payment milestones. Return JSON:
 
 Return ONLY valid JSON. No markdown.`;
 
-    // ── Step 3: Market analysis ─────────────────────────────────────
-    const analysisPrompt = `You are an NIL market analyst with knowledge of current college athlete deal benchmarks.
-
-CONTRACT SUMMARY (extracted):
-${rawText.substring(0, 5000)}
-
-Analyze this NIL contract against current market rates and return JSON:
-{
-  "market_grade": "A | B | C | D | F",
-  "market_grade_label": "Above Market | At Market | Below Market | Well Below Market",
-  "market_summary": "2-3 sentence plain English verdict",
-  "benchmarks": [
-    { "metric": "label", "contract_value": "what this contract says", "market_rate": "typical range", "verdict": "good | fair | below" }
-  ],
-  "negotiation_tips": ["actionable tip 1", "actionable tip 2", "actionable tip 3"],
-  "comparable_deals": [
-    { "description": "brief deal comp", "value": "$X,000", "sport": "sport", "tier": "school tier" }
-  ]
-}
-
-Return ONLY valid JSON. No markdown.`;
-
-    // Run both AI calls in parallel
-    const [extractRaw, analysisRaw] = await Promise.all([
-      ai.oneShot(extractPrompt, 'You are a legal contract analyst. Return only valid JSON. No markdown.', 3500),
-      ai.oneShot(analysisPrompt, 'You are an NIL market analyst. Return only valid JSON. No markdown.', 2000),
-    ]);
+    // Run extraction AI call
+    const extractRaw = await ai.oneShot(extractPrompt, 'You are a legal contract analyst. Return only valid JSON. No markdown.', 3500);
 
     // Parse extraction
     let extracted = {};
@@ -3413,14 +3388,6 @@ Return ONLY valid JSON. No markdown.`;
       const m = clean.match(/\{[\s\S]*\}/);
       if (m) extracted = JSON.parse(m[0]);
     } catch (e) { extracted = { deliverables: [], risk_flags: [] }; }
-
-    // Parse market analysis
-    let analysis = {};
-    try {
-      const clean = analysisRaw.replace(/```json/gi,'').replace(/```/g,'').trim();
-      const m = clean.match(/\{[\s\S]*\}/);
-      if (m) analysis = JSON.parse(m[0]);
-    } catch (e) { analysis = {}; }
 
     // Normalize deliverable_type field (server uses "type", frontend expects "deliverable_type")
     if (Array.isArray(extracted.deliverables)) {
@@ -3450,20 +3417,140 @@ Return ONLY valid JSON. No markdown.`;
         key_terms: extracted.key_terms || [],
         risk_flags: extracted.risk_flags || [],
       },
-      market: {
-        market_grade: analysis.market_grade || '—',
-        grade_label: analysis.market_grade_label || '',
-        market_summary: analysis.market_summary || '',
-        benchmarks: Array.isArray(analysis.benchmarks)
-          ? analysis.benchmarks.map(b => `${b.metric}: ${b.contract_value} (market: ${b.market_rate}) — ${b.verdict}`)
-          : [],
-        negotiation_tips: analysis.negotiation_tips || [],
-        comparable_deals: analysis.comparable_deals || [],
-      },
     });
   } catch (e) {
     console.error('[pdf/analyze]', e.message);
     res.status(500).json({ error: e.message || 'PDF analysis failed' });
+  }
+});
+
+// ── AGENT GLOBAL OPS CALENDAR ────────────────────────────────────────────
+app.get('/api/agent/calendar', requireAuth, async (req, res) => {
+  try {
+    const agentId = req.session.userId;
+    const { year, month, athlete_id, brand, status } = req.query;
+
+    let sql = `SELECT ace.*, a.data->>'name' as athlete_name FROM athlete_calendar_events ace JOIN athletes a ON ace.athlete_id = a.id WHERE ace.agent_id=$1`;
+    const params = [agentId];
+    let idx = 2;
+
+    if (year && month) {
+      sql += ` AND EXTRACT(YEAR FROM ace.event_date) = $${idx} AND EXTRACT(MONTH FROM ace.event_date) = $${idx+1}`;
+      params.push(parseInt(year), parseInt(month));
+      idx += 2;
+    } else if (year) {
+      sql += ` AND EXTRACT(YEAR FROM ace.event_date) = $${idx}`;
+      params.push(parseInt(year));
+      idx++;
+    }
+    if (athlete_id) { sql += ` AND ace.athlete_id = $${idx}`; params.push(athlete_id); idx++; }
+    if (brand)      { sql += ` AND ace.brand = $${idx}`;      params.push(brand);      idx++; }
+    if (status)     { sql += ` AND ace.status = $${idx}`;     params.push(status);     idx++; }
+
+    sql += ` ORDER BY ace.event_date ASC`;
+
+    const eventsResult = await store.pool.query(sql, params);
+
+    // Build distinct athlete list for filter dropdown
+    const athleteListResult = await store.pool.query(
+      `SELECT DISTINCT ace.athlete_id, a.data->>'name' as name FROM athlete_calendar_events ace JOIN athletes a ON ace.athlete_id = a.id WHERE ace.agent_id=$1`,
+      [agentId]
+    );
+
+    res.json({ events: eventsResult.rows, athleteList: athleteListResult.rows });
+  } catch (e) {
+    console.error('[agent/calendar]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── ATHLETE-SCOPED CALENDAR ───────────────────────────────────────────────
+app.get('/api/athlete-portal/calendar', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.role !== 'athlete') return res.status(403).json({ error: 'Athletes only' });
+    const athleteId = user.athlete_id || user.athleteId;
+    if (!athleteId) return res.status(400).json({ error: 'No athlete profile linked' });
+
+    const { year, month } = req.query;
+    let sql = `SELECT * FROM athlete_calendar_events WHERE athlete_id=$1`;
+    const params = [athleteId];
+    let idx = 2;
+
+    if (year && month) {
+      sql += ` AND EXTRACT(YEAR FROM event_date) = $${idx} AND EXTRACT(MONTH FROM event_date) = $${idx+1}`;
+      params.push(parseInt(year), parseInt(month));
+      idx += 2;
+    } else if (year) {
+      sql += ` AND EXTRACT(YEAR FROM event_date) = $${idx}`;
+      params.push(parseInt(year));
+      idx++;
+    }
+    sql += ` ORDER BY event_date ASC`;
+
+    const r = await store.pool.query(sql, params);
+    res.json({ events: r.rows });
+  } catch (e) {
+    console.error('[athlete-portal/calendar]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── ATHLETE POST OUTREACH ─────────────────────────────────────────────────
+app.post('/api/athlete-portal/outreach', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.role !== 'athlete') return res.status(403).json({ error: 'Athletes only' });
+    const athleteId = user.athlete_id || user.athleteId;
+    const agentId   = user.agent_id  || user.agentId;
+    if (!athleteId) return res.status(400).json({ error: 'No athlete profile linked' });
+
+    const { subject, message } = req.body;
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
+
+    const id = 'out-' + require('crypto').randomBytes(8).toString('hex');
+    await store.pool.query(
+      `INSERT INTO athlete_outreach (id, athlete_id, agent_id, subject, message, status) VALUES ($1,$2,$3,$4,$5,'sent')`,
+      [id, athleteId, agentId || null, subject || null, message.trim()]
+    );
+    res.json({ ok: true, id });
+  } catch (e) {
+    console.error('[athlete-portal/outreach POST]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── ATHLETE READ OWN OUTREACH ─────────────────────────────────────────────
+app.get('/api/athlete-portal/outreach', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.role !== 'athlete') return res.status(403).json({ error: 'Athletes only' });
+    const athleteId = user.athlete_id || user.athleteId;
+    if (!athleteId) return res.status(400).json({ error: 'No athlete profile linked' });
+
+    const r = await store.pool.query(
+      `SELECT * FROM athlete_outreach WHERE athlete_id=$1 ORDER BY created_at DESC`,
+      [athleteId]
+    );
+    res.json({ messages: r.rows });
+  } catch (e) {
+    console.error('[athlete-portal/outreach GET]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── AGENT READ ALL ATHLETE OUTREACH ──────────────────────────────────────
+app.get('/api/agent/outreach', requireAuth, async (req, res) => {
+  try {
+    const agentId = req.session.userId;
+    const r = await store.pool.query(
+      `SELECT ao.*, a.data->>'name' as athlete_name FROM athlete_outreach ao JOIN athletes a ON ao.athlete_id = a.id WHERE ao.agent_id=$1 ORDER BY ao.created_at DESC`,
+      [agentId]
+    );
+    res.json({ messages: r.rows });
+  } catch (e) {
+    console.error('[agent/outreach]', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 

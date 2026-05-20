@@ -177,6 +177,15 @@ async function init() {
       error_message TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS athlete_outreach (
+      id TEXT PRIMARY KEY,
+      athlete_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      subject TEXT,
+      message TEXT NOT NULL,
+      status TEXT DEFAULT 'sent',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `).catch(e => console.error('Contract system tables init error:', e.message));
 
   // Additive column migrations — safe to run on existing DBs
@@ -208,6 +217,8 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cal_events_date ON athlete_calendar_events(event_date)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_agent ON contract_audit_log(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_contract ON contract_audit_log(contract_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_athlete_outreach_agent ON athlete_outreach(agent_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_athlete_outreach_athlete ON athlete_outreach(athlete_id)`).catch(() => {});
   // ── Email Integration Tables (additive — never modifies existing tables) ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_accounts (

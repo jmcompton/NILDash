@@ -770,6 +770,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('pdf-scan',this)" id="pdfScanNavBtn">
         <span class="nav-dot-item"></span>PDF Scanner
       </button>
+      <button class="nav-item" onclick="showView('ops-calendar',this)" id="opsCalNavBtn">
+        <span class="nav-dot-item"></span>Ops Calendar
+      </button>
       <button class="nav-item" onclick="showView('analytics',this)">
         <span class="nav-dot-item"></span>Analytics
       </button>
@@ -1687,20 +1690,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <!-- Results grid — hidden until scan completes -->
         <div id="pdf-scan-results" style="display:none">
 
-          <!-- Row 1: Contract summary + Market grade side by side -->
-          <div style="display:grid;grid-template-columns:1fr 220px;gap:16px;margin-bottom:16px;align-items:start">
-
-            <!-- Contract summary -->
+          <!-- Row 1: Contract summary full-width -->
+          <div style="margin-bottom:16px">
             <div class="card" style="padding:16px 20px">
               <div class="card-title" style="margin-bottom:10px">Contract Summary</div>
               <div id="pdf-scan-summary" style="font-size:12px;color:var(--muted);line-height:1.7"></div>
-            </div>
-
-            <!-- Market grade -->
-            <div class="card" style="padding:16px 20px;text-align:center">
-              <div class="card-title" style="margin-bottom:6px">Market Grade</div>
-              <div id="pdf-scan-grade" style="font-size:52px;font-weight:800;line-height:1;margin:8px 0">—</div>
-              <div id="pdf-scan-grade-label" style="font-size:11px;color:var(--muted)"></div>
             </div>
           </div>
 
@@ -1726,36 +1720,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
           </div>
 
-          <!-- Row 3: Risk flags + Negotiation tips side by side -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-
-            <!-- Risk flags -->
-            <div class="card" style="padding:16px 20px">
-              <div class="card-title" style="margin-bottom:10px">⚠ Risk Flags</div>
-              <ul id="pdf-scan-risks" style="margin:0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.8"></ul>
-            </div>
-
-            <!-- Negotiation tips -->
-            <div class="card" style="padding:16px 20px">
-              <div class="card-title" style="margin-bottom:10px">💡 Negotiation Tips</div>
-              <ul id="pdf-scan-tips" style="margin:0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.8"></ul>
-            </div>
+          <!-- Row 3: Risk flags -->
+          <div class="card" style="padding:16px 20px;margin-bottom:16px">
+            <div class="card-title" style="margin-bottom:10px">⚠ Risk Flags</div>
+            <ul id="pdf-scan-risks" style="margin:0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.8"></ul>
           </div>
 
-          <!-- Row 4: Key terms + Comparable deals -->
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
-
-            <!-- Key terms -->
-            <div class="card" style="padding:16px 20px">
-              <div class="card-title" style="margin-bottom:10px">📋 Key Contract Terms</div>
-              <div id="pdf-scan-terms" style="font-size:12px;color:var(--muted);line-height:1.8"></div>
-            </div>
-
-            <!-- Comparable deals -->
-            <div class="card" style="padding:16px 20px">
-              <div class="card-title" style="margin-bottom:10px">📊 Market Benchmarks</div>
-              <div id="pdf-scan-benchmarks" style="font-size:12px;color:var(--muted);line-height:1.8"></div>
-            </div>
+          <!-- Row 4: Key Contract Terms -->
+          <div class="card" style="padding:16px 20px;margin-bottom:16px">
+            <div class="card-title" style="margin-bottom:10px">📋 Key Contract Terms</div>
+            <div id="pdf-scan-terms" style="font-size:12px;color:var(--muted);line-height:1.8"></div>
           </div>
 
           <!-- Scan again button -->
@@ -1764,6 +1738,63 @@ tbody td{padding:11px 14px;vertical-align:middle}
           </div>
         </div><!-- /pdf-scan-results -->
       </div><!-- /view-pdf-scan -->
+
+      <!--  OPS CALENDAR  -->
+      <div id="view-ops-calendar" class="view">
+        <div class="page-title">Ops Calendar</div>
+        <div class="page-sub">All athlete deliverables across your entire roster — unified operations view</div>
+
+        <!-- Filters row -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px">
+          <select class="select-sm" id="ops-cal-filter-athlete" onchange="loadOpsCalendar()" style="min-width:160px">
+            <option value="">All Athletes</option>
+          </select>
+          <select class="select-sm" id="ops-cal-filter-brand" onchange="loadOpsCalendar()" style="min-width:140px">
+            <option value="">All Brands</option>
+          </select>
+          <select class="select-sm" id="ops-cal-filter-status" onchange="loadOpsCalendar()" style="min-width:130px">
+            <option value="">All Statuses</option>
+            <option value="pending">Pending</option>
+            <option value="completed">Completed</option>
+            <option value="overdue">Overdue</option>
+          </select>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="run-btn" id="ops-cal-view-toggle" onclick="toggleOpsCalView()" style="padding:7px 14px;font-size:11px">List View</button>
+            <button onclick="loadOpsCalendar()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:11px">↻ Refresh</button>
+          </div>
+        </div>
+
+        <!-- Nav row -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+          <button onclick="opsCalNav(-1)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">←</button>
+          <div id="ops-cal-label" style="font-size:15px;font-weight:700;color:var(--text);min-width:160px;text-align:center"></div>
+          <button onclick="opsCalNav(1)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px">→</button>
+          <button onclick="opsCalToday()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px">Today</button>
+        </div>
+
+        <!-- Calendar grid (monthly view) -->
+        <div id="ops-cal-grid-wrap" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:20px">
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--surface2);border-bottom:1px solid var(--border)">
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Sun</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Mon</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Tue</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Wed</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Thu</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Fri</div>
+            <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Sat</div>
+          </div>
+          <div id="ops-cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr)"></div>
+        </div>
+
+        <!-- List view (hidden by default) -->
+        <div id="ops-cal-list-wrap" style="display:none;margin-bottom:20px"></div>
+
+        <!-- Day detail panel -->
+        <div id="ops-cal-day-panel" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px">
+          <div id="ops-cal-day-label" style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px"></div>
+          <div id="ops-cal-day-list"></div>
+        </div>
+      </div><!-- /view-ops-calendar -->
 
       <!--  ANALYTICS  -->
       <div id="view-analytics" class="view">
@@ -1980,12 +2011,47 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div id="athlete-portals-list" style="display:flex;flex-direction:column;gap:12px;margin-top:16px">
           <div style="color:var(--muted);text-align:center;padding:40px">Loading clients...</div>
         </div>
+
+        <!-- Agent reads all athlete outreach -->
+        <div style="margin-top:28px">
+          <div class="page-title" style="font-size:15px">Athlete Messages</div>
+          <div class="page-sub" style="margin-bottom:14px">All outreach sent by your athletes</div>
+          <button onclick="loadAgentOutreach()" class="run-btn" style="margin-bottom:14px;padding:7px 16px;font-size:11px">↻ Refresh</button>
+          <div id="agent-outreach-list" style="font-size:12px;color:var(--muted)">Click refresh to load messages.</div>
+        </div>
       </div>
 
       <!--  ATHLETE DASHBOARD  -->
       <div id="view-athlete-dashboard" class="view">
 
         <div id="ath-dash-content" style="margin-top:16px"></div>
+
+        <!-- Athlete Calendar -->
+        <div style="margin-top:24px">
+          <div class="card-title" style="margin-bottom:12px">📅 My Deliverables</div>
+          <div id="ath-cal-list" style="font-size:12px;color:var(--muted)">Loading your schedule...</div>
+        </div>
+
+        <!-- Athlete Outreach -->
+        <div style="margin-top:24px">
+          <div class="card-title" style="margin-bottom:10px">📨 Message My Agent</div>
+          <div class="card" style="padding:16px">
+            <div class="form-group-sm">
+              <label class="form-label-sm">Subject</label>
+              <input class="input-sm" id="ath-out-subject" placeholder="e.g. Question about my Nike deal">
+            </div>
+            <div class="form-group-sm">
+              <label class="form-label-sm">Message *</label>
+              <textarea class="input-sm" id="ath-out-message" rows="4" placeholder="Write your message here..." style="resize:vertical"></textarea>
+            </div>
+            <button class="run-btn" onclick="sendAthleteOutreach()" style="margin-top:4px">Send Message</button>
+            <div id="ath-out-status" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
+            <div style="margin-top:16px">
+              <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">Sent Messages</div>
+              <div id="ath-out-history" style="font-size:12px;color:var(--muted)"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!--  ROSTER  -->
@@ -3182,8 +3248,10 @@ async function bootApp() {
   if (currentUser.role === 'athlete') {
     showView('athlete-dashboard', null);
     loadAthleteDashboard();
+    loadAthleteCalendarPortal();
+    loadAthleteOutreachHistory();
     // Hide entire agent nav for athletes
-    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-deal-close','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-pdf-scan','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals','view-university-dashboard'];
+    const agentOnlyEls = ['view-command','view-deals','view-rate','view-negotiate','view-deal-close','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-pdf-scan','view-ops-calendar','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals','view-university-dashboard'];
     agentOnlyEls.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -3560,7 +3628,7 @@ async function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
-    negotiate:'Negotiation Intel', 'deal-close':'Deal Close Mode', pipeline:'Deal Pipeline', 'team-match':'Agent Intelligence', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
+    negotiate:'Negotiation Intel', 'deal-close':'Deal Close Mode', pipeline:'Deal Pipeline', 'team-match':'Agent Intelligence', outreach:'Brand Outreach', calendar:'Deal Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', 'ops-calendar':'Ops Calendar', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','deal-close','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -3571,6 +3639,7 @@ async function showView(id, btn) {
   if (id === 'roster') renderRoster();
   if (id === 'athlete-portals') loadAthletePortals();
   if (id === 'contract') prefillContract();
+  if (id === 'ops-calendar') loadOpsCalendar();
   if (id === 'deal-close') onDealCloseViewOpen();
   if (id === 'team-match') setTimeout(loadIntelHQ, 80);
 }
@@ -5061,7 +5130,6 @@ function resetPdfScan() {
 
 function renderPdfScanResults(data, filename) {
   const ex = data.extraction || {};
-  const mkt = data.market || {};
 
   // Summary
   const sumEl = document.getElementById('pdf-scan-summary');
@@ -5072,15 +5140,6 @@ function renderPdfScanResults(data, filename) {
   if (ex.end_date)    summaryParts.push(`<strong>End:</strong> ${ex.end_date}`);
   if (ex.total_value) summaryParts.push(`<strong>Value:</strong> ${ex.total_value}`);
   sumEl.innerHTML = summaryParts.join('<br>') || '<span style="color:var(--muted)">No summary extracted</span>';
-
-  // Market grade
-  const grade = (mkt.market_grade || '—').toUpperCase();
-  const gradeEl = document.getElementById('pdf-scan-grade');
-  const gradeLabelEl = document.getElementById('pdf-scan-grade-label');
-  gradeEl.textContent = grade;
-  const gradeColors = { 'A+':'#22c55e','A':'#22c55e','B+':'#84cc16','B':'#84cc16','C':'#eab308','D':'#f97316','F':'#ef4444','—':'var(--muted)' };
-  gradeEl.style.color = gradeColors[grade] || 'var(--muted)';
-  gradeLabelEl.textContent = mkt.grade_label || '';
 
   // Deliverables table
   const deliverables = Array.isArray(ex.deliverables) ? ex.deliverables : [];
@@ -5113,26 +5172,238 @@ function renderPdfScanResults(data, filename) {
     ? risks.map(r => `<li style="color:#f87171">${r}</li>`).join('')
     : '<li style="list-style:none;color:var(--muted)">No major risks detected</li>';
 
-  // Negotiation tips
-  const tips = Array.isArray(mkt.negotiation_tips) ? mkt.negotiation_tips : [];
-  const tipsEl = document.getElementById('pdf-scan-tips');
-  tipsEl.innerHTML = tips.length
-    ? tips.map(t => `<li>${t}</li>`).join('')
-    : '<li style="list-style:none;color:var(--muted)">No tips available</li>';
-
   // Key terms
   const terms = Array.isArray(ex.key_terms) ? ex.key_terms : [];
   document.getElementById('pdf-scan-terms').innerHTML = terms.length
     ? terms.map(t => `<div style="padding:3px 0;border-bottom:1px solid var(--border)">${t}</div>`).join('')
     : '<span style="color:var(--muted)">—</span>';
-
-  // Market benchmarks
-  const benchmarks = Array.isArray(mkt.benchmarks) ? mkt.benchmarks : [];
-  document.getElementById('pdf-scan-benchmarks').innerHTML = benchmarks.length
-    ? benchmarks.map(b => `<div style="padding:3px 0;border-bottom:1px solid var(--border)">${b}</div>`).join('')
-    : '<span style="color:var(--muted)">—</span>';
 }
 // ── /PDF SCANNER ──────────────────────────────────────────────────────────
+
+// ── OPS CALENDAR ───────────────────────────────────────────────────────────
+let _opsCal = { year: new Date().getFullYear(), month: new Date().getMonth(), events: [], listMode: false };
+
+async function loadOpsCalendar() {
+  const athleteFilter = document.getElementById('ops-cal-filter-athlete')?.value || '';
+  const brandFilter   = document.getElementById('ops-cal-filter-brand')?.value   || '';
+  const statusFilter  = document.getElementById('ops-cal-filter-status')?.value  || '';
+  const { year, month } = _opsCal;
+
+  let url = `${API_BASE}/api/agent/calendar?year=${year}&month=${month + 1}`;
+  if (athleteFilter) url += `&athlete_id=${encodeURIComponent(athleteFilter)}`;
+  if (brandFilter)   url += `&brand=${encodeURIComponent(brandFilter)}`;
+  if (statusFilter)  url += `&status=${encodeURIComponent(statusFilter)}`;
+
+  try {
+    const r = await fetch(url);
+    const data = await r.json();
+    _opsCal.events = data.events || [];
+
+    // Populate athlete filter
+    const athleteSel = document.getElementById('ops-cal-filter-athlete');
+    if (athleteSel && data.athleteList) {
+      const cur = athleteSel.value;
+      athleteSel.innerHTML = '<option value="">All Athletes</option>' +
+        data.athleteList.map(a => `<option value="${a.id}" ${a.id===cur?'selected':''}>${a.name}</option>`).join('');
+    }
+    // Populate brand filter
+    const brandSel = document.getElementById('ops-cal-filter-brand');
+    if (brandSel) {
+      const brands = [...new Set(_opsCal.events.map(e => e.brand).filter(Boolean))].sort();
+      const curB = brandSel.value;
+      brandSel.innerHTML = '<option value="">All Brands</option>' +
+        brands.map(b => `<option value="${b}" ${b===curB?'selected':''}>${b}</option>`).join('');
+    }
+
+    _opsCal.listMode ? renderOpsCalList() : renderOpsCalGrid();
+    updateOpsCalLabel();
+  } catch(e) {
+    console.error('Ops calendar load error:', e);
+  }
+}
+
+function updateOpsCalLabel() {
+  const lbl = document.getElementById('ops-cal-label');
+  if (lbl) lbl.textContent = new Date(_opsCal.year, _opsCal.month).toLocaleString('default', { month: 'long', year: 'numeric' });
+}
+
+function opsCalNav(dir) {
+  _opsCal.month += dir;
+  if (_opsCal.month > 11) { _opsCal.month = 0; _opsCal.year++; }
+  if (_opsCal.month < 0)  { _opsCal.month = 11; _opsCal.year--; }
+  loadOpsCalendar();
+}
+
+function opsCalToday() {
+  const n = new Date();
+  _opsCal.year = n.getFullYear(); _opsCal.month = n.getMonth();
+  loadOpsCalendar();
+}
+
+function toggleOpsCalView() {
+  _opsCal.listMode = !_opsCal.listMode;
+  const btn = document.getElementById('ops-cal-view-toggle');
+  if (btn) btn.textContent = _opsCal.listMode ? 'Month View' : 'List View';
+  document.getElementById('ops-cal-grid-wrap').style.display = _opsCal.listMode ? 'none' : 'block';
+  document.getElementById('ops-cal-list-wrap').style.display = _opsCal.listMode ? 'block' : 'none';
+  _opsCal.listMode ? renderOpsCalList() : renderOpsCalGrid();
+}
+
+function renderOpsCalGrid() {
+  const grid = document.getElementById('ops-cal-grid');
+  if (!grid) return;
+  const { year, month, events } = _opsCal;
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const today = new Date().toISOString().split('T')[0];
+
+  const byDate = {};
+  for (const ev of events) {
+    const d = ev.event_date ? ev.event_date.split('T')[0] : null;
+    if (d) { if (!byDate[d]) byDate[d] = []; byDate[d].push(ev); }
+  }
+
+  let html = '';
+  for (let i = 0; i < firstDay; i++) html += '<div style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2)"></div>';
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayEvs = byDate[dateStr] || [];
+    const isToday = dateStr === today;
+    html += `<div onclick="opsCalSelectDay('${dateStr}')" style="min-height:80px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:6px;cursor:pointer;${isToday?'background:rgba(99,102,241,0.06)':''}">
+      <div style="font-size:11px;font-weight:600;color:${isToday?'var(--accent)':'var(--muted)'};margin-bottom:4px">${d}</div>
+      ${dayEvs.slice(0,3).map(ev => `<div style="font-size:9px;padding:2px 4px;border-radius:3px;margin-bottom:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:${ev.color||'#6366f1'}22;color:${ev.color||'#6366f1'};border-left:2px solid ${ev.color||'#6366f1'}" title="${ev.athlete_name||''}: ${ev.title}">${ev.athlete_name ? ev.athlete_name.split(' ').pop() + ' · ' : ''}${ev.title}</div>`).join('')}
+      ${dayEvs.length > 3 ? `<div style="font-size:9px;color:var(--muted)">+${dayEvs.length - 3} more</div>` : ''}
+    </div>`;
+  }
+  grid.innerHTML = html;
+}
+
+function renderOpsCalList() {
+  const wrap = document.getElementById('ops-cal-list-wrap');
+  if (!wrap) return;
+  const { events } = _opsCal;
+  if (!events.length) { wrap.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:32px">No deliverables this month</div>'; return; }
+
+  const sorted = [...events].sort((a,b) => (a.event_date||'').localeCompare(b.event_date||''));
+  const today = new Date().toISOString().split('T')[0];
+  wrap.innerHTML = sorted.map(ev => {
+    const d = ev.event_date ? ev.event_date.split('T')[0] : '—';
+    const overdue = d !== '—' && d < today && ev.status !== 'completed';
+    const statusColor = ev.status === 'completed' ? '#22c55e' : overdue ? '#ef4444' : 'var(--muted)';
+    return `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12px">
+      <div style="width:3px;min-height:40px;border-radius:2px;background:${ev.color||'#6366f1'};flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${ev.title}</div>
+        <div style="color:var(--muted);margin-top:2px">${ev.athlete_name||'Unknown Athlete'} · ${ev.brand||'—'}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="color:${overdue?'#ef4444':'var(--muted)'};">${d}</div>
+        <div style="color:${statusColor};font-size:10px;text-transform:capitalize;margin-top:2px">${overdue?'Overdue':ev.status||'pending'}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function opsCalSelectDay(dateStr) {
+  const dayEvs = _opsCal.events.filter(e => e.event_date && e.event_date.split('T')[0] === dateStr);
+  const panel = document.getElementById('ops-cal-day-panel');
+  const lbl   = document.getElementById('ops-cal-day-label');
+  const list  = document.getElementById('ops-cal-day-list');
+  if (!dayEvs.length) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  lbl.textContent = new Date(dateStr + 'T12:00:00').toLocaleDateString('default', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) + ` — ${dayEvs.length} deliverable${dayEvs.length>1?'s':''}`;
+  list.innerHTML = dayEvs.map(ev => `<div style="padding:8px 10px;border-radius:6px;margin-bottom:6px;background:${ev.color||'#6366f1'}11;border:1px solid ${ev.color||'#6366f1'}33;font-size:12px">
+    <div style="font-weight:600;color:var(--fg)">${ev.title}</div>
+    <div style="color:var(--muted);margin-top:3px">${ev.athlete_name||''} · ${ev.brand||''} · <span style="text-transform:capitalize">${ev.status||'pending'}</span></div>
+  </div>`).join('');
+}
+// ── /OPS CALENDAR ──────────────────────────────────────────────────────────
+
+// ── ATHLETE CALENDAR + OUTREACH ────────────────────────────────────────────
+async function loadAthleteCalendarPortal() {
+  const el = document.getElementById('ath-cal-list');
+  if (!el) return;
+  try {
+    const r = await fetch(`${API_BASE}/api/athlete-portal/calendar`);
+    const data = await r.json();
+    const evs = data.events || [];
+    if (!evs.length) { el.innerHTML = '<span style="color:var(--muted)">No deliverables scheduled yet.</span>'; return; }
+    const today = new Date().toISOString().split('T')[0];
+    el.innerHTML = evs.map(ev => {
+      const d = ev.event_date ? ev.event_date.split('T')[0] : '—';
+      const overdue = d < today && ev.status !== 'completed';
+      const statusColor = overdue ? '#ef4444' : ev.status === 'completed' ? '#22c55e' : 'var(--muted)';
+      const statusText = overdue ? 'Overdue' : ev.status || 'pending';
+      return `<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="width:3px;min-height:36px;border-radius:2px;background:${ev.color||'#6366f1'};flex-shrink:0"></div>
+        <div style="flex:1">
+          <div style="font-weight:600;color:var(--fg)">${ev.title}</div>
+          <div style="color:var(--muted)">${ev.brand||''} · ${d} · <span style="color:${statusColor};text-transform:capitalize">${statusText}</span></div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { if (el) el.innerHTML = '<span style="color:var(--muted)">Could not load schedule.</span>'; }
+}
+
+async function loadAthleteOutreachHistory() {
+  const el = document.getElementById('ath-out-history');
+  if (!el) return;
+  try {
+    const r = await fetch(`${API_BASE}/api/athlete-portal/outreach`);
+    const data = await r.json();
+    const msgs = data.messages || [];
+    if (!msgs.length) { el.innerHTML = '<span style="color:var(--muted)">No messages sent yet.</span>'; return; }
+    el.innerHTML = msgs.map(m => `<div style="padding:8px 10px;border-radius:6px;background:var(--surface2);margin-bottom:8px">
+      <div style="font-weight:600;color:var(--fg)">${m.subject||'(no subject)'}</div>
+      <div style="color:var(--muted);margin-top:2px">${m.message}</div>
+      <div style="color:var(--muted);font-size:10px;margin-top:4px">${new Date(m.created_at).toLocaleDateString()}</div>
+    </div>`).join('');
+  } catch(e) {}
+}
+
+async function sendAthleteOutreach() {
+  const subject = document.getElementById('ath-out-subject')?.value.trim();
+  const message = document.getElementById('ath-out-message')?.value.trim();
+  const statusEl = document.getElementById('ath-out-status');
+  if (!message) { if (statusEl) statusEl.textContent = 'Message is required.'; return; }
+  if (statusEl) statusEl.textContent = 'Sending...';
+  try {
+    const r = await fetch(`${API_BASE}/api/athlete-portal/outreach`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ subject, message })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Send failed');
+    if (statusEl) statusEl.innerHTML = '<span style="color:#22c55e">&#10003; Message sent to your agent</span>';
+    document.getElementById('ath-out-subject').value = '';
+    document.getElementById('ath-out-message').value = '';
+    loadAthleteOutreachHistory();
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444">Failed: ' + e.message + '</span>';
+  }
+}
+
+async function loadAgentOutreach() {
+  const el = document.getElementById('agent-outreach-list');
+  if (!el) return;
+  el.innerHTML = 'Loading...';
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/outreach`);
+    const data = await r.json();
+    const msgs = data.messages || [];
+    if (!msgs.length) { el.innerHTML = '<span style="color:var(--muted)">No messages from athletes yet.</span>'; return; }
+    el.innerHTML = msgs.map(m => `<div style="padding:10px 14px;border-radius:8px;background:var(--surface);border:1px solid var(--border);margin-bottom:10px;font-size:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-weight:700;color:var(--fg)">${m.athlete_name||'Unknown Athlete'}</span>
+        <span style="color:var(--muted);font-size:10px">${new Date(m.created_at).toLocaleDateString()}</span>
+      </div>
+      ${m.subject ? '<div style="font-weight:600;color:var(--text);margin-bottom:2px">' + m.subject + '</div>' : ''}
+      <div style="color:var(--muted)">${m.message}</div>
+    </div>`).join('');
+  } catch(e) { el.innerHTML = '<span style="color:var(--muted)">Failed to load messages.</span>'; }
+}
+// ── /ATHLETE CALENDAR + OUTREACH ───────────────────────────────────────────
 
 async function loadAnalytics() {
   const body = document.getElementById('analytics-body');
