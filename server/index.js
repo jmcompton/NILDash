@@ -3807,8 +3807,7 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
                 `INSERT INTO athlete_calendar_events
                    (id, athlete_id, agent_id, deliverable_id, contract_id, title, event_date,
                     brand, color, status, is_generated, recurrence_instance, manually_modified)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',TRUE,$10,FALSE)
-                 ON CONFLICT (deliverable_id, event_date) DO NOTHING`,
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',TRUE,$10,FALSE)`,
                 [evId, athleteId, agentId, deliverableId, contractId, desc, date,
                  evBrand, color, dates.length > 1]
               );
