@@ -3356,13 +3356,26 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
       });
     }
 
+    // Load existing athletes scoped to this university so we can dedup by name
+    const existingRows = await store.pool.query(
+      `SELECT data->>'name' AS name FROM athletes WHERE data->>'university_id' = $1`,
+      [universityId]
+    );
+    const existingNames = new Set(existingRows.rows.map(r => (r.name || '').toLowerCase().trim()));
+
     let inserted = 0, skipped = 0;
     const skippedNames = [];
     for (const a of athletes) {
-      if (!a.name || a.name.trim().length < 2) { skipped++; skippedNames.push(a.name || '(blank)'); continue; }
+      const cleanName = (a.name || '').trim();
+      if (cleanName.length < 2) { skipped++; skippedNames.push(a.name || '(blank)'); continue; }
+
+      // Skip duplicates — same name already in this university's roster
+      if (existingNames.has(cleanName.toLowerCase())) { skipped++; skippedNames.push(cleanName + ' (duplicate)'); continue; }
+      existingNames.add(cleanName.toLowerCase()); // prevent dupes within this batch too
+
       const id = 'ath-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
       const data = {
-        name:         a.name.trim(),
+        name:         cleanName,
         sport:        sport || a.sport || 'Unknown',
         school:       schoolName || 'Unknown',
         position:     a.position || null,
@@ -3375,31 +3388,39 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
         major:        a.major    || null,
         espn_id:      a.espn_id  || null,
         university_id: universityId,
-        source:       'espn_import',
+        source:       'roster_import',
       };
       try {
         await store.pool.query(
           `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
-           VALUES ($1, $2, $3, NOW(), NOW())
-           ON CONFLICT (id) DO NOTHING`,
+           VALUES ($1, $2, $3, NOW(), NOW())`,
           [id, userId, JSON.stringify(data)]
         );
         inserted++;
       } catch { skipped++; }
     }
 
-    // Repair: any athletes this agent wrote without a university_id get stamped now
-    await store.pool.query(
-      `UPDATE athletes
-       SET data = jsonb_set(data, '{university_id}', $1::jsonb), updated_at = NOW()
-       WHERE agent_id = $2
-         AND (data->>'university_id' IS NULL OR data->>'university_id' = '')`,
-      [JSON.stringify(universityId), userId]
-    ).catch(() => {});
-
     res.json({ ok: true, inserted, skipped, skippedNames, total: athletes.length, universityId });
   } catch (err) {
     console.error('[roster/import-commit]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/university/roster/clear
+// Wipes ALL roster-imported athletes for this university so the director can re-import clean.
+// Only deletes athletes whose data->>'source' is a roster import source.
+app.delete('/api/university/roster/clear', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const universityId = await resolveSessionUniversity(req.session.userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    const result = await store.pool.query(
+      `DELETE FROM athletes
+       WHERE data->>'university_id' = $1`,
+      [universityId]
+    );
+    res.json({ ok: true, deleted: result.rowCount });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

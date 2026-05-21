@@ -1728,6 +1728,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <div id="paste-preview-list" style="font-size:11px;color:var(--muted)"></div>
             </div>
             <div id="paste-result-msg" style="display:none;margin-top:12px;padding:14px 16px;border-radius:var(--r-sm);font-size:12px;font-weight:600"></div>
+            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+              <button onclick="_clearRoster()" style="padding:6px 14px;background:transparent;border:1px solid rgba(239,68,68,0.4);border-radius:var(--r-sm);color:#ef4444;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">🗑 Clear Entire Roster</button>
+              <span style="font-size:10px;color:var(--muted);margin-left:10px">Removes all imported athletes so you can start fresh</span>
+            </div>
           </div>
 
           <!-- ── AI-Powered CSV / Excel Upload ──────────────────────── -->
@@ -10547,6 +10551,27 @@ async function _pasteCommitImport() {
     alert('Error: ' + err.message);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Import All'; }
+  }
+}
+
+async function _clearRoster() {
+  if (!confirm('This will permanently delete ALL athletes in your university roster. Continue?')) return;
+  try {
+    var r = await fetch(API_BASE + '/api/university/roster/clear', {
+      method: 'DELETE', credentials: 'include',
+    });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Clear failed');
+    var msgEl = document.getElementById('paste-result-msg');
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      msgEl.style.color = '#f59e0b';
+      msgEl.textContent = '🗑 Roster cleared (' + (data.deleted || 0) + ' athletes removed). You can now import a fresh roster.';
+    }
+    if (typeof _nilDirLoadAthletes === 'function') setTimeout(_nilDirLoadAthletes, 400);
+    if (typeof _nilDirRefresh === 'function') setTimeout(_nilDirRefresh, 600);
+  } catch (err) {
+    alert('Error: ' + err.message);
   }
 }
 
