@@ -3334,9 +3334,17 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
         || ('univ-' + schoolName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
     }
 
+    if (!universityId) {
+      return res.status(400).json({
+        error: 'Your account is not linked to a university. Go to Overview → run the setup, or contact your administrator.',
+        code: 'NO_UNIVERSITY_LINKED',
+      });
+    }
+
     let inserted = 0, skipped = 0;
+    const skippedNames = [];
     for (const a of athletes) {
-      if (!a.name || a.name.trim().length < 2) { skipped++; continue; }
+      if (!a.name || a.name.trim().length < 2) { skipped++; skippedNames.push(a.name || '(blank)'); continue; }
       const id = 'ath-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
       const data = {
         name:         a.name.trim(),
@@ -3365,7 +3373,7 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
       } catch { skipped++; }
     }
 
-    res.json({ ok: true, inserted, skipped, total: athletes.length });
+    res.json({ ok: true, inserted, skipped, skippedNames, total: athletes.length });
   } catch (err) {
     console.error('[roster/import-commit]', err.message);
     res.status(500).json({ error: err.message });

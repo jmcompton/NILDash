@@ -10357,7 +10357,11 @@ async function _espnCommitImport() {
     if (!r.ok) throw new Error(data.error || 'Import failed');
     document.getElementById('espn-preview-panel').style.display = 'none';
     _espnPreviewAthletes = null;
-    _espnShowResult('success', 'Imported ' + data.inserted + ' athletes. ' + (data.skipped ? data.skipped + ' skipped.' : ''));
+    var espnMsg = 'Imported ' + data.inserted + ' athlete' + (data.inserted !== 1 ? 's' : '') + '.';
+    if (data.skipped > 0) espnMsg += ' ' + data.skipped + ' skipped.';
+    _espnShowResult('success', espnMsg);
+    // Refresh Athletes CRM so new athletes appear immediately
+    if (typeof _nilDirLoadAthletes === 'function') setTimeout(_nilDirLoadAthletes, 500);
     if (typeof _nilDirRefresh === 'function') setTimeout(_nilDirRefresh, 800);
   } catch (err) {
     _espnShowResult('error', 'Error: ' + err.message);
@@ -10524,8 +10528,20 @@ async function _pasteCommitImport() {
     if (!r.ok) throw new Error(data.error || 'Import failed');
     document.getElementById('paste-preview-panel').style.display = 'none';
     _pastePreviewAthletes = null;
-    document.getElementById('paste-result-msg').style.display = 'block';
-    document.getElementById('paste-result-msg').textContent = 'Imported ' + data.inserted + ' athletes.';
+    var msgEl = document.getElementById('paste-result-msg');
+    msgEl.style.display = 'block';
+    var msg = '';
+    if (data.inserted === 0) {
+      msg = '⚠ No athletes were imported. Make sure your account is linked to a university and try again.';
+      msgEl.style.color = '#f59e0b';
+    } else {
+      msg = '✓ Imported ' + data.inserted + ' athlete' + (data.inserted !== 1 ? 's' : '') + '.';
+      if (data.skipped > 0) msg += ' ' + data.skipped + ' skipped (blank or invalid names).';
+      msgEl.style.color = 'var(--accent)';
+    }
+    msgEl.textContent = msg;
+    // Refresh Athletes CRM so new athletes appear immediately
+    if (typeof _nilDirLoadAthletes === 'function') setTimeout(_nilDirLoadAthletes, 500);
     if (typeof _nilDirRefresh === 'function') setTimeout(_nilDirRefresh, 800);
   } catch (err) {
     alert('Error: ' + err.message);
