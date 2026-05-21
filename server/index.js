@@ -244,6 +244,319 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
   res.json({ ok: true, upserted: inserted + updated, failed, total: SAMFORD_ATHLETES.length, university: 'Samford University', university_id: UNIV_ID, adminLinked: true });
 });
 
+// ── University Compliance Portal Auth ─────────────────────────────────────
+function requireUniversityAuth(req, res, next) {
+  if (!req.session.universityUserId) return res.status(401).json({ error: 'University authentication required' });
+  next();
+}
+
+app.post('/api/university/register', async (req, res) => {
+  try {
+    const { name, email, password, universityId } = req.body;
+    if (!name || !email || !password || !universityId)
+      return res.status(400).json({ error: 'All fields required' });
+
+    const univCheck = await store.pool.query('SELECT id FROM universities WHERE id=$1', [universityId]);
+    if (!univCheck.rows.length) return res.status(400).json({ error: 'Invalid university' });
+
+    const existing = await store.pool.query('SELECT id FROM university_users WHERE email=$1', [email.toLowerCase()]);
+    if (existing.rows.length) return res.status(409).json({ error: 'Email already registered' });
+
+    const hash = await bcrypt.hash(password, 10);
+    const id = 'univuser-' + require('crypto').randomBytes(8).toString('hex');
+    await store.pool.query(
+      'INSERT INTO university_users (id, university_id, email, password_hash, name, role) VALUES ($1,$2,$3,$4,$5,$6)',
+      [id, universityId, email.toLowerCase(), hash, name, 'compliance_officer']
+    );
+    res.json({ ok: true });
+  } catch(e) {
+    console.error('[university/register]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/university/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+    const r = await store.pool.query(
+      'SELECT u.*, univ.name as university_name FROM university_users u JOIN universities univ ON univ.id = u.university_id WHERE u.email=$1',
+      [email.toLowerCase()]
+    );
+    if (!r.rows.length) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const user = r.rows[0];
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+
+    req.session.universityUserId = user.id;
+    req.session.universityId = user.university_id;
+    req.session.universityRole = user.role;
+
+    res.json({
+      ok: true,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      universityId: user.university_id,
+      universityName: user.university_name
+    });
+  } catch(e) {
+    console.error('[university/login]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/university/logout', (req, res) => {
+  req.session.universityUserId = null;
+  req.session.universityId = null;
+  req.session.universityRole = null;
+  res.json({ ok: true });
+});
+
+app.get('/api/university/me', async (req, res) => {
+  if (!req.session.universityUserId) return res.status(401).json({ error: 'Not authenticated' });
+  const r = await store.pool.query(
+    'SELECT u.*, univ.name as university_name FROM university_users u JOIN universities univ ON univ.id = u.university_id WHERE u.id=$1',
+    [req.session.universityUserId]
+  );
+  if (!r.rows.length) return res.status(401).json({ error: 'Not found' });
+  const user = r.rows[0];
+  res.json({ id: user.id, name: user.name, email: user.email, role: user.role, universityId: user.university_id, universityName: user.university_name });
+});
+
+app.get('/api/university/list', async (req, res) => {
+  const r = await store.pool.query('SELECT id, name, conference FROM universities ORDER BY name ASC');
+  res.json(r.rows);
+});
+
+// POST /api/university/ai/compliance-check
+app.post('/api/university/ai/compliance-check', requireUniversityAuth, async (req, res) => {
+  try {
+    const { athleteId } = req.body;
+    const universityId = req.session.universityId;
+    if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
+
+    const athR = await store.pool.query('SELECT * FROM athletes WHERE id=$1', [athleteId]);
+    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const athlete = athR.rows[0];
+    const athData = athlete.data || {};
+
+    const dealsR = await store.pool.query(
+      'SELECT * FROM deals WHERE athlete_id=$1 ORDER BY created_at DESC LIMIT 20',
+      [athleteId]
+    );
+
+    const flagsR = await store.pool.query(
+      'SELECT * FROM university_deal_flags WHERE athlete_id=$1 AND university_id=$2 AND resolved=false',
+      [athleteId, universityId]
+    );
+
+    const athletePayload = {
+      name: athData.name || athlete.id,
+      sport: athData.sport,
+      school: athData.school,
+      instagram: athData.instagram,
+      tiktok: athData.tiktok,
+      deals: dealsR.rows.map(d => ({
+        id: d.id,
+        brand: d.brand || d.data?.brand,
+        value: d.value || d.data?.value,
+        category: d.category || d.data?.category,
+        status: d.status || d.data?.status,
+        exclusivity: d.data?.exclusivity,
+        notes: d.data?.notes,
+      })),
+      existingFlags: flagsR.rows.length,
+    };
+
+    const systemPrompt = `You are an NCAA NIL compliance analyst. Your job is to review an athlete's NIL deal portfolio and flag any compliance risks. You understand NCAA rules, conference-specific NIL policies, and common contract conflicts. Be specific, cite the exact deals involved, and rate severity as low/medium/high. Return structured JSON only — no markdown, no explanation outside the JSON.`;
+
+    const userPrompt = `Review this athlete's NIL deal portfolio and return a JSON array of compliance flags:\n\n${JSON.stringify(athletePayload, null, 2)}\n\nReturn ONLY a JSON array in this exact format:\n[{"flag_type":"conflict|exclusivity_breach|missing_disclosure|category_overlap","severity":"low|medium|high","deals_involved":["deal_id"],"summary":"one sentence plain English","recommended_action":"what the compliance officer should do"}]`;
+
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client = new Anthropic();
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: userPrompt }],
+      system: systemPrompt,
+    });
+
+    let flags = [];
+    try {
+      const text = msg.content[0].text.trim();
+      const jsonStr = text.startsWith('[') ? text : text.slice(text.indexOf('['), text.lastIndexOf(']') + 1);
+      flags = JSON.parse(jsonStr);
+    } catch(e) {
+      return res.status(500).json({ error: 'AI returned unparseable response', raw: msg.content[0].text });
+    }
+
+    const saved = [];
+    for (const flag of flags) {
+      const flagId = 'flag-' + require('crypto').randomBytes(8).toString('hex');
+      await store.pool.query(
+        `INSERT INTO university_deal_flags (id, university_id, athlete_id, flag_type, severity, ai_summary, recommended_action, deals_involved)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [flagId, universityId, athleteId, flag.flag_type, flag.severity, flag.summary, flag.recommended_action, flag.deals_involved || []]
+      );
+      saved.push({ id: flagId, ...flag });
+    }
+
+    res.json({ ok: true, flags: saved, athleteName: athData.name });
+  } catch(e) {
+    console.error('[university/ai/compliance-check]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/university/ai/deal-recommendations/:athleteId
+app.post('/api/university/ai/deal-recommendations/:athleteId', requireUniversityAuth, async (req, res) => {
+  try {
+    const { athleteId } = req.params;
+
+    const athR = await store.pool.query('SELECT * FROM athletes WHERE id=$1', [athleteId]);
+    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const athData = athR.rows[0].data || {};
+
+    const dealsR = await store.pool.query('SELECT * FROM deals WHERE athlete_id=$1', [athleteId]);
+    const existingBrands = dealsR.rows.map(d => d.brand || d.data?.brand).filter(Boolean);
+
+    const athletePayload = {
+      name: athData.name,
+      sport: athData.sport,
+      position: athData.position,
+      school: athData.school,
+      conference: athData.schoolTier,
+      instagram: athData.instagram,
+      tiktok: athData.tiktok,
+      engagement: athData.engagement,
+      existingBrands,
+      notes: athData.notes,
+    };
+
+    const systemPrompt = `You are an NIL deal strategist helping a university compliance officer identify ideal brand partnership opportunities for their athletes. Recommend deals that are compliant, realistic for this athlete's market value, and additive to their existing portfolio. Return structured JSON only.`;
+
+    const userPrompt = `Generate 5 ranked deal recommendations for this athlete:\n\n${JSON.stringify(athletePayload, null, 2)}\n\nReturn ONLY a JSON array:\n[{"rank":1,"brand_name":"...","category":"...","campaign_concept":"...","estimated_value_min":1000,"estimated_value_max":5000,"why_it_fits":"...","compliance_risk":"low|medium|high"}]`;
+
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client = new Anthropic();
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: userPrompt }],
+      system: systemPrompt,
+    });
+
+    let recommendations = [];
+    try {
+      const text = msg.content[0].text.trim();
+      const jsonStr = text.startsWith('[') ? text : text.slice(text.indexOf('['), text.lastIndexOf(']') + 1);
+      recommendations = JSON.parse(jsonStr);
+    } catch(e) {
+      return res.status(500).json({ error: 'AI returned unparseable response' });
+    }
+
+    res.json({ ok: true, recommendations, athleteName: athData.name });
+  } catch(e) {
+    console.error('[university/ai/deal-recommendations]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/university/flags
+app.get('/api/university/flags', requireUniversityAuth, async (req, res) => {
+  try {
+    const universityId = req.session.universityId;
+    const { resolved, severity, athlete_id } = req.query;
+    let sql = `SELECT f.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport
+               FROM university_deal_flags f
+               JOIN athletes a ON a.id = f.athlete_id
+               WHERE f.university_id=$1`;
+    const params = [universityId];
+    if (resolved !== undefined) { params.push(resolved === 'true'); sql += ` AND f.resolved=$${params.length}`; }
+    if (severity) { params.push(severity); sql += ` AND f.severity=$${params.length}`; }
+    if (athlete_id) { params.push(athlete_id); sql += ` AND f.athlete_id=$${params.length}`; }
+    sql += ' ORDER BY f.created_at DESC';
+    const r = await store.pool.query(sql, params);
+    res.json(r.rows);
+  } catch(e) {
+    console.error('[university/flags]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/university/flags/:id/resolve', requireUniversityAuth, async (req, res) => {
+  try {
+    const universityId = req.session.universityId;
+    await store.pool.query(
+      'UPDATE university_deal_flags SET resolved=TRUE WHERE id=$1 AND university_id=$2',
+      [req.params.id, universityId]
+    );
+    res.json({ ok: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/university/compliance-dashboard', requireUniversityAuth, async (req, res) => {
+  try {
+    const universityId = req.session.universityId;
+
+    const athleteLinks = await store.pool.query(
+      `SELECT ual.*, a.data->>'name' as name, a.data->>'sport' as sport
+       FROM university_athlete_links ual
+       JOIN athletes a ON a.id = ual.athlete_id
+       WHERE ual.university_id=$1
+       ORDER BY ual.linked_at DESC`,
+      [universityId]
+    );
+
+    const flagsSummary = await store.pool.query(
+      `SELECT severity, COUNT(*) as count FROM university_deal_flags
+       WHERE university_id=$1 AND resolved=false GROUP BY severity`,
+      [universityId]
+    );
+
+    const topFlags = await store.pool.query(
+      `SELECT f.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport
+       FROM university_deal_flags f
+       JOIN athletes a ON a.id = f.athlete_id
+       WHERE f.university_id=$1 AND f.resolved=false
+       ORDER BY CASE severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, f.created_at DESC
+       LIMIT 3`,
+      [universityId]
+    );
+
+    res.json({
+      athleteLinks: athleteLinks.rows,
+      pendingLinks: athleteLinks.rows.filter(r => r.status === 'pending'),
+      flagsSummary: flagsSummary.rows,
+      topFlags: topFlags.rows,
+      totalAthletes: athleteLinks.rows.filter(r => r.status === 'active').length,
+    });
+  } catch(e) {
+    console.error('[university/compliance-dashboard]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/university/athlete-links/:id', requireUniversityAuth, async (req, res) => {
+  try {
+    const universityId = req.session.universityId;
+    const { status } = req.body;
+    await store.pool.query(
+      'UPDATE university_athlete_links SET status=$1 WHERE id=$2 AND university_id=$3',
+      [status, req.params.id, universityId]
+    );
+    res.json({ ok: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Athletes ───────────────────────────────────────────────────
 app.get('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);

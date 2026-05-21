@@ -632,6 +632,22 @@ tbody td{padding:11px 14px;vertical-align:middle}
   font-family: 'DM Sans', sans-serif;
   outline: none;
 }
+/* University Compliance Portal */
+.ucp-nav-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.ucp-nav-item:hover { background: rgba(26,58,92,0.15); color: #94a3b8; }
+.ucp-nav-active { color: #e2e8f0 !important; background: rgba(26,58,92,0.3) !important; }
 </style>
 </head>
 <body>
@@ -669,6 +685,45 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div style="font-weight:700;font-size:13px;margin-bottom:2px">Athlete</div>
           <div style="font-size:10px;color:var(--muted)">My agent set up my account</div>
         </button>
+      </div>
+      <div style="margin-top:10px">
+        <button class="role-btn" onclick="chooseAuthRole('university')" style="padding:20px 10px;width:100%">
+          <div style="font-size:18px;margin-bottom:4px">🏛</div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:2px">University</div>
+          <div style="font-size:10px;color:var(--muted)">Compliance Officer</div>
+        </button>
+      </div>
+    </div>
+
+    <!-- University Compliance Officer Login -->
+    <div id="authUniversityPanel" style="display:none;max-width:400px;margin:0 auto">
+      <div style="text-align:center;margin-bottom:20px">
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">University Compliance Portal</div>
+        <div style="font-size:11px;color:var(--muted)">Sign in as a compliance officer</div>
+      </div>
+      <div style="display:flex;gap:0;margin-bottom:18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden">
+        <button id="univLoginTab" onclick="switchUnivAuthTab('login')" style="flex:1;padding:9px;font-size:12px;font-weight:600;background:#1a3a5c;color:#fff;border:none;cursor:pointer;font-family:'DM Sans',sans-serif">Sign In</button>
+        <button id="univRegisterTab" onclick="switchUnivAuthTab('register')" style="flex:1;padding:9px;font-size:12px;font-weight:600;background:none;color:var(--muted);border:none;cursor:pointer;font-family:'DM Sans',sans-serif">Register</button>
+      </div>
+      <div id="univLoginForm">
+        <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Email</label><input id="univ-login-email" type="email" class="form-input" placeholder="compliance@university.edu" style="width:100%"></div>
+        <div style="margin-bottom:16px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Password</label><input id="univ-login-password" type="password" class="form-input" placeholder="Password" style="width:100%"></div>
+        <div id="univ-login-error" style="font-size:11px;color:#ef4444;margin-bottom:10px;display:none"></div>
+        <button onclick="doUniversityLogin()" style="width:100%;padding:11px;background:#1a3a5c;color:#fff;border:none;border-radius:var(--r-sm);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Sign In →</button>
+      </div>
+      <div id="univRegisterForm" style="display:none">
+        <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Full Name</label><input id="univ-reg-name" type="text" class="form-input" placeholder="Your name" style="width:100%"></div>
+        <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Email</label><input id="univ-reg-email" type="email" class="form-input" placeholder="compliance@university.edu" style="width:100%"></div>
+        <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Password</label><input id="univ-reg-password" type="password" class="form-input" placeholder="Create password" style="width:100%"></div>
+        <div style="margin-bottom:16px">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">University</label>
+          <select id="univ-reg-school" class="form-input" style="width:100%"><option value="">Loading universities…</option></select>
+        </div>
+        <div id="univ-reg-error" style="font-size:11px;color:#ef4444;margin-bottom:10px;display:none"></div>
+        <button onclick="doUniversityRegister()" style="width:100%;padding:11px;background:#1a3a5c;color:#fff;border:none;border-radius:var(--r-sm);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Create Account →</button>
+      </div>
+      <div style="text-align:center;margin-top:14px">
+        <button onclick="chooseAuthRole(null)" style="background:transparent;border:none;color:var(--muted);font-size:11px;cursor:pointer">← Back</button>
       </div>
     </div>
 
@@ -3192,7 +3247,367 @@ function chooseAuthRole(role) {
   document.getElementById('authRoleChooser').style.display  = role ? 'none' : 'block';
   document.getElementById('authAgentPanel').style.display   = role === 'agent'   ? 'block' : 'none';
   document.getElementById('authAthletePanel').style.display = role === 'athlete' ? 'block' : 'none';
+  const univPanel = document.getElementById('authUniversityPanel');
+  if (univPanel) univPanel.style.display = role === 'university' ? 'block' : 'none';
   document.getElementById('authResetPanel').style.display   = 'none';
+  if (role === 'university') loadUniversityList();
+}
+
+// ── University Compliance Portal: Auth ───────────────────────────────────
+let _universitySession = null;
+
+async function loadUniversityList() {
+  try {
+    const r = await fetch(`${API_BASE}/api/university/list`);
+    const universities = await r.json();
+    const sel = document.getElementById('univ-reg-school');
+    if (sel) sel.innerHTML = '<option value="">— Select university —</option>' +
+      universities.map(u => `<option value="${u.id}">${u.name} (${u.conference})</option>`).join('');
+  } catch(e) { console.warn('Could not load university list', e); }
+}
+
+function switchUnivAuthTab(tab) {
+  document.getElementById('univLoginForm').style.display = tab === 'login' ? 'block' : 'none';
+  document.getElementById('univRegisterForm').style.display = tab === 'register' ? 'block' : 'none';
+  document.getElementById('univLoginTab').style.background = tab === 'login' ? '#1a3a5c' : 'none';
+  document.getElementById('univLoginTab').style.color = tab === 'login' ? '#fff' : 'var(--muted)';
+  document.getElementById('univRegisterTab').style.background = tab === 'register' ? '#1a3a5c' : 'none';
+  document.getElementById('univRegisterTab').style.color = tab === 'register' ? '#fff' : 'var(--muted)';
+}
+
+async function doUniversityLogin() {
+  const email = document.getElementById('univ-login-email').value.trim();
+  const password = document.getElementById('univ-login-password').value;
+  const errEl = document.getElementById('univ-login-error');
+  errEl.style.display = 'none';
+  if (!email || !password) { errEl.textContent = 'Email and password required'; errEl.style.display = 'block'; return; }
+  try {
+    const r = await fetch(`${API_BASE}/api/university/login`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    const data = await r.json();
+    if (!r.ok) { errEl.textContent = data.error || 'Login failed'; errEl.style.display = 'block'; return; }
+    _universitySession = data;
+    showUniversityPortal(data);
+  } catch(e) { errEl.textContent = 'Network error'; errEl.style.display = 'block'; }
+}
+
+async function doUniversityRegister() {
+  const name = document.getElementById('univ-reg-name').value.trim();
+  const email = document.getElementById('univ-reg-email').value.trim();
+  const password = document.getElementById('univ-reg-password').value;
+  const universityId = document.getElementById('univ-reg-school').value;
+  const errEl = document.getElementById('univ-reg-error');
+  errEl.style.display = 'none';
+  if (!name || !email || !password || !universityId) { errEl.textContent = 'All fields required'; errEl.style.display = 'block'; return; }
+  try {
+    const r = await fetch(`${API_BASE}/api/university/register`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password, universityId })
+    });
+    const data = await r.json();
+    if (!r.ok) { errEl.textContent = data.error || 'Registration failed'; errEl.style.display = 'block'; return; }
+    switchUnivAuthTab('login');
+    document.getElementById('univ-login-email').value = email;
+    const loginErr = document.getElementById('univ-login-error');
+    loginErr.textContent = 'Account created! Please sign in.';
+    loginErr.style.color = '#22c55e';
+    loginErr.style.display = 'block';
+  } catch(e) { errEl.textContent = 'Network error'; errEl.style.display = 'block'; }
+}
+
+function showUniversityPortal(session) {
+  document.getElementById('authScreen').style.display = 'none';
+  const portal = document.getElementById('univCompliancePortal');
+  portal.style.display = 'flex';
+  document.getElementById('ucp-university-name').textContent = session.universityName;
+  document.getElementById('ucp-user-name').textContent = session.name;
+  loadUniversityComplianceDashboard();
+}
+
+async function univPortalSignOut() {
+  await fetch(`${API_BASE}/api/university/logout`, { method: 'POST', credentials: 'include' });
+  _universitySession = null;
+  document.getElementById('univCompliancePortal').style.display = 'none';
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('authAgentPanel').style.display = 'none';
+  document.getElementById('authAthletePanel').style.display = 'none';
+  const up = document.getElementById('authUniversityPanel');
+  if (up) up.style.display = 'none';
+  document.getElementById('authRoleChooser').style.display = 'block';
+}
+
+// ── University Compliance Portal: Dashboard / Tabs ───────────────────────
+let _ucpData = { athletes: [], flags: [], opportunities: {} };
+
+function showUcpTab(tab) {
+  ['dashboard','roster','flags','opportunities','settings'].forEach(t => {
+    const panel = document.getElementById('ucpPanel-' + t);
+    const nav = document.getElementById('ucpNav-' + t);
+    if (panel) panel.style.display = t === tab ? 'block' : 'none';
+    if (nav) { nav.classList.toggle('ucp-nav-active', t === tab); }
+  });
+  if (tab === 'flags') loadUcpFlags();
+  if (tab === 'roster') loadUcpRoster();
+  if (tab === 'opportunities') loadUcpOpportunityAthletes();
+  if (tab === 'settings') loadUcpSettings();
+}
+
+async function loadUniversityComplianceDashboard() {
+  try {
+    const r = await fetch(`${API_BASE}/api/university/compliance-dashboard`, { credentials: 'include' });
+    if (!r.ok) return;
+    const data = await r.json();
+    _ucpData.athletes = data.athleteLinks || [];
+    const totalFlags = (data.flagsSummary || []).reduce((s, f) => s + parseInt(f.count), 0);
+    const highFlags = (data.flagsSummary || []).filter(f => f.severity === 'high').reduce((s, f) => s + parseInt(f.count), 0);
+    document.getElementById('ucp-kpi-athletes').textContent = data.totalAthletes || 0;
+    document.getElementById('ucp-kpi-flags').textContent = totalFlags;
+    document.getElementById('ucp-kpi-high').textContent = highFlags;
+    document.getElementById('ucp-kpi-pending').textContent = (data.pendingLinks || []).length;
+    if (totalFlags > 0) {
+      document.getElementById('ucp-alert-badge').style.display = 'block';
+      document.getElementById('ucp-alert-badge').textContent = `${totalFlags} open flag${totalFlags !== 1 ? 's' : ''}`;
+    }
+    if ((data.topFlags || []).length > 0) {
+      document.getElementById('ucp-alert-strip').style.display = 'block';
+      document.getElementById('ucp-alert-cards').innerHTML = data.topFlags.map(f => `
+        <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:var(--r-sm);padding:12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+            <div style="font-size:11px;font-weight:700;color:var(--text)">${f.athlete_name || 'Unknown'}</div>
+            <span style="font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700;background:${f.severity==='high'?'rgba(239,68,68,0.15)':f.severity==='medium'?'rgba(245,158,11,0.15)':'rgba(34,197,94,0.1)'};color:${f.severity==='high'?'#ef4444':f.severity==='medium'?'#f59e0b':'#22c55e'}">${(f.severity||'').toUpperCase()}</span>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">${(f.flag_type||'').replace(/_/g,' ')}</div>
+          <div style="font-size:11px;color:var(--text);line-height:1.4">${f.ai_summary || ''}</div>
+          <button onclick="showUcpTab('flags')" style="margin-top:8px;font-size:10px;color:#1a3a5c;background:none;border:none;cursor:pointer;font-family:'DM Sans',sans-serif">View Flags →</button>
+        </div>
+      `).join('');
+    }
+    const pendingEl = document.getElementById('ucp-pending-links');
+    if ((data.pendingLinks || []).length === 0) {
+      pendingEl.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">No pending athlete links</div>';
+    } else {
+      pendingEl.innerHTML = data.pendingLinks.map(link => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-size:12px;font-weight:600;color:var(--text)">${link.name || link.athlete_id}</div>
+            <div style="font-size:10px;color:var(--muted)">${link.sport || ''}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onclick="updateAthleteLink('${link.id}','active')" style="padding:4px 10px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:4px;color:#22c55e;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">Activate</button>
+            <button onclick="updateAthleteLink('${link.id}','rejected')" style="padding:4px 10px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:4px;color:#ef4444;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">Reject</button>
+          </div>
+        </div>
+      `).join('');
+    }
+    const recentFlagsEl = document.getElementById('ucp-recent-flags');
+    if ((data.topFlags || []).length === 0) {
+      recentFlagsEl.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">No open compliance flags</div>';
+    } else {
+      recentFlagsEl.innerHTML = data.topFlags.map(f => `
+        <div style="padding:8px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+            <div style="font-size:12px;font-weight:600;color:var(--text)">${f.athlete_name}</div>
+            <span style="font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700;background:${f.severity==='high'?'rgba(239,68,68,0.12)':f.severity==='medium'?'rgba(245,158,11,0.12)':'rgba(34,197,94,0.08)'};color:${f.severity==='high'?'#ef4444':f.severity==='medium'?'#f59e0b':'#22c55e'}">${f.severity}</span>
+          </div>
+          <div style="font-size:11px;color:var(--muted)">${f.ai_summary || (f.flag_type||'').replace(/_/g,' ')}</div>
+        </div>
+      `).join('');
+    }
+  } catch(e) { console.error('[ucp] dashboard load failed', e); }
+}
+
+async function loadUcpRoster() {
+  try {
+    const r = await fetch(`${API_BASE}/api/university/compliance-dashboard`, { credentials: 'include' });
+    const data = await r.json();
+    const athletes = data.athleteLinks || [];
+    _ucpData.athletes = athletes;
+    renderUcpRoster(athletes);
+  } catch(e) { console.error('[ucp] roster load failed', e); }
+}
+
+function renderUcpRoster(athletes) {
+  const sportFilter = document.getElementById('ucp-roster-sport-filter')?.value || '';
+  const statusFilter = document.getElementById('ucp-roster-status-filter')?.value || '';
+  const filtered = athletes.filter(a =>
+    (!sportFilter || a.sport === sportFilter) &&
+    (!statusFilter || a.status === statusFilter)
+  );
+  const tbody = document.getElementById('ucp-roster-body');
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="padding:30px;text-align:center;color:var(--muted)">No athletes linked to this university yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = filtered.map(a => `
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:10px 14px;font-weight:600;color:var(--text)">${a.name || a.athlete_id}</td>
+      <td style="padding:10px 14px;color:var(--muted)">${a.sport || '—'}</td>
+      <td style="padding:10px 14px">
+        <span style="font-size:10px;padding:3px 8px;border-radius:3px;font-weight:600;background:${a.status==='active'?'rgba(34,197,94,0.1)':'rgba(245,158,11,0.1)'};color:${a.status==='active'?'#22c55e':'#f59e0b'}">${a.status}</span>
+      </td>
+      <td style="padding:10px 14px;color:var(--muted)">—</td>
+      <td style="padding:10px 14px">
+        <button onclick="runUcpComplianceCheck('${a.athlete_id}')" style="padding:4px 10px;background:rgba(26,58,92,0.15);border:1px solid rgba(26,58,92,0.3);border-radius:4px;color:#1a3a5c;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">AI Compliance Check</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function filterUcpRoster() { renderUcpRoster(_ucpData.athletes); }
+
+async function updateAthleteLink(linkId, status) {
+  try {
+    await fetch(`${API_BASE}/api/university/athlete-links/${linkId}`, {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    loadUniversityComplianceDashboard();
+  } catch(e) { console.error('[ucp] updateAthleteLink failed', e); }
+}
+
+async function runUcpComplianceCheck(athleteId) {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Running AI…';
+  try {
+    const r = await fetch(`${API_BASE}/api/university/ai/compliance-check`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId })
+    });
+    const data = await r.json();
+    if (!r.ok) { alert('Compliance check failed: ' + (data.error || 'Unknown error')); }
+    else {
+      alert(`AI compliance check complete: ${data.flags.length} flag(s) found for ${data.athleteName}`);
+      loadUniversityComplianceDashboard();
+    }
+  } catch(e) { alert('Network error running compliance check'); }
+  finally { btn.disabled = false; btn.textContent = 'AI Compliance Check'; }
+}
+
+async function loadUcpFlags() {
+  const severity = document.getElementById('ucp-flag-severity-filter')?.value || '';
+  const resolved = document.getElementById('ucp-flag-resolved-filter')?.value;
+  let url = `${API_BASE}/api/university/flags?`;
+  if (severity) url += `severity=${severity}&`;
+  if (resolved !== '' && resolved !== undefined) url += `resolved=${resolved}`;
+  const tbody = document.getElementById('ucp-flags-body');
+  tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--muted)">Loading…</td></tr>';
+  try {
+    const r = await fetch(url, { credentials: 'include' });
+    const flags = await r.json();
+    _ucpData.flags = flags;
+    if (!flags.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--muted)">No compliance flags found</td></tr>';
+      return;
+    }
+    tbody.innerHTML = flags.map(f => `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:10px 14px">
+          <div style="font-weight:600;color:var(--text)">${f.athlete_name || f.athlete_id}</div>
+          <div style="font-size:10px;color:var(--muted)">${f.sport || ''}</div>
+        </td>
+        <td style="padding:10px 14px;color:var(--text)">${(f.flag_type||'').replace(/_/g,' ')}</td>
+        <td style="padding:10px 14px">
+          <span style="font-size:10px;padding:3px 8px;border-radius:3px;font-weight:700;background:${f.severity==='high'?'rgba(239,68,68,0.12)':f.severity==='medium'?'rgba(245,158,11,0.12)':'rgba(34,197,94,0.08)'};color:${f.severity==='high'?'#ef4444':f.severity==='medium'?'#f59e0b':'#22c55e'}">${f.severity}</span>
+        </td>
+        <td style="padding:10px 14px;font-size:11px;color:var(--muted);max-width:300px">${f.ai_summary || '—'}</td>
+        <td style="padding:10px 14px;font-size:11px;color:var(--muted)">${f.created_at ? new Date(f.created_at).toLocaleDateString() : '—'}</td>
+        <td style="padding:10px 14px">
+          ${!f.resolved ? `<button onclick="resolveUcpFlag('${f.id}')" style="padding:4px 10px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:4px;color:#22c55e;font-size:10px;cursor:pointer;font-family:'DM Sans',sans-serif">Resolve</button>` : '<span style="font-size:10px;color:var(--muted)">Resolved</span>'}
+        </td>
+      </tr>
+      ${f.recommended_action ? `<tr style="border-bottom:1px solid var(--border);background:var(--surface)"><td colspan="6" style="padding:8px 14px;font-size:11px;color:var(--muted)">📋 <strong>Action:</strong> ${f.recommended_action}</td></tr>` : ''}
+    `).join('');
+  } catch(e) { tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:#ef4444">Failed to load flags</td></tr>'; }
+}
+
+async function resolveUcpFlag(flagId) {
+  try {
+    await fetch(`${API_BASE}/api/university/flags/${flagId}/resolve`, {
+      method: 'PATCH', credentials: 'include'
+    });
+    loadUcpFlags();
+    loadUniversityComplianceDashboard();
+  } catch(e) { console.error('[ucp] resolveFlag failed', e); }
+}
+
+function exportFlagsCSV() {
+  if (!_ucpData.flags.length) { alert('No flags to export'); return; }
+  const headers = ['Athlete','Sport','Flag Type','Severity','AI Summary','Recommended Action','Date','Resolved'];
+  const rows = _ucpData.flags.map(f => [
+    f.athlete_name || f.athlete_id, f.sport || '', (f.flag_type||'').replace(/_/g,' '),
+    f.severity, f.ai_summary || '', f.recommended_action || '',
+    f.created_at ? new Date(f.created_at).toLocaleDateString() : '', f.resolved ? 'Yes' : 'No'
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'compliance-flags.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function loadUcpOpportunityAthletes() {
+  const sel = document.getElementById('ucp-opp-athlete-select');
+  if (!sel) return;
+  const athletes = _ucpData.athletes.filter(a => a.status === 'active');
+  sel.innerHTML = '<option value="">— Select athlete —</option>' +
+    athletes.map(a => `<option value="${a.athlete_id}">${a.name || a.athlete_id} (${a.sport || ''})</option>`).join('');
+}
+
+async function runUcpDealRecommendations() {
+  const athleteId = document.getElementById('ucp-opp-athlete-select').value;
+  if (!athleteId) { alert('Select an athlete first'); return; }
+  document.getElementById('ucp-opp-loading').style.display = 'block';
+  document.getElementById('ucp-opp-results').style.display = 'none';
+  document.getElementById('ucp-opp-empty').style.display = 'none';
+  try {
+    const r = await fetch(`${API_BASE}/api/university/ai/deal-recommendations/${athleteId}`, {
+      method: 'POST', credentials: 'include'
+    });
+    const data = await r.json();
+    document.getElementById('ucp-opp-loading').style.display = 'none';
+    if (!r.ok) { document.getElementById('ucp-opp-empty').textContent = 'AI analysis failed: ' + data.error; document.getElementById('ucp-opp-empty').style.display = 'block'; return; }
+    const recs = data.recommendations || [];
+    const resultsEl = document.getElementById('ucp-opp-results');
+    resultsEl.innerHTML = `
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Deal recommendations for ${data.athleteName}</div>
+      ${recs.map((rec) => `
+        <div class="card" style="padding:16px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <span style="font-size:10px;color:#1a3a5c;font-weight:700;margin-right:8px">#${rec.rank}</span>
+              <span style="font-weight:700;font-size:13px;color:var(--text)">${rec.brand_name}</span>
+              <span style="font-size:10px;color:var(--muted);margin-left:8px">${rec.category}</span>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:12px;font-weight:700;color:var(--text)">$${(rec.estimated_value_min||0).toLocaleString()}–$${(rec.estimated_value_max||0).toLocaleString()}</div>
+              <span style="font-size:9px;padding:2px 6px;border-radius:3px;font-weight:700;background:${rec.compliance_risk==='high'?'rgba(239,68,68,0.12)':rec.compliance_risk==='medium'?'rgba(245,158,11,0.12)':'rgba(34,197,94,0.08)'};color:${rec.compliance_risk==='high'?'#ef4444':rec.compliance_risk==='medium'?'#f59e0b':'#22c55e'}">${rec.compliance_risk} risk</span>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:4px">${rec.campaign_concept}</div>
+          <div style="font-size:11px;color:var(--text)">${rec.why_it_fits}</div>
+        </div>
+      `).join('')}
+    `;
+    resultsEl.style.display = 'block';
+  } catch(e) {
+    document.getElementById('ucp-opp-loading').style.display = 'none';
+    document.getElementById('ucp-opp-empty').textContent = 'Network error';
+    document.getElementById('ucp-opp-empty').style.display = 'block';
+  }
+}
+
+function loadUcpSettings() {
+  if (!_universitySession) return;
+  document.getElementById('ucp-settings-name').textContent = _universitySession.name || '';
+  document.getElementById('ucp-settings-email').textContent = _universitySession.email || '';
+  document.getElementById('ucp-settings-role').textContent = (_universitySession.role||'').replace(/_/g,' ');
+  document.getElementById('ucp-settings-university').textContent = _universitySession.universityName || '';
 }
 
 async function doAthleteLogin() {
@@ -10098,6 +10513,184 @@ if ('serviceWorker' in navigator) {
       .catch(function(err) { console.log('SW registration failed:', err); });
   });
 }
+</script>
+
+<!-- University Compliance Portal — separate full-screen UI -->
+<div id="univCompliancePortal" style="display:none;flex-direction:column;min-height:100vh;background:var(--bg);font-family:'DM Sans',sans-serif;position:fixed;inset:0;z-index:500">
+  <div style="background:#0f1f33;border-bottom:1px solid #1e3a5f;padding:0 24px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="width:28px;height:28px;background:#1a3a5c;border:1px solid #2a5a8c;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">🏛</div>
+      <div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;color:#e2e8f0;letter-spacing:1px">NILDash Compliance</div>
+        <div id="ucp-university-name" style="font-size:10px;color:#64748b;margin-top:-2px"></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <div id="ucp-alert-badge" style="display:none;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:4px;padding:3px 8px;font-size:11px;color:#ef4444;font-weight:700"></div>
+      <div style="font-size:11px;color:#64748b">Signed in as <span id="ucp-user-name" style="color:#94a3b8"></span></div>
+      <button onclick="univPortalSignOut()" style="padding:5px 12px;background:none;border:1px solid #1e3a5f;border-radius:4px;color:#64748b;font-size:11px;cursor:pointer;font-family:'DM Sans',sans-serif">Sign Out</button>
+    </div>
+  </div>
+  <div style="display:flex;flex:1;overflow:hidden">
+    <div style="width:180px;flex-shrink:0;background:#0a1628;border-right:1px solid #1e3a5f;padding:16px 0;overflow-y:auto">
+      <button id="ucpNav-dashboard" onclick="showUcpTab('dashboard')" class="ucp-nav-item ucp-nav-active">📊 Dashboard</button>
+      <button id="ucpNav-roster" onclick="showUcpTab('roster')" class="ucp-nav-item">👥 Roster</button>
+      <button id="ucpNav-flags" onclick="showUcpTab('flags')" class="ucp-nav-item">⚑ Compliance Flags</button>
+      <button id="ucpNav-opportunities" onclick="showUcpTab('opportunities')" class="ucp-nav-item">💡 Deal Opportunities</button>
+      <button id="ucpNav-settings" onclick="showUcpTab('settings')" class="ucp-nav-item">⚙ Settings</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:24px">
+      <div id="ucpPanel-dashboard">
+        <div id="ucp-alert-strip" style="margin-bottom:20px;display:none">
+          <div style="font-size:10px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">⚑ Active Compliance Alerts</div>
+          <div id="ucp-alert-cards" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+          <div class="card" style="padding:16px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Linked Athletes</div>
+            <div id="ucp-kpi-athletes" style="font-size:28px;font-weight:700;color:var(--text)">—</div>
+          </div>
+          <div class="card" style="padding:16px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Open Flags</div>
+            <div id="ucp-kpi-flags" style="font-size:28px;font-weight:700;color:#ef4444">—</div>
+          </div>
+          <div class="card" style="padding:16px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">High Severity</div>
+            <div id="ucp-kpi-high" style="font-size:28px;font-weight:700;color:#ef4444">—</div>
+          </div>
+          <div class="card" style="padding:16px">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Pending Links</div>
+            <div id="ucp-kpi-pending" style="font-size:28px;font-weight:700;color:#f59e0b">—</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="card" style="padding:18px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">Pending Athlete Links</div>
+            <div id="ucp-pending-links"><div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">Loading…</div></div>
+          </div>
+          <div class="card" style="padding:18px">
+            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">Recent Compliance Flags</div>
+            <div id="ucp-recent-flags"><div style="color:var(--muted);font-size:12px;text-align:center;padding:20px 0">Loading…</div></div>
+          </div>
+        </div>
+      </div>
+      <div id="ucpPanel-roster" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-size:14px;font-weight:700;color:var(--text)">Athlete Roster</div>
+          <div style="display:flex;gap:8px">
+            <select id="ucp-roster-sport-filter" onchange="filterUcpRoster()" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 10px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif">
+              <option value="">All Sports</option>
+              <option value="Football">Football</option>
+              <option value="Basketball">Basketball</option>
+              <option value="Baseball">Baseball</option>
+              <option value="Soccer">Soccer</option>
+              <option value="Track & Field">Track & Field</option>
+            </select>
+            <select id="ucp-roster-status-filter" onchange="filterUcpRoster()" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 10px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif">
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+        </div>
+        <div class="card" style="overflow:hidden">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:var(--surface);border-bottom:1px solid var(--border)">
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Athlete</th>
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Sport</th>
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Status</th>
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Flags</th>
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Action</th>
+              </tr>
+            </thead>
+            <tbody id="ucp-roster-body"><tr><td colspan="5" style="padding:30px;text-align:center;color:var(--muted)">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="ucpPanel-flags" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div style="font-size:14px;font-weight:700;color:var(--text)">Compliance Flags</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <select id="ucp-flag-severity-filter" onchange="loadUcpFlags()" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 10px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif">
+              <option value="">All Severities</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select id="ucp-flag-resolved-filter" onchange="loadUcpFlags()" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 10px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif">
+              <option value="false">Open</option>
+              <option value="true">Resolved</option>
+              <option value="">All</option>
+            </select>
+            <button onclick="exportFlagsCSV()" style="padding:7px 14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif">Export CSV</button>
+          </div>
+        </div>
+        <div class="card" style="overflow:hidden">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead>
+              <tr style="background:var(--surface);border-bottom:1px solid var(--border)">
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Athlete</th>
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Flag Type</th>
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Severity</th>
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">AI Summary</th>
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Date</th>
+                <th style="padding:10px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ucp-flags-body"><tr><td colspan="6" style="padding:30px;text-align:center;color:var(--muted)">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="ucpPanel-opportunities" style="display:none">
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:6px">Deal Opportunities</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:16px">AI-powered brand partnership recommendations for your athletes</div>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+          <select id="ucp-opp-athlete-select" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;flex:1;max-width:300px">
+            <option value="">— Select athlete —</option>
+          </select>
+          <button onclick="runUcpDealRecommendations()" style="padding:8px 18px;background:#1a3a5c;color:#fff;border:none;border-radius:var(--r-sm);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Run AI Analysis →</button>
+        </div>
+        <div id="ucp-opp-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:12px">Running AI analysis (10–20 seconds)…</div>
+        <div id="ucp-opp-results" style="display:none"></div>
+        <div id="ucp-opp-empty" style="text-align:center;padding:40px 20px;color:var(--muted);font-size:12px">Select an athlete and click Run AI Analysis to generate deal recommendations</div>
+      </div>
+      <div id="ucpPanel-settings" style="display:none">
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:16px">Settings</div>
+        <div class="card" style="padding:20px;max-width:560px;margin-bottom:16px">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">Account Info</div>
+          <div style="font-size:12px;color:var(--text);line-height:2">
+            <div>Name: <span id="ucp-settings-name" style="color:var(--muted)"></span></div>
+            <div>Email: <span id="ucp-settings-email" style="color:var(--muted)"></span></div>
+            <div>Role: <span id="ucp-settings-role" style="color:var(--muted)"></span></div>
+            <div>University: <span id="ucp-settings-university" style="color:var(--muted)"></span></div>
+          </div>
+        </div>
+        <div class="card" style="padding:20px;max-width:560px">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px">Platform Info</div>
+          <div style="font-size:12px;color:var(--muted);line-height:2">
+            Compliance portal powered by NILDash AI<br>
+            To add additional compliance staff, contact support<br>
+            For billing and plan questions, contact support
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// On page load, check for university session first before normal auth flow
+(async function checkUniversitySession() {
+  try {
+    const r = await fetch(`${API_BASE}/api/university/me`, { credentials: 'include' });
+    if (r.ok) {
+      const data = await r.json();
+      _universitySession = data;
+      showUniversityPortal(data);
+    }
+  } catch(e) { /* not a university session */ }
+})();
 </script>
 </body>
 </html>

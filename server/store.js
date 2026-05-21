@@ -695,6 +695,59 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_snap_athletes_snap ON roster_snapshot_athletes(snapshot_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_review_queue_univ ON roster_review_queue(university_id)`).catch(() => {});
 
+  // ── University Compliance Portal additions ─────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS university_users (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+      university_id TEXT NOT NULL REFERENCES universities(id) ON DELETE CASCADE,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'compliance_officer',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch(() => {});
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS university_athlete_links (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+      university_id TEXT NOT NULL REFERENCES universities(id) ON DELETE CASCADE,
+      athlete_id TEXT NOT NULL REFERENCES athletes(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      linked_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(university_id, athlete_id)
+    );
+  `).catch(() => {});
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS university_deal_flags (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+      university_id TEXT NOT NULL,
+      athlete_id TEXT NOT NULL,
+      deal_id TEXT,
+      flag_type TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'medium',
+      ai_summary TEXT,
+      recommended_action TEXT,
+      deals_involved TEXT[],
+      resolved BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch(() => {});
+
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_univ_users_university ON university_users(university_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_univ_athlete_links_university ON university_athlete_links(university_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_univ_deal_flags_university ON university_deal_flags(university_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_univ_deal_flags_athlete ON university_deal_flags(athlete_id)`).catch(() => {});
+
+  await pool.query(`
+    INSERT INTO universities (id, name, short_name, conference, location) VALUES
+      ('univ-samford', 'Samford University', 'Samford', 'SoCon', 'Birmingham, AL'),
+      ('univ-alabama', 'University of Alabama', 'Alabama', 'SEC', 'Tuscaloosa, AL'),
+      ('univ-duke', 'Duke University', 'Duke', 'ACC', 'Durham, NC')
+    ON CONFLICT (id) DO NOTHING
+  `).catch(() => {});
+
   console.log('Database tables ready');
 }
 
