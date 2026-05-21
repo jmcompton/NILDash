@@ -3327,11 +3327,26 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
     }
 
     if (!universityId && schoolName) {
-      const byName = await store.pool.query(
+      // Try to find or create the university record
+      let univRow = await store.pool.query(
         'SELECT id FROM universities WHERE LOWER(name) = LOWER($1) LIMIT 1', [schoolName]
       );
-      universityId = byName.rows[0]?.id
-        || ('univ-' + schoolName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
+      if (!univRow.rows[0]) {
+        // Create university record on the fly so all future reads use the same ID
+        const newUnivId = 'univ-' + schoolName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        await store.pool.query(
+          `INSERT INTO universities (id, name, short_name) VALUES ($1, $2, $2) ON CONFLICT (id) DO NOTHING`,
+          [newUnivId, schoolName]
+        ).catch(() => {});
+        universityId = newUnivId;
+      } else {
+        universityId = univRow.rows[0].id;
+      }
+      // Stamp university_id onto the user so CRM reads and future imports use the same scope
+      await store.pool.query(
+        `UPDATE users SET university_id = $1 WHERE id = $2`,
+        [universityId, userId]
+      ).catch(() => {});
     }
 
     if (!universityId) {
@@ -3373,7 +3388,16 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
       } catch { skipped++; }
     }
 
-    res.json({ ok: true, inserted, skipped, skippedNames, total: athletes.length });
+    // Repair: any athletes this agent wrote without a university_id get stamped now
+    await store.pool.query(
+      `UPDATE athletes
+       SET data = jsonb_set(data, '{university_id}', $1::jsonb), updated_at = NOW()
+       WHERE agent_id = $2
+         AND (data->>'university_id' IS NULL OR data->>'university_id' = '')`,
+      [JSON.stringify(universityId), userId]
+    ).catch(() => {});
+
+    res.json({ ok: true, inserted, skipped, skippedNames, total: athletes.length, universityId });
   } catch (err) {
     console.error('[roster/import-commit]', err.message);
     res.status(500).json({ error: err.message });
