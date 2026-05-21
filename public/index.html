@@ -80,28 +80,86 @@
 body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;line-height:1.6;min-height:100vh}
 body::before{display:none}
 
-/*  AUTH  */
-#authScreen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:600;padding:20px;background:var(--bg)}
+/*  AUTH — Split layout  */
+#authScreen{position:fixed;inset:0;display:flex;z-index:600;background:#0a0a0a;overflow:hidden}
 #authScreen.hidden{display:none}
-.auth-box{background:var(--surface);border:1px solid var(--border2);border-radius:16px;padding:40px;width:100%;max-width:420px;position:relative;z-index:1}
-.auth-logo{font-family:var(--head);font-size:32px;font-weight:800;color:var(--accent);margin-bottom:4px;letter-spacing:-0.03em}
-.auth-sub{font-size:12px;color:var(--muted);margin-bottom:32px;letter-spacing:0.04em}
-.auth-tabs{display:flex;gap:4px;margin-bottom:28px;background:var(--surface2);border-radius:8px;padding:4px}
-.auth-tab{flex:1;padding:8px;border:none;background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;border-radius:6px;cursor:pointer;transition:all 0.15s}
-.auth-tab.active{background:var(--accent);color:#0A0A08;font-weight:500}
+
+/* Left hero panel */
+.auth-left{flex:1;min-width:0;background:linear-gradient(155deg,#0a0a0a 0%,#0d1f0d 100%);border-right:1px solid #16a34a;display:flex;align-items:center;padding:60px;position:relative;overflow:hidden}
+.auth-left::before{content:'';position:absolute;top:-80px;right:-80px;width:500px;height:500px;background:radial-gradient(circle,rgba(22,163,74,0.07) 0%,transparent 65%);pointer-events:none}
+.auth-left::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(22,163,74,0.15),transparent)}
+.auth-left-inner{max-width:520px;position:relative;z-index:1}
+.auth-wordmark{font-family:'DM Sans',sans-serif;font-size:18px;font-weight:900;letter-spacing:-0.02em;color:#ffffff;margin-bottom:16px}
+.auth-wordmark span{color:#16a34a}
+.auth-wordmark-sep{width:40px;height:2px;background:#16a34a;margin-bottom:44px}
+.auth-headline{font-family:'DM Sans',sans-serif;font-size:clamp(48px,5.2vw,78px);font-weight:900;line-height:0.93;color:#ffffff;letter-spacing:-0.04em;margin-bottom:28px}
+.auth-tagline{font-size:15px;color:#9ca3af;line-height:1.7;max-width:420px;margin-bottom:52px}
+.auth-stats{display:flex;gap:40px;margin-bottom:52px}
+.auth-stat-val{font-family:'DM Sans',sans-serif;font-size:21px;font-weight:800;color:#ffffff;letter-spacing:-0.02em;margin-bottom:5px}
+.auth-stat-label{font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#16a34a}
+.auth-trust{font-size:11px;color:#374151;letter-spacing:0.03em}
+
+/* Right sign-in panel */
+.auth-right{width:480px;flex-shrink:0;background:#111111;display:flex;flex-direction:column;justify-content:center;padding:64px 52px;overflow-y:auto;min-height:100vh}
+.auth-right-inner{width:100%;max-width:360px;margin:0 auto}
+.auth-right-title{font-family:'DM Sans',sans-serif;font-size:19px;font-weight:700;color:#ffffff;margin-bottom:6px}
+.auth-right-sub{font-size:13px;color:#6b7280;margin-bottom:32px;line-height:1.5}
+
+/* Sign-in cards */
+.signin-cards{display:flex;flex-direction:column;gap:8px;margin-bottom:24px}
+.signin-card{width:100%;background:transparent;border:1px solid #1f2937;border-radius:0;padding:16px 18px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;transition:border-color 0.12s,background 0.12s;font-family:'DM Sans',sans-serif}
+.signin-card:hover{border-color:#16a34a;background:#161616}
+.signin-card--dashed{border-style:dashed}
+.signin-card--dashed:hover{border-color:#374151;background:#131313}
+.signin-card-icon{width:34px;height:34px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#4b5563}
+.signin-card-icon--green{color:#16a34a}
+.signin-card-body{flex:1;min-width:0}
+.signin-card-title{font-size:14px;font-weight:700;color:#ffffff;margin-bottom:3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.signin-card-desc{font-size:12px;color:#6b7280;line-height:1.45}
+.signin-card-arrow{flex-shrink:0;color:#16a34a;display:flex;align-items:center}
+.signin-card-arrow--muted{color:#374151}
+.signin-coming-badge{display:inline-block;border:1px solid #16a34a;color:#16a34a;font-size:8px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:2px 5px;border-radius:0;line-height:1.4}
+
+/* Footer links below cards */
+.auth-footer-links{display:flex;justify-content:center;gap:24px;padding-top:18px;border-top:1px solid #1a1a1a}
+.auth-footer-links a{font-size:11px;color:#4b5563;text-decoration:none;transition:color 0.15s}
+.auth-footer-links a:hover{color:#9ca3af}
+
+/* Panel back button */
+.auth-panel-back{display:inline-flex;align-items:center;gap:6px;background:transparent;border:none;color:#4b5563;font-size:12px;cursor:pointer;padding:0;margin-bottom:20px;font-family:'DM Sans',sans-serif;transition:color 0.15s}
+.auth-panel-back:hover{color:#9ca3af}
+
+/* Auth form elements */
+.auth-tabs{display:flex;gap:0;margin-bottom:24px;border-bottom:1px solid #1f2937}
+.auth-tab{flex:1;padding:10px;border:none;background:transparent;color:#6b7280;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s;border-bottom:2px solid transparent;margin-bottom:-1px}
+.auth-tab.active{color:#ffffff;border-bottom-color:#16a34a}
 .form-group{margin-bottom:16px}
-.form-label{display:block;font-size:11px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px}
-.form-input,.form-select{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-family:var(--mono);font-size:13px;padding:11px 14px;outline:none;transition:border-color 0.15s}
-.form-input:focus,.form-select:focus{border-color:var(--accent)}
-.form-select option{background:var(--surface)}
-.role-selector{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
-.role-btn{padding:14px;border:1px solid var(--border);border-radius:var(--r);background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer;transition:all 0.15s;text-align:center}
-.role-btn .role-icon{font-size:22px;display:block;margin-bottom:6px}
-.role-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(132,204,22,0.08)}
-.btn-primary{width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:13px;border-radius:40px;border:none;cursor:pointer;transition:all 0.2s;margin-top:8px}
-.btn-primary:hover{opacity:0.9;transform:translateY(-1px)}
-.btn-primary:disabled{opacity:0.5;cursor:not-allowed;transform:none}
-.auth-error{color:var(--red);font-size:12px;margin-top:10px;text-align:center;min-height:18px}
+.form-label{display:block;font-size:10px;color:#6b7280;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;font-weight:600}
+.form-input,.form-select{width:100%;background:#0a0a0a;border:1px solid #1f2937;border-radius:0;color:#ffffff;font-family:'DM Sans',sans-serif;font-size:13px;padding:11px 14px;outline:none;transition:border-color 0.15s}
+.form-input:focus,.form-select:focus{border-color:#16a34a}
+.form-select option{background:#111111}
+.role-selector{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:16px}
+.role-btn{padding:12px 16px;border:1px solid #1f2937;border-radius:0;background:transparent;color:#6b7280;font-family:'DM Sans',sans-serif;font-size:13px;cursor:pointer;transition:all 0.15s;text-align:left;display:flex;align-items:center;gap:8px}
+.role-btn .role-icon{font-size:18px}
+.role-btn.active{border-color:#16a34a;color:#16a34a;background:rgba(22,163,74,0.06)}
+.btn-primary{width:100%;background:#16a34a;color:#ffffff;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;letter-spacing:0.04em;padding:13px;border-radius:0;border:none;cursor:pointer;transition:all 0.15s;margin-top:8px;text-transform:uppercase}
+.btn-primary:hover{background:#15803d}
+.btn-primary:disabled{opacity:0.4;cursor:not-allowed}
+.auth-error{color:#ef4444;font-size:12px;margin-top:10px;text-align:center;min-height:18px}
+
+/* Auth mobile */
+@media(max-width:768px){
+  #authScreen{flex-direction:column;overflow-y:auto;overflow-x:hidden}
+  .auth-left{flex:none;border-right:none;border-bottom:1px solid #16a34a;padding:36px 24px 32px}
+  .auth-wordmark-sep{margin-bottom:28px}
+  .auth-headline{font-size:42px}
+  .auth-tagline{font-size:13px;margin-bottom:28px}
+  .auth-stats{gap:24px;margin-bottom:0}
+  .auth-stat-val{font-size:17px}
+  .auth-trust{display:none}
+  .auth-right{width:100%;flex:none;min-height:auto;padding:36px 24px}
+  .auth-right-inner{max-width:100%}
+}
 
 /*  APP  */
 #appScreen{display:none;min-height:100vh}
@@ -249,9 +307,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .rb-label{color:var(--muted)}
 .rb-val{font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--text)}
 
-@media(max-width:480px){
-  #authRoleChooser [style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}
-}
 @media(max-width:768px){
   /*  Sidebar: slide-in drawer on mobile  */
   .sidebar{
@@ -672,149 +727,197 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
 <!--  AUTH SCREEN  -->
 <div id="authScreen">
-  <div class="auth-box">
-    <div class="auth-logo">NILDash</div>
-    <div class="auth-sub">NIL INTELLIGENCE PLATFORM</div>
 
-    <!-- Role chooser (shown first) -->
-    <div id="authRoleChooser">
-      <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:12px;line-height:1.55;padding:0 4px">The all-in-one platform for athletes, parents, and agents to manage NIL like a business.</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:18px">
-        <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:100px;padding:3px 10px;font-size:10px;font-weight:600;color:var(--accent)">⚡ AI-Powered Valuations</span>
-        <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:100px;padding:3px 10px;font-size:10px;font-weight:600;color:var(--accent)">📄 Contract Tracking</span>
-        <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:100px;padding:3px 10px;font-size:10px;font-weight:600;color:var(--accent)">🔗 Deal Pipeline</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-        <button class="role-btn" onclick="chooseAuthRole('agent')" style="padding:18px 12px;text-align:left;display:flex;flex-direction:column;gap:3px;transition:transform .15s,box-shadow .15s" onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,0.35)'" onmouseleave="this.style.transform='';this.style.boxShadow=''">
-          <div style="font-size:16px;margin-bottom:2px">🏈</div>
-          <div style="font-weight:700;font-size:13px">Agent</div>
-          <div style="font-size:10px;color:var(--muted);line-height:1.4">Agency / sports agent managing client NIL</div>
-          <div style="font-size:11px;color:var(--accent);margin-top:6px">Sign in →</div>
-        </button>
-        <button class="role-btn" onclick="chooseAuthRole('athlete')" style="padding:18px 12px;text-align:left;display:flex;flex-direction:column;gap:3px;transition:transform .15s,box-shadow .15s" onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,0.35)'" onmouseleave="this.style.transform='';this.style.boxShadow=''">
-          <div style="font-size:16px;margin-bottom:2px">🎯</div>
-          <div style="font-weight:700;font-size:13px">Athlete</div>
-          <div style="font-size:10px;color:var(--muted);line-height:1.4">Agent portal — my agent set up my account</div>
-          <div style="font-size:11px;color:var(--accent);margin-top:6px">Sign in →</div>
-        </button>
-      </div>
-      <div style="margin-bottom:16px">
-        <button onclick="showComingSoonModal()" style="width:100%;padding:16px 14px;background:rgba(132,204,22,0.04);border:1.5px dashed rgba(132,204,22,0.3);border-radius:var(--r-sm);cursor:pointer;display:flex;align-items:center;gap:12px;text-align:left;transition:transform .15s,background .15s" onmouseenter="this.style.transform='translateY(-2px)';this.style.background='rgba(132,204,22,0.09)'" onmouseleave="this.style.transform='';this.style.background='rgba(132,204,22,0.04)'">
-          <span style="font-size:20px">👨‍👩‍👧</span>
-          <div style="flex:1">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-              <span style="font-weight:700;font-size:13px;color:var(--text)">Athlete / Parent</span>
-              <span style="background:rgba(132,204,22,0.15);border:1px solid rgba(132,204,22,0.3);border-radius:4px;padding:1px 7px;font-size:9px;font-weight:700;letter-spacing:.06em;color:var(--accent)">COMING SOON</span>
-            </div>
-            <div style="font-size:10px;color:var(--muted)">Self-managed NIL for athletes and families</div>
-          </div>
-          <span style="font-size:12px;color:var(--accent)">→</span>
-        </button>
-      </div>
-      <div style="display:flex;justify-content:center;gap:16px;padding-top:12px;border-top:1px solid var(--border)">
-        <a href="/landing" style="font-size:11px;color:var(--muted);text-decoration:none">Learn more →</a>
-        <span style="font-size:11px;color:var(--border)">·</span>
-        <a href="mailto:support@mynildash.com" style="font-size:11px;color:var(--muted);text-decoration:none">Contact us</a>
-      </div>
-    </div>
-
-    <!-- Agent login/signup tabs (hidden until role chosen) -->
-    <div id="authAgentPanel" style="display:none">
-      <div class="auth-tabs">
-        <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
-        <button class="auth-tab" onclick="switchTab('signup')">Create Account</button>
-      </div>
-      <div id="loginForm">
-        <div class="form-group">
-          <label class="form-label">Email</label>
-          <input class="form-input" id="loginEmail" type="email" placeholder="you@example.com">
+  <!-- LEFT: Hero -->
+  <div class="auth-left">
+    <div class="auth-left-inner">
+      <div class="auth-wordmark">NIL<span>Dash</span></div>
+      <div class="auth-wordmark-sep"></div>
+      <h1 class="auth-headline">NIL IS A<br>BUSINESS.<br>RUN IT<br>LIKE ONE.</h1>
+      <p class="auth-tagline">The only platform built for athletes, parents, and agents to price, track, negotiate, and close NIL deals — all in one place.</p>
+      <div class="auth-stats">
+        <div class="auth-stat">
+          <div class="auth-stat-val">$2.3B+</div>
+          <div class="auth-stat-label">NIL Market Size</div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Password</label>
-          <input class="form-input" id="loginPassword" type="password" placeholder="••••••••">
+        <div class="auth-stat">
+          <div class="auth-stat-val">AI-Powered</div>
+          <div class="auth-stat-label">Deal Valuations</div>
         </div>
-        <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign In →</button>
-        <div class="auth-error" id="loginError"></div>
-        <div style="text-align:center;margin-top:12px"><a href="/reset" style="font-size:11px;color:var(--muted);text-decoration:none">Forgot password?</a></div>
-        <div style="text-align:center;margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">
-          <span style="font-size:12px;color:var(--muted)">Don't have an account? </span>
-          <a href="/landing" style="font-size:12px;color:var(--accent);text-decoration:none">Request Access →</a>
+        <div class="auth-stat">
+          <div class="auth-stat-val">All-in-One</div>
+          <div class="auth-stat-label">Deal Management</div>
         </div>
       </div>
-      <div id="signupForm" style="display:none">
-        <div class="form-group">
-          <label class="form-label">Full Name</label>
-          <input class="form-input" id="signupName" placeholder="Your name">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Email</label>
-          <input class="form-input" id="signupEmail" type="email" placeholder="you@example.com">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Password</label>
-          <input class="form-input" id="signupPassword" type="password" placeholder="Min 6 characters">
-        </div>
-        <div class="form-group">
-          <label class="form-label">I am a...</label>
-          <div class="role-selector">
-            <button class="role-btn active" id="roleAgent" onclick="selectRole('agent')">
-              <span class="role-icon">🏈</span>Sports Agent
-            </button>
-          </div>
-        </div>
-        <button class="btn-primary" id="signupBtn" onclick="doSignup()">Create Account →</button>
-        <div class="auth-error" id="signupError"></div>
-      </div>
-      <div style="text-align:center;margin-top:14px">
-        <button onclick="chooseAuthRole(null)" style="background:transparent;border:none;color:var(--muted);font-size:11px;cursor:pointer">← Back</button>
-      </div>
-    </div>
-
-    <!-- Athlete login panel (hidden until role chosen) -->
-    <div id="authAthletePanel" style="display:none">
-      <div style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);border-radius:8px;padding:10px 14px;margin-bottom:18px;font-size:11px;color:var(--muted)">
-        Your agent created your account. Use the email and temporary password they sent you.
-      </div>
-      <div class="form-group">
-        <label class="form-label">Email</label>
-        <input class="form-input" id="athLoginEmail" type="email" placeholder="your@email.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Password</label>
-        <input class="form-input" id="athLoginPassword" type="password" placeholder="••••••••">
-      </div>
-      <button class="btn-primary" id="athLoginBtn" onclick="doAthleteLogin()">Sign In →</button>
-      <div class="auth-error" id="athLoginError"></div>
-      <div style="text-align:center;margin-top:14px">
-        <button onclick="chooseAuthRole(null)" style="background:transparent;border:none;color:var(--muted);font-size:11px;cursor:pointer">← Back</button>
-      </div>
-    </div>
-
-    <!-- Forced password reset panel (shown after first athlete login) -->
-    <div id="authResetPanel" style="display:none">
-      <div style="font-size:15px;font-weight:700;color:var(--fg);margin-bottom:6px">Set a new password</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:20px">You're required to set a new password before continuing.</div>
-      <div class="form-group">
-        <label class="form-label">New Password</label>
-        <input class="form-input" id="resetNewPassword" type="password" placeholder="Min 6 characters">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Confirm Password</label>
-        <input class="form-input" id="resetConfirmPassword" type="password" placeholder="Same as above">
-      </div>
-      <button class="btn-primary" onclick="doForcedReset()">Set Password & Continue →</button>
-      <div class="auth-error" id="resetError"></div>
+      <div class="auth-trust">Trusted by sports agents and athletes nationwide</div>
     </div>
   </div>
+
+  <!-- RIGHT: Sign-in panels -->
+  <div class="auth-right">
+    <div class="auth-right-inner">
+
+      <!-- Role chooser -->
+      <div id="authRoleChooser">
+        <div class="auth-right-title">Sign in to NILDash</div>
+        <div class="auth-right-sub">Select your account type to continue</div>
+        <div class="signin-cards">
+
+          <button class="signin-card" onclick="chooseAuthRole('agent')">
+            <div class="signin-card-icon signin-card-icon--green">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+            </div>
+            <div class="signin-card-body">
+              <div class="signin-card-title">Agent</div>
+              <div class="signin-card-desc">Agency &amp; sports agent — manage your client roster, deals, and commissions</div>
+            </div>
+            <div class="signin-card-arrow signin-card-arrow--green">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </div>
+          </button>
+
+          <button class="signin-card" onclick="chooseAuthRole('athlete')">
+            <div class="signin-card-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+            </div>
+            <div class="signin-card-body">
+              <div class="signin-card-title">Athlete</div>
+              <div class="signin-card-desc">Agent portal — my agent set up my account and manages my NIL</div>
+            </div>
+            <div class="signin-card-arrow">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </div>
+          </button>
+
+          <button class="signin-card signin-card--dashed" onclick="showComingSoonModal()">
+            <div class="signin-card-icon signin-card-icon--green">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <div class="signin-card-body">
+              <div class="signin-card-title">Athlete / Parent <span class="signin-coming-badge">COMING SOON</span></div>
+              <div class="signin-card-desc">Self-managed NIL for athletes and families without an agent</div>
+            </div>
+            <div class="signin-card-arrow signin-card-arrow--muted">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </div>
+          </button>
+
+        </div>
+        <div class="auth-footer-links">
+          <a href="/landing">Learn more about NILDash</a>
+          <a href="mailto:support@mynildash.com">Contact support</a>
+        </div>
+      </div>
+
+      <!-- Agent login/signup panel -->
+      <div id="authAgentPanel" style="display:none">
+        <button class="auth-panel-back" onclick="chooseAuthRole(null)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+          Back
+        </button>
+        <div class="auth-right-title" style="margin-bottom:6px">Agent Sign In</div>
+        <div class="auth-right-sub">Access your NILDash agent account</div>
+        <div class="auth-tabs">
+          <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
+          <button class="auth-tab" onclick="switchTab('signup')">Create Account</button>
+        </div>
+        <div id="loginForm">
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-input" id="loginEmail" type="email" placeholder="you@example.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input class="form-input" id="loginPassword" type="password" placeholder="••••••••">
+          </div>
+          <button class="btn-primary" id="loginBtn" onclick="doLogin()">Sign In</button>
+          <div class="auth-error" id="loginError"></div>
+          <div style="text-align:center;margin-top:14px"><a href="/reset" style="font-size:11px;color:#4b5563;text-decoration:none">Forgot password?</a></div>
+          <div style="text-align:center;margin-top:20px;padding-top:18px;border-top:1px solid #1a1a1a">
+            <span style="font-size:12px;color:#4b5563">Don't have an account? </span>
+            <a href="/landing" style="font-size:12px;color:#16a34a;text-decoration:none">Request Access</a>
+          </div>
+        </div>
+        <div id="signupForm" style="display:none">
+          <div class="form-group">
+            <label class="form-label">Full Name</label>
+            <input class="form-input" id="signupName" placeholder="Your name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input class="form-input" id="signupEmail" type="email" placeholder="you@example.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input class="form-input" id="signupPassword" type="password" placeholder="Min 6 characters">
+          </div>
+          <div class="form-group">
+            <label class="form-label">I am a...</label>
+            <div class="role-selector">
+              <button class="role-btn active" id="roleAgent" onclick="selectRole('agent')">
+                <span class="role-icon">🏈</span>Sports Agent
+              </button>
+            </div>
+          </div>
+          <button class="btn-primary" id="signupBtn" onclick="doSignup()">Create Account</button>
+          <div class="auth-error" id="signupError"></div>
+        </div>
+      </div>
+
+      <!-- Athlete login panel -->
+      <div id="authAthletePanel" style="display:none">
+        <button class="auth-panel-back" onclick="chooseAuthRole(null)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+          Back
+        </button>
+        <div class="auth-right-title" style="margin-bottom:6px">Athlete Sign In</div>
+        <div class="auth-right-sub">Access your athlete account</div>
+        <div style="background:rgba(99,102,241,0.07);border:1px solid rgba(99,102,241,0.18);border-radius:0;padding:10px 14px;margin-bottom:20px;font-size:12px;color:#9ca3af;line-height:1.55">
+          Your agent created your account. Use the email and temporary password they sent you.
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-input" id="athLoginEmail" type="email" placeholder="your@email.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" id="athLoginPassword" type="password" placeholder="••••••••">
+        </div>
+        <button class="btn-primary" id="athLoginBtn" onclick="doAthleteLogin()">Sign In</button>
+        <div class="auth-error" id="athLoginError"></div>
+      </div>
+
+      <!-- Forced password reset panel -->
+      <div id="authResetPanel" style="display:none">
+        <div style="font-size:18px;font-weight:700;color:#ffffff;margin-bottom:6px">Set a new password</div>
+        <div style="font-size:13px;color:#6b7280;margin-bottom:24px;line-height:1.5">You're required to set a new password before continuing.</div>
+        <div class="form-group">
+          <label class="form-label">New Password</label>
+          <input class="form-input" id="resetNewPassword" type="password" placeholder="Min 6 characters">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Confirm Password</label>
+          <input class="form-input" id="resetConfirmPassword" type="password" placeholder="Same as above">
+        </div>
+        <button class="btn-primary" onclick="doForcedReset()">Set Password &amp; Continue</button>
+        <div class="auth-error" id="resetError"></div>
+      </div>
+
+    </div>
+  </div>
+
 </div>
 
 <!-- Coming Soon Modal -->
-<div id="comingSoonModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:36px 28px;max-width:320px;width:90%;text-align:center">
-    <div style="font-size:36px;margin-bottom:14px">🚀</div>
-    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px">Coming Soon</div>
-    <div style="font-size:13px;color:var(--muted);margin-bottom:22px;line-height:1.55">Self-managed NIL for athletes and families is launching soon. We'll notify you when it's ready.</div>
-    <button onclick="hideComingSoonModal()" style="width:100%;padding:12px;background:var(--accent);color:#000;border:none;border-radius:var(--r-sm);font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Got it</button>
+<div id="comingSoonModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(6px)">
+  <div style="background:#111111;border:1px solid #1f2937;border-radius:0;padding:40px 32px;max-width:340px;width:90%;text-align:center">
+    <div style="width:40px;height:40px;border:1px solid #16a34a;display:flex;align-items:center;justify-content:center;margin:0 auto 20px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    </div>
+    <div style="font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#16a34a;margin-bottom:10px">Coming Soon</div>
+    <div style="font-size:16px;font-weight:700;color:#ffffff;margin-bottom:10px">Athlete / Parent Portal</div>
+    <div style="font-size:13px;color:#6b7280;margin-bottom:28px;line-height:1.6">Self-managed NIL for athletes and families is launching soon. We'll notify you when it's ready.</div>
+    <button onclick="hideComingSoonModal()" style="width:100%;padding:12px;background:#16a34a;color:#ffffff;border:none;border-radius:0;font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;cursor:pointer;font-family:'DM Sans',sans-serif">Got it</button>
   </div>
 </div>
 
