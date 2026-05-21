@@ -3583,10 +3583,9 @@ app.post('/api/university/roster/parse-text', requireAuth, requireUniversityMode
     if (!text || text.trim().length < 20) {
       return res.status(400).json({ error: 'Please paste some roster text first.' });
     }
-    const { fetchAndExtract } = require('./services/university/WebExtractionService');
     // Re-use Claude extraction but pass text directly (skip HTTP fetch)
-    const { getClient } = require('./ai');
-    const client = getClient();
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client = new Anthropic();
     const prompt = `You are extracting structured athlete roster data that a user has copied and pasted from a university athletics website.
 
 University: ${universityName}
