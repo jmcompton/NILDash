@@ -249,6 +249,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .rb-label{color:var(--muted)}
 .rb-val{font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--text)}
 
+@media(max-width:480px){
+  #authRoleChooser [style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr!important}
+}
 @media(max-width:768px){
   /*  Sidebar: slide-in drawer on mobile  */
   .sidebar{
@@ -675,55 +678,43 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
     <!-- Role chooser (shown first) -->
     <div id="authRoleChooser">
-      <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:20px">Who are you signing in as?</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
-        <button class="role-btn" onclick="chooseAuthRole('agent')" style="padding:20px 10px">
-          <div style="font-weight:700;font-size:13px;margin-bottom:2px">Agent</div>
-          <div style="font-size:10px;color:var(--muted)">Agency / sports agent</div>
+      <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:12px;line-height:1.55;padding:0 4px">The all-in-one platform for athletes, parents, and agents to manage NIL like a business.</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:18px">
+        <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:100px;padding:3px 10px;font-size:10px;font-weight:600;color:var(--accent)">⚡ AI-Powered Valuations</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:100px;padding:3px 10px;font-size:10px;font-weight:600;color:var(--accent)">📄 Contract Tracking</span>
+        <span style="display:inline-flex;align-items:center;gap:4px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:100px;padding:3px 10px;font-size:10px;font-weight:600;color:var(--accent)">🔗 Deal Pipeline</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <button class="role-btn" onclick="chooseAuthRole('agent')" style="padding:18px 12px;text-align:left;display:flex;flex-direction:column;gap:3px;transition:transform .15s,box-shadow .15s" onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,0.35)'" onmouseleave="this.style.transform='';this.style.boxShadow=''">
+          <div style="font-size:16px;margin-bottom:2px">🏈</div>
+          <div style="font-weight:700;font-size:13px">Agent</div>
+          <div style="font-size:10px;color:var(--muted);line-height:1.4">Agency / sports agent managing client NIL</div>
+          <div style="font-size:11px;color:var(--accent);margin-top:6px">Sign in →</div>
         </button>
-        <button class="role-btn" onclick="chooseAuthRole('athlete')" style="padding:20px 10px">
-          <div style="font-weight:700;font-size:13px;margin-bottom:2px">Athlete</div>
-          <div style="font-size:10px;color:var(--muted)">My agent set up my account</div>
+        <button class="role-btn" onclick="chooseAuthRole('athlete')" style="padding:18px 12px;text-align:left;display:flex;flex-direction:column;gap:3px;transition:transform .15s,box-shadow .15s" onmouseenter="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,0.35)'" onmouseleave="this.style.transform='';this.style.boxShadow=''">
+          <div style="font-size:16px;margin-bottom:2px">🎯</div>
+          <div style="font-weight:700;font-size:13px">Athlete</div>
+          <div style="font-size:10px;color:var(--muted);line-height:1.4">Agent portal — my agent set up my account</div>
+          <div style="font-size:11px;color:var(--accent);margin-top:6px">Sign in →</div>
         </button>
       </div>
-      <div style="margin-top:10px">
-        <button class="role-btn" onclick="chooseAuthRole('university')" style="padding:20px 10px;width:100%">
-          <div style="font-size:18px;margin-bottom:4px">🏛</div>
-          <div style="font-weight:700;font-size:13px;margin-bottom:2px">University</div>
-          <div style="font-size:10px;color:var(--muted)">Compliance Officer</div>
+      <div style="margin-bottom:16px">
+        <button onclick="showComingSoonModal()" style="width:100%;padding:16px 14px;background:rgba(132,204,22,0.04);border:1.5px dashed rgba(132,204,22,0.3);border-radius:var(--r-sm);cursor:pointer;display:flex;align-items:center;gap:12px;text-align:left;transition:transform .15s,background .15s" onmouseenter="this.style.transform='translateY(-2px)';this.style.background='rgba(132,204,22,0.09)'" onmouseleave="this.style.transform='';this.style.background='rgba(132,204,22,0.04)'">
+          <span style="font-size:20px">👨‍👩‍👧</span>
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+              <span style="font-weight:700;font-size:13px;color:var(--text)">Athlete / Parent</span>
+              <span style="background:rgba(132,204,22,0.15);border:1px solid rgba(132,204,22,0.3);border-radius:4px;padding:1px 7px;font-size:9px;font-weight:700;letter-spacing:.06em;color:var(--accent)">COMING SOON</span>
+            </div>
+            <div style="font-size:10px;color:var(--muted)">Self-managed NIL for athletes and families</div>
+          </div>
+          <span style="font-size:12px;color:var(--accent)">→</span>
         </button>
       </div>
-    </div>
-
-    <!-- University Compliance Officer Login -->
-    <div id="authUniversityPanel" style="display:none;max-width:400px;margin:0 auto">
-      <div style="text-align:center;margin-bottom:20px">
-        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">University Compliance Portal</div>
-        <div style="font-size:11px;color:var(--muted)">Sign in as a compliance officer</div>
-      </div>
-      <div style="display:flex;gap:0;margin-bottom:18px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden">
-        <button id="univLoginTab" onclick="switchUnivAuthTab('login')" style="flex:1;padding:9px;font-size:12px;font-weight:600;background:#1a3a5c;color:#fff;border:none;cursor:pointer;font-family:'DM Sans',sans-serif">Sign In</button>
-        <button id="univRegisterTab" onclick="switchUnivAuthTab('register')" style="flex:1;padding:9px;font-size:12px;font-weight:600;background:none;color:var(--muted);border:none;cursor:pointer;font-family:'DM Sans',sans-serif">Register</button>
-      </div>
-      <div id="univLoginForm">
-        <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Email</label><input id="univ-login-email" type="email" class="form-input" placeholder="compliance@university.edu" style="width:100%"></div>
-        <div style="margin-bottom:16px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Password</label><input id="univ-login-password" type="password" class="form-input" placeholder="Password" style="width:100%"></div>
-        <div id="univ-login-error" style="font-size:11px;color:#ef4444;margin-bottom:10px;display:none"></div>
-        <button onclick="doUniversityLogin()" style="width:100%;padding:11px;background:#1a3a5c;color:#fff;border:none;border-radius:var(--r-sm);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Sign In →</button>
-      </div>
-      <div id="univRegisterForm" style="display:none">
-        <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Full Name</label><input id="univ-reg-name" type="text" class="form-input" placeholder="Your name" style="width:100%"></div>
-        <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Email</label><input id="univ-reg-email" type="email" class="form-input" placeholder="compliance@university.edu" style="width:100%"></div>
-        <div style="margin-bottom:12px"><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Password</label><input id="univ-reg-password" type="password" class="form-input" placeholder="Create password" style="width:100%"></div>
-        <div style="margin-bottom:16px">
-          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">University</label>
-          <select id="univ-reg-school" class="form-input" style="width:100%"><option value="">Loading universities…</option></select>
-        </div>
-        <div id="univ-reg-error" style="font-size:11px;color:#ef4444;margin-bottom:10px;display:none"></div>
-        <button onclick="doUniversityRegister()" style="width:100%;padding:11px;background:#1a3a5c;color:#fff;border:none;border-radius:var(--r-sm);font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Create Account →</button>
-      </div>
-      <div style="text-align:center;margin-top:14px">
-        <button onclick="chooseAuthRole(null)" style="background:transparent;border:none;color:var(--muted);font-size:11px;cursor:pointer">← Back</button>
+      <div style="display:flex;justify-content:center;gap:16px;padding-top:12px;border-top:1px solid var(--border)">
+        <a href="/landing" style="font-size:11px;color:var(--muted);text-decoration:none">Learn more →</a>
+        <span style="font-size:11px;color:var(--border)">·</span>
+        <a href="mailto:support@mynildash.com" style="font-size:11px;color:var(--muted);text-decoration:none">Contact us</a>
       </div>
     </div>
 
@@ -768,9 +759,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="role-selector">
             <button class="role-btn active" id="roleAgent" onclick="selectRole('agent')">
               <span class="role-icon">🏈</span>Sports Agent
-            </button>
-            <button class="role-btn" id="roleUniversity" onclick="selectRole('university')">
-              <span class="role-icon">🎓</span>University Portal
             </button>
           </div>
         </div>
@@ -817,6 +805,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="btn-primary" onclick="doForcedReset()">Set Password & Continue →</button>
       <div class="auth-error" id="resetError"></div>
     </div>
+  </div>
+</div>
+
+<!-- Coming Soon Modal -->
+<div id="comingSoonModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:36px 28px;max-width:320px;width:90%;text-align:center">
+    <div style="font-size:36px;margin-bottom:14px">🚀</div>
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:8px">Coming Soon</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:22px;line-height:1.55">Self-managed NIL for athletes and families is launching soon. We'll notify you when it's ready.</div>
+    <button onclick="hideComingSoonModal()" style="width:100%;padding:12px;background:var(--accent);color:#000;border:none;border-radius:var(--r-sm);font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Got it</button>
   </div>
 </div>
 
@@ -908,17 +906,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <span class="nav-dot-item"></span>Settings
       </button>
 
-      <!-- University Portal Nav — hidden until university role boots -->
-      <div class="nav-section-label" id="univNavSection" style="display:none">Program</div>
-      <button class="nav-item" id="univOverviewNavBtn" onclick="switchUnivTab('overview');showView('university-dashboard',this)" style="display:none">
-        <span class="nav-dot-item"></span>Program Overview
-      </button>
-      <button class="nav-item" id="univDevelopmentNavBtn" onclick="switchUnivTab('athletes');showView('university-dashboard',this)" style="display:none">
-        <span class="nav-dot-item"></span>Athlete CRM
-      </button>
-      <button class="nav-item" id="univComplianceNavBtn" onclick="switchUnivTab('compliance');showView('university-dashboard',this)" style="display:none">
-        <span class="nav-dot-item"></span>Compliance Activity
-      </button>
     </nav>
 
     <div class="sidebar-bottom">
@@ -3278,10 +3265,17 @@ function chooseAuthRole(role) {
   document.getElementById('authRoleChooser').style.display  = role ? 'none' : 'block';
   document.getElementById('authAgentPanel').style.display   = role === 'agent'   ? 'block' : 'none';
   document.getElementById('authAthletePanel').style.display = role === 'athlete' ? 'block' : 'none';
-  const univPanel = document.getElementById('authUniversityPanel');
-  if (univPanel) univPanel.style.display = role === 'university' ? 'block' : 'none';
   document.getElementById('authResetPanel').style.display   = 'none';
-  if (role === 'university') loadUniversityList();
+}
+
+function showComingSoonModal() {
+  const m = document.getElementById('comingSoonModal');
+  m.style.display = 'flex';
+}
+
+function hideComingSoonModal() {
+  const m = document.getElementById('comingSoonModal');
+  m.style.display = 'none';
 }
 
 // ── University Compliance Portal: Auth ───────────────────────────────────
