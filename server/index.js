@@ -3372,6 +3372,187 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
   }
 });
 
+// ── AI Roster Import (Preview + Confirm) ─────────────────────────────────
+// Two-step flow: upload file → Claude maps columns → frontend shows preview
+// → compliance officer confirms → records written to DB.
+
+const rosterUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB
+  fileFilter: (req, file, cb) => {
+    const ok = /\.(csv|xlsx|xls|txt)$/i.test(file.originalname) ||
+               file.mimetype === 'text/csv' ||
+               file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+               file.mimetype === 'application/vnd.ms-excel' ||
+               file.mimetype === 'text/plain';
+    cb(ok ? null : new Error('Only CSV or Excel files are accepted'), ok);
+  },
+});
+
+// POST /api/university/roster/preview
+// Step 1: Accept file upload → parse to text → Claude maps columns → return preview JSON.
+// Does NOT write to database.
+app.post('/api/university/roster/preview', requireAuth, requireUniversityMode, rosterUpload.single('roster'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    // Parse file to raw text
+    let rawText = '';
+    const fname = req.file.originalname.toLowerCase();
+    if (fname.endsWith('.xlsx') || fname.endsWith('.xls')) {
+      const XLSX = require('xlsx');
+      const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rawText = XLSX.utils.sheet_to_csv(ws);
+    } else {
+      rawText = req.file.buffer.toString('utf8');
+    }
+
+    rawText = rawText.trim();
+    if (!rawText || rawText.length < 10) {
+      return res.status(400).json({ error: 'The file appears to be empty. Please upload a file with athlete data.' });
+    }
+
+    // Truncate to 12KB to stay well inside Claude's context
+    if (rawText.length > 12000) rawText = rawText.slice(0, 12000) + '\n[truncated]';
+
+    const Anthropic = require('@anthropic-ai/sdk');
+    const client = new Anthropic();
+
+    const systemPrompt = `You are a data mapping assistant. You will receive a raw roster file from a university athletics department. Map the data to this schema and return ONLY a JSON array, no markdown, no explanation:
+[{
+  "first_name": string or null,
+  "last_name": string or null,
+  "sport": string or null,
+  "position": string or null,
+  "year": string or null,
+  "jersey_number": string or null,
+  "email": string or null
+}]
+If a field is missing or unclear, set it to null. Combine any full name fields into first_name and last_name. Be flexible — column names vary by school. If you cannot determine the structure at all, return an empty array [].`;
+
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: `Map this roster file:\n\n${rawText}` }],
+    });
+
+    const raw = (msg.content[0]?.text || '').trim();
+    let athletes = [];
+    try {
+      // Strip any accidental markdown fences
+      const jsonStr = raw.replace(/^```[a-z]*\n?/i, '').replace(/```$/i, '').trim();
+      const start = jsonStr.indexOf('[');
+      const end   = jsonStr.lastIndexOf(']');
+      if (start === -1 || end === -1) throw new Error('No JSON array found');
+      athletes = JSON.parse(jsonStr.slice(start, end + 1));
+    } catch (e) {
+      return res.status(422).json({
+        error: "We couldn't read this file format. Try exporting as CSV from your system.",
+        detail: e.message,
+      });
+    }
+
+    if (!Array.isArray(athletes) || athletes.length === 0) {
+      return res.status(422).json({ error: "We couldn't read this file format. Try exporting as CSV from your system." });
+    }
+
+    res.json({ ok: true, preview: athletes, total: athletes.length });
+  } catch (e) {
+    console.error('[roster/preview]', e.message);
+    if (e.message?.includes('file size')) {
+      return res.status(413).json({ error: 'File is too large. Maximum size is 5MB.' });
+    }
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/university/roster/confirm
+// Step 2: Confirmed preview array → write athletes + university_athlete_links.
+app.post('/api/university/roster/confirm', requireAuth, requireUniversityMode, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const universityId = await resolveSessionUniversity(userId);
+    if (!universityId) return res.status(400).json({ error: 'No university linked to account' });
+
+    const { athletes } = req.body;
+    if (!Array.isArray(athletes) || !athletes.length) {
+      return res.status(400).json({ error: 'No athletes to import' });
+    }
+
+    const crypto = require('crypto');
+    let imported = 0, skipped = 0;
+    const errors = [];
+
+    for (const a of athletes) {
+      const firstName = (a.first_name || '').trim();
+      const lastName  = (a.last_name  || '').trim();
+      const fullName  = [firstName, lastName].filter(Boolean).join(' ');
+      if (!fullName || fullName.length < 2) { skipped++; continue; }
+
+      const athleteId = 'ath-ai-' + crypto.randomBytes(6).toString('hex');
+      const data = {
+        name:          fullName,
+        sport:         a.sport         || null,
+        position:      a.position      || null,
+        year:          a.year          || null,
+        jersey_number: a.jersey_number || null,
+        email:         a.email         || null,
+        university_id: universityId,
+        source:        'university_import',
+      };
+
+      try {
+        // Check for existing athlete by email (if provided) or name+university
+        let existingId = null;
+        if (a.email) {
+          const existing = await store.pool.query(
+            `SELECT id FROM athletes WHERE data->>'email' = $1 AND data->>'university_id' = $2 LIMIT 1`,
+            [a.email, universityId]
+          );
+          if (existing.rows.length) existingId = existing.rows[0].id;
+        }
+        if (!existingId) {
+          const existing = await store.pool.query(
+            `SELECT id FROM athletes WHERE data->>'name' = $1 AND data->>'university_id' = $2 LIMIT 1`,
+            [fullName, universityId]
+          );
+          if (existing.rows.length) existingId = existing.rows[0].id;
+        }
+
+        const finalAthleteId = existingId || athleteId;
+        if (!existingId) {
+          await store.pool.query(
+            `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
+             VALUES ($1, $2, $3, NOW(), NOW())
+             ON CONFLICT (id) DO NOTHING`,
+            [finalAthleteId, userId, JSON.stringify(data)]
+          );
+        }
+
+        // Create university link (skip if already exists)
+        await store.pool.query(
+          `INSERT INTO university_athlete_links (id, university_id, athlete_id, status, linked_at)
+           VALUES ($1, $2, $3, 'active', NOW())
+           ON CONFLICT (university_id, athlete_id) DO NOTHING`,
+          ['ual-' + crypto.randomBytes(6).toString('hex'), universityId, finalAthleteId]
+        ).catch(() => {}); // ignore if university_athlete_links table not yet migrated
+
+        imported++;
+      } catch (e) {
+        errors.push({ name: fullName, error: e.message });
+        skipped++;
+      }
+    }
+
+    res.json({ ok: true, imported, skipped, errors, total: athletes.length });
+  } catch (e) {
+    console.error('[roster/confirm]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // DELETE /api/university/roster/purge-imports
 // Admin-only: removes all university-imported roster athletes from the DB.
 // These are athletes with source='espn_import' or 'university_import' that should
