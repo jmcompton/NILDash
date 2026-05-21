@@ -128,20 +128,29 @@ async function fetchRosterById(sportPath, teamId) {
   const seasonMeta = result.data?.season   || {};
   const espnTs     = result.data?.timestamp || null;
 
-  const athletes = raw
+  // Strip (H)/(P) portal suffix from a name string and return { cleanName, suffix }
+  function parsePortalSuffix(rawName) {
+    const m = rawName.trim().match(/^(.*?)\s*\(([HP])\)\s*$/i);
+    if (!m) return { cleanName: rawName.trim(), suffix: null };
+    return { cleanName: m[1].trim(), suffix: m[2].toUpperCase() };
+  }
+
+  // Map raw ESPN athletes → normalised shape, tracking portal status per name
+  const mapped = raw
     .filter(a => a.fullName || (a.firstName && a.lastName))
     .map(a => {
-      // Parse birth place into hometown string
+      const rawName              = a.fullName || `${a.firstName} ${a.lastName}`.trim();
+      const { cleanName, suffix } = parsePortalSuffix(rawName);
+
       const bp       = a.birthPlace || {};
       const hometown = [bp.city, bp.state || bp.country].filter(Boolean).join(', ') || null;
-
-      // Academic year from experience
       const expYears = a.experience?.years;
       const yearMap  = { 0: 'Fr', 1: 'So', 2: 'Jr', 3: 'Sr', 4: 'Gr' };
       const year     = expYears != null ? (yearMap[expYears] || `Yr ${expYears}`) : null;
 
       return {
-        name:     a.fullName || `${a.firstName} ${a.lastName}`.trim(),
+        name:     cleanName,
+        _suffix:  suffix,          // 'H', 'P', or null — used for dedup, stripped before returning
         number:   a.jersey   || null,
         position: a.position?.abbreviation || a.position?.name || null,
         year,
@@ -153,6 +162,28 @@ async function fetchRosterById(sportPath, teamId) {
         espn_id:  a.id       || null,
       };
     });
+
+  // Dedup: for each clean name, prefer (H) over (P); discard lone (P) entries.
+  // Players with no suffix (older ESPN responses) are kept as-is.
+  const byName = new Map(); // cleanName.toLowerCase() → best record so far
+  for (const athlete of mapped) {
+    const key = athlete.name.toLowerCase();
+    const prev = byName.get(key);
+    if (!prev) {
+      byName.set(key, athlete);
+    } else {
+      // Prefer H over P; prefer anything over null suffix
+      const prevRank  = prev._suffix === 'H' ? 2 : prev._suffix === 'P' ? 0 : 1;
+      const thisRank  = athlete._suffix === 'H' ? 2 : athlete._suffix === 'P' ? 0 : 1;
+      if (thisRank > prevRank) byName.set(key, athlete);
+    }
+  }
+
+  // Keep only players that are on the current roster (H suffix or no suffix at all).
+  // Discard any whose best entry is a lone (P) — they've left the program.
+  const athletes = Array.from(byName.values())
+    .filter(a => a._suffix !== 'P')
+    .map(({ _suffix, ...rest }) => rest); // drop the internal _suffix field
 
   return {
     athletes,

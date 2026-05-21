@@ -10314,6 +10314,15 @@ async function _espnFetchRoster() {
     if (!r.ok) throw new Error(data.error || 'ESPN fetch failed');
 
     _espnPreviewAthletes = data.athletes.slice(); // copy so edits don't mutate original
+
+    // Empty roster — ESPN has nothing for this sport/season
+    if (!_espnPreviewAthletes.length) {
+      _espnShowResult('warn', "No roster data found for this sport and season on ESPN. This usually means the roster hasn't been published yet. Try the Upload CSV tab instead.");
+      document.getElementById('espn-preview-panel').style.display = 'none';
+      if (btn) { btn.disabled = false; btn.textContent = 'Pull Roster'; }
+      return;
+    }
+
     var team   = data.team   || {};
     var season = data.season || '';
     document.getElementById('espn-preview-title').textContent =
@@ -10452,9 +10461,15 @@ function _espnShowResult(type, msg) {
   if (!el) return;
   if (!msg) { el.style.display = 'none'; return; }
   el.style.display = 'block';
-  el.style.background = type === 'success' ? 'rgba(132,204,22,0.08)' : 'rgba(239,68,68,0.08)';
-  el.style.border     = '1px solid ' + (type === 'success' ? 'rgba(132,204,22,0.25)' : 'rgba(239,68,68,0.3)');
-  el.style.color      = type === 'success' ? 'var(--accent)' : '#ef4444';
+  var colors = {
+    success: { bg: 'rgba(132,204,22,0.08)', border: 'rgba(132,204,22,0.25)', text: 'var(--accent)' },
+    warn:    { bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.3)',  text: '#f59e0b' },
+    error:   { bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.3)',   text: '#ef4444' },
+  };
+  var c = colors[type] || colors.error;
+  el.style.background = c.bg;
+  el.style.border     = '1px solid ' + c.border;
+  el.style.color      = c.text;
   el.textContent      = msg;
 }
 
