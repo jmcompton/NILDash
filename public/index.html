@@ -1062,6 +1062,18 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="kpi"><div class="kpi-label">Total NIL Earned</div><div class="kpi-val" id="kpi-total-nil" style="color:#84CC16;-webkit-text-fill-color:#84CC16">$0K</div><div class="kpi-sub">Across all clients</div></div>
         </div>
 
+        <!-- Roster Completeness -->
+        <div id="roster-completeness-bar" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Roster Data Quality</div>
+            <div id="rc-score" style="font-size:12px;font-weight:700;color:var(--text)">—</div>
+          </div>
+          <div style="height:4px;background:var(--surface2);border-radius:2px;margin-bottom:8px">
+            <div id="rc-bar" style="height:4px;border-radius:2px;background:var(--accent);transition:width 0.5s;width:0%"></div>
+          </div>
+          <div id="rc-missing" style="font-size:11px;color:var(--muted);line-height:1.5"></div>
+        </div>
+
         <div id="dashboard-quick-stats" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
           <div style="background:var(--surface);border:1px solid rgba(132,204,22,0.2);border-top:2px solid #84CC16;border-radius:12px;padding:14px 16px">
             <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">Quick Actions</div>
@@ -2148,9 +2160,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
         <!-- All Deals Table -->
         <div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
             <div style="font-size:12px;font-weight:700;color:var(--text)">All Deals</div>
-            <button onclick="openManualDealModal()" style="padding:6px 14px;border-radius:40px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer">+ Add Manual Deal</button>
+            <div style="display:flex;gap:8px">
+              <button onclick="exportCommissionCSV()" style="padding:6px 14px;border-radius:40px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Export CSV</button>
+              <button onclick="openManualDealModal()" style="padding:6px 14px;border-radius:40px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer">+ Add Manual Deal</button>
+            </div>
           </div>
           <div style="display:flex;gap:8px;margin-bottom:12px">
             <button onclick="setCommFilter('all')" id="cf-all" style="padding:5px 12px;border-radius:40px;border:1px solid var(--accent);background:var(--accent);color:#000;font-size:11px;font-weight:700;cursor:pointer">All</button>
@@ -2179,11 +2194,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
       <div id="view-pipeline" class="view">
 
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;flex-wrap:wrap">
           <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="pipe-filter-client" style="accent-color:var(--accent)" onchange="loadPipeline()">
             Show active client only
           </label>
+          <button onclick="exportDealsCSV()" style="padding:6px 14px;border-radius:40px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Export CSV</button>
         </div>
         <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
           <div class="kpi"><div class="kpi-label">Total Pipeline</div><div class="kpi-val" id="pipe-total">$0</div></div>
@@ -2247,8 +2263,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
       <!--  ROSTER  -->
       <div id="view-roster" class="view">
-        <div class="page-title">My Roster</div>
-        <div class="page-sub">Your clients — click any card to make them active</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:8px">
+          <div><div class="page-title" style="margin-bottom:0">My Roster</div><div class="page-sub" style="margin-bottom:0">Your clients — click any card to make them active</div></div>
+          <button onclick="exportRosterCSV()" style="padding:7px 14px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Export CSV</button>
+        </div>
         <div class="roster-grid" id="rosterGrid">
           <div style="color:var(--muted);padding:40px;text-align:center">No clients yet. Add your first client!</div>
         </div>
@@ -3967,6 +3985,7 @@ async function loadAthletes() {
     populateAthleteSelect();
     populatePitchClientDropdown();
     document.getElementById('kpi-clients').textContent = athletes.length;
+    setTimeout(renderRosterCompleteness, 200);
     setTimeout(updateNilRateKpi, 1000);
     if (athletes.length > 0 && !selectedAthleteId) {
       selectedAthleteId = athletes[0].id;
@@ -8210,6 +8229,116 @@ async function checkDeadlineNotifications() {
 }
 setTimeout(function(){ checkDeadlineNotifications(); setInterval(checkDeadlineNotifications, 30*60*1000); }, 3000);
 renderNotifPanel();
+
+// ── CSV Export helpers ────────────────────────────────────────────────────
+function _csvRow(arr) {
+  return arr.map(function(v) {
+    var s = v === null || v === undefined ? '' : String(v);
+    return '"' + s.replace(/"/g, '""') + '"';
+  }).join(',');
+}
+function _csvDownload(filename, rows) {
+  var csv = rows.map(_csvRow).join('\n');
+  var blob = new Blob([csv], { type: 'text/csv' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+}
+
+function exportRosterCSV() {
+  var data = window.athletes || [];
+  if (!data.length) { showToast('No athletes to export'); return; }
+  var rows = [['Name','Sport','Position','School','Tier','Instagram','TikTok','Engagement%','Year','Stats','Notes']];
+  data.forEach(function(a) {
+    rows.push([a.name||'',a.sport||'',a.position||'',a.school||'',a.schoolTier||'',
+      a.instagram||0,a.tiktok||0,a.engagement||0,a.year||'',a.stats||'',a.notes||'']);
+  });
+  _csvDownload('roster-' + new Date().toISOString().slice(0,10) + '.csv', rows);
+  showToast('Roster exported');
+}
+
+function exportDealsCSV() {
+  var deals = window._pipelineDeals || [];
+  if (!deals.length) { showToast('No deals to export — load the Pipeline first'); return; }
+  var rows = [['Athlete','Brand','Campaign','Stage','Deal Value','Offered Value','Created']];
+  deals.forEach(function(d) {
+    rows.push([d.athleteName||d.athleteId||'',d.brand||'',d.campaign||'',d.stage||'',
+      d.value||0,d.offeredValue||0,d.createdAt||'']);
+  });
+  _csvDownload('deals-' + new Date().toISOString().slice(0,10) + '.csv', rows);
+  showToast('Deals exported');
+}
+
+function renderRosterCompleteness() {
+  var data = window.athletes || [];
+  var bar = document.getElementById('roster-completeness-bar');
+  if (!bar) return;
+  if (!data.length) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+
+  var fields = ['sport','position','school','schoolTier','instagram','tiktok','engagement','year','stats'];
+  var fieldLabels = { sport:'Sport', position:'Position', school:'School', schoolTier:'School Tier',
+    instagram:'Instagram', tiktok:'TikTok', engagement:'Engagement %', year:'Year', stats:'Stats' };
+  var totalFields = data.length * fields.length;
+  var filled = 0;
+  var missing = {};
+
+  data.forEach(function(a) {
+    fields.forEach(function(f) {
+      var val = a[f];
+      var ok = val !== null && val !== undefined && val !== '' && val !== 0;
+      if (ok) filled++;
+      else { missing[f] = (missing[f]||0) + 1; }
+    });
+  });
+
+  var pct = Math.round((filled / totalFields) * 100);
+  var color = pct >= 80 ? '#4ade80' : pct >= 50 ? '#f59e0b' : '#ef4444';
+  document.getElementById('rc-score').textContent = pct + '% complete';
+  document.getElementById('rc-score').style.color = color;
+  document.getElementById('rc-bar').style.width = pct + '%';
+  document.getElementById('rc-bar').style.background = color;
+
+  var missingEntries = Object.entries(missing).sort(function(a,b){return b[1]-a[1];}).slice(0,3);
+  if (missingEntries.length === 0) {
+    document.getElementById('rc-missing').innerHTML = '<span style="color:#4ade80">✓ All client profiles are complete</span>';
+  } else {
+    var parts = missingEntries.map(function(e) {
+      var label = fieldLabels[e[0]] || e[0];
+      var link = e[0]==='instagram'||e[0]==='tiktok'||e[0]==='engagement'||e[0]==='year'||e[0]==='stats'||e[0]==='school'||e[0]==='schoolTier'||e[0]==='position'
+        ? '<a href="#" onclick="showView(\'roster\',document.querySelector(\'.nav-item[onclick*=roster]\'));return false" style="color:var(--accent);text-decoration:none">' + label + '</a>'
+        : label;
+      return '<span style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:4px;padding:1px 7px;margin-right:4px;color:#f87171">' + link + ' (' + e[1] + ')</span>';
+    });
+    document.getElementById('rc-missing').innerHTML = 'Missing on clients: ' + parts.join(' ') +
+      (missingEntries.length ? ' — <a href="#" onclick="showView(\'roster\',document.querySelector(\'.nav-item[onclick*=roster]\'));return false" style="color:var(--accent);font-weight:600;text-decoration:none">Fix in Roster →</a>' : '');
+  }
+}
+
+function exportCommissionCSV() {
+  var commRate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
+  var data = window.athletes || [];
+  if (!data.length) { showToast('No data to export'); return; }
+  var rows = [['Athlete','Brand','Campaign','Stage','Deal Value','Commission','Status']];
+  var rowCount = 0;
+  // Gather all deals from cache
+  var allDeals = [];
+  if (window._athleteDealsCache) {
+    Object.values(window._athleteDealsCache).forEach(function(arr) { allDeals = allDeals.concat(arr||[]); });
+  }
+  if (!allDeals.length && window._pipelineDeals) allDeals = window._pipelineDeals;
+  allDeals.forEach(function(d) {
+    var ath = data.find(function(a) { return a.id === d.athleteId; });
+    var comm = Math.round((d.value||0) * commRate);
+    rows.push([ath ? ath.name : (d.athleteId||''),d.brand||'',d.campaign||'',d.stage||'',
+      d.value||0,comm,d.stage==='Closed'?'Closed':'Active']);
+    rowCount++;
+  });
+  if (rowCount === 0) { showToast('No deals found — open Commission Tracker first'); return; }
+  _csvDownload('commission-' + new Date().toISOString().slice(0,10) + '.csv', rows);
+  showToast('Commission data exported');
+}
 </script>
 <script src="/calendar.js"></script>
 <script src="/pipeline.js"></script>

@@ -562,11 +562,14 @@ app.patch('/api/university/athlete-links/:id', requireUniversityAuth, async (req
 app.get('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   let athletes;
-  if (user.role === 'agent') {
+  if (user.role === 'agent' || user.role === 'admin') {
     athletes = await store.getAthletesByAgent(user.id);
   } else {
-    // Athlete sees only their own profile
-    athletes = await store.getAthletesByAgent(user.id); // athleteId stored under their userId
+    // FIXED: athlete users have athlete_id on their profile, not their own athletes roster
+    const athleteId = user.athlete_id;
+    if (!athleteId) return res.json([]);
+    const athlete = await store.getAthlete(athleteId);
+    athletes = athlete ? [athlete] : [];
   }
   res.json(athletes);
 });
@@ -725,6 +728,10 @@ app.post('/api/agent/create-athlete-account', requireAuth, async (req, res) => {
 app.put('/api/athletes/:id', requireAuth, async (req, res) => {
   const existing = await store.getAthlete(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
+  // FIXED: ownership check — agentId is camelCase from store.getAthlete()
+  const user = await store.getUser(req.session.userId);
+  if (existing.agentId !== req.session.userId && user.email !== ADMIN_EMAIL)
+    return res.status(403).json({ error: 'Forbidden' });
   const updated = await store.saveAthlete(req.params.id, { ...existing, ...req.body });
   res.json(updated);
 });
@@ -733,8 +740,8 @@ app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
   const athlete = await store.getAthlete(req.params.id);
   if (!athlete) return res.status(404).json({ error: 'Not found' });
   const user = await store.getUser(req.session.userId);
-  // Allow admin or owner to delete
-  if (athlete.agent_id !== req.session.userId && user.email !== ADMIN_EMAIL) {
+  // FIXED: agentId is camelCase from store.getAthlete() — was athlete.agent_id (undefined), causing 403 for owners
+  if (athlete.agentId !== req.session.userId && user.email !== ADMIN_EMAIL) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   await store.deleteAthlete(req.params.id);
@@ -745,13 +752,22 @@ app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
 app.patch('/api/athletes/:id/note', requireAuth, async (req, res) => {
   const athlete = await store.getAthlete(req.params.id);
   if (!athlete) return res.status(404).json({ error: 'Not found' });
-  if (athlete.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+  // FIXED: agentId is camelCase from store.getAthlete() — was athlete.agent_id (undefined), blocking all notes
+  if (athlete.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
   await store.saveAthlete(req.params.id, { ...athlete, agentNote: req.body.agentNote || '' });
   res.json({ ok: true });
 });
 
 // ── Deals ──────────────────────────────────────────────────────
 app.get('/api/athletes/:id/deals', requireAuth, async (req, res) => {
+  // FIXED: verify caller owns this athlete or is the athlete themselves
+  const athlete = await store.getAthlete(req.params.id);
+  if (!athlete) return res.status(404).json({ error: 'Not found' });
+  const user = await store.getUser(req.session.userId);
+  const isOwner = athlete.agentId === req.session.userId;
+  const isAthlete = user.role === 'athlete' && user.athlete_id === req.params.id;
+  const isAdmin = user.email === ADMIN_EMAIL;
+  if (!isOwner && !isAthlete && !isAdmin) return res.status(403).json({ error: 'Forbidden' });
   res.json(await store.getDealsByAthlete(req.params.id));
 });
 
@@ -761,6 +777,8 @@ app.post('/api/athletes/:id/deals', requireAuth, async (req, res) => {
     if (!brand) return res.status(400).json({ error: 'Brand is required' });
     const athlete = await store.getAthlete(req.params.id);
     if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    // FIXED: verify agent owns this athlete before adding deals
+    if (athlete.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
     const id = 'deal-' + Date.now();
     const deal = await store.saveDeal(id, {
       id, athleteId: req.params.id,
@@ -803,6 +821,10 @@ app.post('/api/deals', requireAuth, async (req, res) => {
 app.patch('/api/deals/:id', requireAuth, async (req, res) => {
   const existing = await store.getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
+  // FIXED: ownership check — agentId is camelCase from store.getDeal()
+  const user = await store.getUser(req.session.userId);
+  if (existing.agentId && existing.agentId !== req.session.userId && user.email !== ADMIN_EMAIL)
+    return res.status(403).json({ error: 'Forbidden' });
   const merged = { ...existing, ...req.body };
   // Sync status from stage (pipeline drag uses 'stage', other code uses 'status')
   if (req.body.stage === 'Closed' && existing.stage !== 'Closed') merged.status = 'closed';
@@ -823,10 +845,10 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
 app.delete('/api/deals/:id', requireAuth, async (req, res) => {
   const deal = await store.getDeal(req.params.id);
   if (!deal) return res.status(404).json({ error: 'Not found' });
-  // Allow if owner or if no agent_id set (legacy deals)
   const user = await store.getUser(req.session.userId);
   const isAdmin = user && user.email === ADMIN_EMAIL;
-  if (!isAdmin && deal.agent_id && deal.agent_id !== req.session.userId) {
+  // FIXED: agentId is camelCase from store.getDeal() — was deal.agent_id (undefined), allowing anyone to delete any deal
+  if (!isAdmin && deal.agentId && deal.agentId !== req.session.userId) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   await store.deleteDeal(req.params.id);
@@ -4176,12 +4198,9 @@ app.get('/api/agent/calendar', requireAuth, async (req, res) => {
     const eventsResult = await store.pool.query(sql, params);
 
     // Always return ALL athletes under this agent (not just those with events)
+    // FIXED: removed stale espn_import/university_import source filters — isolation is now structural (university_athletes table)
     const athleteListResult = await store.pool.query(
-      `SELECT id, data->>'name' as name FROM athletes
-        WHERE agent_id=$1
-          AND (data->>'source' IS DISTINCT FROM 'espn_import')
-          AND (data->>'source' IS DISTINCT FROM 'university_import')
-        ORDER BY (data->>'name') ASC`,
+      `SELECT id, data->>'name' as name FROM athletes WHERE agent_id=$1 ORDER BY (data->>'name') ASC`,
       [agentId]
     );
 
