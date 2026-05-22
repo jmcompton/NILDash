@@ -128,10 +128,11 @@ async function runSync(pool, { universityId, sport = null, triggeredBy = 'manual
 
   try {
     // ── 2. Fetch athletes for this university ─────────────────────────
-    let athleteQuery = `SELECT * FROM athletes WHERE data->>'university_id' = $1`;
+    // UNIVERSITY SIDE ONLY — reads from university_athletes, never the agent athletes table
+    let athleteQuery = `SELECT * FROM university_athletes WHERE university_id = $1`;
     const queryParams = [universityId];
     if (sport) {
-      athleteQuery += ` AND data->>'sport' ILIKE $2`;
+      athleteQuery += ` AND sport ILIKE $2`;
       queryParams.push(sport);
     }
     athleteQuery += ' ORDER BY created_at ASC';

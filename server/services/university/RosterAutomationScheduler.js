@@ -83,12 +83,13 @@ async function tick(pool) {
 
   try {
     // Fetch all universities that have athletes
+    // UNIVERSITY SIDE ONLY — reads from university_athletes, never the agent athletes table
     const univRows = await pool.query(
       `SELECT DISTINCT u.id, u.name,
               MAX(asl.created_at) FILTER (WHERE asl.event_type IN ('light_sync','deep_sync')) AS last_sync_at,
               MAX(asl.created_at) FILTER (WHERE asl.event_type = 'deep_sync')                AS last_deep_sync_at
        FROM universities u
-       JOIN athletes a ON a.data->>'university_id' = u.id
+       JOIN university_athletes a ON a.university_id = u.id
        LEFT JOIN automation_scheduler_log asl ON asl.university_id = u.id
        GROUP BY u.id, u.name`
     ).catch(() => ({ rows: [] }));

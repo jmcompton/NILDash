@@ -258,10 +258,10 @@ async function processQueue(pool, { universityId, agentId, limit = 50 }) {
 }
 
 // ── Private: update existing athlete (non-destructive merge) ─────────────
+// UNIVERSITY SIDE ONLY — reads/writes university_athletes, never the agent athletes table
 async function _updateExistingAthlete(pool, athleteId, normalized, universityId) {
   try {
-    // Only update fields that are missing or empty in existing record
-    const existing = await pool.query('SELECT data FROM athletes WHERE id = $1', [athleteId]);
+    const existing = await pool.query('SELECT data FROM university_athletes WHERE id = $1', [athleteId]);
     if (!existing.rows.length) return;
 
     const current = existing.rows[0].data || {};
@@ -274,12 +274,12 @@ async function _updateExistingAthlete(pool, athleteId, normalized, universityId)
       }
     });
 
-    // Always stamp university_id
-    merged.university_id = universityId || current.university_id;
-
+    const nameParts = (merged.name || '').trim().split(' ');
     await pool.query(
-      `UPDATE athletes SET data = $1, updated_at = NOW() WHERE id = $2`,
-      [JSON.stringify(merged), athleteId]
+      `UPDATE university_athletes
+       SET data = $1, name = $2, sport = $3, updated_at = NOW()
+       WHERE id = $4`,
+      [JSON.stringify(merged), merged.name || null, merged.sport || null, athleteId]
     );
   } catch (err) {
     console.warn('[IngestionPipeline] Update athlete failed:', athleteId, err.message);
@@ -287,21 +287,22 @@ async function _updateExistingAthlete(pool, athleteId, normalized, universityId)
 }
 
 // ── Private: insert new athlete ───────────────────────────────────────────
-// Returns the new athlete ID on success, null on failure.
+// UNIVERSITY SIDE ONLY — writes to university_athletes, never to the agent athletes table
 async function _insertNewAthlete(pool, normalized, universityId, agentId, matchContext) {
   try {
-    const athleteId  = `auto-${uuidv4()}`;
-    const athleteData = {
-      ...normalized,
-      university_id: universityId,
-      _ingestion_context: matchContext,
-    };
+    const athleteId = `auto-${uuidv4()}`;
+    const extData   = { ...normalized, _ingestion_context: matchContext };
+    const nameParts = (normalized.name || '').trim().split(' ');
+    const firstName = nameParts[0] || null;
+    const lastName  = nameParts.slice(1).join(' ') || null;
 
     await pool.query(
-      `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
-       VALUES ($1, $2, $3, NOW(), NOW())
+      `INSERT INTO university_athletes (id, university_id, first_name, last_name, name, sport, position, source, data, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'manual', $8, NOW(), NOW())
        ON CONFLICT (id) DO NOTHING`,
-      [athleteId, agentId || 'system', JSON.stringify(athleteData)]
+      [athleteId, universityId, firstName, lastName,
+       normalized.name || null, normalized.sport || null, normalized.position || null,
+       JSON.stringify(extData)]
     );
     return athleteId;
   } catch (err) {

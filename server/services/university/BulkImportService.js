@@ -324,19 +324,18 @@ async function bulkImport(pool, rawInput, format, agentId, universityId, userRol
   }
 
   // ── 5. Check for existing DB duplicates ──────────────────────────────
-  // Look up each by name+school+sport in JSONB — skip if already exists under this university
+  // UNIVERSITY SIDE ONLY — checks university_athletes, never the agent athletes table
   const toInsert = [];
   for (const record of uniqueRecords) {
     const { data } = record;
     try {
       const existing = await pool.query(
-        `SELECT id FROM athletes
-         WHERE data->>'name'   ILIKE $1
-           AND data->>'school' ILIKE $2
-           AND data->>'sport'  ILIKE $3
-           AND data->>'university_id' = $4
+        `SELECT id FROM university_athletes
+         WHERE name   ILIKE $1
+           AND sport  ILIKE $2
+           AND university_id = $3
          LIMIT 1`,
-        [data.name, data.school, data.sport, universityId]
+        [data.name, data.sport, universityId]
       );
       if (existing.rows.length > 0) {
         result.skipped++;
@@ -350,18 +349,22 @@ async function bulkImport(pool, rawInput, format, agentId, universityId, userRol
   }
 
   // ── 6. Insert ────────────────────────────────────────────────────────
+  // UNIVERSITY SIDE ONLY — writes to university_athletes, never to the agent athletes table
   for (const record of toInsert) {
     const { data, originalIndex } = record;
     const resolvedUnivId = schoolToUnivId[data.school] || universityId;
-    const athleteData = { ...data, university_id: resolvedUnivId };
-    const athleteId   = `import-${uuidv4()}`;
+    const athleteId = `import-${uuidv4()}`;
+    const nameParts = (data.name || '').trim().split(' ');
+    const firstName = nameParts[0] || null;
+    const lastName  = nameParts.slice(1).join(' ') || null;
+    const extData   = { ...data, source: 'csv_import' };
 
     try {
       await pool.query(
-        `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
-         VALUES ($1, $2, $3, NOW(), NOW())
+        `INSERT INTO university_athletes (id, university_id, first_name, last_name, name, sport, position, source, data, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'csv_import', $8, NOW(), NOW())
          ON CONFLICT (id) DO NOTHING`,
-        [athleteId, agentId, JSON.stringify(athleteData)]
+        [athleteId, resolvedUnivId, firstName, lastName, data.name, data.sport || null, data.position || null, JSON.stringify(extData)]
       );
       result.imported++;
       result.athletes.push({ id: athleteId, name: data.name, sport: data.sport });

@@ -147,10 +147,11 @@ async function resolve(pool, candidate, universityId) {
   // Limits result set to prevent O(n) full-table scans on large DBs.
   let rows = [];
   try {
+    // UNIVERSITY SIDE ONLY — reads from university_athletes, never from the agent athletes table
     const scopedResult = await pool.query(
-      `SELECT id, data FROM athletes
-       WHERE data->>'university_id' = $1
-         AND data->>'sport' IS NOT NULL
+      `SELECT id, data FROM university_athletes
+       WHERE university_id = $1
+         AND sport IS NOT NULL
        LIMIT 500`,
       [universityId]
     );

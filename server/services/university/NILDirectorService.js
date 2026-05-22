@@ -39,10 +39,11 @@ function daysAgo(n) {
 async function getDashboardMetrics(pool, universityId) {
   try {
     // Athletes
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const athleteRow = await pool.query(
       `SELECT COUNT(*) AS total,
               COUNT(*) FILTER (WHERE (data->>'instagram')::int > 0 OR (data->>'tiktok')::int > 0) AS with_social
-       FROM athletes WHERE data->>'university_id' = $1`,
+       FROM university_athletes WHERE university_id = $1`,
       [universityId]
     );
 
@@ -77,37 +78,39 @@ async function getDashboardMetrics(pool, universityId) {
     );
 
     // Top earners (athletes with highest total active deal value)
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const topEarnersRow = await pool.query(
       `SELECT a.id AS athlete_id,
-              a.data->>'name' AS name,
-              a.data->>'sport' AS sport,
-              a.data->>'position' AS position,
+              a.name,
+              a.sport,
+              a.position,
               COUNT(d.id) AS deal_count,
               COALESCE(SUM(d.deal_value), 0) AS total_value
-       FROM athletes a
+       FROM university_athletes a
        JOIN university_deal_pipeline d ON d.athlete_id = a.id
          AND d.university_id = $1
          AND d.status IN ('active', 'completed')
-       WHERE a.data->>'university_id' = $1
-       GROUP BY a.id, a.data->>'name', a.data->>'sport', a.data->>'position'
+       WHERE a.university_id = $1
+       GROUP BY a.id, a.name, a.sport, a.position
        ORDER BY total_value DESC
        LIMIT 5`,
       [universityId]
     );
 
     // Under-monetized: athletes with high social reach but zero or few deals
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const underMonRow = await pool.query(
       `SELECT a.id AS athlete_id,
-              a.data->>'name' AS name,
-              a.data->>'sport' AS sport,
+              a.name,
+              a.sport,
               COALESCE((a.data->>'instagram')::int, 0) + COALESCE((a.data->>'tiktok')::int, 0) AS reach,
               COALESCE((a.data->>'engagement')::numeric, 0) AS engagement,
               COUNT(d.id) AS deal_count
-       FROM athletes a
+       FROM university_athletes a
        LEFT JOIN university_deal_pipeline d ON d.athlete_id = a.id
          AND d.university_id = $1 AND d.status = 'active'
-       WHERE a.data->>'university_id' = $1
-       GROUP BY a.id, a.data
+       WHERE a.university_id = $1
+       GROUP BY a.id, a.name, a.sport, a.data
        HAVING (COALESCE((a.data->>'instagram')::int, 0) + COALESCE((a.data->>'tiktok')::int, 0)) > 2000
           AND COUNT(d.id) = 0
        ORDER BY reach DESC
@@ -116,10 +119,11 @@ async function getDashboardMetrics(pool, universityId) {
     );
 
     // Athletes by sport breakdown
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const sportBreakdown = await pool.query(
-      `SELECT data->>'sport' AS sport, COUNT(*) AS count
-       FROM athletes WHERE data->>'university_id' = $1
-         AND data->>'sport' IS NOT NULL
+      `SELECT sport, COUNT(*) AS count
+       FROM university_athletes WHERE university_id = $1
+         AND sport IS NOT NULL
        GROUP BY 1 ORDER BY 2 DESC`,
       [universityId]
     );
@@ -164,23 +168,24 @@ async function getDashboardMetrics(pool, universityId) {
 async function getAthleteCRM(pool, universityId, { search = '', sport = '', status = '' } = {}) {
   try {
     // Build WHERE clauses
-    const conditions = [`a.data->>'university_id' = $1`];
+    // UNIVERSITY SIDE ONLY — reads from university_athletes, never the agent athletes table
+    const conditions = [`a.university_id = $1`];
     const params     = [universityId];
     let   idx        = 2;
 
     if (search) {
-      conditions.push(`(a.data->>'name' ILIKE $${idx} OR a.data->>'sport' ILIKE $${idx})`);
+      conditions.push(`(a.name ILIKE $${idx} OR a.sport ILIKE $${idx})`);
       params.push(`%${search}%`);
       idx++;
     }
     if (sport) {
-      conditions.push(`a.data->>'sport' ILIKE $${idx}`);
+      conditions.push(`a.sport ILIKE $${idx}`);
       params.push(`%${sport}%`);
       idx++;
     }
 
     const athletes = await pool.query(
-      `SELECT a.id, a.data, a.created_at, a.updated_at, a.last_updated_at,
+      `SELECT a.id, a.data, a.created_at, a.updated_at,
               -- Deal summary
               COALESCE(d.deal_count, 0)  AS deal_count,
               COALESCE(d.active_deals, 0) AS active_deals,
@@ -191,7 +196,7 @@ async function getAthleteCRM(pool, universityId, { search = '', sport = '', stat
               cl.last_contact_at,
               cl.last_contact_type,
               cl.note_count
-       FROM athletes a
+       FROM university_athletes a
        LEFT JOIN (
          SELECT athlete_id,
                 COUNT(*) AS deal_count,
@@ -213,7 +218,7 @@ async function getAthleteCRM(pool, universityId, { search = '', sport = '', stat
          GROUP BY athlete_id
        ) cl ON cl.athlete_id = a.id
        WHERE ${conditions.join(' AND ')}
-       ORDER BY a.data->>'name' ASC`,
+       ORDER BY a.name ASC`,
       params
     );
 
@@ -304,16 +309,17 @@ async function getDealPipeline(pool, universityId, { status = '', search = '', a
       idx++;
     }
 
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const rows = await pool.query(
       `SELECT d.*,
-              a.data->>'name'     AS athlete_name,
-              a.data->>'sport'    AS athlete_sport,
-              a.data->>'position' AS athlete_position,
+              a.name     AS athlete_name,
+              a.sport    AS athlete_sport,
+              a.position AS athlete_position,
               -- Auto-flag expiring
               CASE WHEN d.end_date <= CURRENT_DATE + INTERVAL '${EXPIRING_DAYS} days'
                     AND d.status = 'active' THEN true ELSE false END AS is_expiring_soon
        FROM university_deal_pipeline d
-       LEFT JOIN athletes a ON a.id = d.athlete_id
+       LEFT JOIN university_athletes a ON a.id = d.athlete_id
        WHERE ${conditions.join(' AND ')}
        ORDER BY
          CASE d.status
@@ -439,13 +445,14 @@ async function computeDailyActions(pool, universityId) {
     );
 
     // --- Action: Athletes with no contact in IDLE_DAYS and no active deals ---
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const idleAthletes = await pool.query(
-      `SELECT a.id, a.data->>'name' AS name, a.data->>'sport' AS sport
-       FROM athletes a
+      `SELECT a.id, a.name, a.sport
+       FROM university_athletes a
        LEFT JOIN athlete_contact_log cl
          ON cl.athlete_id = a.id AND cl.university_id = $1
-       WHERE a.data->>'university_id' = $1
-       GROUP BY a.id, a.data
+       WHERE a.university_id = $1
+       GROUP BY a.id, a.name, a.sport
        HAVING MAX(cl.created_at) IS NULL
            OR MAX(cl.created_at) < NOW() - INTERVAL '${IDLE_DAYS} days'
        LIMIT 10`,
@@ -463,10 +470,11 @@ async function computeDailyActions(pool, universityId) {
     }
 
     // --- Action: Deals expiring within EXPIRING_DAYS ---
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const expiringDeals = await pool.query(
-      `SELECT d.id, d.brand, d.end_date, a.data->>'name' AS athlete_name
+      `SELECT d.id, d.brand, d.end_date, a.name AS athlete_name
        FROM university_deal_pipeline d
-       JOIN athletes a ON a.id = d.athlete_id
+       JOIN university_athletes a ON a.id = d.athlete_id
        WHERE d.university_id = $1
          AND d.status = 'active'
          AND d.end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '${EXPIRING_DAYS} days'
@@ -488,10 +496,11 @@ async function computeDailyActions(pool, universityId) {
     }
 
     // --- Action: Pending deals needing review ---
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const pendingDeals = await pool.query(
-      `SELECT d.id, d.brand, a.data->>'name' AS athlete_name
+      `SELECT d.id, d.brand, a.name AS athlete_name
        FROM university_deal_pipeline d
-       JOIN athletes a ON a.id = d.athlete_id
+       JOIN university_athletes a ON a.id = d.athlete_id
        WHERE d.university_id = $1 AND d.status = 'pending'
        ORDER BY d.created_at ASC LIMIT 10`,
       [universityId]
@@ -508,10 +517,11 @@ async function computeDailyActions(pool, universityId) {
     }
 
     // --- Action: Missing disclosures ---
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const missingDisclosure = await pool.query(
-      `SELECT d.id, d.brand, a.data->>'name' AS athlete_name
+      `SELECT d.id, d.brand, a.name AS athlete_name
        FROM university_deal_pipeline d
-       JOIN athletes a ON a.id = d.athlete_id
+       JOIN university_athletes a ON a.id = d.athlete_id
        WHERE d.university_id = $1
          AND d.status = 'active'
          AND d.disclosure_status IN ('pending','missing')
@@ -728,11 +738,12 @@ async function getNotes(pool, universityId, athleteId, limit = 20) {
 }
 
 async function getActivityFeed(pool, universityId, limit = 50) {
+  // UNIVERSITY SIDE ONLY — reads from university_athletes
   const rows = await pool.query(
-    `SELECT cl.*, a.data->>'name' AS athlete_name, a.data->>'sport' AS athlete_sport,
+    `SELECT cl.*, a.name AS athlete_name, a.sport AS athlete_sport,
             u.email AS staff_email
      FROM athlete_contact_log cl
-     LEFT JOIN athletes a ON a.id = cl.athlete_id
+     LEFT JOIN university_athletes a ON a.id = cl.athlete_id
      LEFT JOIN users u ON u.id = cl.staff_user_id
      WHERE cl.university_id = $1
      ORDER BY cl.created_at DESC
@@ -747,11 +758,12 @@ async function getComplianceAlerts(pool, universityId) {
   const alerts = [];
 
   // Missing disclosures
+  // UNIVERSITY SIDE ONLY — reads from university_athletes
   const missing = await pool.query(
     `SELECT d.id, d.brand, d.deal_value, d.disclosure_status,
-            a.data->>'name' AS athlete_name, a.data->>'sport' AS sport
+            a.name AS athlete_name, a.sport
      FROM university_deal_pipeline d
-     JOIN athletes a ON a.id = d.athlete_id
+     JOIN university_athletes a ON a.id = d.athlete_id
      WHERE d.university_id = $1
        AND d.status = 'active'
        AND d.disclosure_status IN ('pending','missing')
@@ -771,11 +783,12 @@ async function getComplianceAlerts(pool, universityId) {
   }
 
   // Expiring deals
+  // UNIVERSITY SIDE ONLY — reads from university_athletes
   const expiring = await pool.query(
     `SELECT d.id, d.brand, d.end_date, d.deal_value,
-            a.data->>'name' AS athlete_name, a.data->>'sport' AS sport
+            a.name AS athlete_name, a.sport
      FROM university_deal_pipeline d
-     JOIN athletes a ON a.id = d.athlete_id
+     JOIN university_athletes a ON a.id = d.athlete_id
      WHERE d.university_id = $1
        AND d.status = 'active'
        AND d.end_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '${EXPIRING_DAYS} days'
@@ -796,13 +809,14 @@ async function getComplianceAlerts(pool, universityId) {
   }
 
   // Inactive athletes (no deals, high reach, no contact)
+  // UNIVERSITY SIDE ONLY — reads from university_athletes
   const inactive = await pool.query(
-    `SELECT a.id, a.data->>'name' AS name, a.data->>'sport' AS sport,
+    `SELECT a.id, a.name, a.sport,
             COALESCE((a.data->>'instagram')::int,0) + COALESCE((a.data->>'tiktok')::int,0) AS reach
-     FROM athletes a
+     FROM university_athletes a
      LEFT JOIN university_deal_pipeline d
        ON d.athlete_id = a.id AND d.university_id = $1 AND d.status = 'active'
-     WHERE a.data->>'university_id' = $1
+     WHERE a.university_id = $1
        AND d.id IS NULL
        AND (COALESCE((a.data->>'instagram')::int,0) + COALESCE((a.data->>'tiktok')::int,0)) > 5000
      ORDER BY reach DESC

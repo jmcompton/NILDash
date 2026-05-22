@@ -785,23 +785,24 @@ async function getAllUsers() {
   return Object.fromEntries(r.rows.map(u => [u.id, u]));
 }
 
-// ATHLETES
+// AGENT SIDE ONLY — do not use in university routes.
+// University athletes live in the university_athletes table. Any code that
+// imports, reads, or writes university roster data must use that table instead.
 async function getAthlete(id) {
   const r = await pool.query('SELECT * FROM athletes WHERE id=$1', [id]);
   if (!r.rows[0]) return null;
   return { id: r.rows[0].id, agentId: r.rows[0].agent_id, ...r.rows[0].data };
 }
 async function getAthletesByAgent(agentId) {
-  // Exclude university-imported roster athletes — those belong to the University Portal only
+  // AGENT SIDE ONLY — do not use in university routes
   const r = await pool.query(
-    `SELECT * FROM athletes WHERE agent_id=$1
-       AND (data->>'source' IS DISTINCT FROM 'espn_import')
-       AND (data->>'source' IS DISTINCT FROM 'university_import')`,
+    `SELECT * FROM athletes WHERE agent_id=$1`,
     [agentId]
   );
   return r.rows.map(row => ({ id: row.id, agentId: row.agent_id, ...row.data }));
 }
 async function saveAthlete(id, data) {
+  // AGENT SIDE ONLY — do not use in university routes
   const { agentId, ...rest } = data;
   await pool.query(`
     INSERT INTO athletes (id, agent_id, data, updated_at)
@@ -812,6 +813,7 @@ async function saveAthlete(id, data) {
   return getAthlete(id);
 }
 async function deleteAthlete(id) {
+  // AGENT SIDE ONLY — do not use in university routes
   await pool.query('DELETE FROM athletes WHERE id=$1', [id]);
 }
 

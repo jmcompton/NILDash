@@ -241,90 +241,100 @@ async function espnStage(normName, normSchool, normSport) {
   }
 }
 
-// ── Stage 2B: AI Lookup — four specialized prompts ───────────────────────
-//
-// We use DIFFERENT prompts depending on what we know:
-//   (a) school + ESPN-supported sport  → enrich an ESPN match (or confirm)
-//   (b) school + non-ESPN sport        → school-specific roster lookup
-//   (c) no school + any sport          → multi-candidate search across all schools
-//   (d) no school + no sport           → broad search, return candidates
+// ── Stage 2B: Web Search + Claude lookup ─────────────────────────────────
+// Uses the web_search_20250305 tool so Claude reads live, real pages rather
+// than recalling potentially-stale training data.  Falls back to null (never
+// crashes) when search is unavailable.
+async function webSearchStage(normName, normSchool, normSport, normPosition, normYear, espnTop) {
+  const Anthropic = require('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-async function aiStage(ai, normName, normSchool, normSport, espnTop) {
-  let prompt;
-
+  // Build a targeted search query
+  let searchContext;
   if (espnTop) {
-    // Case (a) — enrich a confirmed ESPN match with stats, social, career context
-    prompt =
-      `NCAA ATHLETE CONFIRMED ON ROSTER:\n` +
-      `Name: ${espnTop.name} | School: ${espnTop.school} | Sport: ${espnTop.sport}\n` +
-      `Position: ${espnTop.position || '?'} | Year: ${espnTop.year || '?'}\n\n` +
-      `Provide career stats, social media estimates, school tier, awards, and transfer history for this confirmed athlete.\n` +
-      `Return JSON (null for anything you cannot verify):\n` +
-      `{"found":true,"name":"${espnTop.name}","school":"${espnTop.school}","sport":"${espnTop.sport}","position":"${espnTop.position || ''}","year":"${espnTop.year || ''}","stats":"career stats — format: 2023 at School: stats | 2024: stats","instagram":0,"tiktok":0,"engagement":0,"schoolTier":"p4-top10|p4-top25|p4-mid|p4-lower|highmajor-top|highmajor-mid|mid-top|mid-mid|mid-lower|lowmajor-top|lowmajor-lower","notes":"awards, recruiting rank, draft projection, transfer history","previousSchool":null,"confidence":90}`;
-
+    // Enrich a confirmed ESPN athlete — look for social media, stats, career notes
+    searchContext =
+      `${espnTop.name} ${espnTop.school} ${espnTop.sport} athlete stats social media NIL`;
+  } else if (normSchool && normSport) {
+    searchContext =
+      `"${normName}" ${normSchool} ${normSport} athlete site:espn.com OR site:247sports.com OR site:on3.com OR site:rivals.com`;
   } else if (normSchool) {
-    // Case (b) — school known, non-ESPN sport — precise roster lookup
-    const sportLabel = normSport || 'sport';
-    prompt =
-      `You are an NCAA sports database with comprehensive knowledge of college rosters through the 2025-26 season.\n\n` +
-      `LOOKUP: Is "${normName}" on ${normSchool}'s ${sportLabel} roster?\n\n` +
-      `RULES:\n` +
-      `- Return data ONLY if you are confident this specific athlete plays at ${normSchool}\n` +
-      `- Sport MUST be ${sportLabel} — reject if you find them in a different sport\n` +
-      `- Do NOT fabricate stats. Use null for anything unverifiable.\n` +
-      `- If you cannot confirm with ≥75% confidence, return {"found":false}\n\n` +
-      `Return JSON:\n` +
-      `{"found":true,"name":"full name","school":"${normSchool}","sport":"${sportLabel}","position":"","year":"Fr|So|Jr|Sr|Grad Transfer","stats":"career stats: 2024: .302 BA, 12 HR | 2025: ...","height":"5-8","weight":null,"hometown":"city, state","instagram":0,"tiktok":0,"engagement":0,"schoolTier":"p4-mid","notes":"awards, recruiting rank, high school, transfer history","previousSchool":null,"confidence":85}\n\n` +
-      `confidence: 85-95 if certain, 75-84 if fairly sure, return {"found":false} if uncertain or cannot verify.\n` +
-      `Return ONLY JSON. No markdown.`;
-
+    searchContext = `"${normName}" ${normSchool} college athlete`;
   } else if (normSport) {
-    // Case (c) — no school, sport known — multi-candidate search
-    const sportLabel = normSport;
-    prompt =
-      `You are an NCAA ${sportLabel} expert with comprehensive knowledge of Division I and II rosters through 2025-26.\n\n` +
-      `Search your knowledge for ALL college ${sportLabel} athletes named "${normName}".\n\n` +
-      `RULES:\n` +
-      `- Only include athletes you can confirm with ≥70% confidence\n` +
-      `- If multiple athletes have this name at different schools, list ALL of them\n` +
-      `- Do NOT fabricate athletes — if you are uncertain, return {"found":false,"candidates":[]}\n` +
-      `- Each candidate must have a specific school\n\n` +
-      `Return JSON:\n` +
-      `{"found":true,"candidates":[{"name":"full name","school":"school name","sport":"${sportLabel}","position":"","year":"Fr|So|Jr|Sr|Grad Transfer","stats":"career stats","hometown":"city, state","instagram":0,"tiktok":0,"engagement":0,"schoolTier":"p4-mid","notes":"key facts","previousSchool":null,"confidence":82}]}\n\n` +
-      `If you find nothing, return: {"found":false,"candidates":[]}\n` +
-      `Return ONLY JSON. No markdown.`;
-
+    searchContext = `"${normName}" ${normSport} college athlete 2024 2025`;
   } else {
-    // Case (d) — no school, no sport — broadest search
-    prompt =
-      `You are an NCAA sports database. Search for college athletes named "${normName}" across all Division I and II programs and sports.\n\n` +
-      `RULES:\n` +
-      `- Return up to 3 candidates across potentially different schools/sports\n` +
-      `- Only include athletes you can confirm with ≥70% confidence\n` +
-      `- Do NOT fabricate athletes\n\n` +
-      `Return JSON:\n` +
-      `{"found":true,"candidates":[{"name":"","school":"","sport":"","position":"","year":"","stats":"","hometown":"","instagram":0,"tiktok":0,"engagement":0,"schoolTier":"","notes":"","previousSchool":null,"confidence":75}]}\n\n` +
-      `Return {"found":false,"candidates":[]} if you have no confident match.\n` +
-      `Return ONLY JSON. No markdown.`;
+    searchContext = `"${normName}" NCAA college athlete`;
   }
+  if (normYear && !espnTop) searchContext += ` ${normYear}`;
+
+  const athleteContext = espnTop
+    ? `Confirmed athlete on ESPN roster:\nName: ${espnTop.name} | School: ${espnTop.school} | Sport: ${espnTop.sport} | Position: ${espnTop.position || '?'} | Year: ${espnTop.year || '?'}\n\nSearch for their stats, social media following, awards, and career notes.`
+    : `Search for this college athlete:\nName: ${normName}\nSport: ${normSport || 'unknown'}\nSchool: ${normSchool || 'unknown'}${normPosition ? '\nPosition: ' + normPosition : ''}${normYear ? '\nYear: ' + normYear : ''}`;
+
+  const userPrompt = `${athleteContext}
+
+Search query to use: ${searchContext}
+
+After searching, return ONLY a valid JSON object — no markdown, no explanation:
+{
+  "found": true or false,
+  "confidenceScore": 0-100,
+  "athletes": [
+    {
+      "name": "full name",
+      "school": "school name",
+      "sport": "sport",
+      "position": "position or null",
+      "year": "Fr/So/Jr/Sr/Grad Transfer or null",
+      "hometown": "city, state or null",
+      "jersey_number": "number or null",
+      "instagram": 0,
+      "tiktok": 0,
+      "engagement": 0,
+      "schoolTier": "p4-top10/p4-mid/mid-mid/etc or null",
+      "stats": "career stats string or null",
+      "notes": "awards, transfer history, recruiting rank or null",
+      "previousSchool": "transfer source school or null",
+      "source": "full URL of the page you found this on",
+      "sourceLabel": "ESPN or 247Sports or On3 or Rivals or School Site"
+    }
+  ],
+  "searchNote": "one sentence about what you found or why nothing matched"
+}
+
+RULES:
+- Only include athletes you can verify from actual search results
+- Never fabricate or guess athlete data — use null for anything not found in search results
+- If multiple athletes share this name at different schools, list all of them
+- If nothing found, return found: false with empty athletes array
+- confidenceScore: 85-100 if confirmed on ESPN/official site, 60-84 if found on recruiting site, 40-59 if limited info, below 40 if very uncertain`;
 
   try {
-    const raw     = await ai.oneShot(prompt,
-      'You are a precise NCAA sports database. Return only verified facts. Never fabricate athletes or statistics. Return only valid JSON.', 2000);
-    const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const match   = cleaned.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    const obj = JSON.parse(match[0]);
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1500,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      system: `You are an athlete data lookup assistant. Search for real, verified information about college athletes.
+Only return information confirmed by actual search results. Never hallucinate athlete data.
+Prefer ESPN, 247Sports, On3, Rivals, and official school athletic department websites as sources.`,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
 
-    // Validate school constraint for cases (a) and (b)
-    if (normSchool && obj.school && !schoolsMatch(obj.school, normSchool) && !espnTop) {
-      console.warn(`[lookup] AI school mismatch: got "${obj.school}", expected "${normSchool}"`);
-      return null;
-    }
+    // Extract text from all text-type content blocks
+    const textContent = response.content
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('');
 
-    return obj;
+    if (!textContent) return null;
+
+    const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    return parsed;
   } catch (e) {
-    console.warn('[lookup] AI error:', e.message);
+    console.warn('[lookup] Web search failed:', e.message);
     return null;
   }
 }
@@ -345,87 +355,94 @@ function flattenCandidate(c) {
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
-async function resolveAthlete(ai, { name, school, sport }) {
-  const normName   = normalizeName(name);
-  const normSchool = normalizeSchool(school);
-  const normSport  = normalizeSport(sport);
-  const espnOk     = normSport && ESPN_SUPPORTED_SPORTS.has(normSport);
+async function resolveAthlete(ai, { name, school, sport, position, year }) {
+  const normName     = normalizeName(name);
+  const normSchool   = normalizeSchool(school);
+  const normSport    = normalizeSport(sport);
+  const normPosition = (position || '').trim() || null;
+  const normYear     = (year || '').trim() || null;
+  const espnOk       = normSport && ESPN_SUPPORTED_SPORTS.has(normSport);
 
-  // Stage 2A — ESPN (only for supported sports with a known school)
+  // Stage 2A — ESPN live roster (football/basketball/baseball/volleyball + known school)
   const espnCandidates = await espnStage(normName, normSchool, normSport);
   const topESPN = espnCandidates[0] || null;
 
-  // Stage 2B — AI (role depends on what ESPN found)
-  const aiResult = await aiStage(ai, normName, normSchool, normSport, topESPN);
+  // Stage 2B — Web search + Claude (always runs; enriches ESPN or finds athletes independently)
+  const searchResult = await webSearchStage(normName, normSchool, normSport, normPosition, normYear, topESPN);
 
   // ── Merge candidates ───────────────────────────────────────────────────
   let candidates = [];
 
   if (topESPN) {
-    // Merge AI enrichment into the ESPN match
+    // ESPN confirmed — try to enrich with web search data (social, stats, notes)
     const merged = { ...topESPN };
-    if (aiResult && aiResult.found !== false) {
-      merged.stats          = aiResult.stats || null;
-      merged.instagram      = aiResult.instagram || 0;
-      merged.tiktok         = aiResult.tiktok    || 0;
-      merged.engagement     = aiResult.engagement || 0;
-      merged.schoolTier     = aiResult.schoolTier || inferSchoolTier(topESPN.school);
-      merged.notes          = aiResult.notes || null;
-      merged.previousSchool = aiResult.previousSchool || null;
-      merged.year           = topESPN.year    || aiResult.year;
-      merged.position       = topESPN.position || aiResult.position;
-      merged.confidence     = Math.min(99, topESPN.confidence + 5);
-      merged.source         = 'espn-roster+ai';
-      merged.sourceLabel    = 'ESPN Live Roster + AI verified';
+    const enriched = searchResult?.athletes?.[0];
+    if (enriched) {
+      merged.stats          = enriched.stats || null;
+      merged.instagram      = enriched.instagram || 0;
+      merged.tiktok         = enriched.tiktok || 0;
+      merged.engagement     = enriched.engagement || 0;
+      merged.schoolTier     = enriched.schoolTier || inferSchoolTier(topESPN.school);
+      merged.notes          = enriched.notes || null;
+      merged.previousSchool = enriched.previousSchool || null;
+      merged.sourceUrl      = enriched.source || null;
+      merged.year           = topESPN.year    || enriched.year;
+      merged.position       = topESPN.position || enriched.position;
+      merged.confidence     = Math.min(99, topESPN.confidence + 4);
+      merged.source         = 'espn-roster+web';
+      merged.sourceLabel    = 'ESPN Live Roster + Web Verified';
     } else {
       merged.schoolTier = inferSchoolTier(topESPN.school);
     }
     candidates.push(merged);
-    // Other ESPN candidates (lower ranked)
+    // Additional ESPN candidates (lower-ranked name matches)
     for (const c of espnCandidates.slice(1)) {
       if (c._ns >= 15) candidates.push({ ...c, schoolTier: inferSchoolTier(c.school) });
     }
 
-  } else if (aiResult && aiResult.found !== false) {
-    // AI is the primary source
-    if (aiResult.candidates) {
-      // Multi-candidate response (no-school cases)
-      for (const c of aiResult.candidates) {
-        if ((c.confidence || 0) >= 60) {
-          candidates.push({
-            ...c,
-            sport: c.sport || normSport || sport,
-            schoolTier: c.schoolTier || inferSchoolTier(c.school),
-            source: 'ai-knowledge',
-            sourceLabel: 'AI Training Knowledge',
-          });
-        }
-      }
-    } else if (aiResult.found) {
-      // Single-candidate response (school-specific case)
+  } else if (searchResult?.found && searchResult.athletes?.length) {
+    // Web search is the primary source
+    const baseConf = searchResult.confidenceScore || 65;
+    for (const a of searchResult.athletes) {
+      // Validate school constraint when we know the school
+      if (normSchool && a.school && !schoolsMatch(a.school, normSchool)) continue;
+
+      const conf = baseConf;
       candidates.push({
-        name: aiResult.name, school: aiResult.school || normSchool,
-        sport: aiResult.sport || normSport || sport,
-        position: aiResult.position || null, year: aiResult.year || null,
-        stats: aiResult.stats || null, height: aiResult.height || null,
-        weight: aiResult.weight || null, hometown: aiResult.hometown || null,
-        instagram: aiResult.instagram || 0, tiktok: aiResult.tiktok || 0,
-        engagement: aiResult.engagement || 0,
-        schoolTier: aiResult.schoolTier || inferSchoolTier(aiResult.school || normSchool),
-        notes: aiResult.notes || null, previousSchool: aiResult.previousSchool || null,
-        source: 'ai-knowledge', sourceLabel: 'AI Training Knowledge',
-        confidence: aiResult.confidence || 72,
+        name:          a.name,
+        school:        a.school || normSchool,
+        sport:         a.sport  || normSport || sport,
+        position:      a.position     || normPosition || null,
+        year:          a.year         || normYear || null,
+        stats:         a.stats        || null,
+        hometown:      a.hometown     || null,
+        instagram:     a.instagram    || 0,
+        tiktok:        a.tiktok       || 0,
+        engagement:    a.engagement   || 0,
+        schoolTier:    a.schoolTier   || inferSchoolTier(a.school || normSchool),
+        notes:         a.notes        || null,
+        previousSchool: a.previousSchool || null,
+        sourceUrl:     a.source       || null,
+        source:        'web-search',
+        sourceLabel:   a.sourceLabel  || 'Web Search',
+        confidence:    conf,
       });
     }
   }
 
-  if (!candidates.length) return { found: false, candidates: [] };
+  if (!candidates.length) {
+    return {
+      found: false,
+      candidates: [],
+      message: searchResult?.searchNote || 'No verified athlete found. Please fill in details manually.',
+    };
+  }
 
-  // Sort by confidence descending
+  // Sort by confidence descending, mark the best
   candidates.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
   candidates[0].best = true;
 
-  // autoSelect: ESPN match with ≥95 confidence → behave exactly like before
+  // autoSelect: ESPN match ≥95 confidence with single result → fill form directly
   const autoSelect = candidates[0].confidence >= 95 && candidates.length === 1;
 
   return {

@@ -213,31 +213,27 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     { id:'samford-demo-008', name:'Cole Hutchins', sport:'Football',           position:'Quarterback',   school:'Samford University', schoolTier:'G5', instagram:31200, tiktok:28900, engagement:4.7, stats:'2,841 pass yds, 24 TD, 7 INT (2024)',    notes:'Starting QB and de facto face of the program.', university_id: UNIV_ID },
   ];
 
+  // UNIVERSITY SIDE ONLY — writes to university_athletes, never to the agent athletes table
   let inserted = 0, updated = 0, failed = 0;
   for (const athlete of SAMFORD_ATHLETES) {
-    const { id, ...data } = athlete;
+    const { id, name, sport, position, ...rest } = athlete;
+    const nameParts = (name || '').trim().split(' ');
+    const firstName = nameParts[0] || null;
+    const lastName  = nameParts.slice(1).join(' ') || null;
     try {
-      const result = await store.pool.query(
-        `INSERT INTO athletes (id, agent_id, data, created_at, updated_at, last_updated_at)
-         VALUES ($1, $2, $3, NOW(), NOW(), NOW())
-         ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW(), last_updated_at = NOW()`,
-        [id, agentId, JSON.stringify(data)]
+      await store.pool.query(
+        `INSERT INTO university_athletes (id, university_id, first_name, last_name, name, sport, position, source, data, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'manual', $8, NOW(), NOW())
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name, sport = EXCLUDED.sport, position = EXCLUDED.position,
+           data = EXCLUDED.data, updated_at = NOW()`,
+        [id, UNIV_ID, firstName, lastName, name, sport || null, position || null, JSON.stringify({ name, sport, position, ...rest })]
       );
-      // rowCount = 1 for both insert and update with ON CONFLICT DO UPDATE
-      const existing = await store.pool.query('SELECT id FROM athletes WHERE id=$1', [id]);
+      const existing = await store.pool.query('SELECT id FROM university_athletes WHERE id=$1', [id]);
       if (existing.rows.length) updated++; else inserted++;
     } catch (err) {
       console.error('[seed]', athlete.name, err.message);
-      // Fallback without last_updated_at
-      try {
-        await store.pool.query(
-          `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
-           VALUES ($1, $2, $3, NOW(), NOW())
-           ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()`,
-          [id, agentId, JSON.stringify(data)]
-        );
-        updated++;
-      } catch (e2) { failed++; }
+      failed++;
     }
   }
 
@@ -339,7 +335,8 @@ app.post('/api/university/ai/compliance-check', requireUniversityAuth, async (re
     const universityId = req.session.universityId;
     if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
 
-    const athR = await store.pool.query('SELECT * FROM athletes WHERE id=$1', [athleteId]);
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    const athR = await store.pool.query('SELECT * FROM university_athletes WHERE id=$1', [athleteId]);
     if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
     const athlete = athR.rows[0];
     const athData = athlete.data || {};
@@ -417,7 +414,8 @@ app.post('/api/university/ai/deal-recommendations/:athleteId', requireUniversity
   try {
     const { athleteId } = req.params;
 
-    const athR = await store.pool.query('SELECT * FROM athletes WHERE id=$1', [athleteId]);
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    const athR = await store.pool.query('SELECT * FROM university_athletes WHERE id=$1', [athleteId]);
     if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
     const athData = athR.rows[0].data || {};
 
@@ -471,9 +469,10 @@ app.get('/api/university/flags', requireUniversityAuth, async (req, res) => {
   try {
     const universityId = req.session.universityId;
     const { resolved, severity, athlete_id } = req.query;
-    let sql = `SELECT f.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    let sql = `SELECT f.*, a.name as athlete_name, a.sport
                FROM university_deal_flags f
-               JOIN athletes a ON a.id = f.athlete_id
+               JOIN university_athletes a ON a.id = f.athlete_id
                WHERE f.university_id=$1`;
     const params = [universityId];
     if (resolved !== undefined) { params.push(resolved === 'true'); sql += ` AND f.resolved=$${params.length}`; }
@@ -505,10 +504,11 @@ app.get('/api/university/compliance-dashboard', requireUniversityAuth, async (re
   try {
     const universityId = req.session.universityId;
 
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const athleteLinks = await store.pool.query(
-      `SELECT ual.*, a.data->>'name' as name, a.data->>'sport' as sport
+      `SELECT ual.*, a.name, a.sport
        FROM university_athlete_links ual
-       JOIN athletes a ON a.id = ual.athlete_id
+       JOIN university_athletes a ON a.id = ual.athlete_id
        WHERE ual.university_id=$1
        ORDER BY ual.linked_at DESC`,
       [universityId]
@@ -520,10 +520,11 @@ app.get('/api/university/compliance-dashboard', requireUniversityAuth, async (re
       [universityId]
     );
 
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const topFlags = await store.pool.query(
-      `SELECT f.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport
+      `SELECT f.*, a.name as athlete_name, a.sport
        FROM university_deal_flags f
-       JOIN athletes a ON a.id = f.athlete_id
+       JOIN university_athletes a ON a.id = f.athlete_id
        WHERE f.university_id=$1 AND f.resolved=false
        ORDER BY CASE severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, f.created_at DESC
        LIMIT 3`,
@@ -587,9 +588,7 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
     const plan = user.plan_tier || user.plan || 'basic';
     const seatLimit = getSeatLimit(plan);
     const countR = await store.pool.query(
-      `SELECT COUNT(*) FROM athletes WHERE agent_id=$1
-         AND (data->>'source' IS DISTINCT FROM 'espn_import')
-         AND (data->>'source' IS DISTINCT FROM 'university_import')`,
+      `SELECT COUNT(*) FROM athletes WHERE agent_id=$1`,
       [req.session.userId]
     );
     const currentCount = parseInt(countR.rows[0].count, 10);
@@ -611,9 +610,7 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
   const seatLimit = getSeatLimit(plan);
   if (seatLimit !== null) {
     const countR = await store.pool.query(
-      `SELECT COUNT(*) FROM athletes WHERE agent_id=$1
-         AND (data->>'source' IS DISTINCT FROM 'espn_import')
-         AND (data->>'source' IS DISTINCT FROM 'university_import')`,
+      `SELECT COUNT(*) FROM athletes WHERE agent_id=$1`,
       [req.session.userId]
     );
     const currentCount = parseInt(countR.rows[0].count, 10);
@@ -1369,15 +1366,15 @@ Return ONLY the JSON. No markdown, no explanation.`;
 // Stage 2B: AI enrichment/fallback (stats, social, career context)
 // Stage 3: Merge, rank, return up to 3 candidates with confidence scores
 app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
-  const { name, school, sport } = req.body;
+  const { name, school, sport, position, year } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
     const { resolveAthlete } = require('./services/athleteLookup');
-    const result = await resolveAthlete(ai, { name, school, sport });
+    const result = await resolveAthlete(ai, { name, school, sport, position, year });
     res.json(result);
   } catch (err) {
     console.error('[player-lookup]', err.message);
-    res.status(500).json({ error: err.message, found: false });
+    res.status(500).json({ found: false, candidates: [], message: 'Search unavailable. Please fill in details manually.' });
   }
 });
 
@@ -2704,12 +2701,11 @@ async function resolveSessionUniversity(userId) {
 }
 
 // ── Fetch athletes scoped to a university ──────────────────────────────────
-// Reads from athletes table filtering by data->>'university_id'.
-// This is the only correct read path for university-mode endpoints.
+// UNIVERSITY SIDE ONLY — reads from university_athletes, never from the agent athletes table.
 async function fetchUniversityAthletes(universityId) {
   const rows = await store.pool.query(
-    `SELECT * FROM athletes
-     WHERE data->>'university_id' = $1
+    `SELECT * FROM university_athletes
+     WHERE university_id = $1
      ORDER BY created_at DESC`,
     [universityId]
   );
@@ -2836,9 +2832,9 @@ app.get('/api/university/athlete/:id/readiness', requireAuth, requireUniversityM
       return res.status(400).json({ error: 'No university linked to account', code: 'NO_UNIVERSITY_LINKED' });
     }
 
-    // Fetch athlete — must belong to this university
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const athleteRow = await store.pool.query(
-      `SELECT * FROM athletes WHERE id = $1 AND data->>'university_id' = $2 LIMIT 1`,
+      `SELECT * FROM university_athletes WHERE id = $1 AND university_id = $2 LIMIT 1`,
       [req.params.id, universityId]
     );
     if (!athleteRow.rows.length) {
@@ -3104,15 +3100,15 @@ app.get('/api/university/roster/state', requireAuth, requireUniversityMode, asyn
       return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
     }
 
-    // Join athlete data with roster state
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const rows = await store.pool.query(
       `SELECT a.id, a.data, a.created_at, a.updated_at,
               ars.status, ars.confidence_score, ars.lifecycle_stage,
               ars.supporting_sources, ars.conflicting_sources,
               ars.last_reconciled_at
-       FROM athletes a
+       FROM university_athletes a
        LEFT JOIN athlete_roster_states ars ON ars.athlete_id = a.id
-       WHERE a.data->>'university_id' = $1
+       WHERE a.university_id = $1
        ORDER BY a.created_at ASC`,
       [universityId]
     );
@@ -3356,9 +3352,9 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
       });
     }
 
-    // Load existing athletes scoped to this university so we can dedup by name
+    // UNIVERSITY SIDE ONLY — reads from university_athletes
     const existingRows = await store.pool.query(
-      `SELECT data->>'name' AS name FROM athletes WHERE data->>'university_id' = $1`,
+      `SELECT name FROM university_athletes WHERE university_id = $1`,
       [universityId]
     );
     const existingNames = new Set(existingRows.rows.map(r => (r.name || '').toLowerCase().trim()));
@@ -3374,27 +3370,30 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
       existingNames.add(cleanName.toLowerCase()); // prevent dupes within this batch too
 
       const id = 'ath-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
-      const data = {
+      const athleteSport  = sport || a.sport || 'Unknown';
+      const athleteYear   = a.year     || null;
+      const athleteNumber = a.number   || null;
+      const extData = {
         name:         cleanName,
-        sport:        sport || a.sport || 'Unknown',
+        sport:        athleteSport,
         school:       schoolName || 'Unknown',
         position:     a.position || null,
-        number:       a.number   || null,
-        year:         a.year     || null,
+        number:       athleteNumber,
+        year:         athleteYear,
         height:       a.height   || null,
         weight:       a.weight   || null,
         hometown:     a.hometown || null,
         high_school:  a.high_school || null,
         major:        a.major    || null,
         espn_id:      a.espn_id  || null,
-        university_id: universityId,
-        source:       'roster_import',
+        source:       'espn_import',
       };
       try {
+        // UNIVERSITY SIDE ONLY — writes to university_athletes, never to the agent athletes table
         await store.pool.query(
-          `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
-           VALUES ($1, $2, $3, NOW(), NOW())`,
-          [id, userId, JSON.stringify(data)]
+          `INSERT INTO university_athletes (id, university_id, name, sport, position, year, jersey_number, source, data, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'espn_import', $8, NOW(), NOW())`,
+          [id, universityId, cleanName, athleteSport, a.position || null, athleteYear, athleteNumber, JSON.stringify(extData)]
         );
         inserted++;
       } catch { skipped++; }
@@ -3414,9 +3413,9 @@ app.delete('/api/university/roster/clear', requireAuth, requireUniversityMode, a
   try {
     const universityId = await resolveSessionUniversity(req.session.userId);
     if (!universityId) return res.status(400).json({ error: 'No university linked' });
+    // UNIVERSITY SIDE ONLY — deletes from university_athletes, never from the agent athletes table
     const result = await store.pool.query(
-      `DELETE FROM athletes
-       WHERE data->>'university_id' = $1`,
+      `DELETE FROM university_athletes WHERE university_id = $1`,
       [universityId]
     );
     res.json({ ok: true, deleted: result.rowCount });
@@ -3557,18 +3556,18 @@ app.post('/api/university/roster/confirm', requireAuth, requireUniversityMode, a
       };
 
       try {
-        // Check for existing athlete by email (if provided) or name+university
+        // UNIVERSITY SIDE ONLY — dedup checks and writes go to university_athletes only
         let existingId = null;
         if (a.email) {
           const existing = await store.pool.query(
-            `SELECT id FROM athletes WHERE data->>'email' = $1 AND data->>'university_id' = $2 LIMIT 1`,
+            `SELECT id FROM university_athletes WHERE email = $1 AND university_id = $2 LIMIT 1`,
             [a.email, universityId]
           );
           if (existing.rows.length) existingId = existing.rows[0].id;
         }
         if (!existingId) {
           const existing = await store.pool.query(
-            `SELECT id FROM athletes WHERE data->>'name' = $1 AND data->>'university_id' = $2 LIMIT 1`,
+            `SELECT id FROM university_athletes WHERE name = $1 AND university_id = $2 LIMIT 1`,
             [fullName, universityId]
           );
           if (existing.rows.length) existingId = existing.rows[0].id;
@@ -3576,21 +3575,24 @@ app.post('/api/university/roster/confirm', requireAuth, requireUniversityMode, a
 
         const finalAthleteId = existingId || athleteId;
         if (!existingId) {
+          const extData = {
+            name:          fullName,
+            sport:         a.sport         || null,
+            position:      a.position      || null,
+            year:          a.year          || null,
+            jersey_number: a.jersey_number || null,
+            email:         a.email         || null,
+            source:        'csv_import',
+          };
           await store.pool.query(
-            `INSERT INTO athletes (id, agent_id, data, created_at, updated_at)
-             VALUES ($1, $2, $3, NOW(), NOW())
+            `INSERT INTO university_athletes (id, university_id, first_name, last_name, name, sport, position, year, jersey_number, email, source, data, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'csv_import', $11, NOW(), NOW())
              ON CONFLICT (id) DO NOTHING`,
-            [finalAthleteId, userId, JSON.stringify(data)]
+            [finalAthleteId, universityId, firstName, lastName, fullName,
+             a.sport || null, a.position || null, a.year || null, a.jersey_number || null,
+             a.email || null, JSON.stringify(extData)]
           );
         }
-
-        // Create university link (skip if already exists)
-        await store.pool.query(
-          `INSERT INTO university_athlete_links (id, university_id, athlete_id, status, linked_at)
-           VALUES ($1, $2, $3, 'active', NOW())
-           ON CONFLICT (university_id, athlete_id) DO NOTHING`,
-          ['ual-' + crypto.randomBytes(6).toString('hex'), universityId, finalAthleteId]
-        ).catch(() => {}); // ignore if university_athlete_links table not yet migrated
 
         imported++;
       } catch (e) {
@@ -3616,9 +3618,10 @@ app.delete('/api/university/roster/purge-imports', requireAuth, async (req, res)
     if (user.role !== 'admin' && user.role !== 'university') {
       return res.status(403).json({ error: 'Admin or university role required' });
     }
+    // UNIVERSITY SIDE ONLY — purges from university_athletes table
     const result = await store.pool.query(
-      `DELETE FROM athletes
-       WHERE data->>'source' IN ('espn_import','university_import')
+      `DELETE FROM university_athletes
+       WHERE source IN ('espn_import','csv_import','university_import')
        RETURNING id`
     );
     res.json({ ok: true, deleted: result.rowCount });
@@ -4423,4 +4426,19 @@ app.listen(PORT, async () => {
   } catch (err) {
     console.warn('[scheduler] Scheduler start failed (non-fatal):', err.message);
   }
+
+  // ── Data isolation check ──────────────────────────────────────────
+  // University athletes now live in university_athletes — agent athletes table is isolated.
+  try {
+    const agentCheck = await store.pool.query(
+      `SELECT COUNT(*) AS cnt FROM athletes WHERE data->>'university_id' IS NOT NULL AND data->>'university_id' != ''`
+    );
+    const leaked = parseInt(agentCheck.rows[0]?.cnt) || 0;
+    if (leaked > 0) {
+      console.warn(`[isolation] ⚠️  ${leaked} athletes with university_id still exist in the agent athletes table. Run migration 007 to clean them up.`);
+    } else {
+      console.log('[isolation] ✅ Agent-side athletes table is now isolated. University athletes live in university_athletes.');
+      console.log('[isolation]    Agent roster is clean at /roster — please verify your athletes are intact.');
+    }
+  } catch (_) {}
 });
