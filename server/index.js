@@ -3145,22 +3145,34 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
       `SELECT a.data, a.instagram_handle, a.tiktok_handle,
               a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
               a.data->>'schoolTier' as school_tier, a.data->>'instagram' as ig,
-              a.data->>'tiktok' as tt, a.data->>'position' as position, a.data->>'year' as year
+              a.data->>'tiktok' as tt, a.data->>'position' as position, a.data->>'year' as year,
+              a.data->>'engagement' as engagement, a.data->>'stats' as stats
        FROM athletes a WHERE a.id = $1`,
       [req.athlete.id]
     );
     const ath = athR.rows[0];
     if (!ath) return res.status(404).json({ error: 'Athlete not found' });
-    const ig = parseInt(ath.ig || 0), tt = parseInt(ath.tt || 0);
 
-    const prompt = `Find 8 real brand partnership opportunities for this college athlete:\n\nName: ${ath.name}\nSport: ${ath.sport} | Position: ${ath.position} | Year: ${ath.year}\nSchool: ${ath.school} (${ath.school_tier})\nInstagram: @${ath.instagram_handle || 'N/A'} (${ig.toLocaleString()} followers) | TikTok: @${ath.tiktok_handle || 'N/A'} (${tt.toLocaleString()} followers)\n\nReturn ONLY a valid JSON array, no markdown:\n[{"brand":"Brand Name","category":"Category","est_value":"$X-$X per post","why_fit":"One sentence why this brand fits","outreach_tip":"One sentence outreach tip"}]`;
+    // Build athlete object in the format ai.getDealRecommendations() expects
+    const athleteObj = {
+      name: ath.name,
+      sport: ath.sport,
+      position: ath.position,
+      year: ath.year,
+      school: ath.school,
+      schoolTier: ath.school_tier,
+      instagram: parseInt(ath.ig) || 0,
+      tiktok: parseInt(ath.tt) || 0,
+      engagement: parseFloat(ath.engagement) || 0,
+      stats: ath.stats || '',
+    };
 
-    const raw = await ai.oneShot(prompt, 'You are an NIL deal finder for college athletes. Return only valid JSON arrays, no markdown.');
-    let opportunities = [];
-    try { const m = raw.match(/\[[\s\S]*\]/); if (m) opportunities = JSON.parse(m[0]); } catch(e) {}
+    const excludeBrands = req.body.exclude_brands || [];
+    console.log(`[athlete/deal-scan] athlete=${req.athlete.id} name=${athleteObj.name} sport=${athleteObj.sport} school=${athleteObj.school}`);
+    const recommendations = await ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands);
     await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_scan', 'Ran deal scan', {});
-    console.log(`[athlete/deal-scan] athlete=${req.athlete.id} found=${opportunities.length}`);
-    res.json({ opportunities });
+    console.log(`[athlete/deal-scan] found=${recommendations.length}`);
+    res.json({ opportunities: recommendations });
   } catch (e) { console.error('[athlete/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 

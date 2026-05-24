@@ -318,9 +318,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
   <!-- ════ VIEW: DEAL SCAN ════ -->
   <div class="view" id="view-dealscan">
-    <div class="page-title">DEAL SCAN</div>
-    <div class="page-subtitle">AI-powered brand opportunity discovery tailored to your sport, school, and social presence.</div>
-
     <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
       <button class="ds-refresh-btn" id="scan-refresh-btn" onclick="runDealRefresh()">Refresh</button>
       <button class="ds-run-btn" id="scan-btn" onclick="runDealScan()">Scan Deals with AI</button>
@@ -928,7 +925,7 @@ async function runDealScan() {
       txt.textContent = 'No opportunities found. Try again.';
       return;
     }
-    txt.textContent = 'Found ' + opps.length + ' ranked opportunities. Top pick: ' + esc(opps[0].brand_name || opps[0].brand || '') + '.';
+    txt.textContent = 'Found ' + opps.length + ' ranked opportunities. Top pick: ' + esc(opps[0].brand || '') + '.';
     renderAthleteDealsTable(opps);
   } catch(e) {
     txt.textContent = 'Connection error. Please try again.';
@@ -942,7 +939,7 @@ async function runDealScan() {
 async function runDealRefresh() {
   var btn = document.getElementById('scan-refresh-btn');
   btn.disabled = true; btn.textContent = 'Refreshing…';
-  _athleteExcludeBrands = _athleteDealScanResults.map(function(d){ return d.brand_name || d.brand || ''; }).filter(Boolean);
+  _athleteExcludeBrands = _athleteDealScanResults.map(function(d){ return d.brand || ''; }).filter(Boolean);
   await runDealScan();
   _athleteExcludeBrands = [];
   btn.disabled = false; btn.textContent = 'Refresh';
@@ -956,6 +953,7 @@ function renderAthleteDealsTable(recs) {
     label.style.display = 'none';
     return;
   }
+  window._athleteDealScanResults = recs;
   label.style.display = 'block';
   var catColors = {
     'local':'rgba(132,204,22,0.15);color:var(--accent)',
@@ -969,23 +967,23 @@ function renderAthleteDealsTable(recs) {
   var dealTypeMap = {
     'post':'IG Post','reel':'IG Reel','ambassador':'Ambassador','appearance':'Appearance',
     'licensing':'Licensing','tiktok':'TikTok','youtube':'YouTube',
-    'Social Media Post':'Social Post','Brand Ambassador':'Ambassador','Appearance':'Appearance',
-    'Autograph Signing':'Autograph'
+    'Social Media Post':'Social Post','Brand Ambassador':'Ambassador','Autograph Signing':'Autograph'
   };
   container.innerHTML = recs.map(function(d, i) {
-    var brand = d.brand_name || d.brand || 'Brand';
-    var score = d.fitScore || d.fit_score || 80;
+    var brand = d.brand || 'Brand';
+    var score = d.fitScore || 80;
     var scoreColor = score >= 85 ? 'var(--accent)' : score >= 70 ? '#f59e0b' : 'var(--muted)';
     var isTop = i === 0;
     var isLocal = d.isLocal || ((d.category || '').toLowerCase() === 'local');
-    var timingNote = d.timingNote || d.timing || '';
+    var timingNote = d.timingNote || '';
     var timingUrgent = timingNote && /now|open|peak|spring/i.test(timingNote);
     var timingShort = timingNote.length > 70 ? timingNote.substring(0, 70) + '…' : timingNote;
-    var dealType = d.dealType || d.deal_type || '';
+    var dealType = d.dealType || '';
     var dealTypeLabel = dealTypeMap[dealType] || dealType || 'Post';
     var cat = (d.category || '').toLowerCase();
     var catStyle = catColors[cat] || 'rgba(255,255,255,0.06);color:var(--muted)';
-    var brandSafe = brand.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    var brandSafe = brand.replace(/"/g, '&quot;');
+    var campaignSafe = (d.campaign || '').replace(/"/g, '').substring(0, 40);
 
     return '<div style="background:var(--surface2);border:1px solid ' + (isTop ? 'rgba(132,204,22,0.3)' : 'var(--border)') + ';border-radius:12px;padding:18px 20px">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
@@ -997,7 +995,7 @@ function renderAthleteDealsTable(recs) {
             (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:var(--accent);border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
           '</div>' +
           '<div style="font-size:12px;color:var(--text);margin-bottom:8px;line-height:1.5;font-weight:500">' + esc(d.campaign || '') + '</div>' +
-          '<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">' + esc(d.rationale || d.reason || d.why || d.sport_relevance || '') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">' + esc(d.rationale || '') + '</div>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
             (d.category ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
             (dealTypeLabel ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.06);color:var(--muted)">' + esc(dealTypeLabel) + '</span>' : '') +
@@ -1013,7 +1011,11 @@ function renderAthleteDealsTable(recs) {
             '</div>' +
             '<span style="font-size:12px;color:' + scoreColor + ';font-weight:700">' + score + '</span>' +
           '</div>' +
-          '<button onclick="prefillOutreach(\'' + brandSafe + '\')" style="padding:8px 14px;background:var(--accent);color:#0A0E1A;border:none;border-radius:40px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Write Outreach</button>' +
+          '<button onclick="prefillOutreach(&quot;' + brandSafe + '&quot;)" style="padding:8px 14px;background:var(--accent);color:#000;border:none;border-radius:40px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Write Outreach</button>' +
+          '<button onclick="athleteAddToPipeline(&quot;' + brandSafe + '&quot;,&quot;' + (d.dealType || 'post') + '&quot;,&quot;' + campaignSafe + '&quot;)" style="padding:7px 14px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">+ Pipeline</button>' +
+          '<button onclick="prefillOutreach(&quot;' + brandSafe + '&quot;)" style="padding:7px 14px;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap">+ Outreach</button>' +
+          '<button onclick="athleteOpenDealClose(&quot;' + brandSafe + '&quot;,' + i + ')" style="padding:7px 14px;background:rgba(186,12,47,0.1);border:1px solid rgba(186,12,47,0.3);color:#f87171;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">Deal Close →</button>' +
+          '<button onclick="athleteAIOutreach(' + i + ')" style="padding:7px 14px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">⚡ AI Outreach</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1026,6 +1028,69 @@ function prefillOutreach(brandName) {
     openOutreachModal();
     document.getElementById('mo-brand').value = brandName;
   }, 300);
+}
+
+async function athleteAddToPipeline(brand, dealType, campaign) {
+  try {
+    var r = await fetch('/api/athlete/deals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify({ brand_name: brand, deal_type: dealType || 'post', campaign_concept: campaign || '', status: 'prospecting', estimated_value: 0 })
+    });
+    var data = await r.json();
+    if (r.ok && !data.error) {
+      showToast('Added ' + brand + ' to pipeline');
+    } else {
+      showToast('Could not add to pipeline: ' + (data.error || 'Unknown error'));
+    }
+  } catch(e) {
+    showToast('Connection error');
+  }
+}
+
+function athleteOpenDealClose(brand, idx) {
+  showView('dealclose', document.querySelector('[data-view=dealclose]'));
+  setTimeout(function(){
+    var deal = (window._athleteDealScanResults || [])[idx];
+    var modal = document.getElementById('deal-modal');
+    if (!modal) return;
+    document.getElementById('dm-brand').value = brand;
+    if (deal) {
+      var typeEl = document.getElementById('dm-type');
+      if (typeEl && deal.dealType) typeEl.value = deal.dealType;
+      var valEl = document.getElementById('dm-value');
+      if (valEl && deal.suggestedRate) valEl.value = deal.suggestedRate.low || '';
+    }
+    modal.style.display = 'flex';
+  }, 300);
+}
+
+async function athleteAIOutreach(idx) {
+  var deal = (window._athleteDealScanResults || [])[idx];
+  if (!deal) { showToast('Deal not found'); return; }
+  var brand = deal.brand || 'Brand';
+  showToast('Generating AI outreach for ' + brand + '…');
+  try {
+    var r = await fetch('/api/athlete/ai-draft-outreach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify({ brand_name: brand, campaign: deal.campaign || '', deal_type: deal.dealType || '' })
+    });
+    var data = await r.json();
+    if (r.ok && data.draft) {
+      showView('outreach', document.querySelector('[data-view=outreach]'));
+      setTimeout(function(){
+        openOutreachModal();
+        document.getElementById('mo-brand').value = brand;
+        var bodyEl = document.getElementById('mo-message');
+        if (bodyEl) bodyEl.value = data.draft;
+      }, 300);
+    } else {
+      showToast('AI outreach failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch(e) {
+    showToast('Connection error');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
