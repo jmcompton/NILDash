@@ -3260,6 +3260,146 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[athlete/email]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// POST /api/athlete/deal-close/analyze — athlete analyzes a deal
+app.post('/api/athlete/deal-close/analyze', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const { brand, dealScanData } = req.body;
+    if (!brand) return res.status(400).json({ error: 'brand required' });
+
+    const athleteId = req.athlete.id;
+
+    // Pull athlete data from DB
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
+              a.data->>'schoolTier' as school_tier, a.data->>'instagram' as ig, a.data->>'tiktok' as tt,
+              a.data->>'position' as position, a.data->>'year' as year, a.data->>'engagement' as engagement,
+              a.data->>'stats' as stats
+       FROM athletes a WHERE a.id = $1`,
+      [athleteId]
+    );
+    const athRow = athR.rows[0];
+    if (!athRow) return res.status(404).json({ error: 'Athlete not found' });
+
+    const athlete = {
+      name: athRow.name, sport: athRow.sport, school: athRow.school,
+      schoolTier: athRow.school_tier, instagram: parseInt(athRow.ig) || 0,
+      tiktok: parseInt(athRow.tt) || 0, position: athRow.position,
+      year: athRow.year, engagement: parseFloat(athRow.engagement) || 0,
+      stats: athRow.stats || '',
+    };
+
+    // Pull athlete's own outreach history for this brand
+    const outreachRows = await store.pool.query(
+      `SELECT brand_name, status, created_at FROM athlete_brand_outreach
+       WHERE athlete_id=$1 AND brand_name ILIKE $2 ORDER BY created_at DESC LIMIT 3`,
+      [athleteId, brand]
+    ).then(r => r.rows).catch(() => []);
+
+    // Rate estimate + full reasoning layer (same functions as agent route)
+    const {
+      nilViewVal: _nvv, cleanRange, generatePricingStrategy,
+      generateRateDrivers, generateRateLimitations,
+      calcMarketReliabilityScore, generateConfidenceTypes,
+      generateComparableNote, generateMomentumSignal,
+      decomposeFitScore,
+    } = require('./benchmarks');
+
+    const rawRate    = _nvv(athlete, dealScanData?.dealType || 'ig-reel');
+    const cleaned    = cleanRange(rawRate.low, rawRate.high);
+    const pricing    = generatePricingStrategy(rawRate);
+    const rateDrivers  = generateRateDrivers(athlete, rawRate);
+    const rateLimits   = generateRateLimitations(athlete, rawRate, 0);
+    const reliability  = calcMarketReliabilityScore(athlete, rawRate, 0);
+    const confTypes    = generateConfidenceTypes(athlete, rawRate, 0);
+    const compNote     = generateComparableNote(athlete, rawRate);
+    const momentum     = generateMomentumSignal(athlete);
+    const fitBreakdown = decomposeFitScore(athlete, null, null, dealScanData);
+
+    // AI: negotiation coaching adapted for athlete self-representation
+    const reach = ((athlete.instagram || 0) + (athlete.tiktok || 0)).toLocaleString();
+    const engagement = athlete.engagement || 4.2;
+    const campaignConcept = dealScanData?.campaign || 'brand ambassador partnership';
+    const fitScore = dealScanData?.fitScore || 78;
+    const rationale = dealScanData?.rationale || 'Strong fit identified';
+
+    const aiPrompt = `You are coaching a college athlete on how to negotiate their own NIL deal with ${brand}.
+
+CONTEXT:
+- Athlete: ${athlete.name}, ${athlete.sport || 'athlete'}, ${athlete.school || 'college'}
+- Combined social reach: approximately ${reach}
+- Engagement: ${engagement}%
+- Brand: ${brand}
+- Campaign concept: ${campaignConcept}
+- Estimated market range: $${cleaned.low.toLocaleString()}–$${cleaned.high.toLocaleString()} per deliverable
+- Why this brand was flagged: ${rationale}
+
+Write practical deal-close coaching for the athlete negotiating directly. Tone: confident, grounded, actionable. No hype.
+
+Return ONLY valid JSON (no markdown):
+{
+  "negotiation_points": [
+    "One specific, data-grounded point the athlete should make",
+    "Second point",
+    "Third point",
+    "Fourth point",
+    "Fifth point"
+  ],
+  "opening_line": "Natural, confident way to open the conversation — not scripted, not corporate",
+  "objection_handling": [
+    { "objection": "Your rate feels high", "response": "Concise, grounded response — one or two sentences" },
+    { "objection": "We're not sure about fit", "response": "One or two sentences" },
+    { "objection": "We need internal approval", "response": "One or two sentences" },
+    { "objection": "We already work with influencers", "response": "One or two sentences" }
+  ],
+  "ask_anchor": "One sentence: where to open the rate conversation and why that number",
+  "walk_away_line": "Soft, non-aggressive sentence to close the conversation if it isn't going anywhere"
+}`;
+
+    let aiData = null;
+    try {
+      const raw = await ai.oneShot(aiPrompt, 'You are an elite NIL deal coach. Return only valid JSON.', 2000, ai.MODEL_FAST);
+      const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      aiData = JSON.parse(clean);
+    } catch (e) {
+      console.error('[athlete-deal-close] AI parse failed:', e.message);
+      aiData = {
+        negotiation_points: [
+          `${athlete.name}'s ${engagement}% engagement is ${(engagement / 2.1).toFixed(1)}x the industry average for paid influencers`,
+          `Combined reach of ${reach} delivers strong organic CPM versus paid advertising rates`,
+          `${fitScore}/100 fit score — audience demographics align with ${brand}'s core market`,
+          campaignConcept,
+          rationale,
+        ],
+        opening_line: `Thanks for taking the time — I wanted to walk you through why I think I'm a strong fit for ${brand} right now.`,
+        objection_handling: [
+          { objection: 'Your rate is too high', response: `The $${cleaned.low.toLocaleString()}–$${cleaned.high.toLocaleString()} range reflects my ${engagement}% engagement, which is above industry average. You're getting authentic college-level content at a fraction of macro-influencer pricing.` },
+          { objection: 'We need to think about it', response: `Totally understand — what specific questions can I answer today to help you move forward?` },
+        ],
+        ask_anchor: `Open at $${cleaned.high.toLocaleString()} and signal flexibility down to $${cleaned.low.toLocaleString()} if they need to adjust scope.`,
+        walk_away_line: `I hear you — let's stay in touch and revisit this when timing makes more sense.`,
+      };
+    }
+
+    await logAthleteActivity(athleteId, req.athlete.agent_id, 'deal_close_analyze', `Analyzed deal with ${brand}`, { brand });
+
+    res.json({
+      athlete: { name: athlete.name, sport: athlete.sport, school: athlete.school, instagram: athlete.instagram, tiktok: athlete.tiktok, engagement: athlete.engagement, position: athlete.position, stats: athlete.stats },
+      brand:   { name: brand },
+      contacts: [],
+      outreach: outreachRows,
+      pricing:  { low: cleaned.low, high: cleaned.high, mid: pricing.target, start: pricing.start, target: pricing.target, stretch: pricing.stretch, dealType: dealScanData?.dealType || 'ig-reel' },
+      dealScan: dealScanData || null,
+      ai:       aiData,
+      hasExistingData: outreachRows.length > 0,
+      marketRange:  { low: cleaned.low, high: cleaned.high },
+      rateDrivers, rateLimits, reliability, confTypes, compNote, momentum, fitBreakdown,
+    });
+  } catch (e) {
+    console.error('[athlete-deal-close]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // PUT /api/athlete/profile — athlete updates own editable fields
 app.put('/api/athlete/profile', verifyAthleteToken, async (req, res) => {
   try {
