@@ -1,7 +1,7 @@
 // calendar.js — Master Agent Calendar (deliverables-only)
 // Replaces the old deal-based NILCal engine.
 // Source of truth: athlete_calendar_events (populated by contract ingestion pipeline).
-// Color scheme: consistent per-athlete colors across all views.
+// Color scheme: status-aware (overdue=red, upcoming=orange, completed=green, default=athlete color).
 
 var NILCal = (function () {
   'use strict';
@@ -18,11 +18,37 @@ var NILCal = (function () {
     return ATHLETE_COLORS[h % ATHLETE_COLORS.length];
   }
 
+  // ── Status-aware event color ───────────────────────────────────
+  // Returns { bg, fg, border } for a calendar pill / list row
+  function getEventColor(ev, today) {
+    var d = ev.event_date ? ev.event_date.split('T')[0] : null;
+    // Completed → green
+    if (ev.status === 'completed') {
+      return { bg: 'rgba(34,197,94,0.15)', fg: '#22c55e', border: '#22c55e' };
+    }
+    // Overdue → red
+    if (d && d < today) {
+      return { bg: 'rgba(239,68,68,0.15)', fg: '#ef4444', border: '#ef4444' };
+    }
+    // Upcoming within 7 days → orange
+    if (d) {
+      var sevenDays = new Date();
+      sevenDays.setDate(sevenDays.getDate() + 7);
+      var due = new Date(d + 'T00:00:00');
+      if (due <= sevenDays) {
+        return { bg: 'rgba(249,115,22,0.15)', fg: '#f97316', border: '#f97316' };
+      }
+    }
+    // Default → per-athlete color
+    var c = athleteColor(ev.athlete_id);
+    return { bg: c + '22', fg: c, border: c };
+  }
+
   // ── State ─────────────────────────────────────────────────────
   var calYear  = new Date().getFullYear();
   var calMonth = new Date().getMonth();
-  var allEvents = [];        // full dataset from server
-  var filteredEvents = [];   // after applying UI filters
+  var allEvents = [];        // full dataset from server (filtered by server-side params)
+  var filteredEvents = [];   // after applying client-side filters (e.g. 'overdue' pseudo-status)
   var athleteList = [];      // [{id, name}] for filter dropdown
   var listMode = false;
   var apiBase  = '';
@@ -43,16 +69,16 @@ var NILCal = (function () {
     };
   }
 
+  // Client-side pass through (server already applied athlete/brand/status filters).
+  // Only 'overdue' is a client-side concept requiring post-load filtering.
   function applyFilters() {
     var f = getFilters();
     var today = new Date().toISOString().split('T')[0];
     filteredEvents = allEvents.filter(function(ev) {
-      if (f.athlete && ev.athlete_id !== f.athlete) return false;
-      if (f.brand   && ev.brand !== f.brand)         return false;
       if (f.status === 'overdue') {
         var d = ev.event_date ? ev.event_date.split('T')[0] : null;
         if (!d || d >= today || ev.status === 'completed') return false;
-      } else if (f.status && ev.status !== f.status) return false;
+      }
       return true;
     });
   }
@@ -123,9 +149,8 @@ var NILCal = (function () {
       var shown = dayEvs.slice(0, 3);
       for (var e = 0; e < shown.length; e++) {
         var ev = shown[e];
-        var color = athleteColor(ev.athlete_id);
-        var overdue = ev.event_date.split('T')[0] < today && ev.status !== 'completed';
-        html += '<div onclick="event.stopPropagation();NILCal.openDrawer(\'' + (ev.id||'').replace(/'/g,"\\'") + '\')" style="font-size:9px;padding:2px 5px;border-radius:3px;background:' + color + '22;color:' + color + ';border-left:2px solid ' + color + ';margin-bottom:2px;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;' + (overdue ? 'opacity:0.6' : '') + '" title="' + (ev.athlete_name||'') + ': ' + ev.title + '">' + (ev.athlete_name ? ev.athlete_name.split(' ').pop() + ' · ' : '') + ev.title + '</div>';
+        var clr = getEventColor(ev, today);
+        html += '<div onclick="event.stopPropagation();NILCal.openDrawer(\'' + (ev.id||'').replace(/'/g,"\\'") + '\')" style="font-size:9px;padding:2px 5px;border-radius:3px;background:' + clr.bg + ';color:' + clr.fg + ';border-left:2px solid ' + clr.border + ';margin-bottom:2px;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="' + (ev.athlete_name||'') + ': ' + ev.title + '">' + (ev.athlete_name ? ev.athlete_name.split(' ').pop() + ' · ' : '') + ev.title + '</div>';
       }
       if (dayEvs.length > 3) html += '<div style="font-size:9px;color:var(--muted)">+' + (dayEvs.length - 3) + ' more</div>';
       html += '</div>';
@@ -144,6 +169,7 @@ var NILCal = (function () {
   }
 
   // ── Render list view ──────────────────────────────────────────
+  // Columns: Athlete | Brand | Deliverable | Due Date | Status | Actions
   function renderList() {
     var wrap = document.getElementById('cal-list-wrap');
     if (!wrap) return;
@@ -156,23 +182,60 @@ var NILCal = (function () {
     var sorted = filteredEvents.slice().sort(function(a,b) {
       return (a.event_date||'').localeCompare(b.event_date||'');
     });
-    wrap.innerHTML = sorted.map(function(ev) {
-      var color   = athleteColor(ev.athlete_id);
-      var d       = ev.event_date ? ev.event_date.split('T')[0] : '—';
+
+    var rows = sorted.map(function(ev) {
+      var clr = getEventColor(ev, today);
+      var d   = ev.event_date ? ev.event_date.split('T')[0] : '—';
       var overdue = d !== '—' && d < today && ev.status !== 'completed';
-      var statusColor = ev.status === 'completed' ? '#22c55e' : overdue ? '#ef4444' : 'var(--muted)';
-      return '<div onclick="NILCal.openDrawer(\'' + (ev.id||'').replace(/'/g,"\\'") + '\')" style="display:flex;gap:12px;align-items:flex-start;padding:10px 14px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer">' +
-        '<div style="width:3px;min-height:40px;border-radius:2px;background:' + color + ';flex-shrink:0"></div>' +
-        '<div style="flex:1;min-width:0">' +
-          '<div style="font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + ev.title + '</div>' +
-          '<div style="color:var(--muted);margin-top:2px">' + (ev.athlete_name||'') + ' · ' + (ev.brand||'—') + '</div>' +
-        '</div>' +
-        '<div style="text-align:right;flex-shrink:0">' +
-          '<div style="color:' + (overdue ? '#ef4444' : 'var(--muted)') + '">' + d + '</div>' +
-          '<div style="color:' + statusColor + ';font-size:10px;text-transform:capitalize;margin-top:2px">' + (overdue ? 'Overdue' : ev.status || 'pending') + '</div>' +
-        '</div>' +
-      '</div>';
+      var statusLabel = ev.status === 'completed' ? 'Completed' : overdue ? 'Overdue' : (ev.status || 'pending');
+      var safeId = (ev.id||'').replace(/'/g,"\\'");
+      return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="NILCal.openDrawer(\'' + safeId + '\')">' +
+        // Athlete
+        '<td style="padding:9px 12px;white-space:nowrap">' +
+          '<div style="display:flex;align-items:center;gap:7px">' +
+            '<div style="width:3px;height:28px;border-radius:2px;background:' + athleteColor(ev.athlete_id) + ';flex-shrink:0"></div>' +
+            '<span style="font-size:12px;font-weight:600;color:var(--fg)">' + (ev.athlete_name || '—') + '</span>' +
+          '</div>' +
+        '</td>' +
+        // Brand
+        '<td style="padding:9px 12px;font-size:12px;color:var(--muted);white-space:nowrap">' + (ev.brand || '—') + '</td>' +
+        // Deliverable title
+        '<td style="padding:9px 12px;font-size:12px;color:var(--fg);max-width:280px">' +
+          '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + ev.title + '</div>' +
+        '</td>' +
+        // Due date
+        '<td style="padding:9px 12px;font-size:12px;white-space:nowrap;color:' + clr.fg + ';font-weight:600">' + d + '</td>' +
+        // Status (inline dropdown)
+        '<td style="padding:9px 12px" onclick="event.stopPropagation()">' +
+          '<select onchange="NILCal.setStatus(\'' + safeId + '\', this.value)" style="font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 6px;background:var(--surface);color:' + clr.fg + ';cursor:pointer;font-weight:600">' +
+            '<option value="pending"' + ((!ev.status || ev.status === 'pending') ? ' selected' : '') + '>Pending</option>' +
+            '<option value="in_progress"' + (ev.status === 'in_progress' ? ' selected' : '') + '>In Progress</option>' +
+            '<option value="completed"' + (ev.status === 'completed' ? ' selected' : '') + '>Completed</option>' +
+          '</select>' +
+        '</td>' +
+        // Actions
+        '<td style="padding:9px 12px" onclick="event.stopPropagation()">' +
+          '<button onclick="NILCal.openDrawer(\'' + safeId + '\')" style="font-size:11px;border:1px solid var(--border);border-radius:5px;padding:4px 10px;background:transparent;color:var(--text);cursor:pointer">View</button>' +
+        '</td>' +
+      '</tr>';
     }).join('');
+
+    wrap.innerHTML =
+      '<div style="overflow-x:auto">' +
+      '<table style="width:100%;border-collapse:collapse">' +
+        '<thead>' +
+          '<tr style="border-bottom:2px solid var(--border)">' +
+            '<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap">Athlete</th>' +
+            '<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">Brand</th>' +
+            '<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">Deliverable</th>' +
+            '<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;white-space:nowrap">Due Date</th>' +
+            '<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">Status</th>' +
+            '<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">Actions</th>' +
+          '</tr>' +
+        '</thead>' +
+        '<tbody>' + rows + '</tbody>' +
+      '</table>' +
+      '</div>';
   }
 
   // ── Day-click handler ─────────────────────────────────────────
@@ -187,15 +250,16 @@ var NILCal = (function () {
     if (!dayEvs.length) { panel.style.display = 'none'; return; }
     var parts = dateStr.split('-');
     lbl.textContent = MONTHS_SHORT[parseInt(parts[1],10)-1] + ' ' + parts[2] + ', ' + parts[0] + ' — ' + dayEvs.length + ' deliverable' + (dayEvs.length > 1 ? 's' : '');
+    var today = new Date().toISOString().split('T')[0];
     list.innerHTML = dayEvs.map(function(ev) {
-      var color = athleteColor(ev.athlete_id);
+      var clr = getEventColor(ev, today);
       return '<div onclick="NILCal.openDrawer(\'' + (ev.id||'').replace(/'/g,"\\'") + '\')" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">' +
-        '<span style="width:10px;height:10px;border-radius:50%;background:' + color + ';flex-shrink:0"></span>' +
+        '<span style="width:10px;height:10px;border-radius:50%;background:' + clr.border + ';flex-shrink:0"></span>' +
         '<div style="flex:1">' +
           '<div style="font-size:12px;font-weight:600;color:var(--text)">' + ev.title + '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + (ev.athlete_name||'') + ' · ' + (ev.brand||'') + '</div>' +
         '</div>' +
-        '<div style="font-size:11px;color:var(--muted);text-transform:capitalize">' + (ev.status||'pending') + '</div>' +
+        '<div style="font-size:11px;color:' + clr.fg + ';text-transform:capitalize;font-weight:600">' + (ev.status||'pending') + '</div>' +
       '</div>';
     }).join('');
     panel.style.display = 'block';
@@ -218,15 +282,14 @@ var NILCal = (function () {
       document.body.appendChild(drawer);
     }
 
-    var color  = athleteColor(ev.athlete_id);
-    var d      = ev.event_date ? ev.event_date.split('T')[0] : '—';
-    var today  = new Date().toISOString().split('T')[0];
+    var today   = new Date().toISOString().split('T')[0];
+    var clr     = getEventColor(ev, today);
+    var d       = ev.event_date ? ev.event_date.split('T')[0] : '—';
     var overdue = d !== '—' && d < today && ev.status !== 'completed';
-    var statusColor = ev.status === 'completed' ? '#22c55e' : overdue ? '#ef4444' : '#eab308';
     var statusLabel = ev.status === 'completed' ? 'Completed' : overdue ? 'Overdue' : 'Pending';
 
     drawer.innerHTML =
-      '<div style="height:4px;background:' + color + '"></div>' +
+      '<div style="height:4px;background:' + clr.border + '"></div>' +
       '<div style="padding:20px 22px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">' +
           '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Deliverable Detail</div>' +
@@ -238,7 +301,7 @@ var NILCal = (function () {
         '<div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">' +
           '<div style="display:flex;justify-content:space-between;font-size:12px">' +
             '<span style="color:var(--muted)">Athlete</span>' +
-            '<span style="font-weight:600;color:' + color + '">' + (ev.athlete_name||'—') + '</span>' +
+            '<span style="font-weight:600;color:' + athleteColor(ev.athlete_id) + '">' + (ev.athlete_name||'—') + '</span>' +
           '</div>' +
           '<div style="display:flex;justify-content:space-between;font-size:12px">' +
             '<span style="color:var(--muted)">Brand / Sponsor</span>' +
@@ -246,11 +309,11 @@ var NILCal = (function () {
           '</div>' +
           '<div style="display:flex;justify-content:space-between;font-size:12px">' +
             '<span style="color:var(--muted)">Due Date</span>' +
-            '<span style="font-weight:600;color:' + (overdue ? '#ef4444' : 'var(--fg)') + '">' + d + '</span>' +
+            '<span style="font-weight:600;color:' + clr.fg + '">' + d + '</span>' +
           '</div>' +
           '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px">' +
             '<span style="color:var(--muted)">Status</span>' +
-            '<span id="cal-drawer-status-badge" style="font-weight:700;color:' + statusColor + ';text-transform:capitalize">' + statusLabel + '</span>' +
+            '<span id="cal-drawer-status-badge" style="font-weight:700;color:' + clr.fg + ';text-transform:capitalize">' + statusLabel + '</span>' +
           '</div>' +
           (ev.contract_id ? '<div style="display:flex;justify-content:space-between;font-size:12px">' +
             '<span style="color:var(--muted)">Contract</span>' +
@@ -278,14 +341,19 @@ var NILCal = (function () {
   }
 
   async function markComplete(eventId) {
-    await _patchEventStatus(eventId, 'completed');
+    await _patchEventStatus(eventId, 'completed', true);
   }
 
   async function markPending(eventId) {
-    await _patchEventStatus(eventId, 'pending');
+    await _patchEventStatus(eventId, 'pending', true);
   }
 
-  async function _patchEventStatus(eventId, status) {
+  // setStatus — called from inline list-view dropdown; updates without reopening drawer
+  async function setStatus(eventId, newStatus) {
+    await _patchEventStatus(eventId, newStatus, false);
+  }
+
+  async function _patchEventStatus(eventId, status, reopenDrawer) {
     var ev = null;
     for (var i = 0; i < allEvents.length; i++) {
       if (allEvents[i].id === eventId) { ev = allEvents[i]; break; }
@@ -295,33 +363,44 @@ var NILCal = (function () {
     try {
       var r = await fetch(apiBase + '/api/athletes/' + ev.athlete_id + '/calendar/' + eventId, {
         method: 'PATCH',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: status }),
       });
-      if (!r.ok) throw new Error('Server error');
+      if (!r.ok) throw new Error('Server error ' + r.status);
       // Update local state
       for (var i = 0; i < allEvents.length; i++) {
         if (allEvents[i].id === eventId) { allEvents[i].status = status; break; }
       }
       applyFilters();
       listMode ? renderList() : renderGrid();
-      // Reopen drawer with updated data
-      openDrawer(eventId);
+      if (reopenDrawer) openDrawer(eventId);
     } catch(e) {
-      console.error('Failed to update status', e);
+      console.error('[NILCal] Failed to update status', e);
     }
   }
 
-  // ── Fetch data from server ────────────────────────────────────
+  // ── Fetch ALL agent events from server, applying server-side filters ──────
+  // Bug 2 fix: no longer month-scoped; filter params sent as query string.
+  // Month navigation is now purely client-side (no re-fetch needed).
   async function loadData() {
-    var url = apiBase + '/api/agent/calendar?year=' + calYear + '&month=' + (calMonth + 1);
+    var f = getFilters();
+    var url = apiBase + '/api/agent/calendar';
+    var params = [];
+    if (f.athlete) params.push('athlete_id=' + encodeURIComponent(f.athlete));
+    if (f.brand)   params.push('brand='      + encodeURIComponent(f.brand));
+    // 'overdue' is a client-side concept; don't send it to the server
+    if (f.status && f.status !== 'overdue') params.push('status=' + encodeURIComponent(f.status));
+    if (params.length) url += '?' + params.join('&');
+
+    console.log('[NILCal] loadData', url);
     try {
-      var r = await fetch(url);
-      if (!r.ok) return;
+      var r = await fetch(url, { credentials: 'include' });
+      if (!r.ok) { console.error('[NILCal] load failed', r.status); return; }
       var data = await r.json();
       allEvents   = data.events || [];
       athleteList = data.athleteList || [];
-      // Attach filename from contract if possible (best-effort)
+      console.log('[NILCal] loaded', allEvents.length, 'events,', athleteList.length, 'athletes');
       populateFilters();
       applyFilters();
       listMode ? renderList() : renderGrid();
@@ -340,19 +419,25 @@ var NILCal = (function () {
       return loadData();
     },
     reload: function() { return loadData(); },
+
+    // Month navigation — client-side only (no re-fetch); all events already loaded.
     prevMonth: function() {
       calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; }
-      return loadData();
+      applyFilters(); listMode ? renderList() : renderGrid();
     },
     nextMonth: function() {
       calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; }
-      return loadData();
+      applyFilters(); listMode ? renderList() : renderGrid();
     },
     today: function() {
       calYear = new Date().getFullYear(); calMonth = new Date().getMonth();
-      return loadData();
+      applyFilters(); listMode ? renderList() : renderGrid();
     },
-    applyFilter: function() { applyFilters(); listMode ? renderList() : renderGrid(); },
+
+    // Bug 2 fix: applyFilter now re-fetches from server with current filter params
+    // so athlete/brand/status dropdowns actually filter the data.
+    applyFilter: function() { return loadData(); },
+
     toggleListMode: function() {
       listMode = !listMode;
       var btn = document.getElementById('cal-list-toggle');
@@ -368,6 +453,7 @@ var NILCal = (function () {
     closeDrawer: closeDrawer,
     markComplete: markComplete,
     markPending: markPending,
+    setStatus: setStatus,
     // Legacy shims (keep these so old references don't crash)
     openAddModal: function() {},
     saveEvent: function() {},

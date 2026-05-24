@@ -4303,17 +4303,46 @@ app.get('/api/agent/outreach', requireAuth, async (req, res) => {
 
 // ── POST /api/pdf/save ───────────────────────────────────────────────────
 // Saves PDF Scanner extraction results to DB: contract record + deliverables + calendar events
+
+// Normalize any date string to YYYY-MM-DD for PostgreSQL.
+// Handles: "YYYY-MM-DD", "June 15, 2025", "15 June 2025", "6/15/2025", ISO timestamps, etc.
+function normalizeDateForDB(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  // Already ISO date
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // Strip time if present (e.g. "2025-06-15T00:00:00Z")
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+  // Let JS Date parse human-readable strings ("June 15, 2025", "6/15/2025", etc.)
+  try {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const y = d.getUTCFullYear();
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(d.getUTCDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+  } catch (_) {}
+  console.warn('[pdf/save] Could not parse date:', s);
+  return null;
+}
+
 app.post('/api/pdf/save', requireAuth, async (req, res) => {
   try {
     const { athleteId, filename, brand, deliverables } = req.body;
+    console.log(`[pdf/save] agent=${req.session.userId} athlete=${athleteId} deliverables=${Array.isArray(deliverables) ? deliverables.length : 'none'}`);
+
     if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
     if (!Array.isArray(deliverables) || !deliverables.length)
       return res.status(400).json({ error: 'No deliverables to save' });
 
-    const agentId = req.session.userId;
+    const agentId = String(req.session.userId);
     const athlete = await store.getAthlete(athleteId);
-    if (!athlete || athlete.agentId !== agentId)
-      return res.status(403).json({ error: 'Forbidden' });
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    // Compare as strings to avoid type-mismatch (session userId vs DB agent_id)
+    if (String(athlete.agentId) !== agentId)
+      return res.status(403).json({ error: 'Forbidden — athlete does not belong to this agent' });
 
     const { brandColor } = require('./services/contractExtraction');
     const { toRRule, generateDates } = require('./services/calendarRecurrence');
@@ -4329,9 +4358,11 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
        ON CONFLICT (id) DO NOTHING`,
       [contractId, athleteId, agentId, filename || 'PDF Scanner Upload', contractBrand]
     );
+    console.log(`[pdf/save] contract record created: ${contractId}`);
 
     let savedDeliverables = 0;
     let savedEvents = 0;
+    let skippedDeliverables = 0;
 
     const client = await store.pool.connect();
     try {
@@ -4340,19 +4371,23 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
       for (let i = 0; i < deliverables.length; i++) {
         const d = deliverables[i];
         const desc = (d.description || d.deliverable_description || '').trim();
-        if (!desc) continue;
+        if (!desc) { skippedDeliverables++; continue; }
 
         const recurrence = d.recurrence && d.recurrence !== 'one-time' ? d.recurrence : null;
         const rrule = toRRule(recurrence, d.contract_duration_months || null);
-        const dueDate = d.due_date || null;
+        // Normalize date — handles "June 15, 2025", "YYYY-MM-DD", ISO timestamps, etc.
+        const dueDate = normalizeDateForDB(d.due_date);
         const evBrand = contractBrand;
         const confidence = parseInt(d.confidence_score || d.confidence || 0, 10);
+
+        console.log(`[pdf/save] deliverable[${i}]: "${desc.substring(0,40)}" due=${dueDate || 'none'}`);
 
         const dr = await client.query(
           `INSERT INTO athlete_deliverables
              (athlete_id, agent_id, contract_id, deliverable_description, due_date, brand,
               status, recurrence, recurrence_rule, ai_confidence_score, source, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,'ai_extracted',$10)
+           VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,'pdf_scanner',$10)
+           ON CONFLICT ON CONSTRAINT athlete_deliverables_unique DO NOTHING
            RETURNING id`,
           [athleteId, agentId, contractId, desc, dueDate, evBrand,
            recurrence, rrule, confidence, i]
@@ -4370,13 +4405,16 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
               : [dueDate];
 
             for (const date of dates) {
+              const normalizedDate = normalizeDateForDB(date);
+              if (!normalizedDate) continue;
               const evId = 'evt-' + crypto.randomBytes(8).toString('hex');
               await client.query(
                 `INSERT INTO athlete_calendar_events
                    (id, athlete_id, agent_id, deliverable_id, contract_id, title, event_date,
                     brand, color, status, is_generated, recurrence_instance, manually_modified)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',TRUE,$10,FALSE)`,
-                [evId, athleteId, agentId, deliverableId, contractId, desc, date,
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',TRUE,$10,FALSE)
+                 ON CONFLICT (deliverable_id, event_date) DO NOTHING`,
+                [evId, athleteId, agentId, deliverableId, contractId, desc, normalizedDate,
                  evBrand, color, dates.length > 1]
               );
               savedEvents++;
@@ -4388,15 +4426,24 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
       await client.query('COMMIT');
     } catch (txErr) {
       await client.query('ROLLBACK');
+      console.error('[pdf/save] transaction error:', txErr.message);
       throw txErr;
     } finally {
       client.release();
     }
 
-    res.json({ ok: true, contractId, savedDeliverables, savedEvents, athleteName: athlete.name });
+    console.log(`[pdf/save] done — saved ${savedDeliverables} deliverables, ${savedEvents} events (skipped ${skippedDeliverables})`);
+    res.json({
+      ok: true,
+      contractId,
+      savedDeliverables,
+      savedEvents,
+      skippedDeliverables,
+      athleteName: athlete.name,
+    });
   } catch (e) {
-    console.error('[pdf/save]', e.message);
-    res.status(500).json({ error: e.message });
+    console.error('[pdf/save] ERROR:', e.message, e.stack);
+    res.status(500).json({ error: e.message || 'Save failed' });
   }
 });
 

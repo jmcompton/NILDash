@@ -5918,7 +5918,7 @@ async function savePdfToCalendar() {
     if (!r.ok) throw new Error(result.error || 'Save failed');
 
     saveBtn.textContent = '✓ Saved';
-    saveStatus.innerHTML = `<span style="color:#22c55e">${result.savedDeliverables} deliverable${result.savedDeliverables !== 1 ? 's' : ''} saved to ${athleteName}'s calendar · ${result.savedEvents} calendar event${result.savedEvents !== 1 ? 's' : ''} created</span>`;
+    saveStatus.innerHTML = `<span style="color:#22c55e">${result.savedDeliverables} deliverable${result.savedDeliverables !== 1 ? 's' : ''} saved to ${athleteName}'s calendar · ${result.savedEvents} calendar event${result.savedEvents !== 1 ? 's' : ''} created</span><button onclick="showView('calendar', document.querySelector('.nav-item[onclick*=calendar]'))" style="background:transparent;border:none;color:#6366f1;font-weight:700;cursor:pointer;font-size:12px;padding:0;margin-left:12px;text-decoration:underline">View Calendar →</button>`;
   } catch(e) {
     saveBtn.disabled = false; saveBtn.textContent = 'Save to Calendar →';
     saveStatus.innerHTML = `<span style="color:#ef4444">Save failed: ${e.message}</span>`;
