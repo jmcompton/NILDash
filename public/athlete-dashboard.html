@@ -145,12 +145,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .rate-label{font-size:13px;color:var(--muted)}
 .rate-val{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:var(--accent)}
 
-/* ── Scan / idea / team cards ── */
+/* ── Deal Scan AI block (matches agent portal exactly) ── */
+.ds-ai-block{background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:12px;padding:18px 22px;display:none;margin-bottom:16px}
+.ds-ai-block.visible{display:block}
+.ds-ai-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.ds-ai-label{font-size:10px;color:var(--accent);letter-spacing:1.5px;text-transform:uppercase;font-weight:600}
+.ds-ai-content{font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap;font-family:'DM Sans',sans-serif}
+.ds-spinner{width:12px;height:12px;border:1.5px solid rgba(132,204,22,0.25);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;display:none;flex-shrink:0}
+.ds-run-btn{background:var(--accent);color:#0A0E1A;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;padding:9px 22px;border-radius:40px;border:none;cursor:pointer;transition:all 0.15s;letter-spacing:0.3px}
+.ds-run-btn:hover{background:#6BAE10}
+.ds-run-btn:disabled{opacity:0.5;cursor:not-allowed}
+.ds-refresh-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:border-color 0.15s}
+.ds-refresh-btn:hover{border-color:var(--accent)}
+.ds-refresh-btn:disabled{opacity:0.5;cursor:not-allowed}
+/* ── Idea / team / campaign cards (other views) ── */
 .scan-card,.idea-card,.team-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:15px}
 .scan-brand,.team-name{font-size:15px;font-weight:700;color:var(--text);margin-bottom:3px}
-.scan-industry{font-size:11px;color:var(--accent);margin-bottom:7px}
-.scan-reason,.team-reason{font-size:12px;color:var(--muted);line-height:1.55}
-.scan-actions{margin-top:11px;display:flex;gap:8px}
+.scan-industry{font-size:11px;color:var(--accent);margin-top:3px}
 .team-conference{font-size:11px;color:var(--accent);margin-bottom:7px}
 .team-fit{display:inline-block;margin-top:8px;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;background:var(--accent-glow);color:var(--accent);border:1px solid rgba(132,204,22,0.2)}
 .idea-platform{font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px}
@@ -309,33 +320,24 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="view" id="view-dealscan">
     <div class="page-title">DEAL SCAN</div>
     <div class="page-subtitle">AI-powered brand opportunity discovery tailored to your sport, school, and social presence.</div>
-    <div class="card section-gap">
-      <div class="card-title">Scan Preferences</div>
-      <div class="grid-2">
-        <div class="form-group">
-          <label class="form-label">Deal Type Focus</label>
-          <select class="form-select" id="scan-type">
-            <option value="">Any deal type</option>
-            <option value="Social Media Post">Social Media Posts</option>
-            <option value="Brand Ambassador">Brand Ambassador</option>
-            <option value="Appearance">Appearances</option>
-            <option value="Autograph Signing">Autograph Signings</option>
-            <option value="YouTube/Podcast">YouTube / Podcast</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Budget Range</label>
-          <select class="form-select" id="scan-budget">
-            <option value="">Any budget</option>
-            <option value="under_1k">Under $1,000</option>
-            <option value="1k_5k">$1,000 – $5,000</option>
-            <option value="5k_plus">$5,000+</option>
-          </select>
-        </div>
-      </div>
-      <button class="btn btn-primary" id="scan-btn" onclick="runDealScan()">Scan for Opportunities</button>
+
+    <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+      <button class="ds-refresh-btn" id="scan-refresh-btn" onclick="runDealRefresh()">Refresh</button>
+      <button class="ds-run-btn" id="scan-btn" onclick="runDealScan()">Scan Deals with AI</button>
     </div>
-    <div id="scan-results"></div>
+
+    <div class="ds-ai-block" id="dealscanAI">
+      <div class="ds-ai-header">
+        <div class="ds-spinner" id="dealscanSpinner"></div>
+        <div class="ds-ai-label">AI Deal Scan</div>
+      </div>
+      <div class="ds-ai-content" id="dealscanText">Click "Scan Deals with AI" to find brand opportunities matched to your profile.</div>
+    </div>
+
+    <div id="scan-ranked-label" style="display:none;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">Ranked Opportunities</div>
+    <div id="scan-results" style="display:flex;flex-direction:column;gap:10px">
+      <div style="text-align:center;color:var(--muted);padding:24px;font-size:12px">Run a deal scan to see recommendations</div>
+    </div>
   </div>
 
   <!-- ════ VIEW: RATE CALCULATOR ════ -->
@@ -890,43 +892,132 @@ function scrollChat() {
 // ══════════════════════════════════════════════════════════════════
 // DEAL SCAN
 // ══════════════════════════════════════════════════════════════════
+// ── Deal Scan ──────────────────────────────────────────────────────
+var _athleteDealScanResults = [];
+var _athleteExcludeBrands = [];
+
 async function runDealScan() {
   var btn = document.getElementById('scan-btn');
+  var box = document.getElementById('dealscanAI');
+  var txt = document.getElementById('dealscanText');
+  var spinner = document.getElementById('dealscanSpinner');
+
   btn.disabled = true; btn.textContent = 'Scanning…';
-  var results = document.getElementById('scan-results');
-  results.innerHTML = '<div class="empty-state"><div class="spinner"></div><div class="empty-text" style="margin-top:12px">Finding brand opportunities…</div></div>';
+  box.classList.add('visible');
+  txt.textContent = 'Scanning…';
+  spinner.style.display = 'block';
+  document.getElementById('scan-results').innerHTML = '';
+  document.getElementById('scan-ranked-label').style.display = 'none';
+  console.log('[deal-scan] Starting scan');
 
   try {
     var r = await fetch('/api/athlete/deal-scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
-      body: JSON.stringify({ deal_type: document.getElementById('scan-type').value, budget_range: document.getElementById('scan-budget').value })
+      body: JSON.stringify({ deal_type: '', budget_range: '', exclude_brands: _athleteExcludeBrands })
     });
     var data = await r.json();
     if (!r.ok || data.error) {
-      results.innerHTML = '<div class="empty-state"><div class="empty-text">Scan failed: ' + esc(data.error || 'Unknown error') + '</div></div>';
+      txt.textContent = 'Scan failed: ' + (data.error || 'Unknown error');
       return;
     }
     var opps = data.opportunities || [];
+    _athleteDealScanResults = opps;
+
     if (!opps.length) {
-      results.innerHTML = '<div class="empty-state"><div class="empty-text">No opportunities found. Try adjusting filters.</div></div>';
+      txt.textContent = 'No opportunities found. Try again.';
       return;
     }
-    results.innerHTML = '<div class="grid-3" style="margin-top:16px">' +
-      opps.map(function(o) {
-        var brand = esc(o.brand_name || o.brand || '');
-        return '<div class="scan-card">' +
-          '<div class="scan-brand">' + brand + '</div>' +
-          '<div class="scan-industry">' + esc(o.industry || o.category || '') + '</div>' +
-          '<div class="scan-reason">' + esc(o.reason || o.why || o.sport_relevance || '') + '</div>' +
-          '<div class="scan-actions"><button class="btn btn-primary btn-sm" onclick="prefillOutreach(\'' + brand.replace(/\\/g,'\\\\').replace(/'/g,"\\'") + '\')">Reach Out</button></div>' +
-        '</div>';
-      }).join('') + '</div>';
+    txt.textContent = 'Found ' + opps.length + ' ranked opportunities. Top pick: ' + esc(opps[0].brand_name || opps[0].brand || '') + '.';
+    renderAthleteDealsTable(opps);
   } catch(e) {
-    results.innerHTML = '<div class="empty-state"><div class="empty-text">Network error. Please try again.</div></div>';
+    txt.textContent = 'Connection error. Please try again.';
+    console.error('[deal-scan] error:', e);
   } finally {
-    btn.disabled = false; btn.textContent = 'Scan for Opportunities';
+    btn.disabled = false; btn.textContent = 'Scan Deals with AI';
+    spinner.style.display = 'none';
   }
+}
+
+async function runDealRefresh() {
+  var btn = document.getElementById('scan-refresh-btn');
+  btn.disabled = true; btn.textContent = 'Refreshing…';
+  _athleteExcludeBrands = _athleteDealScanResults.map(function(d){ return d.brand_name || d.brand || ''; }).filter(Boolean);
+  await runDealScan();
+  _athleteExcludeBrands = [];
+  btn.disabled = false; btn.textContent = 'Refresh';
+}
+
+function renderAthleteDealsTable(recs) {
+  var container = document.getElementById('scan-results');
+  var label = document.getElementById('scan-ranked-label');
+  if (!recs || !recs.length) {
+    container.innerHTML = '<div style="text-align:center;color:var(--muted);padding:24px;font-size:12px">No opportunities found.</div>';
+    label.style.display = 'none';
+    return;
+  }
+  label.style.display = 'block';
+  var catColors = {
+    'local':'rgba(132,204,22,0.15);color:var(--accent)',
+    'food':'rgba(245,158,11,0.15);color:#f59e0b',
+    'restaurant':'rgba(245,158,11,0.15);color:#f59e0b',
+    'auto':'rgba(59,130,246,0.15);color:#60a5fa',
+    'gym':'rgba(239,68,68,0.15);color:#f87171',
+    'finance':'rgba(16,185,129,0.15);color:#34d399',
+    'bank':'rgba(16,185,129,0.15);color:#34d399'
+  };
+  var dealTypeMap = {
+    'post':'IG Post','reel':'IG Reel','ambassador':'Ambassador','appearance':'Appearance',
+    'licensing':'Licensing','tiktok':'TikTok','youtube':'YouTube',
+    'Social Media Post':'Social Post','Brand Ambassador':'Ambassador','Appearance':'Appearance',
+    'Autograph Signing':'Autograph'
+  };
+  container.innerHTML = recs.map(function(d, i) {
+    var brand = d.brand_name || d.brand || 'Brand';
+    var score = d.fitScore || d.fit_score || 80;
+    var scoreColor = score >= 85 ? 'var(--accent)' : score >= 70 ? '#f59e0b' : 'var(--muted)';
+    var isTop = i === 0;
+    var isLocal = d.isLocal || ((d.category || '').toLowerCase() === 'local');
+    var timingNote = d.timingNote || d.timing || '';
+    var timingUrgent = timingNote && /now|open|peak|spring/i.test(timingNote);
+    var timingShort = timingNote.length > 70 ? timingNote.substring(0, 70) + '…' : timingNote;
+    var dealType = d.dealType || d.deal_type || '';
+    var dealTypeLabel = dealTypeMap[dealType] || dealType || 'Post';
+    var cat = (d.category || '').toLowerCase();
+    var catStyle = catColors[cat] || 'rgba(255,255,255,0.06);color:var(--muted)';
+    var brandSafe = brand.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+
+    return '<div style="background:var(--surface2);border:1px solid ' + (isTop ? 'rgba(132,204,22,0.3)' : 'var(--border)') + ';border-radius:12px;padding:18px 20px">' +
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:220px">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+            '<span style="font-size:11px;color:var(--muted)">#' + (d.rank || i + 1) + '</span>' +
+            '<span style="font-size:15px;font-weight:700;color:var(--text)">' + esc(brand) + '</span>' +
+            (isLocal ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.15);color:var(--accent);font-weight:700">LOCAL</span>' : '') +
+            (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:var(--accent);border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
+          '</div>' +
+          '<div style="font-size:12px;color:var(--text);margin-bottom:8px;line-height:1.5;font-weight:500">' + esc(d.campaign || '') + '</div>' +
+          '<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">' + esc(d.rationale || d.reason || d.why || d.sport_relevance || '') + '</div>' +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
+            (d.category ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
+            (dealTypeLabel ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.06);color:var(--muted)">' + esc(dealTypeLabel) + '</span>' : '') +
+            (timingShort ? (timingUrgent
+              ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#f59e0b">' + esc(timingShort) + '</span>'
+              : '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--muted)">' + esc(timingShort) + '</span>') : '') +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:130px">' +
+          '<div style="display:flex;align-items:center;gap:5px">' +
+            '<div style="width:52px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden">' +
+              '<div style="width:' + score + '%;height:100%;background:' + scoreColor + ';border-radius:2px"></div>' +
+            '</div>' +
+            '<span style="font-size:12px;color:' + scoreColor + ';font-weight:700">' + score + '</span>' +
+          '</div>' +
+          '<button onclick="prefillOutreach(\'' + brandSafe + '\')" style="padding:8px 14px;background:var(--accent);color:#0A0E1A;border:none;border-radius:40px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Write Outreach</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
 }
 
 function prefillOutreach(brandName) {
