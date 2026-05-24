@@ -403,6 +403,31 @@ var NILCal = (function () {
       console.log('[NILCal] loaded', allEvents.length, 'events,', athleteList.length, 'athletes');
       populateFilters();
       applyFilters();
+
+      // Auto-navigate to the most relevant month if the current month is empty.
+      // Priority: earliest upcoming event, then most recent past event.
+      if (!listMode && filteredEvents.length > 0) {
+        var todayStr = new Date().toISOString().split('T')[0];
+        var currentMonthHasEvents = filteredEvents.some(function(ev) {
+          if (!ev.event_date) return false;
+          var d = ev.event_date.split('T')[0];
+          return d.startsWith(calYear + '-' + pad(calMonth + 1));
+        });
+        if (!currentMonthHasEvents) {
+          // Find first upcoming event, falling back to first event overall
+          var target = null;
+          for (var i = 0; i < filteredEvents.length; i++) {
+            var evDate = filteredEvents[i].event_date ? filteredEvents[i].event_date.split('T')[0] : null;
+            if (!evDate) continue;
+            if (evDate >= todayStr) { target = evDate; break; }  // first upcoming
+          }
+          if (!target) target = filteredEvents[0].event_date.split('T')[0]; // fall back to first
+          calYear  = parseInt(target.split('-')[0]);
+          calMonth = parseInt(target.split('-')[1]) - 1;
+          console.log('[NILCal] auto-navigated to', MONTHS[calMonth], calYear);
+        }
+      }
+
       listMode ? renderList() : renderGrid();
     } catch(e) {
       console.error('[NILCal] load error', e);
