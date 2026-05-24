@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NILDash — My Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1117;--surface:#1a1d27;--surface2:#22263a;--border:#2a2f45;
+  --text:#f1f5f9;--muted:#64748b;--accent:#16a34a;--accent-light:#22c55e;
+  --red:#ef4444;--orange:#f97316;--yellow:#eab308;--green:#22c55e;
+}
+body{font-family:Inter,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* Header */
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:56px;position:sticky;top:0;z-index:100}
+.header-left{display:flex;align-items:center;gap:16px}
+.logo{font-size:18px;font-weight:800;color:var(--text)}
+.logo span{color:var(--accent-light)}
+.portal-badge{font-size:10px;font-weight:700;color:var(--accent-light);background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);padding:3px 8px;border-radius:40px;letter-spacing:0.08em;text-transform:uppercase}
+.header-right{display:flex;align-items:center;gap:12px}
+.athlete-info{text-align:right}
+.athlete-name{font-size:13px;font-weight:600;color:var(--text)}
+.athlete-meta{font-size:11px;color:var(--muted)}
+.signout-btn{padding:6px 14px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:12px;cursor:pointer;font-family:Inter,sans-serif;transition:all 0.15s}
+.signout-btn:hover{border-color:var(--red);color:var(--red)}
+
+/* Layout */
+.main{max-width:1100px;margin:0 auto;padding:28px 24px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+.card.full-width{grid-column:1/-1}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.card-title{font-size:13px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:0.06em}
+.card-icon{font-size:16px}
+
+/* Welcome hero */
+.welcome-card{grid-column:1/-1;background:linear-gradient(135deg,#064e3b 0%,#065f46 60%,#16a34a 100%);border:none;padding:28px 28px}
+.welcome-name{font-size:28px;font-weight:800;color:#fff;margin-bottom:4px}
+.welcome-sub{font-size:14px;color:rgba(255,255,255,0.7)}
+.welcome-agent{font-size:12px;color:rgba(255,255,255,0.5);margin-top:8px}
+.welcome-stats{display:flex;gap:20px;margin-top:20px;flex-wrap:wrap}
+.welcome-stat{background:rgba(255,255,255,0.1);border-radius:8px;padding:10px 16px}
+.welcome-stat-val{font-size:20px;font-weight:800;color:#fff}
+.welcome-stat-label{font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px}
+
+/* KPI tiles */
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:0}
+.kpi{background:var(--surface2);border-radius:8px;padding:14px}
+.kpi-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px}
+.kpi-value{font-size:22px;font-weight:800;color:var(--accent-light)}
+.kpi-sub{font-size:11px;color:var(--muted);margin-top:2px}
+
+/* Calendar items */
+.cal-item{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)}
+.cal-item:last-child{border-bottom:none}
+.cal-date{width:44px;flex-shrink:0;text-align:center;background:var(--surface2);border-radius:6px;padding:4px 6px}
+.cal-date-month{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase}
+.cal-date-day{font-size:18px;font-weight:800;color:var(--text);line-height:1}
+.cal-info{flex:1;min-width:0}
+.cal-title{font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-brand{font-size:11px;color:var(--muted);margin-top:2px}
+.cal-status{font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;flex-shrink:0;align-self:flex-start;margin-top:1px}
+.status-overdue{background:rgba(239,68,68,0.12);color:var(--red)}
+.status-upcoming{background:rgba(249,115,22,0.12);color:var(--orange)}
+.status-pending{background:rgba(100,116,139,0.12);color:var(--muted)}
+.status-completed{background:rgba(34,197,94,0.12);color:var(--green)}
+
+/* Outreach */
+.outreach-form{display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px}
+.field-sm{margin-bottom:12px}
+.field-sm label{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:0.06em}
+.field-sm input,.field-sm textarea{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text);background:var(--surface2);outline:none;font-family:Inter,sans-serif;transition:border-color 0.15s}
+.field-sm textarea{resize:vertical;min-height:90px}
+.field-sm input:focus,.field-sm textarea:focus{border-color:var(--accent)}
+.btn-green{padding:9px 18px;background:var(--accent);border:none;border-radius:8px;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:Inter,sans-serif}
+.btn-green:hover{background:#15803d}
+.btn-green:disabled{opacity:0.5;cursor:not-allowed}
+.btn-outline{padding:9px 18px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.btn-sm{padding:6px 12px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:Inter,sans-serif}
+
+/* Outreach table */
+.outreach-table{width:100%;border-collapse:collapse;font-size:12px}
+.outreach-table th{text-align:left;padding:8px 10px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid var(--border)}
+.outreach-table td{padding:9px 10px;border-bottom:1px solid var(--border);color:var(--text)}
+.outreach-table tr:last-child td{border-bottom:none}
+.status-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;display:inline-block}
+.badge-sent{background:rgba(59,130,246,0.12);color:#60a5fa}
+.badge-responded{background:rgba(34,197,94,0.12);color:var(--green)}
+.badge-declined{background:rgba(100,116,139,0.12);color:var(--muted)}
+.badge-pending{background:rgba(234,179,8,0.12);color:var(--yellow)}
+
+/* Loading */
+.loading-screen{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:12px}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:13px;color:var(--muted)}
+
+/* Empty state */
+.empty{text-align:center;padding:32px 16px;color:var(--muted);font-size:12px}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 18px;font-size:13px;color:var(--text);z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div class="loading-screen" id="loading-screen">
+  <div class="spinner"></div>
+  <div class="loading-text">Loading your dashboard…</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <div class="logo">NIL<span>Dash</span></div>
+    <div class="portal-badge">Athlete Portal</div>
+  </div>
+  <div class="header-right">
+    <div class="athlete-info">
+      <div class="athlete-name" id="h-name">—</div>
+      <div class="athlete-meta" id="h-meta">—</div>
+    </div>
+    <button class="signout-btn" onclick="signOut()">Sign Out</button>
+  </div>
+</div>
+
+<!-- Main content -->
+<div class="main" id="main-content" style="display:none">
+
+  <!-- Welcome card -->
+  <div class="card welcome-card">
+    <div class="welcome-name" id="w-name">Welcome back!</div>
+    <div class="welcome-sub" id="w-sport"></div>
+    <div class="welcome-agent" id="w-agent"></div>
+    <div class="welcome-stats" id="w-stats"></div>
+  </div>
+
+  <!-- NIL Value -->
+  <div class="card" id="card-rate" style="display:none">
+    <div class="card-header">
+      <div class="card-title">My NIL Value</div>
+      <div class="card-icon">💰</div>
+    </div>
+    <div class="kpi-grid" id="rate-content">
+      <div class="kpi"><div class="kpi-label">IG Reel Rate</div><div class="kpi-value" id="rate-val">—</div><div class="kpi-sub">Estimated per post</div></div>
+      <div class="kpi"><div class="kpi-label">IG Story Rate</div><div class="kpi-value" id="story-val">—</div><div class="kpi-sub">Estimated per story</div></div>
+    </div>
+  </div>
+
+  <!-- Deliverables Calendar -->
+  <div class="card" id="card-calendar">
+    <div class="card-header">
+      <div class="card-title">📅 My Deliverables</div>
+    </div>
+    <div id="cal-content"><div class="empty">Loading…</div></div>
+  </div>
+
+  <!-- Brand Outreach -->
+  <div class="card full-width">
+    <div class="card-header">
+      <div class="card-title">📨 Brand Outreach</div>
+      <button class="btn-sm" onclick="toggleOutreachForm()">+ New Outreach</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Find sponsorship opportunities and reach out to brands directly. Your agent can see all outreach you send.</div>
+
+    <!-- New outreach form (hidden by default) -->
+    <div class="outreach-form" id="outreach-form">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field-sm" style="grid-column:1/-1">
+          <label>Brand Name *</label>
+          <input type="text" id="o-brand" placeholder="e.g. Nike, Gatorade, Under Armour">
+        </div>
+        <div class="field-sm">
+          <label>Brand Website</label>
+          <input type="url" id="o-website" placeholder="https://brand.com">
+        </div>
+        <div class="field-sm">
+          <label>Contact Email</label>
+          <input type="email" id="o-email" placeholder="partnerships@brand.com">
+        </div>
+        <div class="field-sm" style="grid-column:1/-1">
+          <label>Why is this brand a good fit?</label>
+          <input type="text" id="o-relevance" placeholder="e.g. I'm a basketball player and they make top-tier basketball shoes">
+        </div>
+        <div class="field-sm" style="grid-column:1/-1">
+          <label>Message to Send *</label>
+          <textarea id="o-message" placeholder="Write your outreach message here, or use the AI Draft button below…"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-outline" onclick="aiDraftOutreach()" id="ai-draft-btn">✨ AI Draft</button>
+        <button class="btn-green" onclick="sendOutreach()" id="send-btn">SEND OUTREACH</button>
+        <button class="btn-outline" onclick="toggleOutreachForm()">Cancel</button>
+      </div>
+      <div id="outreach-status" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+    </div>
+
+    <!-- Outreach history -->
+    <div id="outreach-list" style="margin-top:4px"><div class="empty">No outreach sent yet. Start reaching out to brands!</div></div>
+  </div>
+
+</div>
+
+<script>
+var athleteToken = localStorage.getItem('athlete_token');
+var athleteUser  = null;
+try { athleteUser = JSON.parse(localStorage.getItem('athlete_user') || 'null'); } catch(e) {}
+
+// ── Auth check ────────────────────────────────────────────────────
+if (!athleteToken) {
+  window.location.href = '/athlete-login.html';
+} else {
+  // Check token not expired
+  try {
+    var payload = JSON.parse(atob(athleteToken.split('.')[1]));
+    if (payload.exp && payload.exp * 1000 < Date.now()) {
+      localStorage.removeItem('athlete_token');
+      localStorage.removeItem('athlete_user');
+      window.location.href = '/athlete-login.html';
+    }
+  } catch(e) {
+    window.location.href = '/athlete-login.html';
+  }
+}
+
+var MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// ── Load dashboard ────────────────────────────────────────────────
+async function loadDashboard() {
+  try {
+    var r = await fetch('/api/athlete/me', {
+      headers: { 'Authorization': 'Bearer ' + athleteToken }
+    });
+    if (r.status === 401) { signOut(); return; }
+    var data = await r.json();
+    if (data.error) { showToast('Error: ' + data.error); return; }
+    renderDashboard(data);
+  } catch(e) {
+    showToast('Failed to load dashboard. Please refresh.');
+  } finally {
+    document.getElementById('loading-screen').style.display = 'none';
+    document.getElementById('main-content').style.display = 'grid';
+  }
+}
+
+function renderDashboard(data) {
+  var firstName = (data.name || '').split(' ')[0] || 'Athlete';
+
+  // Header
+  document.getElementById('h-name').textContent = data.name || '—';
+  document.getElementById('h-meta').textContent = [data.sport, data.school].filter(Boolean).join(' · ') || '—';
+  document.title = firstName + ' — NILDash';
+
+  // Welcome card
+  document.getElementById('w-name').textContent = 'Welcome back, ' + firstName + '!';
+  document.getElementById('w-sport').textContent = [data.sport, data.school].filter(Boolean).join(' · ');
+  var agentStr = '';
+  if (data.agent_name) { agentStr = 'Powered by ' + data.agent_name; if (data.agency_name) agentStr += ' at ' + data.agency_name; }
+  document.getElementById('w-agent').textContent = agentStr;
+
+  // Welcome stats
+  var deliverables = data.deliverables || [];
+  var today = new Date().toISOString().split('T')[0];
+  var overdue = deliverables.filter(function(d){ return d.event_date && d.event_date.split('T')[0] < today && d.status !== 'completed'; }).length;
+  var upcoming = deliverables.filter(function(d){ var dt = d.event_date ? d.event_date.split('T')[0] : null; return dt && dt >= today; }).length;
+  var completed = deliverables.filter(function(d){ return d.status === 'completed'; }).length;
+  document.getElementById('w-stats').innerHTML =
+    stat(overdue, 'Overdue', '#ef4444') +
+    stat(upcoming, 'Upcoming', '#22c55e') +
+    stat(completed, 'Completed', '#64748b');
+
+  // Calendar
+  renderCalendar(deliverables);
+
+  // NIL Rate (if visibility allows — show a placeholder since we can't call the rate API from JWT)
+  if (data.visibility && data.visibility.rate) {
+    document.getElementById('card-rate').style.display = 'block';
+    if (data.followers_ig) {
+      var ig = parseInt(data.followers_ig) || 0;
+      var low = Math.round(ig * 0.01 / 10) * 10;
+      var high = Math.round(ig * 0.03 / 10) * 10;
+      document.getElementById('rate-val').textContent = low > 0 ? '$' + low.toLocaleString() + '–$' + high.toLocaleString() : '—';
+      document.getElementById('story-val').textContent = low > 0 ? '$' + Math.round(low * 0.4).toLocaleString() + '–$' + Math.round(high * 0.4).toLocaleString() : '—';
+    }
+  }
+
+  // Load outreach history
+  loadOutreachHistory();
+}
+
+function stat(val, label, color) {
+  return '<div class="welcome-stat"><div class="welcome-stat-val" style="color:' + color + '">' + val + '</div><div class="welcome-stat-label">' + label + '</div></div>';
+}
+
+function renderCalendar(deliverables) {
+  var el = document.getElementById('cal-content');
+  if (!deliverables.length) {
+    el.innerHTML = '<div class="empty">No upcoming deliverables found.</div>';
+    return;
+  }
+  var today = new Date().toISOString().split('T')[0];
+  var html = deliverables.map(function(d) {
+    var dateStr = d.event_date ? d.event_date.split('T')[0] : null;
+    var dateObj  = dateStr ? new Date(dateStr + 'T00:00:00') : null;
+    var mon  = dateObj ? MONTHS_SHORT[dateObj.getMonth()] : '—';
+    var day  = dateObj ? dateObj.getDate() : '—';
+    var isOverdue = dateStr && dateStr < today && d.status !== 'completed';
+    var isCompleted = d.status === 'completed';
+    var statusClass = isCompleted ? 'status-completed' : isOverdue ? 'status-overdue' : dateStr && isWithin7Days(dateStr, today) ? 'status-upcoming' : 'status-pending';
+    var statusLabel = isCompleted ? 'Done' : isOverdue ? 'Overdue' : 'Upcoming';
+    return '<div class="cal-item">' +
+      '<div class="cal-date"><div class="cal-date-month">' + mon + '</div><div class="cal-date-day">' + day + '</div></div>' +
+      '<div class="cal-info"><div class="cal-title">' + (d.title || '—') + '</div><div class="cal-brand">' + (d.brand || '') + '</div></div>' +
+      '<div class="cal-status ' + statusClass + '">' + statusLabel + '</div>' +
+    '</div>';
+  }).join('');
+  el.innerHTML = html;
+}
+
+function isWithin7Days(dateStr, today) {
+  var due = new Date(dateStr + 'T00:00:00');
+  var now = new Date(today + 'T00:00:00');
+  var diff = (due - now) / (1000 * 60 * 60 * 24);
+  return diff >= 0 && diff <= 7;
+}
+
+// ── Outreach ──────────────────────────────────────────────────────
+var outreachFormOpen = false;
+
+function toggleOutreachForm() {
+  outreachFormOpen = !outreachFormOpen;
+  document.getElementById('outreach-form').style.display = outreachFormOpen ? 'block' : 'none';
+  if (!outreachFormOpen) clearOutreachForm();
+}
+
+function clearOutreachForm() {
+  ['o-brand','o-website','o-email','o-relevance','o-message'].forEach(function(id) {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('outreach-status').textContent = '';
+}
+
+async function aiDraftOutreach() {
+  var brand = document.getElementById('o-brand').value.trim();
+  var website = document.getElementById('o-website').value.trim();
+  var relevance = document.getElementById('o-relevance').value.trim();
+  if (!brand) { showToast('Enter a brand name first'); return; }
+
+  var btn = document.getElementById('ai-draft-btn');
+  btn.disabled = true; btn.textContent = '✨ Drafting…';
+
+  try {
+    var r = await fetch('/api/athlete/ai-draft-outreach', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + athleteToken },
+      body: JSON.stringify({ brand_name: brand, brand_website: website, sport_relevance: relevance }),
+    });
+    var data = await r.json();
+    if (data.draft) document.getElementById('o-message').value = data.draft;
+    else showToast('AI draft failed — try again');
+  } catch(e) { showToast('AI draft failed'); }
+  finally { btn.disabled = false; btn.textContent = '✨ AI Draft'; }
+}
+
+async function sendOutreach() {
+  var brand   = document.getElementById('o-brand').value.trim();
+  var message = document.getElementById('o-message').value.trim();
+  var statusEl = document.getElementById('outreach-status');
+  if (!brand || !message) { statusEl.textContent = 'Brand name and message are required.'; statusEl.style.color = '#ef4444'; return; }
+
+  var btn = document.getElementById('send-btn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  statusEl.textContent = '';
+
+  try {
+    var r = await fetch('/api/athlete/outreach', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer ' + athleteToken },
+      body: JSON.stringify({
+        brand_name: brand,
+        brand_website: document.getElementById('o-website').value.trim() || null,
+        brand_contact_email: document.getElementById('o-email').value.trim() || null,
+        sport_relevance: document.getElementById('o-relevance').value.trim() || null,
+        message_sent: message,
+      }),
+    });
+    var data = await r.json();
+    if (!r.ok) { statusEl.textContent = data.error || 'Failed to send.'; statusEl.style.color = '#ef4444'; btn.disabled = false; btn.textContent = 'SEND OUTREACH'; return; }
+    showToast('Outreach sent to ' + brand + '!');
+    toggleOutreachForm();
+    loadOutreachHistory();
+  } catch(e) {
+    statusEl.textContent = 'Network error. Please try again.'; statusEl.style.color = '#ef4444';
+    btn.disabled = false; btn.textContent = 'SEND OUTREACH';
+  }
+}
+
+async function loadOutreachHistory() {
+  try {
+    var r = await fetch('/api/athlete/outreach', {
+      headers: { 'Authorization': 'Bearer ' + athleteToken }
+    });
+    var data = await r.json();
+    var list = data.outreach || [];
+    var el = document.getElementById('outreach-list');
+    if (!list.length) {
+      el.innerHTML = '<div class="empty">No outreach sent yet. Start reaching out to brands!</div>';
+      return;
+    }
+    el.innerHTML = '<table class="outreach-table"><thead><tr>' +
+      '<th>Brand</th><th>Date Sent</th><th>Status</th><th>Agent</th>' +
+      '</tr></thead><tbody>' +
+      list.map(function(o) {
+        var dateStr = o.created_at ? new Date(o.created_at).toLocaleDateString() : '—';
+        var statusBadge = statusBadgeHtml(o);
+        var agentApproval = o.requires_approval
+          ? (o.agent_approved === true ? '<span style="color:#22c55e;font-size:11px">✓ Approved</span>'
+             : o.agent_approved === false ? '<span style="color:#ef4444;font-size:11px">✗ Rejected</span>'
+             : '<span style="color:#eab308;font-size:11px">Pending</span>')
+          : '<span style="color:var(--muted);font-size:11px">—</span>';
+        return '<tr title="' + (o.message_sent || '').replace(/"/g,'&quot;').substring(0,120) + '…">' +
+          '<td style="font-weight:600">' + (o.brand_name || '—') + '</td>' +
+          '<td style="color:var(--muted)">' + dateStr + '</td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td>' + agentApproval + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table>';
+  } catch(e) {
+    document.getElementById('outreach-list').innerHTML = '<div class="empty">Failed to load outreach history.</div>';
+  }
+}
+
+function statusBadgeHtml(o) {
+  var map = {
+    sent: ['badge-sent','Sent'],
+    responded: ['badge-responded','Responded'],
+    declined: ['badge-declined','Declined'],
+    deal_started: ['badge-responded','Deal Started'],
+    opened: ['badge-sent','Opened'],
+  };
+  var cls = (map[o.status] || ['badge-sent','Sent']);
+  if (o.requires_approval && o.agent_approved === null) cls = ['badge-pending','Pending Approval'];
+  return '<span class="status-badge ' + cls[0] + '">' + cls[1] + '</span>';
+}
+
+// ── Utilities ─────────────────────────────────────────────────────
+function signOut() {
+  localStorage.removeItem('athlete_token');
+  localStorage.removeItem('athlete_user');
+  window.location.href = '/athlete-login.html';
+}
+
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 3000);
+}
+
+// ── Start ─────────────────────────────────────────────────────────
+loadDashboard();
+</script>
+</body>
+</html>

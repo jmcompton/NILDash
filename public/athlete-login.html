@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NILDash — Athlete Sign In</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,sans-serif;min-height:100vh;display:flex;background:#0f1117}
+.left{width:420px;min-height:100vh;background:linear-gradient(145deg,#064e3b 0%,#065f46 40%,#047857 100%);padding:48px 40px;display:flex;flex-direction:column;justify-content:space-between;flex-shrink:0}
+.right{flex:1;display:flex;align-items:center;justify-content:center;padding:32px;background:#f8fafc;min-height:100vh}
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:48px}
+.brand-icon{width:36px;height:36px;background:rgba(255,255,255,0.15);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff}
+.brand-name{font-size:20px;font-weight:700;color:#fff}
+.brand-sub{font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;text-transform:uppercase;margin-top:1px}
+.hero-headline{font-size:32px;font-weight:800;color:#fff;line-height:1.2;margin-bottom:24px;letter-spacing:-0.5px}
+.hero-bullets{display:flex;flex-direction:column;gap:14px}
+.hero-bullet{display:flex;align-items:center;gap:12px;font-size:14px;color:rgba(255,255,255,0.85)}
+.hero-bullet-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;flex-shrink:0}
+.left-footer{font-size:11px;color:rgba(255,255,255,0.3)}
+.form-card{width:100%;max-width:420px}
+.form-logo{font-size:22px;font-weight:700;color:#111;margin-bottom:20px}
+.form-logo span{color:#16a34a}
+.form-title{font-size:26px;font-weight:800;color:#111;margin-bottom:6px}
+.form-sub{font-size:14px;color:#6b7280;margin-bottom:28px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:5px}
+.field input{width:100%;padding:11px 14px;border:1.5px solid #e5e7eb;border-radius:10px;font-size:14px;color:#111;background:#fff;outline:none;font-family:Inter,sans-serif;transition:border-color 0.15s}
+.field input:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,0.08)}
+.pass-wrap{position:relative}
+.pass-wrap input{padding-right:42px}
+.pass-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9ca3af;font-size:13px;padding:4px}
+.submit-btn{width:100%;padding:14px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:Inter,sans-serif;letter-spacing:0.02em;transition:background 0.15s,opacity 0.15s;margin-top:4px}
+.submit-btn:hover{background:#15803d}
+.submit-btn:disabled{opacity:0.5;cursor:not-allowed}
+.divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:#d1d5db;font-size:12px}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:#e5e7eb}
+.info-box{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;font-size:13px;color:#6b7280;line-height:1.5}
+.forgot{text-align:center;margin-top:12px;font-size:12px}
+.forgot a{color:#16a34a;text-decoration:none;font-weight:500}
+.form-error{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;color:#dc2626;margin-bottom:12px;display:none}
+.spinner{width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;display:inline-block;vertical-align:middle;margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:768px){.left{display:none}.right{padding:24px 20px;background:#fff}body{background:#fff}}
+</style>
+</head>
+<body>
+
+<div class="left">
+  <div>
+    <div class="brand">
+      <div class="brand-icon">N</div>
+      <div>
+        <div class="brand-name">NILDash</div>
+        <div class="brand-sub">Athlete Portal</div>
+      </div>
+    </div>
+    <div class="hero-headline">Your NIL Journey<br>Starts Here</div>
+    <div class="hero-bullets">
+      <div class="hero-bullet"><div class="hero-bullet-dot"></div>Know your market value</div>
+      <div class="hero-bullet"><div class="hero-bullet-dot"></div>Track your deals & deliverables</div>
+      <div class="hero-bullet"><div class="hero-bullet-dot"></div>Stay compliant & get discovered</div>
+    </div>
+  </div>
+  <div class="left-footer">© 2025 NILDash · Athlete Portal</div>
+</div>
+
+<div class="right">
+  <div class="form-card">
+    <div class="form-logo">NIL<span>Dash</span></div>
+    <div class="form-title">Athlete Sign In</div>
+    <div class="form-sub">Access your NIL dashboard</div>
+
+    <div class="form-error" id="form-error"></div>
+
+    <div class="field">
+      <label>Email Address</label>
+      <input type="email" id="f-email" placeholder="your@email.com" autocomplete="email" onkeydown="if(event.key==='Enter')signIn()">
+    </div>
+
+    <div class="field">
+      <label>Password</label>
+      <div class="pass-wrap">
+        <input type="password" id="f-pass" placeholder="Your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')signIn()">
+        <button class="pass-toggle" onclick="togglePass()" type="button">👁</button>
+      </div>
+    </div>
+
+    <button class="submit-btn" id="submit-btn" onclick="signIn()">Sign In</button>
+
+    <div class="forgot"><a href="#" onclick="showForgot();return false">Forgot your password?</a></div>
+
+    <div class="divider">or</div>
+
+    <div class="info-box">
+      <strong>Don't have an account?</strong> You need an invite from your agent to get started.<br>
+      <span style="color:#9ca3af">Contact your agent if you need a new invite link.</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// Redirect if already logged in
+var existing = localStorage.getItem('athlete_token');
+if (existing) {
+  try {
+    var payload = JSON.parse(atob(existing.split('.')[1]));
+    if (payload.exp && payload.exp * 1000 > Date.now()) {
+      window.location.href = '/athlete-dashboard.html';
+    }
+  } catch(e) { localStorage.removeItem('athlete_token'); }
+}
+
+function togglePass() {
+  var inp = document.getElementById('f-pass');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function showForgot() {
+  alert('To reset your password, contact your agent and ask them to send you a new invite link.');
+}
+
+async function signIn() {
+  var email = document.getElementById('f-email').value.trim();
+  var pass  = document.getElementById('f-pass').value;
+  var errEl = document.getElementById('form-error');
+  errEl.style.display = 'none';
+
+  if (!email || !pass) {
+    errEl.textContent = 'Please enter your email and password.';
+    errEl.style.display = 'block'; return;
+  }
+
+  var btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Signing in…';
+
+  try {
+    var r = await fetch('/api/athlete/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email: email, password: pass }),
+    });
+    var data = await r.json();
+    if (!r.ok) {
+      errEl.textContent = data.error || 'Invalid email or password';
+      errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Sign In'; return;
+    }
+    localStorage.setItem('athlete_token', data.token);
+    localStorage.setItem('athlete_user', JSON.stringify(data.athlete));
+    window.location.href = '/athlete-dashboard.html';
+  } catch(e) {
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Sign In';
+  }
+}
+</script>
+</body>
+</html>

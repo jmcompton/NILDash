@@ -2520,6 +2520,434 @@ app.get('/athlete-signup', (req, res) => {
   res.sendFile(require('path').join(__dirname, '..', 'public', 'athlete-signup.html'));
 });
 
+// ══════════════════════════════════════════════════════════════════
+// ATHLETE SELF-SERVE AUTH ROUTES (JWT-based, separate from session auth)
+// ══════════════════════════════════════════════════════════════════
+const jwt = require('jsonwebtoken');
+const ATHLETE_JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'nildash-athlete-secret';
+
+// Middleware: verify athlete JWT from Authorization: Bearer header
+function verifyAthleteToken(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Athlete token required' });
+  try {
+    const decoded = jwt.verify(auth.slice(7), ATHLETE_JWT_SECRET);
+    if (decoded.role !== 'athlete') return res.status(403).json({ error: 'Not an athlete token' });
+    req.athlete = decoded;
+    next();
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
+// GET /api/athlete/verify-token/:token — public
+app.get('/api/athlete/verify-token/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const r = await store.pool.query(
+      `SELECT ait.*, a.data, a.agent_id,
+              a.data->>'name' as athlete_name,
+              a.data->>'sport' as sport,
+              a.data->>'school' as school,
+              a.data->>'position' as position,
+              u.name as agent_name,
+              u.data->>'agency_name' as agency_name
+       FROM athlete_invite_tokens ait
+       JOIN athletes a ON ait.athlete_id = a.id
+       LEFT JOIN users u ON a.agent_id = u.id
+       WHERE ait.token = $1`,
+      [token]
+    );
+    if (!r.rows.length) return res.json({ valid: false, message: 'This invite link is invalid or has expired. Contact your agent for a new link.' });
+    const row = r.rows[0];
+    if (row.used) return res.json({ valid: false, message: 'This invite link has already been used. Try logging in instead.' });
+    if (new Date(row.expires_at) < new Date()) return res.json({ valid: false, message: 'This invite link has expired. Contact your agent for a new link.' });
+
+    // Extract first/last name from data
+    const fullName = row.athlete_name || '';
+    const nameParts = fullName.trim().split(/\s+/);
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+
+    res.json({
+      valid: true,
+      athlete: { first_name: firstName, last_name: lastName, sport: row.sport, school: row.school, position: row.position, full_name: fullName },
+      agent: { name: row.agent_name || 'Your Agent', agency_name: row.agency_name || '' },
+    });
+  } catch (e) {
+    console.error('[athlete/verify-token]', e.message);
+    res.json({ valid: false, message: 'This invite link is invalid or has expired. Contact your agent for a new link.' });
+  }
+});
+
+// POST /api/athlete/activate — public
+app.post('/api/athlete/activate', authLimiter, async (req, res) => {
+  try {
+    const { token, email, password, phone, instagram_handle, tiktok_handle, twitter_handle } = req.body;
+    if (!token || !email || !password) return res.status(400).json({ error: 'token, email, and password are required' });
+    if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+    const r = await store.pool.query(
+      `SELECT ait.*, a.data, a.agent_id,
+              a.data->>'name' as athlete_name,
+              u.name as agent_name,
+              u.data->>'agency_name' as agency_name,
+              a.data->>'sport' as sport,
+              a.data->>'school' as school
+       FROM athlete_invite_tokens ait
+       JOIN athletes a ON ait.athlete_id = a.id
+       LEFT JOIN users u ON a.agent_id = u.id
+       WHERE ait.token = $1`,
+      [token]
+    );
+    if (!r.rows.length) return res.status(400).json({ error: 'Invalid invite token' });
+    const row = r.rows[0];
+    if (row.used) return res.status(400).json({ error: 'This invite link has already been used. Try logging in.' });
+    if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: 'This invite link has expired. Contact your agent.' });
+
+    // Check email not already taken by another athlete
+    const emailCheck = await store.pool.query('SELECT id FROM athletes WHERE email = $1 AND id != $2', [email.toLowerCase().trim(), row.athlete_id]);
+    if (emailCheck.rows.length) return res.status(400).json({ error: 'This email is already registered. Try logging in instead.' });
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Update athlete record with credentials + social handles
+    await store.pool.query(
+      `UPDATE athletes SET
+         email = $1, password_hash = $2, phone = $3,
+         instagram_handle = $4, tiktok_handle = $5, twitter_handle = $6,
+         onboarding_complete = TRUE, account_activated_at = NOW()
+       WHERE id = $7`,
+      [normalizedEmail, passwordHash, phone || null,
+       instagram_handle ? instagram_handle.replace(/^@/, '') : null,
+       tiktok_handle ? tiktok_handle.replace(/^@/, '') : null,
+       twitter_handle ? twitter_handle.replace(/^@/, '') : null,
+       row.athlete_id]
+    );
+
+    // Mark token as used
+    await store.pool.query('UPDATE athlete_invite_tokens SET used = TRUE, used_at = NOW() WHERE token = $1', [token]);
+
+    // Issue JWT
+    const jwtPayload = {
+      id: row.athlete_id,
+      email: normalizedEmail,
+      role: 'athlete',
+      agent_id: row.agent_id,
+      athlete_name: row.athlete_name || '',
+    };
+    const athleteJwt = jwt.sign(jwtPayload, ATHLETE_JWT_SECRET, { expiresIn: '30d' });
+
+    console.log(`[athlete/activate] activated athlete=${row.athlete_id} email=${normalizedEmail}`);
+    res.json({
+      token: athleteJwt,
+      athlete: {
+        id: row.athlete_id,
+        name: row.athlete_name,
+        sport: row.sport,
+        school: row.school,
+        agent_name: row.agent_name,
+        agency_name: row.agency_name,
+      },
+    });
+  } catch (e) {
+    console.error('[athlete/activate]', e.message, e.stack);
+    res.status(500).json({ error: e.message || 'Activation failed' });
+  }
+});
+
+// POST /api/athlete/login — public
+app.post('/api/athlete/login', authLimiter, async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+    const r = await store.pool.query(
+      `SELECT a.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport, a.data->>'school' as school,
+              u.name as agent_name, u.data->>'agency_name' as agency_name
+       FROM athletes a
+       LEFT JOIN users u ON a.agent_id = u.id
+       WHERE a.email = $1 AND a.onboarding_complete = TRUE`,
+      [email.toLowerCase().trim()]
+    );
+    if (!r.rows.length) return res.status(401).json({ error: 'Invalid email or password' });
+    const athlete = r.rows[0];
+    if (!athlete.password_hash) return res.status(401).json({ error: 'Invalid email or password' });
+
+    const ok = await bcrypt.compare(password, athlete.password_hash);
+    if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
+
+    // Update last login
+    await store.pool.query('UPDATE athletes SET last_login = NOW() WHERE id = $1', [athlete.id]);
+
+    const jwtPayload = {
+      id: athlete.id,
+      email: athlete.email,
+      role: 'athlete',
+      agent_id: athlete.agent_id,
+      athlete_name: athlete.athlete_name || '',
+    };
+    const athleteJwt = jwt.sign(jwtPayload, ATHLETE_JWT_SECRET, { expiresIn: '30d' });
+
+    console.log(`[athlete/login] athlete=${athlete.id} email=${athlete.email}`);
+    res.json({
+      token: athleteJwt,
+      athlete: {
+        id: athlete.id,
+        name: athlete.athlete_name,
+        sport: athlete.sport,
+        school: athlete.school,
+        agent_name: athlete.agent_name,
+        agency_name: athlete.agency_name,
+      },
+    });
+  } catch (e) {
+    console.error('[athlete/login]', e.message);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// GET /api/athlete/me — requires verifyAthleteToken
+app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `SELECT a.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport,
+              a.data->>'school' as school, a.data->>'position' as position,
+              a.data->>'followers_ig' as followers_ig, a.data->>'followers_tiktok' as followers_tiktok,
+              u.name as agent_name, u.data->>'agency_name' as agency_name,
+              ai.visibility
+       FROM athletes a
+       LEFT JOIN users u ON a.agent_id = u.id
+       LEFT JOIN athlete_invites ai ON ai.athlete_id = a.id
+       WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const ath = r.rows[0];
+    const visibility = ath.visibility || { rate: true, deals: true, contracts: true, brands: false, compliance: true };
+
+    // Get upcoming deliverables
+    const deliverables = await store.pool.query(
+      `SELECT ace.title, ace.event_date, ace.status, ace.brand
+       FROM athlete_calendar_events ace
+       WHERE ace.athlete_id = $1
+         AND ace.event_date >= CURRENT_DATE - INTERVAL '7 days'
+       ORDER BY ace.event_date ASC LIMIT 20`,
+      [req.athlete.id]
+    );
+
+    res.json({
+      id: ath.id,
+      name: ath.athlete_name || (ath.data && ath.data.name) || '',
+      sport: ath.sport,
+      school: ath.school,
+      position: ath.position,
+      email: ath.email,
+      phone: ath.phone,
+      instagram_handle: ath.instagram_handle,
+      tiktok_handle: ath.tiktok_handle,
+      twitter_handle: ath.twitter_handle,
+      followers_ig: ath.followers_ig,
+      agent_name: ath.agent_name,
+      agency_name: ath.agency_name,
+      agent_id: ath.agent_id,
+      visibility,
+      deliverables: deliverables.rows,
+    });
+  } catch (e) {
+    console.error('[athlete/me]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/agents/athletes/:id/invite-token — agent generates new invite token
+app.post('/api/agents/athletes/:id/invite-token', requireAuth, async (req, res) => {
+  try {
+    const athleteId = req.params.id;
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    if (String(athlete.agentId) !== String(req.session.userId)) return res.status(403).json({ error: 'Forbidden' });
+
+    // Invalidate any existing unused tokens for this athlete
+    await store.pool.query(
+      'UPDATE athlete_invite_tokens SET used = TRUE, used_at = NOW() WHERE athlete_id = $1 AND used = FALSE',
+      [athleteId]
+    );
+
+    const token = require('crypto').randomBytes(32).toString('hex');
+    await store.pool.query(
+      `INSERT INTO athlete_invite_tokens (athlete_id, agent_id, token, expires_at)
+       VALUES ($1, $2, $3, NOW() + INTERVAL '30 days')`,
+      [athleteId, req.session.userId, token]
+    );
+
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    const inviteUrl = `${appUrl}/athlete-signup.html?token=${token}`;
+
+    // Also update legacy athlete_invites table for backward compat
+    const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const vis = { rate: true, deals: true, contracts: true, brands: false, compliance: true };
+    await store.pool.query(
+      `INSERT INTO athlete_invites (id, athlete_id, agent_id, token, visibility, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (id) DO UPDATE SET token=$4, expires_at=$6`,
+      ['invite-' + athleteId, athleteId, req.session.userId, token, JSON.stringify(vis), expires]
+    ).catch(() => {});
+
+    console.log(`[invite-token] agent=${req.session.userId} athlete=${athleteId} token=...${token.slice(-8)}`);
+    res.json({ ok: true, token, inviteUrl, athleteName: athlete.name });
+  } catch (e) {
+    console.error('[invite-token]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/agents/athletes/:id/invite-status — check activation status
+app.get('/api/agents/athletes/:id/invite-status', requireAuth, async (req, res) => {
+  try {
+    const athleteId = req.params.id;
+    // Check athlete activation from athletes table (new system)
+    const athR = await store.pool.query(
+      'SELECT onboarding_complete, email, account_activated_at FROM athletes WHERE id = $1',
+      [athleteId]
+    );
+    const activated = athR.rows[0]?.onboarding_complete || false;
+
+    // Get most recent non-used token
+    const tokenR = await store.pool.query(
+      `SELECT token, created_at, expires_at, used FROM athlete_invite_tokens
+       WHERE athlete_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [athleteId]
+    );
+
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    const latest = tokenR.rows[0];
+    res.json({
+      activated,
+      has_token: !!latest,
+      token_used: latest?.used || false,
+      token_expired: latest ? new Date(latest.expires_at) < new Date() : false,
+      created_at: latest?.created_at || null,
+      invite_url: latest && !latest.used ? `${appUrl}/athlete-signup.html?token=${latest.token}` : null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Athlete Brand Outreach ───────────────────────────────────────────────────
+
+// POST /api/athlete/outreach — athlete initiates brand outreach
+app.post('/api/athlete/outreach', verifyAthleteToken, async (req, res) => {
+  try {
+    const { brand_name, brand_contact_email, brand_website, sport_relevance, message_sent } = req.body;
+    if (!brand_name || !message_sent) return res.status(400).json({ error: 'brand_name and message_sent are required' });
+
+    // Get agent's approval setting (if stored)
+    const r = await store.pool.query(
+      `INSERT INTO athlete_brand_outreach
+         (athlete_id, agent_id, brand_name, brand_contact_email, brand_website, sport_relevance, message_sent, initiated_by, status, agent_notified)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'athlete','sent',FALSE)
+       RETURNING *`,
+      [req.athlete.id, req.athlete.agent_id, brand_name, brand_contact_email || null, brand_website || null, sport_relevance || null, message_sent]
+    );
+    console.log(`[athlete/outreach] athlete=${req.athlete.id} brand=${brand_name}`);
+    res.json({ ok: true, outreach: r.rows[0] });
+  } catch (e) {
+    console.error('[athlete/outreach POST]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/athlete/outreach — athlete views their outreach history
+app.get('/api/athlete/outreach', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      'SELECT * FROM athlete_brand_outreach WHERE athlete_id = $1 ORDER BY created_at DESC',
+      [req.athlete.id]
+    );
+    res.json({ outreach: r.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/agents/athlete-outreach — agent views all athlete outreach
+app.get('/api/agents/athlete-outreach', requireAuth, async (req, res) => {
+  try {
+    const { athlete_id, status } = req.query;
+    let sql = `SELECT abo.*, a.data->>'name' as athlete_name, a.data->>'sport' as athlete_sport
+               FROM athlete_brand_outreach abo
+               JOIN athletes a ON abo.athlete_id = a.id
+               WHERE abo.agent_id = $1`;
+    const params = [req.session.userId];
+    let idx = 2;
+    if (athlete_id) { sql += ` AND abo.athlete_id = $${idx++}`; params.push(athlete_id); }
+    if (status) { sql += ` AND abo.status = $${idx++}`; params.push(status); }
+    sql += ' ORDER BY abo.created_at DESC';
+    const r = await store.pool.query(sql, params);
+    res.json({ outreach: r.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/agents/athlete-outreach/:id/approve
+app.put('/api/agents/athlete-outreach/:id/approve', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `UPDATE athlete_brand_outreach SET agent_approved = TRUE, status = 'sent', updated_at = NOW()
+       WHERE id = $1 AND agent_id = $2 RETURNING *`,
+      [req.params.id, req.session.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true, outreach: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/agents/athlete-outreach/:id/reject
+app.put('/api/agents/athlete-outreach/:id/reject', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `UPDATE athlete_brand_outreach SET agent_approved = FALSE, status = 'declined', updated_at = NOW()
+       WHERE id = $1 AND agent_id = $2 RETURNING *`,
+      [req.params.id, req.session.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true, outreach: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/ai-draft-outreach — AI drafts outreach email
+app.post('/api/athlete/ai-draft-outreach', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const { brand_name, brand_website, sport_relevance } = req.body;
+    if (!brand_name) return res.status(400).json({ error: 'brand_name required' });
+
+    // Get athlete profile
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
+              a.data->>'followers_ig' as followers_ig, a.instagram_handle, a.tiktok_handle
+       FROM athletes a WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    const ath = athR.rows[0] || {};
+
+    const systemPrompt = `You are an NIL outreach specialist. Write a professional, personable outreach email from a college athlete to a brand. The email should be concise (under 200 words), highlight the athlete's platform and relevance to the brand, and include a clear ask. Return only the email body, no subject line.`;
+    const userPrompt = `Athlete: ${ath.name || 'the athlete'}, ${ath.sport || 'college sport'} at ${ath.school || 'their university'}. Instagram: @${ath.instagram_handle || 'handle'} (${ath.followers_ig || 'unknown'} followers). Brand: ${brand_name}${brand_website ? ` (${brand_website})` : ''}. Why it's a good fit: ${sport_relevance || 'strong brand alignment with the athlete\'s sport and audience'}.`;
+
+    const response = await ai.chat([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ]);
+    res.json({ draft: response });
+  } catch (e) {
+    console.error('[ai-draft-outreach]', e.message);
+    res.status(500).json({ error: 'AI draft failed' });
+  }
+});
+
 app.get('/report/:token', async (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'report.html'));
 });

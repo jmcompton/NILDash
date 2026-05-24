@@ -2219,12 +2219,29 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div style="color:var(--muted);text-align:center;padding:40px">Loading clients...</div>
         </div>
 
-        <!-- Agent reads all athlete outreach -->
-        <div style="margin-top:28px">
-          <div class="page-title" style="font-size:15px">Athlete Messages</div>
-          <div class="page-sub" style="margin-bottom:14px">All outreach sent by your athletes</div>
-          <button onclick="loadAgentOutreach()" class="run-btn" style="margin-bottom:14px;padding:7px 16px;font-size:11px">↻ Refresh</button>
-          <div id="agent-outreach-list" style="font-size:12px;color:var(--muted)">Click refresh to load messages.</div>
+        <!-- Agent reads all athlete brand outreach -->
+        <div style="margin-top:36px;border-top:1px solid var(--border);padding-top:28px">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+            <div>
+              <div class="page-title" style="font-size:15px;margin-bottom:2px">Athlete Brand Outreach</div>
+              <div class="page-sub" style="margin-bottom:0">Brand outreach sent by athletes on your roster</div>
+            </div>
+            <button onclick="loadAgentOutreach()" class="run-btn" style="padding:7px 16px;font-size:11px">↻ Refresh</button>
+          </div>
+          <!-- Filters -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0">
+            <select id="ao-filter-athlete" onchange="loadAgentOutreach()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--fg);font-size:11px;font-family:inherit">
+              <option value="">All Athletes</option>
+            </select>
+            <select id="ao-filter-status" onchange="loadAgentOutreach()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--fg);font-size:11px;font-family:inherit">
+              <option value="">All Statuses</option>
+              <option value="sent">Sent</option>
+              <option value="pending_approval">Pending Approval</option>
+              <option value="declined">Declined</option>
+              <option value="draft">Draft</option>
+            </select>
+          </div>
+          <div id="agent-outreach-list" style="font-size:12px;color:var(--muted)">Click Refresh to load outreach.</div>
         </div>
       </div>
 
@@ -4305,7 +4322,7 @@ async function showView(id, btn) {
   if (id === 'analytics') loadAnalytics();
   if (id === 'command') setTimeout(updateNilRateKpi, 800);
   if (id === 'roster') renderRoster();
-  if (id === 'athlete-portals') loadAthletePortals();
+  if (id === 'athlete-portals') { loadAthletePortals(); setTimeout(loadAgentOutreach, 400); }
   if (id === 'contract') prefillContract();
   if (id === 'deal-close') onDealCloseViewOpen();
   if (id === 'team-match') setTimeout(loadIntelHQ, 80);
@@ -6059,21 +6076,129 @@ async function sendAthleteOutreach() {
 async function loadAgentOutreach() {
   const el = document.getElementById('agent-outreach-list');
   if (!el) return;
-  el.innerHTML = 'Loading...';
+  el.innerHTML = '<span style="color:var(--muted)">Loading…</span>';
+
+  // Populate athlete filter dropdown from global athletes array
+  const filterAthEl = document.getElementById('ao-filter-athlete');
+  if (filterAthEl && filterAthEl.options.length <= 1 && typeof athletes !== 'undefined') {
+    athletes.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = a.name || a.id;
+      filterAthEl.appendChild(opt);
+    });
+  }
+
+  const athleteId = filterAthEl ? filterAthEl.value : '';
+  const status    = document.getElementById('ao-filter-status')?.value || '';
+  let url = `${API_BASE}/api/agents/athlete-outreach`;
+  const params = [];
+  if (athleteId) params.push('athlete_id=' + encodeURIComponent(athleteId));
+  if (status)    params.push('status=' + encodeURIComponent(status));
+  if (params.length) url += '?' + params.join('&');
+
   try {
-    const r = await fetch(`${API_BASE}/api/agent/outreach`);
+    const r = await fetch(url, { credentials: 'include' });
     const data = await r.json();
-    const msgs = data.messages || [];
-    if (!msgs.length) { el.innerHTML = '<span style="color:var(--muted)">No messages from athletes yet.</span>'; return; }
-    el.innerHTML = msgs.map(m => `<div style="padding:10px 14px;border-radius:8px;background:var(--surface);border:1px solid var(--border);margin-bottom:10px;font-size:12px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <span style="font-weight:700;color:var(--fg)">${m.athlete_name||'Unknown Athlete'}</span>
-        <span style="color:var(--muted);font-size:10px">${new Date(m.created_at).toLocaleDateString()}</span>
+    const rows = data.outreach || [];
+
+    if (!rows.length) {
+      el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:32px 0;font-size:12px">No brand outreach found.</div>';
+      return;
+    }
+
+    const statusBadge = (s, requiresApproval) => {
+      if (s === 'pending_approval') return '<span style="background:#78350f;color:#fcd34d;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700">Pending Approval</span>';
+      if (s === 'sent')     return '<span style="background:#064e3b;color:#4ade80;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700">Sent</span>';
+      if (s === 'declined') return '<span style="background:#450a0a;color:#f87171;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700">Declined</span>';
+      if (s === 'draft')    return '<span style="background:var(--surface);color:var(--muted);padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600;border:1px solid var(--border)">Draft</span>';
+      return '<span style="color:var(--muted)">' + (s||'—') + '</span>';
+    };
+
+    const initiatedBadge = (by) => {
+      if (by === 'athlete') return '<span style="background:#78350f22;color:#d97706;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;border:1px solid #d9770633">Athlete</span>';
+      return '<span style="background:var(--surface);color:var(--muted);padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600;border:1px solid var(--border)">' + (by||'Agent') + '</span>';
+    };
+
+    const actionBtns = (row) => {
+      if (row.status !== 'pending_approval') return '';
+      return `
+        <button onclick="agentApproveOutreach(${row.id})" style="padding:4px 10px;border-radius:6px;background:#064e3b;color:#4ade80;border:1px solid #4ade8033;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;margin-right:4px">✓ Approve</button>
+        <button onclick="agentRejectOutreach(${row.id})" style="padding:4px 10px;border-radius:6px;background:#450a0a;color:#f87171;border:1px solid #f8717133;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">✕ Decline</button>
+      `;
+    };
+
+    // Table
+    el.innerHTML = `
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">
+              <th style="text-align:left;padding:8px 10px">Athlete</th>
+              <th style="text-align:left;padding:8px 10px">Brand</th>
+              <th style="text-align:left;padding:8px 10px">Date</th>
+              <th style="text-align:left;padding:8px 10px">Status</th>
+              <th style="text-align:left;padding:8px 10px">Initiated By</th>
+              <th style="text-align:left;padding:8px 10px">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ao-tbody">
+            ${rows.map(row => `
+              <tr class="ao-row" data-id="${row.id}" onclick="toggleOutreachExpand(${row.id})" style="border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='transparent'">
+                <td style="padding:10px 10px;font-weight:600;color:var(--fg)">${row.athlete_name||'—'}</td>
+                <td style="padding:10px 10px;color:var(--fg)">${row.brand_name||'—'}</td>
+                <td style="padding:10px 10px;color:var(--muted);white-space:nowrap">${new Date(row.created_at).toLocaleDateString()}</td>
+                <td style="padding:10px 10px">${statusBadge(row.status, row.requires_approval)}</td>
+                <td style="padding:10px 10px">${initiatedBadge(row.initiated_by)}</td>
+                <td style="padding:10px 10px" onclick="event.stopPropagation()">${actionBtns(row)}</td>
+              </tr>
+              <tr id="ao-expand-${row.id}" style="display:none;background:var(--surface)">
+                <td colspan="6" style="padding:12px 14px">
+                  <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+                    <strong style="color:var(--fg)">Message sent to ${row.brand_name||'brand'}${row.brand_contact_email ? ' (' + row.brand_contact_email + ')' : ''}:</strong>
+                  </div>
+                  <div style="font-size:12px;color:var(--fg);white-space:pre-wrap;line-height:1.6;background:var(--bg);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">${escapeHtml(row.message_sent||'')}</div>
+                  ${row.notes ? '<div style="margin-top:8px;font-size:11px;color:var(--muted)"><strong>Notes:</strong> ' + escapeHtml(row.notes) + '</div>' : ''}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
       </div>
-      ${m.subject ? '<div style="font-weight:600;color:var(--text);margin-bottom:2px">' + m.subject + '</div>' : ''}
-      <div style="color:var(--muted)">${m.message}</div>
-    </div>`).join('');
-  } catch(e) { el.innerHTML = '<span style="color:var(--muted)">Failed to load messages.</span>'; }
+    `;
+  } catch(e) {
+    console.error('[loadAgentOutreach]', e);
+    el.innerHTML = '<span style="color:var(--muted)">Failed to load outreach. Please try again.</span>';
+  }
+}
+
+function toggleOutreachExpand(id) {
+  const row = document.getElementById('ao-expand-' + id);
+  if (!row) return;
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+
+function escapeHtml(str) {
+  return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function agentApproveOutreach(id) {
+  try {
+    const r = await fetch(`${API_BASE}/api/agents/athlete-outreach/${id}/approve`, { method: 'PUT', credentials: 'include' });
+    if (!r.ok) { const d = await r.json(); alert(d.error || 'Failed to approve'); return; }
+    console.log('[agentApproveOutreach] approved', id);
+    loadAgentOutreach();
+  } catch(e) { alert('Network error'); }
+}
+
+async function agentRejectOutreach(id) {
+  if (!confirm('Decline this outreach?')) return;
+  try {
+    const r = await fetch(`${API_BASE}/api/agents/athlete-outreach/${id}/reject`, { method: 'PUT', credentials: 'include' });
+    if (!r.ok) { const d = await r.json(); alert(d.error || 'Failed to decline'); return; }
+    console.log('[agentRejectOutreach] declined', id);
+    loadAgentOutreach();
+  } catch(e) { alert('Network error'); }
 }
 // ── /ATHLETE CALENDAR + OUTREACH ───────────────────────────────────────────
 

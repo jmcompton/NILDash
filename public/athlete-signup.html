@@ -3,107 +3,377 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NILDash - Athlete Portal</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<title>NILDash — Activate Your Account</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#F7F6F3;color:#1a1a1a;font-family:Inter,sans-serif;font-size:14px;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-.card{background:#fff;border-radius:16px;border:0.5px solid #e2e0db;padding:36px;width:100%;max-width:420px}
-.logo{font-size:20px;font-weight:600;color:#1a1a1a;margin-bottom:4px}
-.logo span{color:#2d6a2d}
-.subtitle{font-size:13px;color:#999;margin-bottom:28px}
-.badge{background:#f0f7f0;border:1px solid #c8e6c9;border-radius:10px;padding:12px 16px;margin-bottom:24px;display:none}
-.badge-name{font-size:15px;font-weight:600;color:#1a1a1a}
-.badge-sub{font-size:12px;color:#666;margin-top:2px}
-label{display:block;font-size:12px;font-weight:500;color:#666;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em}
-input{width:100%;padding:11px 14px;border:1px solid #e2e0db;border-radius:8px;font-size:14px;color:#1a1a1a;background:#fff;outline:none;margin-bottom:16px;font-family:Inter,sans-serif}
-input:focus{border-color:#2d6a2d}
-.btn{width:100%;padding:13px;background:#1a1a1a;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;font-family:Inter,sans-serif;margin-top:4px}
-.btn:disabled{opacity:0.4;cursor:not-allowed}
-.error{color:#dc2626;font-size:12px;margin-top:8px;text-align:center;display:none}
-.success{color:#2d6a2d;font-size:13px;text-align:center;display:none;padding:16px;background:#f0f7f0;border-radius:8px;margin-top:12px}
-hr{border:none;border-top:1px solid #e2e0db;margin:20px 0}
-.signin{text-align:center;font-size:13px;color:#999}
-.signin a{color:#2d6a2d;text-decoration:none;font-weight:500}
+body{font-family:Inter,sans-serif;min-height:100vh;display:flex;background:#0f1117}
+
+/* Split layout */
+.left{width:420px;min-height:100vh;background:linear-gradient(145deg,#064e3b 0%,#065f46 40%,#047857 100%);padding:48px 40px;display:flex;flex-direction:column;justify-content:space-between;flex-shrink:0}
+.right{flex:1;display:flex;align-items:center;justify-content:center;padding:32px;background:#f8fafc;min-height:100vh;overflow-y:auto}
+
+/* Left branding */
+.brand{display:flex;align-items:center;gap:10px;margin-bottom:48px}
+.brand-icon{width:36px;height:36px;background:rgba(255,255,255,0.15);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff}
+.brand-name{font-size:20px;font-weight:700;color:#fff}
+.brand-sub{font-size:11px;color:rgba(255,255,255,0.5);letter-spacing:0.1em;text-transform:uppercase;margin-top:1px}
+.hero-headline{font-size:32px;font-weight:800;color:#fff;line-height:1.2;margin-bottom:24px;letter-spacing:-0.5px}
+.hero-bullets{display:flex;flex-direction:column;gap:14px}
+.hero-bullet{display:flex;align-items:center;gap:12px;font-size:14px;color:rgba(255,255,255,0.85)}
+.hero-bullet-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;flex-shrink:0}
+.left-footer{font-size:11px;color:rgba(255,255,255,0.3);margin-top:auto}
+
+/* Right form panel */
+.form-card{width:100%;max-width:480px}
+.form-header{margin-bottom:28px}
+.form-logo{font-size:22px;font-weight:700;color:#111;margin-bottom:4px}
+.form-logo span{color:#16a34a}
+.form-title{font-size:24px;font-weight:800;color:#111;margin-bottom:6px;line-height:1.2}
+.form-sub{font-size:14px;color:#6b7280}
+
+/* Info card */
+.info-card{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px 20px;margin-bottom:24px}
+.info-card-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+.info-pill{background:#dcfce7;border:1px solid #bbf7d0;border-radius:6px;padding:4px 10px;font-size:12px;color:#166534;font-weight:500}
+.info-invited{font-size:12px;color:#4b5563;margin-top:8px}
+
+/* Form elements */
+.section-label{font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;margin-top:20px}
+.field{margin-bottom:16px;position:relative}
+.field label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:5px}
+.field label .opt{font-weight:400;color:#9ca3af;font-size:11px}
+.field input{width:100%;padding:11px 14px;border:1.5px solid #e5e7eb;border-radius:10px;font-size:14px;color:#111;background:#fff;outline:none;font-family:Inter,sans-serif;transition:border-color 0.15s}
+.field input:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,0.08)}
+.field input.error-field{border-color:#ef4444}
+.pass-wrap{position:relative}
+.pass-wrap input{padding-right:42px}
+.pass-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9ca3af;font-size:13px;padding:4px}
+
+/* Password strength */
+.strength-bar{height:3px;border-radius:2px;margin-top:6px;background:#e5e7eb;overflow:hidden}
+.strength-fill{height:100%;border-radius:2px;transition:width 0.3s,background 0.3s;width:0%}
+.strength-text{font-size:11px;margin-top:4px}
+
+/* Submit button */
+.submit-btn{width:100%;padding:14px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:Inter,sans-serif;letter-spacing:0.02em;transition:background 0.15s,opacity 0.15s;margin-top:8px}
+.submit-btn:hover{background:#15803d}
+.submit-btn:disabled{opacity:0.5;cursor:not-allowed}
+.terms{font-size:11px;color:#9ca3af;text-align:center;margin-top:10px}
+.terms a{color:#16a34a;text-decoration:none}
+.signin-link{text-align:center;font-size:13px;color:#6b7280;margin-top:16px}
+.signin-link a{color:#16a34a;font-weight:600;text-decoration:none}
+
+/* States */
+.loading-state,.error-state,.success-state{display:none;text-align:center;padding:48px 24px}
+.loading-state{color:#6b7280;font-size:14px}
+.spinner{width:32px;height:32px;border:3px solid #e5e7eb;border-top-color:#16a34a;border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.error-icon{font-size:40px;margin-bottom:12px}
+.error-state h2{font-size:18px;font-weight:700;color:#111;margin-bottom:8px}
+.error-state p{font-size:14px;color:#6b7280;margin-bottom:16px}
+.success-icon{font-size:48px;margin-bottom:16px}
+.success-state h2{font-size:20px;font-weight:700;color:#111;margin-bottom:8px}
+.success-state p{font-size:14px;color:#6b7280}
+
+/* Error message */
+.field-error{font-size:11px;color:#ef4444;margin-top:4px}
+.form-error{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;color:#dc2626;margin-bottom:12px;display:none}
+
+/* Mobile */
+@media(max-width:768px){
+  .left{display:none}
+  .right{padding:24px 20px;background:#fff}
+  body{background:#fff}
+}
 </style>
 </head>
 <body>
-<div class="card">
-  <div class="logo">NIL<span>Dash</span></div>
-  <div class="subtitle" id="page-sub">Athlete Portal</div>
-  <div id="invalid-state" style="text-align:center;padding:40px;display:none">
-    <div style="font-size:24px;color:#dc2626;margin-bottom:12px">x</div>
-    <div style="font-size:15px;font-weight:500;margin-bottom:8px">Invalid or expired invite</div>
-    <div style="font-size:13px;color:#999">Ask your agent to resend your invite link.</div>
-  </div>
-  <div id="signup-form">
-    <div class="badge" id="athlete-badge">
-      <div class="badge-name" id="badge-name"></div>
-      <div class="badge-sub" id="badge-sub"></div>
+
+<!-- Left panel -->
+<div class="left">
+  <div>
+    <div class="brand">
+      <div class="brand-icon">N</div>
+      <div>
+        <div class="brand-name">NILDash</div>
+        <div class="brand-sub">Athlete Portal</div>
+      </div>
     </div>
-    <div id="loading" style="text-align:center;padding:20px;color:#999">Validating invite...</div>
-    <div id="form-fields" style="display:none">
-      <label>Full name</label>
-      <input type="text" id="f-name" placeholder="Your full name">
-      <label>Email</label>
-      <input type="email" id="f-email" placeholder="your@email.com">
-      <label>Create password</label>
-      <input type="password" id="f-pass" placeholder="At least 8 characters">
-      <button class="btn" id="submit-btn" onclick="createAccount()">Create my account</button>
-      <div class="error" id="error-msg"></div>
-      <div class="success" id="success-msg">Account created! Redirecting to your dashboard...</div>
+    <div class="hero-headline">Your NIL Journey<br>Starts Here</div>
+    <div class="hero-bullets">
+      <div class="hero-bullet"><div class="hero-bullet-dot"></div>Know your market value</div>
+      <div class="hero-bullet"><div class="hero-bullet-dot"></div>Track your deals & deliverables</div>
+      <div class="hero-bullet"><div class="hero-bullet-dot"></div>Stay compliant & get discovered</div>
     </div>
   </div>
-  <hr>
-  <div class="signin">Already have an account? <a href="/">Sign in</a></div>
+  <div class="left-footer">© 2025 NILDash · Athlete Portal</div>
 </div>
+
+<!-- Right panel -->
+<div class="right">
+  <div class="form-card">
+
+    <!-- Loading state -->
+    <div class="loading-state" id="loading-state" style="display:block">
+      <div class="spinner"></div>
+      <div>Verifying your invite…</div>
+    </div>
+
+    <!-- Error / invalid token state -->
+    <div class="error-state" id="error-state">
+      <div class="error-icon">❌</div>
+      <h2 id="error-title">Invalid Invite Link</h2>
+      <p id="error-msg">This invite link is invalid or has expired. Please contact your agent for a new invite link.</p>
+      <a href="/athlete-login.html" style="display:inline-block;margin-top:12px;padding:10px 20px;background:#16a34a;color:#fff;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none">Already have an account? Sign in →</a>
+    </div>
+
+    <!-- Success state -->
+    <div class="success-state" id="success-state">
+      <div class="success-icon">🎉</div>
+      <h2>Account Activated!</h2>
+      <p>Taking you to your dashboard…</p>
+      <div class="spinner" style="margin-top:20px"></div>
+    </div>
+
+    <!-- Main form -->
+    <div id="main-form" style="display:none">
+      <div class="form-header">
+        <div class="form-logo">NIL<span>Dash</span></div>
+        <div class="form-title" id="welcome-title">Welcome!</div>
+        <div class="form-sub">Your agent has set up your NIL account. Create your login below to get started.</div>
+      </div>
+
+      <!-- Pre-filled athlete info -->
+      <div class="info-card" id="info-card">
+        <div style="font-size:12px;font-weight:600;color:#166534;margin-bottom:4px">YOUR PROFILE</div>
+        <div class="info-card-row" id="info-pills"></div>
+        <div class="info-invited" id="info-invited"></div>
+      </div>
+
+      <!-- Form error -->
+      <div class="form-error" id="form-error"></div>
+
+      <!-- Account section -->
+      <div class="section-label">Create Your Account</div>
+
+      <div class="field">
+        <label>Email Address *</label>
+        <input type="email" id="f-email" placeholder="your@email.com" autocomplete="email">
+        <div class="field-error" id="e-email"></div>
+      </div>
+
+      <div class="field">
+        <label>Password *</label>
+        <div class="pass-wrap">
+          <input type="password" id="f-pass" placeholder="Create a password (min 8 characters)" autocomplete="new-password">
+          <button class="pass-toggle" onclick="togglePass('f-pass','eye1')" type="button"><span id="eye1">👁</span></button>
+        </div>
+        <div class="strength-bar"><div class="strength-fill" id="strength-fill"></div></div>
+        <div class="strength-text" id="strength-text"></div>
+        <div class="field-error" id="e-pass"></div>
+      </div>
+
+      <div class="field">
+        <label>Confirm Password *</label>
+        <div class="pass-wrap">
+          <input type="password" id="f-pass2" placeholder="Re-enter your password" autocomplete="new-password">
+          <button class="pass-toggle" onclick="togglePass('f-pass2','eye2')" type="button"><span id="eye2">👁</span></button>
+        </div>
+        <div class="field-error" id="e-pass2"></div>
+      </div>
+
+      <div class="field">
+        <label>Phone Number <span class="opt">(optional)</span></label>
+        <input type="tel" id="f-phone" placeholder="+1 (555) 000-0000" autocomplete="tel">
+      </div>
+
+      <!-- Social section -->
+      <div class="section-label" style="margin-top:24px">Your Social Media <span style="font-weight:400;text-transform:none;font-size:11px;letter-spacing:0;color:#9ca3af">— helps calculate your NIL value</span></div>
+
+      <div class="field">
+        <label>Instagram Handle <span class="opt">(optional)</span></label>
+        <input type="text" id="f-instagram" placeholder="@yourusername">
+      </div>
+      <div class="field">
+        <label>TikTok Handle <span class="opt">(optional)</span></label>
+        <input type="text" id="f-tiktok" placeholder="@yourusername">
+      </div>
+      <div class="field">
+        <label>X / Twitter Handle <span class="opt">(optional)</span></label>
+        <input type="text" id="f-twitter" placeholder="@yourusername">
+      </div>
+
+      <button class="submit-btn" id="submit-btn" onclick="activate()">ACTIVATE MY ACCOUNT</button>
+      <div class="terms">By activating your account you agree to NILDash's <a href="#">Terms of Service</a></div>
+      <div class="signin-link">Already have an account? <a href="/athlete-login.html">Sign in →</a></div>
+    </div>
+
+  </div>
+</div>
+
 <script>
 var inviteToken = null;
+var athleteData = null;
+
+// ── Init ─────────────────────────────────────────────────────────
 async function init() {
   var params = new URLSearchParams(window.location.search);
   inviteToken = params.get('token');
-  if (!inviteToken) { showInvalid(); return; }
+  if (!inviteToken) { showError('No invite token found. Please use the link your agent sent you.'); return; }
+
   try {
-    var r = await fetch('/api/athlete-portal/validate/' + inviteToken);
+    var r = await fetch('/api/athlete/verify-token/' + inviteToken);
     var data = await r.json();
-    if (!data.valid) { showInvalid(); return; }
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('form-fields').style.display = 'block';
-    document.getElementById('athlete-badge').style.display = 'block';
-    document.getElementById('badge-name').textContent = data.athleteName;
-    document.getElementById('badge-sub').textContent = [data.sport, data.school].filter(Boolean).join(' - ');
-    document.getElementById('f-name').value = data.athleteName || '';
-    document.getElementById('page-sub').textContent = 'Your agent has invited you to NILDash';
-  } catch(e) { showInvalid(); }
+    if (!data.valid) {
+      showError(data.message || 'This invite link is invalid or has expired.');
+      return;
+    }
+    athleteData = data;
+    showForm(data);
+  } catch (e) {
+    showError('Could not verify your invite. Please check your connection and try again.');
+  }
 }
-function showInvalid() {
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('invalid-state').style.display = 'block';
-  document.getElementById('signup-form').style.display = 'none';
+
+function showError(msg, title) {
+  document.getElementById('loading-state').style.display = 'none';
+  document.getElementById('error-state').style.display = 'block';
+  if (msg) document.getElementById('error-msg').textContent = msg;
+  if (title) document.getElementById('error-title').textContent = title;
 }
-async function createAccount() {
-  var name = document.getElementById('f-name').value.trim();
-  var email = document.getElementById('f-email').value.trim();
-  var pass = document.getElementById('f-pass').value;
-  var errEl = document.getElementById('error-msg');
-  errEl.style.display = 'none';
-  if (!name || !email || !pass) { errEl.textContent = 'All fields are required'; errEl.style.display = 'block'; return; }
-  if (pass.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; errEl.style.display = 'block'; return; }
+
+function showForm(data) {
+  document.getElementById('loading-state').style.display = 'none';
+  document.getElementById('main-form').style.display = 'block';
+
+  var ath = data.athlete;
+  var agent = data.agent;
+
+  document.getElementById('welcome-title').textContent = 'Welcome, ' + (ath.first_name || ath.full_name || 'Athlete') + '!';
+
+  // Build info pills
+  var pills = [];
+  if (ath.sport) pills.push(ath.sport);
+  if (ath.school) pills.push(ath.school);
+  if (ath.position) pills.push(ath.position);
+  document.getElementById('info-pills').innerHTML = pills.map(function(p) {
+    return '<div class="info-pill">' + p + '</div>';
+  }).join('');
+
+  var agentStr = agent.name || 'Your Agent';
+  if (agent.agency_name) agentStr += ' at ' + agent.agency_name;
+  document.getElementById('info-invited').textContent = 'Invited by: ' + agentStr;
+}
+
+// ── Password helpers ─────────────────────────────────────────────
+function togglePass(inputId, eyeId) {
+  var inp = document.getElementById(inputId);
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  var passInput = document.getElementById('f-pass');
+  if (passInput) {
+    passInput.addEventListener('input', function() {
+      var val = this.value;
+      var fill = document.getElementById('strength-fill');
+      var text = document.getElementById('strength-text');
+      if (!val) { fill.style.width = '0%'; text.textContent = ''; return; }
+      var score = 0;
+      if (val.length >= 8) score++;
+      if (val.length >= 12) score++;
+      if (/[A-Z]/.test(val)) score++;
+      if (/[0-9]/.test(val)) score++;
+      if (/[^A-Za-z0-9]/.test(val)) score++;
+      var levels = [
+        {w:'20%', bg:'#ef4444', label:'Weak'},
+        {w:'40%', bg:'#f97316', label:'Fair'},
+        {w:'60%', bg:'#eab308', label:'Fair'},
+        {w:'80%', bg:'#22c55e', label:'Strong'},
+        {w:'100%',bg:'#16a34a', label:'Very Strong'},
+      ];
+      var lvl = levels[Math.min(score, levels.length-1)];
+      fill.style.width = lvl.w; fill.style.background = lvl.bg;
+      text.textContent = lvl.label; text.style.color = lvl.bg;
+    });
+  }
+  init();
+});
+
+// ── Activate ─────────────────────────────────────────────────────
+async function activate() {
+  clearErrors();
+  var email    = document.getElementById('f-email').value.trim();
+  var pass     = document.getElementById('f-pass').value;
+  var pass2    = document.getElementById('f-pass2').value;
+  var phone    = document.getElementById('f-phone').value.trim();
+  var insta    = document.getElementById('f-instagram').value.trim();
+  var tiktok   = document.getElementById('f-tiktok').value.trim();
+  var twitter  = document.getElementById('f-twitter').value.trim();
+
+  var valid = true;
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showFieldError('e-email', 'Please enter a valid email address'); valid = false;
+  }
+  if (!pass || pass.length < 8) {
+    showFieldError('e-pass', 'Password must be at least 8 characters'); valid = false;
+  }
+  if (pass !== pass2) {
+    showFieldError('e-pass2', 'Passwords do not match'); valid = false;
+  }
+  if (!valid) return;
+
   var btn = document.getElementById('submit-btn');
-  btn.disabled = true; btn.textContent = 'Creating account...';
+  btn.disabled = true; btn.textContent = 'Setting up your account…';
+
   try {
-    var r = await fetch('/api/athlete-portal/accept', {
+    var r = await fetch('/api/athlete/activate', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ token: inviteToken, name: name, email: email, password: pass })
+      body: JSON.stringify({
+        token: inviteToken,
+        email: email,
+        password: pass,
+        phone: phone || null,
+        instagram_handle: insta || null,
+        tiktok_handle: tiktok || null,
+        twitter_handle: twitter || null,
+      }),
     });
     var data = await r.json();
-    if (!r.ok) { errEl.textContent = data.error || 'Something went wrong'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Create my account'; return; }
-    document.getElementById('success-msg').style.display = 'block';
-    setTimeout(function(){ window.location.href = '/'; }, 2000);
-  } catch(e) { errEl.textContent = 'Network error - please try again'; errEl.style.display = 'block'; btn.disabled = false; btn.textContent = 'Create my account'; }
+    if (!r.ok) {
+      showFormError(data.error || 'Activation failed. Please try again.');
+      btn.disabled = false; btn.textContent = 'ACTIVATE MY ACCOUNT';
+      return;
+    }
+    // Save JWT and athlete info
+    localStorage.setItem('athlete_token', data.token);
+    localStorage.setItem('athlete_user', JSON.stringify(data.athlete));
+    // Show success screen then redirect
+    document.getElementById('main-form').style.display = 'none';
+    document.getElementById('success-state').style.display = 'block';
+    setTimeout(function() { window.location.href = '/athlete-dashboard.html'; }, 2000);
+  } catch (e) {
+    showFormError('Network error. Please check your connection and try again.');
+    btn.disabled = false; btn.textContent = 'ACTIVATE MY ACCOUNT';
+  }
 }
-init();
+
+function clearErrors() {
+  ['e-email','e-pass','e-pass2'].forEach(function(id) {
+    document.getElementById(id).textContent = '';
+  });
+  var fe = document.getElementById('form-error');
+  fe.style.display = 'none'; fe.textContent = '';
+}
+function showFieldError(id, msg) {
+  document.getElementById(id).textContent = msg;
+}
+function showFormError(msg) {
+  var el = document.getElementById('form-error');
+  el.textContent = msg; el.style.display = 'block';
+}
 </script>
 </body>
 </html>

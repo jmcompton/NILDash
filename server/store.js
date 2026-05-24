@@ -223,6 +223,64 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_contract ON contract_audit_log(contract_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_athlete_outreach_agent ON athlete_outreach(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_athlete_outreach_athlete ON athlete_outreach(athlete_id)`).catch(() => {});
+
+  // ── Athlete Auth & Onboarding (additive migrations — safe on existing DBs) ─
+  const _athleteAuthMigrations = [
+    // New top-level columns on athletes table for self-serve auth
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS email TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS password_hash TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS phone TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS instagram_handle TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS tiktok_handle TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS twitter_handle TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS onboarding_complete BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS account_activated_at TIMESTAMPTZ`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ`,
+  ];
+  for (const sql of _athleteAuthMigrations) {
+    await pool.query(sql).catch(e => console.warn('[migration]', e.message));
+  }
+
+  // New invite tokens table (replaces/supplements athlete_invites for new flow)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS athlete_invite_tokens (
+      id SERIAL PRIMARY KEY,
+      athlete_id TEXT REFERENCES athletes(id) ON DELETE CASCADE,
+      agent_id TEXT,
+      token TEXT UNIQUE NOT NULL,
+      used BOOLEAN DEFAULT FALSE,
+      used_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '30 days'),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(e => console.error('[init] athlete_invite_tokens:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_invite_tokens_athlete ON athlete_invite_tokens(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_invite_tokens_token ON athlete_invite_tokens(token)`).catch(() => {});
+
+  // Brand outreach table (athlete-initiated, separate from internal athlete_outreach messages)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS athlete_brand_outreach (
+      id SERIAL PRIMARY KEY,
+      athlete_id TEXT NOT NULL,
+      agent_id TEXT,
+      brand_name TEXT NOT NULL,
+      brand_contact_email TEXT,
+      brand_website TEXT,
+      sport_relevance TEXT,
+      message_sent TEXT NOT NULL,
+      initiated_by TEXT DEFAULT 'athlete',
+      status TEXT DEFAULT 'sent',
+      agent_notified BOOLEAN DEFAULT FALSE,
+      agent_approved BOOLEAN,
+      requires_approval BOOLEAN DEFAULT FALSE,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(e => console.error('[init] athlete_brand_outreach:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_outreach_athlete ON athlete_brand_outreach(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_outreach_agent ON athlete_brand_outreach(agent_id)`).catch(() => {});
+
   // ── Email Integration Tables (additive — never modifies existing tables) ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_accounts (

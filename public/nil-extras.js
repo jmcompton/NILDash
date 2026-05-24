@@ -227,42 +227,62 @@ async function loadAthletePortals() {
   }
 }
 
+// ── Updated portal status — uses new athlete_invite_tokens + athletes.onboarding_complete ──
 async function loadPortalStatus(athleteId) {
   try {
     var API_BASE = window.API_BASE || "";
-    var r = await fetch(API_BASE + "/api/athlete-portal/invite/" + athleteId).then(function(r){return r.json();});
+    // New status endpoint first (new token system)
+    var newStatus = await fetch(API_BASE + "/api/agents/athletes/" + athleteId + "/invite-status").then(function(r){return r.json();}).catch(function(){return null;});
+    // Legacy fallback
+    var legacy = await fetch(API_BASE + "/api/athlete-portal/invite/" + athleteId).then(function(r){return r.json();}).catch(function(){return {};});
+
     var statusEl = document.getElementById("portal-status-" + athleteId);
     if (!statusEl) return;
-    if (!r.invited) {
-      statusEl.textContent = "Not invited";
-      statusEl.style.cssText = "font-size:10px;padding:3px 10px;border-radius:40px;background:rgba(255,255,255,0.06);color:var(--muted)";
-    } else if (r.hasAccount) {
-      statusEl.textContent = "Active";
+
+    var isActivated = (newStatus && newStatus.activated) || legacy.hasAccount;
+    var hasToken    = (newStatus && newStatus.has_token && !newStatus.token_used && !newStatus.token_expired);
+    var inviteUrl   = (newStatus && newStatus.invite_url) || legacy.inviteUrl;
+
+    if (isActivated) {
+      statusEl.textContent = "Account Active";
       statusEl.style.cssText = "font-size:10px;padding:3px 10px;border-radius:40px;background:rgba(74,222,128,0.12);color:#4ade80";
-    } else {
+    } else if (hasToken || legacy.invited) {
       statusEl.textContent = "Invited";
       statusEl.style.cssText = "font-size:10px;padding:3px 10px;border-radius:40px;background:rgba(245,158,11,0.12);color:#f59e0b";
+    } else {
+      statusEl.textContent = "Not Invited";
+      statusEl.style.cssText = "font-size:10px;padding:3px 10px;border-radius:40px;background:rgba(255,255,255,0.06);color:var(--muted)";
     }
-    if (r.invited && r.visibility) {
+
+    // Visibility checkboxes from legacy invite
+    if (legacy.visibility) {
       ["rate","deals","contracts","brands","compliance"].forEach(function(key){
         var el = document.getElementById("vis-" + athleteId + "-" + key);
-        if (el) el.checked = r.visibility[key] || false;
+        if (el) el.checked = legacy.visibility[key] || false;
       });
-      var invSection = document.getElementById("portal-invite-section-" + athleteId);
-      if (invSection) {
-        if (r.hasAccount) {
-          invSection.innerHTML = "<div style='font-size:12px;color:#4ade80;padding:8px 10px;background:rgba(74,222,128,0.08);border-radius:6px'>Athlete has created their account and can log in.</div>";
-        } else {
-          invSection.innerHTML = "<div style='font-size:12px;color:var(--muted);margin-bottom:8px'>Share this link with the athlete:</div>" +
-            "<div style='display:flex;gap:6px'>" +
-              "<input style='flex:1;font-size:11px;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)' readonly value='" + r.inviteUrl + "' id='invite-url-" + athleteId + "'>" +
-              "<button onclick='copyInviteLink(" + JSON.stringify(athleteId) + ")' style='padding:7px 12px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:11px;font-weight:700;cursor:pointer'>Copy</button>" +
-            "</div>";
-        }
-      }
+    }
+
+    // Invite section
+    var invSection = document.getElementById("portal-invite-section-" + athleteId);
+    if (!invSection) return;
+
+    if (isActivated) {
+      invSection.innerHTML = "<div style='display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.2);border-radius:8px'>" +
+        "<span style='font-size:14px'>✅</span>" +
+        "<div><div style='font-size:12px;font-weight:600;color:#4ade80'>Account Active</div>" +
+        "<div style='font-size:11px;color:var(--muted)'>Athlete has activated their NILDash account.</div></div></div>" +
+        "<button onclick='regenerateInviteLink(" + JSON.stringify(athleteId) + ")' style='width:100%;margin-top:8px;padding:7px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;cursor:pointer'>Regenerate Link (new invite)</button>";
+    } else if (inviteUrl) {
+      var daysAgo = newStatus && newStatus.created_at ? Math.floor((Date.now() - new Date(newStatus.created_at)) / 86400000) : null;
+      invSection.innerHTML =
+        "<div style='font-size:12px;color:var(--muted);margin-bottom:8px'>Share this signup link with the athlete" + (daysAgo !== null ? " · Sent " + daysAgo + " day" + (daysAgo !== 1 ? "s" : "") + " ago" : "") + ":</div>" +
+        "<div style='display:flex;gap:6px;margin-bottom:8px'>" +
+          "<input style='flex:1;font-size:11px;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)' readonly value='" + inviteUrl + "' id='invite-url-" + athleteId + "'>" +
+          "<button onclick='copyInviteLink(" + JSON.stringify(athleteId) + ")' style='padding:7px 12px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:11px;font-weight:700;cursor:pointer'>Copy</button>" +
+        "</div>" +
+        "<button onclick='regenerateInviteLink(" + JSON.stringify(athleteId) + ")' style='width:100%;padding:7px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;cursor:pointer'>🔄 Regenerate Link</button>";
     } else {
-      var invSection = document.getElementById("portal-invite-section-" + athleteId);
-      if (invSection) invSection.innerHTML = "<button onclick='sendAthleteInvite(" + JSON.stringify(athleteId) + ")' style='width:100%;padding:9px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:12px;font-weight:700;cursor:pointer'>Send Invite</button>";
+      invSection.innerHTML = "<button onclick='sendAthleteInvite(" + JSON.stringify(athleteId) + ")' style='width:100%;padding:9px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:12px;font-weight:700;cursor:pointer'>📧 Send Invite Link</button>";
     }
   } catch(e) { console.error("Portal status error:", e); }
 }
@@ -275,7 +295,6 @@ function togglePortalCard(athleteId) {
   controls.style.display = isOpen ? "none" : "block";
   btn.textContent = isOpen ? "Manage portal" : "Close";
   if (!isOpen) {
-    // Load calendar when expanding
     loadAthleteDeliverables(athleteId);
   }
 }
@@ -295,17 +314,25 @@ function switchPortalTab(athleteId, tab) {
   if (tab === "cal") loadAthleteDeliverables(athleteId);
 }
 
+// Generate new invite token (new system)
 async function sendAthleteInvite(athleteId) {
   var API_BASE = window.API_BASE || "";
-  var visibility = { rate: true, deals: true, contracts: true, brands: false, compliance: true };
   try {
-    var r = await fetch(API_BASE + "/api/athlete-portal/invite", {
+    var r = await fetch(API_BASE + "/api/agents/athletes/" + athleteId + "/invite-token", {
       method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ athleteId: athleteId, visibilitySettings: visibility })
+      body: JSON.stringify({})
     }).then(function(r){return r.json();});
-    if (r.ok) { showToast("Invite created for " + r.athleteName); loadPortalStatus(athleteId); }
-    else showToast("Error: " + r.error);
+    if (r.ok) {
+      showToast("Invite link created for " + (r.athleteName || "athlete"));
+      loadPortalStatus(athleteId);
+    } else showToast("Error: " + (r.error || "Failed to create invite"));
   } catch(e) { showToast("Error creating invite"); }
+}
+
+// Regenerate = invalidates old token + creates new one
+async function regenerateInviteLink(athleteId) {
+  if (!confirm("Regenerating will invalidate the old invite link. Continue?")) return;
+  await sendAthleteInvite(athleteId);
 }
 
 async function updatePortalVisibility(athleteId) {
