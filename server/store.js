@@ -242,10 +242,11 @@ async function init() {
   }
 
   // New invite tokens table (replaces/supplements athlete_invites for new flow)
+  // NOTE: No FK constraint on athlete_id to avoid silent failures on old DBs
   await pool.query(`
     CREATE TABLE IF NOT EXISTS athlete_invite_tokens (
       id SERIAL PRIMARY KEY,
-      athlete_id TEXT REFERENCES athletes(id) ON DELETE CASCADE,
+      athlete_id TEXT NOT NULL,
       agent_id TEXT,
       token TEXT UNIQUE NOT NULL,
       used BOOLEAN DEFAULT FALSE,
@@ -253,7 +254,8 @@ async function init() {
       expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '30 days'),
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
-  `).catch(e => console.error('[init] athlete_invite_tokens:', e.message));
+  `).then(() => console.log('[init] athlete_invite_tokens table ready'))
+    .catch(e => console.error('[init] athlete_invite_tokens FAILED:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_invite_tokens_athlete ON athlete_invite_tokens(athlete_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_invite_tokens_token ON athlete_invite_tokens(token)`).catch(() => {});
 

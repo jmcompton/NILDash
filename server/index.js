@@ -2544,6 +2544,7 @@ function verifyAthleteToken(req, res, next) {
 app.get('/api/athlete/verify-token/:token', async (req, res) => {
   try {
     const { token } = req.params;
+    console.log(`[athlete/verify-token] Verifying token: ...${token.slice(-12)}`);
     const r = await store.pool.query(
       `SELECT ait.*, a.data, a.agent_id,
               a.data->>'name' as athlete_name,
@@ -2551,17 +2552,27 @@ app.get('/api/athlete/verify-token/:token', async (req, res) => {
               a.data->>'school' as school,
               a.data->>'position' as position,
               u.name as agent_name,
-              u.data->>'agency_name' as agency_name
+              NULL::TEXT as agency_name
        FROM athlete_invite_tokens ait
        JOIN athletes a ON ait.athlete_id = a.id
        LEFT JOIN users u ON a.agent_id = u.id
        WHERE ait.token = $1`,
       [token]
     );
-    if (!r.rows.length) return res.json({ valid: false, message: 'This invite link is invalid or has expired. Contact your agent for a new link.' });
+    console.log(`[athlete/verify-token] Query returned ${r.rows.length} row(s)`);
+    if (!r.rows.length) {
+      console.log(`[athlete/verify-token] Token not found in athlete_invite_tokens`);
+      return res.json({ valid: false, message: 'This invite link is invalid or has expired. Contact your agent for a new link.' });
+    }
     const row = r.rows[0];
-    if (row.used) return res.json({ valid: false, message: 'This invite link has already been used. Try logging in instead.' });
-    if (new Date(row.expires_at) < new Date()) return res.json({ valid: false, message: 'This invite link has expired. Contact your agent for a new link.' });
+    if (row.used) {
+      console.log(`[athlete/verify-token] Token already used for athlete=${row.athlete_id}`);
+      return res.json({ valid: false, message: 'This invite link has already been used. Try logging in instead.' });
+    }
+    if (new Date(row.expires_at) < new Date()) {
+      console.log(`[athlete/verify-token] Token expired at ${row.expires_at}`);
+      return res.json({ valid: false, message: 'This invite link has expired. Contact your agent for a new link.' });
+    }
 
     // Extract first/last name from data
     const fullName = row.athlete_name || '';
@@ -2569,13 +2580,14 @@ app.get('/api/athlete/verify-token/:token', async (req, res) => {
     const firstName = nameParts[0] || '';
     const lastName = nameParts.slice(1).join(' ') || '';
 
+    console.log(`[athlete/verify-token] Valid token for athlete=${row.athlete_id} name="${row.athlete_name}"`);
     res.json({
       valid: true,
       athlete: { first_name: firstName, last_name: lastName, sport: row.sport, school: row.school, position: row.position, full_name: fullName },
       agent: { name: row.agent_name || 'Your Agent', agency_name: row.agency_name || '' },
     });
   } catch (e) {
-    console.error('[athlete/verify-token]', e.message);
+    console.error('[athlete/verify-token] SQL error:', e.message);
     res.json({ valid: false, message: 'This invite link is invalid or has expired. Contact your agent for a new link.' });
   }
 });
@@ -2591,7 +2603,7 @@ app.post('/api/athlete/activate', authLimiter, async (req, res) => {
       `SELECT ait.*, a.data, a.agent_id,
               a.data->>'name' as athlete_name,
               u.name as agent_name,
-              u.data->>'agency_name' as agency_name,
+              NULL::TEXT as agency_name,
               a.data->>'sport' as sport,
               a.data->>'school' as school
        FROM athlete_invite_tokens ait
@@ -2665,7 +2677,7 @@ app.post('/api/athlete/login', authLimiter, async (req, res) => {
 
     const r = await store.pool.query(
       `SELECT a.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport, a.data->>'school' as school,
-              u.name as agent_name, u.data->>'agency_name' as agency_name
+              u.name as agent_name, NULL::TEXT as agency_name
        FROM athletes a
        LEFT JOIN users u ON a.agent_id = u.id
        WHERE a.email = $1 AND a.onboarding_complete = TRUE`,
@@ -2715,7 +2727,7 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
       `SELECT a.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport,
               a.data->>'school' as school, a.data->>'position' as position,
               a.data->>'followers_ig' as followers_ig, a.data->>'followers_tiktok' as followers_tiktok,
-              u.name as agent_name, u.data->>'agency_name' as agency_name,
+              u.name as agent_name, NULL::TEXT as agency_name,
               ai.visibility
        FROM athletes a
        LEFT JOIN users u ON a.agent_id = u.id
@@ -2776,11 +2788,20 @@ app.post('/api/agents/athletes/:id/invite-token', requireAuth, async (req, res) 
     );
 
     const token = require('crypto').randomBytes(32).toString('hex');
+    console.log(`[invite-token] Generating token for athlete=${athleteId}, saving to athlete_invite_tokens`);
     await store.pool.query(
       `INSERT INTO athlete_invite_tokens (athlete_id, agent_id, token, expires_at)
        VALUES ($1, $2, $3, NOW() + INTERVAL '30 days')`,
       [athleteId, req.session.userId, token]
     );
+
+    // Confirm token was saved
+    const confirm = await store.pool.query('SELECT id, athlete_id, expires_at FROM athlete_invite_tokens WHERE token = $1', [token]);
+    if (confirm.rows.length) {
+      console.log(`[invite-token] Confirmed saved: id=${confirm.rows[0].id} athlete=${confirm.rows[0].athlete_id} expires=${confirm.rows[0].expires_at} token=...${token.slice(-12)}`);
+    } else {
+      console.error(`[invite-token] WARNING: token not found after INSERT — athlete=${athleteId}`);
+    }
 
     const appUrl = process.env.APP_URL || 'https://mynildash.com';
     const inviteUrl = `${appUrl}/athlete-signup.html?token=${token}`;
@@ -2795,10 +2816,10 @@ app.post('/api/agents/athletes/:id/invite-token', requireAuth, async (req, res) 
       ['invite-' + athleteId, athleteId, req.session.userId, token, JSON.stringify(vis), expires]
     ).catch(() => {});
 
-    console.log(`[invite-token] agent=${req.session.userId} athlete=${athleteId} token=...${token.slice(-8)}`);
+    console.log(`[invite-token] Done: agent=${req.session.userId} athlete=${athleteId} token=...${token.slice(-12)}`);
     res.json({ ok: true, token, inviteUrl, athleteName: athlete.name });
   } catch (e) {
-    console.error('[invite-token]', e.message);
+    console.error('[invite-token] Error:', e.message, e.stack);
     res.status(500).json({ error: e.message });
   }
 });
