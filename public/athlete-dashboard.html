@@ -22,10 +22,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .logo-badge{font-size:9px;font-weight:700;color:var(--accent);background:var(--accent-glow);border:1px solid rgba(132,204,22,0.25);padding:2px 7px;border-radius:40px;letter-spacing:0.1em;text-transform:uppercase;display:inline-block;margin-top:4px}
 .sidebar-nav{flex:1;padding:6px 0;overflow-y:auto}
 .nav-section-label{font-size:9px;font-weight:700;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase;padding:12px 16px 4px}
-.nav-item{display:flex;align-items:center;gap:9px;padding:8px 16px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-left:2px solid transparent;transition:all 0.12s}
+.nav-item{display:flex;align-items:center;padding:8px 16px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-left:2px solid transparent;transition:all 0.12s}
 .nav-item:hover{color:var(--text);background:rgba(255,255,255,0.03)}
 .nav-item.active{color:var(--accent);background:var(--accent-glow);border-left-color:var(--accent);font-weight:600}
-.nav-icon{font-size:13px;width:16px;text-align:center;flex-shrink:0}
 .sidebar-bottom{padding:10px 0;border-top:1px solid var(--border)}
 
 /* ── Main wrap ── */
@@ -164,7 +163,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-label{font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace}
 .empty-state{text-align:center;padding:36px 20px;color:var(--muted)}
-.empty-icon{font-size:30px;margin-bottom:9px}
 .empty-text{font-size:13px}
 .empty-sub{font-size:11px;margin-top:4px;color:rgba(100,116,139,0.55)}
 
@@ -208,51 +206,27 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
   <nav class="sidebar-nav">
     <div class="nav-section-label">Command</div>
-    <div class="nav-item active" data-view="home" onclick="showView('home',this)">
-      <span class="nav-icon">⌂</span> Home
-    </div>
-    <div class="nav-item" data-view="command" onclick="showView('command',this)">
-      <span class="nav-icon">✦</span> AI Command
-    </div>
-    <div class="nav-item" data-view="dealscan" onclick="showView('dealscan',this)">
-      <span class="nav-icon">🔍</span> Deal Scan
-    </div>
-    <div class="nav-item" data-view="rate" onclick="showView('rate',this)">
-      <span class="nav-icon">💰</span> Rate Calculator
-    </div>
-    <div class="nav-item" data-view="team-match" onclick="showView('team-match',this)">
-      <span class="nav-icon">🎯</span> Team Match
-    </div>
+    <div class="nav-item active" data-view="home" onclick="showView('home',this)">Home</div>
+    <div class="nav-item" data-view="command" onclick="showView('command',this)">AI Command</div>
+    <div class="nav-item" data-view="dealscan" onclick="showView('dealscan',this)">Deal Scan</div>
+    <div class="nav-item" data-view="rate" onclick="showView('rate',this)">Rate Calculator</div>
+    <div class="nav-item" data-view="team-match" onclick="showView('team-match',this)">Team Match</div>
 
     <div class="nav-section-label">Outreach</div>
-    <div class="nav-item" data-view="outreach" onclick="showView('outreach',this)">
-      <span class="nav-icon">📨</span> Outreach
-    </div>
-    <div class="nav-item" data-view="marketing" onclick="showView('marketing',this)">
-      <span class="nav-icon">📣</span> Marketing
-    </div>
-    <div class="nav-item" data-view="email" onclick="showView('email',this)">
-      <span class="nav-icon">✉️</span> Email
-    </div>
+    <div class="nav-item" data-view="outreach" onclick="showView('outreach',this)">Outreach</div>
+    <div class="nav-item" data-view="marketing" onclick="showView('marketing',this)">Marketing</div>
+    <div class="nav-item" data-view="email" onclick="showView('email',this)">Email</div>
 
     <div class="nav-section-label">Deals</div>
-    <div class="nav-item" data-view="calendar" onclick="showView('calendar',this)">
-      <span class="nav-icon">📅</span> Calendar
-    </div>
-    <div class="nav-item" data-view="deal-close" onclick="showView('deal-close',this)">
-      <span class="nav-icon">🤝</span> Deal Close
-    </div>
+    <div class="nav-item" data-view="calendar" onclick="showView('calendar',this)">Calendar</div>
+    <div class="nav-item" data-view="deal-close" onclick="showView('deal-close',this)">Deal Close</div>
 
     <div class="nav-section-label">Account</div>
-    <div class="nav-item" data-view="profile" onclick="showView('profile',this)">
-      <span class="nav-icon">👤</span> My Profile
-    </div>
+    <div class="nav-item" data-view="profile" onclick="showView('profile',this)">My Profile</div>
   </nav>
 
   <div class="sidebar-bottom">
-    <div class="nav-item" onclick="signOut()" style="color:var(--red)">
-      <span class="nav-icon">⏻</span> Sign Out
-    </div>
+    <div class="nav-item" onclick="signOut()" style="color:var(--red)">Sign Out</div>
   </div>
 </div>
 
@@ -286,22 +260,22 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
     <div class="grid-2">
       <div class="card">
-        <div class="card-title">💰 My NIL Value</div>
+        <div class="card-title">My NIL Value</div>
         <div id="home-nil-content"><div class="empty-state"><div class="empty-text">Calculating…</div></div></div>
         <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('rate',document.querySelector('[data-view=rate]'))">Full Calculator →</button></div>
       </div>
       <div class="card">
-        <div class="card-title">📅 Upcoming Deliverables</div>
+        <div class="card-title">Upcoming Deliverables</div>
         <div id="home-cal-content"><div class="empty-state"><div class="empty-text">No upcoming deliverables.</div></div></div>
         <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('calendar',document.querySelector('[data-view=calendar]'))">Full Calendar →</button></div>
       </div>
       <div class="card">
-        <div class="card-title">📨 Recent Outreach</div>
+        <div class="card-title">Recent Outreach</div>
         <div id="home-outreach-content"><div class="empty-state"><div class="empty-text">No outreach sent yet.</div></div></div>
         <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('outreach',document.querySelector('[data-view=outreach]'))">Full Pipeline →</button></div>
       </div>
       <div class="card">
-        <div class="card-title">🤝 Active Deals</div>
+        <div class="card-title">Active Deals</div>
         <div id="home-deals-content"><div class="empty-state"><div class="empty-text">No active deals yet.</div></div></div>
         <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('deal-close',document.querySelector('[data-view=deal-close]'))">Manage Deals →</button></div>
       </div>
@@ -359,7 +333,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           </select>
         </div>
       </div>
-      <button class="btn btn-primary" id="scan-btn" onclick="runDealScan()">🔍 Scan for Opportunities</button>
+      <button class="btn btn-primary" id="scan-btn" onclick="runDealScan()">Scan for Opportunities</button>
     </div>
     <div id="scan-results"></div>
   </div>
@@ -388,7 +362,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       </div>
       <div class="card">
         <div class="card-title">Rate Breakdown</div>
-        <div id="rate-breakdown"><div class="empty-state"><div class="empty-icon">💰</div><div class="empty-text">Enter your stats and click Calculate</div></div></div>
+        <div id="rate-breakdown"><div class="empty-state"><div class="empty-text">Enter your stats and click Calculate</div></div></div>
       </div>
     </div>
   </div>
@@ -440,7 +414,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <label class="form-label">Additional Notes</label>
         <textarea class="form-textarea" id="tm-notes" placeholder="e.g. I want to play for a program known for developing point guards, interested in a business degree…"></textarea>
       </div>
-      <button class="btn btn-primary" id="tm-btn" onclick="runTeamMatch()">🎯 Find Best Programs</button>
+      <button class="btn btn-primary" id="tm-btn" onclick="runTeamMatch()">Find Best Programs</button>
     </div>
     <div id="tm-results"></div>
   </div>
@@ -481,7 +455,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           </select>
         </div>
       </div>
-      <button class="btn btn-primary" id="mkt-btn" onclick="generateContentIdeas()">✨ Generate Ideas</button>
+      <button class="btn btn-primary" id="mkt-btn" onclick="generateContentIdeas()">Generate Ideas</button>
     </div>
     <div id="mkt-ideas"></div>
     <div class="card" style="margin-top:20px">
@@ -501,7 +475,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <option value="completed">Completed</option>
           <option value="overdue">Overdue</option>
         </select>
-        <button class="btn btn-ghost btn-sm" onclick="loadCalendar()">↺</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadCalendar()">Refresh</button>
       </div>
     </div>
     <div class="card"><div id="cal-content"><div class="empty-state"><div class="spinner"></div></div></div></div>
@@ -532,7 +506,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <label class="form-label" style="margin:0;cursor:pointer" for="email-cc-agent">CC my agent on this email</label>
         </div>
         <div style="display:flex;gap:10px">
-          <button class="btn btn-ghost btn-sm" id="email-draft-btn" onclick="aiDraftEmail()">✨ AI Draft</button>
+          <button class="btn btn-ghost btn-sm" id="email-draft-btn" onclick="aiDraftEmail()">AI Draft</button>
           <button class="btn btn-primary" id="email-send-btn" onclick="sendEmail()">Send Email</button>
         </div>
       </div>
@@ -588,7 +562,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="form-group"><label class="form-label">Why is this brand a good fit?</label><input type="text" class="form-input" id="mo-relevance" placeholder="e.g. I use their products every day and my audience aligns"></div>
     <div class="form-group"><label class="form-label">Message *</label><textarea class="form-textarea" id="mo-message" placeholder="Your outreach message…"></textarea></div>
     <div class="modal-actions">
-      <button class="btn btn-ghost btn-sm" id="mo-draft-btn" onclick="aiDraftOutreachModal()">✨ AI Draft</button>
+      <button class="btn btn-ghost btn-sm" id="mo-draft-btn" onclick="aiDraftOutreachModal()">AI Draft</button>
       <button class="btn btn-ghost" onclick="document.getElementById('outreach-modal').style.display='none'">Cancel</button>
       <button class="btn btn-primary" id="mo-send-btn" onclick="submitOutreach()">Send Outreach</button>
     </div>
@@ -918,7 +892,7 @@ function scrollChat() {
 // ══════════════════════════════════════════════════════════════════
 async function runDealScan() {
   var btn = document.getElementById('scan-btn');
-  btn.disabled = true; btn.textContent = '🔍 Scanning…';
+  btn.disabled = true; btn.textContent = 'Scanning…';
   var results = document.getElementById('scan-results');
   results.innerHTML = '<div class="empty-state"><div class="spinner"></div><div class="empty-text" style="margin-top:12px">Finding brand opportunities…</div></div>';
 
@@ -935,7 +909,7 @@ async function runDealScan() {
     }
     var opps = data.opportunities || [];
     if (!opps.length) {
-      results.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">No opportunities found. Try adjusting filters.</div></div>';
+      results.innerHTML = '<div class="empty-state"><div class="empty-text">No opportunities found. Try adjusting filters.</div></div>';
       return;
     }
     results.innerHTML = '<div class="grid-3" style="margin-top:16px">' +
@@ -951,7 +925,7 @@ async function runDealScan() {
   } catch(e) {
     results.innerHTML = '<div class="empty-state"><div class="empty-text">Network error. Please try again.</div></div>';
   } finally {
-    btn.disabled = false; btn.textContent = '🔍 Scan for Opportunities';
+    btn.disabled = false; btn.textContent = 'Scan for Opportunities';
   }
 }
 
@@ -1025,7 +999,7 @@ async function runRateCalc() {
 // ══════════════════════════════════════════════════════════════════
 async function runTeamMatch() {
   var btn = document.getElementById('tm-btn');
-  btn.disabled = true; btn.textContent = '🎯 Finding Programs…';
+  btn.disabled = true; btn.textContent = 'Finding Programs…';
   var results = document.getElementById('tm-results');
   results.innerHTML = '<div class="empty-state"><div class="spinner"></div><div class="empty-text" style="margin-top:12px">Finding best programs for you…</div></div>';
 
@@ -1048,7 +1022,7 @@ async function runTeamMatch() {
     }
     var programs = data.programs || data.matches || [];
     if (!programs.length) {
-      results.innerHTML = '<div class="empty-state"><div class="empty-icon">🎯</div><div class="empty-text">No programs found. Try different preferences.</div></div>';
+      results.innerHTML = '<div class="empty-state"><div class="empty-text">No programs found. Try different preferences.</div></div>';
       return;
     }
     results.innerHTML = '<div class="grid-3" style="margin-top:16px">' +
@@ -1063,7 +1037,7 @@ async function runTeamMatch() {
   } catch(e) {
     results.innerHTML = '<div class="empty-state"><div class="empty-text">Network error. Please try again.</div></div>';
   } finally {
-    btn.disabled = false; btn.textContent = '🎯 Find Best Programs';
+    btn.disabled = false; btn.textContent = 'Find Best Programs';
   }
 }
 
@@ -1088,7 +1062,7 @@ var OUTREACH_LABELS = { sent:'Sent', opened:'Opened', responded:'Responded', dea
 function renderOutreachKanban(outreach) {
   var kanban = document.getElementById('outreach-kanban');
   if (!outreach.length) {
-    kanban.innerHTML = '<div class="empty-state"><div class="empty-icon">📨</div><div class="empty-text">No outreach yet. Send your first pitch!</div><div class="empty-sub">Brands you contact will appear here.</div></div>';
+    kanban.innerHTML = '<div class="empty-state"><div class="empty-text">No outreach yet. Send your first pitch!</div><div class="empty-sub">Brands you contact will appear here.</div></div>';
     return;
   }
   var groups = {};
@@ -1131,7 +1105,7 @@ async function aiDraftOutreachModal() {
   var brand = document.getElementById('mo-brand').value.trim();
   if (!brand) { showToast('Enter a brand name first', 'error'); return; }
   var btn = document.getElementById('mo-draft-btn');
-  btn.disabled = true; btn.textContent = '✨ Drafting…';
+  btn.disabled = true; btn.textContent = 'Drafting…';
   try {
     var r = await fetch('/api/athlete/ai-draft-outreach', {
       method: 'POST',
@@ -1142,7 +1116,7 @@ async function aiDraftOutreachModal() {
     if (data.draft) document.getElementById('mo-message').value = data.draft;
     else showToast('AI draft failed', 'error');
   } catch(e) { showToast('AI draft failed', 'error'); }
-  finally { btn.disabled = false; btn.textContent = '✨ AI Draft'; }
+  finally { btn.disabled = false; btn.textContent = 'AI Draft'; }
 }
 
 async function submitOutreach() {
@@ -1177,7 +1151,7 @@ async function submitOutreach() {
 // ══════════════════════════════════════════════════════════════════
 async function generateContentIdeas() {
   var btn = document.getElementById('mkt-btn');
-  btn.disabled = true; btn.textContent = '✨ Generating…';
+  btn.disabled = true; btn.textContent = 'Generating…';
   var ideas = document.getElementById('mkt-ideas');
   ideas.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   try {
@@ -1207,7 +1181,7 @@ async function generateContentIdeas() {
   } catch(e) {
     ideas.innerHTML = '<div class="empty-state"><div class="empty-text">Network error. Please try again.</div></div>';
   } finally {
-    btn.disabled = false; btn.textContent = '✨ Generate Ideas';
+    btn.disabled = false; btn.textContent = 'Generate Ideas';
   }
 }
 
@@ -1249,7 +1223,7 @@ async function loadCalendar() {
     var data = await r.json();
     var events = data.events || [];
     if (!events.length) {
-      el.innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-text">No deliverables found.</div><div class="empty-sub">Your agent adds calendar events when deals are signed.</div></div>';
+      el.innerHTML = '<div class="empty-state"><div class="empty-text">No deliverables found.</div><div class="empty-sub">Your agent adds calendar events when deals are signed.</div></div>';
       return;
     }
     var today = new Date().toISOString().split('T')[0];
@@ -1309,7 +1283,7 @@ async function loadDeals() {
 function renderDealPipeline(deals) {
   var el = document.getElementById('deal-pipeline');
   if (!deals.length) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🤝</div><div class="empty-text">No deals yet. Add your first deal!</div><div class="empty-sub">Track every brand opportunity from first contact to signed contract.</div></div>';
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">No deals yet. Add your first deal!</div><div class="empty-sub">Track every brand opportunity from first contact to signed contract.</div></div>';
     return;
   }
   var groups = {};
@@ -1404,7 +1378,7 @@ async function loadEmailHistory() {
     var data = await r.json();
     var history = (data.outreach || []).filter(function(o){ return o.brand_contact_email; });
     if (!history.length) {
-      el.innerHTML = '<div class="empty-state"><div class="empty-icon">✉️</div><div class="empty-text">No emails sent yet.</div></div>';
+      el.innerHTML = '<div class="empty-state"><div class="empty-text">No emails sent yet.</div></div>';
       return;
     }
     el.innerHTML = history.map(function(o) {
@@ -1427,7 +1401,7 @@ async function aiDraftEmail() {
   if (!brand && !to) { showToast('Enter brand name or recipient email first', 'error'); return; }
   var brandName = brand || (to.split('@')[1] || '').split('.')[0] || 'this brand';
   var btn = document.getElementById('email-draft-btn');
-  btn.disabled = true; btn.textContent = '✨ Drafting…';
+  btn.disabled = true; btn.textContent = 'Drafting…';
   try {
     var r = await fetch('/api/athlete/ai-draft-outreach', {
       method: 'POST',
@@ -1440,7 +1414,7 @@ async function aiDraftEmail() {
       if (!document.getElementById('email-subject').value) document.getElementById('email-subject').value = 'NIL Partnership Opportunity';
     } else showToast('AI draft failed', 'error');
   } catch(e) { showToast('AI draft failed', 'error'); }
-  finally { btn.disabled = false; btn.textContent = '✨ AI Draft'; }
+  finally { btn.disabled = false; btn.textContent = 'AI Draft'; }
 }
 
 async function sendEmail() {
