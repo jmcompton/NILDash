@@ -143,31 +143,48 @@ var NILCal = (function () {
     var today       = new Date().toISOString().split('T')[0];
     var byDate      = buildByDate();
 
+    // Cell height is enforced by grid-auto-rows:110px on #cal-grid.
+    // Cells use overflow:hidden so they never expand and break the grid uniformity.
+    var CELL = 'border-right:1px solid var(--border);border-bottom:1px solid var(--border);overflow:hidden;position:relative;';
     var html = '';
+
     // Blank leading cells
     for (var i = 0; i < firstDay; i++) {
-      html += '<div style="min-height:120px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2);opacity:0.3"></div>';
+      html += '<div style="' + CELL + 'background:var(--surface2);opacity:0.4"></div>';
     }
+
     for (var d = 1; d <= daysInMonth; d++) {
       var dateStr = calYear + '-' + pad(calMonth + 1) + '-' + pad(d);
       var dayEvs  = byDate[dateStr] || [];
       var isToday = dateStr === today;
-      html += '<div onclick="NILCal.selectDay(\'' + dateStr + '\')" style="min-height:120px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:5px;cursor:pointer;' + (isToday ? 'background:rgba(99,102,241,0.06)' : '') + '">';
-      html += '<div style="font-size:11px;font-weight:' + (isToday ? '700' : '400') + ';color:' + (isToday ? 'var(--accent)' : 'var(--muted)') + ';margin-bottom:3px">' + d + '</div>';
+      html += '<div onclick="NILCal.selectDay(\'' + dateStr + '\')" style="' + CELL + 'padding:4px 5px 16px;cursor:pointer;' + (isToday ? 'background:rgba(99,102,241,0.05)' : '') + '">';
+      // Date number
+      html += '<div style="font-size:10px;font-weight:' + (isToday ? '700' : '500') + ';color:' + (isToday ? 'var(--accent)' : 'var(--muted)') + ';margin-bottom:3px;line-height:1">' + (isToday ? '<span style="background:var(--accent);color:#fff;border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;font-size:10px">' + d + '</span>' : d) + '</div>';
+      // Show up to 3 events — compact single-line pills
       var shown = dayEvs.slice(0, 3);
       for (var e = 0; e < shown.length; e++) {
-        var ev = shown[e];
+        var ev  = shown[e];
         var clr = getEventColor(ev, today);
-        html += '<div onclick="event.stopPropagation();NILCal.openDrawer(\'' + (ev.id||'').replace(/'/g,"\\'") + '\')" style="font-size:9px;padding:2px 5px;border-radius:3px;background:' + clr.bg + ';color:' + clr.fg + ';border-left:2px solid ' + clr.border + ';margin-bottom:2px;cursor:pointer;overflow:hidden;white-space:nowrap;text-overflow:ellipsis" title="' + (ev.athlete_name||'') + ': ' + ev.title + '">' + (ev.athlete_name ? ev.athlete_name.split(' ').pop() + ' · ' : '') + ev.title + '</div>';
+        var label = (ev.athlete_name ? ev.athlete_name.split(' ').pop() + ' · ' : '') + ev.title;
+        html += '<div onclick="event.stopPropagation();NILCal.openDrawer(\'' + (ev.id||'').replace(/'/g,"\\'") + '\')" ' +
+          'title="' + (ev.athlete_name||'') + ': ' + ev.title + '" ' +
+          'style="font-size:9px;line-height:1.4;padding:1px 4px;border-radius:3px;' +
+            'background:' + clr.bg + ';color:' + clr.fg + ';border-left:2px solid ' + clr.border + ';' +
+            'margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer">' +
+          label + '</div>';
       }
-      if (dayEvs.length > 3) html += '<div style="font-size:9px;color:var(--muted)">+' + (dayEvs.length - 3) + ' more</div>';
+      // "+N more" pinned to bottom of cell
+      if (dayEvs.length > 3) {
+        html += '<div style="position:absolute;bottom:3px;left:5px;font-size:9px;color:var(--muted)">+' + (dayEvs.length - 3) + ' more</div>';
+      }
       html += '</div>';
     }
+
     // Trailing blank cells
     var total = firstDay + daysInMonth;
     var trailing = total % 7 === 0 ? 0 : 7 - (total % 7);
     for (var i = 0; i < trailing; i++) {
-      html += '<div style="min-height:120px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);background:var(--surface2);opacity:0.3"></div>';
+      html += '<div style="' + CELL + 'background:var(--surface2);opacity:0.4"></div>';
     }
     grid.innerHTML = html;
 
