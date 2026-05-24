@@ -2882,6 +2882,45 @@ app.post('/api/athlete/outreach', verifyAthleteToken, async (req, res) => {
   }
 });
 
+// POST /api/athlete/write-outreach — AI generates 3-channel outreach (email, IG DM, LinkedIn)
+app.post('/api/athlete/write-outreach', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const { brand, category, contact, goal } = req.body;
+    if (!brand) return res.status(400).json({ error: 'brand is required' });
+    const athR = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [req.athlete.id]);
+    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const a = { ...athR.rows[0].data, id: athR.rows[0].id };
+    const goalStr = goal ? `$${Number(goal).toLocaleString()}` : 'a fair NIL rate';
+    const contactStr = contact ? `Contact: ${contact}` : '';
+    const prompt = `Write sponsorship outreach for a college athlete targeting a brand deal.
+
+Athlete: ${a.name} | Sport: ${a.sport} | School: ${a.school} | Position: ${a.position || 'N/A'}
+Instagram followers: ${a.instagram || 0} | TikTok: ${a.tiktok || 0}
+Brand: ${brand} | Category: ${category || 'general'} | ${contactStr}
+Deal goal: ${goalStr}
+
+Write three versions:
+1. A professional email with a subject line
+2. A casual Instagram DM (under 200 words)
+3. A LinkedIn message (professional tone, under 150 words)
+
+Return ONLY valid JSON (no markdown):
+{
+  "emailSubject": "...",
+  "email": "...",
+  "instagram": "...",
+  "linkedin": "..."
+}`;
+    const raw = await ai.oneShot(prompt, 'You are an NIL sponsorship specialist. Return only valid JSON.');
+    let result = {};
+    try { const m = raw.match(/\{[\s\S]*\}/); if (m) result = JSON.parse(m[0]); } catch(e) {}
+    if (!result.email && !result.instagram) return res.status(500).json({ error: 'AI failed to generate outreach' });
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'outreach_written',
+      `AI wrote outreach for ${brand}`, { brand, category });
+    res.json(result);
+  } catch (e) { console.error('[athlete/write-outreach]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/athlete/outreach — athlete views their outreach history
 app.get('/api/athlete/outreach', verifyAthleteToken, async (req, res) => {
   try {
@@ -3176,44 +3215,96 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
   } catch (e) { console.error('[athlete/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/rate-calculator — calculate athlete's own rates
+// POST /api/athlete/rate-calculator — calculate athlete's own rates (full benchmarks)
 app.post('/api/athlete/rate-calculator', verifyAthleteToken, async (req, res) => {
   try {
     const delivType = req.body.deliverable_type || 'ig-reel';
     const row = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [req.athlete.id]);
     if (!row.rows.length) return res.status(404).json({ error: 'Athlete not found' });
     const athleteObj = { id: row.rows[0].id, agentId: row.rows[0].agent_id, ...row.rows[0].data };
-    const rate = ai.calculateRate(athleteObj, delivType);
-    const { nilViewVal, cleanRange } = require('./benchmarks');
+    const {
+      nilViewVal, cleanRange, generateRateDrivers, generateRateLimitations,
+      calcMarketReliabilityScore, generateConfidenceTypes, generateComparableNote,
+      generateMomentumSignal, generatePricingStrategy
+    } = require('./benchmarks');
+    const rate = nilViewVal(athleteObj, delivType);
     const cleaned = cleanRange(rate.low, rate.high);
+    const compCount = 0; // no actual comps yet — honest
+    const rateDrivers   = generateRateDrivers(athleteObj, rate);
+    const rateLimits    = generateRateLimitations(athleteObj, rate, compCount);
+    const reliability   = calcMarketReliabilityScore(athleteObj, rate, compCount);
+    const confTypes     = generateConfidenceTypes(athleteObj, rate, compCount);
+    const compNote      = generateComparableNote(athleteObj, rate);
+    const momentum      = generateMomentumSignal(athleteObj);
+    const pricingStrategy = generatePricingStrategy(rate);
     const cr = (t) => { const r2 = nilViewVal(athleteObj, t); return cleanRange(r2.low, r2.high); };
-    const dealTypeRates = {
+    const deal_type_rates = {
       'ig-reel': cr('ig-reel'), 'ig-post': cr('ig-post'), 'stories': cr('stories'),
       'tiktok': cr('tiktok'), 'bundle': cr('bundle'), 'appearance-inperson': cr('appearance-inperson'),
     };
     await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'valuation_run',
       `Ran rate calculator (${delivType})`, { deliverable_type: delivType });
-    res.json({ ok: true, deliverable_type: delivType, rate: cleaned, deal_type_rates: dealTypeRates,
+    res.json({
+      ok: true, deliverable_type: delivType,
+      rate: cleaned, cleanLow: cleaned.low, cleanHigh: cleaned.high,
+      deal_type_rates, rateDrivers, rateLimits, reliability, confTypes,
+      compNote, momentum, pricingStrategy,
+      floorApplied: rate.floorApplied || false,
+      recommendation: rate.recommendation || null,
       athlete: { name: athleteObj.name, sport: athleteObj.sport, school: athleteObj.school,
-        instagram: athleteObj.instagram || 0, tiktok: athleteObj.tiktok || 0 } });
+        instagram: athleteObj.instagram || 0, tiktok: athleteObj.tiktok || 0 }
+    });
   } catch (e) { console.error('[athlete/rate-calculator]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/rate-talking-points — generate negotiation talking points
+app.post('/api/athlete/rate-talking-points', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const { deliverable_type } = req.body;
+    const athR = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [req.athlete.id]);
+    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const a = { ...athR.rows[0].data, id: athR.rows[0].id };
+    const { nilViewVal, cleanRange } = require('./benchmarks');
+    const rate = nilViewVal(a, deliverable_type || 'ig-reel');
+    const cleaned = cleanRange(rate.low, rate.high);
+    const prompt = `Generate negotiation talking points for a college athlete in a brand deal negotiation.
+
+Athlete: ${a.name} | Sport: ${a.sport} | School: ${a.school}
+Instagram: ${a.instagram || 0} followers | TikTok: ${a.tiktok || 0} followers
+Deliverable: ${deliverable_type || 'IG Reel'}
+Market rate estimate: $${cleaned.low.toLocaleString()} – $${cleaned.high.toLocaleString()}
+
+Write 5-7 specific, confident talking points they can use when negotiating with a brand.
+Include: how to anchor high, what to say about their audience value, how to handle "we have a limited budget", and when to walk away.
+Be direct and practical. Write in first-person so the athlete can say it directly.`;
+
+    const talking_points = await ai.oneShot(prompt, 'You are an NIL negotiation coach. Write practical, confident scripts.');
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'talking_points_generated',
+      `Generated talking points for ${deliverable_type || 'ig-reel'}`, { deliverable_type });
+    res.json({ talking_points });
+  } catch (e) { console.error('[athlete/rate-talking-points]', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/athlete/team-match — find best programs for athlete (transfer/recruitment)
 app.post('/api/athlete/team-match', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
-    const { geo_preference, division, academic_priority, nil_priority } = req.body;
+    const { conference, min_nil, sort_by } = req.body;
     const athR = await store.pool.query(
       `SELECT a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'position' as position,
               a.data->>'school' as school, a.data->>'year' as year FROM athletes a WHERE a.id = $1`,
       [req.athlete.id]
     );
     const ath = athR.rows[0] || {};
-    const prompt = `A college athlete is exploring transfer destinations. Find 8 best-fit programs.\n\nAthlete: ${ath.name} | Sport: ${ath.sport} | Position: ${ath.position} | Year: ${ath.year}\nCurrent School: ${ath.school}\nNIL Priority: ${nil_priority || 'High'} | Geographic: ${geo_preference || 'Any'} | Division: ${division || 'D1'}\nAcademic Priority: ${academic_priority || 'Flexible'}\n\nReturn ONLY a valid JSON array, no markdown:\n[{"school":"School Name","conference":"Conference","nil_rating":"High/Medium/Low","nil_estimate":"$X-$X/year","why_fit":"Two sentences","position_need":"Program need at this position","match_score":85}]`;
+    const confStr = conference && conference !== 'any' ? `Conference preference: ${conference}` : 'Any conference';
+    const nilStr = min_nil && parseInt(min_nil) > 0 ? `Minimum NIL: $${parseInt(min_nil).toLocaleString()}/year` : 'Any NIL level';
+    const sortStr = sort_by === 'nil' ? 'Sort results by NIL value (highest first)' : sort_by === 'exposure' ? 'Sort by pro exposure / draft potential' : 'Sort by overall fit score (highest first)';
+    const prompt = `A college athlete is exploring transfer destinations. Find 8 best-fit programs.\n\nAthlete: ${ath.name} | Sport: ${ath.sport} | Position: ${ath.position} | Year: ${ath.year}\nCurrent School: ${ath.school}\n${confStr} | ${nilStr}\n${sortStr}\n\nReturn ONLY a valid JSON array, no markdown:\n[{"school":"School Name","conference":"Conference","nil_rating":"High/Medium/Low","nil_estimate":"$X-$X/year","why_fit":"Two sentences","position_need":"Program need at this position","match_score":85}]`;
 
     const raw = await ai.oneShot(prompt, 'You are an NIL transfer portal analyst. Return only valid JSON arrays.');
     let programs = [];
     try { const m = raw.match(/\[[\s\S]*\]/); if (m) programs = JSON.parse(m[0]); } catch(e) {}
+    // Sort based on preference
+    if (sort_by === 'nil') programs.sort((a,b) => (b.match_score||0) - (a.match_score||0));
     console.log(`[athlete/team-match] athlete=${req.athlete.id} programs=${programs.length}`);
     res.json({ programs });
   } catch (e) { console.error('[athlete/team-match]', e.message); res.status(500).json({ error: e.message }); }

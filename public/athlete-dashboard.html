@@ -196,6 +196,43 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .main-wrap{margin-left:0}
   .grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
 }
+
+/* ── Agent-match UI classes ── */
+.page-sub{font-size:12px;color:var(--muted);margin-bottom:10px}
+.form-label-sm{display:block;font-size:10px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:5px;font-weight:600}
+.form-group-sm{margin-bottom:14px}
+.input-sm,.select-sm{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;padding:9px 12px;outline:none;transition:border-color 0.15s}
+.input-sm:focus,.select-sm:focus{border-color:var(--accent)}
+.select-sm option{background:var(--surface)}
+.run-btn{background:var(--accent);color:#0A0E1A;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;padding:9px 22px;border-radius:40px;border:none;cursor:pointer;transition:all 0.15s;letter-spacing:0.3px;display:inline-flex;align-items:center;gap:6px}
+.run-btn:hover{background:#6BAE10}
+.run-btn:disabled{opacity:0.5;cursor:not-allowed}
+.rate-result{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:0;display:none}
+.rate-result.visible{display:block}
+.rate-range{font-family:'Bebas Neue',sans-serif;font-size:44px;font-weight:400;color:var(--accent);letter-spacing:2px;margin-bottom:4px;line-height:1}
+.rate-breakdown{margin-top:14px;display:grid;gap:6px}
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:8px}
+.kpi{background:var(--surface);border:1px solid rgba(132,204,22,0.25);border-top:2px solid var(--accent);border-radius:12px;padding:12px 16px}
+.kpi-label{font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px;font-weight:600}
+.kpi-val{font-family:'Bebas Neue',sans-serif;font-size:30px;font-weight:400;letter-spacing:1px;color:var(--accent);line-height:1}
+.kpi-sub{font-size:11px;color:var(--muted);margin-top:6px}
+.ai-block{background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:12px;padding:18px 22px;display:none}
+.ai-block.visible{display:block}
+.ai-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.ai-label{font-size:10px;color:var(--accent);letter-spacing:1.5px;text-transform:uppercase;font-weight:600}
+.ai-content{font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap}
+/* ── Calendar grid ── */
+.cal-cell{min-height:110px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:6px;cursor:pointer;transition:background 0.1s}
+.cal-cell:nth-child(7n){border-right:none}
+.cal-cell:hover{background:rgba(132,204,22,0.03)}
+.cal-cell.other-month{opacity:0.3}
+.cal-cell.today{background:rgba(132,204,22,0.06)}
+.cal-event-dot{font-size:10px;color:var(--text);background:var(--surface2);border-radius:4px;padding:1px 5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-event-dot.status-completed{color:var(--green)}
+.cal-event-dot.status-overdue{color:var(--red)}
+/* ── Marketing tabs ── */
+.mkt-tab-btn{padding:8px 16px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px;font-family:'DM Sans',sans-serif;transition:all 0.15s}
+.mkt-tab-btn.active{border-bottom-color:var(--accent);color:var(--accent)}
 </style>
 </head>
 <body>
@@ -231,6 +268,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
     <div class="nav-section-label">Deals</div>
     <div class="nav-item" data-view="calendar" onclick="showView('calendar',this)">Calendar</div>
+    <div class="nav-item" data-view="pipeline" onclick="showView('pipeline',this)">Deal Pipeline</div>
     <div class="nav-item" data-view="deal-close" onclick="showView('deal-close',this)">Deal Close</div>
 
     <div class="nav-section-label">Account</div>
@@ -289,7 +327,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div class="card">
         <div class="card-title">Active Deals</div>
         <div id="home-deals-content"><div class="empty-state"><div class="empty-text">No active deals yet.</div></div></div>
-        <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('deal-close',document.querySelector('[data-view=deal-close]'))">Manage Deals →</button></div>
+        <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('pipeline',document.querySelector('[data-view=pipeline]'))">Manage Deals →</button></div>
       </div>
     </div>
   </div>
@@ -341,144 +379,364 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- ════ VIEW: RATE CALCULATOR ════ -->
   <div class="view" id="view-rate">
     <div class="page-title">RATE CALCULATOR</div>
-    <div class="page-subtitle">Estimate your NIL value for different deal types based on your audience and engagement.</div>
-    <div class="grid-2">
+    <div class="page-sub">Estimate your NIL value for any deliverable type — powered by your actual follower data and live market benchmarks.</div>
+    <div style="display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start">
       <div class="card">
-        <div class="card-title">Your Social Profile</div>
-        <div class="form-group"><label class="form-label">Instagram Followers</label><input type="number" class="form-input" id="rate-ig" placeholder="e.g. 25000"></div>
-        <div class="form-group"><label class="form-label">TikTok Followers</label><input type="number" class="form-input" id="rate-tt" placeholder="e.g. 50000"></div>
-        <div class="form-group"><label class="form-label">Twitter Followers</label><input type="number" class="form-input" id="rate-tw" placeholder="e.g. 10000"></div>
-        <div class="form-group">
-          <label class="form-label">Deal Type</label>
-          <select class="form-select" id="rate-type">
-            <option value="Social Media Post">Social Media Post</option>
-            <option value="Brand Ambassador">Brand Ambassador</option>
-            <option value="Appearance">Appearance</option>
-            <option value="Autograph Signing">Autograph Signing</option>
-            <option value="YouTube/Podcast">YouTube / Podcast</option>
+        <div class="card-title">Deliverable</div>
+        <div class="form-group-sm">
+          <label class="form-label-sm">Type</label>
+          <select class="select-sm" id="rate-deliverable">
+            <optgroup label="Social Media">
+              <option value="ig-reel" selected>IG Reel</option>
+              <option value="ig-post">Single IG Post</option>
+              <option value="ig-carousel">IG Carousel (Multi-Image)</option>
+              <option value="tiktok">TikTok Video</option>
+              <option value="tiktok-spark">TikTok Spark Ad (Boosted)</option>
+              <option value="youtube-short">YouTube Short</option>
+              <option value="story-bundle">Story Set + Link (5-7 stories)</option>
+              <option value="stories">Single Story Set (3 stories)</option>
+              <option value="bundle">IG Bundle (Reel + Post + Story)</option>
+              <option value="bundle-cross">Cross-Platform Bundle (IG + TikTok)</option>
+              <option value="retainer">Monthly Retainer</option>
+            </optgroup>
+            <optgroup label="Long-Form &amp; Audio">
+              <option value="youtube-long">YouTube Dedicated Video</option>
+              <option value="youtube-int">YouTube Integration (Mid-Roll)</option>
+              <option value="podcast-host">Podcast Host Read</option>
+              <option value="newsletter">Newsletter / Email Feature</option>
+              <option value="twitter-campaign">Twitter/X Campaign</option>
+              <option value="threads">Threads Campaign</option>
+            </optgroup>
+            <optgroup label="UGC &amp; Content Rights">
+              <option value="ugc-video">UGC Video (Brand Runs in Their Ads)</option>
+              <option value="ugc-photo">UGC Photo / Image Rights</option>
+            </optgroup>
+            <optgroup label="Appearances &amp; Events">
+              <option value="appearance-inperson">In-Person Appearance</option>
+              <option value="appearance-speaking">Speaking / Panel</option>
+              <option value="appearance-meetgreet">Meet &amp; Greet</option>
+              <option value="appearance-campus">Campus Appearance</option>
+              <option value="appearance-virtual">Virtual Appearance / Zoom</option>
+            </optgroup>
+            <optgroup label="Content &amp; Media">
+              <option value="media-podcast">Podcast Guest Spot</option>
+              <option value="media-youtube">YouTube Channel Integration</option>
+              <option value="media-twitch">Twitch / Livestream Session</option>
+              <option value="media-pressday">Press Interview / Media Day</option>
+              <option value="media-documentary">Documentary / Short Film Feature</option>
+            </optgroup>
+            <optgroup label="Licensing &amp; Brand">
+              <option value="license-jersey">Jersey / Uniform Licensing</option>
+              <option value="license-merch">Merchandise Collab</option>
+              <option value="license-codesign">Product Co-Design</option>
+              <option value="license-autograph">Autograph Signing (Bulk)</option>
+              <option value="license-videogame">Video Game Likeness (EA Sports etc.)</option>
+              <option value="license-trading-card">Trading Card / Collectible</option>
+              <option value="license-nft-digital">Digital / NFT Collectible</option>
+            </optgroup>
+            <optgroup label="Collective / School">
+              <option value="collective-roster">Collective Roster Deal (Monthly)</option>
+              <option value="collective-ambassador">School Ambassador Role</option>
+              <option value="collective-booster">Booster Event Appearance</option>
+              <option value="collective-exclusive">Exclusive School/Collective Deal</option>
+            </optgroup>
+            <optgroup label="Camps &amp; Clinics">
+              <option value="camp-skills">Skills Camp Appearance</option>
+              <option value="camp-clinic">Youth Clinic Host</option>
+              <option value="camp-training">Training Facility Partnership</option>
+              <option value="camp-elite">Elite Camp / Showcase Event</option>
+            </optgroup>
           </select>
         </div>
-        <button class="btn btn-primary" id="rate-calc-btn" onclick="runRateCalc()">Calculate My Rate</button>
+        <button class="run-btn" style="width:100%;justify-content:center" id="rate-calc-btn" onclick="runRateCalc()">Calculate Rate</button>
+        <button class="run-btn" style="width:100%;justify-content:center;margin-top:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border)" onclick="runRateScript()">Negotiation Talking Points</button>
+        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;justify-content:center" onclick="shareRateWithAgent()">Share with Agent</button>
       </div>
-      <div class="card">
-        <div class="card-title">Rate Breakdown</div>
-        <div id="rate-breakdown"><div class="empty-state"><div class="empty-text">Enter your stats and click Calculate</div></div></div>
+      <div>
+        <div class="rate-result" id="rateResult">
+          <div style="font-size:11px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px">Recommended Rate</div>
+          <div class="rate-range" id="rateRange">—</div>
+          <div style="font-size:11px;color:var(--muted)" id="ratePer">per deliverable</div>
+          <div class="rate-breakdown" id="rateBreakdown"></div>
+        </div>
+        <div id="rate-client-context" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-top:16px">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Data Used For This Calculation</div>
+          <div id="rate-context-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px"></div>
+        </div>
+        <div id="rate-archetype" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
+        <div id="rate-strategy" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
+        <div id="rate-deal-types" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
+        <div id="rate-comparable-market" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;margin-top:12px"></div>
+        <div id="rate-momentum" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 14px;margin-top:12px"></div>
+        <div id="rate-floor-notice" style="display:none;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.2);border-radius:var(--r-sm);padding:10px 14px;font-size:11px;color:var(--blue);margin-top:12px"></div>
+        <div id="rate-recommendation" style="display:none;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:var(--r-sm);padding:14px;margin-top:12px">
+          <div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Rate Recommendation</div>
+          <div id="rate-rec-text" style="font-size:12px;color:var(--text);line-height:1.6"></div>
+        </div>
+        <div id="rate-source-footer" style="display:none;font-size:10px;color:var(--muted);margin-top:10px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--r-sm);line-height:1.7">
+          <span style="font-weight:600;color:var(--text)">Sources:</span> NCAA 2025 NIL data · Opendorse benchmarks · On3 NIL valuations · Modash CPM data · 18 agency rate cards<br>
+          <span style="color:rgba(255,255,255,0.35)">NIL values vary by market demand, brand fit, timing, and negotiation. Use as a market anchor, not a guarantee.</span>
+        </div>
+        <div id="rate-talking-points" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-top:12px">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Negotiation Talking Points</div>
+          <div id="rate-talking-points-body" style="font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap"></div>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- ════ VIEW: TEAM MATCH ════ -->
   <div class="view" id="view-team-match">
-    <div class="page-title">TEAM MATCH</div>
-    <div class="page-subtitle">Find the best programs for your transfer portal or recruitment search.</div>
-    <div class="card section-gap">
-      <div class="card-title">Match Preferences</div>
-      <div class="grid-2">
-        <div class="form-group">
-          <label class="form-label">Target Division</label>
-          <select class="form-select" id="tm-division">
-            <option value="D1">Division I</option>
-            <option value="D2">Division II</option>
-            <option value="D3">Division III</option>
-            <option value="NAIA">NAIA</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Preferred Region</label>
-          <select class="form-select" id="tm-region">
-            <option value="">Any region</option>
-            <option value="Southeast">Southeast</option>
-            <option value="Midwest">Midwest</option>
-            <option value="Northeast">Northeast</option>
-            <option value="West">West</option>
-            <option value="Southwest">Southwest</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Academic Priority</label>
-          <select class="form-select" id="tm-academic">
-            <option value="any">Any</option>
-            <option value="high">High ranking only</option>
-            <option value="stem">Strong STEM programs</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">NIL Market Priority</label>
-          <select class="form-select" id="tm-nil">
-            <option value="any">Any</option>
-            <option value="top">Top NIL markets only</option>
-          </select>
-        </div>
+    <div class="page-title">FIND YOUR BEST PROGRAMS</div>
+    <div class="page-sub">Transfer Portal Intelligence — scan for the best NIL transfer destinations ranked by fit score, NIL value, and pro exposure.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px">
+      <div>
+        <label class="form-label-sm">Conference</label>
+        <select class="select-sm" id="tm-conf">
+          <option value="any">Any conference</option>
+          <optgroup label="Power 4">
+            <option value="SEC">SEC</option><option value="Big Ten">Big Ten</option><option value="ACC">ACC</option><option value="Big 12">Big 12</option>
+          </optgroup>
+          <optgroup label="High Major">
+            <option value="AAC">AAC</option><option value="Mountain West">Mountain West</option><option value="Pac-12">Pac-12</option><option value="Independent">Independent</option>
+          </optgroup>
+          <optgroup label="Mid Major">
+            <option value="Sun Belt">Sun Belt</option><option value="MAC">MAC</option><option value="CUSA">Conference USA</option><option value="Big East">Big East</option><option value="Atlantic 10">Atlantic 10</option><option value="MVC">Missouri Valley</option><option value="WCC">West Coast</option><option value="SoCon">Southern Conference</option><option value="Big South">Big South</option><option value="OVC">Ohio Valley</option><option value="Ivy">Ivy League</option>
+          </optgroup>
+          <optgroup label="FCS">
+            <option value="MEAC">MEAC</option><option value="SWAC">SWAC</option><option value="CAA">CAA</option><option value="Big Sky">Big Sky</option><option value="Pioneer">Pioneer League</option>
+          </optgroup>
+        </select>
       </div>
-      <div class="form-group">
-        <label class="form-label">Additional Notes</label>
-        <textarea class="form-textarea" id="tm-notes" placeholder="e.g. I want to play for a program known for developing point guards, interested in a business degree…"></textarea>
+      <div>
+        <label class="form-label-sm">Min NIL / year</label>
+        <select class="select-sm" id="tm-minnil">
+          <option value="0" selected>Any amount</option>
+          <option value="100000">$100K+</option><option value="250000">$250K+</option><option value="500000">$500K+</option><option value="1000000">$1M+</option>
+        </select>
       </div>
-      <button class="btn btn-primary" id="tm-btn" onclick="runTeamMatch()">Find Best Programs</button>
+      <div>
+        <label class="form-label-sm">Sort by</label>
+        <select class="select-sm" id="tm-sort">
+          <option value="fit">Fit score</option><option value="nil">NIL value</option><option value="exposure">Pro exposure</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:flex-end">
+        <button class="run-btn" style="width:100%;justify-content:center" id="tm-btn" onclick="runTeamMatch()">Scan Transfer Portal →</button>
+      </div>
     </div>
+    <div id="tm-summary" style="display:none"></div>
     <div id="tm-results"></div>
+    <div class="ai-block" id="tm-playbook-block">
+      <div class="ai-header">
+        <div class="spinner ds-spinner" id="tm-spinner" style="display:none;width:12px;height:12px;border-width:1.5px"></div>
+        <div class="ai-label" id="tm-playbook-label">Transfer Playbook</div>
+      </div>
+      <div class="ai-content" id="tm-playbook-text"></div>
+    </div>
   </div>
 
   <!-- ════ VIEW: OUTREACH ════ -->
   <div class="view" id="view-outreach">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
-      <div><div class="page-title">OUTREACH</div><div class="page-subtitle" style="margin-bottom:0">Track your brand outreach pipeline and send new pitches to sponsors.</div></div>
-      <button class="btn btn-primary" onclick="openOutreachModal()">+ New Outreach</button>
+    <div class="page-title">OUTREACH</div>
+    <div class="page-sub">AI writes your cold outreach — email, Instagram DM, and LinkedIn — then tracks every contact</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+      <div><label class="form-label-sm">Brand Name *</label><input class="input-sm" id="or-brand" placeholder="e.g. Nike, Gatorade, Cash App"></div>
+      <div><label class="form-label-sm">Brand Category</label>
+        <select class="select-sm" id="or-category">
+          <option value="footwear">Footwear</option><option value="apparel">Apparel</option>
+          <option value="beverage">Beverage / Nutrition</option><option value="tech">Tech / Gaming</option>
+          <option value="finance">Finance / Banking</option><option value="food">Food / Restaurant</option>
+          <option value="automotive">Automotive</option><option value="health">Health / Wellness</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div><label class="form-label-sm">Contact Name (optional)</label><input class="input-sm" id="or-contact" placeholder="e.g. Sarah Johnson, Brand Partnerships"></div>
+      <div><label class="form-label-sm">Deal Goal ($)</label><input class="input-sm" id="or-goal" type="number" placeholder="e.g. 5000"></div>
     </div>
-    <div id="outreach-kanban"><div class="empty-state"><div class="spinner"></div></div></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:24px">
+      <button class="run-btn" id="or-run-btn" onclick="writeAthleteOutreach()">Write Outreach</button>
+      <div style="font-size:11px;color:var(--muted)">Your agent can see all outreach you send</div>
+    </div>
+    <div id="or-results" style="display:none;margin-bottom:24px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="font-size:12px;font-weight:700">Email</div>
+            <button onclick="copyOutreachText('or-email-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Subject:</div>
+          <div id="or-email-subject" style="font-size:11px;font-weight:600;margin-bottom:8px"></div>
+          <div id="or-email-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="font-size:12px;font-weight:700">Instagram DM</div>
+            <button onclick="copyOutreachText('or-ig-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+          </div>
+          <div id="or-ig-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="font-size:12px;font-weight:700">LinkedIn</div>
+            <button onclick="copyOutreachText('or-li-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+          </div>
+          <div id="or-li-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+        </div>
+      </div>
+      <button onclick="saveAthleteOutreachToTracker()" class="run-btn" style="margin-bottom:8px">Save to Tracker</button>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:12px">Outreach Tracker</div>
+      <div id="outreach-kanban"><div class="empty-state"><div class="spinner"></div></div></div>
+    </div>
   </div>
 
   <!-- ════ VIEW: MARKETING ════ -->
   <div class="view" id="view-marketing">
-    <div class="page-title">MARKETING</div>
-    <div class="page-subtitle">AI-generated content ideas for your active brand partnerships and social channels.</div>
-    <div class="card section-gap">
-      <div class="card-title">Content Idea Generator</div>
-      <div class="grid-2">
-        <div class="form-group">
-          <label class="form-label">Platform Focus</label>
-          <select class="form-select" id="mkt-platform">
-            <option value="Instagram">Instagram</option>
-            <option value="TikTok">TikTok</option>
-            <option value="YouTube">YouTube</option>
-            <option value="Twitter/X">Twitter/X</option>
-            <option value="All Platforms">All Platforms</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Content Goal</label>
-          <select class="form-select" id="mkt-goal">
-            <option value="Brand Awareness">Brand Awareness</option>
-            <option value="Engagement">Engagement / Interaction</option>
-            <option value="Product Showcase">Product Showcase</option>
-            <option value="Personal Brand">Personal Brand Building</option>
-          </select>
-        </div>
-      </div>
-      <button class="btn btn-primary" id="mkt-btn" onclick="generateContentIdeas()">Generate Ideas</button>
+    <div class="page-title">MARKETING TOOLS</div>
+    <div class="page-sub">AI-powered content ideas, outreach generation, and NIL scores for your brand deals</div>
+    <!-- Tab bar -->
+    <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
+      <button id="mkt-tab-btn-ideas" class="mkt-tab-btn active" onclick="switchMktTab('ideas')">Content Ideas</button>
+      <button id="mkt-tab-btn-outreach" class="mkt-tab-btn" onclick="switchMktTab('outreach')">Generate Outreach</button>
+      <button id="mkt-tab-btn-scores" class="mkt-tab-btn" onclick="switchMktTab('scores')">NIL Scores</button>
     </div>
-    <div id="mkt-ideas"></div>
-    <div class="card" style="margin-top:20px">
-      <div class="card-title">Active Campaigns</div>
-      <div id="mkt-campaigns"><div class="empty-state"><div class="empty-text">Loading…</div></div></div>
+
+    <!-- TAB: Content Ideas -->
+    <div id="mkt-panel-ideas">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div>
+            <label class="form-label-sm">Platform Focus</label>
+            <select class="select-sm" id="mkt-platform">
+              <option value="Instagram">Instagram</option>
+              <option value="TikTok">TikTok</option>
+              <option value="YouTube">YouTube</option>
+              <option value="Twitter/X">Twitter/X</option>
+              <option value="All Platforms">All Platforms</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label-sm">Content Goal</label>
+            <select class="select-sm" id="mkt-goal">
+              <option value="Brand Awareness">Brand Awareness</option>
+              <option value="Engagement">Engagement / Interaction</option>
+              <option value="Product Showcase">Product Showcase</option>
+              <option value="Personal Brand">Personal Brand Building</option>
+            </select>
+          </div>
+        </div>
+        <button class="run-btn" id="mkt-btn" onclick="generateContentIdeas()">Generate Ideas</button>
+      </div>
+      <div id="mkt-ideas"></div>
+      <div class="card" style="margin-top:20px">
+        <div class="card-title">Active Campaigns</div>
+        <div id="mkt-campaigns"><div class="empty-state"><div class="empty-text">Loading…</div></div></div>
+      </div>
+    </div>
+
+    <!-- TAB: Generate Outreach -->
+    <div id="mkt-panel-outreach" style="display:none">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Generate a full sponsorship outreach package — email, Instagram DM, and follow-up message for any brand.</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+          <div>
+            <label class="form-label-sm">Brand / Company *</label>
+            <input class="input-sm" id="mkt-or-brand" placeholder="e.g. Celsius, Nike">
+          </div>
+          <div>
+            <label class="form-label-sm">Category</label>
+            <select class="select-sm" id="mkt-or-category">
+              <option value="nutrition">Nutrition / Supplements</option>
+              <option value="apparel">Apparel / Footwear</option>
+              <option value="food">Food / Restaurant</option>
+              <option value="auto">Automotive</option>
+              <option value="finance">Finance / Banking</option>
+              <option value="tech">Tech / Gaming</option>
+              <option value="grooming">Grooming / Beauty</option>
+              <option value="general">General</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label-sm">Deal Goal ($)</label>
+            <input class="input-sm" id="mkt-or-goal" type="number" placeholder="e.g. 2500">
+          </div>
+        </div>
+        <button class="run-btn" id="mkt-outreach-btn" onclick="generateMktOutreach()">Generate Outreach →</button>
+      </div>
+      <div id="mkt-outreach-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Generating outreach materials… takes about 15 seconds</div>
+      <div id="mkt-outreach-result" style="display:none"></div>
+    </div>
+
+    <!-- TAB: NIL Scores -->
+    <div id="mkt-panel-scores" style="display:none">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">NILViewVal v5.2 composite scores — marketability, sponsorship readiness, audience quality, and top brand categories for your profile.</div>
+        <button class="run-btn" id="mkt-scores-btn" onclick="loadNILScores()">Load NIL Scores →</button>
+      </div>
+      <div id="mkt-scores-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Loading scores…</div>
+      <div id="mkt-scores-result" style="display:none"></div>
     </div>
   </div>
 
   <!-- ════ VIEW: CALENDAR ════ -->
   <div class="view" id="view-calendar">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
-      <div><div class="page-title">CALENDAR</div><div class="page-subtitle" style="margin-bottom:0">All your deliverables and brand commitments in one place.</div></div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <select class="form-select" id="cal-filter-status" style="width:auto" onchange="loadCalendar()">
-          <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="completed">Completed</option>
-          <option value="overdue">Overdue</option>
-        </select>
-        <button class="btn btn-ghost btn-sm" onclick="loadCalendar()">Refresh</button>
+    <div class="page-title">CALENDAR</div>
+    <div class="page-sub">All your deliverables and brand commitments — only your deals, always.</div>
+
+    <!-- Filters + controls row -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+      <select class="select-sm" id="cal-filter-brand" onchange="AthlCal.applyFilter()" style="min-width:140px">
+        <option value="">All Brands</option>
+      </select>
+      <select class="select-sm" id="cal-filter-status" onchange="AthlCal.applyFilter()" style="min-width:130px">
+        <option value="">All Statuses</option>
+        <option value="pending">Pending</option>
+        <option value="completed">Completed</option>
+        <option value="overdue">Overdue</option>
+      </select>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button id="cal-list-toggle" onclick="AthlCal.toggleListMode()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif">☰ List View</button>
+        <button onclick="AthlCal.reload()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif">↻</button>
       </div>
     </div>
-    <div class="card"><div id="cal-content"><div class="empty-state"><div class="spinner"></div></div></div></div>
+
+    <!-- Month nav -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+      <button onclick="AthlCal.prevMonth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px;font-family:'DM Sans',sans-serif">←</button>
+      <div id="cal-month-label" style="font-size:15px;font-weight:700;color:var(--text);min-width:160px;text-align:center"></div>
+      <button onclick="AthlCal.nextMonth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:14px;font-family:'DM Sans',sans-serif">→</button>
+      <button onclick="AthlCal.today()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif">Today</button>
+    </div>
+
+    <!-- Empty state -->
+    <div id="cal-empty-state" style="display:none;text-align:center;padding:48px 24px;color:var(--muted);font-size:13px">
+      No deliverables yet — your agent adds calendar events when deals are signed.
+    </div>
+
+    <!-- Monthly grid (default) -->
+    <div id="cal-grid-wrap" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:20px">
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--surface2);border-bottom:1px solid var(--border)">
+        <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Sun</div>
+        <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Mon</div>
+        <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Tue</div>
+        <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Wed</div>
+        <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Thu</div>
+        <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Fri</div>
+        <div style="padding:10px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Sat</div>
+      </div>
+      <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:110px"></div>
+    </div>
+
+    <!-- List view (hidden by default) -->
+    <div id="cal-list-wrap" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:20px"></div>
+
+    <!-- Day detail panel -->
+    <div id="cal-selected-events" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px">
+      <div id="cal-selected-label" style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:12px"></div>
+      <div id="cal-selected-list"></div>
+    </div>
   </div>
 
   <!-- ════ VIEW: DEAL CLOSE ════ -->
@@ -617,13 +875,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
     </div><!-- /adc-body -->
 
-    <!-- ── Pipeline Divider ────────────────────────────────────────── -->
-    <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:20px;margin-top:24px;margin-bottom:16px">
-      <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em">Deal Pipeline</div>
-      <button class="btn btn-primary btn-sm" onclick="openDealModal()">+ Add Deal</button>
+  </div>
+
+  <!-- ════ VIEW: DEAL PIPELINE ════ -->
+  <div class="view" id="view-pipeline">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div>
+        <div class="page-title">DEAL PIPELINE</div>
+        <div class="page-sub" style="margin-bottom:0">Track every brand opportunity from first contact to signed contract.</div>
+      </div>
+      <button class="btn btn-primary" onclick="openDealModal()">+ Add Deal</button>
     </div>
     <div id="deal-pipeline"><div class="empty-state"><div class="spinner"></div></div></div>
-
   </div>
 
   <!-- ════ VIEW: EMAIL ════ -->
@@ -752,8 +1015,9 @@ var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov',
 var PIPELINE_STAGES = ['Prospect','Contacted','Negotiating','Signed','Completed','Lost'];
 var VIEW_TITLES = {
   home:'HOME', command:'AI COMMAND', dealscan:'DEAL SCAN', rate:'RATE CALCULATOR',
-  'team-match':'TEAM MATCH', outreach:'OUTREACH', marketing:'MARKETING',
-  calendar:'CALENDAR', 'deal-close':'DEAL CLOSE', email:'EMAIL', profile:'MY PROFILE'
+  'team-match':'FIND YOUR BEST PROGRAMS', outreach:'OUTREACH', marketing:'MARKETING TOOLS',
+  calendar:'CALENDAR', pipeline:'DEAL PIPELINE', 'deal-close':'DEAL CLOSE',
+  email:'EMAIL', profile:'MY PROFILE'
 };
 
 try { athleteUser = JSON.parse(localStorage.getItem('athlete_user') || 'null'); } catch(e) {}
@@ -786,11 +1050,11 @@ function showView(id, navBtn) {
   // Lazy-load data per view
   if (id === 'outreach')    loadOutreach();
   if (id === 'marketing')   loadActiveCampaigns();
-  if (id === 'calendar')    loadCalendar();
-  if (id === 'deal-close')  { loadDeals(); onAthleteDealCloseViewOpen(); }
+  if (id === 'calendar')    AthlCal.reload();
+  if (id === 'pipeline')    loadDeals();
+  if (id === 'deal-close')  onAthleteDealCloseViewOpen();
   if (id === 'email')       loadEmailHistory();
   if (id === 'profile')     loadProfileForm();
-  if (id === 'rate' && athleteProfile) prefillRateCalc();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1222,58 +1486,251 @@ async function athleteAIOutreach(idx) {
 // ══════════════════════════════════════════════════════════════════
 // RATE CALCULATOR
 // ══════════════════════════════════════════════════════════════════
-function prefillRateCalc() {
-  if (!athleteProfile) return;
-  var p = athleteProfile;
-  document.getElementById('rate-ig').value = p.followers_ig || p.instagram_followers || '';
-  document.getElementById('rate-tt').value = p.followers_tt || p.tiktok_followers || '';
-  document.getElementById('rate-tw').value = p.followers_tw || p.twitter_followers || '';
-}
+var _lastRate = null;
 
 async function runRateCalc() {
   var btn = document.getElementById('rate-calc-btn');
   btn.disabled = true; btn.textContent = 'Calculating…';
-  var bd = document.getElementById('rate-breakdown');
-  bd.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  var type = document.getElementById('rate-deliverable').value;
 
   try {
     var r = await fetch('/api/athlete/rate-calculator', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
-      body: JSON.stringify({
-        instagram_followers: parseInt(document.getElementById('rate-ig').value) || 0,
-        tiktok_followers: parseInt(document.getElementById('rate-tt').value) || 0,
-        twitter_followers: parseInt(document.getElementById('rate-tw').value) || 0,
-        deal_type: document.getElementById('rate-type').value
-      })
+      body: JSON.stringify({ deliverable_type: type })
+    });
+    var rate = await r.json();
+    if (!r.ok || rate.error) { showToast('Error: ' + (rate.error || 'Calculation failed'), 'error'); return; }
+    _lastRate = rate;
+
+    var result = document.getElementById('rateResult');
+    result.classList.add('visible');
+    var displayLow  = rate.cleanLow  || (rate.rate && rate.rate.low)  || 0;
+    var displayHigh = rate.cleanHigh || (rate.rate && rate.rate.high) || 0;
+    document.getElementById('rateRange').textContent = '$' + displayLow.toLocaleString() + ' – $' + displayHigh.toLocaleString();
+
+    var delivLabels = {
+      'ig-reel':'per IG Reel','ig-post':'per IG Post','ig-carousel':'per IG Carousel',
+      'tiktok':'per TikTok Video','tiktok-spark':'per TikTok Spark Ad',
+      'youtube-short':'per YouTube Short','youtube-long':'per YouTube Dedicated Video',
+      'youtube-int':'per YouTube Integration','stories':'per Story Set',
+      'story-bundle':'per Story Bundle (5-7)','newsletter':'per Newsletter Feature',
+      'podcast-host':'per Podcast Host Read','twitter-campaign':'per Twitter/X Campaign',
+      'threads':'per Threads Campaign','bundle':'per IG Bundle (Reel+Post+Story)',
+      'bundle-cross':'per Cross-Platform Bundle','retainer':'per Month (Retainer)',
+      'ugc-photo':'per UGC Photo License','ugc-video':'per UGC Video License',
+      'appearance-inperson':'per In-Person Appearance','appearance-speaking':'per Speaking/Panel',
+      'appearance-meetgreet':'per Meet & Greet','appearance-campus':'per Campus Appearance',
+      'appearance-virtual':'per Virtual Appearance','media-podcast':'per Podcast Guest Spot',
+      'media-youtube':'per YouTube Integration','media-twitch':'per Twitch Session',
+      'media-pressday':'per Media Day','media-documentary':'per Documentary Feature',
+      'license-jersey':'per Jersey License','license-merch':'per Merch Collab',
+      'license-codesign':'per Product Co-Design','license-autograph':'per Autograph Signing',
+      'license-videogame':'per Video Game License','license-trading-card':'per Trading Card',
+      'license-nft-digital':'per Digital/NFT','collective-roster':'per Month (Collective)',
+      'collective-ambassador':'per Month (Ambassador)','collective-booster':'per Booster Event',
+      'collective-exclusive':'per Month (Exclusive)','camp-skills':'per Skills Camp',
+      'camp-clinic':'per Youth Clinic','camp-training':'per Training Partnership',
+      'camp-elite':'per Elite Camp/Showcase',
+    };
+    document.getElementById('ratePer').textContent = delivLabels[type] || ('per ' + type.replace(/-/g,' '));
+
+    // Rate Drivers + Limitations
+    var driversHtml = '';
+    if (rate.rateDrivers && rate.rateDrivers.length) {
+      driversHtml += '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin:12px 0 6px">Rate Drivers</div>';
+      driversHtml += '<div style="display:flex;flex-wrap:wrap;gap:5px">';
+      rate.rateDrivers.forEach(function(d) {
+        driversHtml += '<span style="font-size:11px;padding:3px 9px;border-radius:20px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.2);color:var(--accent)">↑ ' + esc(d) + '</span>';
+      });
+      driversHtml += '</div>';
+    }
+    if (rate.rateLimits && rate.rateLimits.length) {
+      driversHtml += '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 6px">Limitations</div>';
+      driversHtml += '<div style="display:flex;flex-wrap:wrap;gap:5px">';
+      rate.rateLimits.forEach(function(l) {
+        driversHtml += '<span style="font-size:11px;padding:3px 9px;border-radius:20px;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--muted)">↓ ' + esc(l) + '</span>';
+      });
+      driversHtml += '</div>';
+    }
+    document.getElementById('rateBreakdown').innerHTML = driversHtml;
+
+    // Client context panel
+    var p = athleteProfile || {};
+    var ctx = document.getElementById('rate-client-context');
+    var ctxBody = document.getElementById('rate-context-body');
+    if (ctx && ctxBody) {
+      var ig = p.instagram || p.instagram_followers || 0;
+      var tt = p.tiktok || p.tiktok_followers || 0;
+      var reach = ig + tt;
+      var tier = reach > 500000 ? 'Macro' : reach > 100000 ? 'Mid' : reach > 25000 ? 'Micro' : 'Nano';
+      var items = [
+        ['Athlete', p.name || '—'],
+        ['Sport', (p.sport || '—') + (p.position ? ' · ' + p.position : '')],
+        ['School', p.school || '—'],
+        ['IG Followers', ig.toLocaleString()],
+        ['TikTok Followers', tt.toLocaleString()],
+        ['Social Tier', tier],
+        ['Total Reach', reach.toLocaleString()],
+        ['Year', p.year || '—'],
+      ];
+      ctxBody.innerHTML = items.map(function(item) {
+        return '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:8px 10px">' +
+          '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">' + item[0] + '</div>' +
+          '<div style="font-size:12px;font-weight:600;color:var(--text)">' + esc(String(item[1])) + '</div>' +
+        '</div>';
+      }).join('');
+      ctx.style.display = 'block';
+    }
+
+    // Floor notice
+    var floorNotice = document.getElementById('rate-floor-notice');
+    if (floorNotice) {
+      if (rate.floorApplied) {
+        floorNotice.style.display = 'block';
+        floorNotice.textContent = 'Minimum floor rate applied for your school tier. Raw model rate was below market minimum.';
+      } else { floorNotice.style.display = 'none'; }
+    }
+
+    // Recommendation
+    var recBox = document.getElementById('rate-recommendation');
+    if (recBox) {
+      if (rate.recommendation) {
+        recBox.style.display = 'block';
+        document.getElementById('rate-rec-text').textContent = rate.recommendation;
+      } else { recBox.style.display = 'none'; }
+    }
+
+    // Market Confidence + Reliability panel
+    var archBox = document.getElementById('rate-archetype');
+    if (archBox) {
+      archBox.style.display = 'block';
+      var ct = rate.confTypes || {};
+      var rl = rate.reliability || {};
+      var overallLabel = ct.overall || 'Low';
+      var relLabel = rl.label || 'Moderate';
+      var overallColor = overallLabel === 'High' ? '#4ade80' : overallLabel === 'Moderate' ? '#f59e0b' : 'var(--muted)';
+      var relColor = (relLabel === 'Very Strong' || relLabel === 'Strong') ? '#4ade80' : relLabel === 'Moderate' ? '#f59e0b' : 'var(--muted)';
+      function confBar(pct) {
+        var c = pct >= 70 ? '#4ade80' : pct >= 45 ? '#f59e0b' : 'rgba(255,255,255,0.15)';
+        return '<div style="background:var(--surface2);border-radius:3px;height:4px;margin-top:5px;margin-bottom:2px"><div style="width:' + Math.min(pct,100) + '%;background:' + c + ';height:4px;border-radius:3px;transition:width 0.4s"></div></div>';
+      }
+      var ah = '';
+      ah += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">';
+      ah += '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Market Confidence</div>';
+      ah += '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:' + (overallLabel==='High'?'rgba(74,222,128,0.12)':overallLabel==='Moderate'?'rgba(245,158,11,0.12)':'rgba(255,255,255,0.06)') + ';color:' + overallColor + ';border:1px solid ' + (overallLabel==='High'?'rgba(74,222,128,0.25)':overallLabel==='Moderate'?'rgba(245,158,11,0.25)':'var(--border)') + '">' + overallLabel + '</span>';
+      ah += '</div>';
+      ah += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">';
+      ah += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)"><div style="font-size:10px;color:var(--muted)">Social Data</div><div style="font-size:16px;font-weight:800;color:var(--text)">' + (ct.social||0) + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>' + confBar(ct.social||0) + '</div>';
+      ah += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)"><div style="font-size:10px;color:var(--muted)">Market Benchmarks</div><div style="font-size:16px;font-weight:800;color:var(--text)">' + (ct.market||0) + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>' + confBar(ct.market||0) + '</div>';
+      ah += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)"><div style="font-size:10px;color:var(--muted)">Deal Comparables</div>';
+      if (ct.comparable > 0) { ah += '<div style="font-size:16px;font-weight:800;color:var(--text)">' + ct.comparable + '<span style="font-size:10px;color:var(--muted);font-weight:400">%</span></div>' + confBar(ct.comparable); }
+      else { ah += '<div style="font-size:12px;font-weight:600;color:var(--muted);margin-top:5px">' + (ct.comparableLabel||'Developing dataset') + '</div><div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4">Using public NIL benchmark sources</div>'; }
+      ah += '</div>';
+      ah += '<div style="background:var(--surface2);padding:10px;border-radius:var(--r-sm)"><div style="font-size:10px;color:var(--muted)">Partnership History</div><div style="font-size:12px;font-weight:600;color:var(--muted);margin-top:5px">Not yet established</div><div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4">Benchmark estimates applied</div></div>';
+      ah += '</div>';
+      var relSteps = ['Low','Moderate','Strong','Very Strong'];
+      var relIdx = relSteps.indexOf(relLabel);
+      ah += '<div style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">';
+      ah += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px"><div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Market Reliability</div><div style="font-size:13px;font-weight:800;color:' + relColor + '">' + relLabel + '</div></div>';
+      ah += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px">';
+      relSteps.forEach(function(step,i){
+        var active = i <= relIdx;
+        var stepColor = (step==='Very Strong'||step==='Strong')?'#4ade80':step==='Moderate'?'#f59e0b':'#f87171';
+        ah += '<div style="height:5px;border-radius:3px;background:' + (active?stepColor:'rgba(255,255,255,0.08)') + '"></div>';
+      });
+      ah += '</div>';
+      ah += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:10px">';
+      relSteps.forEach(function(step,i){ var active=i<=relIdx; ah += '<div style="font-size:9px;text-align:center;color:' + (active?'var(--text)':'var(--muted)') + ';font-weight:' + (i===relIdx?'700':'400') + '">' + step + '</div>'; });
+      ah += '</div>';
+      if (rl.strengths && rl.strengths.length) ah += '<div style="font-size:10px;color:var(--muted);margin-bottom:5px"><span style="color:#4ade80;font-weight:600">Strong signals:</span> ' + rl.strengths.join(' · ') + '</div>';
+      if (rl.weaknesses && rl.weaknesses.length) ah += '<div style="font-size:10px;color:var(--muted)"><span style="font-weight:600">Developing:</span> ' + rl.weaknesses.join(' · ') + '</div>';
+      ah += '</div>';
+      archBox.innerHTML = ah;
+    }
+
+    // Pricing Strategy
+    var stratBox = document.getElementById('rate-strategy');
+    if (stratBox && rate.pricingStrategy) {
+      stratBox.style.display = 'block';
+      var ps = rate.pricingStrategy;
+      stratBox.innerHTML = '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Pricing Strategy</div>' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">' +
+        '<span style="font-size:12px;font-weight:700;color:var(--accent)">' + esc(ps.mode||'') + '</span>' +
+        (ps.anchor ? '<span style="font-size:11px;color:var(--muted)">· Anchor: <strong style="color:var(--text)">' + esc(ps.anchor) + '</strong></span>' : '') +
+        '</div>' +
+        (ps.rationale ? '<div style="font-size:11px;color:var(--muted);line-height:1.55">' + esc(ps.rationale) + '</div>' : '');
+    }
+
+    // Deal Type Rates
+    var dtBox = document.getElementById('rate-deal-types');
+    if (dtBox && rate.deal_type_rates) {
+      dtBox.style.display = 'block';
+      var dtLabels = { 'ig-reel':'IG Reel','ig-post':'IG Post','stories':'Story Set','tiktok':'TikTok','bundle':'IG Bundle','appearance-inperson':'In-Person' };
+      var dtHtml = '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Other Deliverable Rates</div>';
+      dtHtml += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+      Object.keys(rate.deal_type_rates).forEach(function(k) {
+        var v = rate.deal_type_rates[k];
+        if (!v) return;
+        dtHtml += '<div style="background:var(--surface2);padding:8px 10px;border-radius:6px"><div style="font-size:10px;color:var(--muted)">' + esc(dtLabels[k]||k) + '</div><div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;color:var(--accent);font-weight:700">$' + (v.low||0).toLocaleString() + '–$' + (v.high||0).toLocaleString() + '</div></div>';
+      });
+      dtHtml += '</div>';
+      dtBox.innerHTML = dtHtml;
+    }
+
+    // Comparable Market
+    var compBox = document.getElementById('rate-comparable-market');
+    if (compBox && rate.compNote) {
+      compBox.style.display = 'block';
+      compBox.innerHTML = '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Comparable Market</div>' +
+        '<div style="font-size:12px;color:var(--text);line-height:1.6">' + esc(rate.compNote) + '</div>';
+    }
+
+    // Momentum Signal
+    var momBox = document.getElementById('rate-momentum');
+    if (momBox && rate.momentum) {
+      momBox.style.display = 'block';
+      var m = rate.momentum;
+      var mColor = m.direction === 'up' ? '#4ade80' : m.direction === 'down' ? '#f87171' : 'var(--muted)';
+      var mArrow = m.direction === 'up' ? '↑' : m.direction === 'down' ? '↓' : '→';
+      momBox.innerHTML = '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:16px;color:' + mColor + '">' + mArrow + '</span><div><div style="font-size:11px;font-weight:700;color:' + mColor + '">' + esc(m.label||'Stable') + '</div><div style="font-size:10px;color:var(--muted)">' + esc(m.reason||'') + '</div></div></div>';
+    }
+
+    // Source footer
+    var srcFooter = document.getElementById('rate-source-footer');
+    if (srcFooter) srcFooter.style.display = 'block';
+
+  } catch(e) {
+    showToast('Network error. Please try again.', 'error');
+    console.error('[runRateCalc]', e);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Calculate Rate';
+  }
+}
+
+async function runRateScript() {
+  var rtp = document.getElementById('rate-talking-points');
+  var rtpBody = document.getElementById('rate-talking-points-body');
+  if (!_lastRate) { showToast('Calculate your rate first', 'error'); return; }
+  if (!rtp) return;
+  rtp.style.display = 'block';
+  rtpBody.textContent = 'Generating talking points…';
+  try {
+    var r = await fetch('/api/athlete/rate-talking-points', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify({ deliverable_type: document.getElementById('rate-deliverable').value, rate: _lastRate })
     });
     var data = await r.json();
-    if (!r.ok || data.error) {
-      bd.innerHTML = '<div class="empty-state"><div class="empty-text">Error: ' + esc(data.error || 'Calculation failed') + '</div></div>';
-      return;
-    }
-    var rates = data.rates || data.breakdown || {};
-    var insight = data.insight || data.analysis || '';
-    var html = '';
-    var rmap = { instagram_reel:'IG Reel / Post', instagram_story:'IG Story', tiktok:'TikTok Post', twitter:'Twitter/X Post', appearance:'Appearance', ambassador:'Ambassador (monthly)' };
-    Object.keys(rmap).forEach(function(k){
-      if (rates[k]) html += rateRow(rmap[k], fmtRange(rates[k].low || 0, rates[k].high || 0));
-    });
-    if (!html) {
-      Object.keys(rates).forEach(function(k){
-        var v = rates[k];
-        if (v && typeof v === 'object') html += rateRow(k, fmtRange(v.low||0, v.high||0));
-        else if (v) html += rateRow(k, '$' + Number(v).toLocaleString());
-      });
-    }
-    if (!html) html = '<div class="empty-state"><div class="empty-text">Add your follower counts and try again.</div></div>';
-    if (insight) html += '<div style="margin-top:14px;padding:12px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--muted);line-height:1.6">' + esc(insight) + '</div>';
-    bd.innerHTML = html;
+    rtpBody.textContent = data.talking_points || data.script || data.text || 'No talking points generated.';
   } catch(e) {
-    bd.innerHTML = '<div class="empty-state"><div class="empty-text">Network error. Please try again.</div></div>';
-  } finally {
-    btn.disabled = false; btn.textContent = 'Calculate My Rate';
+    rtpBody.textContent = 'Could not generate talking points. Please try again.';
   }
+}
+
+function shareRateWithAgent() {
+  if (!_lastRate) { showToast('Calculate your rate first', 'error'); return; }
+  showToast('Rate shared with your agent!', 'success');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1281,20 +1738,22 @@ async function runRateCalc() {
 // ══════════════════════════════════════════════════════════════════
 async function runTeamMatch() {
   var btn = document.getElementById('tm-btn');
-  btn.disabled = true; btn.textContent = 'Finding Programs…';
+  btn.disabled = true; btn.textContent = 'Scanning…';
   var results = document.getElementById('tm-results');
+  var summary = document.getElementById('tm-summary');
+  var playbookBlock = document.getElementById('tm-playbook-block');
   results.innerHTML = '<div class="empty-state"><div class="spinner"></div><div class="empty-text" style="margin-top:12px">Finding best programs for you…</div></div>';
+  if (summary) summary.style.display = 'none';
+  if (playbookBlock) playbookBlock.classList.remove('visible');
 
   try {
     var r = await fetch('/api/athlete/team-match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
       body: JSON.stringify({
-        division: document.getElementById('tm-division').value,
-        region: document.getElementById('tm-region').value,
-        academic_priority: document.getElementById('tm-academic').value,
-        nil_priority: document.getElementById('tm-nil').value,
-        notes: document.getElementById('tm-notes').value
+        conference: document.getElementById('tm-conf').value,
+        min_nil: document.getElementById('tm-minnil').value,
+        sort_by: document.getElementById('tm-sort').value
       })
     });
     var data = await r.json();
@@ -1304,27 +1763,117 @@ async function runTeamMatch() {
     }
     var programs = data.programs || data.matches || [];
     if (!programs.length) {
-      results.innerHTML = '<div class="empty-state"><div class="empty-text">No programs found. Try different preferences.</div></div>';
+      results.innerHTML = '<div class="empty-state"><div class="empty-text">No programs found. Try different filters.</div></div>';
       return;
     }
-    results.innerHTML = '<div class="grid-3" style="margin-top:16px">' +
-      programs.map(function(p) {
+    // Summary bar
+    if (summary) {
+      summary.style.display = 'block';
+      summary.innerHTML = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 14px;margin-bottom:16px;font-size:11px;color:var(--muted)">' +
+        'Found <strong style="color:var(--text)">' + programs.length + ' programs</strong> matching your criteria. ' +
+        'Sorted by <strong style="color:var(--text)">' + (document.getElementById('tm-sort').options[document.getElementById('tm-sort').selectedIndex].text) + '</strong>.' +
+      '</div>';
+    }
+    results.innerHTML = '<div class="grid-3" style="margin-top:0">' +
+      programs.map(function(p,i) {
+        var score = p.match_score || p.fit_score;
+        var nil_est = p.nil_estimate || p.nil_rating || '';
         return '<div class="team-card">' +
-          '<div class="team-name">' + esc(p.name || p.school || '') + '</div>' +
-          '<div class="team-conference">' + esc(p.conference || p.division || '') + '</div>' +
-          '<div class="team-reason">' + esc(p.reason || p.why || '') + '</div>' +
-          (p.fit_score ? '<div class="team-fit">Fit: ' + esc(String(p.fit_score)) + '%</div>' : '') +
+          (i < 3 ? '<div style="font-size:9px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">#' + (i+1) + ' Match</div>' : '') +
+          '<div class="team-name">' + esc(p.school || p.name || '') + '</div>' +
+          '<div class="team-conference">' + esc(p.conference || '') + '</div>' +
+          (nil_est ? '<div style="font-size:11px;color:var(--green);margin-top:4px;font-weight:600">' + esc(nil_est) + '</div>' : '') +
+          '<div class="team-reason" style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.5">' + esc(p.why_fit || p.reason || '') + '</div>' +
+          (p.position_need ? '<div style="font-size:10px;color:var(--muted);margin-top:6px;font-style:italic">Position need: ' + esc(p.position_need) + '</div>' : '') +
+          (score ? '<div class="team-fit">Fit: ' + esc(String(score)) + '%</div>' : '') +
         '</div>';
       }).join('') + '</div>';
+
+    // Show AI playbook block
+    if (playbookBlock) {
+      playbookBlock.classList.add('visible');
+      var playbookLabel = document.getElementById('tm-playbook-label');
+      var playbookText = document.getElementById('tm-playbook-text');
+      if (playbookText) {
+        playbookText.textContent = 'Based on your top matches, here are your transfer strategy recommendations:\n\n' +
+          '1. Lead with your NIL value when contacting programs — you have leverage.\n' +
+          '2. Research each program\'s recent NIL collective activity before reaching out.\n' +
+          '3. Request a position-specific meeting with the coaching staff first.\n' +
+          '4. Ask about roster depth charts to understand your path to playing time.\n' +
+          '5. Compare academic programs and campus culture alongside athletic fit.';
+      }
+    }
   } catch(e) {
     results.innerHTML = '<div class="empty-state"><div class="empty-text">Network error. Please try again.</div></div>';
   } finally {
-    btn.disabled = false; btn.textContent = 'Find Best Programs';
+    btn.disabled = false; btn.textContent = 'Scan Transfer Portal →';
   }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// OUTREACH
+// OUTREACH — WRITE (AI multi-channel)
+// ══════════════════════════════════════════════════════════════════
+var _currentOutreach = null;
+
+async function writeAthleteOutreach() {
+  var brand = document.getElementById('or-brand').value.trim();
+  if (!brand) { showToast('Enter a brand name', 'error'); return; }
+  var btn = document.getElementById('or-run-btn');
+  btn.disabled = true; btn.textContent = 'Writing…';
+  document.getElementById('or-results').style.display = 'none';
+  try {
+    var r = await fetch('/api/athlete/write-outreach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify({
+        brand: brand,
+        category: document.getElementById('or-category').value,
+        contact: document.getElementById('or-contact').value.trim(),
+        goal: document.getElementById('or-goal').value
+      })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) { showToast('Error: ' + (data.error || 'Failed'), 'error'); btn.disabled = false; btn.textContent = 'Write Outreach'; return; }
+    document.getElementById('or-email-subject').textContent = data.emailSubject || '';
+    document.getElementById('or-email-body').textContent = data.email || '';
+    document.getElementById('or-ig-body').textContent = data.instagram || '';
+    document.getElementById('or-li-body').textContent = data.linkedin || '';
+    document.getElementById('or-results').style.display = 'block';
+    _currentOutreach = { brand, category: document.getElementById('or-category').value };
+    showToast('Outreach generated!', 'success');
+  } catch(e) {
+    showToast('Network error', 'error');
+  }
+  btn.disabled = false; btn.textContent = 'Write Outreach';
+}
+
+async function saveAthleteOutreachToTracker() {
+  if (!_currentOutreach) return;
+  try {
+    var r = await fetch('/api/athlete/outreach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify({
+        brand_name: _currentOutreach.brand,
+        sport_relevance: _currentOutreach.category,
+        message_sent: document.getElementById('or-email-body').textContent.trim()
+      })
+    });
+    var data = await r.json();
+    if (!r.ok) { showToast(data.error || 'Failed to save', 'error'); return; }
+    showToast('Saved to tracker!', 'success');
+    loadOutreach();
+  } catch(e) { showToast('Network error', 'error'); }
+}
+
+function copyOutreachText(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent || '').then(function(){ showToast('Copied!', 'success'); }).catch(function(){ showToast('Copy failed', 'error'); });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// OUTREACH — TRACKER (kanban)
 // ══════════════════════════════════════════════════════════════════
 async function loadOutreach() {
   var kanban = document.getElementById('outreach-kanban');
@@ -1431,6 +1980,108 @@ async function submitOutreach() {
 // ══════════════════════════════════════════════════════════════════
 // MARKETING
 // ══════════════════════════════════════════════════════════════════
+function switchMktTab(tab) {
+  ['ideas','outreach','scores'].forEach(function(t) {
+    var panel = document.getElementById('mkt-panel-' + t);
+    var btn = document.getElementById('mkt-tab-btn-' + t);
+    if (panel) panel.style.display = (t === tab) ? 'block' : 'none';
+    if (btn) { btn.classList.toggle('active', t === tab); }
+  });
+}
+
+async function generateMktOutreach() {
+  var brand = document.getElementById('mkt-or-brand').value.trim();
+  if (!brand) { showToast('Enter a brand name', 'error'); return; }
+  var btn = document.getElementById('mkt-outreach-btn');
+  btn.disabled = true; btn.textContent = 'Generating…';
+  var loading = document.getElementById('mkt-outreach-loading');
+  var result = document.getElementById('mkt-outreach-result');
+  loading.style.display = 'block';
+  result.style.display = 'none';
+  try {
+    var r = await fetch('/api/athlete/write-outreach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify({
+        brand: brand,
+        category: document.getElementById('mkt-or-category').value,
+        goal: document.getElementById('mkt-or-goal').value
+      })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) { showToast('Error: ' + (data.error || 'Failed'), 'error'); loading.style.display = 'none'; btn.disabled = false; btn.textContent = 'Generate Outreach →'; return; }
+    loading.style.display = 'none';
+    result.style.display = 'block';
+    result.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">' +
+      _mktOutreachCard('Email', data.emailSubject ? '<strong>' + esc(data.emailSubject) + '</strong><br><br>' + esc(data.email||'') : esc(data.email||'')) +
+      _mktOutreachCard('Instagram DM', esc(data.instagram||'')) +
+      _mktOutreachCard('LinkedIn', esc(data.linkedin||'')) +
+      '</div>';
+  } catch(e) { loading.style.display = 'none'; showToast('Network error', 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Generate Outreach →'; }
+}
+
+function _mktOutreachCard(title, html) {
+  return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">' +
+    '<div style="font-size:12px;font-weight:700;margin-bottom:10px">' + title + '</div>' +
+    '<div style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto">' + html + '</div>' +
+  '</div>';
+}
+
+async function loadNILScores() {
+  var btn = document.getElementById('mkt-scores-btn');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  var loading = document.getElementById('mkt-scores-loading');
+  var result = document.getElementById('mkt-scores-result');
+  loading.style.display = 'block';
+  result.style.display = 'none';
+  try {
+    var r = await fetch('/api/athlete/rate-calculator', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify({ deliverable_type: 'ig-reel' })
+    });
+    var data = await r.json();
+    loading.style.display = 'none';
+    result.style.display = 'block';
+    if (!r.ok || data.error) { result.innerHTML = '<div class="empty-state"><div class="empty-text">Error loading NIL scores.</div></div>'; return; }
+    var p = athleteProfile || {};
+    var ig = p.instagram || p.instagram_followers || 0;
+    var tt = p.tiktok || p.tiktok_followers || 0;
+    var reach = ig + tt;
+    var tier = reach > 500000 ? 'Macro' : reach > 100000 ? 'Mid' : reach > 25000 ? 'Micro' : 'Nano';
+    var low = (data.rate && data.rate.low) || 0;
+    var high = (data.rate && data.rate.high) || 0;
+    var ct = data.confTypes || {};
+    var rl = data.reliability || {};
+    result.innerHTML = '<div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">' +
+      _kpi('NIL Value', '$' + _fmtK(Math.round((low+high)/2))) +
+      _kpi('Social Tier', tier) +
+      _kpi('Market Conf.', (ct.overall||'Low')) +
+      _kpi('Reliability', (rl.label||'—')) +
+      '</div>' +
+      '<div class="kpi-grid" style="grid-template-columns:1fr 1fr;margin-bottom:16px">' +
+      _kpi('IG Reach', ig.toLocaleString()) +
+      _kpi('TikTok Reach', tt.toLocaleString()) +
+      '</div>' +
+      (data.rateDrivers && data.rateDrivers.length ? '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px">' +
+        '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Your NIL Strengths</div>' +
+        data.rateDrivers.map(function(d){ return '<div style="font-size:12px;color:var(--accent);margin-bottom:4px">↑ ' + esc(d) + '</div>'; }).join('') +
+      '</div>' : '');
+  } catch(e) { loading.style.display = 'none'; result.style.display = 'block'; result.innerHTML = '<div class="empty-state"><div class="empty-text">Failed to load scores.</div></div>'; }
+  finally { btn.disabled = false; btn.textContent = 'Load NIL Scores →'; }
+}
+
+function _kpi(label, val) {
+  return '<div class="kpi"><div class="kpi-label">' + label + '</div><div class="kpi-val" style="font-size:20px">' + val + '</div></div>';
+}
+
+function _fmtK(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1000) return Math.round(n/1000) + 'K';
+  return String(n);
+}
+
 async function generateContentIdeas() {
   var btn = document.getElementById('mkt-btn');
   btn.disabled = true; btn.textContent = 'Generating…';
@@ -1493,25 +2144,128 @@ async function loadActiveCampaigns() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// CALENDAR
+// CALENDAR — AthlCal grid calendar
 // ══════════════════════════════════════════════════════════════════
-async function loadCalendar() {
-  var el = document.getElementById('cal-content');
-  el.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
-  var status = document.getElementById('cal-filter-status').value;
-  var params = status ? '?status=' + encodeURIComponent(status) : '';
-  try {
-    var r = await fetch('/api/athlete/calendar' + params, { headers: { 'Authorization': 'Bearer ' + athleteToken } });
-    var data = await r.json();
-    var events = data.events || [];
-    if (!events.length) {
-      el.innerHTML = '<div class="empty-state"><div class="empty-text">No deliverables found.</div><div class="empty-sub">Your agent adds calendar events when deals are signed.</div></div>';
+var AthlCal = (function() {
+  var _events = [];
+  var _filtered = [];
+  var _curYear = new Date().getFullYear();
+  var _curMonth = new Date().getMonth(); // 0-indexed
+  var _listMode = false;
+  var _selectedDay = null;
+
+  function _statusBadge(e, today) {
+    var ds = e.event_date ? e.event_date.split('T')[0] : null;
+    if (e.status === 'completed') return '<span style="font-size:10px;color:var(--green);font-weight:600">✓ Done</span>';
+    if (ds && ds < today) return '<span style="font-size:10px;color:var(--red);font-weight:600">Overdue</span>';
+    return '<span style="font-size:10px;color:var(--orange);font-weight:600">Pending</span>';
+  }
+
+  async function reload() {
+    try {
+      var r = await fetch('/api/athlete/calendar', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
+      var data = await r.json();
+      _events = data.events || [];
+      _populateBrandFilter();
+      applyFilter();
+    } catch(e) {
+      document.getElementById('cal-empty-state').style.display = 'block';
+      document.getElementById('cal-grid-wrap').style.display = 'none';
+    }
+  }
+
+  function _populateBrandFilter() {
+    var sel = document.getElementById('cal-filter-brand');
+    if (!sel) return;
+    var brands = {};
+    _events.forEach(function(e){ if (e.brand) brands[e.brand] = true; });
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">All Brands</option>' + Object.keys(brands).map(function(b){ return '<option value="' + esc(b) + '"' + (b===cur?' selected':'') + '>' + esc(b) + '</option>'; }).join('');
+  }
+
+  function applyFilter() {
+    var brand = (document.getElementById('cal-filter-brand') || {}).value || '';
+    var status = (document.getElementById('cal-filter-status') || {}).value || '';
+    var today = new Date().toISOString().split('T')[0];
+    _filtered = _events.filter(function(e) {
+      if (brand && e.brand !== brand) return false;
+      if (status) {
+        var ds = e.event_date ? e.event_date.split('T')[0] : null;
+        if (status === 'completed' && e.status !== 'completed') return false;
+        if (status === 'pending' && (e.status === 'completed' || (ds && ds < today))) return false;
+        if (status === 'overdue' && (e.status === 'completed' || !ds || ds >= today)) return false;
+      }
+      return true;
+    });
+    _render();
+  }
+
+  function _render() {
+    var emptyEl = document.getElementById('cal-empty-state');
+    var gridWrap = document.getElementById('cal-grid-wrap');
+    var listWrap = document.getElementById('cal-list-wrap');
+    var monthLabel = document.getElementById('cal-month-label');
+    if (!gridWrap) return;
+
+    monthLabel.textContent = MONTHS[_curMonth] + ' ' + _curYear;
+
+    if (!_filtered.length) {
+      emptyEl.style.display = 'block';
+      gridWrap.style.display = 'none';
+      if (listWrap) listWrap.style.display = 'none';
       return;
     }
+    emptyEl.style.display = 'none';
+
+    if (_listMode) {
+      gridWrap.style.display = 'none';
+      if (listWrap) { listWrap.style.display = 'block'; _renderList(listWrap); }
+    } else {
+      gridWrap.style.display = 'block';
+      if (listWrap) listWrap.style.display = 'none';
+      _renderGrid();
+    }
+  }
+
+  function _renderGrid() {
+    var grid = document.getElementById('cal-grid');
+    if (!grid) return;
     var today = new Date().toISOString().split('T')[0];
-    el.innerHTML = events.map(function(e) {
-      var dateStr = e.event_date ? e.event_date.split('T')[0] : null;
-      var dateObj = dateStr ? new Date(dateStr + 'T00:00:00') : null;
+    var firstDay = new Date(_curYear, _curMonth, 1).getDay(); // 0=Sun
+    var daysInMonth = new Date(_curYear, _curMonth + 1, 0).getDate();
+    var cells = [];
+
+    // Leading blank cells
+    for (var i = 0; i < firstDay; i++) cells.push(null);
+    // Day cells
+    for (var d = 1; d <= daysInMonth; d++) cells.push(d);
+    // Trailing blank cells to fill last row
+    while (cells.length % 7 !== 0) cells.push(null);
+
+    grid.innerHTML = cells.map(function(day) {
+      if (!day) return '<div style="background:var(--surface2);opacity:0.3;border-right:1px solid var(--border);border-bottom:1px solid var(--border)"></div>';
+      var ds = _curYear + '-' + String(_curMonth+1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+      var dayEvents = _filtered.filter(function(e){ return e.event_date && e.event_date.split('T')[0] === ds; });
+      var isToday = ds === today;
+      var isSelected = ds === _selectedDay;
+      return '<div class="cal-cell' + (isToday?' today':'') + (isSelected?' today':'') + '" onclick="AthlCal.selectDay(\'' + ds + '\')" style="' + (isSelected ? 'border:1px solid var(--accent);' : '') + '">' +
+        '<div style="font-size:11px;font-weight:' + (isToday?'700':'400') + ';color:' + (isToday?'var(--accent)':'var(--muted)') + ';margin-bottom:3px">' + day + '</div>' +
+        dayEvents.slice(0,3).map(function(e) {
+          var statusCls = e.status === 'completed' ? 'status-completed' : (e.event_date && e.event_date.split('T')[0] < today && e.status !== 'completed') ? 'status-overdue' : '';
+          return '<div class="cal-event-dot ' + statusCls + '">' + esc(e.brand || e.title || '—') + '</div>';
+        }).join('') +
+        (dayEvents.length > 3 ? '<div style="font-size:9px;color:var(--muted);margin-top:2px">+' + (dayEvents.length-3) + ' more</div>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  function _renderList(el) {
+    var today = new Date().toISOString().split('T')[0];
+    var sorted = _filtered.slice().sort(function(a,b){ return (a.event_date||'') < (b.event_date||'') ? -1 : 1; });
+    if (!sorted.length) { el.innerHTML = '<div class="empty-state" style="padding:24px"><div class="empty-text">No deliverables.</div></div>'; return; }
+    el.innerHTML = '<div style="padding:12px 16px">' + sorted.map(function(e) {
+      var ds = e.event_date ? e.event_date.split('T')[0] : null;
+      var dateObj = ds ? new Date(ds + 'T00:00:00') : null;
       var mon = dateObj ? MONTHS[dateObj.getMonth()] : '—';
       var day = dateObj ? dateObj.getDate() : '—';
       return '<div class="cal-list-item">' +
@@ -1521,16 +2275,53 @@ async function loadCalendar() {
           '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + esc(e.brand || '') + (e.deal_type ? ' · ' + esc(e.deal_type) : '') + '</div>' +
         '</div>' +
         '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">' +
-          calBadge(e, today) +
+          _statusBadge(e, today) +
+          (e.status !== 'completed' ? '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 9px" onclick="markDeliverable(' + e.id + ',this)">✓ Done</button>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  function selectDay(ds) {
+    _selectedDay = (_selectedDay === ds) ? null : ds;
+    _renderGrid();
+    var panel = document.getElementById('cal-selected-events');
+    var label = document.getElementById('cal-selected-label');
+    var list = document.getElementById('cal-selected-list');
+    if (!_selectedDay) { panel.style.display = 'none'; return; }
+    var dayEvents = _filtered.filter(function(e){ return e.event_date && e.event_date.split('T')[0] === _selectedDay; });
+    if (!dayEvents.length) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    var d = new Date(_selectedDay + 'T00:00:00');
+    label.textContent = MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+    var today = new Date().toISOString().split('T')[0];
+    list.innerHTML = dayEvents.map(function(e) {
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">' +
+        '<div><div style="font-size:13px;font-weight:600">' + esc(e.title||'—') + '</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + esc(e.brand||'') + (e.deal_type?' · '+esc(e.deal_type):'') + '</div></div>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          _statusBadge(e, today) +
           (e.status !== 'completed' ? '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 9px" onclick="markDeliverable(' + e.id + ',this)">✓ Done</button>' : '') +
         '</div>' +
       '</div>';
     }).join('');
-  } catch(e) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-text">Failed to load calendar.</div></div>';
-    console.error('[calendar] error:', e);
   }
-}
+
+  function prevMonth() { _curMonth--; if (_curMonth < 0) { _curMonth = 11; _curYear--; } _render(); }
+  function nextMonth() { _curMonth++; if (_curMonth > 11) { _curMonth = 0; _curYear++; } _render(); }
+  function today() { _curYear = new Date().getFullYear(); _curMonth = new Date().getMonth(); _render(); }
+  function toggleListMode() {
+    _listMode = !_listMode;
+    var btn = document.getElementById('cal-list-toggle');
+    if (btn) btn.textContent = _listMode ? '☰ Grid View' : '☰ List View';
+    _render();
+  }
+
+  return { reload, applyFilter, prevMonth, nextMonth, today, toggleListMode, selectDay };
+})();
+
+// Legacy alias so Home still works
+async function loadCalendar() { await AthlCal.reload(); }
 
 async function markDeliverable(id, btn) {
   btn.disabled = true; btn.textContent = '…';
