@@ -283,6 +283,44 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_outreach_athlete ON athlete_brand_outreach(athlete_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_outreach_agent ON athlete_brand_outreach(agent_id)`).catch(() => {});
 
+  // ── Athlete Activity Log (every athlete action visible to agent) ──────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS athlete_activity_log (
+      id SERIAL PRIMARY KEY,
+      athlete_id TEXT NOT NULL,
+      agent_id TEXT,
+      activity_type TEXT NOT NULL,
+      description TEXT,
+      metadata JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] athlete_activity_log table ready'))
+    .catch(e => console.error('[init] athlete_activity_log:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_log_athlete ON athlete_activity_log(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_log_agent ON athlete_activity_log(agent_id)`).catch(() => {});
+
+  // ── Athlete Self-Managed Deals ────────────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS athlete_self_deals (
+      id SERIAL PRIMARY KEY,
+      athlete_id TEXT NOT NULL,
+      agent_id TEXT,
+      brand_name TEXT NOT NULL,
+      deal_type TEXT DEFAULT 'Other',
+      value NUMERIC,
+      stage TEXT DEFAULT 'Prospect',
+      description TEXT,
+      start_date DATE,
+      notes TEXT,
+      stage_history JSONB DEFAULT '[]',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] athlete_self_deals table ready'))
+    .catch(e => console.error('[init] athlete_self_deals:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_self_deals_athlete ON athlete_self_deals(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_self_deals_agent ON athlete_self_deals(agent_id)`).catch(() => {});
+
   // ── Email Integration Tables (additive — never modifies existing tables) ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_accounts (

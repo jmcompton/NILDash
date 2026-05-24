@@ -2970,6 +2970,327 @@ app.post('/api/athlete/ai-draft-outreach', verifyAthleteToken, aiLimiter, async 
   }
 });
 
+// ── Athlete Full Portal Routes ──────────────────────────────────────────────
+// All use verifyAthleteToken. Athletes can ONLY see their own data.
+
+// Internal helper: log what athletes do so agents have full visibility
+async function logAthleteActivity(athleteId, agentId, type, description, metadata) {
+  try {
+    await store.pool.query(
+      `INSERT INTO athlete_activity_log (athlete_id, agent_id, activity_type, description, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [athleteId, agentId || null, type, description || null, JSON.stringify(metadata || {})]
+    );
+  } catch (e) { console.error('[logAthleteActivity]', e.message); }
+}
+
+// GET /api/athlete/calendar — athlete views own calendar/deliverables
+app.get('/api/athlete/calendar', verifyAthleteToken, async (req, res) => {
+  try {
+    const { status, brand, from, to } = req.query;
+    let sql = 'SELECT * FROM athlete_calendar_events WHERE athlete_id = $1';
+    const params = [req.athlete.id];
+    let idx = 2;
+    if (status) { sql += ` AND status = $${idx++}`; params.push(status); }
+    if (brand) { sql += ` AND LOWER(brand) LIKE $${idx++}`; params.push('%' + brand.toLowerCase() + '%'); }
+    if (from) { sql += ` AND event_date >= $${idx++}`; params.push(from); }
+    if (to) { sql += ` AND event_date <= $${idx++}`; params.push(to); }
+    sql += ' ORDER BY event_date ASC';
+    const r = await store.pool.query(sql, params);
+    console.log(`[athlete/calendar] athlete=${req.athlete.id} events=${r.rows.length}`);
+    res.json({ events: r.rows });
+  } catch (e) { console.error('[athlete/calendar]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/athlete/calendar/:id/status — update deliverable status
+app.put('/api/athlete/calendar/:id/status', verifyAthleteToken, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'status required' });
+    const r = await store.pool.query(
+      'UPDATE athlete_calendar_events SET status = $1 WHERE id = $2 AND athlete_id = $3 RETURNING *',
+      [status, req.params.id, req.athlete.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Event not found' });
+    const ev = r.rows[0];
+    if (status === 'completed') {
+      await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deliverable_completed',
+        `Completed: ${ev.title}`, { event_id: ev.id, brand: ev.brand });
+    }
+    console.log(`[athlete/calendar/status] id=${req.params.id} status=${status}`);
+    res.json({ ok: true, event: ev });
+  } catch (e) { console.error('[athlete/calendar/status]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/athlete/deals — athlete's self-managed deals
+app.get('/api/athlete/deals', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      'SELECT * FROM athlete_self_deals WHERE athlete_id = $1 ORDER BY created_at DESC',
+      [req.athlete.id]
+    );
+    res.json({ deals: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/deals — create self-managed deal
+app.post('/api/athlete/deals', verifyAthleteToken, async (req, res) => {
+  try {
+    const { brand_name, deal_type, value, stage, description, start_date, notes } = req.body;
+    if (!brand_name) return res.status(400).json({ error: 'brand_name required' });
+    const stageHistory = [{ stage: stage || 'Prospect', date: new Date().toISOString(), note: 'Deal created' }];
+    const r = await store.pool.query(
+      `INSERT INTO athlete_self_deals (athlete_id, agent_id, brand_name, deal_type, value, stage, description, start_date, notes, stage_history)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [req.athlete.id, req.athlete.agent_id, brand_name, deal_type || 'Other', value || null,
+       stage || 'Prospect', description || null, start_date || null, notes || null, JSON.stringify(stageHistory)]
+    );
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_added',
+      `Added deal: ${brand_name}`, { deal_id: r.rows[0].id, brand: brand_name, value });
+    console.log(`[athlete/deals] created brand=${brand_name} athlete=${req.athlete.id}`);
+    res.json({ ok: true, deal: r.rows[0] });
+  } catch (e) { console.error('[athlete/deals POST]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/athlete/deals/:id — update deal
+app.put('/api/athlete/deals/:id', verifyAthleteToken, async (req, res) => {
+  try {
+    const { brand_name, deal_type, value, stage, description, notes, start_date } = req.body;
+    const cur = await store.pool.query(
+      'SELECT * FROM athlete_self_deals WHERE id = $1 AND athlete_id = $2',
+      [req.params.id, req.athlete.id]
+    );
+    if (!cur.rows.length) return res.status(404).json({ error: 'Deal not found' });
+    const existing = cur.rows[0];
+    let stageHistory = existing.stage_history || [];
+    if (stage && stage !== existing.stage) {
+      stageHistory = [...stageHistory, { stage, date: new Date().toISOString(), note: 'Stage updated' }];
+      await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_stage_changed',
+        `${existing.brand_name}: ${existing.stage} → ${stage}`, { deal_id: existing.id });
+    }
+    const r = await store.pool.query(
+      `UPDATE athlete_self_deals SET
+         brand_name=COALESCE($1,brand_name), deal_type=COALESCE($2,deal_type),
+         value=COALESCE($3,value), stage=COALESCE($4,stage), description=COALESCE($5,description),
+         notes=COALESCE($6,notes), start_date=COALESCE($7::DATE,start_date),
+         stage_history=$8, updated_at=NOW()
+       WHERE id=$9 AND athlete_id=$10 RETURNING *`,
+      [brand_name||null, deal_type||null, value||null, stage||null, description||null,
+       notes||null, start_date||null, JSON.stringify(stageHistory), req.params.id, req.athlete.id]
+    );
+    res.json({ ok: true, deal: r.rows[0] });
+  } catch (e) { console.error('[athlete/deals PUT]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/athlete/deals/:id
+app.delete('/api/athlete/deals/:id', verifyAthleteToken, async (req, res) => {
+  try {
+    await store.pool.query('DELETE FROM athlete_self_deals WHERE id=$1 AND athlete_id=$2',
+      [req.params.id, req.athlete.id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/command — athlete AI command (SSE stream)
+app.post('/api/athlete/command', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'message required' });
+
+    const athR = await store.pool.query(
+      `SELECT a.data, a.instagram_handle, a.tiktok_handle,
+              a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'position' as position,
+              a.data->>'school' as school, a.data->>'year' as year,
+              a.data->>'instagram' as ig, a.data->>'tiktok' as tt
+       FROM athletes a WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    const ath = athR.rows[0] || {};
+    const ig = parseInt(ath.ig || 0);
+    const tt = parseInt(ath.tt || 0);
+    const nilLow = Math.round(ig * 0.01 / 10) * 10;
+    const nilHigh = Math.round(ig * 0.03 / 10) * 10;
+    const nilEst = nilLow > 0 ? `$${nilLow.toLocaleString()}–$${nilHigh.toLocaleString()} per post` : 'TBD (add followers to profile)';
+
+    const system = `You are an NIL advisor helping a college athlete manage their name, image, and likeness business. The athlete is ${ath.name || 'the athlete'}, a ${ath.year || 'college'} ${ath.position || 'athlete'} at ${ath.school || 'their university'} playing ${ath.sport || 'their sport'}. Estimated NIL value: ${nilEst}. Instagram: @${ath.instagram_handle || 'N/A'} (${ig.toLocaleString()} followers). TikTok: @${ath.tiktok_handle || 'N/A'} (${tt.toLocaleString()} followers). Help them understand their worth, find brand opportunities, draft outreach, review contracts, and stay compliant. Always be encouraging, practical, and specific to their situation. Never give legal advice but help them understand what questions to ask.`;
+
+    const Anthropic = require('@anthropic-ai/sdk');
+    const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const stream = anthropicClient.messages.stream({
+      model: 'claude-opus-4-5', max_tokens: 1024, system,
+      messages: [{ role: 'user', content: message }],
+    });
+    stream.on('text', text => res.write(`data: ${JSON.stringify({ text })}\n\n`));
+    stream.on('error', err => { res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`); res.end(); });
+    await stream.finalMessage();
+    res.write('data: [DONE]\n\n');
+    res.end();
+    console.log(`[athlete/command] athlete=${req.athlete.id} msg="${message.substring(0,60)}"`);
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'ai_command', 'Used AI Command', {}).catch(() => {});
+  } catch (e) {
+    console.error('[athlete/command]', e.message);
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/athlete/deal-scan — find brand deals for this athlete
+app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const athR = await store.pool.query(
+      `SELECT a.data, a.instagram_handle, a.tiktok_handle,
+              a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
+              a.data->>'schoolTier' as school_tier, a.data->>'instagram' as ig,
+              a.data->>'tiktok' as tt, a.data->>'position' as position, a.data->>'year' as year
+       FROM athletes a WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    const ath = athR.rows[0];
+    if (!ath) return res.status(404).json({ error: 'Athlete not found' });
+    const ig = parseInt(ath.ig || 0), tt = parseInt(ath.tt || 0);
+
+    const prompt = `Find 8 real brand partnership opportunities for this college athlete:\n\nName: ${ath.name}\nSport: ${ath.sport} | Position: ${ath.position} | Year: ${ath.year}\nSchool: ${ath.school} (${ath.school_tier})\nInstagram: @${ath.instagram_handle || 'N/A'} (${ig.toLocaleString()} followers) | TikTok: @${ath.tiktok_handle || 'N/A'} (${tt.toLocaleString()} followers)\n\nReturn ONLY a valid JSON array, no markdown:\n[{"brand":"Brand Name","category":"Category","est_value":"$X-$X per post","why_fit":"One sentence why this brand fits","outreach_tip":"One sentence outreach tip"}]`;
+
+    const raw = await ai.oneShot(prompt, 'You are an NIL deal finder for college athletes. Return only valid JSON arrays, no markdown.');
+    let opportunities = [];
+    try { const m = raw.match(/\[[\s\S]*\]/); if (m) opportunities = JSON.parse(m[0]); } catch(e) {}
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_scan', 'Ran deal scan', {});
+    console.log(`[athlete/deal-scan] athlete=${req.athlete.id} found=${opportunities.length}`);
+    res.json({ opportunities });
+  } catch (e) { console.error('[athlete/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/rate-calculator — calculate athlete's own rates
+app.post('/api/athlete/rate-calculator', verifyAthleteToken, async (req, res) => {
+  try {
+    const delivType = req.body.deliverable_type || 'ig-reel';
+    const row = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [req.athlete.id]);
+    if (!row.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const athleteObj = { id: row.rows[0].id, agentId: row.rows[0].agent_id, ...row.rows[0].data };
+    const rate = ai.calculateRate(athleteObj, delivType);
+    const { nilViewVal, cleanRange } = require('./benchmarks');
+    const cleaned = cleanRange(rate.low, rate.high);
+    const cr = (t) => { const r2 = nilViewVal(athleteObj, t); return cleanRange(r2.low, r2.high); };
+    const dealTypeRates = {
+      'ig-reel': cr('ig-reel'), 'ig-post': cr('ig-post'), 'stories': cr('stories'),
+      'tiktok': cr('tiktok'), 'bundle': cr('bundle'), 'appearance-inperson': cr('appearance-inperson'),
+    };
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'valuation_run',
+      `Ran rate calculator (${delivType})`, { deliverable_type: delivType });
+    res.json({ ok: true, deliverable_type: delivType, rate: cleaned, deal_type_rates: dealTypeRates,
+      athlete: { name: athleteObj.name, sport: athleteObj.sport, school: athleteObj.school,
+        instagram: athleteObj.instagram || 0, tiktok: athleteObj.tiktok || 0 } });
+  } catch (e) { console.error('[athlete/rate-calculator]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/team-match — find best programs for athlete (transfer/recruitment)
+app.post('/api/athlete/team-match', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const { geo_preference, division, academic_priority, nil_priority } = req.body;
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'position' as position,
+              a.data->>'school' as school, a.data->>'year' as year FROM athletes a WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    const ath = athR.rows[0] || {};
+    const prompt = `A college athlete is exploring transfer destinations. Find 8 best-fit programs.\n\nAthlete: ${ath.name} | Sport: ${ath.sport} | Position: ${ath.position} | Year: ${ath.year}\nCurrent School: ${ath.school}\nNIL Priority: ${nil_priority || 'High'} | Geographic: ${geo_preference || 'Any'} | Division: ${division || 'D1'}\nAcademic Priority: ${academic_priority || 'Flexible'}\n\nReturn ONLY a valid JSON array, no markdown:\n[{"school":"School Name","conference":"Conference","nil_rating":"High/Medium/Low","nil_estimate":"$X-$X/year","why_fit":"Two sentences","position_need":"Program need at this position","match_score":85}]`;
+
+    const raw = await ai.oneShot(prompt, 'You are an NIL transfer portal analyst. Return only valid JSON arrays.');
+    let programs = [];
+    try { const m = raw.match(/\[[\s\S]*\]/); if (m) programs = JSON.parse(m[0]); } catch(e) {}
+    console.log(`[athlete/team-match] athlete=${req.athlete.id} programs=${programs.length}`);
+    res.json({ programs });
+  } catch (e) { console.error('[athlete/team-match]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/marketing/content-ideas
+app.post('/api/athlete/marketing/content-ideas', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
+              a.instagram_handle, a.tiktok_handle FROM athletes a WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    const ath = athR.rows[0] || {};
+    const dealsR = await store.pool.query(
+      `SELECT brand FROM athlete_calendar_events WHERE athlete_id=$1 AND brand IS NOT NULL GROUP BY brand LIMIT 5`,
+      [req.athlete.id]
+    );
+    const brands = dealsR.rows.map(r => r.brand).join(', ') || 'various brands';
+    const prompt = `Generate 8 NIL content ideas for this college athlete.\n\nName: ${ath.name} | Sport: ${ath.sport} | School: ${ath.school}\nInstagram: @${ath.instagram_handle || 'N/A'} | TikTok: @${ath.tiktok_handle || 'N/A'}\nActive partnerships: ${brands}\n\nReturn ONLY a valid JSON array:\n[{"platform":"Instagram/TikTok/YouTube","content_type":"Reel/Story/Post","idea":"Brief idea","caption":"Draft caption + hashtags","best_time":"Best posting time"}]`;
+
+    const raw = await ai.oneShot(prompt, 'You are a college athlete social media strategist. Return only valid JSON.');
+    let ideas = [];
+    try { const m = raw.match(/\[[\s\S]*\]/); if (m) ideas = JSON.parse(m[0]); } catch(e) {}
+    res.json({ ideas });
+  } catch (e) { console.error('[athlete/marketing]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/email/send — athlete sends tracked email
+app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
+  try {
+    const { to, subject, body, cc_agent } = req.body;
+    if (!to || !subject || !body) return res.status(400).json({ error: 'to, subject, and body required' });
+    // Store as brand outreach record for agent visibility
+    await store.pool.query(
+      `INSERT INTO athlete_brand_outreach (athlete_id, agent_id, brand_name, brand_contact_email, message_sent, initiated_by, status)
+       VALUES ($1,$2,$3,$4,$5,'athlete','sent')`,
+      [req.athlete.id, req.athlete.agent_id, subject, to, body]
+    ).catch(() => {});
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'email_sent',
+      `Sent email to ${to}: "${subject}"`, { to, subject, cc_agent: !!cc_agent });
+    console.log(`[athlete/email] to=${to} subject="${subject}" athlete=${req.athlete.id}`);
+    res.json({ ok: true, message: 'Email logged.' });
+  } catch (e) { console.error('[athlete/email]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/athlete/profile — athlete updates own editable fields
+app.put('/api/athlete/profile', verifyAthleteToken, async (req, res) => {
+  try {
+    const { phone, instagram_handle, tiktok_handle, twitter_handle, instagram_followers, tiktok_followers, bio } = req.body;
+    await store.pool.query(
+      `UPDATE athletes SET phone=COALESCE($1,phone), instagram_handle=COALESCE($2,instagram_handle),
+       tiktok_handle=COALESCE($3,tiktok_handle), twitter_handle=COALESCE($4,twitter_handle), updated_at=NOW()
+       WHERE id=$5`,
+      [phone||null, instagram_handle||null, tiktok_handle||null, twitter_handle||null, req.athlete.id]
+    );
+    // Update JSONB data fields for follower counts and bio
+    const updates = {};
+    if (instagram_followers !== undefined) updates.instagram = parseInt(instagram_followers) || 0;
+    if (tiktok_followers !== undefined) updates.tiktok = parseInt(tiktok_followers) || 0;
+    if (bio !== undefined) updates.bio = bio;
+    for (const [key, val] of Object.entries(updates)) {
+      await store.pool.query(
+        `UPDATE athletes SET data = jsonb_set(COALESCE(data,'{}'), '{${key}}', $1::jsonb), updated_at=NOW() WHERE id=$2`,
+        [JSON.stringify(val), req.athlete.id]
+      );
+    }
+    console.log(`[athlete/profile] updated athlete=${req.athlete.id}`);
+    res.json({ ok: true });
+  } catch (e) { console.error('[athlete/profile]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/agents/athlete-activity — agent sees all athlete activity
+app.get('/api/agents/athlete-activity', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `SELECT aal.*, a.data->>'name' as athlete_name, a.data->>'sport' as sport
+       FROM athlete_activity_log aal
+       JOIN athletes a ON aal.athlete_id = a.id
+       WHERE aal.agent_id = $1
+       ORDER BY aal.created_at DESC LIMIT 50`,
+      [req.session.userId]
+    );
+    console.log(`[agents/athlete-activity] agent=${req.session.userId} activities=${r.rows.length}`);
+    res.json({ activities: r.rows });
+  } catch (e) { console.error('[agents/athlete-activity]', e.message); res.status(500).json({ error: e.message }); }
+});
+// ── /Athlete Full Portal Routes ─────────────────────────────────────────────
+
 app.get('/report/:token', async (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'report.html'));
 });
