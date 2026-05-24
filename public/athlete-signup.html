@@ -204,7 +204,7 @@ body{font-family:Inter,sans-serif;min-height:100vh;display:flex;background:#0f11
         <input type="text" id="f-twitter" placeholder="@yourusername">
       </div>
 
-      <button class="submit-btn" id="submit-btn" onclick="activate()">ACTIVATE MY ACCOUNT</button>
+      <button class="submit-btn" id="activateBtn">ACTIVATE MY ACCOUNT</button>
       <div class="terms">By activating your account you agree to NILDash's <a href="#">Terms of Service</a></div>
       <div class="signin-link">Already have an account? <a href="/athlete-login.html">Sign in →</a></div>
     </div>
@@ -298,81 +298,120 @@ document.addEventListener('DOMContentLoaded', function() {
       text.textContent = lvl.label; text.style.color = lvl.bg;
     });
   }
+
+  // ── Activate button ─────────────────────────────────────────────
+  var activateBtn = document.getElementById('activateBtn');
+  if (activateBtn) {
+    activateBtn.addEventListener('click', activateAccount);
+  } else {
+    console.error('[signup] activateBtn not found in DOM');
+  }
+
   init();
 });
 
-// ── Activate ─────────────────────────────────────────────────────
-async function activate() {
-  clearErrors();
-  var email    = document.getElementById('f-email').value.trim();
-  var pass     = document.getElementById('f-pass').value;
-  var pass2    = document.getElementById('f-pass2').value;
-  var phone    = document.getElementById('f-phone').value.trim();
-  var insta    = document.getElementById('f-instagram').value.trim();
-  var tiktok   = document.getElementById('f-tiktok').value.trim();
-  var twitter  = document.getElementById('f-twitter').value.trim();
+async function activateAccount() {
+  // Always read token fresh from URL — don't rely on global that may be null
+  var token = new URLSearchParams(window.location.search).get('token');
 
-  var valid = true;
+  // Collect field values
+  var email           = document.getElementById('f-email').value.trim();
+  var password        = document.getElementById('f-pass').value;
+  var confirmPassword = document.getElementById('f-pass2').value;
+  var phone           = document.getElementById('f-phone').value.trim();
+  var instagram       = document.getElementById('f-instagram').value.trim();
+  var tiktok          = document.getElementById('f-tiktok').value.trim();
+  var twitter         = document.getElementById('f-twitter').value.trim();
+
+  // Clear previous errors
+  ['e-email','e-pass','e-pass2'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = '';
+  });
+  var fe = document.getElementById('form-error');
+  if (fe) { fe.style.display = 'none'; fe.textContent = ''; }
+
+  // Validate
+  if (!token) {
+    showActivateError('Invalid invite link — no token found. Please use the exact link your agent sent you.');
+    return;
+  }
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    showFieldError('e-email', 'Please enter a valid email address'); valid = false;
+    var ee = document.getElementById('e-email');
+    if (ee) ee.textContent = 'Please enter a valid email address';
+    showActivateError('Please enter a valid email address.');
+    return;
   }
-  if (!pass || pass.length < 8) {
-    showFieldError('e-pass', 'Password must be at least 8 characters'); valid = false;
+  if (!password || password.length < 8) {
+    var ep = document.getElementById('e-pass');
+    if (ep) ep.textContent = 'Password must be at least 8 characters';
+    showActivateError('Password must be at least 8 characters.');
+    return;
   }
-  if (pass !== pass2) {
-    showFieldError('e-pass2', 'Passwords do not match'); valid = false;
+  if (password !== confirmPassword) {
+    var ep2 = document.getElementById('e-pass2');
+    if (ep2) ep2.textContent = 'Passwords do not match';
+    showActivateError('Passwords do not match.');
+    return;
   }
-  if (!valid) return;
 
-  var btn = document.getElementById('submit-btn');
-  btn.disabled = true; btn.textContent = 'Setting up your account…';
+  // Show loading state on button
+  var btn = document.getElementById('activateBtn');
+  btn.disabled = true;
+  btn.textContent = 'Activating your account…';
 
   try {
-    var r = await fetch('/api/athlete/activate', {
+    console.log('[activate] Posting to /api/athlete/activate with token:', token.slice(-12));
+    var response = await fetch('/api/athlete/activate', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        token: inviteToken,
+        token: token,
         email: email,
-        password: pass,
+        password: password,
         phone: phone || null,
-        instagram_handle: insta || null,
+        instagram_handle: instagram || null,
         tiktok_handle: tiktok || null,
         twitter_handle: twitter || null,
       }),
     });
-    var data = await r.json();
-    if (!r.ok) {
-      showFormError(data.error || 'Activation failed. Please try again.');
-      btn.disabled = false; btn.textContent = 'ACTIVATE MY ACCOUNT';
-      return;
+
+    var data = await response.json();
+    console.log('[activate] Response status:', response.status, 'data:', data);
+
+    if (response.ok && data.token) {
+      localStorage.setItem('athlete_token', data.token);
+      localStorage.setItem('athlete_user', JSON.stringify(data.athlete || {}));
+      btn.textContent = 'Account activated! Redirecting…';
+      document.getElementById('main-form').style.display = 'none';
+      document.getElementById('success-state').style.display = 'block';
+      setTimeout(function() { window.location.href = '/athlete-dashboard.html'; }, 1500);
+    } else {
+      showActivateError(data.message || data.error || 'Activation failed. Please try again.');
+      btn.disabled = false;
+      btn.textContent = 'ACTIVATE MY ACCOUNT';
     }
-    // Save JWT and athlete info
-    localStorage.setItem('athlete_token', data.token);
-    localStorage.setItem('athlete_user', JSON.stringify(data.athlete));
-    // Show success screen then redirect
-    document.getElementById('main-form').style.display = 'none';
-    document.getElementById('success-state').style.display = 'block';
-    setTimeout(function() { window.location.href = '/athlete-dashboard.html'; }, 2000);
-  } catch (e) {
-    showFormError('Network error. Please check your connection and try again.');
-    btn.disabled = false; btn.textContent = 'ACTIVATE MY ACCOUNT';
+  } catch (err) {
+    console.error('[activate] Network error:', err);
+    showActivateError('Network error. Please check your connection and try again.');
+    btn.disabled = false;
+    btn.textContent = 'ACTIVATE MY ACCOUNT';
   }
 }
 
-function clearErrors() {
-  ['e-email','e-pass','e-pass2'].forEach(function(id) {
-    document.getElementById(id).textContent = '';
-  });
-  var fe = document.getElementById('form-error');
-  fe.style.display = 'none'; fe.textContent = '';
-}
-function showFieldError(id, msg) {
-  document.getElementById(id).textContent = msg;
-}
-function showFormError(msg) {
+function showActivateError(msg) {
+  // Use existing form-error div; also create inline if missing
   var el = document.getElementById('form-error');
-  el.textContent = msg; el.style.display = 'block';
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'form-error';
+    el.style.cssText = 'background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;color:#dc2626;margin-bottom:12px';
+    var btn = document.getElementById('activateBtn');
+    if (btn) btn.insertAdjacentElement('beforebegin', el);
+  }
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 </script>
 </body>

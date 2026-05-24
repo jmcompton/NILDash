@@ -2596,6 +2596,7 @@ app.get('/api/athlete/verify-token/:token', async (req, res) => {
 app.post('/api/athlete/activate', authLimiter, async (req, res) => {
   try {
     const { token, email, password, phone, instagram_handle, tiktok_handle, twitter_handle } = req.body;
+    console.log(`[athlete/activate] Called with token=...${(token||'').slice(-12)} email=${email}`);
     if (!token || !email || !password) return res.status(400).json({ error: 'token, email, and password are required' });
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
 
