@@ -19,29 +19,37 @@ var NILCal = (function () {
   }
 
   // ── Status-aware event color ───────────────────────────────────
-  // Returns { bg, fg, border } for a calendar pill / list row
+  // Calendar pills always use the athlete's color for background/text (clean, readable).
+  // Status is shown via the left border color so it's a subtle indicator, not overwhelming.
+  // List view and drawer use statusColor() for the status badge text.
   function getEventColor(ev, today) {
-    var d = ev.event_date ? ev.event_date.split('T')[0] : null;
-    // Completed → green
+    var ac = athleteColor(ev.athlete_id);
+    var d  = ev.event_date ? ev.event_date.split('T')[0] : null;
+    var border = ac; // default: athlete color border
+
     if (ev.status === 'completed') {
-      return { bg: 'rgba(34,197,94,0.15)', fg: '#22c55e', border: '#22c55e' };
-    }
-    // Overdue → red
-    if (d && d < today) {
-      return { bg: 'rgba(239,68,68,0.15)', fg: '#ef4444', border: '#ef4444' };
-    }
-    // Upcoming within 7 days → orange
-    if (d) {
+      border = '#22c55e'; // green border
+    } else if (d && d < today) {
+      border = '#ef4444'; // red border for overdue
+    } else if (d) {
       var sevenDays = new Date();
       sevenDays.setDate(sevenDays.getDate() + 7);
-      var due = new Date(d + 'T00:00:00');
-      if (due <= sevenDays) {
-        return { bg: 'rgba(249,115,22,0.15)', fg: '#f97316', border: '#f97316' };
+      if (new Date(d + 'T00:00:00') <= sevenDays) {
+        border = '#f97316'; // orange border for upcoming ≤7 days
       }
     }
-    // Default → per-athlete color
-    var c = athleteColor(ev.athlete_id);
-    return { bg: c + '22', fg: c, border: c };
+
+    return { bg: ac + '18', fg: ac, border: border };
+  }
+
+  // Readable status label + color for list/drawer views
+  function statusColor(ev, today) {
+    var d = ev.event_date ? ev.event_date.split('T')[0] : null;
+    if (ev.status === 'completed') return { label: 'Completed', color: '#22c55e' };
+    if (d && d < today)           return { label: 'Overdue',   color: '#ef4444' };
+    var sevenDays = new Date(); sevenDays.setDate(sevenDays.getDate() + 7);
+    if (d && new Date(d + 'T00:00:00') <= sevenDays) return { label: 'Due Soon', color: '#f97316' };
+    return { label: ev.status || 'Pending', color: 'var(--muted)' };
   }
 
   // ── State ─────────────────────────────────────────────────────
@@ -185,9 +193,8 @@ var NILCal = (function () {
 
     var rows = sorted.map(function(ev) {
       var clr = getEventColor(ev, today);
+      var sc  = statusColor(ev, today);
       var d   = ev.event_date ? ev.event_date.split('T')[0] : '—';
-      var overdue = d !== '—' && d < today && ev.status !== 'completed';
-      var statusLabel = ev.status === 'completed' ? 'Completed' : overdue ? 'Overdue' : (ev.status || 'pending');
       var safeId = (ev.id||'').replace(/'/g,"\\'");
       return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="NILCal.openDrawer(\'' + safeId + '\')">' +
         // Athlete
@@ -204,10 +211,10 @@ var NILCal = (function () {
           '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + ev.title + '</div>' +
         '</td>' +
         // Due date
-        '<td style="padding:9px 12px;font-size:12px;white-space:nowrap;color:' + clr.fg + ';font-weight:600">' + d + '</td>' +
+        '<td style="padding:9px 12px;font-size:12px;white-space:nowrap;color:' + sc.color + ';font-weight:600">' + d + '</td>' +
         // Status (inline dropdown)
         '<td style="padding:9px 12px" onclick="event.stopPropagation()">' +
-          '<select onchange="NILCal.setStatus(\'' + safeId + '\', this.value)" style="font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 6px;background:var(--surface);color:' + clr.fg + ';cursor:pointer;font-weight:600">' +
+          '<select onchange="NILCal.setStatus(\'' + safeId + '\', this.value)" style="font-size:11px;border:1px solid var(--border);border-radius:5px;padding:3px 6px;background:var(--surface);color:' + sc.color + ';cursor:pointer;font-weight:600">' +
             '<option value="pending"' + ((!ev.status || ev.status === 'pending') ? ' selected' : '') + '>Pending</option>' +
             '<option value="in_progress"' + (ev.status === 'in_progress' ? ' selected' : '') + '>In Progress</option>' +
             '<option value="completed"' + (ev.status === 'completed' ? ' selected' : '') + '>Completed</option>' +
@@ -253,13 +260,14 @@ var NILCal = (function () {
     var today = new Date().toISOString().split('T')[0];
     list.innerHTML = dayEvs.map(function(ev) {
       var clr = getEventColor(ev, today);
+      var sc  = statusColor(ev, today);
       return '<div onclick="NILCal.openDrawer(\'' + (ev.id||'').replace(/'/g,"\\'") + '\')" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer">' +
         '<span style="width:10px;height:10px;border-radius:50%;background:' + clr.border + ';flex-shrink:0"></span>' +
         '<div style="flex:1">' +
           '<div style="font-size:12px;font-weight:600;color:var(--text)">' + ev.title + '</div>' +
           '<div style="font-size:11px;color:var(--muted)">' + (ev.athlete_name||'') + ' · ' + (ev.brand||'') + '</div>' +
         '</div>' +
-        '<div style="font-size:11px;color:' + clr.fg + ';text-transform:capitalize;font-weight:600">' + (ev.status||'pending') + '</div>' +
+        '<div style="font-size:11px;color:' + sc.color + ';font-weight:600">' + sc.label + '</div>' +
       '</div>';
     }).join('');
     panel.style.display = 'block';
@@ -284,9 +292,8 @@ var NILCal = (function () {
 
     var today   = new Date().toISOString().split('T')[0];
     var clr     = getEventColor(ev, today);
+    var sc      = statusColor(ev, today);
     var d       = ev.event_date ? ev.event_date.split('T')[0] : '—';
-    var overdue = d !== '—' && d < today && ev.status !== 'completed';
-    var statusLabel = ev.status === 'completed' ? 'Completed' : overdue ? 'Overdue' : 'Pending';
 
     drawer.innerHTML =
       '<div style="height:4px;background:' + clr.border + '"></div>' +
@@ -309,11 +316,11 @@ var NILCal = (function () {
           '</div>' +
           '<div style="display:flex;justify-content:space-between;font-size:12px">' +
             '<span style="color:var(--muted)">Due Date</span>' +
-            '<span style="font-weight:600;color:' + clr.fg + '">' + d + '</span>' +
+            '<span style="font-weight:600;color:' + sc.color + '">' + d + '</span>' +
           '</div>' +
           '<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px">' +
             '<span style="color:var(--muted)">Status</span>' +
-            '<span id="cal-drawer-status-badge" style="font-weight:700;color:' + clr.fg + ';text-transform:capitalize">' + statusLabel + '</span>' +
+            '<span id="cal-drawer-status-badge" style="font-weight:700;color:' + sc.color + ';text-transform:capitalize">' + sc.label + '</span>' +
           '</div>' +
           (ev.contract_id ? '<div style="display:flex;justify-content:space-between;font-size:12px">' +
             '<span style="color:var(--muted)">Contract</span>' +
