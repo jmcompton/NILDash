@@ -4382,12 +4382,12 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
 
         console.log(`[pdf/save] deliverable[${i}]: "${desc.substring(0,40)}" due=${dueDate || 'none'}`);
 
+        // contractId is random per upload so duplicates are impossible — no ON CONFLICT needed
         const dr = await client.query(
           `INSERT INTO athlete_deliverables
              (athlete_id, agent_id, contract_id, deliverable_description, due_date, brand,
               status, recurrence, recurrence_rule, ai_confidence_score, source, sort_order)
            VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,'pdf_scanner',$10)
-           ON CONFLICT ON CONSTRAINT athlete_deliverables_unique DO NOTHING
            RETURNING id`,
           [athleteId, agentId, contractId, desc, dueDate, evBrand,
            recurrence, rrule, confidence, i]
@@ -4413,7 +4413,7 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
                    (id, athlete_id, agent_id, deliverable_id, contract_id, title, event_date,
                     brand, color, status, is_generated, recurrence_instance, manually_modified)
                  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',TRUE,$10,FALSE)
-                 ON CONFLICT (deliverable_id, event_date) DO NOTHING`,
+                 ON CONFLICT (deliverable_id, event_date) WHERE deliverable_id IS NOT NULL DO NOTHING`,
                 [evId, athleteId, agentId, deliverableId, contractId, desc, normalizedDate,
                  evBrand, color, dates.length > 1]
               );
