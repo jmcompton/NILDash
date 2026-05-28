@@ -2767,22 +2767,15 @@ async function sendEmail() {
     var data = await r.json();
     if (!r.ok) { showToast(data.error || 'Failed to send', 'error'); return; }
     showToast('Email logged!', 'success');
-    // Save to athlete_messages so agent can see it in their Email Inbox
-    try {
-      await fetch('/api/athlete-messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
-        body: JSON.stringify({
-          athleteId:    athleteProfile ? athleteProfile.id    : null,
-          athleteName:  athleteProfile ? athleteProfile.name  : null,
-          athleteEmail: athleteProfile ? athleteProfile.email : null,
-          agentId:      athleteProfile ? athleteProfile.agent_id : null,
-          toAddress:    to,
-          subject:      subject,
-          body:         body
-        })
-      });
-    } catch(_) {}
+    // Save to athlete_messages so agent can see it in their Email Inbox.
+    // IDs are derived server-side from the JWT — only send message fields.
+    fetch('/api/athlete-messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify({ toAddress: to, subject: subject, body: body })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (!d.success) console.warn('[athlete-messages] save failed:', d.error);
+    }).catch(function(e){ console.warn('[athlete-messages] network error:', e.message); });
     ['email-to','email-brand','email-subject','email-body'].forEach(function(id){ document.getElementById(id).value = ''; });
     document.getElementById('email-cc-agent').checked = false;
     loadEmailHistory();

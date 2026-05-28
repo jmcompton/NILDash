@@ -3672,14 +3672,28 @@ app.get('/api/pitch-data/:athleteId', async (req, res) => {
 
 app.post('/api/athlete-messages', verifyAthleteToken, async (req, res) => {
   try {
-    const { athleteId, athleteName, athleteEmail, agentId, toAddress, subject, body } = req.body;
+    const { toAddress, subject, body } = req.body;
+    // Pull identity from the verified JWT — never trust the frontend for IDs
+    const athleteId   = req.athlete.id;
+    const agentId     = req.athlete.agent_id;
+    const athleteEmail = req.athlete.email || null;
+    // athlete_name may be in the JWT or we fall back to a DB lookup
+    let athleteName = req.athlete.athlete_name || req.athlete.name || null;
+    if (!athleteName) {
+      const row = await store.pool.query(
+        `SELECT data->>'name' as name FROM athletes WHERE id = $1`, [athleteId]
+      ).then(r => r.rows[0]).catch(() => null);
+      athleteName = row ? row.name : null;
+    }
+    console.log('[athlete-messages POST]', { athleteId, agentId, athleteName, toAddress, subject });
     if (!agentId || !toAddress || !subject || !body)
       return res.status(400).json({ error: 'agentId, toAddress, subject, and body are required' });
     const r = await store.pool.query(
       `INSERT INTO athlete_messages (athlete_id, athlete_name, athlete_email, agent_id, to_address, subject, body)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-      [athleteId || null, athleteName || null, athleteEmail || null, agentId, toAddress, subject, body]
+      [athleteId, athleteName, athleteEmail, agentId, toAddress, subject, body]
     );
+    console.log('[athlete-messages POST] saved id=' + r.rows[0].id + ' agentId=' + agentId);
     res.json({ success: true, id: r.rows[0].id });
   } catch (e) {
     console.error('[athlete-messages/post]', e.message);
