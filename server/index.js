@@ -3338,16 +3338,72 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
   try {
     const { to, subject, body, cc_agent } = req.body;
     if (!to || !subject || !body) return res.status(400).json({ error: 'to, subject, and body required' });
-    // Store as brand outreach record for agent visibility
+
+    const athleteId = req.athlete.id;
+    // agent_id from JWT; fall back to DB if somehow missing
+    let agentId = req.athlete.agent_id;
+    if (!agentId) {
+      const ag = await store.pool.query('SELECT agent_id FROM athletes WHERE id=$1', [athleteId]).catch(() => ({ rows: [] }));
+      agentId = ag.rows[0]?.agent_id || null;
+    }
+
+    // athlete name from JWT or DB
+    let athleteName = req.athlete.athlete_name || req.athlete.name || null;
+    if (!athleteName) {
+      const nr = await store.pool.query(`SELECT data->>'name' AS name FROM athletes WHERE id=$1`, [athleteId]).catch(() => ({ rows: [] }));
+      athleteName = nr.rows[0]?.name || null;
+    }
+    const athleteEmail = req.athlete.email || null;
+
+    // agent email for CC
+    let agentEmail = null;
+    if (cc_agent && agentId) {
+      const ar = await store.pool.query('SELECT email FROM users WHERE id=$1', [agentId]).catch(() => ({ rows: [] }));
+      agentEmail = ar.rows[0]?.email || null;
+    }
+
+    // ── Send the real email via Resend ──────────────────────────────
+    const fromDisplay = athleteName ? `${athleteName} via NILDash` : 'NILDash Athlete';
+    const emailPayload = {
+      from: `${fromDisplay} <noreply@mynildash.com>`,
+      to:   [to],
+      subject,
+      text: body,
+      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`,
+    };
+    if (agentEmail) emailPayload.cc = [agentEmail];
+
+    try {
+      await resend.emails.send(emailPayload);
+      console.log(`[athlete/email] sent via Resend to=${to} subject="${subject}" athlete=${athleteId}`);
+    } catch (emailErr) {
+      console.error('[athlete/email] Resend error:', emailErr.message);
+      // Don't block — still log the activity and save the message
+    }
+
+    // ── Store as brand outreach record ──────────────────────────────
     await store.pool.query(
       `INSERT INTO athlete_brand_outreach (athlete_id, agent_id, brand_name, brand_contact_email, message_sent, initiated_by, status)
        VALUES ($1,$2,$3,$4,$5,'athlete','sent')`,
-      [req.athlete.id, req.athlete.agent_id, subject, to, body]
+      [athleteId, agentId, subject, to, body]
     ).catch(() => {});
-    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'email_sent',
+
+    // ── Save to athlete_messages so agent sees it in Athlete Emails tab ──
+    if (agentId) {
+      await store.pool.query(
+        `INSERT INTO athlete_messages (athlete_id, athlete_name, athlete_email, agent_id, to_address, subject, body)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [athleteId, athleteName, athleteEmail, agentId, to, subject, body]
+      ).catch(e => console.error('[athlete/email] athlete_messages insert failed:', e.message));
+      console.log(`[athlete/email] athlete_messages saved agentId=${agentId}`);
+    } else {
+      console.warn('[athlete/email] no agentId — skipping athlete_messages save');
+    }
+
+    await logAthleteActivity(athleteId, agentId, 'email_sent',
       `Sent email to ${to}: "${subject}"`, { to, subject, cc_agent: !!cc_agent });
-    console.log(`[athlete/email] to=${to} subject="${subject}" athlete=${req.athlete.id}`);
-    res.json({ ok: true, message: 'Email logged.' });
+
+    res.json({ ok: true, message: 'Email sent.' });
   } catch (e) { console.error('[athlete/email]', e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -3701,24 +3757,10 @@ app.post('/api/athlete-messages', verifyAthleteToken, async (req, res) => {
   }
 });
 
-app.get('/api/athlete-messages', requireAuth, async (req, res) => {
-  try {
-    const { agentId } = req.query;
-    if (!agentId) return res.status(400).json({ error: 'agentId required' });
-    const r = await store.pool.query(
-      `SELECT * FROM athlete_messages WHERE agent_id = $1 ORDER BY sent_at DESC`,
-      [agentId]
-    );
-    res.json(r.rows);
-  } catch (e) {
-    console.error('[athlete-messages/get]', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
 app.get('/api/athlete-messages/unread-count', requireAuth, async (req, res) => {
   try {
     const { agentId } = req.query;
+    console.log('[athlete-messages/unread-count] agentId:', agentId);
     if (!agentId) return res.status(400).json({ error: 'agentId required' });
     const r = await store.pool.query(
       `SELECT COUNT(*) AS count FROM athlete_messages WHERE agent_id = $1 AND is_read = FALSE`,
@@ -3727,6 +3769,23 @@ app.get('/api/athlete-messages/unread-count', requireAuth, async (req, res) => {
     res.json({ count: parseInt(r.rows[0].count) });
   } catch (e) {
     console.error('[athlete-messages/unread-count]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/athlete-messages', requireAuth, async (req, res) => {
+  try {
+    const { agentId } = req.query;
+    console.log('[athlete-messages/get] agentId:', agentId);
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    const r = await store.pool.query(
+      `SELECT * FROM athlete_messages WHERE agent_id = $1 ORDER BY sent_at DESC`,
+      [agentId]
+    );
+    console.log('[athlete-messages/get] rows:', r.rows.length);
+    res.json(r.rows);
+  } catch (e) {
+    console.error('[athlete-messages/get]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
