@@ -25,6 +25,7 @@ async function init() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_id TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_tier TEXT DEFAULT 'basic';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN DEFAULT FALSE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS gcal_refresh_token TEXT;
     CREATE TABLE IF NOT EXISTS athletes (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -202,6 +203,8 @@ async function init() {
     `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS ai_confidence_score INTEGER DEFAULT 0`,
     `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'ai_extracted'`,
     `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS manually_edited BOOLEAN DEFAULT FALSE`,
+    // Google Calendar — track which NILDash events have been pushed to Google Calendar
+    `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS google_event_id TEXT`,
   ];
   for (const sql of _contractMigrations) {
     await pool.query(sql).catch(() => {});
@@ -236,6 +239,9 @@ async function init() {
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS onboarding_complete BOOLEAN DEFAULT FALSE`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS account_activated_at TIMESTAMPTZ`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ`,
+    // Google Calendar integration
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS google_refresh_token TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS google_calendar_id TEXT`,
   ];
   for (const sql of _athleteAuthMigrations) {
     await pool.query(sql).catch(e => console.warn('[migration]', e.message));

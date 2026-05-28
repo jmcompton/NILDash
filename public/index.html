@@ -2568,6 +2568,22 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div class="page-title">Deliverables Calendar</div>
         <div class="page-sub">All contract deliverables across your roster — single source of truth</div>
 
+        <!-- Agent Google Calendar integration -->
+        <div id="agent-gcal-card" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px;overflow:hidden">
+          <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:200px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0"><rect x="3" y="4" width="18" height="17" rx="2" stroke="var(--muted)" stroke-width="1.5" fill="none"/><path d="M3 9h18" stroke="var(--muted)" stroke-width="1.5"/><path d="M8 2v4M16 2v4" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round"/></svg>
+              <div>
+                <div id="agent-gcal-status-text" style="font-size:13px;font-weight:600;color:var(--text)">Google Calendar</div>
+                <div id="agent-gcal-status-sub" style="font-size:11px;color:var(--muted);margin-top:2px">Loading…</div>
+              </div>
+            </div>
+            <div id="agent-gcal-actions" style="display:flex;gap:8px;align-items:center"></div>
+          </div>
+          <!-- Per-athlete subscription list — shown only when agent is connected -->
+          <div id="agent-gcal-athletes" style="display:none;border-top:1px solid var(--border);padding:0 16px 14px"></div>
+        </div>
+
         <!-- Filters + controls row -->
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
           <select class="select-sm" id="cal-filter-athlete" onchange="NILCal.applyFilter()" style="min-width:155px">
@@ -3988,6 +4004,29 @@ async function bootApp() {
   }
   // Load unread athlete-email badge count
   athleteEmailsModule.loadBadge();
+
+  // Handle Google Calendar OAuth redirect (agent flow redirects to /#calendar?gcal=connected)
+  const _gcalHash = window.location.hash || '';
+  if (_gcalHash.includes('gcal=')) {
+    const _gcalHashParts = _gcalHash.split('?');
+    const _gcalHashView  = (_gcalHashParts[0] || '').replace('#', '').trim();
+    const _gcalParams    = new URLSearchParams(_gcalHashParts[1] || '');
+    const _gcalResult    = _gcalParams.get('gcal');
+    if (_gcalResult === 'connected') {
+      showToast('Google Calendar connected! Subscribe to your athletes\' NIL calendars below.', 'success');
+      if (_gcalHashView === 'calendar' && currentUser && currentUser.role !== 'athlete') {
+        setTimeout(function() {
+          const calBtn = document.querySelector('.nav-item[onclick*="calendar"]');
+          showView('calendar', calBtn);
+        }, 300);
+      }
+      history.replaceState(null, '', window.location.pathname);
+    } else if (_gcalResult === 'error') {
+      const _gcalReason = _gcalParams.get('reason') || 'unknown error';
+      showToast('Google Calendar connection failed: ' + _gcalReason, 'error');
+      history.replaceState(null, '', window.location.pathname);
+    }
+  }
 }
 
 //  SESSION CHECK
@@ -4325,7 +4364,7 @@ async function showView(id, btn) {
   const showBar = ['command','deals','rate','negotiate','deal-close','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
-  if (id === 'calendar') loadCalendar();
+  if (id === 'calendar') { loadCalendar(); initAgentGCalStatus(); }
   if (id === 'analytics') loadAnalytics();
   if (id === 'command') setTimeout(updateNilRateKpi, 800);
   if (id === 'roster') renderRoster();
@@ -6712,7 +6751,136 @@ async function loadCalendar() {
   await NILCal.load([], API_BASE);
 }
 
-//  INIT 
+// ══════════════════════════════════════════════════════════════════
+// AGENT GOOGLE CALENDAR
+// ══════════════════════════════════════════════════════════════════
+async function initAgentGCalStatus() {
+  const card = document.getElementById('agent-gcal-card');
+  if (!card) return;
+  // Only show to agents, not athletes or university accounts
+  if (currentUser && (currentUser.role === 'athlete' || currentUser.role === 'university' || currentUser.role === 'university_admin')) {
+    card.style.display = 'none';
+    return;
+  }
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/calendar/google/status`);
+    const data = await r.json();
+    if (!data.available) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+
+    const statusText = document.getElementById('agent-gcal-status-text');
+    const statusSub  = document.getElementById('agent-gcal-status-sub');
+    const actions    = document.getElementById('agent-gcal-actions');
+    const athleteDiv = document.getElementById('agent-gcal-athletes');
+
+    if (data.connected) {
+      statusText.textContent = '✓ Google Calendar Connected';
+      statusText.style.color = '#22c55e';
+      statusSub.textContent  = 'Subscribe to your athletes\' NIL deliverable calendars below';
+      actions.innerHTML = '';
+      athleteDiv.style.display = 'block';
+      _loadAgentGCalAthletes(athleteDiv);
+    } else {
+      statusText.textContent = 'Google Calendar';
+      statusText.style.color = 'var(--text)';
+      statusSub.textContent  = 'Connect to subscribe to your athletes\' NIL deliverable calendars';
+      actions.innerHTML = '<button onclick="connectAgentGCal()" style="background:var(--accent);border:none;color:#000;border-radius:6px;padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Connect Google Calendar</button>';
+      athleteDiv.style.display = 'none';
+    }
+  } catch(e) {
+    document.getElementById('agent-gcal-card').style.display = 'none';
+  }
+}
+
+async function _loadAgentGCalAthletes(container) {
+  container.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--muted)">Loading athletes…</div>';
+  try {
+    const r    = await fetch(`${API_BASE}/api/agent/calendar/google/athletes`);
+    const data = await r.json();
+    const list = data.athletes || [];
+
+    if (!list.length) {
+      container.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--muted)">No athletes on your roster yet.</div>';
+      return;
+    }
+
+    const connected    = list.filter(a => a.gcal_connected);
+    const notConnected = list.filter(a => !a.gcal_connected);
+
+    let html = '<div style="padding:12px 0 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Athlete NIL Calendars</div>';
+
+    connected.forEach(a => {
+      html += `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--border)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--text);font-weight:500">${escHtml(a.name || '—')}</div>
+          <div style="font-size:11px;color:#22c55e;margin-top:1px">● Google Calendar connected</div>
+        </div>
+        <button onclick="agentGCalToggle('${a.id}', this)" data-athlete-id="${a.id}" data-subscribed="false"
+          style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:11px;font-family:inherit;white-space:nowrap;flex-shrink:0">
+          Subscribe
+        </button>
+      </div>`;
+    });
+
+    if (notConnected.length) {
+      html += `<div style="padding:10px 0 2px;font-size:11px;color:var(--muted);border-top:${connected.length ? '1px solid var(--border)' : 'none'};margin-top:${connected.length ? '4px' : '0'}">
+        ${notConnected.map(a => escHtml(a.name)).join(', ')} ${notConnected.length === 1 ? 'hasn\'t' : 'haven\'t'} connected Google Calendar yet — they\'ll see a prompt in their athlete dashboard.
+      </div>`;
+    }
+
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--muted)">Could not load athletes.</div>';
+  }
+}
+
+async function agentGCalToggle(athleteId, btn) {
+  const isSubscribed = btn.dataset.subscribed === 'true';
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = isSubscribed ? 'Unsubscribing…' : 'Subscribing…';
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/calendar/google/subscribe/${athleteId}`, {
+      method: isSubscribed ? 'DELETE' : 'POST'
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Failed');
+    if (isSubscribed) {
+      btn.dataset.subscribed = 'false';
+      btn.textContent = 'Subscribe';
+      btn.style.color = 'var(--muted)';
+      btn.style.borderColor = 'var(--border)';
+      showToast('Unsubscribed from athlete\'s NIL calendar');
+    } else {
+      btn.dataset.subscribed = 'true';
+      btn.textContent = 'Subscribed ✓';
+      btn.style.color = '#22c55e';
+      btn.style.borderColor = '#22c55e';
+      showToast('Subscribed — athlete\'s NIL calendar added to your Google Calendar', 'success');
+    }
+  } catch(e) {
+    showToast(e.message, 'error');
+    btn.textContent = orig;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function connectAgentGCal() {
+  try {
+    const r    = await fetch(`${API_BASE}/api/agent/calendar/google/connect`);
+    const data = await r.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      showToast(data.error || 'Could not start Google Calendar connection', 'error');
+    }
+  } catch(e) {
+    showToast('Connection error', 'error');
+  }
+}
+
+//  INIT
 
 // ══════════════════════════════════════════════════════════════════
 //  AGENT INTELLIGENCE — REVENUE OPERATING SYSTEM

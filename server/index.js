@@ -2090,6 +2090,7 @@ app.post('/api/athletes/:id/calendar/generate', requireAuth, async (req, res) =>
 
     const { brandColor } = require('./services/contractExtraction');
     let generated = 0;
+    const eventsToGCal = [];
 
     for (const d of deliverables.rows) {
       const rrule = d.recurrence_rule || toRRule(d.recurrence, null);
@@ -2110,10 +2111,13 @@ app.post('/api/athletes/:id/calendar/generate', requireAuth, async (req, res) =>
            date, d.brand, color]
         );
         generated++;
+        eventsToGCal.push({ id, title: d.deliverable_description, event_date: date, brand: d.brand, notes: d.notes || '' });
       }
     }
 
     await client.query('COMMIT');
+    // Fire-and-forget: push newly generated events to athlete's Google Calendar (if connected)
+    eventsToGCal.forEach(ev => _pushEventToGCal(athleteId, ev));
 
     await writeAudit(store.pool, {
       agentId, athleteId, contractId: contract_id || null,
@@ -3059,6 +3063,255 @@ app.put('/api/athlete/calendar/:id/status', verifyAthleteToken, async (req, res)
     console.log(`[athlete/calendar/status] id=${req.params.id} status=${status}`);
     res.json({ ok: true, event: ev });
   } catch (e) { console.error('[athlete/calendar/status]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// ── Google Calendar Integration ───────────────────────────────────────────────
+// Athlete connects their Google Calendar → NILDash pushes deliverables as events.
+// Agent connects → can subscribe to each athlete's dedicated "NIL — [Name]" calendar.
+// Uses separate GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (distinct from Gmail).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const gcal = (() => { try { return require('./services/googleCalendar'); } catch(e) { return null; } })();
+
+// Encode/decode OAuth state (same pattern as email.js)
+function _gcalEncodeState(obj) { return Buffer.from(JSON.stringify(obj)).toString('base64url'); }
+function _gcalDecodeState(s)   { try { return JSON.parse(Buffer.from(s||'','base64url').toString('utf8')); } catch { return {}; } }
+
+/**
+ * Non-blocking helper — pushes a single athlete_calendar_events row to Google Calendar.
+ * Skips silently if the athlete has no google_refresh_token or gcal is not configured.
+ * Idempotent: skips rows that already have a google_event_id.
+ */
+async function _pushEventToGCal(athleteId, event) {
+  if (!gcal || !gcal.isAvailable()) return;
+  if (event.google_event_id) return; // already synced
+  try {
+    // Fetch athlete's Google Calendar credentials
+    const athRow = await store.pool.query(
+      'SELECT google_refresh_token, google_calendar_id, data FROM athletes WHERE id=$1',
+      [athleteId]
+    ).then(r => r.rows[0]);
+
+    if (!athRow || !athRow.google_refresh_token) return; // not connected
+
+    // Get or create the NIL calendar
+    let calId = athRow.google_calendar_id;
+    if (!calId) {
+      const name = (athRow.data && athRow.data.name) || 'Athlete';
+      calId = await gcal.getOrCreateNilCalendar(athRow.google_refresh_token, name);
+      await store.pool.query('UPDATE athletes SET google_calendar_id=$1 WHERE id=$2', [calId, athleteId]);
+    }
+
+    // Create the event
+    const gEventId = await gcal.createCalendarEvent(athRow.google_refresh_token, calId, event);
+
+    // Store google_event_id so we don't push it again
+    await store.pool.query(
+      'UPDATE athlete_calendar_events SET google_event_id=$1 WHERE id=$2',
+      [gEventId, event.id]
+    );
+    console.log(`[gcal] pushed event "${event.title}" → Google Calendar event ${gEventId}`);
+  } catch (e) {
+    console.error('[gcal] push failed for event', event.id, ':', e.message);
+  }
+}
+
+// GET /api/athlete/calendar/google/status — is this athlete's Google Calendar connected?
+app.get('/api/athlete/calendar/google/status', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      'SELECT google_refresh_token, google_calendar_id FROM athletes WHERE id=$1',
+      [req.athlete.id]
+    );
+    const row = r.rows[0] || {};
+    res.json({
+      connected:  !!row.google_refresh_token,
+      calendarId: row.google_calendar_id || null,
+      available:  !!(gcal && gcal.isAvailable()),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/athlete/calendar/google/connect — start OAuth for athlete
+app.get('/api/athlete/calendar/google/connect', verifyAthleteToken, async (req, res) => {
+  if (!gcal || !gcal.isAvailable()) {
+    return res.status(501).json({ error: 'Google Calendar not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to environment variables.' });
+  }
+  const state = _gcalEncodeState({ athleteId: req.athlete.id, type: 'athlete' });
+  const url   = gcal.getAthleteAuthUrl(state);
+  res.json({ url });
+});
+
+// GET /auth/google/calendar/callback — OAuth callback (athlete + agent)
+// No auth middleware — identity is verified via the state param.
+app.get('/auth/google/calendar/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) {
+    console.error('[gcal/callback] OAuth error:', error);
+    return res.redirect('/athlete-dashboard.html?gcal=error&reason=' + encodeURIComponent(error));
+  }
+  const { athleteId, agentId, type } = _gcalDecodeState(state);
+
+  try {
+    const tokens = await gcal.exchangeCode(code);
+    const refreshToken = tokens.refresh_token;
+    if (!refreshToken) {
+      // Can happen if user already authorized before; prompt=consent should prevent this.
+      return res.redirect(
+        type === 'agent'
+          ? '/#calendar?gcal=error&reason=no_refresh_token'
+          : '/athlete-dashboard.html?gcal=error&reason=no_refresh_token'
+      );
+    }
+
+    if (type === 'athlete' && athleteId) {
+      // Save refresh token
+      await store.pool.query(
+        'UPDATE athletes SET google_refresh_token=$1 WHERE id=$2',
+        [refreshToken, athleteId]
+      );
+
+      // Create the NIL calendar immediately
+      const nameRow = await store.pool.query(
+        `SELECT data->>'name' AS name FROM athletes WHERE id=$1`, [athleteId]
+      ).then(r => r.rows[0]);
+      const athleteName = nameRow ? nameRow.name : 'Athlete';
+      const calId = await gcal.getOrCreateNilCalendar(refreshToken, athleteName);
+      await store.pool.query(
+        'UPDATE athletes SET google_calendar_id=$1 WHERE id=$2',
+        [calId, athleteId]
+      );
+      console.log(`[gcal] athlete ${athleteId} connected Google Calendar, calId=${calId}`);
+
+      // Background sync: push all existing unpushed events
+      store.pool.query(
+        'SELECT * FROM athlete_calendar_events WHERE athlete_id=$1 AND google_event_id IS NULL ORDER BY event_date ASC',
+        [athleteId]
+      ).then(r => {
+        r.rows.forEach(ev => _pushEventToGCal(athleteId, ev));
+      }).catch(() => {});
+
+      return res.redirect('/athlete-dashboard.html?gcal=connected');
+
+    } else if (type === 'agent' && agentId) {
+      await store.pool.query(
+        'UPDATE users SET gcal_refresh_token=$1 WHERE id=$2',
+        [refreshToken, agentId]
+      );
+      console.log(`[gcal] agent ${agentId} connected Google Calendar`);
+      return res.redirect('/#calendar?gcal=connected');
+    }
+
+    res.redirect('/');
+  } catch (e) {
+    console.error('[gcal/callback]', e.message);
+    const dest = type === 'agent' ? '/#calendar' : '/athlete-dashboard.html';
+    res.redirect(dest + '?gcal=error&reason=' + encodeURIComponent(e.message));
+  }
+});
+
+// POST /api/athlete/calendar/google/sync — re-push all unpushed events for this athlete
+app.post('/api/athlete/calendar/google/sync', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      'SELECT * FROM athlete_calendar_events WHERE athlete_id=$1 AND google_event_id IS NULL ORDER BY event_date ASC',
+      [req.athlete.id]
+    );
+    // Fire and forget — response is immediate
+    r.rows.forEach(ev => _pushEventToGCal(req.athlete.id, ev));
+    res.json({ ok: true, queued: r.rows.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/agent/calendar/google/status — is this agent's Google Calendar connected?
+app.get('/api/agent/calendar/google/status', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      'SELECT gcal_refresh_token FROM users WHERE id=$1',
+      [req.session.userId]
+    );
+    const row = r.rows[0] || {};
+    res.json({
+      connected: !!row.gcal_refresh_token,
+      available: !!(gcal && gcal.isAvailable()),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/agent/calendar/google/connect — start OAuth for agent
+app.get('/api/agent/calendar/google/connect', requireAuth, async (req, res) => {
+  if (!gcal || !gcal.isAvailable()) {
+    return res.status(501).json({ error: 'Google Calendar not configured.' });
+  }
+  const state = _gcalEncodeState({ agentId: req.session.userId, type: 'agent' });
+  const url   = gcal.getAgentAuthUrl(state);
+  res.json({ url });
+});
+
+// GET /api/agent/calendar/google/athletes — list this agent's athletes with their gcal status
+app.get('/api/agent/calendar/google/athletes', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `SELECT id, data->>'name' AS name, google_calendar_id,
+              CASE WHEN google_refresh_token IS NOT NULL THEN TRUE ELSE FALSE END AS gcal_connected
+       FROM athletes WHERE agent_id=$1 ORDER BY (data->>'name') ASC`,
+      [req.session.userId]
+    );
+    res.json({ athletes: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/agent/calendar/google/subscribe/:athleteId — subscribe agent to athlete's NIL calendar
+app.post('/api/agent/calendar/google/subscribe/:athleteId', requireAuth, async (req, res) => {
+  try {
+    if (!gcal || !gcal.isAvailable()) return res.status(501).json({ error: 'Google Calendar not configured.' });
+
+    // Verify athlete belongs to this agent
+    const athRow = await store.pool.query(
+      'SELECT google_calendar_id, data FROM athletes WHERE id=$1 AND agent_id=$2',
+      [req.params.athleteId, req.session.userId]
+    ).then(r => r.rows[0]);
+    if (!athRow) return res.status(404).json({ error: 'Athlete not found' });
+    if (!athRow.google_calendar_id) return res.status(400).json({ error: 'Athlete has not connected Google Calendar yet' });
+
+    // Get agent's refresh token
+    const agentRow = await store.pool.query(
+      'SELECT gcal_refresh_token FROM users WHERE id=$1',
+      [req.session.userId]
+    ).then(r => r.rows[0]);
+    if (!agentRow || !agentRow.gcal_refresh_token) return res.status(400).json({ error: 'Connect your Google Calendar first' });
+
+    const result = await gcal.subscribeToCalendar(agentRow.gcal_refresh_token, athRow.google_calendar_id);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[gcal/subscribe]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/agent/calendar/google/subscribe/:athleteId — unsubscribe
+app.delete('/api/agent/calendar/google/subscribe/:athleteId', requireAuth, async (req, res) => {
+  try {
+    if (!gcal || !gcal.isAvailable()) return res.status(501).json({ error: 'Google Calendar not configured.' });
+
+    const athRow = await store.pool.query(
+      'SELECT google_calendar_id FROM athletes WHERE id=$1 AND agent_id=$2',
+      [req.params.athleteId, req.session.userId]
+    ).then(r => r.rows[0]);
+    if (!athRow || !athRow.google_calendar_id) return res.status(404).json({ error: 'Athlete calendar not found' });
+
+    const agentRow = await store.pool.query(
+      'SELECT gcal_refresh_token FROM users WHERE id=$1',
+      [req.session.userId]
+    ).then(r => r.rows[0]);
+    if (!agentRow || !agentRow.gcal_refresh_token) return res.status(400).json({ error: 'Agent not connected to Google Calendar' });
+
+    await gcal.unsubscribeFromCalendar(agentRow.gcal_refresh_token, athRow.google_calendar_id);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[gcal/unsubscribe]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // GET /api/athlete/deals — athlete's self-managed deals
@@ -5513,6 +5766,7 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
     let savedDeliverables = 0;
     let savedEvents = 0;
     let skippedDeliverables = 0;
+    const eventsToGCal = [];
 
     const client = await store.pool.connect();
     try {
@@ -5568,12 +5822,15 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
                  evBrand, color, dates.length > 1]
               );
               savedEvents++;
+              eventsToGCal.push({ id: evId, title: desc, event_date: normalizedDate, brand: evBrand, notes: '' });
             }
           }
         }
       }
 
       await client.query('COMMIT');
+      // Fire-and-forget: push newly saved events to athlete's Google Calendar (if connected)
+      eventsToGCal.forEach(ev => _pushEventToGCal(athleteId, ev));
     } catch (txErr) {
       await client.query('ROLLBACK');
       console.error('[pdf/save] transaction error:', txErr.message);
