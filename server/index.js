@@ -3667,6 +3667,69 @@ app.get('/api/pitch-data/:athleteId', async (req, res) => {
   }
 });
 
+// ── Athlete Messages ──────────────────────────────────────────────────────────
+// Messages sent from athlete portals; viewable by the agent in Email Inbox.
+
+app.post('/api/athlete-messages', verifyAthleteToken, async (req, res) => {
+  try {
+    const { athleteId, athleteName, athleteEmail, agentId, toAddress, subject, body } = req.body;
+    if (!agentId || !toAddress || !subject || !body)
+      return res.status(400).json({ error: 'agentId, toAddress, subject, and body are required' });
+    const r = await store.pool.query(
+      `INSERT INTO athlete_messages (athlete_id, athlete_name, athlete_email, agent_id, to_address, subject, body)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [athleteId || null, athleteName || null, athleteEmail || null, agentId, toAddress, subject, body]
+    );
+    res.json({ success: true, id: r.rows[0].id });
+  } catch (e) {
+    console.error('[athlete-messages/post]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/athlete-messages', requireAuth, async (req, res) => {
+  try {
+    const { agentId } = req.query;
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    const r = await store.pool.query(
+      `SELECT * FROM athlete_messages WHERE agent_id = $1 ORDER BY sent_at DESC`,
+      [agentId]
+    );
+    res.json(r.rows);
+  } catch (e) {
+    console.error('[athlete-messages/get]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/athlete-messages/unread-count', requireAuth, async (req, res) => {
+  try {
+    const { agentId } = req.query;
+    if (!agentId) return res.status(400).json({ error: 'agentId required' });
+    const r = await store.pool.query(
+      `SELECT COUNT(*) AS count FROM athlete_messages WHERE agent_id = $1 AND is_read = FALSE`,
+      [agentId]
+    );
+    res.json({ count: parseInt(r.rows[0].count) });
+  } catch (e) {
+    console.error('[athlete-messages/unread-count]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.patch('/api/athlete-messages/:id/read', requireAuth, async (req, res) => {
+  try {
+    await store.pool.query(
+      `UPDATE athlete_messages SET is_read = TRUE WHERE id = $1`,
+      [req.params.id]
+    );
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[athlete-messages/read]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Email Integration ─────────────────────────────────────────────────────────
 // All email routes isolated in server/routes/email.js — no existing logic touched.
 const emailRoutes = require('./routes/email');

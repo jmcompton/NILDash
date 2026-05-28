@@ -1002,8 +1002,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <span class="nav-dot-item"></span>Athlete Portals
       </button>
       <div class="nav-section-label">Communication</div>
-      <button class="nav-item" id="emailNavBtn" onclick="showView('email-inbox',this);emailModule.loadInbox()">
+      <button class="nav-item" id="emailNavBtn" onclick="showView('email-inbox',this);emailModule.loadInbox();athleteEmailsModule.clearBadge()">
         <span class="nav-dot-item"></span>Email Inbox
+        <span id="athlete-email-badge" style="display:none;margin-left:6px;background:#16a34a;color:#fff;font-size:10px;font-weight:700;border-radius:9999px;padding:1px 6px;line-height:1.6;vertical-align:middle"></span>
       </button>
       <button class="nav-item" onclick="showView('settings',this);emailModule.loadAccounts()">
         <span class="nav-dot-item"></span>Settings
@@ -2977,21 +2978,36 @@ tbody td{padding:11px 14px;vertical-align:middle}
   <!-- ── EMAIL INBOX VIEW ─────────────────────────────────────────────── -->
   <div id="view-email-inbox" class="view">
     <div class="page-title">Email Inbox</div>
-    <div class="page-sub" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
-      <span>Your connected email conversations</span>
-      <button onclick="emailModule.openComposer('new')" style="font-size:12px;padding:7px 16px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-weight:700;cursor:pointer">+ Compose</button>
+
+    <!-- ── Tab bar ── -->
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px">
+      <button id="email-tab-gmail" onclick="emailInboxTab('gmail')" style="padding:9px 20px;background:transparent;border:none;border-bottom:2px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;margin-bottom:-1px;transition:all 0.15s">My Gmail</button>
+      <button id="email-tab-athlete" onclick="emailInboxTab('athlete')" style="padding:9px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px;transition:all 0.15s">Athlete Emails</button>
     </div>
-    <div style="margin-bottom:14px">
-      <input id="email-search-input" type="search" placeholder="Search emails…" oninput="emailModule.searchEmails(this.value)" style="width:100%;max-width:400px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+
+    <!-- ── Tab: My Gmail ── -->
+    <div id="email-panel-gmail">
+      <div class="page-sub" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
+        <span>Your connected email conversations</span>
+        <button onclick="emailModule.openComposer('new')" style="font-size:12px;padding:7px 16px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-weight:700;cursor:pointer">+ Compose</button>
+      </div>
+      <div style="margin-bottom:14px">
+        <input id="email-search-input" type="search" placeholder="Search emails…" oninput="emailModule.searchEmails(this.value)" style="width:100%;max-width:400px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:16px">
+        <div id="email-thread-list">
+          <div style="padding:20px;color:var(--muted);font-size:12px;text-align:center">Loading inbox…</div>
+        </div>
+      </div>
+      <div id="email-message-pane" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;display:none"></div>
     </div>
-    <!-- Thread list -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:16px">
-      <div id="email-thread-list">
-        <div style="padding:20px;color:var(--muted);font-size:12px;text-align:center">Loading inbox…</div>
+
+    <!-- ── Tab: Athlete Emails ── -->
+    <div id="email-panel-athlete" style="display:none">
+      <div id="athlete-emails-list">
+        <div style="padding:40px;color:var(--muted);font-size:12px;text-align:center">Loading…</div>
       </div>
     </div>
-    <!-- Message pane (shown below thread list when a thread is selected) -->
-    <div id="email-message-pane" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;display:none"></div>
   </div>
 
   <!-- ── SETTINGS VIEW ──────────────────────────────────────────────────── -->
@@ -3970,6 +3986,8 @@ async function bootApp() {
   if (typeof emailModule !== 'undefined') {
     emailModule.init().catch(e => console.warn('[email] init error:', e.message));
   }
+  // Load unread athlete-email badge count
+  athleteEmailsModule.loadBadge();
 }
 
 //  SESSION CHECK
@@ -8418,9 +8436,144 @@ function exportCommissionCSV() {
 <script src="/nil-extras.js"></script>
 <script src="/email.js"></script>
 <script src="/outreach-engine.js"></script>
+
+<!-- ── Athlete Emails Module ──────────────────────────────────────────────── -->
 <script>
-//  Marketing View Logic 
-//  Marketing View Logic 
+// emailInboxTab — switches between "My Gmail" and "Athlete Emails" tabs
+function emailInboxTab(tab) {
+  var isAthlete = tab === 'athlete';
+  document.getElementById('email-panel-gmail').style.display    = isAthlete ? 'none' : 'block';
+  document.getElementById('email-panel-athlete').style.display  = isAthlete ? 'block' : 'none';
+
+  var gmailBtn   = document.getElementById('email-tab-gmail');
+  var athleteBtn = document.getElementById('email-tab-athlete');
+  gmailBtn.style.borderBottomColor   = isAthlete ? 'transparent' : 'var(--accent)';
+  gmailBtn.style.color               = isAthlete ? 'var(--muted)' : 'var(--accent)';
+  gmailBtn.style.fontWeight          = isAthlete ? '600' : '700';
+  athleteBtn.style.borderBottomColor = isAthlete ? 'var(--accent)' : 'transparent';
+  athleteBtn.style.color             = isAthlete ? 'var(--accent)' : 'var(--muted)';
+  athleteBtn.style.fontWeight        = isAthlete ? '700' : '600';
+
+  if (isAthlete) athleteEmailsModule.load();
+}
+
+var athleteEmailsModule = (function() {
+  var _unread = 0;
+
+  function _fmt(ts) {
+    var d = new Date(ts);
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
+  function _initials(name) {
+    if (!name) return '?';
+    return name.split(' ').map(function(w){ return w[0]; }).join('').slice(0,2).toUpperCase();
+  }
+
+  var COLORS = ['#16a34a','#2563eb','#9333ea','#ea580c','#0891b2','#be185d'];
+  function _color(name) {
+    var hash = 0;
+    for (var i = 0; name && i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return COLORS[Math.abs(hash) % COLORS.length];
+  }
+
+  function _esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function loadBadge() {
+    if (!currentUser) return;
+    fetch('/api/athlete-messages/unread-count?agentId=' + currentUser.id)
+      .then(function(r){ return r.json(); })
+      .then(function(d) {
+        _unread = d.count || 0;
+        _renderBadge();
+      }).catch(function(){});
+  }
+
+  function _renderBadge() {
+    var el = document.getElementById('athlete-email-badge');
+    if (!el) return;
+    if (_unread > 0) {
+      el.textContent = _unread;
+      el.style.display = 'inline-block';
+    } else {
+      el.style.display = 'none';
+    }
+  }
+
+  function clearBadge() {
+    _unread = 0;
+    _renderBadge();
+  }
+
+  function load() {
+    if (!currentUser) return;
+    var container = document.getElementById('athlete-emails-list');
+    if (!container) return;
+    container.innerHTML = '<div style="padding:40px;color:var(--muted);font-size:12px;text-align:center">Loading…</div>';
+
+    fetch('/api/athlete-messages?agentId=' + currentUser.id)
+      .then(function(r){ return r.json(); })
+      .then(function(msgs) {
+        if (!msgs.length) {
+          container.innerHTML = '<div style="padding:40px;color:var(--muted);font-size:13px;text-align:center">No athlete messages yet. Messages sent from athlete portals will appear here.</div>';
+          return;
+        }
+        container.innerHTML = msgs.map(function(m) {
+          var preview = (m.body || '').slice(0, 120) + ((m.body || '').length > 120 ? '…' : '');
+          var bg = m.is_read ? 'var(--surface)' : 'var(--surface2)';
+          var unreadDot = m.is_read ? '' : '<span style="width:7px;height:7px;background:var(--accent);border-radius:50%;flex-shrink:0;margin-top:4px"></span>';
+          return '<div id="am-card-' + m.id + '" onclick="athleteEmailsModule.expand(' + m.id + ')" style="background:' + bg + ';border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:10px;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\'">' +
+            '<div style="display:flex;align-items:flex-start;gap:12px">' +
+              '<div style="width:36px;height:36px;border-radius:50%;background:' + _color(m.athlete_name) + ';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0">' + _esc(_initials(m.athlete_name)) + '</div>' +
+              '<div style="flex:1;min-width:0">' +
+                '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">' +
+                  '<span style="font-size:13px;font-weight:700;color:var(--text)">' + _esc(m.athlete_name || 'Athlete') + '</span>' +
+                  '<span style="font-size:10px;font-weight:700;background:#16a34a22;color:#16a34a;border-radius:9999px;padding:2px 8px">Athlete Portal</span>' +
+                  '<span style="font-size:11px;color:var(--muted);margin-left:auto">' + _fmt(m.sent_at) + '</span>' +
+                '</div>' +
+                '<div style="font-size:11px;color:var(--muted);margin-bottom:5px">To: ' + _esc(m.to_address) + '</div>' +
+                '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">' + _esc(m.subject) + '</div>' +
+                '<div style="font-size:12px;color:var(--muted);line-height:1.5" id="am-preview-' + m.id + '">' + _esc(preview) + '</div>' +
+                '<div id="am-body-' + m.id + '" style="display:none;margin-top:10px;font-size:12px;color:var(--text);line-height:1.6;white-space:pre-wrap;border-top:1px solid var(--border);padding-top:10px">' + _esc(m.body) + '</div>' +
+              '</div>' +
+              unreadDot +
+            '</div>' +
+          '</div>';
+        }).join('');
+      })
+      .catch(function() {
+        container.innerHTML = '<div style="padding:40px;color:var(--muted);font-size:12px;text-align:center">Failed to load messages.</div>';
+      });
+  }
+
+  function expand(id) {
+    var card    = document.getElementById('am-card-' + id);
+    var preview = document.getElementById('am-preview-' + id);
+    var body    = document.getElementById('am-body-' + id);
+    if (!card || !body) return;
+    var isOpen = body.style.display !== 'none';
+    body.style.display    = isOpen ? 'none' : 'block';
+    preview.style.display = isOpen ? 'block' : 'none';
+    if (!isOpen) {
+      // Mark as read
+      fetch('/api/athlete-messages/' + id + '/read', { method: 'PATCH' }).catch(function(){});
+      card.style.background = 'var(--surface)';
+      // Remove unread dot
+      var dot = card.querySelector('span[style*="border-radius:50%"]');
+      if (dot) dot.remove();
+      // Decrement badge
+      if (_unread > 0) { _unread--; _renderBadge(); }
+    }
+  }
+
+  return { loadBadge: loadBadge, clearBadge: clearBadge, load: load, expand: expand };
+})();
+</script>
+
+<script>
+//  Marketing View Logic
 async function switchMarketingTab(tab) {
   ['brandkit','outreach','scores'].forEach(function(t) {
     var btn = document.getElementById('mkt-tab-' + t);
