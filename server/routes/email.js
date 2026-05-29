@@ -106,6 +106,16 @@ router.get('/oauth/gmail', (req, res) => {
 router.get('/oauth/gmail/callback', async (req, res) => {
   try {
     const { code, state, error } = req.query;
+
+    // Calendar OAuth flows share this redirect URI (it's the only one registered in GCP).
+    // They encode { type: 'athlete' } or { type: 'agent' } in state — Gmail never does.
+    // Forward them to the dedicated Calendar callback route.
+    const decodedState = decodeState(state);
+    if (decodedState.type === 'athlete' || decodedState.type === 'agent') {
+      const qs = new URLSearchParams(req.query).toString();
+      return res.redirect('/auth/google/calendar/callback?' + qs);
+    }
+
     if (error) return res.redirect('/#settings?emailError=' + encodeURIComponent(error));
 
     const { userId } = decodeState(state);
