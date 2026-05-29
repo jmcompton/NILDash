@@ -685,13 +685,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="page-title">CALENDAR</div>
     <div class="page-sub">All your deliverables and brand commitments — only your deals, always.</div>
 
-    <!-- Google Calendar integration card -->
-    <div id="gcal-card" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <!-- Google Calendar integration card — hidden until initGCalStatus() resolves -->
+    <div id="gcal-card" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:16px;align-items:center;gap:12px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:200px">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0"><rect x="3" y="4" width="18" height="17" rx="2" stroke="var(--muted)" stroke-width="1.5" fill="none"/><path d="M3 9h18" stroke="var(--muted)" stroke-width="1.5"/><path d="M8 2v4M16 2v4" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round"/></svg>
         <div>
           <div id="gcal-status-text" style="font-size:13px;font-weight:600;color:var(--text)">Google Calendar</div>
-          <div id="gcal-status-sub" style="font-size:11px;color:var(--muted);margin-top:2px">Loading…</div>
+          <div id="gcal-status-sub" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
         </div>
       </div>
       <div id="gcal-actions" style="display:flex;gap:8px;align-items:center"></div>
@@ -2856,37 +2856,47 @@ async function saveProfile() {
 async function initGCalStatus() {
   var card = document.getElementById('gcal-card');
   if (!card) return;
+  var statusText = document.getElementById('gcal-status-text');
+  var statusSub  = document.getElementById('gcal-status-sub');
+  var actions    = document.getElementById('gcal-actions');
+
   try {
     var r = await fetch('/api/athlete/calendar/google/status', {
       headers: { 'Authorization': 'Bearer ' + athleteToken }
     });
+    if (!r.ok) throw new Error('status ' + r.status);
     var data = await r.json();
 
-    // Hide the card entirely if the feature is not configured server-side
-    if (!data.available) {
-      card.style.display = 'none';
-      return;
-    }
+    // Always show the card once we have a response
     card.style.display = 'flex';
 
-    var statusText = document.getElementById('gcal-status-text');
-    var statusSub  = document.getElementById('gcal-status-sub');
-    var actions    = document.getElementById('gcal-actions');
+    if (!data.available) {
+      // Configured on server side but feature not enabled — show inert state
+      statusText.textContent = 'Google Calendar';
+      statusText.style.color = 'var(--text)';
+      statusSub.textContent  = 'Google Calendar sync is not yet enabled for this account';
+      actions.innerHTML = '';
+      return;
+    }
 
     if (data.connected) {
+      var calName = 'NIL — ' + ((athleteProfile && athleteProfile.name) ? athleteProfile.name : 'Athlete');
       statusText.textContent = '✓ Google Calendar Connected';
       statusText.style.color = '#22c55e';
-      statusSub.textContent  = 'NIL deliverables sync to your "NIL — ' + (athleteProfile && athleteProfile.name ? athleteProfile.name : 'Athlete') + '" calendar';
-      actions.innerHTML = '<button onclick="syncGCal()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px;font-family:\'DM Sans\',sans-serif;transition:opacity 0.15s" onmouseover="this.style.opacity=\'0.7\'" onmouseout="this.style.opacity=\'1\'">↻ Sync Now</button>';
+      statusSub.textContent  = 'Your deliverables sync to the "' + calName + '" calendar';
+      actions.innerHTML =
+        '<button onclick="syncGCal(this)" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px;font-family:\'DM Sans\',sans-serif">↻ Sync Now</button>' +
+        '<button onclick="disconnectGCal()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px;font-family:\'DM Sans\',sans-serif">Disconnect</button>';
     } else {
       statusText.textContent = 'Google Calendar';
       statusText.style.color = 'var(--text)';
-      statusSub.textContent  = 'Connect to automatically sync your NIL deliverables';
-      actions.innerHTML = '<button onclick="connectGCal()" style="background:var(--accent);border:none;color:#000;border-radius:6px;padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;font-family:\'DM Sans\',sans-serif">Connect Google Calendar</button>';
+      statusSub.textContent  = 'Sync your NIL deliverables to Google Calendar automatically';
+      actions.innerHTML =
+        '<button onclick="connectGCal()" style="background:var(--accent);border:none;color:#000;border-radius:6px;padding:7px 16px;cursor:pointer;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;letter-spacing:0.01em">Connect Google Calendar</button>';
     }
   } catch(e) {
-    var card = document.getElementById('gcal-card');
-    if (card) card.style.display = 'none';
+    // On error keep the card hidden — don't show a broken widget
+    card.style.display = 'none';
   }
 }
 
@@ -2906,8 +2916,8 @@ async function connectGCal() {
   }
 }
 
-async function syncGCal() {
-  var btn = document.querySelector('#gcal-actions button');
+async function syncGCal(btn) {
+  if (!btn) btn = document.querySelector('#gcal-actions button');
   if (btn) { btn.disabled = true; btn.textContent = 'Syncing…'; }
   try {
     var r = await fetch('/api/athlete/calendar/google/sync', {
@@ -2924,6 +2934,25 @@ async function syncGCal() {
     showToast('Connection error', 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '↻ Sync Now'; }
+  }
+}
+
+async function disconnectGCal() {
+  if (!confirm('Disconnect Google Calendar? Your NIL deliverables will no longer sync automatically.')) return;
+  try {
+    var r = await fetch('/api/athlete/calendar/google/disconnect', {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + athleteToken }
+    });
+    var data = await r.json();
+    if (r.ok) {
+      showToast('Google Calendar disconnected', 'success');
+      initGCalStatus(); // refresh the card to show the connect button
+    } else {
+      showToast(data.error || 'Disconnect failed', 'error');
+    }
+  } catch(e) {
+    showToast('Connection error', 'error');
   }
 }
 

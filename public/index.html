@@ -2568,8 +2568,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div class="page-title">Deliverables Calendar</div>
         <div class="page-sub">All contract deliverables across your roster — single source of truth</div>
 
-        <!-- Agent Google Calendar integration -->
-        <div id="agent-gcal-card" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px;overflow:hidden">
+        <!-- Agent Google Calendar integration — hidden until initAgentGCalStatus() resolves -->
+        <div id="agent-gcal-card" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px;overflow:hidden">
           <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
             <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:200px">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0"><rect x="3" y="4" width="18" height="17" rx="2" stroke="var(--muted)" stroke-width="1.5" fill="none"/><path d="M3 9h18" stroke="var(--muted)" stroke-width="1.5"/><path d="M8 2v4M16 2v4" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -6757,24 +6757,37 @@ async function loadCalendar() {
 async function initAgentGCalStatus() {
   const card = document.getElementById('agent-gcal-card');
   if (!card) return;
-  // Only show to agents, not athletes or university accounts
+
+  // Hide for non-agent roles (athletes / university users see a different view)
   if (currentUser && (currentUser.role === 'athlete' || currentUser.role === 'university' || currentUser.role === 'university_admin')) {
-    card.style.display = 'none';
-    return;
+    return; // card stays display:none
   }
+
+  const statusText = document.getElementById('agent-gcal-status-text');
+  const statusSub  = document.getElementById('agent-gcal-status-sub');
+  const actions    = document.getElementById('agent-gcal-actions');
+  const athleteDiv = document.getElementById('agent-gcal-athletes');
+
   try {
     const r = await fetch(`${API_BASE}/api/agent/calendar/google/status`);
+    if (!r.ok) throw new Error('status ' + r.status);
     const data = await r.json();
-    if (!data.available) { card.style.display = 'none'; return; }
+
+    // Always reveal the card once we have a valid response
     card.style.display = 'block';
 
-    const statusText = document.getElementById('agent-gcal-status-text');
-    const statusSub  = document.getElementById('agent-gcal-status-sub');
-    const actions    = document.getElementById('agent-gcal-actions');
-    const athleteDiv = document.getElementById('agent-gcal-athletes');
+    if (!data.available) {
+      // Server missing credentials — show inert informational state
+      statusText.textContent = 'Google Calendar';
+      statusText.style.color = 'var(--text)';
+      statusSub.textContent  = 'Google Calendar sync is not yet enabled on this server';
+      actions.innerHTML = '';
+      athleteDiv.style.display = 'none';
+      return;
+    }
 
     if (data.connected) {
-      statusText.textContent = '✓ Google Calendar Connected';
+      statusText.textContent = '✓ Your Google Calendar Connected';
       statusText.style.color = '#22c55e';
       statusSub.textContent  = 'Subscribe to your athletes\' NIL deliverable calendars below';
       actions.innerHTML = '';
@@ -6783,54 +6796,74 @@ async function initAgentGCalStatus() {
     } else {
       statusText.textContent = 'Google Calendar';
       statusText.style.color = 'var(--text)';
-      statusSub.textContent  = 'Connect to subscribe to your athletes\' NIL deliverable calendars';
-      actions.innerHTML = '<button onclick="connectAgentGCal()" style="background:var(--accent);border:none;color:#000;border-radius:6px;padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Connect Google Calendar</button>';
+      statusSub.textContent  = 'Connect your Google Calendar to subscribe to athlete NIL calendars';
+      actions.innerHTML = '<button onclick="connectAgentGCal()" style="background:var(--accent);border:none;color:#000;border-radius:6px;padding:7px 16px;cursor:pointer;font-size:12px;font-weight:700;font-family:inherit;letter-spacing:0.01em">Connect Google Calendar</button>';
       athleteDiv.style.display = 'none';
     }
   } catch(e) {
-    document.getElementById('agent-gcal-card').style.display = 'none';
+    // On fetch error keep card hidden — don't show a broken widget
+    console.warn('[gcal] status check failed:', e.message);
   }
 }
 
 async function _loadAgentGCalAthletes(container) {
-  container.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--muted)">Loading athletes…</div>';
+  container.innerHTML = '<div style="padding:14px 0;font-size:12px;color:var(--muted)">Loading roster…</div>';
   try {
     const r    = await fetch(`${API_BASE}/api/agent/calendar/google/athletes`);
+    if (!r.ok) throw new Error('status ' + r.status);
     const data = await r.json();
     const list = data.athletes || [];
 
     if (!list.length) {
-      container.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--muted)">No athletes on your roster yet.</div>';
+      container.innerHTML = '<div style="padding:14px 0;font-size:12px;color:var(--muted)">No athletes on your roster yet — add a client first.</div>';
       return;
     }
 
-    const connected    = list.filter(a => a.gcal_connected);
-    const notConnected = list.filter(a => !a.gcal_connected);
+    function _initials(name) {
+      return (name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    }
+    function _avatarColor(name) {
+      const COLORS = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6','#ef4444','#14b8a6'];
+      var h = 0; for (var i = 0; name && i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+      return COLORS[Math.abs(h) % COLORS.length];
+    }
 
-    let html = '<div style="padding:12px 0 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Athlete NIL Calendars</div>';
+    let html = '<div style="padding:12px 0 4px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Athlete NIL Calendars</div>';
 
-    connected.forEach(a => {
-      html += `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--border)">
+    list.forEach((a, idx) => {
+      const name    = a.name || '—';
+      const initials = _initials(name);
+      const color    = _avatarColor(name);
+      const meta     = [a.sport, a.school].filter(Boolean).join(' · ');
+      const hasCal   = !!a.gcal_connected;
+
+      html += `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;${idx > 0 ? 'border-top:1px solid var(--border)' : ''}">
+        <!-- Avatar -->
+        <div style="width:34px;height:34px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;flex-shrink:0">${escHtml(initials)}</div>
+        <!-- Info -->
         <div style="flex:1;min-width:0">
-          <div style="font-size:13px;color:var(--text);font-weight:500">${escHtml(a.name || '—')}</div>
-          <div style="font-size:11px;color:#22c55e;margin-top:1px">● Google Calendar connected</div>
+          <div style="font-size:13px;color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(name)}</div>
+          ${meta ? `<div style="font-size:11px;color:var(--muted);margin-top:1px">${escHtml(meta)}</div>` : ''}
+          ${hasCal
+            ? '<div style="font-size:10px;color:#22c55e;margin-top:2px;letter-spacing:0.01em">● Google Calendar connected</div>'
+            : '<div style="font-size:10px;color:var(--muted);margin-top:2px">Athlete hasn\'t connected Google Calendar yet</div>'
+          }
         </div>
-        <button onclick="agentGCalToggle('${a.id}', this)" data-athlete-id="${a.id}" data-subscribed="false"
-          style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:11px;font-family:inherit;white-space:nowrap;flex-shrink:0">
-          Subscribe
-        </button>
+        <!-- Subscribe toggle -->
+        ${hasCal
+          ? `<button onclick="agentGCalToggle('${a.id}', this)" data-subscribed="false"
+               style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:11px;font-family:inherit;white-space:nowrap;flex-shrink:0;transition:color 0.15s,border-color 0.15s">
+               Subscribe
+             </button>`
+          : `<span style="font-size:11px;color:var(--muted);opacity:0.5;flex-shrink:0">Not available</span>`
+        }
       </div>`;
     });
 
-    if (notConnected.length) {
-      html += `<div style="padding:10px 0 2px;font-size:11px;color:var(--muted);border-top:${connected.length ? '1px solid var(--border)' : 'none'};margin-top:${connected.length ? '4px' : '0'}">
-        ${notConnected.map(a => escHtml(a.name)).join(', ')} ${notConnected.length === 1 ? 'hasn\'t' : 'haven\'t'} connected Google Calendar yet — they\'ll see a prompt in their athlete dashboard.
-      </div>`;
-    }
-
     container.innerHTML = html;
   } catch(e) {
-    container.innerHTML = '<div style="padding:12px 0;font-size:12px;color:var(--muted)">Could not load athletes.</div>';
+    container.innerHTML = '<div style="padding:14px 0;font-size:12px;color:var(--muted)">Could not load roster.</div>';
+    console.warn('[gcal] roster load failed:', e.message);
   }
 }
 

@@ -33,26 +33,32 @@ const AGENT_SCOPES = [
 
 // ── Availability check ─────────────────────────────────────────────────────
 
+// Resolve credentials — GOOGLE_CLIENT_ID takes priority; falls back to the
+// GMAIL credentials from the same Google Cloud project so that Calendar works
+// with the existing OAuth setup without separate credentials.
+function _clientId()     { return process.env.GOOGLE_CLIENT_ID     || process.env.GMAIL_CLIENT_ID; }
+function _clientSecret() { return process.env.GOOGLE_CLIENT_SECRET || process.env.GMAIL_CLIENT_SECRET; }
+function _redirectUri()  {
+  return process.env.GOOGLE_REDIRECT_URI || 'https://mynildash.com/auth/google/calendar/callback';
+}
+
 function isAvailable() {
-  return !!(
-    google &&
-    process.env.GOOGLE_CLIENT_ID &&
-    process.env.GOOGLE_CLIENT_SECRET
-  );
+  return !!(google && _clientId() && _clientSecret());
 }
 
 // ── OAuth2 client factory ──────────────────────────────────────────────────
 
 function _createClient() {
   if (!google) throw new Error('googleapis package not loaded');
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    throw new Error('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment variables');
+  const clientId     = _clientId();
+  const clientSecret = _clientSecret();
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      'Google Calendar credentials not configured. Set GOOGLE_CLIENT_ID and ' +
+      'GOOGLE_CLIENT_SECRET (or GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET) in environment variables.'
+    );
   }
-  return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI || 'https://mynildash.com/auth/google/calendar/callback'
-  );
+  return new google.auth.OAuth2(clientId, clientSecret, _redirectUri());
 }
 
 // ── Auth URL generation ────────────────────────────────────────────────────

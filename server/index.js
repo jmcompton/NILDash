@@ -3223,6 +3223,26 @@ app.post('/api/athlete/calendar/google/sync', verifyAthleteToken, async (req, re
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// DELETE /api/athlete/calendar/google/disconnect — revoke athlete's Google Calendar connection
+app.delete('/api/athlete/calendar/google/disconnect', verifyAthleteToken, async (req, res) => {
+  try {
+    await store.pool.query(
+      'UPDATE athletes SET google_refresh_token=NULL, google_calendar_id=NULL WHERE id=$1',
+      [req.athlete.id]
+    );
+    // Clear stored google_event_id references so events can be re-pushed on reconnect
+    await store.pool.query(
+      'UPDATE athlete_calendar_events SET google_event_id=NULL WHERE athlete_id=$1',
+      [req.athlete.id]
+    );
+    console.log(`[gcal] athlete ${req.athlete.id} disconnected Google Calendar`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[gcal/disconnect]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/agent/calendar/google/status — is this agent's Google Calendar connected?
 app.get('/api/agent/calendar/google/status', requireAuth, async (req, res) => {
   try {
@@ -3252,7 +3272,11 @@ app.get('/api/agent/calendar/google/connect', requireAuth, async (req, res) => {
 app.get('/api/agent/calendar/google/athletes', requireAuth, async (req, res) => {
   try {
     const r = await store.pool.query(
-      `SELECT id, data->>'name' AS name, google_calendar_id,
+      `SELECT id,
+              data->>'name'   AS name,
+              data->>'sport'  AS sport,
+              data->>'school' AS school,
+              google_calendar_id,
               CASE WHEN google_refresh_token IS NOT NULL THEN TRUE ELSE FALSE END AS gcal_connected
        FROM athletes WHERE agent_id=$1 ORDER BY (data->>'name') ASC`,
       [req.session.userId]
