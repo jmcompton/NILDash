@@ -3640,23 +3640,22 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
     }
 
     // ── Send the real email via Resend ──────────────────────────────
+    // FROM:     "Athlete Name via NILDash" <noreply@mynildash.com>  (verified sender)
+    // REPLY-TO: athlete's email on file (even if fake — recipient hits reply, it goes there)
     const fromDisplay = athleteName ? `${athleteName} via NILDash` : 'NILDash Athlete';
     const emailPayload = {
-      from: `${fromDisplay} <noreply@mynildash.com>`,
-      to:   [to],
+      from:    `${fromDisplay} <noreply@mynildash.com>`,
+      replyTo: athleteEmail || undefined,   // reply goes to athlete, not to noreply@
+      to:      [to],
       subject,
       text: body,
       html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`,
     };
     if (agentEmail) emailPayload.cc = [agentEmail];
 
-    try {
-      await resend.emails.send(emailPayload);
-      console.log(`[athlete/email] sent via Resend to=${to} subject="${subject}" athlete=${athleteId}`);
-    } catch (emailErr) {
-      console.error('[athlete/email] Resend error:', emailErr.message);
-      // Don't block — still log the activity and save the message
-    }
+    // Propagate Resend errors — a failed send should not silently return ok:true
+    await resend.emails.send(emailPayload);
+    console.log(`[athlete/email] sent via Resend from="${fromDisplay}" replyTo=${athleteEmail} to=${to} subject="${subject}" athlete=${athleteId}`);
 
     // ── Store as brand outreach record ──────────────────────────────
     await store.pool.query(
@@ -3671,7 +3670,7 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
         `INSERT INTO athlete_messages (athlete_id, athlete_name, athlete_email, agent_id, to_address, subject, body)
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [athleteId, athleteName, athleteEmail, agentId, to, subject, body]
-      ).catch(e => console.error('[athlete/email] athlete_messages insert failed:', e.message));
+      );
       console.log(`[athlete/email] athlete_messages saved agentId=${agentId}`);
     } else {
       console.warn('[athlete/email] no agentId — skipping athlete_messages save');
