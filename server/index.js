@@ -3071,7 +3071,8 @@ app.put('/api/athlete/calendar/:id/status', verifyAthleteToken, async (req, res)
 // Uses separate GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (distinct from Gmail).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const gcal = (() => { try { return require('./services/googleCalendar'); } catch(e) { return null; } })();
+const gcal      = (() => { try { return require('./services/googleCalendar'); } catch(e) { return null; } })();
+const gmailSend = (() => { try { return require('./services/gmailSend');      } catch(e) { return null; } })();
 
 // Encode/decode OAuth state (same pattern as email.js)
 function _gcalEncodeState(obj) { return Buffer.from(JSON.stringify(obj)).toString('base64url'); }
@@ -3239,6 +3240,89 @@ app.delete('/api/athlete/calendar/google/disconnect', verifyAthleteToken, async 
     res.json({ ok: true });
   } catch (e) {
     console.error('[gcal/disconnect]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ATHLETE GMAIL SEND INTEGRATION
+// Athletes connect their personal Gmail so emails sent from the portal
+// actually originate from the athlete's own Gmail address.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _gmailEncodeState(obj) { return Buffer.from(JSON.stringify(obj)).toString('base64url'); }
+function _gmailDecodeState(s)   { try { return JSON.parse(Buffer.from(s||'','base64url').toString('utf8')); } catch { return {}; } }
+
+// GET /api/athlete/gmail/status — is this athlete's Gmail connected?
+app.get('/api/athlete/gmail/status', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      'SELECT gmail_refresh_token, gmail_address FROM athletes WHERE id=$1',
+      [req.athlete.id]
+    );
+    const row = r.rows[0] || {};
+    res.json({
+      connected: !!row.gmail_refresh_token,
+      email:     row.gmail_address || null,
+      available: !!(gmailSend && gmailSend.isAvailable()),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/athlete/gmail/connect — start OAuth for athlete Gmail send
+app.get('/api/athlete/gmail/connect', verifyAthleteToken, async (req, res) => {
+  if (!gmailSend || !gmailSend.isAvailable()) {
+    return res.status(501).json({ error: 'Gmail integration not configured.' });
+  }
+  const state = _gmailEncodeState({ athleteId: req.athlete.id, type: 'athlete-gmail' });
+  const url   = gmailSend.getAthleteGmailAuthUrl(state);
+  res.json({ url });
+});
+
+// GET /auth/google/athlete-gmail/callback — OAuth callback for athlete Gmail connect
+// No auth middleware — identity is in the state parameter.
+app.get('/auth/google/athlete-gmail/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) {
+    console.error('[gmail/callback] OAuth error:', error);
+    return res.redirect('/athlete-dashboard.html?gmail=error&reason=' + encodeURIComponent(error));
+  }
+  const { athleteId, type } = _gmailDecodeState(state);
+  if (type !== 'athlete-gmail' || !athleteId) {
+    return res.redirect('/athlete-dashboard.html?gmail=error&reason=invalid_state');
+  }
+  try {
+    const tokens       = await gmailSend.exchangeCode(code);
+    const refreshToken = tokens.refresh_token;
+    if (!refreshToken) {
+      return res.redirect('/athlete-dashboard.html?gmail=error&reason=no_refresh_token');
+    }
+    // Get athlete's Gmail address from token identity
+    const gmailAddress = await gmailSend.getGmailAddress(tokens.access_token);
+    // Save to DB
+    await store.pool.query(
+      'UPDATE athletes SET gmail_refresh_token=$1, gmail_address=$2 WHERE id=$3',
+      [refreshToken, gmailAddress, athleteId]
+    );
+    console.log(`[gmail] athlete ${athleteId} connected Gmail as ${gmailAddress}`);
+    res.redirect('/athlete-dashboard.html?gmail=connected');
+  } catch (e) {
+    console.error('[gmail/callback]', e.message);
+    res.redirect('/athlete-dashboard.html?gmail=error&reason=' + encodeURIComponent(e.message));
+  }
+});
+
+// POST /api/athlete/gmail/disconnect — clear athlete's Gmail connection
+app.post('/api/athlete/gmail/disconnect', verifyAthleteToken, async (req, res) => {
+  try {
+    await store.pool.query(
+      'UPDATE athletes SET gmail_refresh_token=NULL, gmail_address=NULL WHERE id=$1',
+      [req.athlete.id]
+    );
+    console.log(`[gmail] athlete ${req.athlete.id} disconnected Gmail`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[gmail/disconnect]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -3611,12 +3695,15 @@ app.post('/api/athlete/marketing/content-ideas', verifyAthleteToken, aiLimiter, 
 });
 
 // POST /api/athlete/email/send — athlete sends tracked email
+// • If the athlete has connected their Gmail → sends via Gmail API (from their real address)
+// • Otherwise → falls back to Resend (from noreply@mynildash.com with reply-to set)
 app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
   try {
     const { to, subject, body, cc_agent } = req.body;
     if (!to || !subject || !body) return res.status(400).json({ error: 'to, subject, and body required' });
 
     const athleteId = req.athlete.id;
+
     // agent_id from JWT; fall back to DB if somehow missing
     let agentId = req.athlete.agent_id;
     if (!agentId) {
@@ -3639,25 +3726,41 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
       agentEmail = ar.rows[0]?.email || null;
     }
 
-    // ── Send the real email via Resend ──────────────────────────────
-    // FROM:     "Athlete Name via NILDash" <noreply@mynildash.com>  (verified sender)
-    // REPLY-TO: athlete's email on file (even if fake — recipient hits reply, it goes there)
-    const fromDisplay = athleteName ? `${athleteName} via NILDash` : 'NILDash Athlete';
-    const emailPayload = {
-      from:    `${fromDisplay} <noreply@mynildash.com>`,
-      replyTo: athleteEmail || undefined,   // reply goes to athlete, not to noreply@
-      to:      [to],
-      subject,
-      text: body,
-      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`,
-    };
-    if (agentEmail) emailPayload.cc = [agentEmail];
+    // ── Decide send path ─────────────────────────────────────────────
+    // Look up gmail_refresh_token on athletes table
+    const athRow = await store.pool.query(
+      'SELECT gmail_refresh_token, gmail_address FROM athletes WHERE id=$1',
+      [athleteId]
+    ).then(r => r.rows[0] || {});
+    const gmailRefreshToken = athRow.gmail_refresh_token || null;
 
-    // Propagate Resend errors — a failed send should not silently return ok:true
-    await resend.emails.send(emailPayload);
-    console.log(`[athlete/email] sent via Resend from="${fromDisplay}" replyTo=${athleteEmail} to=${to} subject="${subject}" athlete=${athleteId}`);
+    if (gmailSend && gmailSend.isAvailable() && gmailRefreshToken) {
+      // ── PATH A: send via the athlete's own Gmail account ──────────
+      await gmailSend.sendEmail({
+        refreshToken: gmailRefreshToken,
+        to,
+        subject,
+        body,
+        cc: agentEmail || undefined,
+      });
+      console.log(`[athlete/email] sent via Gmail as ${athRow.gmail_address} to=${to} subject="${subject}" athlete=${athleteId}`);
+    } else {
+      // ── PATH B: fall back to Resend (noreply@mynildash.com) ───────
+      const fromDisplay = athleteName ? `${athleteName} via NILDash` : 'NILDash Athlete';
+      const emailPayload = {
+        from:    `${fromDisplay} <noreply@mynildash.com>`,
+        replyTo: athleteEmail || undefined,
+        to:      [to],
+        subject,
+        text: body,
+        html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`,
+      };
+      if (agentEmail) emailPayload.cc = [agentEmail];
+      await resend.emails.send(emailPayload);
+      console.log(`[athlete/email] sent via Resend from="${fromDisplay}" replyTo=${athleteEmail} to=${to} subject="${subject}" athlete=${athleteId}`);
+    }
 
-    // ── Store as brand outreach record ──────────────────────────────
+    // ── Log in athlete_brand_outreach ───────────────────────────────
     await store.pool.query(
       `INSERT INTO athlete_brand_outreach (athlete_id, agent_id, brand_name, brand_contact_email, message_sent, initiated_by, status)
        VALUES ($1,$2,$3,$4,$5,'athlete','sent')`,
@@ -3665,11 +3768,12 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
     ).catch(() => {});
 
     // ── Save to athlete_messages so agent sees it in Athlete Emails tab ──
+    const senderEmail = gmailRefreshToken ? (athRow.gmail_address || athleteEmail) : athleteEmail;
     if (agentId) {
       await store.pool.query(
         `INSERT INTO athlete_messages (athlete_id, athlete_name, athlete_email, agent_id, to_address, subject, body)
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [athleteId, athleteName, athleteEmail, agentId, to, subject, body]
+        [athleteId, athleteName, senderEmail, agentId, to, subject, body]
       );
       console.log(`[athlete/email] athlete_messages saved agentId=${agentId}`);
     } else {
@@ -3677,10 +3781,17 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
     }
 
     await logAthleteActivity(athleteId, agentId, 'email_sent',
-      `Sent email to ${to}: "${subject}"`, { to, subject, cc_agent: !!cc_agent });
+      `Sent email to ${to}: "${subject}"`, { to, subject, cc_agent: !!cc_agent, via: gmailRefreshToken ? 'gmail' : 'resend' });
 
     res.json({ ok: true, message: 'Email sent.' });
-  } catch (e) { console.error('[athlete/email]', e.message); res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('[athlete/email]', e.message);
+    // Distinguish token-expired errors so the frontend can prompt reconnect
+    if (e.code === 'GMAIL_TOKEN_EXPIRED') {
+      return res.status(401).json({ error: 'gmail_token_expired', message: 'Your Gmail connection has expired. Please reconnect.' });
+    }
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // POST /api/athlete/deal-close/analyze — athlete analyzes a deal

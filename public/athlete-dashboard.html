@@ -904,7 +904,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- ════ VIEW: EMAIL ════ -->
   <div class="view" id="view-email">
     <div class="page-title">EMAIL</div>
-    <div class="page-subtitle">Compose and log outreach emails to brands. Optionally CC your agent.</div>
+    <div class="page-subtitle">Compose and send outreach emails directly from your Gmail account.</div>
+
+    <!-- Gmail connection card — hidden until initGmailStatus() resolves -->
+    <div id="gmail-card" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:16px;display:none;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <div id="gmail-status-text" style="font-size:13px;font-weight:600;color:var(--text)">Gmail</div>
+        <div id="gmail-status-sub" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
+      </div>
+      <div id="gmail-actions"></div>
+    </div>
+
     <div class="grid-2">
       <div class="card">
         <div class="card-title">Compose</div>
@@ -916,9 +926,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <input type="checkbox" id="email-cc-agent" style="width:auto;cursor:pointer">
           <label class="form-label" style="margin:0;cursor:pointer" for="email-cc-agent">CC my agent on this email</label>
         </div>
-        <div style="display:flex;gap:10px">
+        <div style="display:flex;gap:10px;align-items:center">
           <button class="btn btn-ghost btn-sm" id="email-draft-btn" onclick="aiDraftEmail()">AI Draft</button>
           <button class="btn btn-primary" id="email-send-btn" onclick="sendEmail()">Send Email</button>
+          <span id="email-send-from" style="font-size:11px;color:var(--muted);display:none"></span>
         </div>
       </div>
       <div class="card">
@@ -1065,7 +1076,7 @@ function showView(id, navBtn) {
   if (id === 'calendar')    { AthlCal.reload(); initGCalStatus(); }
   if (id === 'pipeline')    loadDeals();
   if (id === 'deal-close')  onAthleteDealCloseViewOpen();
-  if (id === 'email')       loadEmailHistory();
+  if (id === 'email')       { loadEmailHistory(); initGmailStatus(); }
   if (id === 'profile')     loadProfileForm();
 }
 
@@ -1096,14 +1107,25 @@ async function init() {
   var gcalResult = urlParams.get('gcal');
   if (gcalResult === 'connected') {
     showToast('Google Calendar connected! Your deliverables will sync automatically.', 'success');
-    // Navigate to calendar view and refresh status
     var calNav = document.querySelector('[data-view="calendar"]');
     showView('calendar', calNav);
-    // Clean URL without reload
     history.replaceState(null, '', window.location.pathname);
   } else if (gcalResult === 'error') {
     var reason = urlParams.get('reason') || 'unknown error';
     showToast('Google Calendar connection failed: ' + reason, 'error');
+    history.replaceState(null, '', window.location.pathname);
+  }
+
+  // Handle Gmail OAuth redirect params
+  var gmailResult = urlParams.get('gmail');
+  if (gmailResult === 'connected') {
+    showToast('Gmail connected! You can now send emails directly from your account.', 'success');
+    var emailNav = document.querySelector('[data-view="email"]');
+    showView('email', emailNav);
+    history.replaceState(null, '', window.location.pathname);
+  } else if (gmailResult === 'error') {
+    var gmailReason = urlParams.get('reason') || 'unknown error';
+    showToast('Gmail connection failed: ' + gmailReason, 'error');
     history.replaceState(null, '', window.location.pathname);
   }
 }
@@ -2777,11 +2799,105 @@ async function aiDraftEmail() {
   finally { btn.disabled = false; btn.textContent = 'AI Draft'; }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// GMAIL CONNECT
+// ══════════════════════════════════════════════════════════════════
+
+var _gmailConnected  = false;
+var _gmailAddress    = null;
+
+async function initGmailStatus() {
+  var card       = document.getElementById('gmail-card');
+  var statusText = document.getElementById('gmail-status-text');
+  var statusSub  = document.getElementById('gmail-status-sub');
+  var actions    = document.getElementById('gmail-actions');
+  var sendFromEl = document.getElementById('email-send-from');
+  var sendBtn    = document.getElementById('email-send-btn');
+  if (!card) return;
+
+  try {
+    var r = await fetch('/api/athlete/gmail/status', {
+      headers: { 'Authorization': 'Bearer ' + athleteToken }
+    });
+    if (!r.ok) throw new Error('status ' + r.status);
+    var data = await r.json();
+
+    // Show the card once we have a response
+    card.style.display = 'flex';
+
+    if (!data.available) {
+      // Feature not configured — show inert state
+      statusText.textContent = 'Gmail';
+      statusSub.textContent  = 'Gmail send is not yet enabled on this server';
+      actions.innerHTML = '';
+      return;
+    }
+
+    _gmailConnected = !!data.connected;
+    _gmailAddress   = data.email || null;
+
+    if (data.connected) {
+      statusText.textContent = '✓ Gmail Connected';
+      statusText.style.color = '#22c55e';
+      statusSub.textContent  = 'Sending as ' + (data.email || 'your Gmail account');
+      actions.innerHTML =
+        '<button onclick="disconnectGmail()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:11px;font-family:\'DM Sans\',sans-serif">Disconnect</button>';
+      // Show "sending as" hint near the send button
+      if (sendFromEl) { sendFromEl.textContent = 'from ' + (data.email || 'Gmail'); sendFromEl.style.display = 'inline'; }
+      if (sendBtn) sendBtn.title = '';
+    } else {
+      statusText.textContent = 'Connect Gmail';
+      statusText.style.color = 'var(--text)';
+      statusSub.textContent  = 'Send emails directly from your Gmail account — brands see your real address';
+      actions.innerHTML =
+        '<button onclick="connectGmail()" style="background:var(--accent);border:none;color:#000;border-radius:6px;padding:7px 16px;cursor:pointer;font-size:12px;font-weight:700;font-family:\'DM Sans\',sans-serif;letter-spacing:0.01em">Connect Gmail</button>';
+      if (sendFromEl) sendFromEl.style.display = 'none';
+      if (sendBtn) sendBtn.title = 'Connect Gmail above to send from your real address, or send via NILDash';
+    }
+  } catch(e) {
+    // On error keep card hidden
+    console.warn('[gmail] status check failed:', e.message);
+  }
+}
+
+async function connectGmail() {
+  try {
+    var r = await fetch('/api/athlete/gmail/connect', {
+      headers: { 'Authorization': 'Bearer ' + athleteToken }
+    });
+    var data = await r.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      showToast(data.error || 'Could not start Gmail connection', 'error');
+    }
+  } catch(e) { showToast('Connection error', 'error'); }
+}
+
+async function disconnectGmail() {
+  if (!confirm('Disconnect Gmail? Emails will be sent via NILDash instead of your personal Gmail.')) return;
+  try {
+    var r = await fetch('/api/athlete/gmail/disconnect', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + athleteToken }
+    });
+    var data = await r.json();
+    if (r.ok) {
+      showToast('Gmail disconnected', 'success');
+      _gmailConnected = false;
+      _gmailAddress   = null;
+      initGmailStatus();
+    } else {
+      showToast(data.error || 'Disconnect failed', 'error');
+    }
+  } catch(e) { showToast('Connection error', 'error'); }
+}
+
 async function sendEmail() {
-  var to = document.getElementById('email-to').value.trim();
-  var body = document.getElementById('email-body').value.trim();
+  var to      = document.getElementById('email-to').value.trim();
+  var body    = document.getElementById('email-body').value.trim();
   var subject = document.getElementById('email-subject').value.trim();
-  var brand = document.getElementById('email-brand').value.trim();
+  var brand   = document.getElementById('email-brand').value.trim();
   var ccAgent = document.getElementById('email-cc-agent').checked;
   if (!to || !body) { showToast('Recipient email and message are required', 'error'); return; }
   var btn = document.getElementById('email-send-btn');
@@ -2790,12 +2906,21 @@ async function sendEmail() {
     var r = await fetch('/api/athlete/email/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
-      body: JSON.stringify({ to: to, subject: subject, body: body, cc_agent: ccAgent, brand_name: brand || to.split('@')[1].split('.')[0] })
+      body: JSON.stringify({ to: to, subject: subject, body: body, cc_agent: ccAgent, brand_name: brand || (to.split('@')[1] || '').split('.')[0] })
     });
     var data = await r.json();
-    if (!r.ok) { showToast(data.error || 'Failed to send', 'error'); return; }
-    showToast('Email sent!', 'success');
-    // athlete_messages is now saved server-side inside /api/athlete/email/send
+    if (!r.ok) {
+      if (data.error === 'gmail_token_expired') {
+        showToast('Your Gmail connection has expired. Please reconnect.', 'error');
+        _gmailConnected = false;
+        initGmailStatus(); // refresh card to show reconnect button
+      } else {
+        showToast(data.error || data.message || 'Failed to send', 'error');
+      }
+      return;
+    }
+    var sentFrom = _gmailConnected && _gmailAddress ? 'Email sent from your Gmail ✓' : 'Email sent ✓';
+    showToast(sentFrom, 'success');
     ['email-to','email-brand','email-subject','email-body'].forEach(function(id){ document.getElementById(id).value = ''; });
     document.getElementById('email-cc-agent').checked = false;
     loadEmailHistory();
