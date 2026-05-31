@@ -4021,6 +4021,11 @@ app.get('/reset', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'reset.html'));
 });
 
+// ── Privacy policy ───────────────────────────────────────────
+app.get('/privacy', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'privacy.html'));
+});
+
 // ── Landing page ──────────────────────────────────────────────
 app.get('/landing', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'landing.html'));

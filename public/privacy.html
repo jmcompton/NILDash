@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — NILDash</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#0A0E1A;
+  --surface:#141929;
+  --surface2:#1E2540;
+  --border:rgba(255,255,255,0.08);
+  --border2:rgba(255,255,255,0.14);
+  --text:#F0F4FF;
+  --muted:rgba(240,244,255,0.45);
+  --accent:#84CC16;
+  --accent-dark:#6BAE10;
+  --green:#16a34a;
+}
+
+html{scroll-behavior:smooth}
+
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'DM Sans',sans-serif;
+  font-size:15px;
+  line-height:1.75;
+  min-height:100vh;
+}
+
+/* ── Header ──────────────────────────────────────────────── */
+.site-header{
+  background:var(--surface);
+  border-bottom:1px solid var(--border);
+  padding:0 24px;
+  position:sticky;
+  top:0;
+  z-index:100;
+}
+.header-inner{
+  max-width:800px;
+  margin:0 auto;
+  height:60px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+}
+.wordmark{
+  font-family:'DM Sans',sans-serif;
+  font-size:19px;
+  font-weight:900;
+  letter-spacing:-0.5px;
+  color:#fff;
+  text-decoration:none;
+  line-height:1;
+  display:flex;
+  flex-direction:column;
+}
+.wordmark em{
+  font-style:normal;
+  color:var(--accent);
+}
+.wordmark-sub{
+  font-size:7.5px;
+  font-weight:600;
+  letter-spacing:2.5px;
+  text-transform:uppercase;
+  color:rgba(255,255,255,0.3);
+  margin-top:3px;
+}
+.back-link{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:500;
+  text-decoration:none;
+  padding:7px 14px;
+  border:1px solid var(--border);
+  border-radius:6px;
+  transition:color 0.15s, border-color 0.15s, background 0.15s;
+  white-space:nowrap;
+}
+.back-link:hover{
+  color:var(--text);
+  border-color:var(--border2);
+  background:var(--surface2);
+}
+.back-link svg{flex-shrink:0}
+
+/* ── Page wrapper ────────────────────────────────────────── */
+.page{
+  max-width:800px;
+  margin:0 auto;
+  padding:56px 24px 96px;
+}
+
+/* ── Hero ────────────────────────────────────────────────── */
+.hero{
+  margin-bottom:52px;
+  padding-bottom:36px;
+  border-bottom:1px solid var(--border);
+}
+.hero-eyebrow{
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:0.16em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:14px;
+}
+.hero-title{
+  font-size:clamp(28px,5vw,42px);
+  font-weight:900;
+  letter-spacing:-0.03em;
+  color:#fff;
+  line-height:1.1;
+  margin-bottom:14px;
+}
+.hero-meta{
+  font-size:13px;
+  color:var(--muted);
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px 20px;
+}
+.hero-meta span{display:inline-flex;align-items:center;gap:5px}
+
+/* ── Section ─────────────────────────────────────────────── */
+.section{
+  margin-bottom:44px;
+}
+.section:last-of-type{
+  margin-bottom:0;
+}
+.section-number{
+  font-size:9px;
+  font-weight:700;
+  letter-spacing:0.14em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:8px;
+}
+.section-title{
+  font-size:18px;
+  font-weight:800;
+  color:#fff;
+  letter-spacing:-0.02em;
+  margin-bottom:16px;
+  padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+}
+.section p{
+  color:rgba(240,244,255,0.80);
+  margin-bottom:14px;
+  font-size:14.5px;
+}
+.section p:last-child{
+  margin-bottom:0;
+}
+.section ul,.section ol{
+  color:rgba(240,244,255,0.80);
+  padding-left:20px;
+  margin-bottom:14px;
+  font-size:14.5px;
+}
+.section ul li,.section ol li{
+  margin-bottom:7px;
+  padding-left:4px;
+}
+.section ul li:last-child,.section ol li:last-child{
+  margin-bottom:0;
+}
+.highlight-box{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-left:3px solid var(--accent);
+  border-radius:0 8px 8px 0;
+  padding:16px 20px;
+  margin:18px 0;
+  font-size:13.5px;
+  color:rgba(240,244,255,0.85);
+  line-height:1.6;
+}
+.highlight-box strong{
+  color:#fff;
+  font-weight:700;
+}
+
+/* ── Contact card ────────────────────────────────────────── */
+.contact-card{
+  background:var(--surface);
+  border:1px solid var(--border2);
+  border-radius:10px;
+  padding:24px 28px;
+  margin-top:20px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px 32px;
+}
+.contact-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13.5px;
+  color:rgba(240,244,255,0.75);
+}
+.contact-row a{
+  color:var(--accent);
+  text-decoration:none;
+  transition:color 0.15s;
+}
+.contact-row a:hover{color:var(--accent-dark)}
+
+/* ── Footer ──────────────────────────────────────────────── */
+.page-footer{
+  margin-top:64px;
+  padding-top:28px;
+  border-top:1px solid var(--border);
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  font-size:12px;
+  color:var(--muted);
+}
+.page-footer a{
+  color:var(--muted);
+  text-decoration:none;
+  transition:color 0.15s;
+}
+.page-footer a:hover{color:var(--text)}
+
+@media(max-width:600px){
+  .page{padding:36px 18px 72px}
+  .hero{margin-bottom:36px;padding-bottom:28px}
+  .section-title{font-size:16px}
+  .contact-card{padding:18px 20px}
+}
+</style>
+</head>
+<body>
+
+<!-- ── Header ──────────────────────────────────────────────────── -->
+<header class="site-header">
+  <div class="header-inner">
+    <a href="/" class="wordmark">
+      NIL<em>Dash</em>
+      <span class="wordmark-sub">NIL Intelligence</span>
+    </a>
+    <a href="/" class="back-link">
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M8 2L4 6.5L8 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      Back to NILDash
+    </a>
+  </div>
+</header>
+
+<!-- ── Page ────────────────────────────────────────────────────── -->
+<main class="page">
+
+  <div class="hero">
+    <div class="hero-eyebrow">Legal</div>
+    <h1 class="hero-title">Privacy Policy</h1>
+    <div class="hero-meta">
+      <span>
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="1" y="2" width="11" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M1 5h11" stroke="currentColor" stroke-width="1.2"/><path d="M4 1v2M9 1v2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        Last updated: May 31, 2026
+      </span>
+      <span>
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.2"/><path d="M6.5 4v3l2 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        Compton Group LLC
+      </span>
+    </div>
+  </div>
+
+  <!-- 1. Introduction -->
+  <div class="section">
+    <div class="section-number">Section 01</div>
+    <h2 class="section-title">Introduction</h2>
+    <p>
+      NILDash is a NIL (Name, Image, and Likeness) deal intelligence platform designed for sports agents and
+      college athletes. It provides tools for managing NIL opportunities, tracking outreach to brand partners,
+      automating deliverable schedules, and communicating directly with sponsors through connected email and
+      calendar integrations.
+    </p>
+    <p>
+      NILDash is operated by <strong>Compton Group LLC</strong>. This Privacy Policy explains how we collect,
+      use, disclose, and protect information when you use the NILDash platform at
+      <a href="https://mynildash.com" style="color:var(--accent);text-decoration:none;">https://mynildash.com</a>
+      (the "Service").
+    </p>
+    <p>
+      By accessing or using the Service, you agree to the collection and use of information described in this
+      policy. If you do not agree with any part of this policy, please do not use the Service.
+    </p>
+    <div class="highlight-box">
+      <strong>Questions?</strong> Contact us at any time at
+      <a href="mailto:jmcompton04@gmail.com" style="color:var(--accent);text-decoration:none;">jmcompton04@gmail.com</a>.
+      We respond to all privacy inquiries within 5 business days.
+    </div>
+  </div>
+
+  <!-- 2. Information We Collect -->
+  <div class="section">
+    <div class="section-number">Section 02</div>
+    <h2 class="section-title">Information We Collect</h2>
+    <p>We collect information you provide directly and information generated through your use of the Service:</p>
+
+    <p><strong>Account Information</strong></p>
+    <ul>
+      <li>Name and email address provided at registration</li>
+      <li>Password (stored as a one-way cryptographic hash — we never store your plaintext password)</li>
+      <li>Role (sports agent or athlete) and associated agent–athlete relationship</li>
+      <li>Profile details such as sport, school, and social media handles (athletes)</li>
+    </ul>
+
+    <p><strong>Google Account Data (when you connect Google)</strong></p>
+    <ul>
+      <li>Gmail address associated with the connected Google account</li>
+      <li>OAuth refresh token allowing NILDash to send email and create calendar events on your behalf</li>
+      <li>We request only the minimum necessary scopes: <code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">gmail.send</code> and <code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">calendar.events</code></li>
+    </ul>
+
+    <p><strong>Email and Calendar Content</strong></p>
+    <ul>
+      <li>Subject lines, body text, and recipient addresses of emails composed and sent through NILDash</li>
+      <li>Deliverable titles, due dates, and notes synced to Google Calendar</li>
+      <li>Email send history stored in your NILDash account for tracking purposes</li>
+    </ul>
+
+    <p><strong>Usage Data</strong></p>
+    <ul>
+      <li>Pages and features accessed within the platform</li>
+      <li>Actions taken (e.g., deals created, emails sent, deliverables completed)</li>
+      <li>Timestamps and activity logs used to improve the Service and provide analytics to agents</li>
+    </ul>
+  </div>
+
+  <!-- 3. How We Use Your Information -->
+  <div class="section">
+    <div class="section-number">Section 03</div>
+    <h2 class="section-title">How We Use Your Information</h2>
+    <p>We use the information we collect solely to provide, maintain, and improve the NILDash Service:</p>
+    <ul>
+      <li><strong>Platform functionality</strong> — to authenticate users, power the dashboard, and enable core features such as pipeline management, AI analysis, and reporting</li>
+      <li><strong>Gmail sending</strong> — when an athlete connects their Gmail account, we use their OAuth token solely to send emails they compose in the NILDash portal, directly from their own Gmail address</li>
+      <li><strong>Google Calendar sync</strong> — when a user connects Google Calendar, we create and update calendar events corresponding to NIL deliverables they choose to sync</li>
+      <li><strong>Communications</strong> — to send transactional notifications (e.g., athlete invite emails, delivery confirmations) via our email provider</li>
+      <li><strong>Platform improvement</strong> — to understand how features are used so we can improve the product</li>
+      <li><strong>Security</strong> — to detect, prevent, and respond to fraud, abuse, or security incidents</li>
+    </ul>
+    <div class="highlight-box">
+      <strong>We do not sell your data.</strong> We do not sell, rent, or trade your personal information or
+      Google user data to third parties for advertising or any other commercial purpose.
+    </div>
+  </div>
+
+  <!-- 4. Google API Services -->
+  <div class="section">
+    <div class="section-number">Section 04</div>
+    <h2 class="section-title">Google API Services</h2>
+    <p>
+      NILDash uses Google API Services, including the Gmail API and Google Calendar API, to enable athletes
+      and agents to send emails and manage deliverable schedules directly from their connected Google accounts.
+    </p>
+    <p>
+      <strong>Compliance with Google Policies.</strong> Our use of information received from Google APIs
+      adheres to the
+      <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">
+        Google API Services User Data Policy
+      </a>, including the Limited Use requirements. Specifically:
+    </p>
+    <ul>
+      <li>We use Google user data only to provide or improve the user-facing features of NILDash that are clearly described in this Privacy Policy</li>
+      <li>We do not use Google user data for advertising purposes</li>
+      <li>We do not allow humans to read your Google data except with your affirmative consent, for security purposes, or as required by law</li>
+      <li>We do not transfer Google user data to third parties except as necessary to provide the Service (see Section 7) or as required by law</li>
+    </ul>
+    <p>
+      <strong>Scopes we request.</strong> NILDash requests only the minimum scopes necessary:
+    </p>
+    <ul>
+      <li><code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://www.googleapis.com/auth/gmail.send</code> — to send emails on behalf of the athlete from their own Gmail address</li>
+      <li><code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://www.googleapis.com/auth/calendar.events</code> — to create and update deliverable events in Google Calendar</li>
+      <li><code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">https://www.googleapis.com/auth/userinfo.email</code> — to confirm which Google account was authorized</li>
+    </ul>
+    <p>
+      <strong>Disconnecting Google.</strong> Athletes and agents can disconnect their Google account at any
+      time from the NILDash dashboard. Upon disconnection, the stored OAuth refresh token is immediately
+      deleted from our database. We will not use revoked credentials to send email or access your calendar.
+    </p>
+    <div class="highlight-box">
+      <strong>NILDash's use and transfer to any other app of information received from Google APIs will adhere to
+      <a href="https://developers.google.com/terms/api-services-user-data-policy#additional_requirements_for_specific_api_scopes" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Google API Services User Data Policy</a>,
+      including the Limited Use requirements.</strong>
+    </div>
+  </div>
+
+  <!-- 5. Data Storage and Security -->
+  <div class="section">
+    <div class="section-number">Section 05</div>
+    <h2 class="section-title">Data Storage and Security</h2>
+    <p>
+      All NILDash data is stored on <strong>Railway</strong>, a U.S.-based cloud infrastructure provider, in a
+      PostgreSQL database. Railway employs industry-standard physical and network security controls.
+    </p>
+    <p>We take the following measures to protect your information:</p>
+    <ul>
+      <li><strong>Password hashing</strong> — passwords are stored using bcrypt, a one-way hashing algorithm. We cannot recover or view your plaintext password.</li>
+      <li><strong>HTTPS</strong> — all data in transit between your browser and our servers is encrypted using TLS.</li>
+      <li><strong>OAuth token storage</strong> — Google OAuth refresh tokens are stored in the database with access restricted to the NILDash application server only.</li>
+      <li><strong>Authentication</strong> — user sessions are protected with signed JSON Web Tokens (JWTs).</li>
+      <li><strong>Access controls</strong> — agent accounts can only access their own athletes' data; athlete accounts can only access their own records.</li>
+    </ul>
+    <p>
+      While we implement commercially reasonable security measures, no system is 100% secure. In the event of
+      a data breach that affects your personal information, we will notify you as required by applicable law.
+    </p>
+  </div>
+
+  <!-- 6. Your Rights -->
+  <div class="section">
+    <div class="section-number">Section 06</div>
+    <h2 class="section-title">Your Rights</h2>
+    <p>You have the following rights with respect to your personal information:</p>
+    <ul>
+      <li><strong>Access</strong> — you may request a copy of the personal information we hold about you</li>
+      <li><strong>Correction</strong> — you may request that we correct inaccurate or incomplete information</li>
+      <li><strong>Deletion</strong> — you may request deletion of your account and all associated personal data at any time</li>
+      <li><strong>Google integration disconnect</strong> — you may revoke NILDash's access to your Google account at any time from your NILDash dashboard or directly from your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Google Account permissions</a>. Upon disconnection, your OAuth token is immediately deleted from our systems.</li>
+      <li><strong>Data portability</strong> — upon request, we can provide your data in a machine-readable format</li>
+    </ul>
+    <p>
+      To exercise any of these rights, contact us at
+      <a href="mailto:jmcompton04@gmail.com" style="color:var(--accent);text-decoration:none;">jmcompton04@gmail.com</a>.
+      We will respond within 30 days. We may need to verify your identity before processing certain requests.
+    </p>
+  </div>
+
+  <!-- 7. Third-Party Services -->
+  <div class="section">
+    <div class="section-number">Section 07</div>
+    <h2 class="section-title">Third-Party Services</h2>
+    <p>
+      NILDash integrates with and relies on the following third-party services to operate. Each has its own
+      privacy policy and data practices:
+    </p>
+    <ul>
+      <li>
+        <strong>Google</strong> (Gmail API, Google Calendar API, Google OAuth) —
+        <a href="https://policies.google.com/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Google Privacy Policy</a>
+      </li>
+      <li>
+        <strong>Anthropic</strong> (AI analysis features using the Claude API) —
+        <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Anthropic Privacy Policy</a>
+      </li>
+      <li>
+        <strong>Resend</strong> (transactional email delivery, e.g., athlete invite notifications) —
+        <a href="https://resend.com/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Resend Privacy Policy</a>
+      </li>
+      <li>
+        <strong>Railway</strong> (cloud hosting and database infrastructure) —
+        <a href="https://railway.app/privacy" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;">Railway Privacy Policy</a>
+      </li>
+    </ul>
+    <p>
+      We share your information with these providers only to the extent necessary to provide the Service. We
+      do not authorize any of these providers to use your data for their own marketing or advertising purposes.
+      Data shared with Google APIs is governed by the Google API Services User Data Policy described in
+      Section 4.
+    </p>
+  </div>
+
+  <!-- 8. Changes to This Policy -->
+  <div class="section">
+    <div class="section-number">Section 08</div>
+    <h2 class="section-title">Changes to This Policy</h2>
+    <p>
+      We may update this Privacy Policy from time to time to reflect changes in our practices, the Service, or
+      applicable law. When we make material changes, we will:
+    </p>
+    <ul>
+      <li>Update the "Last updated" date at the top of this page</li>
+      <li>Notify registered users via email at least 14 days before the change takes effect, for changes that materially affect how we use your personal information</li>
+    </ul>
+    <p>
+      Your continued use of the Service after the effective date of a revised policy constitutes your
+      acceptance of the changes. We encourage you to review this page periodically.
+    </p>
+  </div>
+
+  <!-- 9. Contact -->
+  <div class="section">
+    <div class="section-number">Section 09</div>
+    <h2 class="section-title">Contact Us</h2>
+    <p>
+      If you have questions, concerns, or requests regarding this Privacy Policy or how we handle your data,
+      please contact us:
+    </p>
+    <div class="contact-card">
+      <div class="contact-row">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="3" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M1 5l6 4 6-4" stroke="currentColor" stroke-width="1.2"/></svg>
+        <a href="mailto:jmcompton04@gmail.com">jmcompton04@gmail.com</a>
+      </div>
+      <div class="contact-row">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M4 7h6M7 4v6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        <span>Compton Group LLC</span>
+      </div>
+      <div class="contact-row">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M1 7h12M7 1a9 9 0 000 12M7 1a9 9 0 010 12" stroke="currentColor" stroke-width="1.2"/></svg>
+        <a href="https://mynildash.com">https://mynildash.com</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="page-footer">
+    <span>© 2026 Compton Group LLC. All rights reserved.</span>
+    <a href="/">← Return to NILDash</a>
+  </footer>
+
+</main>
+
+</body>
+</html>
