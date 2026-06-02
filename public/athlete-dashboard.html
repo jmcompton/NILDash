@@ -896,6 +896,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
             <div class="card-title" style="margin-bottom:0">Bio</div>
             <span id="mk-bio-counter" style="font-size:10px;color:var(--muted)">0/150</span>
           </div>
+
+          <!-- Story input (optional) -->
+          <div style="margin-bottom:12px">
+            <label class="form-label" style="margin-bottom:4px">Your story <span style="font-weight:400;color:var(--muted)">(optional but powerful)</span></label>
+            <input id="media-kit-story-input" class="form-input" type="text" placeholder="e.g. I walked on with no scholarship and earned my starting spot by junior year" style="font-size:12px">
+            <div style="font-size:10px;color:var(--muted);margin-top:5px;line-height:1.5">One sentence about your journey. The AI uses this to write a bio that stands out.</div>
+          </div>
+
           <textarea id="mk-bio" class="form-textarea" rows="4" maxlength="300" placeholder="Write a compelling 2-sentence bio for brand partnerships…" oninput="mkUpdateBioCount();mkUpdatePreview()" style="font-size:13px;resize:none"></textarea>
           <button id="mk-bio-btn" onclick="mkGenerateBio()" class="btn btn-ghost" style="margin-top:10px;width:100%;justify-content:center;font-size:12px;border-color:rgba(132,204,22,0.3);color:var(--accent)">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L14.09 8.26L21 9.27L16 14.14L17.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z"/></svg>
@@ -4061,12 +4069,15 @@ function mkUpdateBioCount() {
 
 async function mkGenerateBio() {
   var btn = document.getElementById('mk-bio-btn');
+  var storyEl = document.getElementById('media-kit-story-input');
+  var story = storyEl ? storyEl.value.trim() : '';
+  console.log('[media-kit] mkGenerateBio() — story provided:', !!story);
   btn.disabled = true; btn.textContent = '⏳ Generating…';
   try {
     var r = await fetch('/api/athlete/generate-bio', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + athleteToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: JSON.stringify({ story: story })
     });
     var data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || 'Generation failed');
@@ -4075,7 +4086,8 @@ async function mkGenerateBio() {
     mkUpdatePreview();
     showToast('Bio generated!', 'success');
   } catch(e) {
-    showToast('Bio generation failed: ' + e.message, 'error');
+    showToast('Bio generation failed — please try again', 'error');
+    console.error('[media-kit] bio generation error:', e.message);
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L14.09 8.26L21 9.27L16 14.14L17.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z"/></svg> AI Generate Bio';

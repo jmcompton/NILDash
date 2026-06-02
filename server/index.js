@@ -6101,29 +6101,79 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
 // POST /api/athlete/generate-bio — AI-generated NIL bio (athlete auth)
 app.post('/api/athlete/generate-bio', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
-    console.log('[generate-bio] request from athlete id:', req.athlete.id);
+    const { story } = req.body;
+    const storyText = (story || '').trim();
+    console.log('[generate-bio] athlete id:', req.athlete.id, '— story provided:', !!storyText);
+
+    // Fetch athlete profile + most current follower counts (media_kit values take priority over athletes.data)
     const athR = await store.pool.query(
-      `SELECT a.data->>'name' as name, a.data->>'sport' as sport,
-              a.data->>'school' as school, a.data->>'position' as position,
-              a.data->>'instagram' as ig_followers
-       FROM athletes a WHERE a.id = $1`,
+      `SELECT
+         a.data->>'name'     as name,
+         a.data->>'sport'    as sport,
+         a.data->>'school'   as school,
+         a.data->>'position' as position,
+         COALESCE(mk.instagram_followers, (a.data->>'instagram')::int, 0) as ig_followers,
+         COALESCE(mk.tiktok_followers,    (a.data->>'tiktok')::int,    0) as tt_followers,
+         COALESCE(mk.twitter_followers,   0)                              as tw_followers
+       FROM athletes a
+       LEFT JOIN media_kits mk ON mk.athlete_id = a.id
+       WHERE a.id = $1`,
       [req.athlete.id]
     );
     if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
     const ath = athR.rows[0];
-    console.log('[generate-bio] athlete data:', JSON.stringify(ath));
-    const igCount = parseInt(ath.ig_followers) || 0;
-    const igStr = igCount > 0 ? `${igCount.toLocaleString()} Instagram followers` : '';
+    console.log('[generate-bio] data:', JSON.stringify(ath), '— story:', storyText || '(none)');
 
-    const prompt = `Write a 2-sentence NIL media kit bio for ${ath.name}, a ${ath.position ? ath.position + ' ' : ''}${ath.sport || 'college'} athlete at ${ath.school || 'their university'}${igStr ? ` with ${igStr}` : ''}. Focus on their athletic credibility and brand appeal. Sound authentic and human, not corporate or generic. Under 150 characters total.`;
-    const system = 'You are a professional NIL sports marketing copywriter. Write compelling, authentic athlete bios for brand partnership media kits. Your bios sound like they were written by a real person, not a corporation. They are confident, specific, and highlight the athlete\'s unique value to brands. Return only the bio text, no quotes or extra commentary.';
+    const name     = ath.name     || 'this athlete';
+    const sport    = ath.sport    || 'college';
+    const school   = ath.school   || 'their university';
+    const position = ath.position || '';
+    const igCount  = parseInt(ath.ig_followers) || 0;
+    const ttCount  = parseInt(ath.tt_followers) || 0;
+    const twCount  = parseInt(ath.tw_followers) || 0;
 
-    const bio = await ai.oneShot(prompt, system);
-    console.log('[generate-bio] success — bio length:', (bio||'').length);
+    // Build social stats string
+    const socialParts = [];
+    if (igCount > 0) socialParts.push(`${igCount.toLocaleString()} Instagram followers`);
+    if (ttCount > 0) socialParts.push(`${ttCount.toLocaleString()} TikTok followers`);
+    if (twCount > 0) socialParts.push(`${twCount.toLocaleString()} Twitter/X followers`);
+    const socialStr = socialParts.length > 0 ? socialParts.join(', ') : '';
+
+    const system = `You are a professional NIL sports marketing copywriter who writes athlete bios for brand partnership media kits. Your bios do three things: tell the athlete's story, show their value to brands, and create an emotional hook that makes brands want to reach out. Write like a human, not a marketer. Be specific, confident, and authentic. Never generic. Return only the bio text — no quotes, no labels, no commentary.`;
+
+    let prompt;
+    if (storyText) {
+      prompt = `Write a 2-3 sentence NIL media kit bio for ${name}, a${position ? ' ' + position : ''} ${sport} athlete at ${school}.
+
+Their story: ${storyText}${socialStr ? `\n\nTheir stats: ${socialStr}.` : ''}
+
+The bio must:
+- Open with or reference their personal story in a way that creates an emotional hook
+- Show why their audience is valuable to brands
+- End with a line that makes a brand want to reach out
+- Sound like the athlete wrote it — confident, real, human
+- Never use corporate language or clichés like "passionate about" or "dedicated to"
+
+Under 200 characters total.`;
+    } else {
+      prompt = `Write a 2-3 sentence NIL media kit bio for ${name}, a${position ? ' ' + position : ''} ${sport} athlete at ${school}${socialStr ? ` with ${socialStr}` : ''}.
+
+The bio must:
+- Open with a strong hook that immediately tells a brand why this athlete is worth their attention
+- Show why their audience is valuable to brands
+- End with a line that makes a brand want to reach out
+- Sound like the athlete wrote it — confident, real, human
+- Never use corporate language or clichés
+
+Under 200 characters total.`;
+    }
+
+    const bio = await ai.oneShot(prompt, system, 200, 'claude-sonnet-4-20250514');
+    console.log('[generate-bio] success — bio length:', (bio||'').length, '— preview:', (bio||'').substring(0, 60));
     res.json({ bio: (bio || '').trim().slice(0, 300) });
   } catch (e) {
     console.error('[generate-bio] error:', e.message);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Bio generation failed' });
   }
 });
 
