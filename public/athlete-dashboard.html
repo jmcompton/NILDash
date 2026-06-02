@@ -7,6 +7,7 @@
 <link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
 <link rel="apple-touch-icon" href="/images/nildash-icon-120x120.png">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css">
 <style>
 :root{
   --bg:#0A0E1A;--surface:#141929;--surface2:#1E2540;--border:rgba(255,255,255,0.08);
@@ -298,62 +299,58 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- ════ VIEW: HOME ════ -->
   <div class="view active" id="view-home">
 
-    <!-- ── AI Daily Brief ── -->
-    <div id="ath-daily-brief" style="background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent);border-radius:12px;padding:22px 26px;margin-bottom:16px;position:relative;overflow:hidden">
-      <div style="position:absolute;top:0;right:0;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle,rgba(132,204,22,0.06) 0%,transparent 70%);pointer-events:none"></div>
-      <div id="ath-brief-greeting" style="font-size:19px;font-weight:700;color:var(--text);margin-bottom:10px;line-height:1.2"></div>
-      <div id="ath-brief-text" style="font-size:14px;color:rgba(241,245,249,0.82);line-height:1.72;min-height:44px">
-        <div id="ath-brief-skeleton">
-          <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:14px;margin-bottom:9px;animation:brief-pulse 1.4s ease-in-out infinite"></div>
-          <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:14px;width:88%;margin-bottom:9px;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.15s"></div>
-          <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:14px;width:72%;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.3s"></div>
+    <!-- ── AI Brief Card (4 bullets) ── -->
+    <div style="background:#0D1520;border-left:3px solid #84CC16;border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:12px">
+      <div id="ath-home-bullets">
+        <div style="display:flex;flex-direction:column;gap:7px" id="ath-brief-skeleton">
+          <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:50%;background:rgba(239,68,68,0.25);flex-shrink:0;animation:ath-pulse 1.4s ease-in-out infinite"></div><div style="height:11px;border-radius:4px;background:rgba(255,255,255,0.07);flex:1;animation:ath-pulse 1.4s ease-in-out infinite"></div></div>
+          <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:50%;background:rgba(245,158,11,0.25);flex-shrink:0;animation:ath-pulse 1.4s ease-in-out infinite;animation-delay:.1s"></div><div style="height:11px;border-radius:4px;background:rgba(255,255,255,0.07);width:88%;animation:ath-pulse 1.4s ease-in-out infinite;animation-delay:.1s"></div></div>
+          <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:50%;background:rgba(132,204,22,0.25);flex-shrink:0;animation:ath-pulse 1.4s ease-in-out infinite;animation-delay:.2s"></div><div style="height:11px;border-radius:4px;background:rgba(255,255,255,0.07);width:72%;animation:ath-pulse 1.4s ease-in-out infinite;animation-delay:.2s"></div></div>
+          <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:50%;background:rgba(132,204,22,0.25);flex-shrink:0;animation:ath-pulse 1.4s ease-in-out infinite;animation-delay:.3s"></div><div style="height:11px;border-radius:4px;background:rgba(255,255,255,0.07);width:60%;animation:ath-pulse 1.4s ease-in-out infinite;animation-delay:.3s"></div></div>
         </div>
       </div>
-      <div id="ath-brief-footer" style="display:none;font-size:10px;color:var(--muted);margin-top:13px;align-items:center;gap:5px">
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="rgba(132,204,22,0.5)" stroke-width="1.5"/><path d="M5 3v2.5l1.5 1" stroke="rgba(132,204,22,0.5)" stroke-width="1.2" stroke-linecap="round"/></svg>
-        Powered by AI · Updated just now
+      <div id="ath-brief-footer" style="display:none;font-size:9px;color:#4B5563;margin-top:8px;align-items:center;gap:4px">
+        <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="#4B5563" stroke-width="1.5"/><path d="M5 3v2.5l1.5 1" stroke="#4B5563" stroke-width="1.2" stroke-linecap="round"/></svg>
+        AI brief · Updated just now
       </div>
     </div>
-    <style>
-      @keyframes brief-pulse {
-        0%,100% { opacity: 0.4; }
-        50%      { opacity: 0.8; }
-      }
-    </style>
+    <style>@keyframes ath-pulse{0%,100%{opacity:.4}50%{opacity:.8}}</style>
 
-    <div class="welcome-banner">
-      <div class="welcome-name" id="h-welcome">WELCOME BACK!</div>
-      <div class="welcome-meta" id="h-meta"></div>
-      <div class="welcome-agent-tag" id="h-agent"></div>
+    <!-- ── Stats Row ── -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+      <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:14px 16px">
+        <div style="font-size:9px;color:#4B5563;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Overdue</div>
+        <div id="ath-hs-overdue" style="font-size:20px;font-weight:500;color:#EF4444">—</div>
+      </div>
+      <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:14px 16px">
+        <div style="font-size:9px;color:#4B5563;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Upcoming (30d)</div>
+        <div id="ath-hs-upcoming" style="font-size:20px;font-weight:500;color:#F59E0B">—</div>
+      </div>
+      <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:14px 16px">
+        <div style="font-size:9px;color:#4B5563;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Completed</div>
+        <div id="ath-hs-completed" style="font-size:20px;font-weight:500;color:#84CC16">—</div>
+      </div>
+      <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:14px 16px">
+        <div style="font-size:9px;color:#4B5563;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">NIL Value</div>
+        <div id="ath-hs-nil" style="font-size:20px;font-weight:500;color:#84CC16">—</div>
+      </div>
     </div>
 
-    <div class="grid-4 section-gap">
-      <div class="stat-card"><div class="stat-label">Overdue</div><div class="stat-value red" id="home-overdue">—</div><div class="stat-sub">Deliverables past due</div></div>
-      <div class="stat-card"><div class="stat-label">Upcoming</div><div class="stat-value orange" id="home-upcoming">—</div><div class="stat-sub">Due within 30 days</div></div>
-      <div class="stat-card"><div class="stat-label">Completed</div><div class="stat-value accent" id="home-completed">—</div><div class="stat-sub">Total completed</div></div>
-      <div class="stat-card"><div class="stat-label">Outreach Sent</div><div class="stat-value" id="home-outreach-ct">—</div><div class="stat-sub">Brand contacts</div></div>
-    </div>
-
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-title">My NIL Value</div>
-        <div id="home-nil-content"><div class="empty-state"><div class="empty-text">Calculating…</div></div></div>
-        <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('rate',document.querySelector('[data-view=rate]'))">Full Calculator →</button></div>
+    <!-- ── Two-column: My Deliverables + Active Deals ── -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px">
+        <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">My Deliverables</div>
+        <div id="ath-home-delivs" style="display:flex;flex-direction:column;gap:0">
+          <div style="font-size:11px;color:#4B5563">Loading…</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="showView('calendar',document.querySelector('[data-view=calendar]'))" style="margin-top:12px;width:100%">Full Calendar →</button>
       </div>
-      <div class="card">
-        <div class="card-title">Upcoming Deliverables</div>
-        <div id="home-cal-content"><div class="empty-state"><div class="empty-text">No upcoming deliverables.</div></div></div>
-        <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('calendar',document.querySelector('[data-view=calendar]'))">Full Calendar →</button></div>
-      </div>
-      <div class="card">
-        <div class="card-title">Recent Outreach</div>
-        <div id="home-outreach-content"><div class="empty-state"><div class="empty-text">No outreach sent yet.</div></div></div>
-        <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('outreach',document.querySelector('[data-view=outreach]'))">Full Pipeline →</button></div>
-      </div>
-      <div class="card">
-        <div class="card-title">Active Deals</div>
-        <div id="home-deals-content"><div class="empty-state"><div class="empty-text">No active deals yet.</div></div></div>
-        <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="showView('pipeline',document.querySelector('[data-view=pipeline]'))">Manage Deals →</button></div>
+      <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px">
+        <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Active Deals</div>
+        <div id="ath-home-deals" style="display:flex;flex-direction:column;gap:8px">
+          <div style="font-size:11px;color:#4B5563">Loading…</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="showView('pipeline',document.querySelector('[data-view=pipeline]'))" style="margin-top:12px;width:100%">Manage Deals →</button>
       </div>
     </div>
   </div>
@@ -1321,38 +1318,119 @@ function renderHome() {
   if (!p) return;
   var firstName = (p.name || '').split(' ')[0] || 'Athlete';
 
-  // Kick off AI brief immediately — it auto-fills greeting and runs async
-  loadAthleteDailyBrief();
-
-  document.getElementById('h-welcome').textContent = 'WELCOME BACK, ' + firstName.toUpperCase() + '!';
-  var metaParts = [p.sport, p.school, p.position, p.year].filter(Boolean);
-  document.getElementById('h-meta').innerHTML = metaParts.map(function(m,i){ return i===0 ? '<span class="hi">' + esc(m) + '</span>' : esc(m); }).join(' · ');
-  var agentTxt = p.agent_name ? 'Represented by ' + p.agent_name + (p.agency_name ? ' · ' + p.agency_name : '') : '';
-  document.getElementById('h-agent').textContent = agentTxt;
   document.getElementById('topbar-name').textContent = p.name || '—';
   document.title = firstName + ' — NILDash';
 
-  var deliverables = p.deliverables || [];
-  var outreach = p.outreach || [];
+  // Kick off new home load (brief + stats)
+  loadAthleteHome();
+}
+
+async function loadAthleteHome() {
+  loadAthBrief();
+  try {
+    var r    = await fetch('/api/athlete/home-data', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
+    var data = await r.json();
+    var overdueEl   = document.getElementById('ath-hs-overdue');
+    var upcomingEl  = document.getElementById('ath-hs-upcoming');
+    var completedEl = document.getElementById('ath-hs-completed');
+    var nilEl       = document.getElementById('ath-hs-nil');
+    if (overdueEl)   overdueEl.textContent   = data.overdueCount   != null ? data.overdueCount   : '0';
+    if (upcomingEl)  upcomingEl.textContent  = data.upcomingCount  != null ? data.upcomingCount  : '0';
+    if (completedEl) completedEl.textContent = data.completedCount != null ? data.completedCount : '0';
+    if (nilEl)       nilEl.textContent       = data.nilValue || '$0';
+    renderAthHomeDelivs(data.upcomingDelivs || []);
+    renderAthHomeDeals(data.activeDeals || []);
+  } catch(e) {
+    renderAthHomeDelivs([]);
+    renderAthHomeDeals([]);
+  }
+}
+
+async function loadAthBrief() {
+  var bulletsEl = document.getElementById('ath-home-bullets');
+  var footerEl  = document.getElementById('ath-brief-footer');
+  if (!bulletsEl) return;
+
+  var ICONS = [
+    '<i class="ti ti-alert-circle" style="color:#EF4444;font-size:12px;flex-shrink:0;margin-top:1px"></i>',
+    '<i class="ti ti-clock"        style="color:#F59E0B;font-size:12px;flex-shrink:0;margin-top:1px"></i>',
+    '<i class="ti ti-calendar-event" style="color:#84CC16;font-size:12px;flex-shrink:0;margin-top:1px"></i>',
+    '<i class="ti ti-mail"         style="color:#84CC16;font-size:12px;flex-shrink:0;margin-top:1px"></i>',
+  ];
+
+  try {
+    var timeout = new Promise(function(resolve){ setTimeout(function(){ resolve({ bullets: null }); }, 9000); });
+    var result  = await Promise.race([
+      fetch('/api/athlete/daily-brief', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + athleteToken, 'Content-Type': 'application/json' },
+        body: '{}'
+      }).then(function(r){ return r.json(); }),
+      timeout,
+    ]);
+    var bullets = Array.isArray(result.bullets) && result.bullets.length
+      ? result.bullets
+      : ["No overdue deliverables — you're on track.", 'Check your active deals and keep momentum.', 'Review your calendar for upcoming deliverables.', 'Welcome back — your NIL dashboard is ready.'];
+    bulletsEl.innerHTML = bullets.slice(0, 4).map(function(b, i) {
+      return '<div style="display:flex;align-items:flex-start;gap:8px;padding:3px 0">' + (ICONS[i]||ICONS[3]) + '<span style="font-size:11px;color:#9CA3AF;line-height:1.4">' + esc(b) + '</span></div>';
+    }).join('');
+    if (footerEl) footerEl.style.display = 'flex';
+  } catch(e) {
+    bulletsEl.innerHTML = '<span style="font-size:11px;color:#4B5563">Welcome back! Your NIL dashboard is ready.</span>';
+    if (footerEl) footerEl.style.display = 'flex';
+  }
+}
+
+function renderAthHomeDelivs(delivs) {
+  var el = document.getElementById('ath-home-delivs');
+  if (!el) return;
+  if (!delivs.length) {
+    el.innerHTML = '<div style="font-size:11px;color:#4B5563;padding:4px 0">No upcoming deliverables.</div>';
+    return;
+  }
   var today = new Date().toISOString().split('T')[0];
-  var overdue = deliverables.filter(function(d){ return d.event_date && d.event_date.split('T')[0] < today && d.status !== 'completed'; }).length;
-  var upcoming30 = deliverables.filter(function(d){
-    var dt = d.event_date ? d.event_date.split('T')[0] : null;
-    if (!dt) return false;
-    var days = (new Date(dt + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000;
-    return days >= 0 && days <= 30;
-  }).length;
-  var completed = deliverables.filter(function(d){ return d.status === 'completed'; }).length;
+  el.innerHTML = delivs.slice(0, 5).map(function(d) {
+    var dateStr  = d.event_date ? String(d.event_date).split('T')[0] : null;
+    var days     = dateStr ? Math.round((new Date(dateStr+'T00:00:00') - new Date(today+'T00:00:00')) / 86400000) : 0;
+    var dotColor = days < 0 ? '#EF4444' : days <= 1 ? '#F59E0B' : '#84CC16';
+    var tagBg    = days < 0 ? '#1a0a0a' : days <= 1 ? '#1a1a0a' : '#0a1a0a';
+    var tagColor = days < 0 ? '#EF4444' : days <= 1 ? '#F59E0B' : '#84CC16';
+    var tagText  = days < 0 ? 'Overdue' : days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : dateStr;
+    return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid #1e2a3a">' +
+      '<div style="width:7px;height:7px;border-radius:50%;background:' + dotColor + ';flex-shrink:0"></div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:11px;color:#E5E7EB;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(d.title||'—') + '</div>' +
+        (d.brand ? '<div style="font-size:10px;color:#4B5563">' + esc(d.brand) + '</div>' : '') +
+      '</div>' +
+      '<div style="font-size:9px;padding:2px 6px;border-radius:99px;background:' + tagBg + ';color:' + tagColor + ';white-space:nowrap;flex-shrink:0">' + tagText + '</div>' +
+    '</div>';
+  }).join('');
+}
 
-  document.getElementById('home-overdue').textContent = overdue;
-  document.getElementById('home-upcoming').textContent = upcoming30;
-  document.getElementById('home-completed').textContent = completed;
-  document.getElementById('home-outreach-ct').textContent = outreach.length;
+var DEAL_STAGE_PCT = { 'Prospecting': 10, 'Outreach': 25, 'Negotiating': 50, 'Sent': 65, 'Closing': 85, 'Closed': 100 };
 
-  renderHomeNIL(p);
-  renderHomeCalendar(deliverables, today);
-  renderHomeOutreach(outreach);
-  loadHomeDeals();
+function renderAthHomeDeals(deals) {
+  var el = document.getElementById('ath-home-deals');
+  if (!el) return;
+  if (!deals.length) {
+    el.innerHTML = '<div style="font-size:11px;color:#4B5563;padding:4px 0">No active deals. <button onclick="showView(\'pipeline\',document.querySelector(\'[data-view=pipeline]\'))" style="color:#84CC16;background:none;border:none;cursor:pointer;font-size:11px;padding:0">Add one →</button></div>';
+    return;
+  }
+  el.innerHTML = deals.map(function(d) {
+    var pct      = DEAL_STAGE_PCT[d.stage] || 10;
+    var tagBg    = pct >= 85 ? '#0a1a0a' : pct >= 50 ? '#1a1a0a' : '#1a0a0a';
+    var tagColor = pct >= 85 ? '#84CC16' : pct >= 50 ? '#F59E0B' : '#EF4444';
+    var valStr   = d.value ? '$' + Number(d.value).toLocaleString() : '';
+    return '<div style="padding:6px 0;border-bottom:.5px solid #1e2a3a">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">' +
+        '<div style="font-size:11px;color:#E5E7EB;font-weight:500">' + esc(d.brand_name||'—') + (valStr ? ' <span style="color:#4B5563;font-weight:400">· ' + valStr + '</span>' : '') + '</div>' +
+        '<div style="font-size:9px;padding:2px 6px;border-radius:99px;background:' + tagBg + ';color:' + tagColor + '">' + esc(d.stage||'') + '</div>' +
+      '</div>' +
+      '<div style="height:5px;background:#1e2a3a;border-radius:3px;overflow:hidden">' +
+        '<div style="height:100%;width:' + pct + '%;background:#84CC16;border-radius:3px;transition:width .3s"></div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
 }
 
 function renderHomeNIL(p) {
@@ -3268,44 +3346,7 @@ async function disconnectGCal() {
   }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// DAILY BRIEF
-// ══════════════════════════════════════════════════════════════════
-function athBriefGetGreeting(name) {
-  var h = new Date().getHours();
-  var greet = h >= 5 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening';
-  return greet + ', ' + name + ' 👋';
-}
-
-async function loadAthleteDailyBrief() {
-  var greetEl  = document.getElementById('ath-brief-greeting');
-  var textEl   = document.getElementById('ath-brief-text');
-  var footerEl = document.getElementById('ath-brief-footer');
-  if (!greetEl || !textEl) return;
-
-  var p = athleteProfile || {};
-  var firstName = (p.name || '').split(' ')[0] || 'Athlete';
-  greetEl.textContent = athBriefGetGreeting(firstName);
-
-  // Skeleton stays in place from HTML; replace only if not already replaced
-  var timeout = new Promise(function(resolve) { setTimeout(function(){ resolve({ brief: null }); }, 8000); });
-  try {
-    var result = await Promise.race([
-      fetch('/api/athlete/daily-brief', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + athleteToken, 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      }).then(function(r){ return r.json(); }),
-      timeout
-    ]);
-    var brief = result.brief || "Welcome back! Your NIL dashboard is ready.";
-    textEl.textContent = brief;
-    if (footerEl) { footerEl.style.display = 'flex'; }
-  } catch(e) {
-    textEl.textContent = "Welcome back! Your NIL dashboard is ready — check your deliverables and deals below.";
-    if (footerEl) { footerEl.style.display = 'flex'; }
-  }
-}
+// (loadAthleteDailyBrief replaced by loadAthBrief inside renderHome/loadAthleteHome)
 
 // ══════════════════════════════════════════════════════════════════
 // MEDIA KIT

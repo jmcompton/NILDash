@@ -6177,6 +6177,140 @@ app.get('/media-kit/:slug', (req, res) => {
 // ── /Media Kit Routes ─────────────────────────────────────────────────────
 
 // ══════════════════════════════════════════════════════════════════════════
+// HOME DATA ROUTES
+// ══════════════════════════════════════════════════════════════════════════
+
+// GET /api/agent/home-data — Agent-wide stats + week deliverables for Home page
+app.get('/api/agent/home-data', requireAuth, async (req, res) => {
+  try {
+    const agentId = req.session.userId;
+    const [pipelineR, clientsR, nilR, weekDelivsR] = await Promise.all([
+      // Pipeline value + active deal count
+      store.pool.query(
+        `SELECT COUNT(*) AS deal_count,
+                COALESCE(SUM(NULLIF(data->>'value','')::numeric), 0) AS total_value
+         FROM deals
+         WHERE agent_id = $1
+           AND data->>'stage' NOT IN ('Closed','Lost')`,
+        [agentId]
+      ),
+      // Client count
+      store.pool.query(
+        `SELECT COUNT(*) AS count FROM athletes WHERE agent_id = $1`,
+        [agentId]
+      ),
+      // Total NIL earned (closed deals)
+      store.pool.query(
+        `SELECT COALESCE(SUM(NULLIF(data->>'value','')::numeric), 0) AS total
+         FROM deals
+         WHERE agent_id = $1
+           AND data->>'stage' = 'Closed'`,
+        [agentId]
+      ),
+      // Deliverables this week (Mon–Sun)
+      store.pool.query(
+        `SELECT ace.id, ace.title, ace.brand, ace.event_date::text, ace.status,
+                a.data->>'name' AS athlete_name
+         FROM athlete_calendar_events ace
+         JOIN athletes a ON ace.athlete_id = a.id
+         WHERE ace.agent_id = $1
+           AND ace.event_date >= DATE_TRUNC('week', CURRENT_DATE)
+           AND ace.event_date <  DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
+         ORDER BY ace.event_date ASC
+         LIMIT 20`,
+        [agentId]
+      ),
+    ]);
+
+    const dealCount   = parseInt(pipelineR.rows[0]?.deal_count   || 0);
+    const pipelineVal = parseFloat(pipelineR.rows[0]?.total_value || 0);
+    const clientCount = parseInt(clientsR.rows[0]?.count         || 0);
+    const nilEarned   = parseFloat(nilR.rows[0]?.total           || 0);
+
+    const fmt = v => v >= 1000 ? '$' + (v / 1000).toFixed(0) + 'K' : '$' + Math.round(v);
+
+    res.json({
+      pipeline:         fmt(pipelineVal),
+      dealCount,
+      clientCount,
+      nilEarned:        fmt(nilEarned),
+      weekDeliverables: weekDelivsR.rows,
+    });
+  } catch (e) {
+    console.error('[agent/home-data]', e.message);
+    res.json({ pipeline: '$0', dealCount: 0, clientCount: 0, nilEarned: '$0', weekDeliverables: [] });
+  }
+});
+
+// GET /api/athlete/home-data — Athlete stats + deliverables + deals for Home page
+app.get('/api/athlete/home-data', verifyAthleteToken, async (req, res) => {
+  try {
+    const athleteId = req.athlete.id;
+    const [statsR, nilR, dealsR, agentR] = await Promise.all([
+      // Deliverable counts + upcoming list
+      store.pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE event_date < CURRENT_DATE AND status != 'completed') AS overdue,
+           COUNT(*) FILTER (WHERE event_date >= CURRENT_DATE
+                              AND event_date <= CURRENT_DATE + INTERVAL '30 days'
+                              AND status != 'completed') AS upcoming,
+           COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+           COALESCE(
+             JSON_AGG(
+               JSON_BUILD_OBJECT(
+                 'title', title, 'brand', brand,
+                 'event_date', event_date::text, 'status', status
+               ) ORDER BY event_date ASC
+             ) FILTER (WHERE event_date >= CURRENT_DATE AND status != 'completed'),
+             '[]'::json
+           ) AS upcoming_list
+         FROM athlete_calendar_events
+         WHERE athlete_id = $1`,
+        [athleteId]
+      ),
+      // Total NIL value
+      store.pool.query(
+        `SELECT COALESCE(SUM(value), 0) AS total FROM athlete_self_deals WHERE athlete_id = $1`,
+        [athleteId]
+      ),
+      // Active deals
+      store.pool.query(
+        `SELECT brand_name, deal_type, value, stage
+         FROM athlete_self_deals
+         WHERE athlete_id = $1
+           AND stage NOT IN ('Completed','Lost')
+         ORDER BY updated_at DESC LIMIT 8`,
+        [athleteId]
+      ),
+      // Agent name
+      store.pool.query(
+        `SELECT u.name AS agent_name
+         FROM athletes a
+         JOIN users u ON a.agent_id = u.id
+         WHERE a.id = $1`,
+        [athleteId]
+      ),
+    ]);
+
+    const stats    = statsR.rows[0] || {};
+    const nilTotal = parseFloat(nilR.rows[0]?.total || 0);
+    const fmt      = v => v >= 1000 ? '$' + (v / 1000).toFixed(0) + 'K' : '$' + Math.round(v);
+
+    res.json({
+      overdueCount:   parseInt(stats.overdue   || 0),
+      upcomingCount:  parseInt(stats.upcoming  || 0),
+      completedCount: parseInt(stats.completed || 0),
+      nilValue:       fmt(nilTotal),
+      upcomingDelivs: (stats.upcoming_list || []).slice(0, 5),
+      activeDeals:    dealsR.rows,
+      agentName:      agentR.rows[0]?.agent_name || null,
+    });
+  } catch (e) {
+    console.error('[athlete/home-data]', e.message);
+    res.json({ overdueCount: 0, upcomingCount: 0, completedCount: 0, nilValue: '$0', upcomingDelivs: [], activeDeals: [], agentName: null });
+  }
+});
+
 // DAILY BRIEF ROUTES
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -6308,30 +6442,43 @@ app.post('/api/agent/daily-brief', requireAuth, aiLimiter, async (req, res) => {
       : 'none';
     const pipelineStr = pipelineVal > 0 ? '$' + (pipelineVal / 1000).toFixed(0) + 'K' : '$0';
 
-    const prompt = `Write a personalized daily brief for sports agent ${firstName}.
+    const prompt = `Write exactly 4 one-sentence status bullets for sports agent ${firstName}'s morning brief. Each sentence must be under 15 words. Return ONLY 4 lines — no dashes, no numbers, no labels, no extra text.
 
-Today's data:
-- Deliverables due today: ${todayDelivsStr}
-- Overdue deliverables: ${overdueStr}
-- New athlete messages today: ${msgsStr}
-- Deals needing follow up (no update in 7+ days): ${staleStr}
+Line 1 (urgent/overdue — be specific): Overdue deliverables today: ${overdueStr}
+Line 2 (deals needing action — name the brands): Stale deals (7+ days no update): ${staleStr}
+Line 3 (upcoming deliverables — be specific): Deliverables this week: ${weekDelivStr}. Closing soon: ${closingStr}
+Line 4 (big picture — pipeline and messages): Pipeline: ${pipelineStr} across ${activeDealCt} active deal${activeDealCt !== 1 ? 's' : ''}. Messages today: ${msgsStr}
 
-This week's data:
-- Deliverables due this week: ${weekDelivStr}
-- Deals expected to close this week: ${closingStr}
-- Total pipeline value: ${pipelineStr} across ${activeDealCt} active deal${activeDealCt !== 1 ? 's' : ''}
-- Active clients: ${clientCount}
+Return only 4 plain sentences, one per line, nothing else.`;
 
-Write a brief that covers both today and this week naturally in one flowing paragraph. Mention specific names when available. Sound like a friendly assistant, not a bot. Do not use bullet points — write in natural flowing sentences.`;
+    const system = "You are a concise morning brief assistant for a sports agent. Write 4 short, specific status updates — exactly one per line. Each sentence must be under 15 words. Be direct and specific with names and numbers. No filler, no formatting, no labels. Return only 4 lines.";
 
-    const system = "You are a friendly, knowledgeable assistant for a sports agent using NILDash, a NIL deal intelligence platform. Write brief, warm, human summaries — like a trusted EA giving a quick rundown. Never sound robotic or corporate. Use natural language. Be specific with names and numbers when available. Keep it concise — 3 to 5 sentences max.";
-
-    const brief = await ai.oneShot(prompt, system, 300, ai.MODEL_FAST);
-    res.json({ brief: (brief || '').trim(), generatedAt: new Date().toISOString() });
+    const rawBrief = await ai.oneShot(prompt, system, 200, ai.MODEL_FAST);
+    const bullets = (rawBrief || '').trim()
+      .split('\n')
+      .map(b => b.replace(/^[-–•*\d.)\]]\s*/, '').trim())
+      .filter(Boolean)
+      .slice(0, 4);
+    const fallbacks = [
+      'No overdue deliverables — you\'re caught up.',
+      'All active deals are moving — no stale activity.',
+      `${weekDelivCt} deliverable${weekDelivCt !== 1 ? 's' : ''} due this week.`,
+      `${activeDealCt} active deal${activeDealCt !== 1 ? 's' : ''} totaling ${pipelineStr} in pipeline.`,
+    ];
+    while (bullets.length < 4) bullets.push(fallbacks[bullets.length]);
+    res.json({ bullets, generatedAt: new Date().toISOString() });
 
   } catch (e) {
     console.error('[agent/daily-brief]', e.message);
-    res.json({ brief: "Welcome back! Your deals, clients, and deliverables are all ready in NILDash.", generatedAt: new Date().toISOString() });
+    res.json({
+      bullets: [
+        'No overdue deliverables — you\'re caught up.',
+        'All active deals are moving — no stale activity.',
+        'Check your calendar for upcoming deliverables this week.',
+        'Welcome back — your NILDash dashboard is ready.',
+      ],
+      generatedAt: new Date().toISOString(),
+    });
   }
 });
 
@@ -6430,29 +6577,43 @@ app.post('/api/athlete/daily-brief', verifyAthleteToken, aiLimiter, async (req, 
       : '$0';
     const negotiatingDeals = activeDeals.filter(d => d.stage === 'Negotiating' || d.stage === 'Closing');
 
-    const prompt = `Write a personalized daily brief for ${firstName}, a${ath.position ? ' ' + ath.position : ''} ${ath.sport || 'college'} athlete at ${ath.school || 'their university'}.
+    const prompt = `Write exactly 4 one-sentence status bullets for ${firstName}'s morning NIL brief. Each sentence must be under 15 words. Return ONLY 4 lines — no dashes, no numbers, no labels, no extra text.
 
-Today's data:
-- Deliverables due today: ${todayStr}
-- Overdue deliverables: ${overdueStr}
-- Active deals: ${dealsStr}
+Line 1 (urgent/overdue — be specific, use brand names): Overdue deliverables: ${overdueStr}. Due today: ${todayStr}
+Line 2 (deals needing attention — name the brands): Active deals: ${dealsStr}. Deals in negotiation: ${negotiatingDeals.length ? negotiatingDeals.map(d => d.brand_name).join(', ') : 'none'}
+Line 3 (upcoming this week — be specific): Deliverables this week: ${weekStr}
+Line 4 (big picture — NIL value and outreach): Total NIL tracked: ${nilStr}. Outreach sent this week: ${outreachCt}
 
-This week's data:
-- Deliverables due this week: ${weekStr}
-- Deals in negotiation: ${negotiatingDeals.length ? negotiatingDeals.map(d => d.brand_name).join(', ') : 'none'}
-- Total NIL value tracked: ${nilStr}
-- Outreach emails sent this week: ${outreachCt}
+Return only 4 plain sentences, one per line, nothing else.`;
 
-Write a brief that covers both today and this week naturally. Mention specific brand names when available. Be warm and encouraging — like a supportive friend who knows their NIL business. Do not use bullet points — write in natural flowing sentences. Note any urgent deadlines clearly but without being alarming.`;
+    const system = "You are a concise morning brief assistant for a college athlete managing their NIL. Write 4 short, specific status updates — exactly one per line. Each sentence must be under 15 words. Be encouraging and specific with brand names. No filler, no formatting, no labels. Return only 4 lines.";
 
-    const system = "You are a friendly, encouraging assistant for a college athlete using NILDash to manage their NIL deals. Write warm, human, motivating summaries — like a supportive teammate giving a quick heads up. Never sound robotic or corporate. Be specific with brand names and deadlines when available. Keep it concise — 3 to 5 sentences max.";
-
-    const brief = await ai.oneShot(prompt, system, 300, ai.MODEL_FAST);
-    res.json({ brief: (brief || '').trim(), generatedAt: new Date().toISOString() });
+    const rawBrief = await ai.oneShot(prompt, system, 200, ai.MODEL_FAST);
+    const bullets = (rawBrief || '').trim()
+      .split('\n')
+      .map(b => b.replace(/^[-–•*\d.)\]]\s*/, '').trim())
+      .filter(Boolean)
+      .slice(0, 4);
+    const fallbacks = [
+      overdueDelivs.length ? `${overdueDelivs.length} overdue deliverable${overdueDelivs.length !== 1 ? 's' : ''} need your attention.` : 'No overdue deliverables — you\'re on track.',
+      activeDeals.length ? `${activeDeals.length} active deal${activeDeals.length !== 1 ? 's' : ''} in progress.` : 'No active deals — time to start outreach.',
+      weekDelivCt > 0 ? `${weekDelivCt} deliverable${weekDelivCt !== 1 ? 's' : ''} due this week.` : 'No deliverables due this week.',
+      `Total NIL value tracked: ${nilStr}.`,
+    ];
+    while (bullets.length < 4) bullets.push(fallbacks[bullets.length]);
+    res.json({ bullets, generatedAt: new Date().toISOString() });
 
   } catch (e) {
     console.error('[athlete/daily-brief]', e.message);
-    res.json({ brief: "Welcome back! Your NIL dashboard is ready — check your deliverables and deals to stay on track.", generatedAt: new Date().toISOString() });
+    res.json({
+      bullets: [
+        'No overdue deliverables — you\'re on track.',
+        'Check your active deals and keep momentum going.',
+        'Review your calendar for upcoming deliverables this week.',
+        'Welcome back — your NIL dashboard is ready.',
+      ],
+      generatedAt: new Date().toISOString(),
+    });
   }
 });
 
