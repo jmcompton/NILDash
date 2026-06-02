@@ -297,6 +297,30 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
   <!-- ════ VIEW: HOME ════ -->
   <div class="view active" id="view-home">
+
+    <!-- ── AI Daily Brief ── -->
+    <div id="ath-daily-brief" style="background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent);border-radius:12px;padding:22px 26px;margin-bottom:16px;position:relative;overflow:hidden">
+      <div style="position:absolute;top:0;right:0;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle,rgba(132,204,22,0.06) 0%,transparent 70%);pointer-events:none"></div>
+      <div id="ath-brief-greeting" style="font-size:19px;font-weight:700;color:var(--text);margin-bottom:10px;line-height:1.2"></div>
+      <div id="ath-brief-text" style="font-size:14px;color:rgba(241,245,249,0.82);line-height:1.72;min-height:44px">
+        <div id="ath-brief-skeleton">
+          <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:14px;margin-bottom:9px;animation:brief-pulse 1.4s ease-in-out infinite"></div>
+          <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:14px;width:88%;margin-bottom:9px;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.15s"></div>
+          <div style="background:rgba(255,255,255,0.06);border-radius:6px;height:14px;width:72%;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.3s"></div>
+        </div>
+      </div>
+      <div id="ath-brief-footer" style="display:none;font-size:10px;color:var(--muted);margin-top:13px;align-items:center;gap:5px">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="rgba(132,204,22,0.5)" stroke-width="1.5"/><path d="M5 3v2.5l1.5 1" stroke="rgba(132,204,22,0.5)" stroke-width="1.2" stroke-linecap="round"/></svg>
+        Powered by AI · Updated just now
+      </div>
+    </div>
+    <style>
+      @keyframes brief-pulse {
+        0%,100% { opacity: 0.4; }
+        50%      { opacity: 0.8; }
+      }
+    </style>
+
     <div class="welcome-banner">
       <div class="welcome-name" id="h-welcome">WELCOME BACK!</div>
       <div class="welcome-meta" id="h-meta"></div>
@@ -1296,6 +1320,9 @@ function renderHome() {
   var p = athleteProfile;
   if (!p) return;
   var firstName = (p.name || '').split(' ')[0] || 'Athlete';
+
+  // Kick off AI brief immediately — it auto-fills greeting and runs async
+  loadAthleteDailyBrief();
 
   document.getElementById('h-welcome').textContent = 'WELCOME BACK, ' + firstName.toUpperCase() + '!';
   var metaParts = [p.sport, p.school, p.position, p.year].filter(Boolean);
@@ -3238,6 +3265,45 @@ async function disconnectGCal() {
     }
   } catch(e) {
     showToast('Connection error', 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DAILY BRIEF
+// ══════════════════════════════════════════════════════════════════
+function athBriefGetGreeting(name) {
+  var h = new Date().getHours();
+  var greet = h >= 5 && h < 12 ? 'Good morning' : h >= 12 && h < 17 ? 'Good afternoon' : 'Good evening';
+  return greet + ', ' + name + ' 👋';
+}
+
+async function loadAthleteDailyBrief() {
+  var greetEl  = document.getElementById('ath-brief-greeting');
+  var textEl   = document.getElementById('ath-brief-text');
+  var footerEl = document.getElementById('ath-brief-footer');
+  if (!greetEl || !textEl) return;
+
+  var p = athleteProfile || {};
+  var firstName = (p.name || '').split(' ')[0] || 'Athlete';
+  greetEl.textContent = athBriefGetGreeting(firstName);
+
+  // Skeleton stays in place from HTML; replace only if not already replaced
+  var timeout = new Promise(function(resolve) { setTimeout(function(){ resolve({ brief: null }); }, 8000); });
+  try {
+    var result = await Promise.race([
+      fetch('/api/athlete/daily-brief', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + athleteToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      }).then(function(r){ return r.json(); }),
+      timeout
+    ]);
+    var brief = result.brief || "Welcome back! Your NIL dashboard is ready.";
+    textEl.textContent = brief;
+    if (footerEl) { footerEl.style.display = 'flex'; }
+  } catch(e) {
+    textEl.textContent = "Welcome back! Your NIL dashboard is ready — check your deliverables and deals below.";
+    if (footerEl) { footerEl.style.display = 'flex'; }
   }
 }
 

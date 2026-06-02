@@ -6176,6 +6176,286 @@ app.get('/media-kit/:slug', (req, res) => {
 
 // ── /Media Kit Routes ─────────────────────────────────────────────────────
 
+// ══════════════════════════════════════════════════════════════════════════
+// DAILY BRIEF ROUTES
+// ══════════════════════════════════════════════════════════════════════════
+
+// POST /api/agent/daily-brief — AI-generated morning brief for agents
+app.post('/api/agent/daily-brief', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    const agentId = req.session.userId;
+
+    // ── Fetch all data in parallel ────────────────────────────────────────
+    const [
+      todayDelivR, overdueR, msgsR, staleDealsR,
+      weekDelivR, closingDealsR, pipelineR, clientsR, agentUser
+    ] = await Promise.all([
+      // 1. Deliverables due today
+      store.pool.query(
+        `SELECT ace.title, ace.brand, a.data->>'name' AS athlete_name
+         FROM athlete_calendar_events ace
+         JOIN athletes a ON ace.athlete_id = a.id
+         WHERE ace.agent_id = $1
+           AND ace.event_date = CURRENT_DATE
+           AND ace.status != 'completed'
+         ORDER BY ace.event_date ASC LIMIT 10`,
+        [agentId]
+      ),
+      // 2. Overdue deliverables
+      store.pool.query(
+        `SELECT ace.title, ace.brand, ace.event_date, a.data->>'name' AS athlete_name
+         FROM athlete_calendar_events ace
+         JOIN athletes a ON ace.athlete_id = a.id
+         WHERE ace.agent_id = $1
+           AND ace.event_date < CURRENT_DATE
+           AND ace.status != 'completed'
+         ORDER BY ace.event_date ASC LIMIT 8`,
+        [agentId]
+      ),
+      // 3. Athlete messages received today
+      store.pool.query(
+        `SELECT DISTINCT athlete_name FROM athlete_messages
+         WHERE agent_id = $1
+           AND DATE(sent_at) = CURRENT_DATE`,
+        [agentId]
+      ),
+      // 4. Deals stuck in active stage 7+ days
+      store.pool.query(
+        `SELECT data->>'brand' AS brand, data->>'stage' AS stage, updated_at
+         FROM deals
+         WHERE agent_id = $1
+           AND data->>'stage' IN ('Prospecting','Outreach','Negotiating','Sent')
+           AND updated_at < NOW() - INTERVAL '7 days'
+         ORDER BY updated_at ASC LIMIT 6`,
+        [agentId]
+      ),
+      // 5. Deliverables due this week
+      store.pool.query(
+        `SELECT COUNT(*) AS count,
+                ARRAY(SELECT DISTINCT a2.data->>'name'
+                      FROM athlete_calendar_events ace2
+                      JOIN athletes a2 ON ace2.athlete_id = a2.id
+                      WHERE ace2.agent_id = $1
+                        AND ace2.event_date >= CURRENT_DATE
+                        AND ace2.event_date <= CURRENT_DATE + INTERVAL '7 days'
+                        AND ace2.status != 'completed'
+                      LIMIT 5) AS athlete_names
+         FROM athlete_calendar_events ace
+         JOIN athletes a ON ace.athlete_id = a.id
+         WHERE ace.agent_id = $1
+           AND ace.event_date >= CURRENT_DATE
+           AND ace.event_date <= CURRENT_DATE + INTERVAL '7 days'
+           AND ace.status != 'completed'`,
+        [agentId]
+      ),
+      // 6. Deals in Closing stage
+      store.pool.query(
+        `SELECT data->>'brand' AS brand
+         FROM deals
+         WHERE agent_id = $1
+           AND data->>'stage' = 'Closing'`,
+        [agentId]
+      ),
+      // 7. Pipeline totals
+      store.pool.query(
+        `SELECT COUNT(*) AS deal_count,
+                COALESCE(SUM(NULLIF(data->>'value','')::numeric), 0) AS total_value
+         FROM deals
+         WHERE agent_id = $1
+           AND data->>'stage' NOT IN ('Closed','Lost')`,
+        [agentId]
+      ),
+      // 8. Client count
+      store.pool.query(
+        `SELECT COUNT(*) AS count FROM athletes WHERE agent_id = $1`,
+        [agentId]
+      ),
+      // 9. Agent user record
+      store.getUser(agentId),
+    ]);
+
+    const firstName   = ((agentUser && agentUser.name) || 'there').split(' ')[0];
+    const clientCount = parseInt(clientsR.rows[0]?.count || 0);
+    const pipelineVal = parseFloat(pipelineR.rows[0]?.total_value || 0);
+    const activeDealCt = parseInt(pipelineR.rows[0]?.deal_count || 0);
+
+    const todayDelivs   = todayDelivR.rows;
+    const overdueDelivs = overdueR.rows;
+    const todayMsgs     = msgsR.rows;
+    const staleDeals    = staleDealsR.rows;
+    const weekDelivCt   = parseInt(weekDelivR.rows[0]?.count || 0);
+    const weekAthletes  = (weekDelivR.rows[0]?.athlete_names || []).filter(Boolean);
+    const closingDeals  = closingDealsR.rows;
+
+    // ── Build context strings ─────────────────────────────────────────────
+    const todayDelivsStr = todayDelivs.length
+      ? todayDelivs.map(d => `${d.athlete_name}: ${d.title}${d.brand ? ' for ' + d.brand : ''}`).join('; ')
+      : 'none';
+    const overdueStr = overdueDelivs.length
+      ? overdueDelivs.slice(0, 5).map(d => `${d.athlete_name}: ${d.title}${d.brand ? ' ('+d.brand+')' : ''}`).join('; ')
+      : 'none';
+    const msgsStr = todayMsgs.length
+      ? `${todayMsgs.length} new message${todayMsgs.length > 1 ? 's' : ''} from ${todayMsgs.slice(0,3).map(m => m.athlete_name).join(', ')}`
+      : 'none';
+    const staleStr = staleDeals.length
+      ? staleDeals.map(d => `${d.brand || 'unnamed deal'} (${d.stage})`).join(', ')
+      : 'none';
+    const weekDelivStr = weekDelivCt > 0
+      ? `${weekDelivCt} deliverable${weekDelivCt !== 1 ? 's' : ''} for ${weekAthletes.slice(0,4).join(', ')}`
+      : 'none';
+    const closingStr = closingDeals.length
+      ? closingDeals.map(d => d.brand || 'unnamed').join(', ')
+      : 'none';
+    const pipelineStr = pipelineVal > 0 ? '$' + (pipelineVal / 1000).toFixed(0) + 'K' : '$0';
+
+    const prompt = `Write a personalized daily brief for sports agent ${firstName}.
+
+Today's data:
+- Deliverables due today: ${todayDelivsStr}
+- Overdue deliverables: ${overdueStr}
+- New athlete messages today: ${msgsStr}
+- Deals needing follow up (no update in 7+ days): ${staleStr}
+
+This week's data:
+- Deliverables due this week: ${weekDelivStr}
+- Deals expected to close this week: ${closingStr}
+- Total pipeline value: ${pipelineStr} across ${activeDealCt} active deal${activeDealCt !== 1 ? 's' : ''}
+- Active clients: ${clientCount}
+
+Write a brief that covers both today and this week naturally in one flowing paragraph. Mention specific names when available. Sound like a friendly assistant, not a bot. Do not use bullet points — write in natural flowing sentences.`;
+
+    const system = "You are a friendly, knowledgeable assistant for a sports agent using NILDash, a NIL deal intelligence platform. Write brief, warm, human summaries — like a trusted EA giving a quick rundown. Never sound robotic or corporate. Use natural language. Be specific with names and numbers when available. Keep it concise — 3 to 5 sentences max.";
+
+    const brief = await ai.oneShot(prompt, system, 300, ai.MODEL_FAST);
+    res.json({ brief: (brief || '').trim(), generatedAt: new Date().toISOString() });
+
+  } catch (e) {
+    console.error('[agent/daily-brief]', e.message);
+    res.json({ brief: "Welcome back! Your deals, clients, and deliverables are all ready in NILDash.", generatedAt: new Date().toISOString() });
+  }
+});
+
+// POST /api/athlete/daily-brief — AI-generated morning brief for athletes (JWT auth)
+app.post('/api/athlete/daily-brief', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const athleteId = req.athlete.id;
+
+    // ── Fetch athlete profile ─────────────────────────────────────────────
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' AS name, a.data->>'sport' AS sport,
+              a.data->>'school' AS school, a.data->>'position' AS position
+       FROM athletes a WHERE a.id = $1`,
+      [athleteId]
+    );
+    const ath = athR.rows[0] || {};
+    const firstName = (ath.name || 'Athlete').split(' ')[0];
+
+    // ── Fetch all data in parallel ────────────────────────────────────────
+    const [todayR, overdueR, dealsR, weekR, nilR, outreachR] = await Promise.all([
+      // 1. Deliverables due today
+      store.pool.query(
+        `SELECT title, brand, event_date FROM athlete_calendar_events
+         WHERE athlete_id = $1
+           AND event_date = CURRENT_DATE
+           AND status != 'completed'
+         ORDER BY event_date ASC LIMIT 8`,
+        [athleteId]
+      ),
+      // 2. Overdue deliverables
+      store.pool.query(
+        `SELECT title, brand, event_date FROM athlete_calendar_events
+         WHERE athlete_id = $1
+           AND event_date < CURRENT_DATE
+           AND status != 'completed'
+         ORDER BY event_date ASC LIMIT 5`,
+        [athleteId]
+      ),
+      // 3. Active self-managed deals
+      store.pool.query(
+        `SELECT brand_name, deal_type, value, stage FROM athlete_self_deals
+         WHERE athlete_id = $1
+           AND stage NOT IN ('Completed','Lost')
+         ORDER BY updated_at DESC LIMIT 6`,
+        [athleteId]
+      ),
+      // 4. Deliverables due this week
+      store.pool.query(
+        `SELECT COUNT(*) AS count,
+                ARRAY_AGG(DISTINCT brand) FILTER (WHERE brand IS NOT NULL) AS brands
+         FROM athlete_calendar_events
+         WHERE athlete_id = $1
+           AND event_date >= CURRENT_DATE
+           AND event_date <= CURRENT_DATE + INTERVAL '7 days'
+           AND status != 'completed'`,
+        [athleteId]
+      ),
+      // 5. Total NIL value from self-managed deals
+      store.pool.query(
+        `SELECT COALESCE(SUM(value), 0) AS total FROM athlete_self_deals
+         WHERE athlete_id = $1`,
+        [athleteId]
+      ),
+      // 6. Outreach sent this week
+      store.pool.query(
+        `SELECT COUNT(*) AS count FROM athlete_brand_outreach
+         WHERE athlete_id = $1
+           AND created_at >= NOW() - INTERVAL '7 days'`,
+        [athleteId]
+      ),
+    ]);
+
+    const todayDelivs   = todayR.rows;
+    const overdueDelivs = overdueR.rows;
+    const activeDeals   = dealsR.rows;
+    const weekDelivCt   = parseInt(weekR.rows[0]?.count || 0);
+    const weekBrands    = (weekR.rows[0]?.brands || []).filter(Boolean);
+    const totalNIL      = parseFloat(nilR.rows[0]?.total || 0);
+    const outreachCt    = parseInt(outreachR.rows[0]?.count || 0);
+
+    // ── Build context strings ─────────────────────────────────────────────
+    const todayStr = todayDelivs.length
+      ? todayDelivs.map(d => `${d.title}${d.brand ? ' for ' + d.brand : ''}`).join('; ')
+      : 'nothing due today';
+    const overdueStr = overdueDelivs.length
+      ? overdueDelivs.map(d => `${d.title}${d.brand ? ' ('+d.brand+')' : ''}`).join('; ')
+      : 'none';
+    const dealsStr = activeDeals.length
+      ? activeDeals.map(d => `${d.brand_name} (${d.stage}${d.value ? ', $'+Number(d.value).toLocaleString() : ''})`).join(', ')
+      : 'none';
+    const weekStr = weekDelivCt > 0
+      ? `${weekDelivCt} deliverable${weekDelivCt !== 1 ? 's' : ''}${weekBrands.length ? ' for ' + weekBrands.slice(0,4).join(', ') : ''}`
+      : 'none';
+    const nilStr = totalNIL > 0
+      ? '$' + (totalNIL >= 1000 ? (totalNIL / 1000).toFixed(0) + 'K' : totalNIL.toFixed(0))
+      : '$0';
+    const negotiatingDeals = activeDeals.filter(d => d.stage === 'Negotiating' || d.stage === 'Closing');
+
+    const prompt = `Write a personalized daily brief for ${firstName}, a${ath.position ? ' ' + ath.position : ''} ${ath.sport || 'college'} athlete at ${ath.school || 'their university'}.
+
+Today's data:
+- Deliverables due today: ${todayStr}
+- Overdue deliverables: ${overdueStr}
+- Active deals: ${dealsStr}
+
+This week's data:
+- Deliverables due this week: ${weekStr}
+- Deals in negotiation: ${negotiatingDeals.length ? negotiatingDeals.map(d => d.brand_name).join(', ') : 'none'}
+- Total NIL value tracked: ${nilStr}
+- Outreach emails sent this week: ${outreachCt}
+
+Write a brief that covers both today and this week naturally. Mention specific brand names when available. Be warm and encouraging — like a supportive friend who knows their NIL business. Do not use bullet points — write in natural flowing sentences. Note any urgent deadlines clearly but without being alarming.`;
+
+    const system = "You are a friendly, encouraging assistant for a college athlete using NILDash to manage their NIL deals. Write warm, human, motivating summaries — like a supportive teammate giving a quick heads up. Never sound robotic or corporate. Be specific with brand names and deadlines when available. Keep it concise — 3 to 5 sentences max.";
+
+    const brief = await ai.oneShot(prompt, system, 300, ai.MODEL_FAST);
+    res.json({ brief: (brief || '').trim(), generatedAt: new Date().toISOString() });
+
+  } catch (e) {
+    console.error('[athlete/daily-brief]', e.message);
+    res.json({ brief: "Welcome back! Your NIL dashboard is ready — check your deliverables and deals to stay on track.", generatedAt: new Date().toISOString() });
+  }
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
