@@ -5998,6 +5998,184 @@ app.use('/icons', (req, res, next) => {
   next();
 }, require('express').static(path.join(__dirname, '..', 'public', 'icons')));
 
+// ── Media Kit Routes ──────────────────────────────────────────────────────
+
+// GET /api/athlete/media-kit — load saved media kit (athlete auth)
+app.get('/api/athlete/media-kit', verifyAthleteToken, async (req, res) => {
+  try {
+    const mkR = await store.pool.query(
+      'SELECT * FROM media_kits WHERE athlete_id = $1',
+      [req.athlete.id]
+    );
+    if (!mkR.rows.length) return res.json({ mediaKit: null, rateCards: [] });
+    const mk = mkR.rows[0];
+    const rcR = await store.pool.query(
+      'SELECT * FROM media_kit_rate_cards WHERE media_kit_id = $1 ORDER BY id',
+      [mk.id]
+    );
+    res.json({ mediaKit: mk, rateCards: rcR.rows });
+  } catch (e) {
+    console.error('[media-kit GET]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/athlete/media-kit/save — save/update media kit (athlete auth)
+app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => {
+  try {
+    const {
+      instagram_handle, instagram_followers, instagram_engagement,
+      tiktok_handle, tiktok_followers,
+      twitter_handle, twitter_followers,
+      bio, primary_color, secondary_color, rateCards
+    } = req.body;
+
+    // Fetch athlete name for slug generation
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name FROM athletes a WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    const athleteName = athR.rows[0]?.name || req.athlete.id;
+    const baseSlug = athleteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-nil';
+
+    // Upsert media kit
+    const mkR = await store.pool.query(
+      `INSERT INTO media_kits
+         (athlete_id, instagram_handle, instagram_followers, instagram_engagement,
+          tiktok_handle, tiktok_followers, twitter_handle, twitter_followers,
+          bio, primary_color, secondary_color, slug, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
+       ON CONFLICT (athlete_id) DO UPDATE SET
+         instagram_handle = EXCLUDED.instagram_handle,
+         instagram_followers = EXCLUDED.instagram_followers,
+         instagram_engagement = EXCLUDED.instagram_engagement,
+         tiktok_handle = EXCLUDED.tiktok_handle,
+         tiktok_followers = EXCLUDED.tiktok_followers,
+         twitter_handle = EXCLUDED.twitter_handle,
+         twitter_followers = EXCLUDED.twitter_followers,
+         bio = EXCLUDED.bio,
+         primary_color = EXCLUDED.primary_color,
+         secondary_color = EXCLUDED.secondary_color,
+         slug = COALESCE(media_kits.slug, EXCLUDED.slug),
+         updated_at = NOW()
+       RETURNING *`,
+      [req.athlete.id, instagram_handle||null, instagram_followers||null, instagram_engagement||null,
+       tiktok_handle||null, tiktok_followers||null, twitter_handle||null, twitter_followers||null,
+       bio||null, primary_color||null, secondary_color||null, baseSlug]
+    );
+    const mk = mkR.rows[0];
+
+    // Replace rate cards
+    await store.pool.query('DELETE FROM media_kit_rate_cards WHERE media_kit_id = $1', [mk.id]);
+    if (Array.isArray(rateCards) && rateCards.length) {
+      for (const rc of rateCards) {
+        if (!rc.service_type || !rc.price) continue;
+        await store.pool.query(
+          'INSERT INTO media_kit_rate_cards (media_kit_id, service_type, price, notes) VALUES ($1,$2,$3,$4)',
+          [mk.id, rc.service_type, parseInt(rc.price)||0, rc.notes||'']
+        );
+      }
+    }
+
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    const shareUrl = `${appUrl}/media-kit/${mk.slug}`;
+    console.log(`[media-kit save] athlete=${req.athlete.id} slug=${mk.slug}`);
+    res.json({ ok: true, slug: mk.slug, shareUrl });
+  } catch (e) {
+    console.error('[media-kit save]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/athlete/generate-bio — AI-generated NIL bio (athlete auth)
+app.post('/api/athlete/generate-bio', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name, a.data->>'sport' as sport,
+              a.data->>'school' as school, a.data->>'position' as position,
+              a.data->>'instagram' as ig_followers
+       FROM athletes a WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const ath = athR.rows[0];
+    const igCount = parseInt(ath.ig_followers) || 0;
+    const igStr = igCount > 0 ? `${igCount.toLocaleString()} Instagram followers` : '';
+
+    const prompt = `Write a 2-sentence NIL media kit bio for ${ath.name}, a ${ath.position ? ath.position + ' ' : ''}${ath.sport || 'college'} athlete at ${ath.school || 'their university'}${igStr ? ` with ${igStr}` : ''}. Focus on their athletic credibility and brand appeal. Sound authentic and human, not corporate or generic. Under 150 characters total.`;
+    const system = 'You are a professional NIL sports marketing copywriter. Write compelling, authentic athlete bios for brand partnership media kits. Your bios sound like they were written by a real person, not a corporation. They are confident, specific, and highlight the athlete\'s unique value to brands. Return only the bio text, no quotes or extra commentary.';
+
+    const bio = await ai.oneShot(prompt, system);
+    res.json({ bio: (bio || '').trim().slice(0, 300) });
+  } catch (e) {
+    console.error('[generate-bio]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/media-kit/:slug — public data endpoint (no auth)
+app.get('/api/media-kit/:slug', async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const mkR = await store.pool.query('SELECT * FROM media_kits WHERE slug = $1', [slug]);
+    if (!mkR.rows.length) return res.status(404).json({ error: 'Media kit not found' });
+    const mk = mkR.rows[0];
+
+    // Get athlete name/sport/school/position
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name, a.data->>'sport' as sport,
+              a.data->>'school' as school, a.data->>'position' as position
+       FROM athletes a WHERE a.id = $1`,
+      [mk.athlete_id]
+    );
+    const ath = athR.rows[0] || {};
+
+    const rcR = await store.pool.query(
+      'SELECT * FROM media_kit_rate_cards WHERE media_kit_id = $1 ORDER BY id',
+      [mk.id]
+    );
+    res.json({
+      ...mk,
+      athlete_name: ath.name || '',
+      sport: ath.sport || '',
+      school: ath.school || '',
+      position: ath.position || '',
+      rateCards: rcR.rows,
+    });
+  } catch (e) {
+    console.error('[api/media-kit/:slug]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/athletes/media-kit-status — agent: check which athletes have media kits
+app.get('/api/agents/media-kit-status', requireAuth, async (req, res) => {
+  try {
+    const athR = await store.pool.query(
+      'SELECT id FROM athletes WHERE agent_id = $1',
+      [req.session.userId]
+    );
+    const ids = athR.rows.map(r => r.id);
+    if (!ids.length) return res.json({ kits: {} });
+    const mkR = await store.pool.query(
+      'SELECT athlete_id, slug FROM media_kits WHERE athlete_id = ANY($1)',
+      [ids]
+    );
+    const kits = {};
+    mkR.rows.forEach(r => { kits[r.athlete_id] = r.slug; });
+    res.json({ kits });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Public route: /media-kit/:slug serves the standalone media kit page
+app.get('/media-kit/:slug', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'media-kit.html'));
+});
+
+// ── /Media Kit Routes ─────────────────────────────────────────────────────
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });

@@ -6103,6 +6103,54 @@ async function sendAthleteOutreach() {
   }
 }
 
+async function loadAthletePortals() {
+  const list = document.getElementById('athlete-portals-list');
+  if (!list) return;
+  list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">Loading clients…</div>';
+  try {
+    const [athRes, mkRes] = await Promise.all([
+      fetch(API_BASE + '/api/athletes'),
+      fetch(API_BASE + '/api/agents/media-kit-status')
+    ]);
+    const athletes = await athRes.json();
+    const mkData = mkRes.ok ? await mkRes.json() : { kits: {} };
+    const kits = mkData.kits || {};
+
+    if (!athletes.length) {
+      list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px">No clients yet. Add athletes from the roster.</div>';
+      return;
+    }
+
+    list.innerHTML = athletes.map(function(a) {
+      const slug = kits[a.id];
+      const hasKit = !!slug;
+      const initials = (a.name || 'N A').split(' ').slice(0,2).map(n => (n[0]||'').toUpperCase()).join('');
+      const colors = ['rgba(74,222,128,0.15)','rgba(96,165,250,0.15)','rgba(245,158,11,0.15)','rgba(167,139,250,0.15)'];
+      const textColors = ['#4ade80','#60a5fa','#f59e0b','#a78bfa'];
+      const ci = Math.abs(((a.name||'').charCodeAt(0)||0)) % 4;
+
+      return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">
+          <div style="width:40px;height:40px;border-radius:50%;background:${colors[ci]};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:${textColors[ci]};flex-shrink:0">${escHtml(initials)}</div>
+          <div style="min-width:0">
+            <div style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(a.name||'Unknown')}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">${escHtml([a.sport, a.position, a.school].filter(Boolean).join(' · ') || 'No details')}</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          ${hasKit
+            ? `<span style="font-size:10px;font-weight:700;background:rgba(132,204,22,0.12);color:#84CC16;border-radius:4px;padding:2px 8px;text-transform:uppercase;letter-spacing:0.05em">Kit Ready</span>
+               <button onclick="window.open('/media-kit/${escHtml(slug)}','_blank')" style="padding:6px 14px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:6px;color:#84CC16;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit">📋 View Media Kit</button>`
+            : `<span style="font-size:10px;font-weight:600;color:var(--muted);font-style:italic">No media kit yet</span>`
+          }
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--red);text-align:center;padding:40px">Failed to load: ' + e.message + '</div>';
+  }
+}
+
 async function loadAgentOutreach() {
   const el = document.getElementById('agent-outreach-list');
   if (!el) return;

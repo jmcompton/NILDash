@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NIL Media Kit — NILDash</title>
+<link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:#1a1a2e}
+
+/* ── Topbar (screen only) ── */
+.topbar{background:#0A0E1A;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.08)}
+.topbar-logo{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:0.04em;color:#fff}
+.topbar-logo span{color:#84CC16}
+.topbar-actions{display:flex;gap:10px;align-items:center}
+.btn-share{background:transparent;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.7);padding:7px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s}
+.btn-share:hover{border-color:#84CC16;color:#84CC16}
+.btn-pdf{background:#84CC16;border:none;color:#0A0E1A;padding:8px 18px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;display:flex;align-items:center;gap:6px}
+.btn-pdf:hover{background:#96e020}
+
+/* ── Wrapper ── */
+.page-wrap{max-width:860px;margin:32px auto;padding:0 20px 60px}
+
+/* ── Media Kit Card ── */
+.mk-card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 32px rgba(0,0,0,0.10)}
+
+/* ── Header ── */
+.mk-header{padding:32px 40px 28px;display:flex;align-items:center;gap:24px}
+.mk-avatar{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#fff;flex-shrink:0;border:3px solid rgba(255,255,255,0.3);text-transform:uppercase}
+.mk-header-text{flex:1}
+.mk-name{font-family:'DM Sans',sans-serif;font-size:32px;font-weight:800;color:#fff;line-height:1.1;letter-spacing:-0.01em}
+.mk-meta{font-size:15px;color:rgba(255,255,255,0.75);margin-top:5px;font-weight:500}
+
+/* ── Stats Row ── */
+.mk-stats{background:#f8fafc;border-bottom:1px solid #e8edf2;padding:20px 40px;display:flex;gap:0}
+.mk-stat-box{flex:1;padding:14px 20px;text-align:center;border-right:1px solid #e8edf2}
+.mk-stat-box:last-child{border-right:none}
+.mk-stat-platform{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#94a3b8;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:5px}
+.mk-stat-count{font-size:28px;font-weight:800;color:#1a1a2e;line-height:1;font-variant-numeric:tabular-nums}
+.mk-stat-handle{font-size:12px;color:#94a3b8;margin-top:4px}
+.mk-stat-eng{font-size:10px;font-weight:600;color:#84CC16;margin-top:3px}
+
+/* ── Body ── */
+.mk-body{padding:32px 40px}
+
+/* ── Bio Section ── */
+.mk-section{margin-bottom:28px}
+.mk-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:12px}
+.mk-bio-text{font-size:15px;line-height:1.7;color:#334155;padding-left:14px;border-radius:2px}
+
+/* ── Rate Card ── */
+.mk-rate-table{width:100%;border-collapse:collapse}
+.mk-rate-table th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#94a3b8;padding:10px 16px;text-align:left;border-bottom:2px solid #f1f5f9}
+.mk-rate-table td{padding:12px 16px;font-size:14px;border-bottom:1px solid #f1f5f9}
+.mk-rate-table tr:last-child td{border-bottom:none}
+.mk-rate-table tr:nth-child(even) td{background:#f8fafc}
+.mk-rate-price{font-weight:700;font-size:15px;text-align:right;font-variant-numeric:tabular-nums}
+.mk-rate-notes{font-size:12px;color:#94a3b8;margin-top:2px}
+
+/* ── Footer ── */
+.mk-footer{padding:0 40px 28px;display:flex;align-items:center;justify-content:space-between}
+.mk-footer-bar{height:4px;border-radius:0 0 0 0;margin:0 0 20px}
+.mk-powered{font-size:11px;color:#94a3b8}
+.mk-powered strong{color:#64748b}
+.mk-created{font-size:11px;color:#cbd5e1}
+
+/* ── Loading / Error ── */
+#loading-state,#error-state{display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:16px}
+.spinner{width:32px;height:32px;border:3px solid rgba(132,204,22,0.2);border-top-color:#84CC16;border-radius:50%;animation:spin 0.7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:13px;color:#64748b}
+.error-icon{font-size:40px}
+.error-title{font-size:18px;font-weight:700;color:#1a1a2e}
+.error-sub{font-size:13px;color:#64748b}
+
+/* ── Print styles ── */
+@media print {
+  .topbar,.topbar-actions,.btn-pdf,.btn-share{display:none!important}
+  body{background:#fff}
+  .page-wrap{margin:0;padding:0;max-width:100%}
+  .mk-card{box-shadow:none;border-radius:0}
+  @page{size:letter portrait;margin:0.5in}
+}
+
+/* ── Copy toast ── */
+.copy-toast{position:fixed;bottom:24px;right:24px;background:#1a1a2e;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;opacity:0;transition:opacity 0.25s;pointer-events:none;z-index:9999}
+.copy-toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- Topbar (screen only) -->
+<div class="topbar">
+  <div class="topbar-logo">NIL<span>Dash</span></div>
+  <div class="topbar-actions">
+    <button class="btn-share" onclick="copyLink()">🔗 Copy Link</button>
+    <button class="btn-pdf" onclick="window.print()">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 9V12H12V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 2V9M4 6L7 9L10 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Download PDF
+    </button>
+  </div>
+</div>
+
+<!-- States -->
+<div id="loading-state">
+  <div class="spinner"></div>
+  <div class="loading-text">Loading media kit…</div>
+</div>
+<div id="error-state" style="display:none">
+  <div class="error-icon">📋</div>
+  <div class="error-title">Media kit not found</div>
+  <div class="error-sub">This link may be invalid or the media kit may have been removed.</div>
+</div>
+
+<!-- Media Kit Content -->
+<div class="page-wrap" id="mk-content" style="display:none">
+  <div class="mk-card" id="mk-card">
+
+    <!-- Header (color set by JS) -->
+    <div class="mk-header" id="mk-header">
+      <div class="mk-avatar" id="mk-avatar"></div>
+      <div class="mk-header-text">
+        <div class="mk-name" id="mk-name"></div>
+        <div class="mk-meta" id="mk-meta"></div>
+      </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="mk-stats" id="mk-stats"></div>
+
+    <!-- Body -->
+    <div class="mk-body">
+
+      <!-- Bio -->
+      <div class="mk-section" id="mk-bio-section" style="display:none">
+        <div class="mk-section-title">About</div>
+        <div class="mk-bio-text" id="mk-bio-text"></div>
+      </div>
+
+      <!-- Rate Card -->
+      <div class="mk-section" id="mk-rates-section" style="display:none">
+        <div class="mk-section-title">Rate Card</div>
+        <table class="mk-rate-table">
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th style="text-align:right">Rate</th>
+            </tr>
+          </thead>
+          <tbody id="mk-rate-tbody"></tbody>
+        </table>
+      </div>
+
+    </div><!-- /mk-body -->
+
+    <!-- Footer bar + text -->
+    <div class="mk-footer-bar" id="mk-footer-bar"></div>
+    <div class="mk-footer">
+      <div class="mk-powered">Powered by <strong>NILDash</strong> · mynildash.com</div>
+      <div class="mk-created" id="mk-updated"></div>
+    </div>
+
+  </div><!-- /mk-card -->
+</div><!-- /page-wrap -->
+
+<div class="copy-toast" id="copy-toast">🔗 Link copied!</div>
+
+<script>
+var slug = window.location.pathname.replace('/media-kit/', '').replace(/\//g,'');
+var kitData = null;
+
+// Platform SVG icons (inline)
+var ICONS = {
+  instagram: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E1306C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1" fill="#E1306C" stroke="none"/></svg>',
+  tiktok:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>',
+  twitter:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
+};
+
+function fmtFollowers(n) {
+  if (!n) return null;
+  if (n >= 1000000) return (n/1000000).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1000)    return Math.round(n/1000) + 'K';
+  return String(n);
+}
+
+function fmtCurrency(n) {
+  return '$' + Number(n).toLocaleString('en-US');
+}
+
+function render(data) {
+  kitData = data;
+  var primary   = data.primary_color   || '#1a1a2e';
+  var secondary = data.secondary_color || '#84CC16';
+  var name      = data.athlete_name    || 'Athlete';
+  var metaParts = [data.position, data.sport, data.school].filter(Boolean);
+  var initials  = name.split(' ').map(function(w){ return w[0]||''; }).join('').slice(0,2).toUpperCase();
+
+  // Header
+  var header = document.getElementById('mk-header');
+  header.style.background = 'linear-gradient(135deg, ' + primary + ' 0%, ' + adjustColor(primary, -20) + ' 100%)';
+  document.getElementById('mk-avatar').textContent = initials;
+  document.getElementById('mk-avatar').style.background = 'rgba(255,255,255,0.15)';
+  document.getElementById('mk-name').textContent = name;
+  document.getElementById('mk-meta').textContent = metaParts.join(' · ');
+
+  // Page title
+  document.title = name + ' — NIL Media Kit';
+
+  // Stats
+  var statBoxes = [];
+  if (data.instagram_handle || data.instagram_followers) {
+    var igCount = fmtFollowers(data.instagram_followers);
+    statBoxes.push(
+      '<div class="mk-stat-box">' +
+        '<div class="mk-stat-platform">' + ICONS.instagram + ' Instagram</div>' +
+        (igCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + igCount + '</div>' : '') +
+        (data.instagram_handle ? '<div class="mk-stat-handle">@' + data.instagram_handle + '</div>' : '') +
+        (data.instagram_engagement ? '<div class="mk-stat-eng">' + data.instagram_engagement + ' engagement</div>' : '') +
+      '</div>'
+    );
+  }
+  if (data.tiktok_handle || data.tiktok_followers) {
+    var ttCount = fmtFollowers(data.tiktok_followers);
+    statBoxes.push(
+      '<div class="mk-stat-box">' +
+        '<div class="mk-stat-platform">' + ICONS.tiktok + ' TikTok</div>' +
+        (ttCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + ttCount + '</div>' : '') +
+        (data.tiktok_handle ? '<div class="mk-stat-handle">@' + data.tiktok_handle + '</div>' : '') +
+      '</div>'
+    );
+  }
+  if (data.twitter_handle || data.twitter_followers) {
+    var twCount = fmtFollowers(data.twitter_followers);
+    statBoxes.push(
+      '<div class="mk-stat-box">' +
+        '<div class="mk-stat-platform">' + ICONS.twitter + ' Twitter / X</div>' +
+        (twCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + twCount + '</div>' : '') +
+        (data.twitter_handle ? '<div class="mk-stat-handle">@' + data.twitter_handle + '</div>' : '') +
+      '</div>'
+    );
+  }
+  var statsEl = document.getElementById('mk-stats');
+  if (statBoxes.length) {
+    statsEl.innerHTML = statBoxes.join('');
+    statsEl.style.display = 'flex';
+  } else {
+    statsEl.style.display = 'none';
+  }
+
+  // Bio
+  if (data.bio) {
+    document.getElementById('mk-bio-section').style.display = 'block';
+    var bioEl = document.getElementById('mk-bio-text');
+    bioEl.textContent = data.bio;
+    bioEl.style.borderLeft = '4px solid ' + primary;
+    bioEl.style.paddingLeft = '16px';
+  }
+
+  // Rate card
+  var rates = data.rateCards || [];
+  if (rates.length) {
+    document.getElementById('mk-rates-section').style.display = 'block';
+    document.getElementById('mk-rate-tbody').innerHTML = rates.map(function(r, i) {
+      var rowBg = i % 2 === 1 ? '#f8fafc' : '#fff';
+      return '<tr style="background:' + rowBg + '">' +
+        '<td><div style="font-weight:600;color:#1e293b">' + escHtml(r.service_type) + '</div>' +
+        (r.notes ? '<div class="mk-rate-notes">' + escHtml(r.notes) + '</div>' : '') + '</td>' +
+        '<td class="mk-rate-price" style="color:' + primary + '">' + fmtCurrency(r.price) + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  // Footer bar
+  document.getElementById('mk-footer-bar').style.background = secondary;
+  if (data.updated_at) {
+    document.getElementById('mk-updated').textContent = 'Updated ' + new Date(data.updated_at).toLocaleDateString('en-US', { month:'short', year:'numeric' });
+  }
+
+  // Show content
+  document.getElementById('loading-state').style.display = 'none';
+  document.getElementById('mk-content').style.display = 'block';
+
+  // Auto-print if ?print=1
+  if (window.location.search.includes('print=1')) {
+    setTimeout(function(){ window.print(); }, 800);
+  }
+}
+
+function adjustColor(hex, amount) {
+  // Slightly darken/lighten a hex color for gradient
+  try {
+    var num = parseInt(hex.replace('#',''), 16);
+    var r = Math.max(0, Math.min(255, (num >> 16) + amount));
+    var g = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amount));
+    var b = Math.max(0, Math.min(255, (num & 0x0000FF) + amount));
+    return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+  } catch(e) { return hex; }
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function copyLink() {
+  var url = window.location.href.split('?')[0];
+  navigator.clipboard.writeText(url).catch(function(){
+    var el = document.createElement('textarea');
+    el.value = url;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  });
+  var toast = document.getElementById('copy-toast');
+  toast.classList.add('show');
+  setTimeout(function(){ toast.classList.remove('show'); }, 2200);
+}
+
+// Fetch and render
+fetch('/api/media-kit/' + slug)
+  .then(function(r) {
+    if (!r.ok) throw new Error('not found');
+    return r.json();
+  })
+  .then(function(data) {
+    if (data.error) throw new Error(data.error);
+    render(data);
+  })
+  .catch(function(e) {
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('error-state').style.display = 'flex';
+    console.error('[media-kit]', e);
+  });
+</script>
+</body>
+</html>

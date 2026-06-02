@@ -603,6 +603,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <button id="mkt-tab-btn-ideas" class="mkt-tab-btn active" onclick="switchMktTab('ideas')">Content Ideas</button>
       <button id="mkt-tab-btn-outreach" class="mkt-tab-btn" onclick="switchMktTab('outreach')">Generate Outreach</button>
       <button id="mkt-tab-btn-scores" class="mkt-tab-btn" onclick="switchMktTab('scores')">NIL Scores</button>
+      <button id="mkt-tab-btn-mediakit" class="mkt-tab-btn" onclick="switchMktTab('mediakit')">📋 Media Kit</button>
     </div>
 
     <!-- TAB: Content Ideas -->
@@ -680,6 +681,162 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div id="mkt-scores-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Loading scores…</div>
       <div id="mkt-scores-result" style="display:none"></div>
     </div>
+
+    <!-- TAB: Media Kit -->
+    <div id="mkt-panel-mediakit" style="display:none">
+      <div style="display:grid;grid-template-columns:45% 1fr;gap:20px;align-items:start">
+
+        <!-- ── LEFT: Form ── -->
+        <div>
+
+          <!-- Section 1: Profile (read-only) -->
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:12px">Your Profile</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:2px">NAME</div>
+                <div style="font-size:12px;font-weight:600;color:var(--text)" id="mk-prof-name">—</div>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:2px">SPORT</div>
+                <div style="font-size:12px;font-weight:600;color:var(--text)" id="mk-prof-sport">—</div>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:2px">SCHOOL</div>
+                <div style="font-size:12px;font-weight:600;color:var(--text)" id="mk-prof-school">—</div>
+              </div>
+              <div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:2px">POSITION</div>
+                <div style="font-size:12px;font-weight:600;color:var(--text)" id="mk-prof-position">—</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: Colors -->
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:12px">School Colors <span style="color:var(--accent);font-size:9px;font-weight:600;margin-left:6px">AUTO-DETECTED</span></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div>
+                <label class="form-label">Primary Color</label>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <input type="color" id="mk-color-primary" value="#1a1a2e" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px">
+                  <input type="text" id="mk-color-primary-hex" class="form-input" value="#1a1a2e" oninput="mkSyncColorFromHex('primary',this.value)" style="flex:1;font-size:12px">
+                </div>
+              </div>
+              <div>
+                <label class="form-label">Secondary Color</label>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <input type="color" id="mk-color-secondary" value="#84CC16" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px">
+                  <input type="text" id="mk-color-secondary-hex" class="form-input" value="#84CC16" oninput="mkSyncColorFromHex('secondary',this.value)" style="flex:1;font-size:12px">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 3: Social Media Stats -->
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:12px">Social Media Stats</div>
+            <!-- Instagram -->
+            <div style="margin-bottom:12px">
+              <div style="font-size:10px;font-weight:600;color:#E1306C;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Instagram</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                <div>
+                  <label class="form-label">Handle</label>
+                  <input id="mk-ig-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px">
+                </div>
+                <div>
+                  <label class="form-label">Followers</label>
+                  <input id="mk-ig-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px">
+                </div>
+                <div>
+                  <label class="form-label">Engagement</label>
+                  <input id="mk-ig-engagement" class="form-input" placeholder="4.2%" oninput="mkUpdatePreview()" style="font-size:12px">
+                </div>
+              </div>
+            </div>
+            <!-- TikTok -->
+            <div style="margin-bottom:12px">
+              <div style="font-size:10px;font-weight:600;color:#69C9D0;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">TikTok</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div>
+                  <label class="form-label">Handle</label>
+                  <input id="mk-tt-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px">
+                </div>
+                <div>
+                  <label class="form-label">Followers</label>
+                  <input id="mk-tt-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px">
+                </div>
+              </div>
+            </div>
+            <!-- Twitter -->
+            <div>
+              <div style="font-size:10px;font-weight:600;color:#1DA1F2;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Twitter / X</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div>
+                  <label class="form-label">Handle</label>
+                  <input id="mk-tw-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px">
+                </div>
+                <div>
+                  <label class="form-label">Followers</label>
+                  <input id="mk-tw-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 4: Bio -->
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted)">Bio</div>
+              <span id="mk-bio-counter" style="font-size:10px;color:var(--muted)">0/150</span>
+            </div>
+            <textarea id="mk-bio" class="form-textarea" rows="4" maxlength="200" placeholder="Write a compelling 2-sentence bio for brand partnerships…" oninput="mkUpdateBioCount();mkUpdatePreview()" style="font-size:13px;resize:none"></textarea>
+            <button id="mk-bio-btn" onclick="mkGenerateBio()" class="btn btn-ghost" style="margin-top:8px;width:100%;justify-content:center;font-size:12px">✨ AI Generate Bio</button>
+          </div>
+
+          <!-- Section 5: Rate Card -->
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted)">Rate Card</div>
+              <button onclick="mkAddRateRow()" class="btn btn-ghost btn-sm" style="font-size:11px">+ Add Service</button>
+            </div>
+            <div id="mk-rate-rows">
+              <div style="text-align:center;padding:12px;color:var(--muted);font-size:12px">No services added yet</div>
+            </div>
+          </div>
+
+          <!-- Section 6: Actions -->
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button id="mk-save-btn" onclick="mkSave()" class="btn btn-primary" style="justify-content:center">💾 Save Media Kit</button>
+            <button id="mk-link-btn" onclick="mkGenerateLink()" class="btn btn-ghost" style="justify-content:center">🔗 Generate Shareable Link</button>
+            <button id="mk-pdf-btn" onclick="mkDownloadPDF()" class="btn btn-ghost" style="justify-content:center">⬇️ Download PDF</button>
+          </div>
+
+          <!-- Share URL section (hidden until saved) -->
+          <div id="mk-share-section" style="display:none;margin-top:12px;background:rgba(132,204,22,0.06);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r);padding:14px">
+            <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Your Shareable Link</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div id="mk-share-url" style="flex:1;font-size:11px;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+              <button onclick="mkCopyLink()" class="btn btn-primary btn-sm" style="white-space:nowrap;font-size:11px">Copy</button>
+              <button onclick="mkOpenPublicPage()" class="btn btn-ghost btn-sm" style="white-space:nowrap;font-size:11px">Open</button>
+            </div>
+          </div>
+
+        </div><!-- /left form -->
+
+        <!-- ── RIGHT: Live Preview ── -->
+        <div style="position:sticky;top:70px">
+          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:10px">Live Preview</div>
+          <div id="mk-preview-wrap" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.18);min-height:300px">
+            <div id="mk-preview" style="font-family:'DM Sans',sans-serif">
+              <div style="padding:40px;text-align:center;color:#94a3b8;font-size:13px">Fill in your details to see the preview</div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /grid -->
+    </div><!-- /mkt-panel-mediakit -->
+
   </div>
 
   <!-- ════ VIEW: CALENDAR ════ -->
@@ -2033,12 +2190,13 @@ async function submitOutreach() {
 // MARKETING
 // ══════════════════════════════════════════════════════════════════
 function switchMktTab(tab) {
-  ['ideas','outreach','scores'].forEach(function(t) {
+  ['ideas','outreach','scores','mediakit'].forEach(function(t) {
     var panel = document.getElementById('mkt-panel-' + t);
     var btn = document.getElementById('mkt-tab-btn-' + t);
     if (panel) panel.style.display = (t === tab) ? 'block' : 'none';
     if (btn) { btn.classList.toggle('active', t === tab); }
   });
+  if (tab === 'mediakit') loadMediaKit();
 }
 
 async function generateMktOutreach() {
@@ -3080,6 +3238,415 @@ async function disconnectGCal() {
     }
   } catch(e) {
     showToast('Connection error', 'error');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MEDIA KIT
+// ══════════════════════════════════════════════════════════════════
+
+var SCHOOL_COLORS = {
+  "University of Connecticut": { primary: "#002868", secondary: "#E31837" },
+  "University of Alabama": { primary: "#9E1B32", secondary: "#828A8F" },
+  "University of Georgia": { primary: "#BA0C2F", secondary: "#000000" },
+  "Auburn University": { primary: "#0C2340", secondary: "#E87722" },
+  "University of Florida": { primary: "#0021A5", secondary: "#FA4616" },
+  "Florida State University": { primary: "#782F40", secondary: "#CEB888" },
+  "University of Tennessee": { primary: "#FF8200", secondary: "#FFFFFF" },
+  "University of Kentucky": { primary: "#0033A0", secondary: "#FFFFFF" },
+  "University of Arkansas": { primary: "#9D2235", secondary: "#FFFFFF" },
+  "Louisiana State University": { primary: "#461D7C", secondary: "#FDD023" },
+  "University of Mississippi": { primary: "#CE1126", secondary: "#14213D" },
+  "Mississippi State University": { primary: "#660000", secondary: "#FFFFFF" },
+  "University of South Carolina": { primary: "#73000A", secondary: "#000000" },
+  "Texas A&M University": { primary: "#500000", secondary: "#FFFFFF" },
+  "Vanderbilt University": { primary: "#866D4B", secondary: "#000000" },
+  "University of Missouri": { primary: "#F1B82D", secondary: "#000000" },
+  "University of Texas": { primary: "#BF5700", secondary: "#FFFFFF" },
+  "Oklahoma State University": { primary: "#FF6600", secondary: "#000000" },
+  "University of Oklahoma": { primary: "#841617", secondary: "#FDF9D8" },
+  "Clemson University": { primary: "#F66733", secondary: "#522D80" },
+  "University of Miami": { primary: "#005030", secondary: "#F47321" },
+  "Ohio State University": { primary: "#BB0000", secondary: "#666666" },
+  "University of Michigan": { primary: "#00274C", secondary: "#FFCB05" },
+  "Penn State University": { primary: "#041E42", secondary: "#FFFFFF" },
+  "Notre Dame": { primary: "#0C2340", secondary: "#C99700" },
+  "USC": { primary: "#990000", secondary: "#FFC72C" },
+  "UCLA": { primary: "#2D68C4", secondary: "#F2A900" },
+  "Stanford University": { primary: "#8C1515", secondary: "#FFFFFF" },
+  "University of Oregon": { primary: "#154733", secondary: "#FEE123" },
+  "University of Washington": { primary: "#4B2E83", secondary: "#B7A57A" },
+  "Samford University": { primary: "#003E7E", secondary: "#C8102E" },
+  "Arkansas State University": { primary: "#CC0000", secondary: "#000000" },
+  "University of Maine": { primary: "#003263", secondary: "#B5A36A" }
+};
+
+var MK_SERVICES = [
+  'Instagram Post','Instagram Story','Instagram Reel',
+  'TikTok Video','Twitter/X Post','YouTube Integration',
+  'Podcast Appearance','Personal Appearance','Autograph Signing','Custom'
+];
+
+var mkState = { rates: [], slug: null };
+var mkLoaded = false;
+
+function mkGetColors() {
+  return {
+    primary: document.getElementById('mk-color-primary').value || '#1a1a2e',
+    secondary: document.getElementById('mk-color-secondary').value || '#84CC16'
+  };
+}
+
+function mkFmtFollowers(n) {
+  n = parseInt(n) || 0;
+  if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return n > 0 ? n.toLocaleString() : '—';
+}
+
+function mkIsLight(hex) {
+  var c = hex.replace('#', '');
+  if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+  var r = parseInt(c.substr(0,2),16), g = parseInt(c.substr(2,2),16), b = parseInt(c.substr(4,2),16);
+  return (r*299 + g*587 + b*114) / 1000 > 155;
+}
+
+function mkStatBox(icon, platform, followers, handle, color) {
+  return '<div style="flex:1;padding:14px 12px;border-right:1px solid #e8ecf0;text-align:center;min-width:0">' +
+    '<div style="font-size:16px;margin-bottom:4px">' + icon + '</div>' +
+    '<div style="font-size:19px;font-weight:700;color:#111;line-height:1">' + mkFmtFollowers(followers) + '</div>' +
+    '<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:' + color + ';letter-spacing:0.08em;margin-top:3px">' + platform + '</div>' +
+    (handle ? '<div style="font-size:10px;color:#6b7280;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(handle) + '</div>' : '') +
+  '</div>';
+}
+
+function mkUpdatePreview() {
+  var name = (document.getElementById('mk-prof-name').textContent || '').trim();
+  var sport = (document.getElementById('mk-prof-sport').textContent || '').trim();
+  var school = (document.getElementById('mk-prof-school').textContent || '').trim();
+  var position = (document.getElementById('mk-prof-position').textContent || '').trim();
+
+  var colors = mkGetColors();
+  var primary = colors.primary;
+  var secondary = colors.secondary;
+  var secText = mkIsLight(secondary) ? '#333333' : '#ffffff';
+
+  var initials = (name || 'N A').split(' ').slice(0,2).map(function(w){ return (w[0]||'').toUpperCase(); }).join('') || 'NA';
+  var metaParts = [sport, school, position].filter(function(v){ return v && v !== '—'; });
+  var metaLine = metaParts.join(' · ') || 'Athlete';
+
+  var ig = {
+    handle: document.getElementById('mk-ig-handle').value.trim(),
+    followers: parseInt(document.getElementById('mk-ig-followers').value) || 0,
+    engagement: document.getElementById('mk-ig-engagement').value.trim()
+  };
+  var tt = {
+    handle: document.getElementById('mk-tt-handle').value.trim(),
+    followers: parseInt(document.getElementById('mk-tt-followers').value) || 0
+  };
+  var tw = {
+    handle: document.getElementById('mk-tw-handle').value.trim(),
+    followers: parseInt(document.getElementById('mk-tw-followers').value) || 0
+  };
+  var bio = document.getElementById('mk-bio').value.trim();
+
+  var statsBoxes = [];
+  if (ig.followers > 0 || ig.handle) statsBoxes.push(mkStatBox('📸', 'Instagram', ig.followers, ig.handle, '#E1306C'));
+  if (tt.followers > 0 || tt.handle) statsBoxes.push(mkStatBox('🎵', 'TikTok', tt.followers, tt.handle, '#69C9D0'));
+  if (tw.followers > 0 || tw.handle) statsBoxes.push(mkStatBox('𝕏', 'Twitter/X', tw.followers, tw.handle, '#1DA1F2'));
+
+  var rateRowsHtml = '';
+  if (mkState.rates.length > 0) {
+    rateRowsHtml =
+      '<table style="width:100%;border-collapse:collapse">' +
+        '<tr style="background:#f8fafc">' +
+          '<th style="text-align:left;padding:7px 10px;font-size:10px;font-weight:600;color:#374151;border-bottom:1px solid #e8ecf0">Service</th>' +
+          '<th style="text-align:right;padding:7px 10px;font-size:10px;font-weight:600;color:#374151;border-bottom:1px solid #e8ecf0">Rate</th>' +
+        '</tr>' +
+        mkState.rates.filter(function(r){ return r.service_type && r.price; }).map(function(r, i) {
+          return '<tr style="background:' + (i%2===0 ? '#fff' : '#f8fafc') + '">' +
+            '<td style="padding:7px 10px;font-size:12px;color:#374151;border-bottom:1px solid #e8ecf0">' + esc(r.service_type) + '</td>' +
+            '<td style="padding:7px 10px;font-size:12px;font-weight:600;color:#111;text-align:right;border-bottom:1px solid #e8ecf0">$' + parseInt(r.price||0).toLocaleString() + '</td>' +
+          '</tr>';
+        }).join('') +
+      '</table>';
+  }
+
+  var html =
+    '<div style="font-family:\'DM Sans\',sans-serif;background:#fff">' +
+
+    // ── Header ──
+    '<div style="background:' + primary + ';padding:24px 28px;position:relative;overflow:hidden">' +
+      '<div style="position:absolute;top:-30px;right:-30px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,0.06)"></div>' +
+      '<div style="position:absolute;bottom:-20px;left:50px;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,0.04)"></div>' +
+      '<div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.18);display:inline-flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;color:#fff;margin-bottom:14px;position:relative;z-index:1;letter-spacing:0.04em">' + esc(initials) + '</div>' +
+      '<div style="font-size:22px;font-weight:700;color:#fff;line-height:1.1;position:relative;z-index:1">' + esc(name || 'Your Name') + '</div>' +
+      '<div style="font-size:12px;color:rgba(255,255,255,0.72);margin-top:5px;position:relative;z-index:1">' + esc(metaLine) + '</div>' +
+    '</div>' +
+
+    // ── Stats ──
+    (statsBoxes.length > 0 ?
+      '<div style="display:flex;border-bottom:1px solid #e8ecf0;background:#fff">' + statsBoxes.join('') + '</div>'
+    : '') +
+
+    // ── Bio ──
+    (bio ?
+      '<div style="padding:18px 28px;border-bottom:1px solid #e8ecf0;background:#fff">' +
+        '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#9ca3af;margin-bottom:8px">About</div>' +
+        '<div style="border-left:3px solid ' + primary + ';padding-left:12px;font-size:13px;color:#374151;line-height:1.65">' + esc(bio) + '</div>' +
+      '</div>'
+    : '') +
+
+    // ── Rate Card ──
+    (mkState.rates.filter(function(r){ return r.service_type && r.price; }).length > 0 ?
+      '<div style="padding:18px 28px;border-bottom:1px solid #e8ecf0;background:#fff">' +
+        '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#9ca3af;margin-bottom:10px">Rate Card</div>' +
+        rateRowsHtml +
+      '</div>'
+    : '') +
+
+    // ── Footer ──
+    '<div style="background:' + secondary + ';padding:10px 28px;display:flex;align-items:center;justify-content:space-between">' +
+      '<div style="font-size:10px;color:' + secText + ';opacity:0.7">Powered by NILDash</div>' +
+      '<div style="font-size:10px;color:' + secText + ';opacity:0.5">© ' + new Date().getFullYear() + '</div>' +
+    '</div>' +
+
+  '</div>';
+
+  document.getElementById('mk-preview').innerHTML = html;
+}
+
+function loadMediaKit() {
+  if (mkLoaded) return;
+  mkLoaded = true;
+  mkPreFillFromProfile();
+  fetch('/api/athlete/media-kit', {
+    headers: { 'Authorization': 'Bearer ' + athleteToken }
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(data) {
+    if (data.mediaKit) {
+      mkPopulateForm(data.mediaKit, data.rateCards || []);
+    }
+    mkUpdatePreview();
+  })
+  .catch(function(e){
+    console.error('[media-kit load]', e);
+    mkUpdatePreview();
+  });
+}
+
+function mkPreFillFromProfile() {
+  var p = athleteProfile || {};
+  document.getElementById('mk-prof-name').textContent = p.name || '—';
+  document.getElementById('mk-prof-sport').textContent = p.sport || '—';
+  document.getElementById('mk-prof-school').textContent = p.school || '—';
+  document.getElementById('mk-prof-position').textContent = p.position || '—';
+
+  // Pre-fill social handles from profile if form is empty
+  if (p.instagram_handle && !document.getElementById('mk-ig-handle').value)
+    document.getElementById('mk-ig-handle').value = p.instagram_handle;
+  if (p.tiktok_handle && !document.getElementById('mk-tt-handle').value)
+    document.getElementById('mk-tt-handle').value = p.tiktok_handle;
+  if (p.twitter_handle && !document.getElementById('mk-tw-handle').value)
+    document.getElementById('mk-tw-handle').value = p.twitter_handle;
+  if (p.followers_ig && !document.getElementById('mk-ig-followers').value)
+    document.getElementById('mk-ig-followers').value = p.followers_ig;
+
+  // Auto-detect and apply school colors (only if no saved colors yet)
+  var sc = SCHOOL_COLORS[p.school || ''];
+  if (sc) {
+    document.getElementById('mk-color-primary').value = sc.primary;
+    document.getElementById('mk-color-primary-hex').value = sc.primary;
+    document.getElementById('mk-color-secondary').value = sc.secondary;
+    document.getElementById('mk-color-secondary-hex').value = sc.secondary;
+  }
+}
+
+function mkPopulateForm(mk, rates) {
+  mkState.slug = mk.slug || null;
+  if (mk.instagram_handle) document.getElementById('mk-ig-handle').value = mk.instagram_handle;
+  if (mk.instagram_followers) document.getElementById('mk-ig-followers').value = mk.instagram_followers;
+  if (mk.instagram_engagement) document.getElementById('mk-ig-engagement').value = mk.instagram_engagement;
+  if (mk.tiktok_handle) document.getElementById('mk-tt-handle').value = mk.tiktok_handle;
+  if (mk.tiktok_followers) document.getElementById('mk-tt-followers').value = mk.tiktok_followers;
+  if (mk.twitter_handle) document.getElementById('mk-tw-handle').value = mk.twitter_handle;
+  if (mk.twitter_followers) document.getElementById('mk-tw-followers').value = mk.twitter_followers;
+  if (mk.bio) { document.getElementById('mk-bio').value = mk.bio; mkUpdateBioCount(); }
+  if (mk.primary_color) {
+    document.getElementById('mk-color-primary').value = mk.primary_color;
+    document.getElementById('mk-color-primary-hex').value = mk.primary_color;
+  }
+  if (mk.secondary_color) {
+    document.getElementById('mk-color-secondary').value = mk.secondary_color;
+    document.getElementById('mk-color-secondary-hex').value = mk.secondary_color;
+  }
+  mkState.rates = (rates || []).map(function(r) {
+    return { service_type: r.service_type, price: r.price, notes: r.notes || '' };
+  });
+  mkRenderRateRows();
+  if (mk.slug) mkShowShareLink(mk.slug);
+}
+
+function mkAddRateRow() {
+  mkState.rates.push({ service_type: 'Instagram Post', price: '', notes: '' });
+  mkRenderRateRows();
+  mkUpdatePreview();
+}
+
+function mkRemoveRateRow(idx) {
+  mkState.rates.splice(idx, 1);
+  mkRenderRateRows();
+  mkUpdatePreview();
+}
+
+function mkUpdateRateService(idx, val) {
+  mkState.rates[idx].service_type = val;
+  mkRenderRateRows();
+  mkUpdatePreview();
+}
+
+function mkUpdateRatePrice(idx, val) {
+  mkState.rates[idx].price = val;
+  mkUpdatePreview();
+}
+
+function mkUpdateRateCustom(idx, val) {
+  mkState.rates[idx].service_type = val;
+  mkUpdatePreview();
+}
+
+function mkRenderRateRows() {
+  var container = document.getElementById('mk-rate-rows');
+  if (!mkState.rates.length) {
+    container.innerHTML = '<div style="text-align:center;padding:12px;color:var(--muted);font-size:12px">No services added yet</div>';
+    return;
+  }
+  container.innerHTML = mkState.rates.map(function(r, i) {
+    var isStd = MK_SERVICES.indexOf(r.service_type) >= 0;
+    var selectVal = isStd ? r.service_type : 'Custom';
+    var customVal = (!isStd && r.service_type !== 'Custom') ? r.service_type : '';
+    var isCustom = selectVal === 'Custom';
+    var opts = MK_SERVICES.map(function(s) {
+      return '<option value="' + esc(s) + '"' + (selectVal === s ? ' selected' : '') + '>' + esc(s) + '</option>';
+    }).join('');
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">' +
+      '<div style="display:grid;grid-template-columns:1fr 90px 30px;gap:6px;align-items:center">' +
+        '<select class="form-select" style="font-size:12px" onchange="mkUpdateRateService(' + i + ',this.value)">' + opts + '</select>' +
+        '<input class="form-input" type="number" style="font-size:12px" placeholder="Price $" value="' + esc(String(r.price||'')) + '" oninput="mkUpdateRatePrice(' + i + ',this.value)">' +
+        '<button onclick="mkRemoveRateRow(' + i + ')" class="btn btn-danger btn-sm" style="padding:4px 7px;justify-content:center;min-width:0">✕</button>' +
+      '</div>' +
+      (isCustom ? '<input class="form-input" style="font-size:12px;margin-top:6px" placeholder="Custom service name" value="' + esc(customVal) + '" oninput="mkUpdateRateCustom(' + i + ',this.value)">' : '') +
+    '</div>';
+  }).join('');
+}
+
+function mkUpdateBioCount() {
+  var v = document.getElementById('mk-bio').value;
+  var counter = document.getElementById('mk-bio-counter');
+  counter.textContent = v.length + '/150';
+  counter.style.color = v.length > 150 ? 'var(--red)' : 'var(--muted)';
+}
+
+async function mkGenerateBio() {
+  var btn = document.getElementById('mk-bio-btn');
+  btn.disabled = true; btn.textContent = '⏳ Generating…';
+  try {
+    var r = await fetch('/api/athlete/generate-bio', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + athleteToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'Generation failed');
+    document.getElementById('mk-bio').value = data.bio;
+    mkUpdateBioCount();
+    mkUpdatePreview();
+    showToast('Bio generated!', 'success');
+  } catch(e) {
+    showToast('Bio generation failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ AI Generate Bio';
+  }
+}
+
+async function mkSave() {
+  var btn = document.getElementById('mk-save-btn');
+  btn.disabled = true; btn.textContent = '⏳ Saving…';
+  try {
+    var colors = mkGetColors();
+    var cleanRates = mkState.rates
+      .filter(function(r){ return r.service_type && String(r.price).trim() !== ''; })
+      .map(function(r){ return { service_type: r.service_type, price: parseInt(r.price)||0, notes: r.notes||'' }; });
+    var payload = {
+      instagram_handle: document.getElementById('mk-ig-handle').value.trim(),
+      instagram_followers: parseInt(document.getElementById('mk-ig-followers').value) || null,
+      instagram_engagement: document.getElementById('mk-ig-engagement').value.trim(),
+      tiktok_handle: document.getElementById('mk-tt-handle').value.trim(),
+      tiktok_followers: parseInt(document.getElementById('mk-tt-followers').value) || null,
+      twitter_handle: document.getElementById('mk-tw-handle').value.trim(),
+      twitter_followers: parseInt(document.getElementById('mk-tw-followers').value) || null,
+      bio: document.getElementById('mk-bio').value.trim(),
+      primary_color: colors.primary,
+      secondary_color: colors.secondary,
+      rateCards: cleanRates
+    };
+    var r = await fetch('/api/athlete/media-kit/save', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + athleteToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'Save failed');
+    mkState.slug = data.slug;
+    showToast('Media kit saved!', 'success');
+    mkShowShareLink(data.slug);
+  } catch(e) {
+    showToast('Save failed: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '💾 Save Media Kit';
+  }
+}
+
+async function mkGenerateLink() {
+  await mkSave();
+}
+
+function mkShowShareLink(slug) {
+  var url = window.location.origin + '/media-kit/' + slug;
+  var el = document.getElementById('mk-share-url');
+  el.textContent = url;
+  el.dataset.url = url;
+  document.getElementById('mk-share-section').style.display = 'block';
+  mkState.slug = slug;
+}
+
+function mkCopyLink() {
+  var url = document.getElementById('mk-share-url').dataset.url || document.getElementById('mk-share-url').textContent;
+  if (!url) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(function(){ showToast('Link copied!', 'success'); });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('Link copied!', 'success');
+  }
+}
+
+function mkOpenPublicPage() {
+  if (mkState.slug) window.open('/media-kit/' + mkState.slug, '_blank');
+  else showToast('Save your media kit first', 'error');
+}
+
+function mkDownloadPDF() {
+  if (!mkState.slug) { showToast('Save your media kit first to generate a PDF', 'error'); return; }
+  window.open(window.location.origin + '/media-kit/' + mkState.slug + '?print=1', '_blank');
+}
+
+function mkSyncColorFromHex(which, val) {
+  if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+    document.getElementById('mk-color-' + which).value = val;
+    mkUpdatePreview();
   }
 }
 
