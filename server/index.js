@@ -6101,6 +6101,7 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
 // POST /api/athlete/generate-bio — AI-generated NIL bio (athlete auth)
 app.post('/api/athlete/generate-bio', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
+    console.log('[generate-bio] request from athlete id:', req.athlete.id);
     const athR = await store.pool.query(
       `SELECT a.data->>'name' as name, a.data->>'sport' as sport,
               a.data->>'school' as school, a.data->>'position' as position,
@@ -6110,6 +6111,7 @@ app.post('/api/athlete/generate-bio', verifyAthleteToken, aiLimiter, async (req,
     );
     if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
     const ath = athR.rows[0];
+    console.log('[generate-bio] athlete data:', JSON.stringify(ath));
     const igCount = parseInt(ath.ig_followers) || 0;
     const igStr = igCount > 0 ? `${igCount.toLocaleString()} Instagram followers` : '';
 
@@ -6117,9 +6119,10 @@ app.post('/api/athlete/generate-bio', verifyAthleteToken, aiLimiter, async (req,
     const system = 'You are a professional NIL sports marketing copywriter. Write compelling, authentic athlete bios for brand partnership media kits. Your bios sound like they were written by a real person, not a corporation. They are confident, specific, and highlight the athlete\'s unique value to brands. Return only the bio text, no quotes or extra commentary.';
 
     const bio = await ai.oneShot(prompt, system);
+    console.log('[generate-bio] success — bio length:', (bio||'').length);
     res.json({ bio: (bio || '').trim().slice(0, 300) });
   } catch (e) {
-    console.error('[generate-bio]', e.message);
+    console.error('[generate-bio] error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

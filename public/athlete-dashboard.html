@@ -734,160 +734,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div id="mkt-scores-result" style="display:none"></div>
     </div>
 
-    <!-- TAB: Media Kit (moved to own nav — see view-mediakit) -->
+    <!-- TAB: Media Kit (moved to own nav — see view-mediakit; inner content removed to eliminate duplicate IDs) -->
     <div id="mkt-panel-mediakit" style="display:none">
-      <div style="display:grid;grid-template-columns:45% 1fr;gap:20px;align-items:start">
-
-        <!-- ── LEFT: Form ── -->
-        <div>
-
-          <!-- Section 1: Profile (read-only) -->
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:12px">Your Profile</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div>
-                <div style="font-size:10px;color:var(--muted);margin-bottom:2px">NAME</div>
-                <div style="font-size:12px;font-weight:600;color:var(--text)" id="mk-prof-name">—</div>
-              </div>
-              <div>
-                <div style="font-size:10px;color:var(--muted);margin-bottom:2px">SPORT</div>
-                <div style="font-size:12px;font-weight:600;color:var(--text)" id="mk-prof-sport">—</div>
-              </div>
-              <div>
-                <div style="font-size:10px;color:var(--muted);margin-bottom:2px">SCHOOL</div>
-                <div style="font-size:12px;font-weight:600;color:var(--text)" id="mk-prof-school">—</div>
-              </div>
-              <div>
-                <div style="font-size:10px;color:var(--muted);margin-bottom:2px">POSITION</div>
-                <div style="font-size:12px;font-weight:600;color:var(--text)" id="mk-prof-position">—</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Section 2: Colors -->
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:12px">School Colors <span style="color:var(--accent);font-size:9px;font-weight:600;margin-left:6px">AUTO-DETECTED</span></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-              <div>
-                <label class="form-label">Primary Color</label>
-                <div style="display:flex;align-items:center;gap:8px">
-                  <input type="color" id="mk-color-primary" value="#1a1a2e" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px">
-                  <input type="text" id="mk-color-primary-hex" class="form-input" value="#1a1a2e" oninput="mkSyncColorFromHex('primary',this.value)" style="flex:1;font-size:12px">
-                </div>
-              </div>
-              <div>
-                <label class="form-label">Secondary Color</label>
-                <div style="display:flex;align-items:center;gap:8px">
-                  <input type="color" id="mk-color-secondary" value="#84CC16" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px">
-                  <input type="text" id="mk-color-secondary-hex" class="form-input" value="#84CC16" oninput="mkSyncColorFromHex('secondary',this.value)" style="flex:1;font-size:12px">
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Section 3: Social Media Stats -->
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:12px">Social Media Stats</div>
-            <!-- Instagram -->
-            <div style="margin-bottom:12px">
-              <div style="font-size:10px;font-weight:600;color:#E1306C;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Instagram</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-                <div>
-                  <label class="form-label">Handle</label>
-                  <input id="mk-ig-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px">
-                </div>
-                <div>
-                  <label class="form-label">Followers</label>
-                  <input id="mk-ig-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px">
-                </div>
-                <div>
-                  <label class="form-label">Engagement</label>
-                  <input id="mk-ig-engagement" class="form-input" placeholder="4.2%" oninput="mkUpdatePreview()" style="font-size:12px">
-                </div>
-              </div>
-            </div>
-            <!-- TikTok -->
-            <div style="margin-bottom:12px">
-              <div style="font-size:10px;font-weight:600;color:#69C9D0;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">TikTok</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-                <div>
-                  <label class="form-label">Handle</label>
-                  <input id="mk-tt-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px">
-                </div>
-                <div>
-                  <label class="form-label">Followers</label>
-                  <input id="mk-tt-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px">
-                </div>
-              </div>
-            </div>
-            <!-- Twitter -->
-            <div>
-              <div style="font-size:10px;font-weight:600;color:#1DA1F2;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Twitter / X</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-                <div>
-                  <label class="form-label">Handle</label>
-                  <input id="mk-tw-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px">
-                </div>
-                <div>
-                  <label class="form-label">Followers</label>
-                  <input id="mk-tw-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px">
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Section 4: Bio -->
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted)">Bio</div>
-              <span id="mk-bio-counter" style="font-size:10px;color:var(--muted)">0/150</span>
-            </div>
-            <textarea id="mk-bio" class="form-textarea" rows="4" maxlength="200" placeholder="Write a compelling 2-sentence bio for brand partnerships…" oninput="mkUpdateBioCount();mkUpdatePreview()" style="font-size:13px;resize:none"></textarea>
-            <button id="mk-bio-btn" onclick="mkGenerateBio()" class="btn btn-ghost" style="margin-top:8px;width:100%;justify-content:center;font-size:12px">✨ AI Generate Bio</button>
-          </div>
-
-          <!-- Section 5: Rate Card -->
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted)">Rate Card</div>
-              <button onclick="mkAddRateRow()" class="btn btn-ghost btn-sm" style="font-size:11px">+ Add Service</button>
-            </div>
-            <div id="mk-rate-rows">
-              <div style="text-align:center;padding:12px;color:var(--muted);font-size:12px">No services added yet</div>
-            </div>
-          </div>
-
-          <!-- Section 6: Actions -->
-          <div style="display:flex;flex-direction:column;gap:8px">
-            <button id="mk-save-btn" onclick="mkSave()" class="btn btn-primary" style="justify-content:center">💾 Save Media Kit</button>
-            <button id="mk-link-btn" onclick="mkGenerateLink()" class="btn btn-ghost" style="justify-content:center">🔗 Generate Shareable Link</button>
-            <button id="mk-pdf-btn" onclick="mkDownloadPDF()" class="btn btn-ghost" style="justify-content:center">⬇️ Download PDF</button>
-          </div>
-
-          <!-- Share URL section (hidden until saved) -->
-          <div id="mk-share-section" style="display:none;margin-top:12px;background:rgba(132,204,22,0.06);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r);padding:14px">
-            <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Your Shareable Link</div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <div id="mk-share-url" style="flex:1;font-size:11px;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
-              <button onclick="mkCopyLink()" class="btn btn-primary btn-sm" style="white-space:nowrap;font-size:11px">Copy</button>
-              <button onclick="mkOpenPublicPage()" class="btn btn-ghost btn-sm" style="white-space:nowrap;font-size:11px">Open</button>
-            </div>
-          </div>
-
-        </div><!-- /left form -->
-
-        <!-- ── RIGHT: Live Preview ── -->
-        <div style="position:sticky;top:70px">
-          <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:10px">Live Preview</div>
-          <div id="mk-preview-wrap" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.18);min-height:300px">
-            <div id="mk-preview" style="font-family:'DM Sans',sans-serif">
-              <div style="padding:40px;text-align:center;color:#94a3b8;font-size:13px">Fill in your details to see the preview</div>
-            </div>
-          </div>
-        </div>
-
-      </div><!-- /grid -->
-    </div><!-- /mkt-panel-mediakit -->
+    </div><!-- /mkt-panel-mediakit (gutted: all IDs now live exclusively in #view-mediakit) -->
 
   </div>
 
@@ -4054,12 +3903,14 @@ function mkUpdatePreview() {
 function loadMediaKit() {
   if (mkLoaded) return;
   mkLoaded = true;
+  console.log('[media-kit] loadMediaKit() start — athleteProfile:', JSON.stringify(athleteProfile));
   mkPreFillFromProfile();
   fetch('/api/athlete/media-kit', {
     headers: { 'Authorization': 'Bearer ' + athleteToken }
   })
   .then(function(r){ return r.json(); })
   .then(function(data) {
+    console.log('[media-kit] API response — mediaKit:', !!data.mediaKit, 'rateCards:', (data.rateCards||[]).length);
     if (data.mediaKit) {
       mkPopulateForm(data.mediaKit, data.rateCards || []);
     }
@@ -4073,6 +3924,7 @@ function loadMediaKit() {
 
 function mkPreFillFromProfile() {
   var p = athleteProfile || {};
+  console.log('[media-kit] mkPreFillFromProfile() — name:', p.name, 'school:', p.school, 'sport:', p.sport, 'position:', p.position);
   document.getElementById('mk-prof-name').textContent = p.name || '—';
   document.getElementById('mk-prof-sport').textContent = p.sport || '—';
   document.getElementById('mk-prof-school').textContent = p.school || '—';
@@ -4090,6 +3942,7 @@ function mkPreFillFromProfile() {
 
   // Auto-detect and apply school colors (only if no saved colors yet)
   var sc = SCHOOL_COLORS[p.school || ''];
+  console.log('[media-kit] school color lookup — school:', p.school, '— found:', !!sc, sc ? sc : '(no match)');
   if (sc) {
     document.getElementById('mk-color-primary').value = sc.primary;
     document.getElementById('mk-color-primary-hex').value = sc.primary;
@@ -4137,6 +3990,7 @@ function mkPopulateForm(mk, rates) {
 }
 
 function mkAddRateRow() {
+  console.log('[media-kit] mkAddRateRow() — total rows now:', mkState.rates.length + 1);
   mkState.rates.push({ service_type: 'Instagram Post', price: '', notes: '' });
   mkRenderRateRows();
   mkUpdatePreview();
