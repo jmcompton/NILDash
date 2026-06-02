@@ -267,6 +267,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="nav-section-label">Outreach</div>
     <div class="nav-item" data-view="outreach" onclick="showView('outreach',this)">Outreach</div>
     <div class="nav-item" data-view="marketing" onclick="showView('marketing',this)">Marketing</div>
+    <div class="nav-item" data-view="mediakit" onclick="showView('mediakit',this)">Media Kit</div>
     <div class="nav-item" data-view="email" onclick="showView('email',this)">Email</div>
 
     <div class="nav-section-label">Deals</div>
@@ -655,7 +656,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <button id="mkt-tab-btn-ideas" class="mkt-tab-btn active" onclick="switchMktTab('ideas')">Content Ideas</button>
       <button id="mkt-tab-btn-outreach" class="mkt-tab-btn" onclick="switchMktTab('outreach')">Generate Outreach</button>
       <button id="mkt-tab-btn-scores" class="mkt-tab-btn" onclick="switchMktTab('scores')">NIL Scores</button>
-      <button id="mkt-tab-btn-mediakit" class="mkt-tab-btn" onclick="switchMktTab('mediakit')">📋 Media Kit</button>
     </div>
 
     <!-- TAB: Content Ideas -->
@@ -734,7 +734,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div id="mkt-scores-result" style="display:none"></div>
     </div>
 
-    <!-- TAB: Media Kit -->
+    <!-- TAB: Media Kit (moved to own nav — see view-mediakit) -->
     <div id="mkt-panel-mediakit" style="display:none">
       <div style="display:grid;grid-template-columns:45% 1fr;gap:20px;align-items:start">
 
@@ -890,6 +890,225 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div><!-- /mkt-panel-mediakit -->
 
   </div>
+
+  <!-- ════ VIEW: MEDIA KIT ════ -->
+  <div class="view" id="view-mediakit">
+    <div class="page-title">MEDIA KIT</div>
+    <div class="page-sub" style="margin-bottom:20px">Build your brand partnership deck — looks premium enough for Nike, Zaxby's, or anyone in between.</div>
+
+    <div style="display:grid;grid-template-columns:45% 1fr;gap:24px;align-items:start">
+
+      <!-- ══ LEFT COLUMN: BUILDER FORM ══ -->
+      <div style="display:flex;flex-direction:column;gap:14px">
+
+        <!-- Section 1: Profile (auto-filled) -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">Profile <span style="color:var(--accent);font-weight:600;font-size:9px;margin-left:6px">AUTO-FILLED</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Name</div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)" id="mk-prof-name">—</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Sport</div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)" id="mk-prof-sport">—</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">School</div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)" id="mk-prof-school">—</div>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Position</div>
+              <div style="font-size:13px;font-weight:600;color:var(--text)" id="mk-prof-position">—</div>
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:10px;font-style:italic">Auto-filled from your profile · Edit in My Profile</div>
+        </div>
+
+        <!-- Section 2: Photos -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:14px">Photos</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+
+            <!-- Headshot Upload -->
+            <div>
+              <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Headshot</div>
+              <div id="mk-headshot-zone" onclick="document.getElementById('mk-headshot-input').click()" style="position:relative;border:1.5px dashed #1e2a3a;background:#0D1520;border-radius:10px;padding:20px 12px;text-align:center;cursor:pointer;transition:border-color 0.15s;min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px"
+                onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='#1e2a3a'">
+                <div id="mk-headshot-preview" style="display:none;position:relative;width:64px;height:64px;margin:0 auto">
+                  <img id="mk-headshot-img" src="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)">
+                  <button onclick="mkClearPhoto('headshot',event)" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0;font-family:inherit">✕</button>
+                </div>
+                <div id="mk-headshot-placeholder">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 6px;display:block"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  <div style="font-size:11px;color:var(--muted);font-weight:500">Upload Photo</div>
+                  <div style="font-size:9px;color:var(--muted);opacity:0.6;margin-top:2px">JPG or PNG</div>
+                </div>
+              </div>
+              <input type="file" id="mk-headshot-input" accept="image/jpeg,image/png,image/jpg,image/webp" style="display:none" onchange="mkHandlePhoto('headshot',this)">
+            </div>
+
+            <!-- Action Shot Upload -->
+            <div>
+              <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Action Shot</div>
+              <div id="mk-action-zone" onclick="document.getElementById('mk-action-input').click()" style="position:relative;border:1.5px dashed #1e2a3a;background:#0D1520;border-radius:10px;padding:20px 12px;text-align:center;cursor:pointer;transition:border-color 0.15s;min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px"
+                onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='#1e2a3a'">
+                <div id="mk-action-preview" style="display:none;position:relative;width:100%;max-height:80px">
+                  <img id="mk-action-img" src="" style="width:100%;height:80px;object-fit:cover;border-radius:6px;border:2px solid var(--accent)">
+                  <button onclick="mkClearPhoto('action',event)" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0;font-family:inherit">✕</button>
+                </div>
+                <div id="mk-action-placeholder">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 6px;display:block"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  <div style="font-size:11px;color:var(--muted);font-weight:500">Upload Photo</div>
+                  <div style="font-size:9px;color:var(--muted);opacity:0.6;margin-top:2px">Becomes banner image</div>
+                </div>
+              </div>
+              <input type="file" id="mk-action-input" accept="image/jpeg,image/png,image/jpg,image/webp" style="display:none" onchange="mkHandlePhoto('action',this)">
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Section 3: School Colors -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">School Colors <span style="color:var(--accent);font-size:9px;font-weight:600;margin-left:6px">AUTO-DETECTED</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <label class="form-label">Primary</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="color" id="mk-color-primary" value="#1a1a2e" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px;flex-shrink:0">
+                <input type="text" id="mk-color-primary-hex" class="form-input" value="#1a1a2e" oninput="mkSyncColorFromHex('primary',this.value)" style="flex:1;font-size:12px">
+              </div>
+            </div>
+            <div>
+              <label class="form-label">Secondary</label>
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="color" id="mk-color-secondary" value="#84CC16" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px;flex-shrink:0">
+                <input type="text" id="mk-color-secondary-hex" class="form-input" value="#84CC16" oninput="mkSyncColorFromHex('secondary',this.value)" style="flex:1;font-size:12px">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Social Media Stats -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:14px">Social Media Stats</div>
+          <!-- Instagram -->
+          <div style="margin-bottom:14px">
+            <div style="font-size:10px;font-weight:700;background:linear-gradient(90deg,#E1306C,#833AB4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Instagram</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+              <div>
+                <label class="form-label">Handle</label>
+                <input id="mk-ig-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px">
+              </div>
+              <div>
+                <label class="form-label">Followers</label>
+                <input id="mk-ig-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px">
+              </div>
+              <div>
+                <label class="form-label">Engagement</label>
+                <input id="mk-ig-engagement" class="form-input" placeholder="4.2%" oninput="mkUpdatePreview()" style="font-size:12px">
+              </div>
+            </div>
+          </div>
+          <!-- TikTok -->
+          <div style="margin-bottom:14px">
+            <div style="font-size:10px;font-weight:700;color:#69C9D0;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">TikTok</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div>
+                <label class="form-label">Handle</label>
+                <input id="mk-tt-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px">
+              </div>
+              <div>
+                <label class="form-label">Followers</label>
+                <input id="mk-tt-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px">
+              </div>
+            </div>
+          </div>
+          <!-- Twitter / X -->
+          <div>
+            <div style="font-size:10px;font-weight:700;color:#1DA1F2;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Twitter / X</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <div>
+                <label class="form-label">Handle</label>
+                <input id="mk-tw-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px">
+              </div>
+              <div>
+                <label class="form-label">Followers</label>
+                <input id="mk-tw-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 5: Bio -->
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div class="card-title" style="margin-bottom:0">Bio</div>
+            <span id="mk-bio-counter" style="font-size:10px;color:var(--muted)">0/150</span>
+          </div>
+          <textarea id="mk-bio" class="form-textarea" rows="4" maxlength="300" placeholder="Write a compelling 2-sentence bio for brand partnerships…" oninput="mkUpdateBioCount();mkUpdatePreview()" style="font-size:13px;resize:none"></textarea>
+          <button id="mk-bio-btn" onclick="mkGenerateBio()" class="btn btn-ghost" style="margin-top:10px;width:100%;justify-content:center;font-size:12px;border-color:rgba(132,204,22,0.3);color:var(--accent)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L14.09 8.26L21 9.27L16 14.14L17.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z"/></svg>
+            AI Generate Bio
+          </button>
+        </div>
+
+        <!-- Section 6: Rate Card -->
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div class="card-title" style="margin-bottom:0">Rate Card</div>
+            <button onclick="mkAddRateRow()" class="btn btn-ghost btn-sm" style="font-size:11px">+ Add Service</button>
+          </div>
+          <div id="mk-rate-rows">
+            <div style="text-align:center;padding:16px;color:var(--muted);font-size:12px">No services added yet. Click "+ Add Service" to start.</div>
+          </div>
+        </div>
+
+        <!-- Section 7: Actions -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <button id="mk-save-btn" onclick="mkSave()" class="btn btn-primary" style="justify-content:center;font-size:12px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Save
+          </button>
+          <button id="mk-link-btn" onclick="mkCopyLink()" class="btn btn-ghost" style="justify-content:center;font-size:12px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            Copy Link
+          </button>
+          <button id="mk-pdf-btn" onclick="mkDownloadPDF()" class="btn btn-ghost" style="justify-content:center;font-size:12px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download PDF
+          </button>
+        </div>
+
+        <!-- Share URL (hidden until saved) -->
+        <div id="mk-share-section" style="display:none;background:rgba(132,204,22,0.06);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r);padding:14px">
+          <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Your Shareable Link</div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div id="mk-share-url" style="flex:1;font-size:11px;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+            <button onclick="mkCopyLink()" class="btn btn-primary btn-sm" style="white-space:nowrap;font-size:11px">Copy</button>
+            <button onclick="mkOpenPublicPage()" class="btn btn-ghost btn-sm" style="white-space:nowrap;font-size:11px">Open ↗</button>
+          </div>
+        </div>
+
+      </div><!-- /left column -->
+
+      <!-- ══ RIGHT COLUMN: LIVE PREVIEW ══ -->
+      <div style="position:sticky;top:70px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+          Live Preview
+          <span style="font-size:9px;font-weight:600;color:rgba(132,204,22,0.6);letter-spacing:0.05em">UPDATES IN REAL TIME</span>
+        </div>
+        <div id="mk-preview-wrap" style="background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.32),0 2px 8px rgba(0,0,0,0.15);min-height:300px">
+          <div id="mk-preview" style="font-family:'DM Sans',sans-serif">
+            <div style="padding:50px;text-align:center;color:#94a3b8;font-size:13px">Fill in your details to see the preview</div>
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:center">This is exactly what brands will see when you share your link</div>
+      </div><!-- /right column -->
+
+    </div><!-- /grid -->
+  </div><!-- /view-mediakit -->
 
   <!-- ════ VIEW: CALENDAR ════ -->
   <div class="view" id="view-calendar">
@@ -1250,6 +1469,7 @@ var PIPELINE_STAGES = ['Prospect','Contacted','Negotiating','Signed','Completed'
 var VIEW_TITLES = {
   home:'HOME', command:'AI COMMAND', dealscan:'DEAL SCAN', rate:'RATE CALCULATOR',
   'team-match':'FIND YOUR BEST PROGRAMS', outreach:'OUTREACH', marketing:'MARKETING TOOLS',
+  mediakit:'MEDIA KIT',
   calendar:'CALENDAR', pipeline:'DEAL PIPELINE', 'deal-close':'DEAL CLOSE',
   email:'EMAIL', profile:'MY PROFILE'
 };
@@ -1284,6 +1504,7 @@ function showView(id, navBtn) {
   // Lazy-load data per view
   if (id === 'outreach')    loadOutreach();
   if (id === 'marketing')   loadActiveCampaigns();
+  if (id === 'mediakit')    loadMediaKit();
   if (id === 'calendar')    { AthlCal.reload(); initGCalStatus(); }
   if (id === 'pipeline')    loadDeals();
   if (id === 'deal-close')  onAthleteDealCloseViewOpen();
@@ -2502,13 +2723,12 @@ async function submitOutreach() {
 // MARKETING
 // ══════════════════════════════════════════════════════════════════
 function switchMktTab(tab) {
-  ['ideas','outreach','scores','mediakit'].forEach(function(t) {
+  ['ideas','outreach','scores'].forEach(function(t) {
     var panel = document.getElementById('mkt-panel-' + t);
     var btn = document.getElementById('mkt-tab-btn-' + t);
     if (panel) panel.style.display = (t === tab) ? 'block' : 'none';
     if (btn) { btn.classList.toggle('active', t === tab); }
   });
-  if (tab === 'mediakit') loadMediaKit();
 }
 
 async function generateMktOutreach() {
@@ -3601,7 +3821,7 @@ var MK_SERVICES = [
   'Podcast Appearance','Personal Appearance','Autograph Signing','Custom'
 ];
 
-var mkState = { rates: [], slug: null };
+var mkState = { rates: [], slug: null, headshotData: null, actionShotData: null };
 var mkLoaded = false;
 
 function mkGetColors() {
@@ -3625,13 +3845,45 @@ function mkIsLight(hex) {
   return (r*299 + g*587 + b*114) / 1000 > 155;
 }
 
-function mkStatBox(icon, platform, followers, handle, color) {
-  return '<div style="flex:1;padding:14px 12px;border-right:1px solid #e8ecf0;text-align:center;min-width:0">' +
-    '<div style="font-size:16px;margin-bottom:4px">' + icon + '</div>' +
-    '<div style="font-size:19px;font-weight:700;color:#111;line-height:1">' + mkFmtFollowers(followers) + '</div>' +
-    '<div style="font-size:9px;font-weight:700;text-transform:uppercase;color:' + color + ';letter-spacing:0.08em;margin-top:3px">' + platform + '</div>' +
-    (handle ? '<div style="font-size:10px;color:#6b7280;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(handle) + '</div>' : '') +
-  '</div>';
+// ── Photo upload handlers ─────────────────────────────────────────────────
+function mkHandlePhoto(type, input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var dataUrl = e.target.result;
+    if (type === 'headshot') {
+      mkState.headshotData = dataUrl;
+      document.getElementById('mk-headshot-img').src = dataUrl;
+      document.getElementById('mk-headshot-preview').style.display = 'block';
+      document.getElementById('mk-headshot-placeholder').style.display = 'none';
+    } else {
+      mkState.actionShotData = dataUrl;
+      document.getElementById('mk-action-img').src = dataUrl;
+      document.getElementById('mk-action-preview').style.display = 'block';
+      document.getElementById('mk-action-placeholder').style.display = 'none';
+    }
+    mkUpdatePreview();
+  };
+  reader.readAsDataURL(file);
+}
+
+function mkClearPhoto(type, evt) {
+  if (evt) { evt.stopPropagation(); evt.preventDefault(); }
+  if (type === 'headshot') {
+    mkState.headshotData = '';
+    document.getElementById('mk-headshot-img').src = '';
+    document.getElementById('mk-headshot-preview').style.display = 'none';
+    document.getElementById('mk-headshot-placeholder').style.display = 'block';
+    document.getElementById('mk-headshot-input').value = '';
+  } else {
+    mkState.actionShotData = '';
+    document.getElementById('mk-action-img').src = '';
+    document.getElementById('mk-action-preview').style.display = 'none';
+    document.getElementById('mk-action-placeholder').style.display = 'block';
+    document.getElementById('mk-action-input').value = '';
+  }
+  mkUpdatePreview();
 }
 
 function mkUpdatePreview() {
@@ -3643,10 +3895,12 @@ function mkUpdatePreview() {
   var colors = mkGetColors();
   var primary = colors.primary;
   var secondary = colors.secondary;
+  var priText = mkIsLight(primary) ? '#1a1a2e' : '#ffffff';
   var secText = mkIsLight(secondary) ? '#333333' : '#ffffff';
 
   var initials = (name || 'N A').split(' ').slice(0,2).map(function(w){ return (w[0]||'').toUpperCase(); }).join('') || 'NA';
-  var metaParts = [sport, school, position].filter(function(v){ return v && v !== '—'; });
+  var displayName = (name && name !== '—') ? name : 'Your Name';
+  var metaParts = [position, sport, school].filter(function(v){ return v && v !== '—'; });
   var metaLine = metaParts.join(' · ') || 'Athlete';
 
   var ig = {
@@ -3663,69 +3917,136 @@ function mkUpdatePreview() {
     followers: parseInt(document.getElementById('mk-tw-followers').value) || 0
   };
   var bio = document.getElementById('mk-bio').value.trim();
+  var headshot = mkState.headshotData || null;
+  var actionShot = mkState.actionShotData || null;
 
+  // ── Stats boxes ──────────────────────────────────────────────────────────
   var statsBoxes = [];
-  if (ig.followers > 0 || ig.handle) statsBoxes.push(mkStatBox('📸', 'Instagram', ig.followers, ig.handle, '#E1306C'));
-  if (tt.followers > 0 || tt.handle) statsBoxes.push(mkStatBox('🎵', 'TikTok', tt.followers, tt.handle, '#69C9D0'));
-  if (tw.followers > 0 || tw.handle) statsBoxes.push(mkStatBox('𝕏', 'Twitter/X', tw.followers, tw.handle, '#1DA1F2'));
+  var igSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#E1306C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.2" fill="#E1306C" stroke="none"/></svg>';
+  var ttSvg  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>';
+  var twSvg  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
 
+  function mkPlatformBox(icon, platform, followers, handle, color, engagement) {
+    return '<div style="flex:1;padding:14px 10px;border-right:1px solid #f0f4f8;text-align:center;min-width:0">' +
+      '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:5px">' + icon +
+        '<span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:' + color + '">' + platform + '</span>' +
+      '</div>' +
+      '<div style="font-size:20px;font-weight:800;color:#0f172a;line-height:1;font-variant-numeric:tabular-nums">' + (followers > 0 ? mkFmtFollowers(followers) : '<span style="color:#cbd5e1">—</span>') + '</div>' +
+      (handle ? '<div style="font-size:10px;color:#94a3b8;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">@' + esc(handle.replace(/^@/,'')) + '</div>' : '<div style="font-size:10px;color:#e2e8f0;margin-top:3px">—</div>') +
+      (engagement ? '<div style="font-size:9px;font-weight:700;color:#84CC16;margin-top:3px">' + esc(engagement) + ' eng.</div>' : '') +
+    '</div>';
+  }
+
+  if (ig.followers > 0 || ig.handle) statsBoxes.push(mkPlatformBox(igSvg, 'Instagram', ig.followers, ig.handle, '#E1306C', ig.engagement));
+  if (tt.followers > 0 || tt.handle) statsBoxes.push(mkPlatformBox(ttSvg, 'TikTok', tt.followers, tt.handle, '#333', ''));
+  if (tw.followers > 0 || tw.handle) statsBoxes.push(mkPlatformBox(twSvg, 'Twitter/X', tw.followers, tw.handle, '#1DA1F2', ''));
+
+  // Show placeholders if no stats entered yet
+  if (statsBoxes.length === 0) {
+    statsBoxes = [
+      mkPlatformBox(igSvg, 'Instagram', 0, '', '#E1306C', ''),
+      mkPlatformBox(ttSvg, 'TikTok', 0, '', '#333', ''),
+      mkPlatformBox(twSvg, 'Twitter/X', 0, '', '#1DA1F2', '')
+    ];
+  }
+
+  // ── Rate card rows ─────────────────────────────────────────────────────
+  var visibleRates = mkState.rates.filter(function(r){ return r.service_type && r.price; });
   var rateRowsHtml = '';
-  if (mkState.rates.length > 0) {
+  if (visibleRates.length > 0) {
     rateRowsHtml =
       '<table style="width:100%;border-collapse:collapse">' +
-        '<tr style="background:#f8fafc">' +
-          '<th style="text-align:left;padding:7px 10px;font-size:10px;font-weight:600;color:#374151;border-bottom:1px solid #e8ecf0">Service</th>' +
-          '<th style="text-align:right;padding:7px 10px;font-size:10px;font-weight:600;color:#374151;border-bottom:1px solid #e8ecf0">Rate</th>' +
-        '</tr>' +
-        mkState.rates.filter(function(r){ return r.service_type && r.price; }).map(function(r, i) {
+        visibleRates.map(function(r, i) {
           return '<tr style="background:' + (i%2===0 ? '#fff' : '#f8fafc') + '">' +
-            '<td style="padding:7px 10px;font-size:12px;color:#374151;border-bottom:1px solid #e8ecf0">' + esc(r.service_type) + '</td>' +
-            '<td style="padding:7px 10px;font-size:12px;font-weight:600;color:#111;text-align:right;border-bottom:1px solid #e8ecf0">$' + parseInt(r.price||0).toLocaleString() + '</td>' +
+            '<td style="padding:10px 16px;font-size:13px;color:#1e293b;border-bottom:1px solid #f1f5f9">' +
+              '<div style="font-weight:600">' + esc(r.service_type) + '</div>' +
+              (r.notes ? '<div style="font-size:11px;color:#94a3b8;margin-top:2px">' + esc(r.notes) + '</div>' : '') +
+            '</td>' +
+            '<td style="padding:10px 16px;font-size:14px;font-weight:700;text-align:right;border-bottom:1px solid #f1f5f9;color:' + primary + ';font-variant-numeric:tabular-nums">$' + parseInt(r.price||0).toLocaleString() + '</td>' +
           '</tr>';
         }).join('') +
       '</table>';
   }
 
-  var html =
-    '<div style="font-family:\'DM Sans\',sans-serif;background:#fff">' +
+  // ── Build HTML ────────────────────────────────────────────────────────────
+  var html = '<div style="font-family:\'DM Sans\',sans-serif;background:#fff">';
 
-    // ── Header ──
-    '<div style="background:' + primary + ';padding:24px 28px;position:relative;overflow:hidden">' +
-      '<div style="position:absolute;top:-30px;right:-30px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,0.06)"></div>' +
-      '<div style="position:absolute;bottom:-20px;left:50px;width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,0.04)"></div>' +
-      '<div style="width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,0.18);display:inline-flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;color:#fff;margin-bottom:14px;position:relative;z-index:1;letter-spacing:0.04em">' + esc(initials) + '</div>' +
-      '<div style="font-size:22px;font-weight:700;color:#fff;line-height:1.1;position:relative;z-index:1">' + esc(name || 'Your Name') + '</div>' +
-      '<div style="font-size:12px;color:rgba(255,255,255,0.72);margin-top:5px;position:relative;z-index:1">' + esc(metaLine) + '</div>' +
-    '</div>' +
+  // HEADER — Action Shot banner + Headshot overlay
+  var bannerBg = actionShot
+    ? 'url(' + actionShot + ') center/cover'
+    : 'linear-gradient(135deg,' + primary + ' 0%,#0f172a 100%)';
 
-    // ── Stats ──
-    (statsBoxes.length > 0 ?
-      '<div style="display:flex;border-bottom:1px solid #e8ecf0;background:#fff">' + statsBoxes.join('') + '</div>'
-    : '') +
+  html += '<div style="position:relative;height:180px;background:' + bannerBg + ';overflow:visible">';
+  // Gradient overlay for text readability when action shot present
+  if (actionShot) html += '<div style="position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.1) 100%)"></div>';
 
-    // ── Bio ──
-    (bio ?
-      '<div style="padding:18px 28px;border-bottom:1px solid #e8ecf0;background:#fff">' +
-        '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#9ca3af;margin-bottom:8px">About</div>' +
-        '<div style="border-left:3px solid ' + primary + ';padding-left:12px;font-size:13px;color:#374151;line-height:1.65">' + esc(bio) + '</div>' +
-      '</div>'
-    : '') +
+  // Headshot circle — overlaid at bottom-left, half outside banner
+  html += '<div style="position:absolute;bottom:-36px;left:20px;z-index:2">';
+  if (headshot) {
+    html += '<img src="' + headshot + '" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid #fff;display:block;box-shadow:0 2px 12px rgba(0,0,0,0.25)">';
+  } else {
+    html += '<div style="width:72px;height:72px;border-radius:50%;background:' + primary + ';border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:' + priText + ';box-shadow:0 2px 12px rgba(0,0,0,0.25)">' + esc(initials) + '</div>';
+  }
+  html += '</div>';
 
-    // ── Rate Card ──
-    (mkState.rates.filter(function(r){ return r.service_type && r.price; }).length > 0 ?
-      '<div style="padding:18px 28px;border-bottom:1px solid #e8ecf0;background:#fff">' +
-        '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#9ca3af;margin-bottom:10px">Rate Card</div>' +
-        rateRowsHtml +
-      '</div>'
-    : '') +
+  // Name + meta — to the right of headshot zone
+  html += '<div style="position:absolute;bottom:-20px;left:108px;right:16px;">';
+  html += '<div style="font-size:22px;font-weight:800;color:#0f172a;line-height:1.1;letter-spacing:-0.01em">' + esc(displayName) + '</div>';
+  html += '<div style="font-size:12px;color:#64748b;margin-top:3px;font-weight:500">' + esc(metaLine) + '</div>';
+  html += '</div>';
 
-    // ── Footer ──
-    '<div style="background:' + secondary + ';padding:10px 28px;display:flex;align-items:center;justify-content:space-between">' +
-      '<div style="font-size:10px;color:' + secText + ';opacity:0.7">Powered by NILDash</div>' +
-      '<div style="font-size:10px;color:' + secText + ';opacity:0.5">© ' + new Date().getFullYear() + '</div>' +
-    '</div>' +
+  html += '</div>'; // /banner
 
-  '</div>';
+  // School color bar + spacing for headshot
+  html += '<div style="height:4px;background:' + primary + ';margin-top:0"></div>';
+  html += '<div style="height:30px;background:#fff"></div>'; // space for headshot overflow
+
+  // ── Stats Row ────────────────────────────────────────────────────────────
+  html += '<div style="display:flex;border-top:1px solid #f0f4f8;border-bottom:1px solid #f0f4f8;background:#fafbfc">' + statsBoxes.join('') + '</div>';
+
+  // ── About / Bio ───────────────────────────────────────────────────────────
+  if (bio) {
+    html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
+    html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
+    html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>ABOUT</div>';
+    html += '<div style="font-size:13px;color:#334155;line-height:1.7">' + esc(bio) + '</div>';
+    html += '</div>';
+  } else {
+    html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
+    html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
+    html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>ABOUT</div>';
+    html += '<div style="font-size:13px;color:#cbd5e1;font-style:italic;line-height:1.6">Your bio will appear here — write it yourself or click "AI Generate Bio" ✨</div>';
+    html += '</div>';
+  }
+
+  // ── Rate Card ─────────────────────────────────────────────────────────────
+  html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
+  html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
+  html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>RATE CARD</div>';
+  if (visibleRates.length > 0) {
+    html += rateRowsHtml;
+  } else {
+    html += '<div style="font-size:13px;color:#cbd5e1;font-style:italic">Rate card coming soon</div>';
+  }
+  html += '</div>';
+
+  // ── Work With Me ─────────────────────────────────────────────────────────
+  var athleteEmail = (athleteProfile && athleteProfile.email) ? athleteProfile.email : '';
+  html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8">';
+  html += '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px">';
+  html += '<span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>WORK WITH ME</div>';
+  if (athleteEmail) html += '<div style="font-size:12px;color:#64748b;margin-bottom:10px">' + esc(athleteEmail) + '</div>';
+  html += '<div style="display:inline-block;background:' + primary + ';color:' + priText + ';padding:10px 20px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Contact This Athlete</div>';
+  html += '</div>';
+
+  // ── Footer ───────────────────────────────────────────────────────────────
+  html += '<div style="height:4px;background:' + secondary + '"></div>';
+  html += '<div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between;background:#fff">';
+  html += '<div style="font-size:10px;color:#94a3b8">Powered by <strong style="color:#64748b">NILDash</strong></div>';
+  html += '<div style="font-size:10px;color:#cbd5e1">© ' + new Date().getFullYear() + '</div>';
+  html += '</div>';
+
+  html += '</div>'; // /outer
 
   document.getElementById('mk-preview').innerHTML = html;
 }
@@ -3795,6 +4116,19 @@ function mkPopulateForm(mk, rates) {
     document.getElementById('mk-color-secondary').value = mk.secondary_color;
     document.getElementById('mk-color-secondary-hex').value = mk.secondary_color;
   }
+  // Restore photos
+  if (mk.headshot_url && mk.headshot_url.startsWith('data:')) {
+    mkState.headshotData = mk.headshot_url;
+    document.getElementById('mk-headshot-img').src = mk.headshot_url;
+    document.getElementById('mk-headshot-preview').style.display = 'block';
+    document.getElementById('mk-headshot-placeholder').style.display = 'none';
+  }
+  if (mk.action_shot_data && mk.action_shot_data.startsWith('data:')) {
+    mkState.actionShotData = mk.action_shot_data;
+    document.getElementById('mk-action-img').src = mk.action_shot_data;
+    document.getElementById('mk-action-preview').style.display = 'block';
+    document.getElementById('mk-action-placeholder').style.display = 'none';
+  }
   mkState.rates = (rates || []).map(function(r) {
     return { service_type: r.service_type, price: r.price, notes: r.notes || '' };
   });
@@ -3830,10 +4164,15 @@ function mkUpdateRateCustom(idx, val) {
   mkUpdatePreview();
 }
 
+function mkUpdateRateNotes(idx, val) {
+  mkState.rates[idx].notes = val;
+  mkUpdatePreview();
+}
+
 function mkRenderRateRows() {
   var container = document.getElementById('mk-rate-rows');
   if (!mkState.rates.length) {
-    container.innerHTML = '<div style="text-align:center;padding:12px;color:var(--muted);font-size:12px">No services added yet</div>';
+    container.innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);font-size:12px">No services added yet. Click "+ Add Service" to start.</div>';
     return;
   }
   container.innerHTML = mkState.rates.map(function(r, i) {
@@ -3844,13 +4183,17 @@ function mkRenderRateRows() {
     var opts = MK_SERVICES.map(function(s) {
       return '<option value="' + esc(s) + '"' + (selectVal === s ? ' selected' : '') + '>' + esc(s) + '</option>';
     }).join('');
-    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">' +
-      '<div style="display:grid;grid-template-columns:1fr 90px 30px;gap:6px;align-items:center">' +
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">' +
+      '<div style="display:grid;grid-template-columns:1fr 90px 30px;gap:6px;align-items:center;margin-bottom:6px">' +
         '<select class="form-select" style="font-size:12px" onchange="mkUpdateRateService(' + i + ',this.value)">' + opts + '</select>' +
-        '<input class="form-input" type="number" style="font-size:12px" placeholder="Price $" value="' + esc(String(r.price||'')) + '" oninput="mkUpdateRatePrice(' + i + ',this.value)">' +
-        '<button onclick="mkRemoveRateRow(' + i + ')" class="btn btn-danger btn-sm" style="padding:4px 7px;justify-content:center;min-width:0">✕</button>' +
+        '<div style="display:flex;align-items:center;gap:4px">' +
+          '<span style="font-size:12px;color:var(--muted);flex-shrink:0">$</span>' +
+          '<input class="form-input" type="number" style="font-size:12px;padding-left:4px" placeholder="0" value="' + esc(String(r.price||'')) + '" oninput="mkUpdateRatePrice(' + i + ',this.value)">' +
+        '</div>' +
+        '<button onclick="mkRemoveRateRow(' + i + ')" class="btn btn-danger btn-sm" style="padding:4px 7px;justify-content:center;min-width:0;font-size:11px">✕</button>' +
       '</div>' +
-      (isCustom ? '<input class="form-input" style="font-size:12px;margin-top:6px" placeholder="Custom service name" value="' + esc(customVal) + '" oninput="mkUpdateRateCustom(' + i + ',this.value)">' : '') +
+      (isCustom ? '<input class="form-input" style="font-size:12px;margin-bottom:6px" placeholder="Custom service name" value="' + esc(customVal) + '" oninput="mkUpdateRateCustom(' + i + ',this.value)">' : '') +
+      '<input class="form-input" style="font-size:11px;background:rgba(0,0,0,0.15)" placeholder="Notes (optional) e.g. 60 sec video, usage rights included" value="' + esc(r.notes||'') + '" oninput="mkUpdateRateNotes(' + i + ',this.value)">' +
     '</div>';
   }).join('');
 }
@@ -3880,7 +4223,8 @@ async function mkGenerateBio() {
   } catch(e) {
     showToast('Bio generation failed: ' + e.message, 'error');
   } finally {
-    btn.disabled = false; btn.textContent = '✨ AI Generate Bio';
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L14.09 8.26L21 9.27L16 14.14L17.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z"/></svg> AI Generate Bio';
   }
 }
 
@@ -3903,7 +4247,9 @@ async function mkSave() {
       bio: document.getElementById('mk-bio').value.trim(),
       primary_color: colors.primary,
       secondary_color: colors.secondary,
-      rateCards: cleanRates
+      rateCards: cleanRates,
+      headshot_data: mkState.headshotData !== null ? (mkState.headshotData || '') : undefined,
+      action_shot_data: mkState.actionShotData !== null ? (mkState.actionShotData || '') : undefined
     };
     var r = await fetch('/api/athlete/media-kit/save', {
       method: 'POST',
@@ -3918,7 +4264,8 @@ async function mkSave() {
   } catch(e) {
     showToast('Save failed: ' + e.message, 'error');
   } finally {
-    btn.disabled = false; btn.textContent = '💾 Save Media Kit';
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save';
   }
 }
 
@@ -3935,15 +4282,19 @@ function mkShowShareLink(slug) {
   mkState.slug = slug;
 }
 
-function mkCopyLink() {
-  var url = document.getElementById('mk-share-url').dataset.url || document.getElementById('mk-share-url').textContent;
-  if (!url) return;
+async function mkCopyLink() {
+  if (!mkState.slug) {
+    // Save first, then copy
+    await mkSave();
+    if (!mkState.slug) { showToast('Save your media kit first', 'error'); return; }
+  }
+  var url = window.location.origin + '/media-kit/' + mkState.slug;
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(url).then(function(){ showToast('Link copied!', 'success'); });
+    navigator.clipboard.writeText(url).then(function(){ showToast('Copied! ✓', 'success'); });
   } else {
     var ta = document.createElement('textarea');
     ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
-    showToast('Link copied!', 'success');
+    showToast('Copied! ✓', 'success');
   }
 }
 
@@ -3952,8 +4303,11 @@ function mkOpenPublicPage() {
   else showToast('Save your media kit first', 'error');
 }
 
-function mkDownloadPDF() {
-  if (!mkState.slug) { showToast('Save your media kit first to generate a PDF', 'error'); return; }
+async function mkDownloadPDF() {
+  if (!mkState.slug) {
+    await mkSave();
+    if (!mkState.slug) { showToast('Save your media kit first', 'error'); return; }
+  }
   window.open(window.location.origin + '/media-kit/' + mkState.slug + '?print=1', '_blank');
 }
 

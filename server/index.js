@@ -6027,7 +6027,8 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
       instagram_handle, instagram_followers, instagram_engagement,
       tiktok_handle, tiktok_followers,
       twitter_handle, twitter_followers,
-      bio, primary_color, secondary_color, rateCards
+      bio, primary_color, secondary_color, rateCards,
+      headshot_data, action_shot_data
     } = req.body;
 
     // Fetch athlete name for slug generation
@@ -6038,13 +6039,18 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
     const athleteName = athR.rows[0]?.name || req.athlete.id;
     const baseSlug = athleteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-nil';
 
+    // Build headshot/action updates (only update if a new value was supplied;
+    // null means "leave unchanged", empty string means "clear photo")
+    const headshotUpdate = headshot_data !== undefined ? headshot_data || null : undefined;
+    const actionUpdate   = action_shot_data !== undefined ? action_shot_data || null : undefined;
+
     // Upsert media kit
     const mkR = await store.pool.query(
       `INSERT INTO media_kits
          (athlete_id, instagram_handle, instagram_followers, instagram_engagement,
           tiktok_handle, tiktok_followers, twitter_handle, twitter_followers,
-          bio, primary_color, secondary_color, slug, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
+          bio, primary_color, secondary_color, headshot_url, action_shot_data, slug, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
        ON CONFLICT (athlete_id) DO UPDATE SET
          instagram_handle = EXCLUDED.instagram_handle,
          instagram_followers = EXCLUDED.instagram_followers,
@@ -6056,12 +6062,17 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
          bio = EXCLUDED.bio,
          primary_color = EXCLUDED.primary_color,
          secondary_color = EXCLUDED.secondary_color,
+         headshot_url = CASE WHEN EXCLUDED.headshot_url IS NOT NULL THEN EXCLUDED.headshot_url ELSE media_kits.headshot_url END,
+         action_shot_data = CASE WHEN EXCLUDED.action_shot_data IS NOT NULL THEN EXCLUDED.action_shot_data ELSE media_kits.action_shot_data END,
          slug = COALESCE(media_kits.slug, EXCLUDED.slug),
          updated_at = NOW()
        RETURNING *`,
       [req.athlete.id, instagram_handle||null, instagram_followers||null, instagram_engagement||null,
        tiktok_handle||null, tiktok_followers||null, twitter_handle||null, twitter_followers||null,
-       bio||null, primary_color||null, secondary_color||null, baseSlug]
+       bio||null, primary_color||null, secondary_color||null,
+       headshotUpdate !== undefined ? headshotUpdate : null,
+       actionUpdate   !== undefined ? actionUpdate   : null,
+       baseSlug]
     );
     const mk = mkR.rows[0];
 
@@ -6172,6 +6183,67 @@ app.get('/api/agents/media-kit-status', requireAuth, async (req, res) => {
 // Public route: /media-kit/:slug serves the standalone media kit page
 app.get('/media-kit/:slug', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'media-kit.html'));
+});
+
+// POST /api/media-kit/contact — brand contacts athlete via public media kit (no auth needed)
+app.post('/api/media-kit/contact', async (req, res) => {
+  try {
+    const { slug, sender_name, sender_company, sender_email, message } = req.body;
+    if (!slug || !sender_name || !sender_email || !message)
+      return res.status(400).json({ error: 'All fields required' });
+
+    // Look up the media kit + athlete + agent
+    const mkR = await store.pool.query('SELECT * FROM media_kits WHERE slug = $1', [slug]);
+    if (!mkR.rows.length) return res.status(404).json({ error: 'Media kit not found' });
+    const mk = mkR.rows[0];
+
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name, a.data->>'sport' as sport, a.email as email,
+              u.email as agent_email, u.name as agent_name
+       FROM athletes a LEFT JOIN users u ON a.agent_id = u.id
+       WHERE a.id = $1`,
+      [mk.athlete_id]
+    );
+    const ath = athR.rows[0] || {};
+    const toEmail = ath.agent_email || ath.email || process.env.ADMIN_EMAIL || 'hello@mynildash.com';
+
+    const emailBody = `
+<div style="font-family:'DM Sans',sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#fff">
+  <div style="background:#0A0E1A;padding:16px 24px;border-radius:8px 8px 0 0;margin-bottom:0">
+    <span style="font-family:Bebas Neue,sans-serif;font-size:20px;letter-spacing:0.04em;color:#fff">NIL<span style="color:#84CC16">Dash</span></span>
+    <span style="font-size:11px;font-weight:700;color:#84CC16;margin-left:10px;text-transform:uppercase;letter-spacing:0.08em">Media Kit Inquiry</span>
+  </div>
+  <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:28px 24px">
+    <h2 style="margin:0 0 6px;font-size:20px;color:#0f172a">New brand inquiry for ${ath.name || 'your athlete'}</h2>
+    <p style="color:#64748b;font-size:13px;margin:0 0 24px">Someone found their media kit on NILDash and wants to work together.</p>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
+      <tr><td style="padding:8px 12px;background:#f8fafc;font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;width:120px">From</td><td style="padding:8px 12px;background:#f8fafc;font-size:14px;color:#1e293b;font-weight:600">${sender_name}</td></tr>
+      <tr><td style="padding:8px 12px;font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em">Company</td><td style="padding:8px 12px;font-size:14px;color:#1e293b">${sender_company || '(not provided)'}</td></tr>
+      <tr><td style="padding:8px 12px;background:#f8fafc;font-size:12px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em">Email</td><td style="padding:8px 12px;background:#f8fafc;font-size:14px"><a href="mailto:${sender_email}" style="color:#2563eb">${sender_email}</a></td></tr>
+    </table>
+    <div style="background:#f1f5f9;border-left:4px solid #84CC16;padding:14px 18px;border-radius:4px;margin-bottom:24px">
+      <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Message</div>
+      <p style="margin:0;font-size:14px;color:#334155;line-height:1.6">${message.replace(/\n/g,'<br>')}</p>
+    </div>
+    <a href="mailto:${sender_email}?subject=Re: NIL Partnership — ${ath.name || ''}&body=Hi ${sender_name}," style="display:inline-block;background:#84CC16;color:#0A0E1A;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none">Reply to ${sender_name}</a>
+  </div>
+  <p style="text-align:center;font-size:11px;color:#94a3b8;margin-top:16px">Powered by <a href="https://mynildash.com" style="color:#84CC16">NILDash</a></p>
+</div>`;
+
+    await resend.emails.send({
+      from: 'NILDash <noreply@mynildash.com>',
+      to: [toEmail],
+      reply_to: sender_email,
+      subject: `Brand inquiry for ${ath.name || 'your athlete'} — ${sender_company || sender_name}`,
+      html: emailBody,
+    });
+
+    console.log(`[media-kit contact] slug=${slug} from=${sender_email} to=${toEmail}`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[media-kit contact]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── /Media Kit Routes ─────────────────────────────────────────────────────

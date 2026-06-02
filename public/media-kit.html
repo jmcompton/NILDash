@@ -5,126 +5,179 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIL Media Kit — NILDash</title>
 <link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&family=Bebas+Neue&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:#1a1a2e}
 
-/* ── Topbar (screen only) ── */
-.topbar{background:#0A0E1A;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.08)}
-.topbar-logo{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:0.04em;color:#fff}
-.topbar-logo span{color:#84CC16}
+/* ── Topbar ── */
+.topbar{background:#0A0E1A;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.07);position:sticky;top:0;z-index:50}
+.topbar-logo{display:flex;align-items:center;gap:10px}
+.topbar-logo-text{font-size:17px;font-weight:800;color:#fff;letter-spacing:-0.01em}
+.topbar-logo-text span{color:#84CC16}
 .topbar-actions{display:flex;gap:10px;align-items:center}
-.btn-share{background:transparent;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.7);padding:7px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s}
-.btn-share:hover{border-color:#84CC16;color:#84CC16}
-.btn-pdf{background:#84CC16;border:none;color:#0A0E1A;padding:8px 18px;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;display:flex;align-items:center;gap:6px}
-.btn-pdf:hover{background:#96e020}
+.btn-topbar{padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;border:1.5px solid;display:flex;align-items:center;gap:6px;text-decoration:none}
+.btn-ghost-white{background:transparent;border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.75)}
+.btn-ghost-white:hover{border-color:#84CC16;color:#84CC16}
+.btn-accent{background:#84CC16;border-color:#84CC16;color:#0A0E1A}
+.btn-accent:hover{background:#96e020;border-color:#96e020}
 
-/* ── Wrapper ── */
-.page-wrap{max-width:860px;margin:32px auto;padding:0 20px 60px}
+/* ── Layout ── */
+.page-wrap{max-width:780px;margin:0 auto;padding:32px 16px 80px}
 
 /* ── Media Kit Card ── */
-.mk-card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 32px rgba(0,0,0,0.10)}
+.mk-card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.12),0 2px 8px rgba(0,0,0,0.06)}
 
-/* ── Header ── */
-.mk-header{padding:32px 40px 28px;display:flex;align-items:center;gap:24px}
-.mk-avatar{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#fff;flex-shrink:0;border:3px solid rgba(255,255,255,0.3);text-transform:uppercase}
-.mk-header-text{flex:1}
-.mk-name{font-family:'DM Sans',sans-serif;font-size:32px;font-weight:800;color:#fff;line-height:1.1;letter-spacing:-0.01em}
-.mk-meta{font-size:15px;color:rgba(255,255,255,0.75);margin-top:5px;font-weight:500}
+/* ── Header: Banner + Headshot ── */
+.mk-banner{position:relative;height:200px;background-size:cover;background-position:center;overflow:visible}
+.mk-banner-overlay{position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,0.5) 0%,rgba(0,0,0,0.1) 100%)}
+.mk-headshot{position:absolute;bottom:-40px;left:24px;z-index:2}
+.mk-headshot img,
+.mk-headshot-initials{width:80px;height:80px;border-radius:50%;border:3px solid #fff;display:block;object-fit:cover;box-shadow:0 2px 16px rgba(0,0,0,0.25)}
+.mk-headshot-initials{display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:#fff}
 
-/* ── Stats Row ── */
-.mk-stats{background:#f8fafc;border-bottom:1px solid #e8edf2;padding:20px 40px;display:flex;gap:0}
-.mk-stat-box{flex:1;padding:14px 20px;text-align:center;border-right:1px solid #e8edf2}
+/* ── Name row (below banner) ── */
+.mk-name-row{padding:12px 24px 16px 120px;border-bottom:1px solid #f0f4f8}
+.mk-name{font-size:26px;font-weight:800;color:#0f172a;line-height:1.1;letter-spacing:-0.01em}
+.mk-meta{font-size:13px;color:#64748b;margin-top:4px;font-weight:500}
+
+/* ── Color bar ── */
+.mk-color-bar{height:4px}
+
+/* ── Stats ── */
+.mk-stats{display:flex;border-bottom:1px solid #f0f4f8;background:#fafbfc}
+.mk-stat-box{flex:1;padding:16px 10px;text-align:center;border-right:1px solid #f0f4f8}
 .mk-stat-box:last-child{border-right:none}
-.mk-stat-platform{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#94a3b8;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:5px}
-.mk-stat-count{font-size:28px;font-weight:800;color:#1a1a2e;line-height:1;font-variant-numeric:tabular-nums}
-.mk-stat-handle{font-size:12px;color:#94a3b8;margin-top:4px}
-.mk-stat-eng{font-size:10px;font-weight:600;color:#84CC16;margin-top:3px}
+.mk-stat-platform{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:5px}
+.mk-stat-count{font-size:24px;font-weight:800;color:#0f172a;line-height:1;font-variant-numeric:tabular-nums}
+.mk-stat-handle{font-size:11px;color:#94a3b8;margin-top:4px}
+.mk-stat-eng{font-size:10px;font-weight:700;color:#84CC16;margin-top:3px}
 
-/* ── Body ── */
-.mk-body{padding:32px 40px}
-
-/* ── Bio Section ── */
-.mk-section{margin-bottom:28px}
-.mk-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:12px}
-.mk-bio-text{font-size:15px;line-height:1.7;color:#334155;padding-left:14px;border-radius:2px}
+/* ── Body sections ── */
+.mk-body{padding:0}
+.mk-section{padding:20px 24px;border-bottom:1px solid #f0f4f8}
+.mk-section:last-child{border-bottom:none}
+.mk-section-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.mk-section-label-bar{display:inline-block;width:3px;height:12px;border-radius:2px;flex-shrink:0}
+.mk-bio-text{font-size:14px;line-height:1.75;color:#334155}
 
 /* ── Rate Card ── */
 .mk-rate-table{width:100%;border-collapse:collapse}
-.mk-rate-table th{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#94a3b8;padding:10px 16px;text-align:left;border-bottom:2px solid #f1f5f9}
-.mk-rate-table td{padding:12px 16px;font-size:14px;border-bottom:1px solid #f1f5f9}
+.mk-rate-table td{padding:11px 16px;font-size:13px;border-bottom:1px solid #f1f5f9}
 .mk-rate-table tr:last-child td{border-bottom:none}
 .mk-rate-table tr:nth-child(even) td{background:#f8fafc}
-.mk-rate-price{font-weight:700;font-size:15px;text-align:right;font-variant-numeric:tabular-nums}
-.mk-rate-notes{font-size:12px;color:#94a3b8;margin-top:2px}
+.mk-rate-service{font-weight:600;color:#1e293b}
+.mk-rate-notes{font-size:11px;color:#94a3b8;margin-top:2px;font-weight:400}
+.mk-rate-price{font-weight:700;font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* ── Contact CTA ── */
+.mk-contact-btn{display:inline-block;padding:12px 28px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;transition:all 0.15s;margin-top:8px}
 
 /* ── Footer ── */
-.mk-footer{padding:0 40px 28px;display:flex;align-items:center;justify-content:space-between}
-.mk-footer-bar{height:4px;border-radius:0 0 0 0;margin:0 0 20px}
+.mk-footer-bar{height:4px}
+.mk-footer{padding:12px 24px;display:flex;align-items:center;justify-content:space-between;background:#fff}
 .mk-powered{font-size:11px;color:#94a3b8}
-.mk-powered strong{color:#64748b}
-.mk-created{font-size:11px;color:#cbd5e1}
+.mk-powered a{color:#64748b;font-weight:600;text-decoration:none}
+.mk-powered a:hover{color:#84CC16}
+.mk-year{font-size:11px;color:#cbd5e1}
+
+/* ── Contact Modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity 0.22s}
+.modal-overlay.open{opacity:1}
+.modal{background:#fff;border-radius:16px;padding:28px 24px;width:100%;max-width:460px;transform:translateY(20px);transition:transform 0.22s;box-shadow:0 20px 60px rgba(0,0,0,0.2)}
+.modal-overlay.open .modal{transform:translateY(0)}
+.modal-title{font-size:20px;font-weight:800;color:#0f172a;margin-bottom:4px}
+.modal-sub{font-size:13px;color:#64748b;margin-bottom:20px}
+.form-group{margin-bottom:13px}
+.form-label{display:block;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px}
+.form-input{width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;color:#1e293b;outline:none;transition:border-color 0.15s;background:#fff}
+.form-input:focus{border-color:#84CC16}
+.form-textarea{width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;color:#1e293b;outline:none;resize:vertical;min-height:90px;transition:border-color 0.15s}
+.form-textarea:focus{border-color:#84CC16}
+.modal-actions{display:flex;gap:10px;margin-top:18px}
+.btn-send{flex:1;padding:13px;background:#84CC16;color:#0A0E1A;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s}
+.btn-send:hover{background:#96e020}
+.btn-send:disabled{opacity:0.5;cursor:not-allowed}
+.btn-cancel{padding:13px 20px;background:transparent;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;color:#64748b;transition:all 0.15s}
+.btn-cancel:hover{border-color:#94a3b8}
+.contact-success{text-align:center;padding:20px 0}
+.contact-success-icon{font-size:44px;margin-bottom:12px}
+.contact-success-title{font-size:18px;font-weight:800;color:#0f172a;margin-bottom:6px}
+.contact-success-sub{font-size:13px;color:#64748b;line-height:1.55}
 
 /* ── Loading / Error ── */
-#loading-state,#error-state{display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:16px}
+.state-screen{display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:14px}
 .spinner{width:32px;height:32px;border:3px solid rgba(132,204,22,0.2);border-top-color:#84CC16;border-radius:50%;animation:spin 0.7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.loading-text{font-size:13px;color:#64748b}
-.error-icon{font-size:40px}
-.error-title{font-size:18px;font-weight:700;color:#1a1a2e}
+.state-text{font-size:13px;color:#64748b}
+.error-icon{font-size:44px}
+.error-title{font-size:20px;font-weight:800;color:#1a1a2e}
 .error-sub{font-size:13px;color:#64748b}
 
-/* ── Print styles ── */
+/* ── Toast ── */
+.toast{position:fixed;bottom:24px;right:24px;background:#1a1a2e;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;opacity:0;transition:opacity 0.25s;pointer-events:none;z-index:9999;max-width:280px}
+.toast.show{opacity:1}
+
+/* ── Print ── */
 @media print {
-  .topbar,.topbar-actions,.btn-pdf,.btn-share{display:none!important}
+  .topbar,.topbar-actions,.print-hide,.modal-overlay{display:none!important}
   body{background:#fff}
   .page-wrap{margin:0;padding:0;max-width:100%}
   .mk-card{box-shadow:none;border-radius:0}
   @page{size:letter portrait;margin:0.5in}
 }
-
-/* ── Copy toast ── */
-.copy-toast{position:fixed;bottom:24px;right:24px;background:#1a1a2e;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;opacity:0;transition:opacity 0.25s;pointer-events:none;z-index:9999}
-.copy-toast.show{opacity:1}
 </style>
 </head>
 <body>
 
-<!-- Topbar (screen only) -->
-<div class="topbar">
-  <div class="topbar-logo">NIL<span>Dash</span></div>
+<!-- Topbar -->
+<div class="topbar print-hide">
+  <a href="https://mynildash.com" class="topbar-logo" style="text-decoration:none">
+    <div class="topbar-logo-text">NIL<span>Dash</span></div>
+  </a>
   <div class="topbar-actions">
-    <button class="btn-share" onclick="copyLink()">🔗 Copy Link</button>
-    <button class="btn-pdf" onclick="window.print()">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 9V12H12V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 2V9M4 6L7 9L10 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <button class="btn-topbar btn-ghost-white" onclick="copyLink()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      Copy Link
+    </button>
+    <button class="btn-topbar btn-accent" onclick="window.print()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Download PDF
     </button>
   </div>
 </div>
 
-<!-- States -->
-<div id="loading-state">
+<!-- Loading -->
+<div id="state-loading" class="state-screen">
   <div class="spinner"></div>
-  <div class="loading-text">Loading media kit…</div>
-</div>
-<div id="error-state" style="display:none">
-  <div class="error-icon">📋</div>
-  <div class="error-title">Media kit not found</div>
-  <div class="error-sub">This link may be invalid or the media kit may have been removed.</div>
+  <div class="state-text">Loading media kit…</div>
 </div>
 
-<!-- Media Kit Content -->
+<!-- Error -->
+<div id="state-error" class="state-screen" style="display:none">
+  <div class="error-icon">📋</div>
+  <div class="error-title">Media kit not found</div>
+  <div class="error-sub">This link may be invalid or the athlete's media kit may have been removed.</div>
+</div>
+
+<!-- Main content -->
 <div class="page-wrap" id="mk-content" style="display:none">
   <div class="mk-card" id="mk-card">
 
-    <!-- Header (color set by JS) -->
-    <div class="mk-header" id="mk-header">
-      <div class="mk-avatar" id="mk-avatar"></div>
-      <div class="mk-header-text">
-        <div class="mk-name" id="mk-name"></div>
-        <div class="mk-meta" id="mk-meta"></div>
-      </div>
+    <!-- Banner + Headshot -->
+    <div class="mk-banner" id="mk-banner">
+      <div class="mk-banner-overlay" id="mk-banner-overlay"></div>
+      <div class="mk-headshot" id="mk-headshot-wrap"></div>
+    </div>
+
+    <!-- Color accent bar (4px) -->
+    <div class="mk-color-bar" id="mk-color-bar-top"></div>
+
+    <!-- Spacing for headshot overflow + Name row -->
+    <div style="height:28px;background:#fff"></div>
+    <div class="mk-name-row">
+      <div class="mk-name" id="mk-name"></div>
+      <div class="mk-meta" id="mk-meta"></div>
     </div>
 
     <!-- Stats Row -->
@@ -133,53 +186,100 @@ body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:
     <!-- Body -->
     <div class="mk-body">
 
-      <!-- Bio -->
-      <div class="mk-section" id="mk-bio-section" style="display:none">
-        <div class="mk-section-title">About</div>
+      <!-- About -->
+      <div class="mk-section" id="mk-bio-section">
+        <div class="mk-section-label">
+          <span class="mk-section-label-bar" id="mk-bio-bar"></span>
+          ABOUT
+        </div>
         <div class="mk-bio-text" id="mk-bio-text"></div>
       </div>
 
       <!-- Rate Card -->
       <div class="mk-section" id="mk-rates-section" style="display:none">
-        <div class="mk-section-title">Rate Card</div>
-        <table class="mk-rate-table">
-          <thead>
-            <tr>
-              <th>Service</th>
-              <th style="text-align:right">Rate</th>
-            </tr>
-          </thead>
+        <div class="mk-section-label">
+          <span class="mk-section-label-bar" id="mk-rate-bar"></span>
+          RATE CARD
+        </div>
+        <table class="mk-rate-table" id="mk-rate-table">
           <tbody id="mk-rate-tbody"></tbody>
         </table>
       </div>
 
+      <!-- Work With Me -->
+      <div class="mk-section" id="mk-contact-section">
+        <div class="mk-section-label">
+          <span class="mk-section-label-bar" id="mk-contact-bar"></span>
+          WORK WITH ME
+        </div>
+        <div id="mk-contact-email" style="font-size:13px;color:#64748b;margin-bottom:12px"></div>
+        <button id="mk-contact-btn" class="mk-contact-btn" onclick="openContactModal()">Contact This Athlete</button>
+      </div>
+
     </div><!-- /mk-body -->
 
-    <!-- Footer bar + text -->
+    <!-- Footer -->
     <div class="mk-footer-bar" id="mk-footer-bar"></div>
     <div class="mk-footer">
-      <div class="mk-powered">Powered by <strong>NILDash</strong> · mynildash.com</div>
-      <div class="mk-created" id="mk-updated"></div>
+      <div class="mk-powered">Powered by <a href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a></div>
+      <div class="mk-year" id="mk-year"></div>
     </div>
 
   </div><!-- /mk-card -->
 </div><!-- /page-wrap -->
 
-<div class="copy-toast" id="copy-toast">🔗 Link copied!</div>
+<!-- Contact Modal -->
+<div class="modal-overlay" id="contact-modal" onclick="if(event.target===this)closeContactModal()">
+  <div class="modal">
+    <div id="contact-form-wrap">
+      <div class="modal-title">Let's Work Together</div>
+      <div class="modal-sub" id="modal-sub">Tell <span id="modal-athlete-name">this athlete</span>'s team about your brand partnership idea.</div>
+      <div class="form-group">
+        <label class="form-label">Your Name *</label>
+        <input class="form-input" id="contact-name" placeholder="Jane Smith" autocomplete="name">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Company / Brand</label>
+        <input class="form-input" id="contact-company" placeholder="Nike, Zaxby's, Celsius…">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Your Email *</label>
+        <input class="form-input" id="contact-email" type="email" placeholder="partnerships@yourbrand.com" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Message *</label>
+        <textarea class="form-textarea" id="contact-message" placeholder="Tell us about your brand and what kind of partnership you have in mind…" rows="4"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeContactModal()">Cancel</button>
+        <button class="btn-send" id="contact-send-btn" onclick="sendContactMessage()">Send Message</button>
+      </div>
+    </div>
+    <div id="contact-success-wrap" class="contact-success" style="display:none">
+      <div class="contact-success-icon">✅</div>
+      <div class="contact-success-title">Message Sent!</div>
+      <div class="contact-success-sub">Your message has been sent! We'll be in touch soon.</div>
+      <button class="btn-cancel" onclick="closeContactModal()" style="margin-top:20px;border-color:#e2e8f0">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
 
 <script>
-var slug = window.location.pathname.replace('/media-kit/', '').replace(/\//g,'');
+var slug = window.location.pathname.replace(/^\/media-kit\//, '').replace(/\//g,'');
 var kitData = null;
+var currentSlug = slug;
 
-// Platform SVG icons (inline)
+// ── Platform SVG Icons ──────────────────────────────────────────────────────
 var ICONS = {
-  instagram: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E1306C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1" fill="#E1306C" stroke="none"/></svg>',
-  tiktok:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>',
+  instagram: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E1306C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.2" fill="#E1306C" stroke="none"/></svg>',
+  tiktok:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>',
   twitter:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
 };
 
 function fmtFollowers(n) {
-  if (!n) return null;
+  if (!n || n === 0) return null;
   if (n >= 1000000) return (n/1000000).toFixed(1).replace(/\.0$/,'') + 'M';
   if (n >= 1000)    return Math.round(n/1000) + 'K';
   return String(n);
@@ -189,107 +289,16 @@ function fmtCurrency(n) {
   return '$' + Number(n).toLocaleString('en-US');
 }
 
-function render(data) {
-  kitData = data;
-  var primary   = data.primary_color   || '#1a1a2e';
-  var secondary = data.secondary_color || '#84CC16';
-  var name      = data.athlete_name    || 'Athlete';
-  var metaParts = [data.position, data.sport, data.school].filter(Boolean);
-  var initials  = name.split(' ').map(function(w){ return w[0]||''; }).join('').slice(0,2).toUpperCase();
-
-  // Header
-  var header = document.getElementById('mk-header');
-  header.style.background = 'linear-gradient(135deg, ' + primary + ' 0%, ' + adjustColor(primary, -20) + ' 100%)';
-  document.getElementById('mk-avatar').textContent = initials;
-  document.getElementById('mk-avatar').style.background = 'rgba(255,255,255,0.15)';
-  document.getElementById('mk-name').textContent = name;
-  document.getElementById('mk-meta').textContent = metaParts.join(' · ');
-
-  // Page title
-  document.title = name + ' — NIL Media Kit';
-
-  // Stats
-  var statBoxes = [];
-  if (data.instagram_handle || data.instagram_followers) {
-    var igCount = fmtFollowers(data.instagram_followers);
-    statBoxes.push(
-      '<div class="mk-stat-box">' +
-        '<div class="mk-stat-platform">' + ICONS.instagram + ' Instagram</div>' +
-        (igCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + igCount + '</div>' : '') +
-        (data.instagram_handle ? '<div class="mk-stat-handle">@' + data.instagram_handle + '</div>' : '') +
-        (data.instagram_engagement ? '<div class="mk-stat-eng">' + data.instagram_engagement + ' engagement</div>' : '') +
-      '</div>'
-    );
-  }
-  if (data.tiktok_handle || data.tiktok_followers) {
-    var ttCount = fmtFollowers(data.tiktok_followers);
-    statBoxes.push(
-      '<div class="mk-stat-box">' +
-        '<div class="mk-stat-platform">' + ICONS.tiktok + ' TikTok</div>' +
-        (ttCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + ttCount + '</div>' : '') +
-        (data.tiktok_handle ? '<div class="mk-stat-handle">@' + data.tiktok_handle + '</div>' : '') +
-      '</div>'
-    );
-  }
-  if (data.twitter_handle || data.twitter_followers) {
-    var twCount = fmtFollowers(data.twitter_followers);
-    statBoxes.push(
-      '<div class="mk-stat-box">' +
-        '<div class="mk-stat-platform">' + ICONS.twitter + ' Twitter / X</div>' +
-        (twCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + twCount + '</div>' : '') +
-        (data.twitter_handle ? '<div class="mk-stat-handle">@' + data.twitter_handle + '</div>' : '') +
-      '</div>'
-    );
-  }
-  var statsEl = document.getElementById('mk-stats');
-  if (statBoxes.length) {
-    statsEl.innerHTML = statBoxes.join('');
-    statsEl.style.display = 'flex';
-  } else {
-    statsEl.style.display = 'none';
-  }
-
-  // Bio
-  if (data.bio) {
-    document.getElementById('mk-bio-section').style.display = 'block';
-    var bioEl = document.getElementById('mk-bio-text');
-    bioEl.textContent = data.bio;
-    bioEl.style.borderLeft = '4px solid ' + primary;
-    bioEl.style.paddingLeft = '16px';
-  }
-
-  // Rate card
-  var rates = data.rateCards || [];
-  if (rates.length) {
-    document.getElementById('mk-rates-section').style.display = 'block';
-    document.getElementById('mk-rate-tbody').innerHTML = rates.map(function(r, i) {
-      var rowBg = i % 2 === 1 ? '#f8fafc' : '#fff';
-      return '<tr style="background:' + rowBg + '">' +
-        '<td><div style="font-weight:600;color:#1e293b">' + escHtml(r.service_type) + '</div>' +
-        (r.notes ? '<div class="mk-rate-notes">' + escHtml(r.notes) + '</div>' : '') + '</td>' +
-        '<td class="mk-rate-price" style="color:' + primary + '">' + fmtCurrency(r.price) + '</td>' +
-      '</tr>';
-    }).join('');
-  }
-
-  // Footer bar
-  document.getElementById('mk-footer-bar').style.background = secondary;
-  if (data.updated_at) {
-    document.getElementById('mk-updated').textContent = 'Updated ' + new Date(data.updated_at).toLocaleDateString('en-US', { month:'short', year:'numeric' });
-  }
-
-  // Show content
-  document.getElementById('loading-state').style.display = 'none';
-  document.getElementById('mk-content').style.display = 'block';
-
-  // Auto-print if ?print=1
-  if (window.location.search.includes('print=1')) {
-    setTimeout(function(){ window.print(); }, 800);
-  }
+function isLight(hex) {
+  try {
+    var c = hex.replace('#','');
+    if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+    var r = parseInt(c.substr(0,2),16), g = parseInt(c.substr(2,2),16), b = parseInt(c.substr(4,2),16);
+    return (r*299 + g*587 + b*114) / 1000 > 155;
+  } catch(e) { return false; }
 }
 
 function adjustColor(hex, amount) {
-  // Slightly darken/lighten a hex color for gradient
   try {
     var num = parseInt(hex.replace('#',''), 16);
     var r = Math.max(0, Math.min(255, (num >> 16) + amount));
@@ -299,26 +308,220 @@ function adjustColor(hex, amount) {
   } catch(e) { return hex; }
 }
 
-function escHtml(s) {
+function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function render(data) {
+  kitData = data;
+  var primary   = data.primary_color   || '#1a1a2e';
+  var secondary = data.secondary_color || '#84CC16';
+  var priText   = isLight(primary)   ? '#1a1a2e' : '#ffffff';
+  var name      = data.athlete_name  || 'Athlete';
+  var metaParts = [data.position, data.sport, data.school].filter(Boolean);
+  var initials  = name.split(' ').map(function(w){ return w[0]||''; }).join('').slice(0,2).toUpperCase() || 'NA';
+
+  // Page title
+  document.title = name + ' — NIL Media Kit';
+
+  // ── Banner ────────────────────────────────────────────────────────────────
+  var banner = document.getElementById('mk-banner');
+  if (data.action_shot_data && data.action_shot_data.startsWith('data:')) {
+    banner.style.backgroundImage = 'url(' + data.action_shot_data + ')';
+    banner.style.backgroundSize = 'cover';
+    banner.style.backgroundPosition = 'center';
+  } else {
+    // Gradient fallback using primary color
+    banner.style.background = 'linear-gradient(135deg,' + primary + ' 0%,' + adjustColor(primary,-30) + ' 60%,#0f172a 100%)';
+    document.getElementById('mk-banner-overlay').style.display = 'none';
+  }
+
+  // ── Headshot ──────────────────────────────────────────────────────────────
+  var headshotWrap = document.getElementById('mk-headshot-wrap');
+  if (data.headshot_url && data.headshot_url.startsWith('data:')) {
+    headshotWrap.innerHTML = '<img src="' + data.headshot_url + '" style="width:80px;height:80px;border-radius:50%;border:3px solid #fff;display:block;object-fit:cover;box-shadow:0 2px 16px rgba(0,0,0,0.25)">';
+  } else {
+    headshotWrap.innerHTML = '<div style="width:80px;height:80px;border-radius:50%;background:' + primary + ';border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:' + priText + ';box-shadow:0 2px 16px rgba(0,0,0,0.25)">' + esc(initials) + '</div>';
+  }
+
+  // ── Color bars ────────────────────────────────────────────────────────────
+  document.getElementById('mk-color-bar-top').style.background = primary;
+  document.getElementById('mk-footer-bar').style.background = secondary;
+
+  // ── Name + Meta ───────────────────────────────────────────────────────────
+  document.getElementById('mk-name').textContent = name;
+  document.getElementById('mk-meta').textContent = metaParts.join(' · ');
+
+  // ── Section label bars ───────────────────────────────────────────────────
+  ['mk-bio-bar','mk-rate-bar','mk-contact-bar'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.background = primary;
+  });
+
+  // ── Stats Row ─────────────────────────────────────────────────────────────
+  var statsEl = document.getElementById('mk-stats');
+  var statBoxes = [];
+
+  if (data.instagram_handle || data.instagram_followers) {
+    var igCount = fmtFollowers(data.instagram_followers);
+    statBoxes.push(
+      '<div class="mk-stat-box">' +
+        '<div class="mk-stat-platform">' + ICONS.instagram + ' <span style="color:#E1306C">Instagram</span></div>' +
+        (igCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + esc(igCount) + '</div>' : '<div class="mk-stat-count" style="color:#e2e8f0">—</div>') +
+        (data.instagram_handle ? '<div class="mk-stat-handle">@' + esc(data.instagram_handle.replace(/^@/,'')) + '</div>' : '') +
+        (data.instagram_engagement ? '<div class="mk-stat-eng">' + esc(data.instagram_engagement) + ' eng.</div>' : '') +
+      '</div>'
+    );
+  }
+  if (data.tiktok_handle || data.tiktok_followers) {
+    var ttCount = fmtFollowers(data.tiktok_followers);
+    statBoxes.push(
+      '<div class="mk-stat-box">' +
+        '<div class="mk-stat-platform">' + ICONS.tiktok + ' <span style="color:#333">TikTok</span></div>' +
+        (ttCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + esc(ttCount) + '</div>' : '<div class="mk-stat-count" style="color:#e2e8f0">—</div>') +
+        (data.tiktok_handle ? '<div class="mk-stat-handle">@' + esc(data.tiktok_handle.replace(/^@/,'')) + '</div>' : '') +
+      '</div>'
+    );
+  }
+  if (data.twitter_handle || data.twitter_followers) {
+    var twCount = fmtFollowers(data.twitter_followers);
+    statBoxes.push(
+      '<div class="mk-stat-box">' +
+        '<div class="mk-stat-platform">' + ICONS.twitter + ' <span style="color:#1DA1F2">Twitter / X</span></div>' +
+        (twCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + esc(twCount) + '</div>' : '<div class="mk-stat-count" style="color:#e2e8f0">—</div>') +
+        (data.twitter_handle ? '<div class="mk-stat-handle">@' + esc(data.twitter_handle.replace(/^@/,'')) + '</div>' : '') +
+      '</div>'
+    );
+  }
+
+  if (statBoxes.length) {
+    statsEl.innerHTML = statBoxes.join('');
+    statsEl.style.display = 'flex';
+  } else {
+    statsEl.style.display = 'none';
+  }
+
+  // ── Bio ───────────────────────────────────────────────────────────────────
+  var bioSection = document.getElementById('mk-bio-section');
+  if (data.bio) {
+    document.getElementById('mk-bio-text').textContent = data.bio;
+    bioSection.style.display = 'block';
+  } else {
+    bioSection.style.display = 'none';
+  }
+
+  // ── Rate Card ─────────────────────────────────────────────────────────────
+  var rates = data.rateCards || [];
+  if (rates.length) {
+    document.getElementById('mk-rates-section').style.display = 'block';
+    document.getElementById('mk-rate-tbody').innerHTML = rates.map(function(r, i) {
+      var rowBg = i % 2 === 1 ? '#f8fafc' : '#fff';
+      return '<tr style="background:' + rowBg + '">' +
+        '<td>' +
+          '<div class="mk-rate-service">' + esc(r.service_type) + '</div>' +
+          (r.notes ? '<div class="mk-rate-notes">' + esc(r.notes) + '</div>' : '') +
+        '</td>' +
+        '<td class="mk-rate-price" style="color:' + primary + '">' + fmtCurrency(r.price) + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  // ── Contact Section ───────────────────────────────────────────────────────
+  var contactBtn = document.getElementById('mk-contact-btn');
+  contactBtn.style.background = primary;
+  contactBtn.style.color = priText;
+
+  // ── Footer ────────────────────────────────────────────────────────────────
+  document.getElementById('mk-year').textContent = '© ' + new Date().getFullYear();
+
+  // ── Show content ─────────────────────────────────────────────────────────
+  document.getElementById('state-loading').style.display = 'none';
+  document.getElementById('mk-content').style.display = 'block';
+
+  // Auto-print if ?print=1
+  if (window.location.search.includes('print=1')) {
+    setTimeout(function(){ window.print(); }, 900);
+  }
+}
+
+// ── Contact Modal ──────────────────────────────────────────────────────────
+function openContactModal() {
+  var athleteName = (kitData && kitData.athlete_name) ? kitData.athlete_name : 'this athlete';
+  document.getElementById('modal-athlete-name').textContent = athleteName;
+  document.getElementById('contact-form-wrap').style.display = 'block';
+  document.getElementById('contact-success-wrap').style.display = 'none';
+  var modal = document.getElementById('contact-modal');
+  modal.style.display = 'flex';
+  setTimeout(function(){ modal.classList.add('open'); }, 10);
+  document.getElementById('contact-name').focus();
+}
+
+function closeContactModal() {
+  var modal = document.getElementById('contact-modal');
+  modal.classList.remove('open');
+  setTimeout(function(){ modal.style.display = 'none'; }, 240);
+}
+
+async function sendContactMessage() {
+  var name    = document.getElementById('contact-name').value.trim();
+  var company = document.getElementById('contact-company').value.trim();
+  var email   = document.getElementById('contact-email').value.trim();
+  var message = document.getElementById('contact-message').value.trim();
+
+  if (!name || !email || !message) {
+    showToast('Please fill in your name, email, and message.');
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showToast('Please enter a valid email address.');
+    return;
+  }
+
+  var btn = document.getElementById('contact-send-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+
+  try {
+    var r = await fetch('/api/media-kit/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: currentSlug, sender_name: name, sender_company: company, sender_email: email, message: message })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'Send failed');
+    document.getElementById('contact-form-wrap').style.display = 'none';
+    document.getElementById('contact-success-wrap').style.display = 'block';
+  } catch(e) {
+    showToast('Something went wrong. Please try again.');
+    btn.disabled = false;
+    btn.textContent = 'Send Message';
+  }
 }
 
 function copyLink() {
   var url = window.location.href.split('?')[0];
-  navigator.clipboard.writeText(url).catch(function(){
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(function(){ showToast('Link copied! ✓'); });
+  } else {
     var el = document.createElement('textarea');
     el.value = url;
     document.body.appendChild(el);
     el.select();
     document.execCommand('copy');
     document.body.removeChild(el);
-  });
-  var toast = document.getElementById('copy-toast');
-  toast.classList.add('show');
-  setTimeout(function(){ toast.classList.remove('show'); }, 2200);
+    showToast('Link copied! ✓');
+  }
 }
 
-// Fetch and render
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(function(){ t.classList.remove('show'); }, 2800);
+}
+
+// ── Fetch & render ──────────────────────────────────────────────────────────
 fetch('/api/media-kit/' + slug)
   .then(function(r) {
     if (!r.ok) throw new Error('not found');
@@ -329,8 +532,8 @@ fetch('/api/media-kit/' + slug)
     render(data);
   })
   .catch(function(e) {
-    document.getElementById('loading-state').style.display = 'none';
-    document.getElementById('error-state').style.display = 'flex';
+    document.getElementById('state-loading').style.display = 'none';
+    document.getElementById('state-error').style.display = 'flex';
     console.error('[media-kit]', e);
   });
 </script>
