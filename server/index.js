@@ -6246,7 +6246,7 @@ app.get('/api/agent/home-data', requireAuth, async (req, res) => {
 app.get('/api/athlete/home-data', verifyAthleteToken, async (req, res) => {
   try {
     const athleteId = req.athlete.id;
-    const [statsR, nilR, dealsR, agentR] = await Promise.all([
+    const [statsR, nilR, dealsR, agentR, weekDelivsR] = await Promise.all([
       // Deliverable counts + upcoming list
       store.pool.query(
         `SELECT
@@ -6290,6 +6290,17 @@ app.get('/api/athlete/home-data', verifyAthleteToken, async (req, res) => {
          WHERE a.id = $1`,
         [athleteId]
       ),
+      // All deliverables for current week (Mon–Sun) — for mini calendar
+      store.pool.query(
+        `SELECT id, title, brand, event_date::text, status
+         FROM athlete_calendar_events
+         WHERE athlete_id = $1
+           AND event_date >= DATE_TRUNC('week', CURRENT_DATE)
+           AND event_date <  DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
+         ORDER BY event_date ASC
+         LIMIT 30`,
+        [athleteId]
+      ),
     ]);
 
     const stats    = statsR.rows[0] || {};
@@ -6297,17 +6308,18 @@ app.get('/api/athlete/home-data', verifyAthleteToken, async (req, res) => {
     const fmt      = v => v >= 1000 ? '$' + (v / 1000).toFixed(0) + 'K' : '$' + Math.round(v);
 
     res.json({
-      overdueCount:   parseInt(stats.overdue   || 0),
-      upcomingCount:  parseInt(stats.upcoming  || 0),
-      completedCount: parseInt(stats.completed || 0),
-      nilValue:       fmt(nilTotal),
-      upcomingDelivs: (stats.upcoming_list || []).slice(0, 5),
-      activeDeals:    dealsR.rows,
-      agentName:      agentR.rows[0]?.agent_name || null,
+      overdueCount:     parseInt(stats.overdue   || 0),
+      upcomingCount:    parseInt(stats.upcoming  || 0),
+      completedCount:   parseInt(stats.completed || 0),
+      nilValue:         fmt(nilTotal),
+      upcomingDelivs:   (stats.upcoming_list || []).slice(0, 5),
+      activeDeals:      dealsR.rows,
+      agentName:        agentR.rows[0]?.agent_name || null,
+      weekDeliverables: weekDelivsR.rows,
     });
   } catch (e) {
     console.error('[athlete/home-data]', e.message);
-    res.json({ overdueCount: 0, upcomingCount: 0, completedCount: 0, nilValue: '$0', upcomingDelivs: [], activeDeals: [], agentName: null });
+    res.json({ overdueCount: 0, upcomingCount: 0, completedCount: 0, nilValue: '$0', upcomingDelivs: [], activeDeals: [], agentName: null, weekDeliverables: [] });
   }
 });
 

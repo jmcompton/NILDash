@@ -337,7 +337,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
 
     <!-- ── Two-column: My Deliverables + Active Deals ── -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
       <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px">
         <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">My Deliverables</div>
         <div id="ath-home-delivs" style="display:flex;flex-direction:column;gap:0">
@@ -351,6 +351,37 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div style="font-size:11px;color:#4B5563">Loading…</div>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="showView('pipeline',document.querySelector('[data-view=pipeline]'))" style="margin-top:12px;width:100%">Manage Deals →</button>
+      </div>
+    </div>
+
+    <!-- ── This Week calendar ── -->
+    <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;margin-bottom:12px">
+      <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:12px">This Week</div>
+      <div id="ath-home-mini-cal"></div>
+      <!-- Legend -->
+      <div style="display:flex;gap:14px;margin-top:12px;padding-top:10px;border-top:.5px solid #1e2a3a">
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#EF4444"></div><span style="font-size:10px;color:#4B5563">Overdue</span></div>
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#F59E0B"></div><span style="font-size:10px;color:#4B5563">Due soon</span></div>
+        <div style="display:flex;align-items:center;gap:5px"><div style="width:7px;height:7px;border-radius:50%;background:#84CC16"></div><span style="font-size:10px;color:#4B5563">Upcoming</span></div>
+      </div>
+    </div>
+
+    <!-- ── Recent Outreach + My NIL Value ── -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <!-- Recent Outreach -->
+      <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px">
+        <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Recent Outreach</div>
+        <div id="ath-home-outreach">
+          <div style="font-size:11px;color:#4B5563">Loading…</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="showView('outreach',document.querySelector('[data-view=outreach]'))" style="margin-top:12px;width:100%">Go to Email →</button>
+      </div>
+      <!-- My NIL Value -->
+      <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px">
+        <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">My NIL Value</div>
+        <div id="ath-home-nil-value">
+          <div style="font-size:11px;color:#4B5563">Loading…</div>
+        </div>
       </div>
     </div>
   </div>
@@ -1340,10 +1371,14 @@ async function loadAthleteHome() {
     if (nilEl)       nilEl.textContent       = data.nilValue || '$0';
     renderAthHomeDelivs(data.upcomingDelivs || []);
     renderAthHomeDeals(data.activeDeals || []);
+    renderAthHomeMiniCal(data.weekDeliverables || []);
   } catch(e) {
     renderAthHomeDelivs([]);
     renderAthHomeDeals([]);
+    renderAthHomeMiniCal([]);
   }
+  renderAthHomeNILValue();
+  loadAthHomeOutreach();
 }
 
 async function loadAthBrief() {
@@ -1431,6 +1466,178 @@ function renderAthHomeDeals(deals) {
       '</div>' +
     '</div>';
   }).join('');
+}
+
+// ──────────────────────────────────────────────────────────────────
+// HOME — THIS WEEK MINI CALENDAR
+// ──────────────────────────────────────────────────────────────────
+function renderAthHomeMiniCal(delivs) {
+  var el = document.getElementById('ath-home-mini-cal');
+  if (!el) return;
+
+  var today    = new Date();
+  var todayStr = today.toISOString().split('T')[0];
+  var dow      = today.getDay(); // 0=Sun
+  var monday   = new Date(today);
+  monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+
+  var dates = [];
+  for (var i = 0; i < 7; i++) {
+    var d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    dates.push(d);
+  }
+
+  // Group deliverables by date
+  var delivsByDate = {};
+  delivs.forEach(function(d) {
+    var ds = d.event_date ? String(d.event_date).split('T')[0] : null;
+    if (ds) {
+      if (!delivsByDate[ds]) delivsByDate[ds] = [];
+      delivsByDate[ds].push(d);
+    }
+  });
+
+  var DAY_LABELS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">';
+
+  // Day name headers
+  DAY_LABELS.forEach(function(d) {
+    html += '<div style="text-align:center;font-size:9px;color:#4B5563;padding-bottom:5px">' + d + '</div>';
+  });
+
+  // Date cells
+  dates.forEach(function(d) {
+    var ds      = d.toISOString().split('T')[0];
+    var isToday = ds === todayStr;
+    var events  = delivsByDate[ds] || [];
+    var days    = Math.round((new Date(ds+'T00:00:00') - new Date(todayStr+'T00:00:00')) / 86400000);
+
+    // Pick dot color for this day's events (worst-case wins)
+    var dotColor = null;
+    if (events.length) {
+      dotColor = days < 0 ? '#EF4444' : days <= 2 ? '#F59E0B' : '#84CC16';
+    }
+
+    var cellStyle = isToday
+      ? 'background:#0D2010;border:.5px solid #84CC16;border-radius:6px'
+      : 'background:rgba(255,255,255,0.02);border:.5px solid transparent;border-radius:6px';
+
+    html += '<div style="' + cellStyle + ';padding:6px 2px;display:flex;flex-direction:column;align-items:center;gap:3px">' +
+      '<div style="font-size:11px;color:' + (isToday ? '#84CC16' : '#9CA3AF') + ';font-weight:' + (isToday ? 600 : 400) + '">' + d.getDate() + '</div>' +
+      (dotColor
+        ? '<div style="width:5px;height:5px;border-radius:50%;background:' + dotColor + '"></div>'
+        : '<div style="width:5px;height:5px"></div>') +
+    '</div>';
+  });
+  html += '</div>';
+
+  // Today's events list
+  var todayEvents = delivsByDate[todayStr] || [];
+  if (todayEvents.length) {
+    html += '<div style="margin-top:11px;font-size:9px;color:#4B5563;letter-spacing:1px;text-transform:uppercase;margin-bottom:5px">Today</div>';
+    html += todayEvents.slice(0, 3).map(function(e) {
+      return '<div style="font-size:11px;color:#9CA3AF;padding:3px 0;border-bottom:.5px solid #1e2a3a">' +
+        esc(e.title||'—') + (e.brand ? ' <span style="color:#4B5563">· ' + esc(e.brand) + '</span>' : '') +
+      '</div>';
+    }).join('');
+  }
+
+  el.innerHTML = html;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// HOME — RECENT OUTREACH
+// ──────────────────────────────────────────────────────────────────
+async function loadAthHomeOutreach() {
+  var el = document.getElementById('ath-home-outreach');
+  if (!el) return;
+  try {
+    var r    = await fetch('/api/athlete/outreach', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
+    var data = await r.json();
+    var items = (data.outreach || []).slice(0, 5);
+    if (!items.length) {
+      el.innerHTML = '<div style="font-size:11px;color:#4B5563;line-height:1.5">No outreach sent yet. Head to Email to reach out to brands.</div>';
+      return;
+    }
+    var STATUS_COLOR = { sent:'#3B82F6', opened:'#3B82F6', responded:'#84CC16', deal_started:'#84CC16', declined:'#4B5563' };
+    var STATUS_LABEL = { sent:'Sent', opened:'Opened', responded:'Responded', deal_started:'Deal Started', declined:'Declined' };
+    el.innerHTML = items.map(function(o) {
+      var date    = o.created_at ? new Date(o.created_at).toLocaleDateString('en-US', { month:'short', day:'numeric' }) : '—';
+      var preview = o.message_sent ? o.message_sent.replace(/\s+/g,' ').trim().slice(0, 55) + (o.message_sent.length > 55 ? '…' : '') : '';
+      var sc      = STATUS_COLOR[o.status] || '#4B5563';
+      var sl      = STATUS_LABEL[o.status] || 'Sent';
+      return '<div style="padding:6px 0;border-bottom:.5px solid #1e2a3a">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">' +
+          '<div style="font-size:11px;color:#E5E7EB;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:65%">' + esc(o.brand_name||'—') + '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">' +
+            '<div style="font-size:9px;color:#4B5563">' + date + '</div>' +
+            '<div style="font-size:9px;padding:2px 6px;border-radius:99px;background:rgba(0,0,0,0.3);color:' + sc + ';border:.5px solid ' + sc + '38">' + sl + '</div>' +
+          '</div>' +
+        '</div>' +
+        (preview ? '<div style="font-size:10px;color:#4B5563;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(preview) + '</div>' : '') +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="font-size:11px;color:#4B5563">Unable to load outreach history.</div>';
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// HOME — MY NIL VALUE
+// ──────────────────────────────────────────────────────────────────
+function renderAthHomeNILValue() {
+  var el = document.getElementById('ath-home-nil-value');
+  if (!el) return;
+
+  var p  = athleteProfile || {};
+  var ig = parseInt(p.followers_ig || p.instagram_followers) || 0;
+  var tt = parseInt(p.followers_tt || p.tiktok_followers) || 0;
+
+  if (!ig && !tt) {
+    el.innerHTML = '<div style="font-size:11px;color:#4B5563;line-height:1.6">Add your follower counts in My Profile to see your NIL value estimate.</div>' +
+      '<button class="btn btn-ghost btn-sm" onclick="showView(\'profile\',document.querySelector(\'[data-view=profile]\'))" style="margin-top:10px;width:100%">Go to Profile →</button>';
+    return;
+  }
+
+  // Calculate ranges
+  var igPostLow  = ig ? Math.max(50,  Math.round(ig * 0.01 / 10) * 10)  : 0;
+  var igPostHigh = ig ? Math.round(ig * 0.03 / 10) * 10                  : 0;
+  var ttPostLow  = tt ? Math.max(30,  Math.round(tt * 0.005 / 10) * 10) : 0;
+  var ttPostHigh = tt ? Math.round(tt * 0.015 / 10) * 10                 : 0;
+
+  // Headline: highest single-post estimate
+  var topHigh = Math.max(igPostHigh, ttPostHigh);
+  var topLow  = ig ? igPostLow : ttPostLow;
+  var headline = '$' + Math.round(topLow).toLocaleString() + ' – $' + Math.round(topHigh).toLocaleString();
+
+  var rows = '';
+  if (ig) {
+    rows += nilValRow('IG Reel / Post', fmtRange(igPostLow, igPostHigh));
+    rows += nilValRow('IG Story',       fmtRange(Math.round(igPostLow*0.45), Math.round(igPostHigh*0.45)));
+  }
+  if (tt) {
+    rows += nilValRow('TikTok Post', fmtRange(ttPostLow, ttPostHigh));
+  }
+
+  var drivers = [];
+  if (ig)        drivers.push(ig.toLocaleString() + ' IG followers');
+  if (tt)        drivers.push(tt.toLocaleString() + ' TikTok followers');
+  if (p.sport)   drivers.push(p.sport + (p.position ? ' · ' + p.position : ''));
+  if (p.school)  drivers.push(p.school);
+
+  el.innerHTML =
+    '<div style="font-size:22px;font-weight:600;color:#84CC16;margin-bottom:4px">' + headline + '</div>' +
+    '<div style="font-size:9px;color:#4B5563;margin-bottom:10px">per sponsored post</div>' +
+    '<div style="display:flex;flex-direction:column;gap:3px;margin-bottom:10px">' + rows + '</div>' +
+    (drivers.length ? '<div style="font-size:10px;color:#4B5563;line-height:1.5">' + esc(drivers.join(' · ')) + '</div>' : '');
+}
+
+function nilValRow(label, val) {
+  return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:.5px solid #1e2a3a">' +
+    '<div style="font-size:10px;color:#6B7280">' + label + '</div>' +
+    '<div style="font-size:10px;color:#E5E7EB;font-weight:500">' + val + '</div>' +
+  '</div>';
 }
 
 function renderHomeNIL(p) {
