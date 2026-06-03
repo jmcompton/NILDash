@@ -116,13 +116,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .chat-input{flex:1;padding:9px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none;resize:none}
 .chat-input:focus{border-color:var(--accent)}
 
-/* ── Pipeline ── */
+/* ── Pipeline / Brand Tracker ── */
 .pipeline-stages{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px}
 .pipeline-col{flex:0 0 190px;background:var(--surface2);border-radius:10px;padding:12px}
 .pipeline-col-header{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
 .pipeline-count{background:rgba(255,255,255,0.08);border-radius:10px;padding:1px 7px;font-size:11px;color:var(--text)}
 .pipeline-card{background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:border-color 0.12s}
 .pipeline-card:hover{border-color:var(--accent)}
+/* Brand Tracker list cards */
+.bt-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;cursor:pointer;transition:border-color 0.12s;display:flex;flex-direction:column;gap:8px}
+.bt-card:hover{border-color:var(--accent)}
+.bt-filter-btn.active-filter{border-color:var(--accent)!important;color:var(--accent)!important}
 .pipeline-card-brand{font-size:13px;font-weight:600;color:var(--text)}
 .pipeline-card-type{font-size:11px;color:var(--muted);margin-top:2px}
 .pipeline-card-value{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);margin-top:4px}
@@ -272,8 +276,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
     <div class="nav-section-label">Deals</div>
     <div class="nav-item" data-view="calendar" onclick="showView('calendar',this)">Calendar</div>
-    <div class="nav-item" data-view="pipeline" onclick="showView('pipeline',this)">Deal Pipeline</div>
+    <div class="nav-item" data-view="pipeline" onclick="showView('pipeline',this)">Brand Tracker</div>
     <div class="nav-item" data-view="deal-close" onclick="showView('deal-close',this)">Deal Close</div>
+    <div class="nav-item" data-view="compliance" onclick="showView('compliance',this)">Compliance</div>
 
     <div class="nav-section-label">Account</div>
     <div class="nav-item" data-view="profile" onclick="showView('profile',this)">My Profile</div>
@@ -650,78 +655,46 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <!-- ════ VIEW: MARKETING ════ -->
   <div class="view" id="view-marketing">
     <div class="page-title">MARKETING TOOLS</div>
-    <div class="page-sub">AI-powered content ideas, outreach generation, and NIL scores for your brand deals</div>
+    <div class="page-sub">Generate captions for your brand deals, check NIL scores, and view your content calendar</div>
     <!-- Tab bar -->
     <div style="display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
-      <button id="mkt-tab-btn-ideas" class="mkt-tab-btn active" onclick="switchMktTab('ideas')">Content Ideas</button>
-      <button id="mkt-tab-btn-outreach" class="mkt-tab-btn" onclick="switchMktTab('outreach')">Generate Outreach</button>
+      <button id="mkt-tab-btn-caption" class="mkt-tab-btn active" onclick="switchMktTab('caption')">Caption Generator</button>
       <button id="mkt-tab-btn-scores" class="mkt-tab-btn" onclick="switchMktTab('scores')">NIL Scores</button>
+      <button id="mkt-tab-btn-calendar" class="mkt-tab-btn" onclick="switchMktTab('calendar')">Content Calendar</button>
     </div>
 
-    <!-- TAB: Content Ideas -->
-    <div id="mkt-panel-ideas">
+    <!-- TAB: Caption Generator -->
+    <div id="mkt-panel-caption">
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Generate authentic, human-sounding captions for your brand deals. Select a deal and post type, then add any extra context.</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
           <div>
-            <label class="form-label-sm">Platform Focus</label>
-            <select class="select-sm" id="mkt-platform">
-              <option value="Instagram">Instagram</option>
-              <option value="TikTok">TikTok</option>
-              <option value="YouTube">YouTube</option>
-              <option value="Twitter/X">Twitter/X</option>
-              <option value="All Platforms">All Platforms</option>
+            <label class="form-label-sm">Deal / Brand *</label>
+            <select class="select-sm" id="cap-deal-select">
+              <option value="">Loading deals…</option>
             </select>
           </div>
           <div>
-            <label class="form-label-sm">Content Goal</label>
-            <select class="select-sm" id="mkt-goal">
-              <option value="Brand Awareness">Brand Awareness</option>
-              <option value="Engagement">Engagement / Interaction</option>
+            <label class="form-label-sm">Post Type</label>
+            <select class="select-sm" id="cap-post-type">
+              <option value="Instagram Post">Instagram Post</option>
+              <option value="Instagram Reel">Instagram Reel</option>
+              <option value="Instagram Story">Instagram Story</option>
+              <option value="TikTok Video">TikTok Video</option>
+              <option value="Twitter/X Post">Twitter/X Post</option>
               <option value="Product Showcase">Product Showcase</option>
-              <option value="Personal Brand">Personal Brand Building</option>
+              <option value="Event Appearance">Event Appearance</option>
             </select>
           </div>
         </div>
-        <button class="run-btn" id="mkt-btn" onclick="generateContentIdeas()">Generate Ideas</button>
-      </div>
-      <div id="mkt-ideas"></div>
-      <div class="card" style="margin-top:20px">
-        <div class="card-title">Active Campaigns</div>
-        <div id="mkt-campaigns"><div class="empty-state"><div class="empty-text">Loading…</div></div></div>
-      </div>
-    </div>
-
-    <!-- TAB: Generate Outreach -->
-    <div id="mkt-panel-outreach" style="display:none">
-      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Generate a full sponsorship outreach package — email, Instagram DM, and follow-up message for any brand.</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
-          <div>
-            <label class="form-label-sm">Brand / Company *</label>
-            <input class="input-sm" id="mkt-or-brand" placeholder="e.g. Celsius, Nike">
-          </div>
-          <div>
-            <label class="form-label-sm">Category</label>
-            <select class="select-sm" id="mkt-or-category">
-              <option value="nutrition">Nutrition / Supplements</option>
-              <option value="apparel">Apparel / Footwear</option>
-              <option value="food">Food / Restaurant</option>
-              <option value="auto">Automotive</option>
-              <option value="finance">Finance / Banking</option>
-              <option value="tech">Tech / Gaming</option>
-              <option value="grooming">Grooming / Beauty</option>
-              <option value="general">General</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label-sm">Deal Goal ($)</label>
-            <input class="input-sm" id="mkt-or-goal" type="number" placeholder="e.g. 2500">
-          </div>
+        <div style="margin-bottom:12px">
+          <label class="form-label-sm">Extra Context (optional)</label>
+          <input class="input-sm" id="cap-context" placeholder="e.g. I just won a game, this is my first post with this brand, at the gym…">
         </div>
-        <button class="run-btn" id="mkt-outreach-btn" onclick="generateMktOutreach()">Generate Outreach →</button>
+        <button class="run-btn" id="cap-btn" onclick="generateCaption()">Generate Captions →</button>
       </div>
-      <div id="mkt-outreach-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Generating outreach materials… takes about 15 seconds</div>
-      <div id="mkt-outreach-result" style="display:none"></div>
+      <div id="cap-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Writing captions…</div>
+      <div id="cap-result"></div>
     </div>
 
     <!-- TAB: NIL Scores -->
@@ -732,6 +705,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       </div>
       <div id="mkt-scores-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Loading scores…</div>
       <div id="mkt-scores-result" style="display:none"></div>
+    </div>
+
+    <!-- TAB: Content Calendar -->
+    <div id="mkt-panel-calendar" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Your upcoming deliverables from active deals — grouped by week.</div>
+      <div id="mkt-cal-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Loading calendar…</div>
+      <div id="mkt-cal-content"></div>
     </div>
 
     <!-- TAB: Media Kit (moved to own nav — see view-mediakit; inner content removed to eliminate duplicate IDs) -->
@@ -1176,14 +1156,21 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
   </div>
 
-  <!-- ════ VIEW: DEAL PIPELINE ════ -->
+  <!-- ════ VIEW: BRAND TRACKER ════ -->
   <div class="view" id="view-pipeline">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <div>
-        <div class="page-title">DEAL PIPELINE</div>
+        <div class="page-title">BRAND TRACKER</div>
         <div class="page-sub" style="margin-bottom:0">Track every brand opportunity from first contact to signed contract.</div>
       </div>
       <button class="btn btn-primary" onclick="openDealModal()">+ Add Deal</button>
+    </div>
+    <!-- Filter tabs -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button id="bt-filter-all"    class="btn btn-ghost btn-sm bt-filter-btn active-filter" onclick="filterBrandTracker('all')"     style="border-color:var(--accent);color:var(--accent)">All</button>
+      <button id="bt-filter-active" class="btn btn-ghost btn-sm bt-filter-btn"               onclick="filterBrandTracker('active')"   >Active</button>
+      <button id="bt-filter-out"    class="btn btn-ghost btn-sm bt-filter-btn"               onclick="filterBrandTracker('outreach')" >Outreach</button>
+      <button id="bt-filter-closed" class="btn btn-ghost btn-sm bt-filter-btn"               onclick="filterBrandTracker('closed')"  >Closed</button>
     </div>
     <div id="deal-pipeline"><div class="empty-state"><div class="spinner"></div></div></div>
   </div>
@@ -1223,6 +1210,120 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="card-title">Email History</div>
         <div id="email-history"><div class="empty-state"><div class="spinner"></div></div></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ════ VIEW: COMPLIANCE ════ -->
+  <div class="view" id="view-compliance">
+    <div class="page-title">NIL COMPLIANCE</div>
+    <div class="page-sub" style="margin-bottom:16px">Check any deal against current state NIL laws — flags issues, generates required disclosure language, and tracks your SPARTA deadline.</div>
+
+    <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:20px;font-size:11px;color:#fbbf24">
+      This tool uses AI to check current NIL rules for your state. Always verify with a licensed attorney before executing deals. NIL laws change frequently.
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <label class="form-label-sm">Your State (auto-detected)</label>
+        <div id="ath-comp-state-display" style="padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--muted)">Detecting from school…</div>
+        <input type="hidden" id="ath-comp-state" value="">
+      </div>
+      <div>
+        <label class="form-label-sm">Deal Type *</label>
+        <select class="select-sm" id="ath-comp-deal-type">
+          <option value="social media endorsement">Social Media Endorsement</option>
+          <option value="apparel deal">Apparel Deal</option>
+          <option value="beverage/alcohol sponsorship">Beverage / Alcohol Sponsorship</option>
+          <option value="sports betting/gambling">Sports Betting / Gambling</option>
+          <option value="pharmaceutical/supplement">Pharmaceutical / Supplement</option>
+          <option value="financial services">Financial Services</option>
+          <option value="autograph signing">Autograph Signing</option>
+          <option value="camp/clinic appearance">Camp / Clinic Appearance</option>
+          <option value="cryptocurrency">Cryptocurrency</option>
+          <option value="general brand partnership">General Brand Partnership</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label-sm">Brand Name</label>
+        <input class="input-sm" id="ath-comp-brand" placeholder="e.g. Nike, DraftKings">
+      </div>
+      <div>
+        <label class="form-label-sm">Deal Value ($)</label>
+        <input class="input-sm" id="ath-comp-value" type="number" placeholder="e.g. 2500">
+      </div>
+    </div>
+
+    <div style="margin-bottom:16px">
+      <label class="form-label-sm">Deal Description</label>
+      <input class="input-sm" id="ath-comp-description" placeholder="e.g. 3 Instagram posts promoting energy drink over 60 days">
+    </div>
+
+    <!-- SPARTA section -->
+    <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:#60a5fa;margin-bottom:8px">⚡ SPARTA 72-Hour Compliance</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Federal law requires your university to be notified within 72 hours of signing any NIL agreement. Enter the signing date to track your deadline.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label class="form-label-sm">Contract Signing Date</label>
+          <input class="input-sm" id="ath-comp-signing-date" type="date">
+        </div>
+        <div id="ath-sparta-timer-box" style="display:none;padding:10px;background:var(--surface);border-radius:var(--r-sm);border:1px solid var(--border)">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:4px">72-HR DEADLINE</div>
+          <div id="ath-sparta-deadline-display" style="font-size:12px;font-weight:700;color:var(--text)"></div>
+          <div id="ath-sparta-hours-display" style="font-size:11px;margin-top:2px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- University Notified toggle -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:20px">
+      <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:10px">Has your university been notified?</div>
+      <div style="display:flex;gap:10px">
+        <button id="ath-notif-yes" onclick="setUnivNotified(true)"  style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;transition:all 0.15s">✓ Yes, notified</button>
+        <button id="ath-notif-no"  onclick="setUnivNotified(false)" style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;transition:all 0.15s">✗ Not yet</button>
+      </div>
+      <div id="ath-notif-reminder" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3);border-radius:6px;font-size:11px;color:#fb923c">
+        ⚠️ Reminder: Federal law (SPARTA) requires your university to be notified within 72 hours of signing. Contact your athletic department ASAP.
+      </div>
+    </div>
+
+    <button class="run-btn" id="ath-comp-btn" onclick="runAthleteCompliance()" style="margin-bottom:24px">Check Compliance →</button>
+
+    <div id="ath-comp-results" style="display:none">
+      <!-- Status Banner -->
+      <div id="ath-comp-status-banner" style="border-radius:var(--r-sm);padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700"></div>
+
+      <!-- SPARTA Notice -->
+      <div id="ath-comp-sparta-section" style="display:none;margin-bottom:20px">
+        <div style="font-size:12px;font-weight:700;color:#60a5fa;margin-bottom:10px">⚡ SPARTA — University Notification Required</div>
+        <div id="ath-comp-sparta-timer" style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:12px;font-size:12px"></div>
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px">NOTIFICATION LETTER (copy and send to your athletic department)</div>
+        <div id="ath-comp-sparta-notice" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;font-size:11px;line-height:1.7;white-space:pre-wrap;cursor:pointer" onclick="copyText(this)" title="Click to copy"></div>
+      </div>
+
+      <!-- Flags -->
+      <div id="ath-comp-flags-section" style="margin-bottom:20px">
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">Issues Found</div>
+        <div id="ath-comp-flags"></div>
+      </div>
+
+      <!-- Requirements -->
+      <div id="ath-comp-reqs-section" style="margin-bottom:20px">
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:10px">Requirements to Proceed</div>
+        <div id="ath-comp-reqs"></div>
+      </div>
+
+      <!-- Disclosure Language -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div style="font-size:12px;font-weight:700;color:var(--text)">📋 Required Disclosure Language</div>
+          <button onclick="copyText('ath-comp-disclosure')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+        </div>
+        <div id="ath-comp-disclosure" style="font-size:11px;color:var(--text);line-height:1.7;white-space:pre-wrap"></div>
+      </div>
+
+      <!-- Source note -->
+      <div id="ath-comp-sources" style="font-size:10px;color:var(--muted);line-height:1.6;margin-bottom:24px"></div>
     </div>
   </div>
 
@@ -1327,7 +1428,7 @@ var VIEW_TITLES = {
   home:'HOME', command:'AI COMMAND', dealscan:'DEAL SCAN', rate:'RATE CALCULATOR',
   'team-match':'FIND YOUR BEST PROGRAMS', outreach:'OUTREACH', marketing:'MARKETING TOOLS',
   mediakit:'MEDIA KIT',
-  calendar:'CALENDAR', pipeline:'DEAL PIPELINE', 'deal-close':'DEAL CLOSE',
+  calendar:'CALENDAR', pipeline:'BRAND TRACKER', 'deal-close':'DEAL CLOSE', compliance:'NIL COMPLIANCE',
   email:'EMAIL', profile:'MY PROFILE'
 };
 
@@ -1360,11 +1461,12 @@ function showView(id, navBtn) {
   document.getElementById('topbar-title').textContent = VIEW_TITLES[id] || id.toUpperCase();
   // Lazy-load data per view
   if (id === 'outreach')    loadOutreach();
-  if (id === 'marketing')   loadActiveCampaigns();
+  if (id === 'marketing')   { loadCaptionDeals(); }
   if (id === 'mediakit')    loadMediaKit();
   if (id === 'calendar')    { AthlCal.reload(); initGCalStatus(); }
   if (id === 'pipeline')    loadDeals();
   if (id === 'deal-close')  onAthleteDealCloseViewOpen();
+  if (id === 'compliance')  initAthleteCompliance();
   if (id === 'email')       { loadEmailHistory(); initGmailStatus(); }
   if (id === 'profile')     loadProfileForm();
 }
@@ -1964,6 +2066,11 @@ function renderAthleteDealsTable(recs) {
     'finance':'rgba(16,185,129,0.15);color:#34d399',
     'bank':'rgba(16,185,129,0.15);color:#34d399'
   };
+  var tierBadge = {
+    local: '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.18);color:var(--accent);font-weight:700;border:1px solid rgba(132,204,22,0.3)">LOCAL</span>',
+    regional: '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(59,130,246,0.15);color:#60a5fa;font-weight:700;border:1px solid rgba(59,130,246,0.25)">REGIONAL</span>',
+    national: '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(148,163,184,0.12);color:var(--muted);font-weight:700;border:1px solid var(--border)">NATIONAL</span>'
+  };
   var dealTypeMap = {
     'post':'IG Post','reel':'IG Reel','ambassador':'Ambassador','appearance':'Appearance',
     'licensing':'Licensing','tiktok':'TikTok','youtube':'YouTube',
@@ -1974,7 +2081,7 @@ function renderAthleteDealsTable(recs) {
     var score = d.fitScore || 80;
     var scoreColor = score >= 85 ? 'var(--accent)' : score >= 70 ? '#f59e0b' : 'var(--muted)';
     var isTop = i === 0;
-    var isLocal = d.isLocal || ((d.category || '').toLowerCase() === 'local');
+    var tier = d.tier || (d.isLocal ? 'local' : 'national');
     var timingNote = d.timingNote || '';
     var timingUrgent = timingNote && /now|open|peak|spring/i.test(timingNote);
     var timingShort = timingNote.length > 70 ? timingNote.substring(0, 70) + '…' : timingNote;
@@ -1985,13 +2092,39 @@ function renderAthleteDealsTable(recs) {
     var brandSafe = brand.replace(/"/g, '&quot;');
     var campaignSafe = (d.campaign || '').replace(/"/g, '').substring(0, 40);
 
+    // Contact section
+    var hasContact = d.contactName || d.contactEmail;
+    var linkedInSearch = 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(brand + ' partnerships manager NIL');
+    var contactHtml = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' +
+      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:6px">Partnership Contact</div>' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<div style="width:28px;height:28px;border-radius:50%;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.25);display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+      '<svg width="14" height="14" fill="none" stroke="var(--accent)" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>' +
+      '<div style="flex:1;min-width:0">';
+    if (d.contactName) {
+      contactHtml += '<div style="font-size:11px;font-weight:600;color:var(--text)">' + esc(d.contactName) + '</div>';
+      if (d.contactTitle) contactHtml += '<div style="font-size:10px;color:var(--muted)">' + esc(d.contactTitle) + '</div>';
+    } else {
+      contactHtml += '<div style="font-size:11px;color:var(--muted);font-style:italic">Contact not found</div>';
+      contactHtml += '<div style="font-size:10px;color:var(--muted)">' + esc(d.contactTitle || 'Partnerships Team') + '</div>';
+    }
+    contactHtml += '</div>';
+    if (d.contactEmail) {
+      contactHtml += '<a href="mailto:' + esc(d.contactEmail) + '" style="font-size:10px;padding:4px 10px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.25);color:var(--accent);border-radius:20px;text-decoration:none;white-space:nowrap">Email</a>';
+    } else if (d.contactLinkedIn) {
+      contactHtml += '<a href="' + esc(d.contactLinkedIn) + '" target="_blank" style="font-size:10px;padding:4px 10px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);color:#60a5fa;border-radius:20px;text-decoration:none;white-space:nowrap">LinkedIn</a>';
+    } else {
+      contactHtml += '<a href="' + linkedInSearch + '" target="_blank" style="font-size:10px;padding:4px 10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);color:#60a5fa;border-radius:20px;text-decoration:none;white-space:nowrap">Find on LinkedIn</a>';
+    }
+    contactHtml += '</div></div>';
+
     return '<div style="background:var(--surface2);border:1px solid ' + (isTop ? 'rgba(132,204,22,0.3)' : 'var(--border)') + ';border-radius:12px;padding:18px 20px">' +
       '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
         '<div style="flex:1;min-width:220px">' +
           '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
             '<span style="font-size:11px;color:var(--muted)">#' + (d.rank || i + 1) + '</span>' +
             '<span style="font-size:15px;font-weight:700;color:var(--text)">' + esc(brand) + '</span>' +
-            (isLocal ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.15);color:var(--accent);font-weight:700">LOCAL</span>' : '') +
+            (tierBadge[tier] || tierBadge.national) +
             (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:var(--accent);border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
           '</div>' +
           '<div style="font-size:12px;color:var(--text);margin-bottom:8px;line-height:1.5;font-weight:500">' + esc(d.campaign || '') + '</div>' +
@@ -2003,6 +2136,7 @@ function renderAthleteDealsTable(recs) {
               ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#f59e0b">' + esc(timingShort) + '</span>'
               : '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--muted)">' + esc(timingShort) + '</span>') : '') +
           '</div>' +
+          contactHtml +
         '</div>' +
         '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:130px">' +
           '<div style="display:flex;align-items:center;gap:5px">' +
@@ -2012,8 +2146,7 @@ function renderAthleteDealsTable(recs) {
             '<span style="font-size:12px;color:' + scoreColor + ';font-weight:700">' + score + '</span>' +
           '</div>' +
           '<button onclick="prefillOutreach(&quot;' + brandSafe + '&quot;)" style="padding:8px 14px;background:var(--accent);color:#000;border:none;border-radius:40px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Write Outreach</button>' +
-          '<button onclick="athleteAddToPipeline(&quot;' + brandSafe + '&quot;,&quot;' + (d.dealType || 'post') + '&quot;,&quot;' + campaignSafe + '&quot;)" style="padding:7px 14px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">+ Pipeline</button>' +
-          '<button onclick="prefillOutreach(&quot;' + brandSafe + '&quot;)" style="padding:7px 14px;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap">+ Outreach</button>' +
+          '<button onclick="athleteAddToPipeline(&quot;' + brandSafe + '&quot;,&quot;' + (d.dealType || 'post') + '&quot;,&quot;' + campaignSafe + '&quot;)" style="padding:7px 14px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">+ Tracker</button>' +
           '<button onclick="athleteOpenDealClose(&quot;' + brandSafe + '&quot;,' + i + ')" style="padding:7px 14px;background:rgba(186,12,47,0.1);border:1px solid rgba(186,12,47,0.3);color:#f87171;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">Deal Close →</button>' +
           '<button onclick="athleteAIOutreach(' + i + ')" style="padding:7px 14px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">⚡ AI Outreach</button>' +
         '</div>' +
@@ -2377,13 +2510,21 @@ async function runTeamMatch() {
       programs.map(function(p,i) {
         var score = p.match_score || p.fit_score;
         var nil_est = p.nil_estimate || p.nil_rating || '';
+        var rev_share = p.revenue_share_est || '';
+        var rev_label = p.revenue_share_label || 'Estimated';
+        var portalActive = p.portal_status && /actively/i.test(p.portal_status);
+        var posNeed = p.position_need || '';
         return '<div class="team-card">' +
           (i < 3 ? '<div style="font-size:9px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">#' + (i+1) + ' Match</div>' : '') +
-          '<div class="team-name">' + esc(p.school || p.name || '') + '</div>' +
-          '<div class="team-conference">' + esc(p.conference || '') + '</div>' +
-          (nil_est ? '<div style="font-size:11px;color:var(--green);margin-top:4px;font-weight:600">' + esc(nil_est) + '</div>' : '') +
+          '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;flex-wrap:wrap">' +
+            '<div class="team-name" style="margin-bottom:0">' + esc(p.school || p.name || '') + '</div>' +
+            (portalActive ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(132,204,22,0.15);color:var(--accent);font-weight:700;flex-shrink:0;align-self:center">RECRUITING</span>' : '') +
+          '</div>' +
+          '<div class="team-conference">' + esc(p.conference || '') + (p.location ? ' · ' + esc(p.location) : '') + '</div>' +
+          (posNeed ? '<div style="font-size:10px;padding:5px 8px;border-radius:4px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);color:var(--accent);margin-top:6px;line-height:1.4">Looking for ' + esc(posNeed) + '</div>' : '') +
+          (nil_est ? '<div style="margin-top:8px;display:flex;align-items:center;gap:5px"><svg width="11" height="11" fill="none" stroke="#34d399" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span style="font-size:11px;color:#34d399;font-weight:600">NIL: ' + esc(nil_est) + '</span></div>' : '') +
+          (rev_share ? '<div style="margin-top:4px;display:flex;align-items:center;gap:5px"><svg width="11" height="11" fill="none" stroke="#60a5fa" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><span style="font-size:10px;color:#60a5fa">Rev Share: ' + esc(rev_share) + '</span><span style="font-size:9px;color:var(--muted)">(' + esc(rev_label) + ')</span></div>' : '') +
           '<div class="team-reason" style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.5">' + esc(p.why_fit || p.reason || '') + '</div>' +
-          (p.position_need ? '<div style="font-size:10px;color:var(--muted);margin-top:6px;font-style:italic">Position need: ' + esc(p.position_need) + '</div>' : '') +
           (score ? '<div class="team-fit">Fit: ' + esc(String(score)) + '%</div>' : '') +
         '</div>';
       }).join('') + '</div>';
@@ -2580,51 +2721,173 @@ async function submitOutreach() {
 // MARKETING
 // ══════════════════════════════════════════════════════════════════
 function switchMktTab(tab) {
-  ['ideas','outreach','scores'].forEach(function(t) {
+  ['caption','scores','calendar'].forEach(function(t) {
     var panel = document.getElementById('mkt-panel-' + t);
     var btn = document.getElementById('mkt-tab-btn-' + t);
     if (panel) panel.style.display = (t === tab) ? 'block' : 'none';
     if (btn) { btn.classList.toggle('active', t === tab); }
   });
+  if (tab === 'calendar') loadContentCalendar();
 }
 
-async function generateMktOutreach() {
-  var brand = document.getElementById('mkt-or-brand').value.trim();
-  if (!brand) { showToast('Enter a brand name', 'error'); return; }
-  var btn = document.getElementById('mkt-outreach-btn');
-  btn.disabled = true; btn.textContent = 'Generating…';
-  var loading = document.getElementById('mkt-outreach-loading');
-  var result = document.getElementById('mkt-outreach-result');
-  loading.style.display = 'block';
-  result.style.display = 'none';
+async function loadCaptionDeals() {
+  var sel = document.getElementById('cap-deal-select');
+  if (!sel) return;
   try {
-    var r = await fetch('/api/athlete/write-outreach', {
+    var r = await fetch('/api/athlete/deals', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
+    var data = await r.json();
+    var deals = (data.deals || []).filter(function(d){ return d.stage !== 'Lost' && d.stage !== 'Completed'; });
+    if (!deals.length) {
+      sel.innerHTML = '<option value="">No active deals — add one in Brand Tracker</option>';
+    } else {
+      sel.innerHTML = deals.map(function(d){
+        return '<option value="' + esc(d.brand_name) + '">' + esc(d.brand_name) + (d.deal_type ? ' — ' + esc(d.deal_type) : '') + '</option>';
+      }).join('');
+    }
+  } catch(e) {
+    sel.innerHTML = '<option value="">Failed to load deals</option>';
+  }
+}
+
+async function generateCaption() {
+  var brand = document.getElementById('cap-deal-select').value;
+  if (!brand) { showToast('Select a deal first', 'error'); return; }
+  var btn = document.getElementById('cap-btn');
+  var loading = document.getElementById('cap-loading');
+  var result = document.getElementById('cap-result');
+  btn.disabled = true; btn.textContent = 'Writing…';
+  loading.style.display = 'block';
+  result.innerHTML = '';
+  try {
+    var r = await fetch('/api/athlete/marketing/generate-caption', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
       body: JSON.stringify({
         brand: brand,
-        category: document.getElementById('mkt-or-category').value,
-        goal: document.getElementById('mkt-or-goal').value
+        deliverable_type: document.getElementById('cap-post-type').value,
+        context: document.getElementById('cap-context').value.trim()
       })
     });
     var data = await r.json();
-    if (!r.ok || data.error) { showToast('Error: ' + (data.error || 'Failed'), 'error'); loading.style.display = 'none'; btn.disabled = false; btn.textContent = 'Generate Outreach →'; return; }
     loading.style.display = 'none';
-    result.style.display = 'block';
-    result.innerHTML = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">' +
-      _mktOutreachCard('Email', data.emailSubject ? '<strong>' + esc(data.emailSubject) + '</strong><br><br>' + esc(data.email||'') : esc(data.email||'')) +
-      _mktOutreachCard('Instagram DM', esc(data.instagram||'')) +
-      _mktOutreachCard('LinkedIn', esc(data.linkedin||'')) +
-      '</div>';
-  } catch(e) { loading.style.display = 'none'; showToast('Network error', 'error'); }
-  finally { btn.disabled = false; btn.textContent = 'Generate Outreach →'; }
+    if (!r.ok || data.error) {
+      result.innerHTML = '<div class="empty-state"><div class="empty-text">Error: ' + esc(data.error || 'Generation failed') + '</div></div>';
+      return;
+    }
+    var raw = (data.captions || '').trim();
+    // Parse numbered captions — split on blank lines or "1." / "2." / "3." patterns
+    var parts = raw.split(/\n\s*\n/).filter(function(p){ return p.trim(); });
+    if (parts.length < 2) {
+      // Try splitting on numbered lines
+      parts = raw.split(/(?=^[1-3][\.\)]\s)/m).filter(function(p){ return p.trim(); });
+    }
+    if (!parts.length) parts = [raw];
+    result.innerHTML = '<div style="display:flex;flex-direction:column;gap:14px">' +
+      parts.map(function(cap, i) {
+        var clean = cap.replace(/^[1-3][\.\)]\s*/, '').trim();
+        return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+            '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em">Option ' + (i+1) + '</div>' +
+            '<button onclick="copyPlainText(this,\'' + esc(clean).replace(/'/g,"&#39;").replace(/\n/g,'\\n') + '\')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 10px;cursor:pointer;font-family:\'DM Sans\',sans-serif">Copy</button>' +
+          '</div>' +
+          '<div style="font-size:13px;line-height:1.65;color:var(--text);white-space:pre-wrap">' + esc(clean) + '</div>' +
+        '</div>';
+      }).join('') + '</div>';
+  } catch(e) {
+    loading.style.display = 'none';
+    result.innerHTML = '<div class="empty-state"><div class="empty-text">Network error. Please try again.</div></div>';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Generate Captions →';
+  }
 }
 
-function _mktOutreachCard(title, html) {
-  return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">' +
-    '<div style="font-size:12px;font-weight:700;margin-bottom:10px">' + title + '</div>' +
-    '<div style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto">' + html + '</div>' +
-  '</div>';
+function copyPlainText(btn, text) {
+  var decoded = text.replace(/\\n/g, '\n').replace(/&#39;/g, "'");
+  navigator.clipboard.writeText(decoded).then(function(){
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.color = 'var(--accent)';
+    setTimeout(function(){ btn.textContent = orig; btn.style.color = ''; }, 1500);
+  }).catch(function(){ showToast('Copy failed', 'error'); });
+}
+
+function copyText(elOrId) {
+  var el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
+  if (!el) return;
+  var text = el.textContent || el.innerText || '';
+  navigator.clipboard.writeText(text).then(function(){
+    showToast('Copied!', 'success');
+  }).catch(function(){ showToast('Copy failed', 'error'); });
+}
+
+async function loadContentCalendar() {
+  var container = document.getElementById('mkt-cal-content');
+  var loading = document.getElementById('mkt-cal-loading');
+  if (!container) return;
+  loading.style.display = 'block';
+  container.innerHTML = '';
+  try {
+    var r = await fetch('/api/athlete/calendar', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
+    var data = await r.json();
+    loading.style.display = 'none';
+    var events = (data.events || []).filter(function(e){ return e.status !== 'completed'; });
+    if (!events.length) {
+      container.innerHTML = '<div class="empty-state"><div class="empty-text">No upcoming deliverables. Add deals and calendar events to see them here.</div></div>';
+      return;
+    }
+    // Group by week (Mon–Sun)
+    var today = new Date(); today.setHours(0,0,0,0);
+    var weeks = {};
+    events.forEach(function(e) {
+      var d = e.event_date ? new Date(e.event_date) : null;
+      if (!d) return;
+      d.setHours(0,0,0,0);
+      // Find Monday of that week
+      var day = d.getDay(); // 0=Sun
+      var mon = new Date(d); mon.setDate(d.getDate() - ((day + 6) % 7));
+      var key = mon.toISOString().split('T')[0];
+      if (!weeks[key]) weeks[key] = { mon: mon, events: [] };
+      weeks[key].events.push(e);
+    });
+    var sortedKeys = Object.keys(weeks).sort();
+    var brandColors = {};
+    var palette = ['#84CC16','#60a5fa','#f59e0b','#a78bfa','#34d399','#fb923c','#f472b6','#38bdf8'];
+    var colorIdx = 0;
+    function brandColor(brand) {
+      if (!brandColors[brand]) { brandColors[brand] = palette[colorIdx % palette.length]; colorIdx++; }
+      return brandColors[brand];
+    }
+    var html = '';
+    sortedKeys.forEach(function(key) {
+      var week = weeks[key];
+      var sun = new Date(week.mon); sun.setDate(week.mon.getDate() + 6);
+      var label = MONTHS[week.mon.getMonth()] + ' ' + week.mon.getDate() + ' – ' + MONTHS[sun.getMonth()] + ' ' + sun.getDate();
+      var isThisWeek = week.mon <= today && sun >= today;
+      html += '<div style="margin-bottom:20px">' +
+        '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:' + (isThisWeek ? 'var(--accent)' : 'var(--muted)') + ';margin-bottom:8px">' +
+          (isThisWeek ? '▶ THIS WEEK — ' : '') + label +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:8px">' +
+        week.events.map(function(e) {
+          var dStr = e.event_date ? new Date(e.event_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : 'No date';
+          var isPast = e.event_date && new Date(e.event_date) < today;
+          var col = brandColor(e.brand || 'Other');
+          return '<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + col + ';border-radius:var(--r-sm);padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
+            '<div style="font-size:11px;color:var(--muted);min-width:90px">' + esc(dStr) + '</div>' +
+            '<div style="flex:1;min-width:120px">' +
+              '<div style="font-size:13px;font-weight:600;color:var(--text)">' + esc(e.brand || 'Deal') + '</div>' +
+              '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + esc(e.title || e.deliverable_type || 'Deliverable') + '</div>' +
+            '</div>' +
+            '<div style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;' + (isPast ? 'background:rgba(239,68,68,0.12);color:var(--red)' : 'background:rgba(249,115,22,0.12);color:var(--orange)') + '">' + (isPast ? 'OVERDUE' : 'PENDING') + '</div>' +
+          '</div>';
+        }).join('') +
+        '</div></div>';
+    });
+    container.innerHTML = html;
+  } catch(e) {
+    loading.style.display = 'none';
+    container.innerHTML = '<div class="empty-state"><div class="empty-text">Failed to load calendar.</div></div>';
+  }
 }
 
 async function loadNILScores() {
@@ -2952,30 +3215,77 @@ async function loadDeals() {
   }
 }
 
+var _btActiveFilter = 'all';
+
+function filterBrandTracker(tab) {
+  _btActiveFilter = tab;
+  // Update filter button styles
+  ['all','active','outreach','closed'].forEach(function(t) {
+    var btn = document.getElementById('bt-filter-' + t);
+    if (!btn) return;
+    if (t === tab) {
+      btn.classList.add('active-filter');
+      btn.style.borderColor = 'var(--accent)';
+      btn.style.color = 'var(--accent)';
+    } else {
+      btn.classList.remove('active-filter');
+      btn.style.borderColor = '';
+      btn.style.color = '';
+    }
+  });
+  renderDealPipeline(dealsCache);
+}
+
 function renderDealPipeline(deals) {
   var el = document.getElementById('deal-pipeline');
   if (!deals.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-text">No deals yet. Add your first deal!</div><div class="empty-sub">Track every brand opportunity from first contact to signed contract.</div></div>';
     return;
   }
-  var groups = {};
-  PIPELINE_STAGES.forEach(function(s){ groups[s] = []; });
-  deals.forEach(function(d){ (groups[d.stage] || (groups['Prospect'] = groups['Prospect'] || [])).push(d); });
 
-  el.innerHTML = '<div class="pipeline-stages">' +
-    PIPELINE_STAGES.map(function(stage) {
-      var items = groups[stage] || [];
-      var total = items.reduce(function(s,d){ return s + (parseFloat(d.value)||0); }, 0);
-      return '<div class="pipeline-col">' +
-        '<div class="pipeline-col-header"><span>' + stage + '</span><span class="pipeline-count">' + items.length + '</span></div>' +
-        (total > 0 ? '<div style="font-size:10px;color:var(--accent);font-family:\'JetBrains Mono\',monospace;margin-bottom:7px">$' + total.toLocaleString() + '</div>' : '') +
-        items.map(function(d) {
-          return '<div class="pipeline-card" onclick="openDealModal(' + d.id + ')">' +
-            '<div class="pipeline-card-brand">' + esc(d.brand_name) + '</div>' +
-            '<div class="pipeline-card-type">' + esc(d.deal_type || 'Other') + '</div>' +
-            (d.value ? '<div class="pipeline-card-value">$' + Number(d.value).toLocaleString() + '</div>' : '') +
-          '</div>';
-        }).join('') +
+  // Filter by tab
+  var ACTIVE_STAGES   = ['Signed','Negotiating'];
+  var OUTREACH_STAGES = ['Prospect','Contacted'];
+  var CLOSED_STAGES   = ['Completed','Lost'];
+  var filtered = deals.filter(function(d) {
+    if (_btActiveFilter === 'active')   return ACTIVE_STAGES.indexOf(d.stage) > -1;
+    if (_btActiveFilter === 'outreach') return OUTREACH_STAGES.indexOf(d.stage) > -1;
+    if (_btActiveFilter === 'closed')   return CLOSED_STAGES.indexOf(d.stage) > -1;
+    return true; // all
+  });
+
+  if (!filtered.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">No deals in this category.</div></div>';
+    return;
+  }
+
+  // Stage badge colors
+  var stageBadge = {
+    'Prospect':    {bg:'rgba(100,116,139,0.12)',color:'#94a3b8'},
+    'Contacted':   {bg:'rgba(59,130,246,0.12)', color:'#60a5fa'},
+    'Negotiating': {bg:'rgba(245,158,11,0.12)', color:'#fbbf24'},
+    'Signed':      {bg:'rgba(132,204,22,0.12)', color:'#84CC16'},
+    'Completed':   {bg:'rgba(34,197,94,0.12)',  color:'#4ade80'},
+    'Lost':        {bg:'rgba(239,68,68,0.12)',  color:'#f87171'}
+  };
+
+  el.innerHTML = '<div style="display:flex;flex-direction:column;gap:10px">' +
+    filtered.map(function(d) {
+      var sb = stageBadge[d.stage] || stageBadge['Prospect'];
+      var stageEl = '<span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:4px;background:' + sb.bg + ';color:' + sb.color + ';text-transform:uppercase;letter-spacing:0.05em">' + esc(d.stage) + '</span>';
+      var lastActivity = d.updated_at ? 'Updated ' + new Date(d.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : (d.created_at ? 'Added ' + new Date(d.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '');
+      return '<div class="bt-card" onclick="openDealModal(' + d.id + ')">' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+          '<div style="font-size:14px;font-weight:700;color:var(--text);flex:1">' + esc(d.brand_name) + '</div>' +
+          stageEl +
+          (d.value ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700;color:var(--accent)">$' + Number(d.value).toLocaleString() + '</div>' : '') +
+        '</div>' +
+        '<div style="display:flex;gap:16px;font-size:11px;color:var(--muted);flex-wrap:wrap">' +
+          (d.deal_type ? '<span>' + esc(d.deal_type) + '</span>' : '') +
+          (lastActivity ? '<span>' + esc(lastActivity) + '</span>' : '') +
+          (d.start_date ? '<span>Starts ' + new Date(d.start_date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + '</span>' : '') +
+        '</div>' +
+        (d.notes ? '<div style="font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;line-height:1.5">' + esc(d.notes.slice(0,140)) + (d.notes.length > 140 ? '…' : '') + '</div>' : '') +
       '</div>';
     }).join('') + '</div>';
 }
@@ -3037,6 +3347,196 @@ async function saveDeal() {
     loadDeals();
   } catch(e) { showToast('Network error', 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Deal'; }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// COMPLIANCE — ATHLETE
+// ══════════════════════════════════════════════════════════════════
+var _athCompUnivNotified = null;
+
+var _SCHOOL_STATES_FRONTEND = {
+  'University of Connecticut':'Connecticut','UConn':'Connecticut',
+  'University of Alabama':'Alabama','Alabama':'Alabama',
+  'University of Arizona':'Arizona','Arizona State':'Arizona',
+  'University of Arkansas':'Arkansas','Arkansas':'Arkansas',
+  'UCLA':'California','USC':'California','UC Berkeley':'California','University of California':'California','Stanford':'California','Cal Poly':'California',
+  'University of Colorado':'Colorado','Colorado State':'Colorado',
+  'University of Florida':'Florida','Florida State':'Florida','Florida':'Florida','UCF':'Florida','Miami':'Florida',
+  'University of Georgia':'Georgia','Georgia Tech':'Georgia','Georgia State':'Georgia',
+  'University of Illinois':'Illinois','Illinois State':'Illinois','Northwestern':'Illinois',
+  'Indiana University':'Indiana','Purdue':'Indiana','Notre Dame':'Indiana',
+  'University of Iowa':'Iowa','Iowa State':'Iowa',
+  'University of Kansas':'Kansas','Kansas State':'Kansas',
+  'University of Kentucky':'Kentucky','Kentucky':'Kentucky',
+  'Louisiana State':'Louisiana','LSU':'Louisiana','Tulane':'Louisiana',
+  'University of Maryland':'Maryland','Maryland':'Maryland',
+  'Boston College':'Massachusetts','Boston University':'Massachusetts','UMass':'Massachusetts','Massachusetts':'Massachusetts',
+  'University of Michigan':'Michigan','Michigan State':'Michigan','Michigan':'Michigan',
+  'University of Minnesota':'Minnesota','Minnesota':'Minnesota',
+  'University of Mississippi':'Mississippi','Mississippi State':'Mississippi','Ole Miss':'Mississippi',
+  'University of Missouri':'Missouri','Missouri':'Missouri',
+  'University of Nebraska':'Nebraska','Nebraska':'Nebraska',
+  'University of Nevada':'Nevada','UNLV':'Nevada','Nevada':'Nevada',
+  'Rutgers':'New Jersey','Seton Hall':'New Jersey',
+  'University of New Mexico':'New Mexico','New Mexico State':'New Mexico',
+  'Columbia':'New York','Cornell':'New York','Syracuse':'New York','Fordham':'New York','NYU':'New York','SUNY':'New York','Stony Brook':'New York',
+  'Duke':'North Carolina','UNC':'North Carolina','NC State':'North Carolina','Wake Forest':'North Carolina','North Carolina':'North Carolina',
+  'Ohio State':'Ohio','University of Cincinnati':'Ohio','Ohio University':'Ohio','Cincinnati':'Ohio','Ohio':'Ohio',
+  'University of Oklahoma':'Oklahoma','Oklahoma State':'Oklahoma','Oklahoma':'Oklahoma',
+  'University of Oregon':'Oregon','Oregon State':'Oregon','Oregon':'Oregon',
+  'Penn State':'Pennsylvania','University of Pittsburgh':'Pennsylvania','Temple':'Pennsylvania','Pennsylvania':'Pennsylvania',
+  'University of South Carolina':'South Carolina','Clemson':'South Carolina','South Carolina':'South Carolina',
+  'University of Tennessee':'Tennessee','Vanderbilt':'Tennessee','Tennessee':'Tennessee',
+  'University of Texas':'Texas','Texas A&M':'Texas','TCU':'Texas','Baylor':'Texas','Texas Tech':'Texas','Texas':'Texas',
+  'University of Utah':'Utah','Utah State':'Utah','BYU':'Utah','Utah':'Utah',
+  'University of Virginia':'Virginia','Virginia Tech':'Virginia','Virginia':'Virginia',
+  'University of Washington':'Washington','Washington State':'Washington','Washington':'Washington',
+  'University of Wisconsin':'Wisconsin','Wisconsin':'Wisconsin',
+  'West Virginia University':'West Virginia','West Virginia':'West Virginia'
+};
+
+function _resolveAthleteState() {
+  var p = athleteProfile || {};
+  var school = p.school || '';
+  if (!school) return '';
+  if (_SCHOOL_STATES_FRONTEND[school]) return _SCHOOL_STATES_FRONTEND[school];
+  for (var k in _SCHOOL_STATES_FRONTEND) {
+    if (school.indexOf(k) > -1 || k.indexOf(school) > -1) return _SCHOOL_STATES_FRONTEND[k];
+  }
+  return '';
+}
+
+function initAthleteCompliance() {
+  var state = _resolveAthleteState();
+  var disp = document.getElementById('ath-comp-state-display');
+  var inp  = document.getElementById('ath-comp-state');
+  if (disp && inp) {
+    if (state) {
+      disp.textContent = state;
+      disp.style.color = 'var(--text)';
+      inp.value = state;
+    } else {
+      var school = (athleteProfile && athleteProfile.school) ? athleteProfile.school : '';
+      disp.textContent = school ? 'Unknown (school: ' + school + ')' : 'Unknown — update your school in Profile';
+      disp.style.color = 'var(--muted)';
+      inp.value = '';
+    }
+  }
+  // SPARTA timer wiring
+  var sigDate = document.getElementById('ath-comp-signing-date');
+  if (sigDate) {
+    sigDate.addEventListener('change', function() {
+      var box = document.getElementById('ath-sparta-timer-box');
+      var dl  = document.getElementById('ath-sparta-deadline-display');
+      var hr  = document.getElementById('ath-sparta-hours-display');
+      if (!this.value) { box.style.display = 'none'; return; }
+      var signed = new Date(this.value + 'T00:00:00');
+      var deadline = new Date(signed.getTime() + 72 * 3600000);
+      var hoursLeft = Math.round((deadline - Date.now()) / 3600000);
+      box.style.display = 'block';
+      dl.textContent = deadline.toLocaleDateString('en-US', {weekday:'short',month:'short',day:'numeric',year:'numeric'}) + ' at ' + deadline.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+      hr.textContent = hoursLeft > 0 ? hoursLeft + ' hours remaining' : Math.abs(hoursLeft) + ' hours overdue';
+      hr.style.color = hoursLeft < 0 ? 'var(--red)' : hoursLeft < 12 ? 'var(--orange)' : 'var(--muted)';
+    });
+  }
+}
+
+function setUnivNotified(val) {
+  _athCompUnivNotified = val;
+  var yesBtn = document.getElementById('ath-notif-yes');
+  var noBtn  = document.getElementById('ath-notif-no');
+  var rem    = document.getElementById('ath-notif-reminder');
+  if (val) {
+    yesBtn.style.background = 'rgba(34,197,94,0.12)'; yesBtn.style.borderColor = 'rgba(34,197,94,0.4)'; yesBtn.style.color = 'var(--green)';
+    noBtn.style.background  = ''; noBtn.style.borderColor  = ''; noBtn.style.color = '';
+    rem.style.display = 'none';
+  } else {
+    noBtn.style.background  = 'rgba(249,115,22,0.12)'; noBtn.style.borderColor  = 'rgba(249,115,22,0.4)'; noBtn.style.color = 'var(--orange)';
+    yesBtn.style.background = ''; yesBtn.style.borderColor = ''; yesBtn.style.color = '';
+    rem.style.display = 'block';
+  }
+}
+
+async function runAthleteCompliance() {
+  var state = document.getElementById('ath-comp-state').value;
+  var dealType = document.getElementById('ath-comp-deal-type').value;
+  var brand = document.getElementById('ath-comp-brand').value.trim();
+  var value = document.getElementById('ath-comp-value').value;
+  var description = document.getElementById('ath-comp-description').value.trim();
+  var signingDate = document.getElementById('ath-comp-signing-date').value;
+  if (!state) { showToast('State not detected — please update your school in Profile', 'error'); return; }
+  var btn = document.getElementById('ath-comp-btn');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  document.getElementById('ath-comp-results').style.display = 'none';
+  try {
+    var r = await fetch('/api/athlete/compliance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify({ dealType: dealType, brand: brand, value: value, description: description, signingDate: signingDate, universityNotified: _athCompUnivNotified })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) { showToast('Error: ' + (data.error || 'Check failed'), 'error'); return; }
+    renderAthleteComplianceResults(data);
+    document.getElementById('ath-comp-results').style.display = 'block';
+    showToast('Compliance check complete', 'success');
+  } catch(e) { showToast('Network error', 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Check Compliance →'; }
+}
+
+function renderAthleteComplianceResults(data) {
+  var banner = document.getElementById('ath-comp-status-banner');
+  var styleMap = {
+    clear:   'background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:#4ade80',
+    warning: 'background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);color:#fbbf24',
+    blocked: 'background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#ef4444'
+  };
+  var msgMap = {
+    clear:   'No major compliance issues found for this deal in ' + (data.state || data.resolvedState || ''),
+    warning: 'Compliance warnings found — review before proceeding',
+    blocked: 'Deal has compliance issues that must be resolved'
+  };
+  banner.style.cssText = (styleMap[data.status] || styleMap.warning) + ';border-radius:var(--r-sm);padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700';
+  banner.textContent = msgMap[data.status] || msgMap.warning;
+
+  // SPARTA section
+  var spartaSection = document.getElementById('ath-comp-sparta-section');
+  if (data.sparta) {
+    spartaSection.style.display = 'block';
+    var s = data.sparta;
+    var color = s.status === 'overdue' ? '#ef4444' : s.status === 'urgent' ? '#fbbf24' : '#60a5fa';
+    var label = s.status === 'overdue' ? '⚠ DEADLINE PASSED' : s.status === 'urgent' ? '⚡ NOTIFY TODAY' : '✓ On Track';
+    document.getElementById('ath-comp-sparta-timer').innerHTML =
+      '<div style="font-weight:700;color:' + color + ';margin-bottom:4px">' + label + '</div>' +
+      '<div>72-hour deadline: <strong>' + s.deadlineFormatted + '</strong></div>' +
+      '<div style="color:var(--muted);margin-top:2px">' + (s.hoursLeft > 0 ? s.hoursLeft + ' hours remaining' : Math.abs(s.hoursLeft) + ' hours overdue') + '</div>';
+    document.getElementById('ath-comp-sparta-notice').textContent = data.spartaNotice || 'No notification letter generated.';
+  } else {
+    spartaSection.style.display = 'none';
+  }
+
+  var flagsSection = document.getElementById('ath-comp-flags-section');
+  var flagsEl = document.getElementById('ath-comp-flags');
+  if (data.flags && data.flags.length) {
+    flagsSection.style.display = 'block';
+    flagsEl.innerHTML = data.flags.map(function(f){
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + (f.severity==='high'?'#ef4444':'#fbbf24') + ';border-radius:6px;padding:12px 16px;margin-bottom:8px">' +
+        '<div style="font-size:12px;font-weight:600;margin-bottom:4px">' + (f.severity==='high'?'Blocked: ':'Warning: ') + esc(f.issue) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted)">' + esc(f.detail) + '</div></div>';
+    }).join('');
+  } else { flagsSection.style.display = 'none'; }
+
+  var reqsSection = document.getElementById('ath-comp-reqs-section');
+  var reqsEl = document.getElementById('ath-comp-reqs');
+  if (data.requirements && data.requirements.length) {
+    reqsSection.style.display = 'block';
+    reqsEl.innerHTML = data.requirements.map(function(r){
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px 16px;margin-bottom:6px;font-size:11px;color:var(--text)">→ ' + esc(r) + '</div>';
+    }).join('');
+  } else { reqsSection.style.display = 'none'; }
+
+  document.getElementById('ath-comp-disclosure').textContent = data.disclosure || 'No specific disclosure language required.';
+  var src = document.getElementById('ath-comp-sources');
+  if (src) src.textContent = data.sourceNote ? 'Source: ' + data.sourceNote : '';
 }
 
 // ══════════════════════════════════════════════════════════════════

@@ -3659,15 +3659,55 @@ app.post('/api/athlete/team-match', verifyAthleteToken, aiLimiter, async (req, r
     const confStr = conference && conference !== 'any' ? `Conference preference: ${conference}` : 'Any conference';
     const nilStr = min_nil && parseInt(min_nil) > 0 ? `Minimum NIL: $${parseInt(min_nil).toLocaleString()}/year` : 'Any NIL level';
     const sortStr = sort_by === 'nil' ? 'Sort results by NIL value (highest first)' : sort_by === 'exposure' ? 'Sort by pro exposure / draft potential' : 'Sort by overall fit score (highest first)';
-    const prompt = `A college athlete is exploring transfer destinations. Find 8 best-fit programs.\n\nAthlete: ${ath.name} | Sport: ${ath.sport} | Position: ${ath.position} | Year: ${ath.year}\nCurrent School: ${ath.school}\n${confStr} | ${nilStr}\n${sortStr}\n\nReturn ONLY a valid JSON array, no markdown:\n[{"school":"School Name","conference":"Conference","nil_rating":"High/Medium/Low","nil_estimate":"$X-$X/year","why_fit":"Two sentences","position_need":"Program need at this position","match_score":85}]`;
 
-    const raw = await ai.oneShot(prompt, 'You are an NIL transfer portal analyst. Return only valid JSON arrays.');
+    // Revenue share: House v. NCAA settlement $20.5M pool allocation by sport
+    const sportRevenueShare = {
+      football: 0.75, 'mens basketball': 0.15, "men's basketball": 0.15,
+      basketball: 0.10, "women's basketball": 0.07, 'womens basketball': 0.07,
+      baseball: 0.008, softball: 0.008, soccer: 0.007, volleyball: 0.007,
+      swimming: 0.005, track: 0.005, lacrosse: 0.005, gymnastics: 0.005,
+      wrestling: 0.004, tennis: 0.004, golf: 0.003, cross: 0.003,
+    };
+    const sportKey = (ath.sport || '').toLowerCase();
+    const sportPct = Object.entries(sportRevenueShare).find(([k]) => sportKey.includes(k))?.[1] || 0.008;
+    const totalPool = 20500000;
+    const sportPool = Math.round(totalPool * sportPct);
+
+    const prompt = `You are an NIL transfer portal analyst with deep knowledge of 2025-2026 college athletics.
+
+ATHLETE: ${ath.name} | Sport: ${ath.sport} | Position: ${ath.position} | Year: ${ath.year}
+CURRENT SCHOOL: ${ath.school}
+FILTERS: ${confStr} | ${nilStr}
+SORT: ${sortStr}
+
+Find 8 real college programs that would be a strong transfer destination for this ${ath.sport} ${ath.position}.
+
+For each program include:
+1. Is this program actively looking for a ${ath.position} in the 2025-2026 transfer portal? Give specific reason (graduation loss, depth chart gap, etc.)
+2. Revenue share estimate — the House v. NCAA settlement distributes ~$${sportPool.toLocaleString()} annually for ${ath.sport} across the program (based on $20.5M total pool). What is the per-athlete estimate based on typical roster size?
+3. NIL collective activity and market for this position
+
+Return ONLY a valid JSON array, no markdown:
+[{
+  "school": "School Name",
+  "conference": "Conference Name",
+  "location": "City, State",
+  "nil_rating": "High/Medium/Low",
+  "nil_estimate": "$X,000–$X,000/year",
+  "revenue_share_est": "$X,000–$X,000/year",
+  "revenue_share_label": "Estimated (House Settlement)",
+  "why_fit": "Two specific sentences about program fit and NIL opportunity",
+  "position_need": "Why they need this position (e.g. 'Lost starter to graduation, have open roster spot')",
+  "portal_status": "Actively recruiting|Likely recruiting|Unknown",
+  "match_score": 85
+}]`;
+
+    const raw = await ai.oneShot(prompt, 'You are an NIL transfer portal analyst with comprehensive knowledge of 2025-2026 college sports transfer needs, House settlement revenue sharing, and NIL collective activity by school. Return only valid JSON arrays.');
     let programs = [];
     try { const m = raw.match(/\[[\s\S]*\]/); if (m) programs = JSON.parse(m[0]); } catch(e) {}
-    // Sort based on preference
     if (sort_by === 'nil') programs.sort((a,b) => (b.match_score||0) - (a.match_score||0));
-    console.log(`[athlete/team-match] athlete=${req.athlete.id} programs=${programs.length}`);
-    res.json({ programs });
+    console.log(`[athlete/team-match] athlete=${req.athlete.id} sport=${ath.sport} position=${ath.position} programs=${programs.length}`);
+    res.json({ programs, sportPool });
   } catch (e) { console.error('[athlete/team-match]', e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -3692,6 +3732,153 @@ app.post('/api/athlete/marketing/content-ideas', verifyAthleteToken, aiLimiter, 
     try { const m = raw.match(/\[[\s\S]*\]/); if (m) ideas = JSON.parse(m[0]); } catch(e) {}
     res.json({ ideas });
   } catch (e) { console.error('[athlete/marketing]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/marketing/generate-caption — Caption Generator
+app.post('/api/athlete/marketing/generate-caption', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const { brand, deliverable_type, context } = req.body;
+    if (!brand) return res.status(400).json({ error: 'brand is required' });
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name, a.data->>'sport' as sport,
+              a.data->>'school' as school, a.data->>'position' as position
+       FROM athletes a WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    const ath = athR.rows[0] || {};
+    const postType = deliverable_type || 'Instagram Post';
+    const contextLine = context ? `Context: ${context}` : '';
+    const prompt = `Write 3 ${postType} caption options for ${ath.name}, a ${ath.position ? ath.position + ' ' : ''}${ath.sport || 'college'} athlete at ${ath.school || 'their university'}, for their ${brand} NIL deal.
+${contextLine}
+
+Each caption should be 2-4 sentences, sound completely authentic (like a real 20-year-old college athlete wrote it), and include 3-5 relevant hashtags at the end.
+Number them 1, 2, 3.`;
+
+    const system = `You are a social media copywriter for college athletes. Write captions that sound exactly like a real college athlete wrote them — casual, authentic, genuine. Never corporate. Never over-enthusiastic. Use natural language a 20-year-old would actually use. Don't use phrases like "super excited" or "amazing opportunity" or "blessed". Make it sound like they dashed it off between practice and class.`;
+
+    const raw = await ai.oneShot(prompt, system, 800, 'claude-sonnet-4-20250514');
+    console.log('[generate-caption] brand:', brand, 'type:', postType, 'athlete:', req.athlete.id);
+    res.json({ captions: raw || '' });
+  } catch (e) {
+    console.error('[generate-caption]', e.message);
+    res.status(500).json({ error: 'Caption generation failed' });
+  }
+});
+
+// POST /api/athlete/compliance — NIL compliance check (athlete auth)
+// Mirrors /api/ai/compliance but uses athlete token and auto-resolves state from school
+app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const { dealType, brand, value, description, signingDate, universityNotified } = req.body;
+
+    // Fetch athlete info for state resolution
+    const athR = await store.pool.query(
+      `SELECT a.data->>'name' as name, a.data->>'sport' as sport,
+              a.data->>'school' as school, a.data->>'schoolTier' as school_tier
+       FROM athletes a WHERE a.id = $1`,
+      [req.athlete.id]
+    );
+    const ath = athR.rows[0] || {};
+    const school = ath.school || '';
+
+    // School → State mapping
+    const SCHOOL_STATES = {
+      'University of Connecticut': 'Connecticut', 'UConn': 'Connecticut',
+      'Yale University': 'Connecticut', 'University of Alabama': 'Alabama',
+      'Auburn University': 'Alabama', 'University of Georgia': 'Georgia',
+      'Georgia Tech': 'Georgia', 'University of Florida': 'Florida',
+      'Florida State University': 'Florida', 'University of Miami': 'Florida',
+      'University of Tennessee': 'Tennessee', 'Vanderbilt University': 'Tennessee',
+      'University of Kentucky': 'Kentucky', 'University of South Carolina': 'South Carolina',
+      'Clemson University': 'South Carolina', 'University of North Carolina': 'North Carolina',
+      'North Carolina State University': 'North Carolina', 'Duke University': 'North Carolina',
+      'Wake Forest University': 'North Carolina', 'University of Virginia': 'Virginia',
+      'Virginia Tech': 'Virginia', 'Penn State University': 'Pennsylvania',
+      'University of Pittsburgh': 'Pennsylvania', 'Temple University': 'Pennsylvania',
+      'Ohio State University': 'Ohio', 'University of Cincinnati': 'Ohio',
+      'Michigan State University': 'Michigan', 'University of Michigan': 'Michigan',
+      'University of Notre Dame': 'Indiana', 'Purdue University': 'Indiana',
+      'Indiana University': 'Indiana', 'University of Wisconsin': 'Wisconsin',
+      'Northwestern University': 'Illinois', 'University of Illinois': 'Illinois',
+      'University of Iowa': 'Iowa', 'University of Minnesota': 'Minnesota',
+      'University of Nebraska': 'Nebraska', 'University of Kansas': 'Kansas',
+      'Kansas State University': 'Kansas', 'University of Missouri': 'Missouri',
+      'University of Arkansas': 'Arkansas', 'Louisiana State University': 'Louisiana',
+      'University of Mississippi': 'Mississippi', 'Mississippi State University': 'Mississippi',
+      'Texas A&M University': 'Texas', 'University of Texas': 'Texas',
+      'Texas Christian University': 'Texas', 'Baylor University': 'Texas',
+      'University of Oklahoma': 'Oklahoma', 'Oklahoma State University': 'Oklahoma',
+      'University of Colorado': 'Colorado', 'Colorado State University': 'Colorado',
+      'University of Utah': 'Utah', 'Brigham Young University': 'Utah',
+      'University of Arizona': 'Arizona', 'Arizona State University': 'Arizona',
+      'University of Oregon': 'Oregon', 'Oregon State University': 'Oregon',
+      'University of Washington': 'Washington', 'Washington State University': 'Washington',
+      'University of California': 'California', 'UCLA': 'California',
+      'University of Southern California': 'California', 'Stanford University': 'California',
+      'San Diego State University': 'California', 'Boston College': 'Massachusetts',
+      'Boston University': 'Massachusetts', 'University of Massachusetts': 'Massachusetts',
+    };
+
+    let state = SCHOOL_STATES[school] || '';
+    if (!state) {
+      // Try partial match
+      for (const [k, v] of Object.entries(SCHOOL_STATES)) {
+        if (school.includes(k) || k.includes(school)) { state = v; break; }
+      }
+    }
+    if (!state) state = req.body.state || 'Unknown';
+
+    // SPARTA 72-hour calculation
+    let spartaSection = '';
+    if (signingDate) {
+      const signed = new Date(signingDate);
+      const deadline = new Date(signed.getTime() + 72 * 60 * 60 * 1000);
+      const now = new Date();
+      const hoursLeft = Math.round((deadline - now) / (1000 * 60 * 60));
+      const deadlineStr = deadline.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+      spartaSection = `SPARTA COMPLIANCE:
+- Signed: ${signed.toLocaleDateString()}
+- 72-hour university notification deadline: ${deadlineStr}
+- Hours remaining: ${hoursLeft > 0 ? hoursLeft + ' hours' : 'OVERDUE by ' + Math.abs(hoursLeft) + ' hours'}
+- Status: ${hoursLeft > 24 ? 'On track' : hoursLeft > 0 ? 'URGENT - notify today' : 'DEADLINE PASSED'}`;
+    }
+
+    const notificationNote = universityNotified === false
+      ? '\n- ATHLETE NOTE: University has NOT been notified. Remind athlete to notify athletic department within 72 hours of signing.'
+      : '';
+
+    const prompt = 'Analyze this NIL deal for compliance in ' + state + ':\n' +
+      'Athlete: ' + (ath.name||'Unknown') + ', ' + (ath.sport||'Unknown') + ', ' + school + ' (' + (ath.school_tier||'unknown') + ')\n' +
+      'Deal: ' + (dealType||'general') + ' with ' + (brand||'unknown brand') + ' worth $' + (parseInt(value)||0) + '\n' +
+      'Description: ' + (description||'not provided') + '\n' +
+      (signingDate ? 'Signing Date: ' + signingDate + '\n' : '') +
+      notificationNote + '\n' +
+      'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 5) SPARTA compliance - notify ' + school + ' within 72 hours of signing 6) School-specific NIL policies\n\n' +
+      'Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text athlete must send to university athletic department within 72 hours","sourceNote":"what laws this is based on"}';
+
+    const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with comprehensive knowledge of all 50 state NIL laws as of 2025-2026, plus the NCAA House settlement rules. Return only valid JSON.', 8000);
+    const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) return res.status(500).json({ error: 'Failed to parse result' });
+    const parsed = JSON.parse(match[0]);
+
+    if (signingDate) {
+      const signed = new Date(signingDate);
+      const deadline = new Date(signed.getTime() + 72 * 60 * 60 * 1000);
+      const hoursLeft = Math.round((deadline - new Date()) / (1000 * 60 * 60));
+      parsed.sparta = {
+        required: true, signingDate, deadline: deadline.toISOString(),
+        deadlineFormatted: deadline.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }),
+        hoursLeft, status: hoursLeft > 24 ? 'on-track' : hoursLeft > 0 ? 'urgent' : 'overdue'
+      };
+    }
+    parsed.resolvedState = state;
+    console.log('[athlete/compliance] state:', state, 'status:', parsed.status);
+    res.json(parsed);
+  } catch (e) {
+    console.error('[athlete/compliance]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // POST /api/athlete/email/send — athlete sends tracked email

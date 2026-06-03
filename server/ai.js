@@ -279,76 +279,180 @@ function calculateRate(athlete, deliverableType) {
   return nilViewVal(athlete, deliverableType || 'ig-reel');
 }
 
+// School → {city, state} lookup for accurate geographic deal targeting
+const SCHOOL_LOCATIONS = {
+  'University of Connecticut': { city: 'Storrs', state: 'Connecticut' },
+  'UConn': { city: 'Storrs', state: 'Connecticut' },
+  'Yale University': { city: 'New Haven', state: 'Connecticut' },
+  'University of Alabama': { city: 'Tuscaloosa', state: 'Alabama' },
+  'Auburn University': { city: 'Auburn', state: 'Alabama' },
+  'University of Georgia': { city: 'Athens', state: 'Georgia' },
+  'Georgia Tech': { city: 'Atlanta', state: 'Georgia' },
+  'University of Florida': { city: 'Gainesville', state: 'Florida' },
+  'Florida State University': { city: 'Tallahassee', state: 'Florida' },
+  'University of Miami': { city: 'Coral Gables', state: 'Florida' },
+  'University of Tennessee': { city: 'Knoxville', state: 'Tennessee' },
+  'Vanderbilt University': { city: 'Nashville', state: 'Tennessee' },
+  'University of Kentucky': { city: 'Lexington', state: 'Kentucky' },
+  'University of South Carolina': { city: 'Columbia', state: 'South Carolina' },
+  'Clemson University': { city: 'Clemson', state: 'South Carolina' },
+  'University of North Carolina': { city: 'Chapel Hill', state: 'North Carolina' },
+  'North Carolina State University': { city: 'Raleigh', state: 'North Carolina' },
+  'Duke University': { city: 'Durham', state: 'North Carolina' },
+  'Wake Forest University': { city: 'Winston-Salem', state: 'North Carolina' },
+  'University of Virginia': { city: 'Charlottesville', state: 'Virginia' },
+  'Virginia Tech': { city: 'Blacksburg', state: 'Virginia' },
+  'Penn State University': { city: 'State College', state: 'Pennsylvania' },
+  'University of Pittsburgh': { city: 'Pittsburgh', state: 'Pennsylvania' },
+  'Temple University': { city: 'Philadelphia', state: 'Pennsylvania' },
+  'Ohio State University': { city: 'Columbus', state: 'Ohio' },
+  'University of Cincinnati': { city: 'Cincinnati', state: 'Ohio' },
+  'Michigan State University': { city: 'East Lansing', state: 'Michigan' },
+  'University of Michigan': { city: 'Ann Arbor', state: 'Michigan' },
+  'University of Notre Dame': { city: 'Notre Dame', state: 'Indiana' },
+  'Purdue University': { city: 'West Lafayette', state: 'Indiana' },
+  'Indiana University': { city: 'Bloomington', state: 'Indiana' },
+  'University of Wisconsin': { city: 'Madison', state: 'Wisconsin' },
+  'Northwestern University': { city: 'Evanston', state: 'Illinois' },
+  'University of Illinois': { city: 'Champaign', state: 'Illinois' },
+  'University of Iowa': { city: 'Iowa City', state: 'Iowa' },
+  'University of Minnesota': { city: 'Minneapolis', state: 'Minnesota' },
+  'University of Nebraska': { city: 'Lincoln', state: 'Nebraska' },
+  'University of Kansas': { city: 'Lawrence', state: 'Kansas' },
+  'Kansas State University': { city: 'Manhattan', state: 'Kansas' },
+  'University of Missouri': { city: 'Columbia', state: 'Missouri' },
+  'University of Arkansas': { city: 'Fayetteville', state: 'Arkansas' },
+  'Louisiana State University': { city: 'Baton Rouge', state: 'Louisiana' },
+  'University of Mississippi': { city: 'Oxford', state: 'Mississippi' },
+  'Mississippi State University': { city: 'Starkville', state: 'Mississippi' },
+  'Texas A&M University': { city: 'College Station', state: 'Texas' },
+  'University of Texas': { city: 'Austin', state: 'Texas' },
+  'Texas Christian University': { city: 'Fort Worth', state: 'Texas' },
+  'Baylor University': { city: 'Waco', state: 'Texas' },
+  'University of Oklahoma': { city: 'Norman', state: 'Oklahoma' },
+  'Oklahoma State University': { city: 'Stillwater', state: 'Oklahoma' },
+  'University of Colorado': { city: 'Boulder', state: 'Colorado' },
+  'Colorado State University': { city: 'Fort Collins', state: 'Colorado' },
+  'University of Utah': { city: 'Salt Lake City', state: 'Utah' },
+  'University of Arizona': { city: 'Tucson', state: 'Arizona' },
+  'Arizona State University': { city: 'Tempe', state: 'Arizona' },
+  'University of Oregon': { city: 'Eugene', state: 'Oregon' },
+  'Oregon State University': { city: 'Corvallis', state: 'Oregon' },
+  'University of Washington': { city: 'Seattle', state: 'Washington' },
+  'Washington State University': { city: 'Pullman', state: 'Washington' },
+  'University of California': { city: 'Berkeley', state: 'California' },
+  'UCLA': { city: 'Los Angeles', state: 'California' },
+  'University of Southern California': { city: 'Los Angeles', state: 'California' },
+  'Stanford University': { city: 'Stanford', state: 'California' },
+  'University of California, Los Angeles': { city: 'Los Angeles', state: 'California' },
+  'San Diego State University': { city: 'San Diego', state: 'California' },
+  'Brigham Young University': { city: 'Provo', state: 'Utah' },
+  'University of Nevada, Las Vegas': { city: 'Las Vegas', state: 'Nevada' },
+  'University of New Mexico': { city: 'Albuquerque', state: 'New Mexico' },
+  'Boston College': { city: 'Chestnut Hill', state: 'Massachusetts' },
+  'Boston University': { city: 'Boston', state: 'Massachusetts' },
+  'University of Massachusetts': { city: 'Amherst', state: 'Massachusetts' },
+  'University of Rhode Island': { city: 'Kingston', state: 'Rhode Island' },
+  'University of Vermont': { city: 'Burlington', state: 'Vermont' },
+  'University of New Hampshire': { city: 'Durham', state: 'New Hampshire' },
+  'University of Maine': { city: 'Orono', state: 'Maine' },
+};
+
+function getSchoolLocation(school) {
+  if (!school) return { city: 'Unknown City', state: 'Unknown State' };
+  // Exact match
+  if (SCHOOL_LOCATIONS[school]) return SCHOOL_LOCATIONS[school];
+  // Partial match
+  for (const key of Object.keys(SCHOOL_LOCATIONS)) {
+    if (school.includes(key) || key.includes(school)) return SCHOOL_LOCATIONS[key];
+  }
+  // Fallback: extract state from name
+  const cleaned = school.replace(/University|College|State|Institute|of Technology/gi, '').trim();
+  return { city: cleaned + ' area', state: cleaned };
+}
+
 async function getDealRecommendations(athlete, role, excludeBrands) {
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
   const school = athlete.school || 'Unknown';
-  const city = school.replace('University','').replace('College','').replace('of','').trim();
+  const loc = getSchoolLocation(school);
+  const city = loc.city;
+  const state = loc.state;
   const sport = athlete.sport || 'football';
 
   const exclusionLine = excludeBrands && excludeBrands.length > 0
     ? `\nEXCLUDE THESE BRANDS COMPLETELY — do not suggest them under any circumstances: ${excludeBrands.join(', ')}\nYou must return 6 DIFFERENT brands from this list.`
     : '';
 
-  const prompt = `You are a NIL deal researcher. Find 6 real brand opportunities for this athlete.
+  const prompt = `You are a NIL deal researcher. Find 6 real brand opportunities for this athlete, prioritizing LOCAL businesses first.
 
-ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${school} (${athlete.schoolTier||'college'})
+ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${school}
+LOCATION: ${school} is in ${city}, ${state}
 SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | ${athlete.engagement||0}% engagement | Tier: ${tier}
-STATS: ${athlete.stats||'N/A'}
 MARKETABILITY SCORE: ${rate.marketabilityScore}/100
 TOP CATEGORIES: ${(rate.sponsorCategories||[]).map(c=>c.name).join(', ')}
 ${exclusionLine}
 
-Search for:
-1. Real local businesses in ${city} that sponsor college athletes
-2. Brands with DOCUMENTED NIL deals for ${sport} athletes at ${athlete.schoolTier||'college'} level in 2025-2026
-3. Regional brands active in college ${sport} NIL
+GEOGRAPHIC PRIORITY — return results in this order:
+Layer 1 — HYPERLOCAL (tier: "local"): Real businesses physically located in or near ${city} and within 10 miles. College-town restaurants, local gyms, regional banks, car dealerships, local clothing stores, sports shops. These must be REAL named businesses in ${city}/${state}.
+Layer 2 — REGIONAL (tier: "regional"): ${state}-based companies or regional chains with a strong ${state} presence. Regional grocery chains, regional banks, state-wide food brands, ${state} media companies.
+Layer 3 — NATIONAL (tier: "national"): National brands ONLY if they have documented NIL or college athlete partnership programs in 2025-2026.
 
-RULES:
-- At least 3 of the 6 must be REAL named local businesses near ${city}
-- Do NOT include Nike, Adidas, Gatorade unless confirmed they do NIL at this tier
+OUTPUT RULES:
+- Return at least 3 LOCAL results first, then regional, then national
+- Do NOT include Nike, Adidas, Gatorade unless confirmed they run NIL programs at this tier
 - Each brand must have a specific reason why they fit THIS athlete
-- Every brand must be different from every other brand in this list
+- Include a real partnership contact if you know one (marketing/partnerships director)
 
-Return ONLY a JSON array of 6 deals:
+Return ONLY a JSON array of 6 deals, sorted local first then regional then national:
 [{
   "rank": 1,
   "brand": "Exact Real Business Name",
+  "tier": "local",
   "campaign": "Specific campaign concept for this athlete in 1-2 sentences",
   "category": "local|nutrition|apparel|tech|finance|food|beverage|gaming|auto|grooming",
   "dealType": "post|reel|ambassador|appearance|licensing",
-  "rationale": "Why this brand fits — cite NIL history or specific audience/location match",
+  "rationale": "Why this brand fits — cite location, NIL history, or audience match",
   "timingNote": "Best time to reach out and why",
   "fitScore": 85,
-  "isLocal": true
+  "isLocal": true,
+  "contactName": "Specific person's name or null",
+  "contactTitle": "Their title (e.g. Marketing Director, NIL Partnerships Manager)",
+  "contactEmail": "email@brand.com or null if unknown",
+  "contactLinkedIn": "linkedin.com/in/person or null if unknown"
 }]`;
 
   try {
-    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Use your comprehensive knowledge of real local businesses, regional brands, and documented NIL programs to identify genuine opportunities.', 2000, MODEL_FAST);
+    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Use your comprehensive knowledge of real local businesses in college towns, regional brands, and documented NIL partnership contacts to identify genuine opportunities.', 2500, MODEL_FAST);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
     if (si === -1 || ei <= si) throw new Error('No array');
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-    return parsed.map(d => ({ ...d, suggestedRate: { low: rate.low, high: rate.high } }));
+    // Sort by tier: local first, regional second, national last
+    const tierOrder = { local: 0, regional: 1, national: 2 };
+    parsed.sort((a, b) => (tierOrder[a.tier] ?? 2) - (tierOrder[b.tier] ?? 2));
+    return parsed.map((d, i) => ({ ...d, rank: i + 1, suggestedRate: { low: rate.low, high: rate.high } }));
   } catch (err) {
     console.error('Deal scan error:', err.message);
-    // Build a sport/school-specific fallback instead of generic "Local Brand"
     const sportBrands = {
+      softball: ['Dick\'s Sporting Goods','BSN Sports','Rawlings','Mizuno','Wilson Sporting Goods'],
       football: ['Riddell','Athletic Greens (AG1)','BODYARMOR','Fanatics','Under Armour'],
       basketball: ['Spalding','BODYARMOR','Athletic Greens (AG1)','Fanatics','SportClips'],
     };
-    const cityBrands = sportBrands[sport.toLowerCase()] || sportBrands.football;
-    return cityBrands.map((b,i) => ({
-      rank: i+1, brand: b, campaign: `${athlete.name} partnership with ${b}`,
+    const fallbackBrands = sportBrands[sport.toLowerCase()] || sportBrands.football;
+    return fallbackBrands.map((b,i) => ({
+      rank: i+1, brand: b, tier: i < 2 ? 'regional' : 'national',
+      campaign: `${athlete.name} partnership with ${b}`,
       category: i===0?'equipment':i===1?'nutrition':'apparel',
       dealType: i<2?'ambassador':'reel',
-      rationale: `Strong fit for ${sport} athletes — national brand with college NIL program.`,
+      rationale: `Strong fit for ${sport} athletes — established brand with college NIL programs.`,
       fitScore: 75-i*3, isLocal: false,
       suggestedRate: { low: rate.low, high: rate.high },
-      timingNote: 'Open — reach out via brand NIL portal'
+      timingNote: 'Open — reach out via brand NIL portal',
+      contactName: null, contactTitle: 'NIL Partnerships Team', contactEmail: null, contactLinkedIn: null
     }));
   }
 }
