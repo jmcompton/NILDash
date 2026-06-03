@@ -4056,8 +4056,13 @@ CONTEXT:
 
 Write practical deal-close coaching for the athlete negotiating directly. Tone: confident, grounded, actionable. No hype.
 
+Also identify the best 1–3 people to contact at ${brand} for NIL partnerships, sponsorships, or influencer marketing. Use your knowledge of major brand partnership teams. Provide real names and titles if known; otherwise use likely title patterns (e.g. "NIL Partnerships Manager"). Provide real email addresses if known; otherwise leave null.
+
 Return ONLY valid JSON (no markdown):
 {
+  "contacts": [
+    { "name": "Full Name or null", "title": "Job title such as NIL Partnerships Manager", "email": "email@brand.com or null", "linkedin": "https://linkedin.com/in/handle or null" }
+  ],
   "negotiation_points": [
     "One specific, data-grounded point the athlete should make",
     "Second point",
@@ -4078,7 +4083,7 @@ Return ONLY valid JSON (no markdown):
 
     let aiData = null;
     try {
-      const raw = await ai.oneShot(aiPrompt, 'You are an elite NIL deal coach. Return only valid JSON.', 2000, ai.MODEL_FAST);
+      const raw = await ai.oneShot(aiPrompt, 'You are an elite NIL deal coach. Return only valid JSON. Format all text fields as clean natural sentences. Never use bullet points, arrows, dashes as list items, numbered lists, or excessive formatting. Write like a knowledgeable human advisor.', 2000, ai.MODEL_FAST);
       const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       aiData = JSON.parse(clean);
     } catch (e) {
@@ -4096,6 +4101,7 @@ Return ONLY valid JSON (no markdown):
           { objection: 'Your rate is too high', response: `The $${cleaned.low.toLocaleString()}–$${cleaned.high.toLocaleString()} range reflects my ${engagement}% engagement, which is above industry average. You're getting authentic college-level content at a fraction of macro-influencer pricing.` },
           { objection: 'We need to think about it', response: `Totally understand — what specific questions can I answer today to help you move forward?` },
         ],
+        contacts: [],
         ask_anchor: `Open at $${cleaned.high.toLocaleString()} and signal flexibility down to $${cleaned.low.toLocaleString()} if they need to adjust scope.`,
         walk_away_line: `I hear you — let's stay in touch and revisit this when timing makes more sense.`,
       };
@@ -4106,7 +4112,7 @@ Return ONLY valid JSON (no markdown):
     res.json({
       athlete: { name: athlete.name, sport: athlete.sport, school: athlete.school, instagram: athlete.instagram, tiktok: athlete.tiktok, engagement: athlete.engagement, position: athlete.position, stats: athlete.stats },
       brand:   { name: brand },
-      contacts: [],
+      contacts: aiData.contacts || [],
       outreach: outreachRows,
       pricing:  { low: cleaned.low, high: cleaned.high, mid: pricing.target, start: pricing.start, target: pricing.target, stretch: pricing.stretch, dealType: dealScanData?.dealType || 'ig-reel' },
       dealScan: dealScanData || null,

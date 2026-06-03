@@ -116,6 +116,30 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .chat-input{flex:1;padding:9px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;outline:none;resize:none}
 .chat-input:focus{border-color:var(--accent)}
 
+/* ── Analyze Deal Panel ── */
+#adp-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:200;opacity:0;transition:opacity 0.3s ease;pointer-events:none}
+#adp-overlay.adp-open{opacity:1;pointer-events:all}
+#adp-panel{position:fixed;top:0;right:0;bottom:0;width:60%;max-width:860px;background:var(--bg);border-left:1px solid var(--border);z-index:201;display:flex;flex-direction:column;transform:translateX(100%);transition:transform 0.3s cubic-bezier(0.4,0,0.2,1)}
+#adp-panel.adp-open{transform:translateX(0)}
+#adp-header{position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);padding:18px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;z-index:1}
+#adp-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:0.04em;color:var(--text)}
+#adp-close-btn{width:32px;height:32px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;font-family:'DM Sans',sans-serif;flex-shrink:0}
+#adp-close-btn:hover{border-color:var(--text);color:var(--text)}
+#adp-body{flex:1;overflow-y:auto;padding:20px 24px 40px}
+.adp-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+.adp-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:12px}
+.adp-contact-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px}
+.adp-quote{font-size:12px;color:var(--text);font-style:italic;line-height:1.65;padding:10px 14px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--accent)}
+.adp-para{font-size:12px;color:var(--text);line-height:1.7;margin-bottom:8px}
+@keyframes adp-pulse{0%,100%{opacity:0.35}50%{opacity:0.8}}
+.adp-skel{background:var(--surface2);border-radius:6px;animation:adp-pulse 1.6s ease-in-out infinite}
+.adp-ask-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center;flex:1}
+.adp-ask-card.highlight{background:rgba(132,204,22,0.06);border-color:rgba(132,204,22,0.25)}
+.adp-dim-card{background:var(--surface2);border-radius:8px;padding:10px 12px;flex:1}
+@media(max-width:768px){
+  #adp-panel{width:100%;top:auto;height:92vh;border-left:none;border-top:1px solid var(--border);transform:translateY(100%)}
+  #adp-panel.adp-open{transform:translateY(0)}
+}
 /* ── Pipeline / Brand Tracker ── */
 .pipeline-stages{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px}
 .pipeline-col{flex:0 0 190px;background:var(--surface2);border-radius:10px;padding:12px}
@@ -277,7 +301,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="nav-section-label">Deals</div>
     <div class="nav-item" data-view="calendar" onclick="showView('calendar',this)">Calendar</div>
     <div class="nav-item" data-view="pipeline" onclick="showView('pipeline',this)">Brand Tracker</div>
-    <div class="nav-item" data-view="deal-close" onclick="showView('deal-close',this)">Deal Close</div>
     <div class="nav-item" data-view="compliance" onclick="showView('compliance',this)">Compliance</div>
 
     <div class="nav-section-label">Account</div>
@@ -1018,144 +1041,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
   </div>
 
-  <!-- ════ VIEW: DEAL CLOSE ════ -->
-  <div class="view" id="view-deal-close">
-
-    <!-- ── Analyze Header ─────────────────────────────────────────── -->
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
-      <div>
-        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Deal Close Mode</div>
-        <div id="adc-headline" style="font-size:18px;font-weight:700;color:var(--text)">Enter a brand name to analyze a deal</div>
-      </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input id="adc-brand-input" placeholder="Enter brand name…" style="padding:9px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;width:220px;outline:none;font-family:'DM Sans',sans-serif;transition:border-color 0.15s" onkeydown="if(event.key==='Enter')runAthleteDealClose()" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
-        <button onclick="runAthleteDealClose()" id="adc-run-btn" class="ds-run-btn" style="border-radius:8px">Analyze Deal</button>
-      </div>
-    </div>
-
-    <!-- ── Fit Banner ──────────────────────────────────────────────── -->
-    <div id="adc-fit-banner" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:16px">
-      <div id="adc-fit-overall" style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px"></div>
-      <div id="adc-fit-dims" style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px"></div>
-      <div id="adc-fit-rationale" style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.5"></div>
-    </div>
-
-    <!-- ── Loading ─────────────────────────────────────────────────── -->
-    <div id="adc-loading" style="display:none;text-align:center;padding:60px 20px">
-      <div class="spinner" style="display:inline-block;margin-bottom:12px"></div>
-      <div style="font-size:13px;color:var(--muted)">Pulling deal intelligence…</div>
-    </div>
-
-    <!-- ── Main Body ───────────────────────────────────────────────── -->
-    <div id="adc-body" style="display:none">
-
-      <!-- ════ LAYER 1 — DATA ════ -->
-      <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Facts &amp; Data</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-
-        <!-- Athlete Snapshot -->
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Athlete</div>
-          <div id="adc-athlete-body"></div>
-        </div>
-
-        <!-- Brand Snapshot -->
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Brand</div>
-          <div id="adc-brand-body"></div>
-        </div>
-
-      </div>
-
-      <!-- Market Estimate (full width) -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-          <div>
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Estimated Market Range</div>
-            <div id="adc-market-range" style="font-size:22px;font-weight:800;color:var(--text)">—</div>
-            <div style="font-size:10px;color:var(--muted);margin-top:2px">per deliverable · rounded market estimate · not a guaranteed rate</div>
-          </div>
-          <div id="adc-market-reliability" style="text-align:right"></div>
-        </div>
-      </div>
-
-      <!-- Brand Contacts + Outreach History (2-col) -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Brand Contacts</div>
-          <div id="adc-contacts-body"></div>
-          <button onclick="adcStartOutreach()" style="margin-top:12px;width:100%;padding:9px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:8px;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Start Outreach →</button>
-        </div>
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Outreach History</div>
-          <div id="adc-outreach-body"></div>
-        </div>
-      </div>
-
-      <!-- ════ LAYER 2 — REASONING ════ -->
-      <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">Why This Estimate Exists</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-
-        <!-- Rate Signals -->
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Rate Signals</div>
-          <div id="adc-rate-drivers"></div>
-          <div id="adc-rate-limits" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"></div>
-        </div>
-
-        <!-- Comparable Market -->
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Comparable Market</div>
-          <div id="adc-comp-note"></div>
-          <div id="adc-momentum" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"></div>
-        </div>
-
-      </div>
-
-      <!-- Campaign & Audience Alignment (full width) -->
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em">Campaign &amp; Audience Alignment</div>
-          <div id="adc-campaign-tag" style="font-size:10px;color:var(--muted)"></div>
-        </div>
-        <div id="adc-campaign-body"></div>
-      </div>
-
-      <!-- ════ LAYER 3 — NEGOTIATION STRATEGY ════ -->
-      <div>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)">
-          <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.12em">Negotiation Strategy</div>
-        </div>
-
-        <!-- Ask Strategy -->
-        <div style="background:var(--surface);border:1px solid rgba(132,204,22,0.2);border-radius:12px;padding:18px;margin-bottom:14px">
-          <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Ask Strategy</div>
-          <div id="adc-ask-body" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px"></div>
-          <div id="adc-ask-anchor" style="font-size:12px;color:var(--text);padding:10px 12px;background:var(--surface2);border-radius:8px;line-height:1.5"></div>
-        </div>
-
-        <!-- Talking Points + Objection Handling (2-col) -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Negotiation Talking Points</div>
-            <div id="adc-talking-points"></div>
-            <div id="adc-opening-line" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)"></div>
-            <div id="adc-walk-away" style="margin-top:10px"></div>
-          </div>
-
-          <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Objection Handling</div>
-            <div id="adc-objections"></div>
-          </div>
-
-        </div>
-      </div><!-- /negotiation strategy -->
-
-    </div><!-- /adc-body -->
-
-  </div>
-
   <!-- ════ VIEW: BRAND TRACKER ════ -->
   <div class="view" id="view-pipeline">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
@@ -1428,7 +1313,7 @@ var VIEW_TITLES = {
   home:'HOME', command:'AI COMMAND', dealscan:'DEAL SCAN', rate:'RATE CALCULATOR',
   'team-match':'FIND YOUR BEST PROGRAMS', outreach:'OUTREACH', marketing:'MARKETING TOOLS',
   mediakit:'MEDIA KIT',
-  calendar:'CALENDAR', pipeline:'BRAND TRACKER', 'deal-close':'DEAL CLOSE', compliance:'NIL COMPLIANCE',
+  calendar:'CALENDAR', pipeline:'BRAND TRACKER', compliance:'NIL COMPLIANCE',
   email:'EMAIL', profile:'MY PROFILE'
 };
 
@@ -1465,7 +1350,6 @@ function showView(id, navBtn) {
   if (id === 'mediakit')    loadMediaKit();
   if (id === 'calendar')    { AthlCal.reload(); initGCalStatus(); }
   if (id === 'pipeline')    loadDeals();
-  if (id === 'deal-close')  onAthleteDealCloseViewOpen();
   if (id === 'compliance')  initAthleteCompliance();
   if (id === 'email')       { loadEmailHistory(); initGmailStatus(); }
   if (id === 'profile')     loadProfileForm();
@@ -1891,7 +1775,7 @@ async function loadHomeDeals() {
     var active = (data.deals || []).filter(function(d){ return d.stage !== 'Completed' && d.stage !== 'Lost'; }).slice(0, 4);
     var el = document.getElementById('home-deals-content');
     if (!active.length) {
-      el.innerHTML = '<div class="empty-state"><div class="empty-text">No active deals. Add deals in Deal Close.</div></div>';
+      el.innerHTML = '<div class="empty-state"><div class="empty-text">No active deals. Add deals in Brand Tracker.</div></div>';
       return;
     }
     el.innerHTML = active.map(function(d) {
@@ -2138,19 +2022,24 @@ function renderAthleteDealsTable(recs) {
           '</div>' +
           contactHtml +
         '</div>' +
-        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:130px">' +
-          '<div style="display:flex;align-items:center;gap:5px">' +
+        // Small utility buttons (top right)
+        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:7px;min-width:120px">' +
+          '<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">' +
             '<div style="width:52px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden">' +
               '<div style="width:' + score + '%;height:100%;background:' + scoreColor + ';border-radius:2px"></div>' +
             '</div>' +
             '<span style="font-size:12px;color:' + scoreColor + ';font-weight:700">' + score + '</span>' +
           '</div>' +
-          '<button onclick="prefillOutreach(&quot;' + brandSafe + '&quot;)" style="padding:8px 14px;background:var(--accent);color:#000;border:none;border-radius:40px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Write Outreach</button>' +
-          '<button onclick="athleteAddToPipeline(&quot;' + brandSafe + '&quot;,&quot;' + (d.dealType || 'post') + '&quot;,&quot;' + campaignSafe + '&quot;)" style="padding:7px 14px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">+ Tracker</button>' +
-          '<button onclick="athleteOpenDealClose(&quot;' + brandSafe + '&quot;,' + i + ')" style="padding:7px 14px;background:rgba(186,12,47,0.1);border:1px solid rgba(186,12,47,0.3);color:#f87171;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">Deal Close →</button>' +
-          '<button onclick="athleteAIOutreach(' + i + ')" style="padding:7px 14px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">⚡ AI Outreach</button>' +
+          '<button onclick="prefillOutreach(&quot;' + brandSafe + '&quot;)" style="padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;width:100%;font-family:\'DM Sans\',sans-serif;transition:all 0.15s" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--muted)\'">Write Outreach</button>' +
+          '<button onclick="athleteAddToPipeline(&quot;' + brandSafe + '&quot;,&quot;' + (d.dealType || 'post') + '&quot;,&quot;' + campaignSafe + '&quot;)" style="padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;width:100%;font-family:\'DM Sans\',sans-serif;transition:all 0.15s" onmouseover="this.style.borderColor=\'#4ade80\';this.style.color=\'#4ade80\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--muted)\'">+ Pipeline</button>' +
+          '<button onclick="prefillOutreach(&quot;' + brandSafe + '&quot;)" style="padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;width:100%;font-family:\'DM Sans\',sans-serif;transition:all 0.15s" onmouseover="this.style.borderColor=\'#60a5fa\';this.style.color=\'#60a5fa\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--muted)\'">+ Outreach</button>' +
         '</div>' +
       '</div>' +
+      // Full-width primary Analyze Deal button at bottom of card
+      '<button onclick="openAnalyzeDealPanel(&quot;' + brandSafe + '&quot;,' + i + ')" ' +
+        'style="display:block;width:100%;margin-top:14px;padding:11px 0;background:#84CC16;color:#0A0E1A;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif;letter-spacing:0.02em;transition:all 0.15s" ' +
+        'onmouseover="this.style.background=\'#96e020\';this.style.boxShadow=\'0 4px 14px rgba(132,204,22,0.3)\'" ' +
+        'onmouseout="this.style.background=\'#84CC16\';this.style.boxShadow=\'none\'">Analyze Deal</button>' +
     '</div>';
   }).join('');
 }
@@ -2181,10 +2070,50 @@ async function athleteAddToPipeline(brand, dealType, campaign) {
   }
 }
 
-function athleteOpenDealClose(brand, idx) {
+function openAnalyzeDealPanel(brand, idx) {
   var deal = (window._athleteDealScanResults || [])[idx];
   _adcContext = { brand: brand, dealScanData: deal || null };
-  showView('deal-close', document.querySelector('[data-view=deal-close]'));
+
+  var panel   = document.getElementById('adp-panel');
+  var overlay = document.getElementById('adp-overlay');
+  var title   = document.getElementById('adp-title');
+  var body    = document.getElementById('adp-body');
+
+  title.textContent = brand;
+  body.innerHTML    = adpSkeletonHTML();
+
+  // Show elements then trigger animation
+  panel.style.display   = '';
+  overlay.style.display = '';
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() {
+      panel.classList.add('adp-open');
+      overlay.classList.add('adp-open');
+    });
+  });
+
+  // Escape key handler
+  if (document._adpEsc) document.removeEventListener('keydown', document._adpEsc);
+  document._adpEsc = function(e) { if (e.key === 'Escape') closeAnalyzeDealPanel(); };
+  document.addEventListener('keydown', document._adpEsc);
+
+  // Lock body scroll
+  document.body.style.overflow = 'hidden';
+
+  runAnalyzeDeal(brand, deal);
+}
+
+function closeAnalyzeDealPanel() {
+  var panel   = document.getElementById('adp-panel');
+  var overlay = document.getElementById('adp-overlay');
+  panel.classList.remove('adp-open');
+  overlay.classList.remove('adp-open');
+  setTimeout(function() {
+    panel.style.display   = 'none';
+    overlay.style.display = 'none';
+  }, 310);
+  document.body.style.overflow = '';
+  if (document._adpEsc) { document.removeEventListener('keydown', document._adpEsc); document._adpEsc = null; }
 }
 
 async function athleteAIOutreach(idx) {
@@ -3540,56 +3469,77 @@ function renderAthleteComplianceResults(data) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// DEAL CLOSE — ANALYZE
+// ANALYZE DEAL PANEL
 // ══════════════════════════════════════════════════════════════════
 var _adcContext = null; // { brand, dealScanData }
+var _adpContactEmail = ''; // first contact email found, for Start Outreach
 
-function onAthleteDealCloseViewOpen() {
-  if (_adcContext && _adcContext.brand) {
-    document.getElementById('adc-brand-input').value = _adcContext.brand;
-    runAthleteDealClose();
-  }
+function adpSkeletonHTML() {
+  var skelLine = '<div class="adp-skel" style="height:13px;border-radius:4px;margin-bottom:9px"></div>';
+  var skelShort = '<div class="adp-skel" style="height:13px;width:60%;border-radius:4px;margin-bottom:9px"></div>';
+  var skelCard = '<div class="adp-section">' +
+    '<div class="adp-skel" style="height:10px;width:100px;border-radius:4px;margin-bottom:16px"></div>' +
+    skelLine + skelLine + skelShort +
+  '</div>';
+  return skelCard + skelCard + skelCard + skelCard;
 }
 
-async function runAthleteDealClose() {
-  var brand = (_adcContext && _adcContext.brand) || document.getElementById('adc-brand-input').value.trim();
-  if (!brand) { showToast('Enter a brand name'); document.getElementById('adc-brand-input').focus(); return; }
-
-  var btn = document.getElementById('adc-run-btn');
-  btn.disabled = true; btn.textContent = 'Analyzing…';
-  document.getElementById('adc-loading').style.display = 'block';
-  document.getElementById('adc-body').style.display = 'none';
-  document.getElementById('adc-fit-banner').style.display = 'none';
-  document.getElementById('adc-headline').textContent = brand + ' — loading intelligence…';
-
-  var dealScanData = (_adcContext && _adcContext.brand === brand) ? _adcContext.dealScanData : null;
-
+async function runAnalyzeDeal(brand, dealScanData) {
   try {
     var resp = await fetch('/api/athlete/deal-close/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
-      body: JSON.stringify({ brand: brand, dealScanData: dealScanData })
+      body: JSON.stringify({ brand: brand, dealScanData: dealScanData || null })
     });
     if (!resp.ok) throw new Error('API error ' + resp.status);
     var data = await resp.json();
-    renderAthleteDealClose(data, brand);
     _adcContext = { brand: brand, dealScanData: data.dealScan };
+    renderAnalyzeDealPanel(data, brand);
   } catch(e) {
-    showToast('Error loading deal intelligence: ' + e.message);
-    document.getElementById('adc-headline').textContent = 'Error — try again';
-  } finally {
-    document.getElementById('adc-loading').style.display = 'none';
-    btn.disabled = false; btn.textContent = 'Analyze Deal';
+    var body = document.getElementById('adp-body');
+    if (body) body.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--muted);font-size:13px">Error loading analysis. Please try again.</div>';
   }
 }
 
-function renderAthleteDealClose(data, brand) {
+function _adpFmtReach(n) {
+  var num = parseInt(n) || 0;
+  if (num >= 1000000) return Math.round(num / 100000) / 10 + 'M';
+  if (num >= 10000)   return Math.round(num / 1000) + 'K';
+  if (num >= 1000)    return (num / 1000).toFixed(1) + 'K';
+  return String(num);
+}
+
+function _adpCleanText(str) {
+  // Strip leading arrows, bullets, dashes, numbers used as list markers
+  return String(str || '')
+    .replace(/^[\s→←➜•\-\—\*]+/gm, '')
+    .replace(/^\d+[\.\)]\s+/gm, '')
+    .trim();
+}
+
+function _adpListToParagraph(items) {
+  if (!items || !items.length) return '';
+  var sentences = items.map(function(item) {
+    var s = _adpCleanText(item);
+    // Ensure sentence ends with punctuation
+    if (s && !/[.!?]$/.test(s)) s += '.';
+    return s;
+  }).filter(Boolean);
+  return sentences.join(' ');
+}
+
+function adpAskCard(label, value, note, highlight) {
+  return '<div class="adp-ask-card' + (highlight ? ' highlight' : '') + '">' +
+    '<div style="font-size:9px;font-weight:700;color:' + (highlight ? 'var(--accent)' : 'var(--muted)') + ';text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">' + label + '</div>' +
+    '<div style="font-size:20px;font-weight:800;color:' + (highlight ? 'var(--accent)' : 'var(--text)') + ';margin-bottom:4px">' + value + '</div>' +
+    '<div style="font-size:10px;color:var(--muted)">' + note + '</div>' +
+  '</div>';
+}
+
+function renderAnalyzeDealPanel(data, brand) {
   var ath      = data.athlete      || {};
-  var br       = data.brand        || {};
   var pricing  = data.pricing      || {};
-  var match    = data.match        || {};
   var aiData   = data.ai           || {};
-  var outreach = data.outreach     || [];
   var dealScan = data.dealScan     || {};
   var fit      = data.fitBreakdown || {};
   var drivers  = data.rateDrivers  || [];
@@ -3598,204 +3548,249 @@ function renderAthleteDealClose(data, brand) {
   var compNote = data.compNote     || {};
   var momentum = data.momentum     || {};
   var market   = data.marketRange  || pricing;
+  var contacts = data.contacts     || [];
+  var outreach = data.outreach     || [];
 
-  // Headline
-  document.getElementById('adc-headline').textContent = (ath.name || 'You') + ' × ' + brand;
+  var mLow  = market.low  || 0;
+  var mHigh = market.high || 0;
 
-  // Fit Banner
-  var fitOverall = fit.overall || 'Fit analysis complete';
-  var fitColor = fitOverall.indexOf('High') !== -1 ? 'var(--accent)' : fitOverall.indexOf('Low') !== -1 || fitOverall.indexOf('Developing') !== -1 ? '#f59e0b' : 'var(--text)';
-  document.getElementById('adc-fit-overall').innerHTML = '<span style="color:' + fitColor + ';font-weight:700">' + fitOverall + '</span>';
-  document.getElementById('adc-fit-rationale').textContent = dealScan.rationale || match.reasoning || '';
+  // Update panel title
+  var athName = ath.name || (athleteProfile && athleteProfile.name) || 'You';
+  document.getElementById('adp-title').textContent = athName + ' × ' + brand;
 
+  // ── Determine first contact email for "Start Outreach" ────────
+  var brandDomain = brand.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com';
+  _adpContactEmail = '';
+  if (contacts.length && contacts[0].email) {
+    _adpContactEmail = contacts[0].email;
+  } else {
+    _adpContactEmail = 'partnerships@' + brandDomain;
+  }
+
+  // Build outreach email body template
+  var emailBody = 'Hi,\n\nMy name is ' + athName + ', and I\'m a ' + (ath.sport || 'college') + ' athlete at ' + (ath.school || 'my university') + '. I\'ve been a fan of ' + brand + ' for a while and think there\'s a real opportunity for us to work together on an NIL partnership.\n\nI have a combined social following of ' + (mLow > 0 ? 'an engaged audience' : 'a growing audience') + ' that aligns well with ' + brand + '\'s market. I\'d love to set up a quick call to explore what a partnership could look like.\n\nWould you be open to a 15-minute conversation?\n\n' + athName;
+
+  var html = '';
+
+  // ════ SECTION 1: WHO TO CONTACT ════
+  html += '<div class="adp-section">';
+  html += '<div class="adp-section-title">Who to Contact</div>';
+
+  if (contacts.length > 0) {
+    contacts.forEach(function(c) {
+      var linkedInSearch = 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(brand + ' NIL partnerships sponsorship');
+      html += '<div class="adp-contact-card">' +
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">' + esc(c.name || 'Partnerships Team') + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">' + esc(c.title || 'NIL / Sponsorships') + '</div>' +
+            (c.email ? '<div style="font-size:11px;color:var(--accent);font-family:\'JetBrains Mono\',monospace">' + esc(c.email) + '</div>' : '') +
+          '</div>' +
+          '<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">' +
+            (c.email
+              ? '<button onclick="copyPlainText(this,\'' + esc(c.email).replace(/'/g,"&#39;") + '\')" style="padding:4px 10px;font-size:10px;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--muted);cursor:pointer;font-family:\'DM Sans\',sans-serif">Copy email</button>'
+              : '') +
+            (c.linkedin
+              ? '<a href="' + esc(c.linkedin) + '" target="_blank" style="padding:4px 10px;font-size:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:5px;color:#60a5fa;text-decoration:none;text-align:center">LinkedIn</a>'
+              : '<a href="' + linkedInSearch + '" target="_blank" style="padding:4px 10px;font-size:10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:5px;color:#60a5fa;text-decoration:none;text-align:center">Find on LinkedIn</a>') +
+            '<button onclick="adpDraftOutreachEmail(\'' + esc(c.email || _adpContactEmail).replace(/'/g,"&#39;") + '\',\'' + esc(brand).replace(/'/g,"&#39;") + '\')" style="padding:4px 10px;font-size:10px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.25);border-radius:5px;color:var(--accent);cursor:pointer;font-family:\'DM Sans\',sans-serif">Draft Email</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    });
+  } else {
+    // No specific contacts — show generic
+    var genericEmail = 'partnerships@' + brandDomain;
+    var linkedInSearch = 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(brand + ' NIL partnerships sponsorship');
+    html += '<div class="adp-contact-card">' +
+      '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">Partnerships Team</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">No specific contact found. Try the general partnerships inbox or search LinkedIn for the right person.</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<div style="font-size:11px;color:var(--accent);font-family:\'JetBrains Mono\',monospace;padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px">' + esc(genericEmail) + '</div>' +
+        '<button onclick="copyPlainText(this,\'' + esc(genericEmail) + '\')" style="padding:6px 10px;font-size:11px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;font-family:\'DM Sans\',sans-serif">Copy</button>' +
+        '<a href="' + linkedInSearch + '" target="_blank" style="padding:6px 12px;font-size:11px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:6px;color:#60a5fa;text-decoration:none">Find on LinkedIn</a>' +
+      '</div>' +
+    '</div>';
+  }
+  html += '</div>'; // /section 1
+
+  // ════ SECTION 2: FIT ANALYSIS ════
   var fitDims = [
     { label: 'Audience Fit',    value: fit.audienceFit, note: fit.audienceNote },
     { label: 'Brand Category',  value: fit.categoryFit, note: fit.categoryNote },
     { label: 'Geography',       value: fit.geoFit,      note: fit.geoNote      },
     { label: 'Sport Relevance', value: fit.sportFit,    note: fit.sportNote    },
   ];
-  document.getElementById('adc-fit-dims').innerHTML = fitDims.map(function(d) {
+  var fitOverall = fit.overall || '';
+  var fitColor = fitOverall.indexOf('High') !== -1 ? 'var(--accent)' : fitOverall.indexOf('Low') !== -1 ? '#f87171' : '#f59e0b';
+  html += '<div class="adp-section">';
+  html += '<div class="adp-section-title">Fit Analysis</div>';
+  if (fitOverall) {
+    html += '<div style="font-size:13px;font-weight:700;color:' + fitColor + ';margin-bottom:12px">' + esc(fitOverall) + '</div>';
+  }
+  if (dealScan.rationale) {
+    html += '<div class="adp-para" style="margin-bottom:14px">' + esc(dealScan.rationale) + '</div>';
+  }
+  html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px">';
+  fitDims.forEach(function(d) {
     var v = d.value || 'Moderate';
     var c = v === 'High' ? 'var(--accent)' : v === 'Low' ? '#f87171' : '#f59e0b';
-    return '<div style="background:var(--surface2);border-radius:8px;padding:10px 12px">' +
+    html += '<div class="adp-dim-card">' +
       '<div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">' + d.label + '</div>' +
-      '<div style="font-size:12px;font-weight:700;color:' + c + ';margin-bottom:3px">' + v + '</div>' +
-      '<div style="font-size:10px;color:var(--muted);line-height:1.4">' + (d.note || '') + '</div>' +
+      '<div style="font-size:13px;font-weight:700;color:' + c + ';margin-bottom:3px">' + v + '</div>' +
+      (d.note ? '<div style="font-size:10px;color:var(--muted);line-height:1.4">' + esc(d.note) + '</div>' : '') +
     '</div>';
-  }).join('');
-  document.getElementById('adc-fit-banner').style.display = 'block';
+  });
+  html += '</div></div>'; // /grid /section 2
 
-  // ── LAYER 1: DATA ─────────────────────────────────────────────
-
-  // Athlete snapshot
-  var igRaw = parseInt(ath.instagram) || 0;
-  var ttRaw = parseInt(ath.tiktok)    || 0;
-  var igEst = igRaw > 0 ? '~' + _adcFmtReach(igRaw) + ' (est.)' : '—';
-  var ttEst = ttRaw > 0 ? '~' + _adcFmtReach(ttRaw) + ' (est.)' : '—';
-  var erVal = parseFloat(ath.engagement) || 0;
-  var erDisplay = erVal > 0 ? erVal.toFixed(1) + '% engagement' : '—';
-  document.getElementById('adc-athlete-body').innerHTML =
-    adcRow('Name',       ath.name || '—') +
-    adcRow('Sport',      (ath.sport || '—') + (ath.position ? ' · ' + ath.position : '')) +
-    adcRow('School',     ath.school || '—') +
-    adcRow('Instagram',  igEst) +
-    adcRow('TikTok',     ttEst) +
-    adcRow('Engagement', erDisplay) +
-    (ath.stats ? adcRow('Stats', ath.stats, true) : '');
-
-  // Brand snapshot
-  document.getElementById('adc-brand-body').innerHTML =
-    adcRow('Name', brand) +
-    (br.industry          ? adcRow('Category',   br.industry)          : '') +
-    (br.size              ? adcRow('Size',        br.size)              : '') +
-    (br.description       ? adcRow('About',       br.description, true) : '') +
-    '<div style="margin-top:10px;font-size:10px;color:' + (data.hasExistingData ? 'var(--accent)' : 'var(--muted)') + '">' +
-      (data.hasExistingData ? '✓ Outreach history on file' : 'No outreach yet for this brand') +
-    '</div>';
-
-  // Market Estimate
-  var mLow  = market.low  || 0;
-  var mHigh = market.high || 0;
-  document.getElementById('adc-market-range').textContent = mLow > 0 ? '$' + mLow.toLocaleString() + ' – $' + mHigh.toLocaleString() : '—';
+  // ════ SECTION 3: MARKET RATE ════
   var relLabel = rel.label || 'Moderate';
   var relColor = relLabel === 'Very Strong' || relLabel === 'Strong' ? 'var(--accent)' : relLabel === 'Low' ? '#f87171' : '#f59e0b';
-  document.getElementById('adc-market-reliability').innerHTML =
-    '<div style="font-size:10px;color:var(--muted);margin-bottom:4px">Estimate Reliability</div>' +
-    '<div style="font-size:13px;font-weight:700;color:' + relColor + '">' + relLabel + '</div>' +
-    (rel.strengths && rel.strengths.length ? '<div style="font-size:10px;color:var(--muted);margin-top:4px;line-height:1.5">' + rel.strengths[0] + '</div>' : '');
+  html += '<div class="adp-section">';
+  html += '<div class="adp-section-title">Market Rate</div>';
+  html += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px">' +
+    '<div>' +
+      '<div style="font-size:26px;font-weight:800;color:var(--text);letter-spacing:-0.5px">' + (mLow > 0 ? '$' + mLow.toLocaleString() + ' – $' + mHigh.toLocaleString() : '—') + '</div>' +
+      '<div style="font-size:10px;color:var(--muted);margin-top:3px">per deliverable · market estimate</div>' +
+    '</div>' +
+    '<div style="text-align:right">' +
+      '<div style="font-size:10px;color:var(--muted);margin-bottom:3px">Estimate Reliability</div>' +
+      '<div style="font-size:14px;font-weight:700;color:' + relColor + '">' + relLabel + '</div>' +
+      (rel.strengths && rel.strengths.length ? '<div style="font-size:10px;color:var(--muted);margin-top:2px;max-width:160px;line-height:1.4">' + esc(rel.strengths[0]) + '</div>' : '') +
+    '</div>' +
+  '</div>';
+  html += '<div style="display:flex;gap:10px">';
+  html += adpAskCard('Start',   '$' + (pricing.start  || pricing.low  || 0).toLocaleString(), 'Open anchor', false);
+  html += adpAskCard('Target',  '$' + (pricing.target || pricing.mid  || 0).toLocaleString(), 'Fair market value', true);
+  html += adpAskCard('Stretch', '$' + (pricing.stretch|| pricing.high || 0).toLocaleString(), 'Premium ask', false);
+  html += '</div>';
+  if (aiData.ask_anchor) {
+    html += '<div style="margin-top:12px;padding:10px 14px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text);line-height:1.6">' + esc(_adpCleanText(aiData.ask_anchor)) + '</div>';
+  }
+  html += '</div>'; // /section 3
 
-  // Brand Contacts (athlete has no enrichment data, show guidance)
-  document.getElementById('adc-contacts-body').innerHTML = '<div style="font-size:12px;color:var(--muted)">Use LinkedIn or the brand\'s website to find the partnerships or marketing team. Look for "NIL", "sponsorships", or "influencer" contacts.</div>';
+  // ════ SECTION 4: WHY THIS RATE EXISTS ════
+  var driverPara = _adpListToParagraph(drivers);
+  var limitPara  = _adpListToParagraph(limits);
+  var compTier   = compNote.tierLabel  || 'Similar tier';
+  var compSport  = compNote.sportLabel || 'athletes in this sport';
+  var compReach  = compNote.reachLabel || 'similar reach tier';
+  var momSignal  = momentum.signal || '';
+  var momColor   = momSignal === 'Trending Up' ? 'var(--accent)' : momSignal === 'Stable' ? '#60a5fa' : momSignal === 'Emerging' ? '#f59e0b' : 'var(--muted)';
+  html += '<div class="adp-section">';
+  html += '<div class="adp-section-title">Why This Rate Exists</div>';
+  if (driverPara) {
+    html += '<div class="adp-para">' + esc(driverPara) + '</div>';
+  }
+  if (limitPara) {
+    html += '<div class="adp-para" style="color:var(--muted)">' + esc(limitPara) + '</div>';
+  }
+  html += '<div class="adp-para">' +
+    esc(compTier + ' ' + compSport + ' at ' + compReach + ' typically land between $' + mLow.toLocaleString() + ' and $' + mHigh.toLocaleString() + ' per deliverable, based on current NIL benchmark data from NCAA 2025, Opendorse, and On3.') +
+  '</div>';
+  if (momSignal && momSignal !== 'Insufficient data') {
+    html += '<div style="display:inline-flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface2);border-radius:6px;margin-top:4px">' +
+      '<span style="font-size:11px;font-weight:700;color:' + momColor + '">' + esc(momSignal) + '</span>' +
+      (momentum.reason ? '<span style="font-size:11px;color:var(--muted)">' + esc(momentum.reason) + '</span>' : '') +
+    '</div>';
+  }
+  html += '</div>'; // /section 4
 
-  // Outreach history
-  if (outreach.length > 0) {
-    document.getElementById('adc-outreach-body').innerHTML = outreach.map(function(o) {
-      return '<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">' +
-        '<div style="font-size:12px;font-weight:600;color:var(--text)">' + esc(o.brand_name || o.subject || 'Outreach') + '</div>' +
-        '<div style="display:flex;gap:8px;align-items:center;margin-top:4px">' +
-          '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(132,204,22,0.1);color:var(--accent);font-weight:600">' + esc((o.status || 'draft').toUpperCase()) + '</span>' +
-          '<span style="font-size:10px;color:var(--muted)">' + (o.created_at ? new Date(o.created_at).toLocaleDateString() : '') + '</span>' +
-        '</div>' +
+  // ════ SECTION 5: NEGOTIATION STRATEGY ════
+  var pts = aiData.negotiation_points || [];
+  var ptsPara = _adpListToParagraph(pts);
+  var openLine = _adpCleanText(aiData.opening_line || '');
+  var walkLine = _adpCleanText(aiData.walk_away_line || '');
+  html += '<div class="adp-section">';
+  html += '<div class="adp-section-title">Negotiation Strategy</div>';
+  if (ptsPara) {
+    html += '<div class="adp-para">' + esc(ptsPara) + '</div>';
+  }
+  if (openLine) {
+    html += '<div style="margin-top:12px">' +
+      '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:7px">Call Opening</div>' +
+      '<div class="adp-quote">"' + esc(openLine) + '"</div>' +
+    '</div>';
+  }
+  if (walkLine) {
+    html += '<div style="margin-top:12px">' +
+      '<div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:7px">If It\'s Not Going Anywhere</div>' +
+      '<div class="adp-quote" style="border-left-color:#f59e0b">"' + esc(walkLine) + '"</div>' +
+    '</div>';
+  }
+  html += '</div>'; // /section 5
+
+  // ════ SECTION 6: OBJECTION HANDLING ════
+  var objections = aiData.objection_handling || [];
+  if (objections.length) {
+    html += '<div class="adp-section">';
+    html += '<div class="adp-section-title">Objection Handling</div>';
+    objections.forEach(function(o, idx) {
+      html += '<div' + (idx < objections.length - 1 ? ' style="padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--border)"' : '') + '>' +
+        '<div style="font-size:12px;font-weight:700;color:#f59e0b;margin-bottom:6px">' + esc('"' + (o.objection || '') + '"') + '</div>' +
+        '<div class="adp-para" style="margin:0">' + esc(_adpCleanText(o.response || '')) + '</div>' +
       '</div>';
-    }).join('');
-  } else {
-    document.getElementById('adc-outreach-body').innerHTML = '<div style="font-size:12px;color:var(--muted)">No outreach sent to this brand yet.</div>';
+    });
+    html += '</div>'; // /section 6
   }
 
-  // ── LAYER 2: REASONING ────────────────────────────────────────
-
-  // Rate Drivers
-  document.getElementById('adc-rate-drivers').innerHTML =
-    (drivers.length ? drivers.map(function(d) {
-      return '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:7px"><span style="color:var(--accent);font-size:12px;flex-shrink:0">↑</span><span style="font-size:12px;color:var(--text);line-height:1.45">' + d + '</span></div>';
-    }).join('') : '<div style="font-size:12px;color:var(--muted)">Add more profile data to generate rate signals.</div>');
-
-  // Rate Limitations
-  document.getElementById('adc-rate-limits').innerHTML =
-    (limits.length ? limits.map(function(l) {
-      return '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:7px"><span style="color:var(--muted);font-size:12px;flex-shrink:0">↓</span><span style="font-size:12px;color:var(--muted);line-height:1.45">' + l + '</span></div>';
-    }).join('') : '');
-
-  // Comparable Market
-  var compTier  = compNote.tierLabel  || 'Similar tier';
-  var compSport = compNote.sportLabel || 'athletes in this sport';
-  var compReach = compNote.reachLabel || 'similar reach tier';
-  document.getElementById('adc-comp-note').innerHTML =
-    '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:10px">' +
-      compTier + ' ' + compSport + ' at ' + compReach + ' typically range <strong>$' + mLow.toLocaleString() + ' – $' + mHigh.toLocaleString() + '</strong> per deliverable.' +
-    '</div>' +
-    '<div style="font-size:10px;color:var(--muted)">Based on public NIL benchmark data (NCAA 2025, Opendorse, On3).</div>';
-
-  // Momentum
-  var momSignal = momentum.signal || 'Insufficient data';
-  var momColor  = momSignal === 'Trending Up' ? 'var(--accent)' : momSignal === 'Stable' ? '#60a5fa' : momSignal === 'Emerging' ? '#f59e0b' : 'var(--muted)';
-  document.getElementById('adc-momentum').innerHTML =
-    '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Momentum</div>' +
-    '<div style="font-size:12px;font-weight:700;color:' + momColor + ';margin-bottom:3px">' + momSignal + '</div>' +
-    '<div style="font-size:11px;color:var(--muted);line-height:1.4">' + (momentum.reason || '') + '</div>';
-
-  // Campaign & Audience Alignment
-  var campaign = dealScan.campaign || '';
-  var campaignIdeas = [];
-  try { campaignIdeas = typeof match.campaign_ideas === 'string' ? JSON.parse(match.campaign_ideas) : (match.campaign_ideas || []); } catch(e) {}
-  document.getElementById('adc-campaign-tag').textContent = dealScan.dealType ? dealScan.dealType.replace(/-/g,' ').replace(/\b\w/g,function(c){return c.toUpperCase();}) : '';
-  document.getElementById('adc-campaign-body').innerHTML =
-    (campaign ? '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px">' + esc(campaign) + '</div>' : '') +
-    (campaignIdeas.length > 1
-      ? campaignIdeas.slice(1,4).map(function(ci) {
-          return '<div style="font-size:12px;color:var(--text);margin-bottom:6px;padding-left:12px;border-left:2px solid var(--border)">' + esc(ci) + '</div>';
-        }).join('')
-      : '') +
-    (match.audience_alignment ? '<div style="margin-top:12px;font-size:11px;color:var(--muted);line-height:1.55;padding-top:10px;border-top:1px solid var(--border)">' + esc(match.audience_alignment) + '</div>' : '');
-
-  // ── LAYER 3: NEGOTIATION STRATEGY ───────────────────────────
-
-  // Ask Strategy
-  document.getElementById('adc-ask-body').innerHTML =
-    adcAskCard('Start',   '$' + (pricing.start  || pricing.low  || 0).toLocaleString(), 'Open anchor') +
-    adcAskCard('Target',  '$' + (pricing.target || pricing.mid  || 0).toLocaleString(), 'Fair market value', true) +
-    adcAskCard('Stretch', '$' + (pricing.stretch|| pricing.high || 0).toLocaleString(), 'Premium ask');
-  document.getElementById('adc-ask-anchor').textContent = aiData.ask_anchor || 'Open at the Target rate and signal flexibility if they need to adjust scope.';
-
-  // Talking Points
-  var pts = aiData.negotiation_points || [];
-  document.getElementById('adc-talking-points').innerHTML = pts.length
-    ? pts.map(function(p) {
-        return '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:10px"><span style="color:var(--accent);font-size:13px;flex-shrink:0;margin-top:1px">→</span><span style="font-size:12px;color:var(--text);line-height:1.55">' + esc(p) + '</span></div>';
-      }).join('')
-    : '<div style="font-size:12px;color:var(--muted)">Run an analysis to see talking points.</div>';
-
-  var openLine = aiData.opening_line || '';
-  document.getElementById('adc-opening-line').innerHTML = openLine
-    ? '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Call Opening</div><div style="font-size:12px;color:var(--text);font-style:italic;line-height:1.6;padding:10px 12px;background:var(--surface2);border-radius:8px">"' + esc(openLine) + '"</div>'
-    : '';
-
-  var walkLine = aiData.walk_away_line || '';
-  document.getElementById('adc-walk-away').innerHTML = walkLine
-    ? '<div style="font-size:10px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;margin-top:10px">If It\'s Not Going Anywhere</div><div style="font-size:12px;color:var(--text);font-style:italic;line-height:1.6;padding:10px 12px;background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.12);border-radius:8px">"' + esc(walkLine) + '"</div>'
-    : '';
-
-  // Objection Handling
-  var objections = aiData.objection_handling || [];
-  document.getElementById('adc-objections').innerHTML = objections.length
-    ? objections.map(function(o) {
-        return '<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">' +
-          '<div style="font-size:11px;color:#f87171;font-weight:600;margin-bottom:5px">"' + esc(o.objection) + '"</div>' +
-          '<div style="font-size:12px;color:var(--text);line-height:1.55">' + esc(o.response) + '</div>' +
-        '</div>';
-      }).join('')
-    : '<div style="font-size:12px;color:var(--muted)">Objection handling will appear here.</div>';
-
-  document.getElementById('adc-body').style.display = 'block';
-}
-
-function _adcFmtReach(n) {
-  var num = parseInt(n) || 0;
-  if (num >= 1000000) return Math.round(num / 100000) / 10 + 'M';
-  if (num >= 10000)   return Math.round(num / 1000) + 'K';
-  if (num >= 1000)    return (num / 1000).toFixed(1) + 'K';
-  return String(num);
-}
-
-function adcRow(label, value, small) {
-  return '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">' +
-    '<span style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;min-width:70px;padding-top:1px">' + label + '</span>' +
-    '<span style="font-size:' + (small ? '11' : '12') + 'px;color:var(--text);line-height:1.45;flex:1">' + value + '</span>' +
+  // ════ SECTION 7: START OUTREACH ════
+  var emailBodyEncoded = encodeURIComponent(emailBody);
+  html += '<div style="margin-top:6px">' +
+    '<button onclick="adpStartOutreach(\'' + esc(brand).replace(/'/g,"&#39;") + '\',\'' + esc(_adpContactEmail).replace(/'/g,"&#39;") + '\',\'' + esc(athName).replace(/'/g,"&#39;") + '\')" ' +
+      'style="display:block;width:100%;padding:13px 0;background:#84CC16;color:#0A0E1A;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif;letter-spacing:0.02em;transition:all 0.15s" ' +
+      'onmouseover="this.style.background=\'#96e020\';this.style.boxShadow=\'0 4px 16px rgba(132,204,22,0.3)\'" ' +
+      'onmouseout="this.style.background=\'#84CC16\';this.style.boxShadow=\'none\'">Start Outreach to ' + esc(brand) + '</button>' +
   '</div>';
+
+  document.getElementById('adp-body').innerHTML = html;
 }
 
-function adcAskCard(label, value, note, highlight) {
-  return '<div style="background:' + (highlight ? 'rgba(132,204,22,0.06)' : 'var(--surface2)') + ';border:1px solid ' + (highlight ? 'rgba(132,204,22,0.25)' : 'var(--border)') + ';border-radius:8px;padding:14px;text-align:center">' +
-    '<div style="font-size:9px;font-weight:700;color:' + (highlight ? 'var(--accent)' : 'var(--muted)') + ';text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">' + label + '</div>' +
-    '<div style="font-size:20px;font-weight:800;color:' + (highlight ? 'var(--accent)' : 'var(--text)') + ';margin-bottom:4px">' + value + '</div>' +
-    '<div style="font-size:10px;color:var(--muted)">' + note + '</div>' +
-  '</div>';
+function adpDraftOutreachEmail(email, brand) {
+  closeAnalyzeDealPanel();
+  var athName = (athleteProfile && athleteProfile.name) || 'Athlete';
+  var sport   = (athleteProfile && athleteProfile.sport) || 'college sport';
+  var school  = (athleteProfile && athleteProfile.school) || 'university';
+  setTimeout(function() {
+    showView('email', document.querySelector('[data-view=email]'));
+    setTimeout(function() {
+      var toEl   = document.getElementById('email-to');
+      var brandEl = document.getElementById('email-brand');
+      var subjEl  = document.getElementById('email-subject');
+      var bodyEl  = document.getElementById('email-body');
+      if (toEl)    toEl.value    = email || '';
+      if (brandEl) brandEl.value = brand || '';
+      if (subjEl)  subjEl.value  = 'NIL Partnership Opportunity — ' + athName;
+      if (bodyEl)  bodyEl.value  =
+        'Hi,\n\nMy name is ' + athName + ', a ' + sport + ' athlete at ' + school + '. ' +
+        'I’ve been a fan of ' + brand + ' and believe there’s a genuine opportunity for us to work together on an NIL partnership.\n\n' +
+        'I have an engaged audience that aligns well with ' + brand + '’s market, and I’d love to explore what a partnership could look like.\n\n' +
+        'Would you be open to a quick 15-minute conversation?\n\nThanks,\n' + athName;
+    }, 350);
+  }, 350);
 }
 
-function adcStartOutreach() {
-  var brand = document.getElementById('adc-brand-input').value.trim() || (_adcContext && _adcContext.brand) || '';
-  if (brand) prefillOutreach(brand);
-  else showView('outreach', document.querySelector('[data-view=outreach]'));
+function adpStartOutreach(brand, email, athName) {
+  closeAnalyzeDealPanel();
+  var sport  = (athleteProfile && athleteProfile.sport)  || 'college sport';
+  var school = (athleteProfile && athleteProfile.school) || 'university';
+  setTimeout(function() {
+    showView('email', document.querySelector('[data-view=email]'));
+    setTimeout(function() {
+      var toEl   = document.getElementById('email-to');
+      var brandEl = document.getElementById('email-brand');
+      var subjEl  = document.getElementById('email-subject');
+      var bodyEl  = document.getElementById('email-body');
+      if (toEl)    toEl.value    = email || '';
+      if (brandEl) brandEl.value = brand || '';
+      if (subjEl)  subjEl.value  = 'NIL Partnership Opportunity — ' + athName;
+      if (bodyEl)  bodyEl.value  =
+        'Hi,\n\nMy name is ' + athName + ', a ' + sport + ' athlete at ' + school + '. ' +
+        'I’ve been a genuine fan of ' + brand + ' for a while and think there’s a real opportunity for us to work together on an NIL partnership.\n\n' +
+        'I have an engaged following that aligns well with ' + brand + '’s audience, and I’d love to set up a quick call to explore what a collaboration could look like.\n\n' +
+        'Would you be open to 15 minutes?\n\nThanks,\n' + athName;
+    }, 350);
+  }, 350);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -4737,5 +4732,16 @@ function outreachBadge(o) {
 // ══════════════════════════════════════════════════════════════════
 init();
 </script>
+
+<!-- ════ ANALYZE DEAL PANEL ════ -->
+<div id="adp-overlay" onclick="closeAnalyzeDealPanel()"></div>
+<aside id="adp-panel" aria-label="Analyze Deal">
+  <div id="adp-header">
+    <div id="adp-title">Analyze Deal</div>
+    <button id="adp-close-btn" onclick="closeAnalyzeDealPanel()" title="Close">✕</button>
+  </div>
+  <div id="adp-body"></div>
+</aside>
+
 </body>
 </html>
