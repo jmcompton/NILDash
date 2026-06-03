@@ -1722,7 +1722,7 @@ Generate a complete, professional NIL contract with these sections:
 Use professional legal language. Include specific dollar amounts and dates. Add FTC disclosure language. Make it ready to sign.`;
 
   try {
-    const contract = await ai.oneShot(prompt, 'You are a sports attorney specializing in NIL contracts. Generate complete, professional, legally sound NIL contracts ready for signature. Use precise legal language. Include all standard contract clauses.', 4000);
+    const contract = await ai.oneShot(prompt, 'You are a sports attorney specializing in NIL contracts. Generate complete, professional, legally sound NIL contracts ready for signature. Use precise legal language and proper legal document format: numbered sections (1., 1.1, 1.2), plain text section headers with no hashtags or markdown, clean paragraph text for each section. Never use hashtags (#), markdown formatting, or dashes as bullet points. Write it exactly as a real attorney would draft it.', 4000);
     if (!contract || contract.length < 100) throw new Error('Contract generation failed');
     res.json({ contract, athleteName: athlete.name, brand, value });
   } catch (err) {
@@ -1730,7 +1730,7 @@ Use professional legal language. Include specific dollar amounts and dates. Add 
     // Retry with shorter prompt
     try {
       const shortPrompt = 'Generate a professional NIL contract between ' + athlete.name + ' (' + athlete.sport + ' at ' + (athlete.school||'university') + ') and ' + brand + ' for $' + parseInt(value||0).toLocaleString() + '. Deal type: ' + (dealType||'Social Media') + '. Deliverables: ' + (deliverables||'3 Instagram posts') + '. Include: parties, scope, compensation, term, exclusivity, usage rights, FTC disclosure, and signature lines. Use professional legal language.';
-      const contract = await ai.oneShot(shortPrompt, 'You are a sports attorney. Generate a complete NIL contract ready for signature.');
+      const contract = await ai.oneShot(shortPrompt, 'You are a sports attorney. Generate a complete NIL contract ready for signature. Format as a clean legal document with numbered sections (1., 1.1, 1.2) and plain paragraph text. No hashtags, no markdown, no bullet dashes.');
       res.json({ contract, athleteName: athlete.name, brand, value });
     } catch(err2) {
       res.status(503).json({ error: 'Contract generation temporarily unavailable. Please try again in 30 seconds.' });
@@ -6422,6 +6422,119 @@ app.get('/api/agents/media-kit-status', requireAuth, async (req, res) => {
     mkR.rows.forEach(r => { kits[r.athlete_id] = r.slug; });
     res.json({ kits });
   } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/agent/athlete-media-kit/:athleteId — agent loads an athlete's saved media kit
+app.get('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res) => {
+  try {
+    const { athleteId } = req.params;
+    const athR = await store.pool.query(
+      'SELECT id, data FROM athletes WHERE id=$1 AND agent_id=$2',
+      [athleteId, req.session.userId]
+    );
+    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const mkR = await store.pool.query('SELECT * FROM media_kits WHERE athlete_id=$1', [athleteId]);
+    if (!mkR.rows.length) return res.json({ mediaKit: null, rateCards: [], athlete: athR.rows[0].data || {} });
+    const mk = mkR.rows[0];
+    const rcR = await store.pool.query('SELECT * FROM media_kit_rate_cards WHERE media_kit_id=$1 ORDER BY id', [mk.id]);
+    res.json({ mediaKit: mk, rateCards: rcR.rows, athlete: athR.rows[0].data || {} });
+  } catch (e) {
+    console.error('[agent/athlete-media-kit GET]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/agent/athlete-media-kit/:athleteId — agent saves an athlete's media kit
+app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res) => {
+  try {
+    const { athleteId } = req.params;
+    const athR = await store.pool.query(
+      `SELECT id, data->>'name' as name FROM athletes WHERE id=$1 AND agent_id=$2`,
+      [athleteId, req.session.userId]
+    );
+    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const athleteName = athR.rows[0].name || String(athleteId);
+    const baseSlug = athleteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-nil';
+
+    const {
+      instagram_handle, instagram_followers, instagram_engagement,
+      tiktok_handle, tiktok_followers, twitter_handle, twitter_followers,
+      bio, primary_color, secondary_color, rateCards,
+      headshot_data, action_shot_data
+    } = req.body;
+
+    const headshotUpdate = headshot_data !== undefined ? headshot_data || null : undefined;
+    const actionUpdate   = action_shot_data !== undefined ? action_shot_data || null : undefined;
+
+    const mkR = await store.pool.query(
+      `INSERT INTO media_kits
+         (athlete_id, instagram_handle, instagram_followers, instagram_engagement,
+          tiktok_handle, tiktok_followers, twitter_handle, twitter_followers,
+          bio, primary_color, secondary_color, headshot_url, action_shot_data, slug, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+       ON CONFLICT (athlete_id) DO UPDATE SET
+         instagram_handle = EXCLUDED.instagram_handle,
+         instagram_followers = EXCLUDED.instagram_followers,
+         instagram_engagement = EXCLUDED.instagram_engagement,
+         tiktok_handle = EXCLUDED.tiktok_handle,
+         tiktok_followers = EXCLUDED.tiktok_followers,
+         twitter_handle = EXCLUDED.twitter_handle,
+         twitter_followers = EXCLUDED.twitter_followers,
+         bio = EXCLUDED.bio,
+         primary_color = EXCLUDED.primary_color,
+         secondary_color = EXCLUDED.secondary_color,
+         headshot_url = CASE WHEN EXCLUDED.headshot_url IS NOT NULL THEN EXCLUDED.headshot_url ELSE media_kits.headshot_url END,
+         action_shot_data = CASE WHEN EXCLUDED.action_shot_data IS NOT NULL THEN EXCLUDED.action_shot_data ELSE media_kits.action_shot_data END,
+         slug = COALESCE(media_kits.slug, EXCLUDED.slug),
+         updated_at = NOW()
+       RETURNING *`,
+      [athleteId, instagram_handle||null, instagram_followers||null, instagram_engagement||null,
+       tiktok_handle||null, tiktok_followers||null, twitter_handle||null, twitter_followers||null,
+       bio||null, primary_color||null, secondary_color||null,
+       headshotUpdate !== undefined ? headshotUpdate : null,
+       actionUpdate   !== undefined ? actionUpdate   : null,
+       baseSlug]
+    );
+    const mk = mkR.rows[0];
+
+    await store.pool.query('DELETE FROM media_kit_rate_cards WHERE media_kit_id=$1', [mk.id]);
+    if (Array.isArray(rateCards) && rateCards.length) {
+      for (const rc of rateCards) {
+        if (!rc.service_type || !rc.price) continue;
+        await store.pool.query(
+          'INSERT INTO media_kit_rate_cards (media_kit_id, service_type, price, notes) VALUES ($1,$2,$3,$4)',
+          [mk.id, rc.service_type, parseInt(rc.price)||0, rc.notes||'']
+        );
+      }
+    }
+
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    res.json({ ok: true, slug: mk.slug, shareUrl: `${appUrl}/media-kit/${mk.slug}` });
+  } catch (e) {
+    console.error('[agent/athlete-media-kit POST]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/agent/generate-bio/:athleteId — agent generates AI bio for an athlete
+app.post('/api/agent/generate-bio/:athleteId', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    const { athleteId } = req.params;
+    const athR = await store.pool.query(
+      `SELECT data FROM athletes WHERE id=$1 AND agent_id=$2`,
+      [athleteId, req.session.userId]
+    );
+    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
+    const d = athR.rows[0].data || {};
+    const { story } = req.body;
+    const storyPart = story ? `\nAthlete story: "${story}"` : '';
+    const prompt = `Write a 2-sentence NIL media kit bio for ${d.name || 'this athlete'}, a ${d.year || 'college'} ${d.position || 'athlete'} at ${d.school || 'their university'} playing ${d.sport || 'their sport'}.${storyPart}\nInstagram: ${d.followers_ig || d.instagram || 0} followers. TikTok: ${d.followers_tt || d.tiktok || 0} followers. Engagement: ${d.engagement || 4}%.\nThe bio should be compelling for brand partnerships — authentic, achievement-focused, and 40-60 words. Return only the bio text, nothing else.`;
+    const bio = await ai.oneShot(prompt, 'You are an NIL brand partnership specialist writing athlete bios.', 200, ai.MODEL_FAST);
+    res.json({ bio: bio.trim() });
+  } catch (e) {
+    console.error('[agent/generate-bio]', e.message);
     res.status(500).json({ error: e.message });
   }
 });

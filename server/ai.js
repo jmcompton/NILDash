@@ -173,7 +173,8 @@ RULES:
 - Use NILViewVal rates and real comps as primary data for all dollar amounts
 - Be direct — word-for-word scripts, real numbers, no hedging
 - When negotiating: cite NILViewVal range as your market anchor
-- Max 400 words unless asked for more`;
+- Max 400 words unless asked for more
+- Format all responses as clean natural text. Never use hashtags (#) for headers. Never use dashes (-) or arrows (→) as bullet points. Never use markdown formatting of any kind. Write in short clear paragraphs like a knowledgeable advisor. Use numbered lists only when absolutely necessary.`;
 }
 
 async function streamResponse(athlete, message, role, res) {

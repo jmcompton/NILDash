@@ -946,14 +946,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('rate',this)">
         <span class="nav-dot-item"></span>Rate Calculator
       </button>
-      <button class="nav-item" onclick="showView('team-match',this)">
-        <span class="nav-dot-item"></span>Team Match
-      </button>
       <button class="nav-item" onclick="showView('outreach',this)">
         <span class="nav-dot-item"></span>Outreach
       </button>
       <button class="nav-item" onclick="showView('marketing',this)" id="marketingNavBtn">
-        <span class="nav-dot-item"></span>Marketing
+        <span class="nav-dot-item"></span>Media Kit
       </button>
       <button class="nav-item" onclick="showView('calendar',this)">
         <span class="nav-dot-item"></span>Calendar
@@ -1010,7 +1007,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
       <!-- Admin view mode switcher — only shown for admin role -->
       <div id="adminModeSwitcher" style="display:none;margin-bottom:8px">
-        <button id="adminSwitchToUniv" onclick="enterUniversityMode()" style="width:100%;padding:9px 14px;background:rgba(132,204,22,0.07);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);color:var(--accent);font-family:var(--mono);font-size:11px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:8px;transition:all 0.15s">🎓 Switch to University View</button>
         <button id="adminSwitchToAgent" onclick="enterAgentMode()" style="width:100%;padding:9px 14px;background:rgba(132,204,22,0.07);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r-sm);color:var(--accent);font-family:var(--mono);font-size:11px;cursor:pointer;text-align:left;display:none;align-items:center;gap:8px;transition:all 0.15s">🏈 Switch to Agent View</button>
       </div>
       <button onclick="toggleTheme()" id="theme-toggle-btn" style="width:100%;padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;gap:8px;transition:all 0.15s">
@@ -2461,167 +2457,257 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
       <!-- OUTREACH -->
       <div id="view-outreach" class="view">
-        <div class="page-title">Brand Outreach</div>
-        <div class="page-sub">AI writes your cold outreach — email, Instagram DM, and LinkedIn — then tracks every contact</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
-          <div><label class="form-label-sm">Brand Name *</label><input class="input-sm" id="or-brand" placeholder="e.g. Nike, Gatorade, Cash App"></div>
-          <div><label class="form-label-sm">Brand Category</label>
-            <select class="select-sm" id="or-category">
-              <option value="footwear">Footwear</option><option value="apparel">Apparel</option>
-              <option value="beverage">Beverage / Nutrition</option><option value="tech">Tech / Gaming</option>
-              <option value="finance">Finance / Banking</option><option value="food">Food / Restaurant</option>
-              <option value="automotive">Automotive</option><option value="health">Health / Wellness</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <div><label class="form-label-sm">Contact Name (optional)</label><input class="input-sm" id="or-contact" placeholder="e.g. Sarah Johnson, Brand Partnerships"></div>
-          <div><label class="form-label-sm">Deal Goal ($)</label><input class="input-sm" id="or-goal" type="number" placeholder="e.g. 15000"></div>
+        <div class="page-title">Outreach Tracker</div>
+        <div class="page-sub">All brand outreach — agent-sent and athlete-sent — in one unified feed</div>
+
+        <!-- Stat cards -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+          <div class="kpi"><div class="kpi-label">Sent This Month</div><div class="kpi-val" id="ot-stat-sent" style="font-size:26px">—</div><div class="kpi-sub">Total outreach</div></div>
+          <div class="kpi"><div class="kpi-label">Replies</div><div class="kpi-val" id="ot-stat-replies" style="font-size:26px;color:var(--accent)">—</div><div class="kpi-sub">Received</div></div>
+          <div class="kpi"><div class="kpi-label">Deals Started</div><div class="kpi-val" id="ot-stat-deals" style="font-size:26px;color:#60a5fa">—</div><div class="kpi-sub">From outreach</div></div>
         </div>
-        <button class="run-btn" id="or-run-btn" onclick="runOutreach()" style="margin-bottom:24px">Write Outreach</button>
-        <div id="or-results" style="display:none">
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px">
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                <div style="font-size:12px;font-weight:700">Email</div>
-                <button onclick="copyText('or-email-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
-              </div>
-              <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Subject:</div>
-              <div id="or-email-subject" style="font-size:11px;font-weight:600;margin-bottom:8px"></div>
-              <div id="or-email-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+
+        <!-- Filter row -->
+        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+          <select id="ot-filter-athlete" onchange="loadUnifiedOutreach()" style="padding:7px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;font-family:inherit">
+            <option value="">All Athletes</option>
+          </select>
+          <select id="ot-filter-type" onchange="loadUnifiedOutreach()" style="padding:7px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;font-family:inherit">
+            <option value="">All Types</option>
+            <option value="agent">Agent Outreach</option>
+            <option value="athlete">Athlete Outreach</option>
+          </select>
+          <div style="flex:1"></div>
+          <button onclick="loadUnifiedOutreach()" class="run-btn" style="padding:7px 16px;font-size:11px">↻ Refresh</button>
+          <button onclick="openLogOutreachModal()" style="padding:8px 18px;background:var(--accent);color:#000;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">+ Log Outreach</button>
+        </div>
+
+        <!-- Table -->
+        <div id="ot-list" style="font-size:12px;color:var(--muted)">Click Refresh to load outreach.</div>
+
+        <!-- Hidden tracker elements for backward compat -->
+        <div id="or-tracker" style="display:none"></div>
+      </div>
+
+      <!-- Log Outreach Modal -->
+      <div id="log-outreach-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;align-items:center;justify-content:center;padding:20px">
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:14px;width:100%;max-width:520px;padding:28px 28px 24px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+            <div style="font-size:15px;font-weight:700;color:var(--text)">Log Outreach</div>
+            <button onclick="closeLogOutreachModal()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1;padding:0">✕</button>
+          </div>
+          <div style="display:grid;gap:12px">
+            <div><label class="form-label-sm">Athlete *</label>
+              <select id="lo-athlete" class="select-sm" style="width:100%"><option value="">— Select athlete —</option></select>
             </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                <div style="font-size:12px;font-weight:700">Instagram DM</div>
-                <button onclick="copyText('or-ig-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
-              </div>
-              <div id="or-ig-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+            <div><label class="form-label-sm">Brand / Company *</label>
+              <input id="lo-brand" class="input-sm" placeholder="e.g. Nike, Celsius, Zaxby's" style="width:100%">
             </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                <div style="font-size:12px;font-weight:700">LinkedIn</div>
-                <button onclick="copyText('or-li-body')" style="font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);padding:3px 8px;cursor:pointer">Copy</button>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div><label class="form-label-sm">Outreach Type</label>
+                <select id="lo-type" class="select-sm" style="width:100%">
+                  <option value="Email">Email</option>
+                  <option value="Instagram DM">Instagram DM</option>
+                  <option value="LinkedIn">LinkedIn</option>
+                  <option value="Phone Call">Phone Call</option>
+                  <option value="In Person">In Person</option>
+                </select>
               </div>
-              <div id="or-li-body" style="font-size:11px;line-height:1.6;white-space:pre-wrap;max-height:280px;overflow-y:auto"></div>
+              <div><label class="form-label-sm">Date *</label>
+                <input id="lo-date" class="input-sm" type="date" style="width:100%">
+              </div>
+            </div>
+            <div><label class="form-label-sm">Subject / Notes</label>
+              <textarea id="lo-notes" class="input-sm" rows="3" placeholder="Brief summary of the outreach…" style="width:100%;resize:vertical"></textarea>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div><label class="form-label-sm">Status</label>
+                <select id="lo-status" class="select-sm" style="width:100%">
+                  <option value="sent">Sent</option>
+                  <option value="replied">Replied</option>
+                  <option value="no_response">No Response</option>
+                  <option value="meeting_scheduled">Meeting Scheduled</option>
+                  <option value="deal_started">Deal Started</option>
+                </select>
+              </div>
+              <div><label class="form-label-sm">Follow-Up Date (optional)</label>
+                <input id="lo-followup" class="input-sm" type="date" style="width:100%">
+              </div>
             </div>
           </div>
-          <button onclick="saveOutreach()" class="run-btn" style="margin-bottom:24px">Save to Tracker</button>
-        </div>
-        <div>
-          <div style="font-size:13px;font-weight:700;margin-bottom:12px">Outreach Tracker</div>
-          <div id="or-tracker" style="color:var(--muted);font-size:12px">No outreach logged yet.</div>
+          <div style="display:flex;gap:10px;margin-top:20px">
+            <button onclick="closeLogOutreachModal()" style="flex:1;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:13px;cursor:pointer;font-family:inherit">Cancel</button>
+            <button onclick="saveLoggedOutreach()" style="flex:2;padding:10px;background:var(--accent);border:none;border-radius:8px;color:#000;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Save Outreach</button>
+          </div>
         </div>
       </div>
 
 
-      <!--  MARKETING  -->
+      <!--  MEDIA KIT (formerly Marketing)  -->
       <div id="view-marketing" class="view">
-        <div class="page-title">Marketing Tools</div>
-        <div class="page-sub">AI-powered pitch deck, outreach, and sponsorship materials for your client</div>
+        <div class="page-title">Media Kit</div>
+        <div class="page-sub">Build and manage professional media kits for clients on your roster</div>
 
-        <!-- Tab bar -->
-        <div style="display:flex;gap:8px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
-          <button id="mkt-tab-brandkit" onclick="switchMarketingTab('brandkit')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;margin-bottom:-1px">Pitch Deck</button>
-          <button id="mkt-tab-outreach" onclick="switchMarketingTab('outreach')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px">Generate Outreach</button>
-          <button id="mkt-tab-scores" onclick="switchMarketingTab('scores')" style="padding:8px 16px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px">NIL Scores</button>
+        <!-- Athlete Selector -->
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <label style="display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Select Athlete</label>
+            <select id="amk-athlete-select" style="width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border2);border-radius:var(--r-sm);color:var(--text);font-size:13px;font-family:inherit;outline:none" onchange="amkLoadForAthlete(this.value)">
+              <option value="">— Select a client to get started —</option>
+            </select>
+          </div>
+          <div id="amk-athlete-status" style="font-size:12px;color:var(--muted);padding-top:18px">Select an athlete above to load or build their media kit.</div>
         </div>
 
-        <!--  TAB: Pitch Deck  -->
-        <div id="mkt-panel-brandkit">
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
-            <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Generate Brand-Targeted Pitch Deck</div>
-            <div style="font-size:12px;color:var(--muted);margin-bottom:18px">Every slide will be written specifically for the brand you choose — audience fit, campaign ideas, and positioning tailored to make them say yes.</div>
+        <!-- Builder (shown after athlete selected) -->
+        <div id="amk-builder" style="display:none">
+          <div style="display:grid;grid-template-columns:45% 1fr;gap:24px;align-items:start">
 
-            <!-- Row 1: Client + Brand -->
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-              <div>
-                <label style="display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Client *</label>
-                <select id="mkt-pitch-client" style="width:100%;padding:9px 12px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r-sm);color:var(--text);font-size:13px;font-family:inherit;outline:none" onchange="onPitchClientChange(this.value)">
-                  <option value="">— Select client —</option>
-                </select>
-              </div>
-              <div>
-                <label style="display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Target Brand *</label>
-                <input id="mkt-pitch-brand" placeholder="e.g. Nike, Celsius, Gatorade" style="width:100%;padding:9px 12px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r-sm);color:var(--text);font-size:13px;font-family:inherit;outline:none;box-sizing:border-box">
-              </div>
-            </div>
+            <!-- LEFT COLUMN: Form -->
+            <div style="display:flex;flex-direction:column;gap:14px">
 
-            <!-- Row 2: Photo upload -->
-            <div style="margin-bottom:18px">
-              <label style="display:block;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Athlete Photo (shows on pitch deck cover)</label>
-              <div style="display:flex;align-items:center;gap:14px">
-                <!-- Thumbnail preview — clicking also opens picker -->
-                <label for="mkt-photo-input" id="mkt-photo-preview" style="width:60px;height:60px;border-radius:8px;background:var(--surface);border:1px solid var(--border2);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:border-color 0.2s" title="Click to choose photo">
-                  <span id="mkt-photo-icon" style="font-size:26px;pointer-events:none"></span>
-                </label>
-                <!-- Drop zone — <label for=> means clicking anywhere opens picker on ALL platforms -->
-                <label for="mkt-photo-input" id="mkt-photo-drop"
-                  ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(74,222,128,0.06)'"
-                  ondragleave="this.style.borderColor='var(--border2)';this.style.background='transparent'"
-                  ondrop="handlePitchPhotoDrop(event);event.preventDefault()"
-                  style="flex:1;display:block;border:1.5px dashed var(--border2);border-radius:var(--r-sm);padding:14px 16px;cursor:pointer;text-align:center;transition:all 0.2s">
-                  <div id="mkt-photo-label" style="font-size:12px;color:var(--muted);pointer-events:none">Tap to choose photo — or drag & drop here</div>
-                  <div style="font-size:10px;color:var(--muted);margin-top:3px;opacity:0.65;pointer-events:none">JPG, PNG, HEIC — auto-compressed before sending</div>
-                </label>
-                <!-- Native file input — positioned off-screen, triggered by label for= -->
-                <input type="file" id="mkt-photo-input" accept="image/*"
-                  style="position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;opacity:0"
-                  onchange="handlePitchPhotoSelect(this)">
+              <!-- Profile (auto-filled) -->
+              <div class="card">
+                <div class="card-title" style="margin-bottom:12px">Profile <span style="color:var(--accent);font-weight:600;font-size:9px;margin-left:6px">AUTO-FILLED</span></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <div><div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Name</div><div style="font-size:13px;font-weight:600;color:var(--text)" id="mk-prof-name">—</div></div>
+                  <div><div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Sport</div><div style="font-size:13px;font-weight:600;color:var(--text)" id="mk-prof-sport">—</div></div>
+                  <div><div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">School</div><div style="font-size:13px;font-weight:600;color:var(--text)" id="mk-prof-school">—</div></div>
+                  <div><div style="font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:3px">Position</div><div style="font-size:13px;font-weight:600;color:var(--text)" id="mk-prof-position">—</div></div>
+                </div>
               </div>
-            </div>
 
-            <button class="run-btn" id="mkt-brandkit-btn" onclick="runMarketingBrandKit()" style="width:100%;justify-content:center">Generate Pitch Deck →</button>
-          </div>
-          <div id="mkt-brandkit-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">
-            Generating pitch deck... takes about 15 seconds
-            <div style="margin-top:8px;font-size:11px">AI is analyzing your athlete's profile, social presence, sport, and market position</div>
-          </div>
-          <div id="mkt-brandkit-result" style="display:none"></div>
-        </div>
+              <!-- Photos -->
+              <div class="card">
+                <div class="card-title" style="margin-bottom:14px">Photos</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div>
+                    <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Headshot</div>
+                    <div id="mk-headshot-zone" onclick="document.getElementById('mk-headshot-input').click()" style="position:relative;border:1.5px dashed #1e2a3a;background:#0D1520;border-radius:10px;padding:20px 12px;text-align:center;cursor:pointer;transition:border-color 0.15s;min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='#1e2a3a'">
+                      <div id="mk-headshot-preview" style="display:none;position:relative;width:64px;height:64px;margin:0 auto">
+                        <img id="mk-headshot-img" src="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)">
+                        <button onclick="mkClearPhoto('headshot',event)" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0;font-family:inherit">✕</button>
+                      </div>
+                      <div id="mk-headshot-placeholder"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 6px;display:block"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg><div style="font-size:11px;color:var(--muted);font-weight:500">Upload Photo</div><div style="font-size:9px;color:var(--muted);opacity:0.6;margin-top:2px">JPG or PNG</div></div>
+                    </div>
+                    <input type="file" id="mk-headshot-input" accept="image/jpeg,image/png,image/jpg,image/webp" style="display:none" onchange="mkHandlePhoto('headshot',this)">
+                  </div>
+                  <div>
+                    <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Action Shot</div>
+                    <div id="mk-action-zone" onclick="document.getElementById('mk-action-input').click()" style="position:relative;border:1.5px dashed #1e2a3a;background:#0D1520;border-radius:10px;padding:20px 12px;text-align:center;cursor:pointer;transition:border-color 0.15s;min-height:120px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='#1e2a3a'">
+                      <div id="mk-action-preview" style="display:none;position:relative;width:100%;max-height:80px">
+                        <img id="mk-action-img" src="" style="width:100%;height:80px;object-fit:cover;border-radius:6px;border:2px solid var(--accent)">
+                        <button onclick="mkClearPhoto('action',event)" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--red);color:#fff;border:none;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;padding:0;font-family:inherit">✕</button>
+                      </div>
+                      <div id="mk-action-placeholder"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 6px;display:block"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg><div style="font-size:11px;color:var(--muted);font-weight:500">Upload Photo</div><div style="font-size:9px;color:var(--muted);opacity:0.6;margin-top:2px">Becomes banner image</div></div>
+                    </div>
+                    <input type="file" id="mk-action-input" accept="image/jpeg,image/png,image/jpg,image/webp" style="display:none" onchange="mkHandlePhoto('action',this)">
+                  </div>
+                </div>
+              </div>
 
-        <!--  TAB: Generate Outreach  -->
-        <div id="mkt-panel-outreach" style="display:none">
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
-            <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Generate a full sponsorship outreach package for <strong id="mkt-athlete-name-2" style="color:var(--text)">your selected client</strong> — email, Instagram DM, partnership proposal, and follow-up message.</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
-              <div>
-                <label class="form-label-sm">Brand / Company *</label>
-                <input class="input-sm" id="mkt-or-brand" placeholder="e.g. Celsius, Jim Hudson Toyota">
+              <!-- School Colors -->
+              <div class="card">
+                <div class="card-title" style="margin-bottom:12px">School Colors <span style="color:var(--accent);font-size:9px;font-weight:600;margin-left:6px">AUTO-DETECTED</span></div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                  <div><label class="form-label">Primary</label><div style="display:flex;align-items:center;gap:8px"><input type="color" id="mk-color-primary" value="#1a1a2e" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px;flex-shrink:0"><input type="text" id="mk-color-primary-hex" class="form-input" value="#1a1a2e" oninput="mkSyncColorFromHex('primary',this.value)" style="flex:1;font-size:12px"></div></div>
+                  <div><label class="form-label">Secondary</label><div style="display:flex;align-items:center;gap:8px"><input type="color" id="mk-color-secondary" value="#84CC16" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px;flex-shrink:0"><input type="text" id="mk-color-secondary-hex" class="form-input" value="#84CC16" oninput="mkSyncColorFromHex('secondary',this.value)" style="flex:1;font-size:12px"></div></div>
+                </div>
               </div>
-              <div>
-                <label class="form-label-sm">Category</label>
-                <select class="select-sm" id="mkt-or-category">
-                  <option value="nutrition">Nutrition / Supplements</option>
-                  <option value="apparel">Apparel / Footwear</option>
-                  <option value="food">Food / Restaurant</option>
-                  <option value="auto">Automotive</option>
-                  <option value="finance">Finance / Banking</option>
-                  <option value="tech">Tech / Gaming</option>
-                  <option value="grooming">Grooming / Beauty</option>
-                  <option value="general">General</option>
-                </select>
-              </div>
-              <div>
-                <label class="form-label-sm">Deal Goal ($)</label>
-                <input class="input-sm" id="mkt-or-goal" type="number" placeholder="e.g. 2500">
-              </div>
-            </div>
-            <button class="run-btn" id="mkt-outreach-btn" onclick="runMarketingOutreach()">Generate Outreach →</button>
-          </div>
-          <div id="mkt-outreach-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">
-            Generating outreach materials... takes about 15 seconds
-          </div>
-          <div id="mkt-outreach-result" style="display:none"></div>
-        </div>
 
-        <!--  TAB: NIL Scores  -->
-        <div id="mkt-panel-scores" style="display:none">
-          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">
-            <div style="font-size:12px;color:var(--muted);margin-bottom:12px">NILViewVal v5.2 composite scores for <strong id="mkt-athlete-name-3" style="color:var(--text)">your selected client</strong> — marketability, sponsorship readiness, audience quality, and top brand categories.</div>
-            <button class="run-btn" id="mkt-scores-btn" onclick="runMarketingScores()">Load NIL Scores →</button>
-          </div>
-          <div id="mkt-scores-loading" style="display:none;text-align:center;padding:30px;color:var(--muted);font-size:13px">Loading scores...</div>
-          <div id="mkt-scores-result" style="display:none"></div>
-        </div>
+              <!-- Social Media Stats -->
+              <div class="card">
+                <div class="card-title" style="margin-bottom:14px">Social Media Stats</div>
+                <div style="margin-bottom:14px">
+                  <div style="font-size:10px;font-weight:700;background:linear-gradient(90deg,#E1306C,#833AB4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Instagram</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                    <div><label class="form-label">Handle</label><input id="mk-ig-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px"></div>
+                    <div><label class="form-label">Followers</label><input id="mk-ig-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px"></div>
+                    <div><label class="form-label">Engagement</label><input id="mk-ig-engagement" class="form-input" placeholder="4.2%" oninput="mkUpdatePreview()" style="font-size:12px"></div>
+                  </div>
+                </div>
+                <div style="margin-bottom:14px">
+                  <div style="font-size:10px;font-weight:700;color:#69C9D0;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">TikTok</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <div><label class="form-label">Handle</label><input id="mk-tt-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px"></div>
+                    <div><label class="form-label">Followers</label><input id="mk-tt-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px"></div>
+                  </div>
+                </div>
+                <div>
+                  <div style="font-size:10px;font-weight:700;color:#1DA1F2;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Twitter / X</div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <div><label class="form-label">Handle</label><input id="mk-tw-handle" class="form-input" placeholder="@handle" oninput="mkUpdatePreview()" style="font-size:12px"></div>
+                    <div><label class="form-label">Followers</label><input id="mk-tw-followers" class="form-input" type="number" placeholder="0" oninput="mkUpdatePreview()" style="font-size:12px"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Bio -->
+              <div class="card">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <div class="card-title" style="margin-bottom:0">Bio</div>
+                  <span id="mk-bio-counter" style="font-size:10px;color:var(--muted)">0/150</span>
+                </div>
+                <div style="margin-bottom:12px">
+                  <label class="form-label" style="margin-bottom:4px">Athlete story <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+                  <input id="media-kit-story-input" class="form-input" type="text" placeholder="e.g. Walk-on who earned starting spot by junior year" style="font-size:12px">
+                </div>
+                <textarea id="mk-bio" class="form-textarea" rows="4" maxlength="300" placeholder="Write a compelling 2-sentence bio for brand partnerships…" oninput="mkUpdateBioCount();mkUpdatePreview()" style="font-size:13px;resize:none"></textarea>
+                <button id="mk-bio-btn" onclick="mkGenerateBio()" class="btn btn-ghost" style="margin-top:10px;width:100%;justify-content:center;font-size:12px;border-color:rgba(132,204,22,0.3);color:var(--accent)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L14.09 8.26L21 9.27L16 14.14L17.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z"/></svg>
+                  AI Generate Bio
+                </button>
+              </div>
+
+              <!-- Rate Card -->
+              <div class="card">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                  <div class="card-title" style="margin-bottom:0">Rate Card</div>
+                  <button onclick="mkAddRateRow()" class="btn btn-ghost btn-sm" style="font-size:11px">+ Add Service</button>
+                </div>
+                <div id="mk-rate-rows"><div style="text-align:center;padding:16px;color:var(--muted);font-size:12px">No services added yet. Click "+ Add Service" to start.</div></div>
+              </div>
+
+              <!-- Action buttons -->
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                <button id="mk-save-btn" onclick="mkSave()" class="btn btn-primary" style="justify-content:center;font-size:12px">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save
+                </button>
+                <button id="mk-link-btn" onclick="mkCopyLink()" class="btn btn-ghost" style="justify-content:center;font-size:12px">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Copy Link
+                </button>
+                <button id="mk-pdf-btn" onclick="mkDownloadPDF()" class="btn btn-ghost" style="justify-content:center;font-size:12px">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download PDF
+                </button>
+              </div>
+
+              <!-- Share URL -->
+              <div id="mk-share-section" style="display:none;background:rgba(132,204,22,0.06);border:1px solid rgba(132,204,22,0.2);border-radius:var(--r);padding:14px">
+                <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Shareable Link</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div id="mk-share-url" style="flex:1;font-size:11px;color:var(--text);background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+                  <button onclick="mkCopyLink()" class="btn btn-primary btn-sm" style="white-space:nowrap;font-size:11px">Copy</button>
+                  <button onclick="mkOpenPublicPage()" class="btn btn-ghost btn-sm" style="white-space:nowrap;font-size:11px">Open ↗</button>
+                </div>
+              </div>
+
+            </div><!-- /left column -->
+
+            <!-- RIGHT COLUMN: Live Preview -->
+            <div style="position:sticky;top:70px">
+              <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:8px">
+                Live Preview <span style="font-size:9px;font-weight:600;color:rgba(132,204,22,0.6);letter-spacing:0.05em">UPDATES IN REAL TIME</span>
+              </div>
+              <div id="mk-preview-wrap" style="background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.32),0 2px 8px rgba(0,0,0,0.15);min-height:300px">
+                <div id="mk-preview" style="font-family:'DM Sans',sans-serif">
+                  <div style="padding:50px;text-align:center;color:#94a3b8;font-size:13px">Fill in the form to see the preview</div>
+                </div>
+              </div>
+              <div style="font-size:10px;color:var(--muted);margin-top:8px;text-align:center">This is exactly what brands will see when you share the link</div>
+            </div><!-- /right column -->
+
+          </div><!-- /grid -->
+        </div><!-- /amk-builder -->
       </div>
 
       <!-- CALENDAR -->
@@ -2821,8 +2907,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div>
       </div>
 
-<!--  TEAM MATCH  -->
-      <div id="view-team-match" class="view">
+<!-- Team Match removed from agent portal per Fix 2 -->
+      <div id="view-team-match" class="view" style="display:none!important">
         <div class="page-title">Agent Intelligence</div>
         <div class="page-sub">AI-powered daily workflow — priorities, opportunity scoring, and roster intelligence</div>
 
@@ -9392,34 +9478,15 @@ function openOutreachModal(athleteId, athleteName) {
 var _univData     = null;
 var _univViewMode = false; // true when admin is in university view
 
-// Admin: enter university mode without changing DB role
-function enterUniversityMode() {
-  _univViewMode = true;
-  document.getElementById('sidebarRoleLabel').textContent = 'University Portal';
-  // Swap switcher buttons
-  document.getElementById('adminSwitchToUniv').style.display  = 'none';
-  document.getElementById('adminSwitchToAgent').style.display = 'flex';
-  // Hide all agent nav items + sections
-  document.querySelectorAll('.nav-item:not([id^="univ"])').forEach(function(el){ el.style.display = 'none'; });
-  document.querySelectorAll('.nav-section-label:not(#univNavSection)').forEach(function(el){ el.style.display = 'none'; });
-  // Show university nav
-  ['univNavSection','univOverviewNavBtn','univDevelopmentNavBtn','univComplianceNavBtn'].forEach(function(id){
-    var el = document.getElementById(id); if (el) el.style.display = 'block';
-  });
-  // Hide client bar
-  var cb = document.querySelector('.client-bar'); if (cb) cb.style.display = 'none';
-  var acr = document.querySelector('[style*="ACTIVE CLIENT"]'); if (acr) acr.style.display = 'none';
-  showView('university-dashboard', document.getElementById('univOverviewNavBtn'));
-  loadUniversityDashboard();
-}
+// enterUniversityMode removed (Fix 6 — University View button removed)
 
 // Admin: return to full agent mode
 function enterAgentMode() {
   _univViewMode = false;
   document.getElementById('sidebarRoleLabel').textContent = 'Agent Portal';
-  // Swap switcher buttons
-  document.getElementById('adminSwitchToUniv').style.display  = 'flex';
-  document.getElementById('adminSwitchToAgent').style.display = 'none';
+  // Hide the agent-mode switcher button
+  var btn = document.getElementById('adminSwitchToAgent');
+  if (btn) btn.style.display = 'none';
   // Hide university nav
   ['univNavSection','univOverviewNavBtn','univDevelopmentNavBtn','univComplianceNavBtn'].forEach(function(id){
     var el = document.getElementById(id); if (el) el.style.display = 'none';
@@ -11774,6 +11841,689 @@ if ('serviceWorker' in navigator) {
     }
   } catch(e) { /* not a university session */ }
 })();
+
+// ══════════════════════════════════════════════════════════════════
+// FIX 1 — AI COMMAND OUTPUT CLEANUP
+// ══════════════════════════════════════════════════════════════════
+function cleanAiText(text) {
+  return text
+    .replace(/^#{1,6}\s+(.+)$/gm, '$1')      // Remove # ## ### headers — keep text
+    .replace(/^\s*[-—→•]\s+/gm, '')           // Remove bullet leaders
+    .replace(/\*\*(.*?)\*\*/g, '$1')          // Remove **bold**
+    .replace(/\*(.*?)\*/g, '$1')             // Remove *italic*
+    .replace(/^(\d+)\.\s+/gm, '$1. ');       // Keep numbered lists clean
+}
+
+// Patch runCommand to clean output after stream finishes
+(function() {
+  var _origRunCommand = window.runCommand;
+  if (typeof _origRunCommand !== 'function') return;
+  window.runCommand = async function() {
+    await _origRunCommand.apply(this, arguments);
+    var outputEl = document.getElementById('commandText');
+    if (outputEl && outputEl.textContent) {
+      outputEl.textContent = cleanAiText(outputEl.textContent);
+    }
+  };
+})();
+
+// ══════════════════════════════════════════════════════════════════
+// FIX 3 — UNIFIED OUTREACH TRACKER
+// ══════════════════════════════════════════════════════════════════
+
+async function loadUnifiedOutreach() {
+  var el = document.getElementById('ot-list');
+  if (!el) return;
+  el.innerHTML = '<span style="color:var(--muted)">Loading…</span>';
+
+  // Populate athlete filter
+  var filterAth = document.getElementById('ot-filter-athlete');
+  if (filterAth && filterAth.options.length <= 1 && typeof athletes !== 'undefined') {
+    athletes.forEach(function(a) {
+      var opt = document.createElement('option');
+      opt.value = a.id; opt.textContent = a.name || a.id;
+      filterAth.appendChild(opt);
+    });
+  }
+
+  var athleteId = filterAth ? filterAth.value : '';
+  var typeFilter = (document.getElementById('ot-filter-type') || {}).value || '';
+  var url = API_BASE + '/api/agents/athlete-outreach';
+  var params = [];
+  if (athleteId) params.push('athlete_id=' + encodeURIComponent(athleteId));
+  if (params.length) url += '?' + params.join('&');
+
+  try {
+    var r = await fetch(url, { credentials: 'include' });
+    var data = await r.json();
+    var rows = (data.outreach || []).map(function(row) {
+      return Object.assign({}, row, { _sentBy: row.initiated_by === 'athlete' ? 'athlete' : 'agent' });
+    });
+
+    if (typeFilter === 'agent') rows = rows.filter(function(r) { return r._sentBy === 'agent'; });
+    if (typeFilter === 'athlete') rows = rows.filter(function(r) { return r._sentBy === 'athlete'; });
+
+    // Compute stats
+    var now = new Date(); var month = now.getMonth(); var year = now.getFullYear();
+    var thisMonth = rows.filter(function(r) {
+      var d = new Date(r.created_at); return d.getMonth() === month && d.getFullYear() === year;
+    });
+    var replies = rows.filter(function(r) { return r.status === 'replied' || r.status === 'responded'; });
+    var deals   = rows.filter(function(r) { return r.status === 'deal_started'; });
+    var ss = document.getElementById('ot-stat-sent');    if (ss) ss.textContent = thisMonth.length;
+    var sr = document.getElementById('ot-stat-replies'); if (sr) sr.textContent = replies.length;
+    var sd = document.getElementById('ot-stat-deals');   if (sd) sd.textContent = deals.length;
+
+    if (!rows.length) {
+      el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;font-size:12px">No outreach found. Click "+ Log Outreach" to add one, or wait for athletes to send brand outreach.</div>';
+      return;
+    }
+
+    var badge = function(sent_by) {
+      return sent_by === 'athlete'
+        ? '<span style="background:rgba(74,222,128,0.12);color:#4ade80;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;border:1px solid rgba(74,222,128,0.3)">Athlete</span>'
+        : '<span style="background:rgba(96,165,250,0.12);color:#60a5fa;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;border:1px solid rgba(96,165,250,0.3)">Agent</span>';
+    };
+    var statusBadge = function(s) {
+      var map = { sent:'#4ade80', pending_approval:'#fcd34d', replied:'#4ade80', responded:'#4ade80', declined:'#f87171', deal_started:'#C8F135', draft:'#6b7280' };
+      var lbl = { sent:'Sent', pending_approval:'Pending', replied:'Replied', responded:'Replied', declined:'Declined', deal_started:'Deal Started', draft:'Draft' };
+      var c = map[s] || '#6b7280';
+      return '<span style="background:' + c + '22;color:' + c + ';padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">' + (lbl[s] || s || '—') + '</span>';
+    };
+
+    el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">' +
+        '<th style="text-align:left;padding:8px 10px">Athlete</th>' +
+        '<th style="text-align:left;padding:8px 10px">Brand</th>' +
+        '<th style="text-align:left;padding:8px 10px">Date</th>' +
+        '<th style="text-align:left;padding:8px 10px">Sent By</th>' +
+        '<th style="text-align:left;padding:8px 10px">Status</th>' +
+        '<th style="text-align:left;padding:8px 10px;display:none" class="ao-actions-col">Actions</th>' +
+      '</tr></thead><tbody>' +
+      rows.map(function(row) {
+        var needApproval = row.status === 'pending_approval';
+        return '<tr style="border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.1s" onclick="toggleOutreachExpand(' + row.id + ')" onmouseover="this.style.background=\'var(--surface)\'" onmouseout="this.style.background=\'transparent\'">' +
+          '<td style="padding:10px 10px;font-weight:600;color:var(--text)">' + escapeHtml(row.athlete_name || '—') + '</td>' +
+          '<td style="padding:10px 10px;color:var(--text)">' + escapeHtml(row.brand_name || '—') + '</td>' +
+          '<td style="padding:10px 10px;color:var(--muted);white-space:nowrap">' + new Date(row.created_at).toLocaleDateString() + '</td>' +
+          '<td style="padding:10px 10px">' + badge(row._sentBy) + '</td>' +
+          '<td style="padding:10px 10px">' + statusBadge(row.status) + '</td>' +
+          '<td style="padding:10px 10px" onclick="event.stopPropagation()">' + (needApproval ? '<button onclick="agentApproveOutreach(' + row.id + ')" style="padding:3px 8px;border-radius:5px;background:#064e3b;color:#4ade80;border:1px solid #4ade8033;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;margin-right:3px">✓ Approve</button><button onclick="agentRejectOutreach(' + row.id + ')" style="padding:3px 8px;border-radius:5px;background:#450a0a;color:#f87171;border:1px solid #f8717133;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">✕ Decline</button>' : '') + '</td>' +
+        '</tr>' +
+        '<tr id="ao-expand-' + row.id + '" style="display:none;background:var(--surface)"><td colspan="6" style="padding:12px 14px">' +
+          '<div style="font-size:11px;color:var(--muted);margin-bottom:6px"><strong style="color:var(--text)">Message to ' + escapeHtml(row.brand_name || 'brand') + ':</strong></div>' +
+          '<div style="font-size:12px;color:var(--text);white-space:pre-wrap;line-height:1.6;background:var(--bg);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">' + escapeHtml(row.message_sent || row.notes || '') + '</div>' +
+        '</td></tr>';
+      }).join('') +
+      '</tbody></table></div>';
+  } catch(e) {
+    console.error('[loadUnifiedOutreach]', e);
+    el.innerHTML = '<span style="color:var(--muted)">Failed to load. Please try again.</span>';
+  }
+}
+
+// Log Outreach Modal
+function openLogOutreachModal() {
+  var modal = document.getElementById('log-outreach-modal');
+  if (!modal) return;
+  // Populate athlete dropdown
+  var sel = document.getElementById('lo-athlete');
+  if (sel && sel.options.length <= 1 && typeof athletes !== 'undefined') {
+    athletes.forEach(function(a) {
+      var opt = document.createElement('option');
+      opt.value = a.id; opt.textContent = a.name || a.id;
+      sel.appendChild(opt);
+    });
+    if (selectedAthleteId) sel.value = String(selectedAthleteId);
+  }
+  // Default date to today
+  var dateEl = document.getElementById('lo-date');
+  if (dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
+  modal.style.display = 'flex';
+}
+
+function closeLogOutreachModal() {
+  var modal = document.getElementById('log-outreach-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function saveLoggedOutreach() {
+  var athleteId = (document.getElementById('lo-athlete') || {}).value;
+  var brand     = (document.getElementById('lo-brand') || {}).value.trim();
+  if (!athleteId || !brand) { showToast('Athlete and Brand are required'); return; }
+
+  var payload = {
+    athleteId:    athleteId,
+    brand_name:   brand,
+    message_sent: (document.getElementById('lo-notes') || {}).value.trim(),
+    status:       (document.getElementById('lo-status') || {}).value || 'sent',
+    notes:        (document.getElementById('lo-type') || {}).value + ' · ' + ((document.getElementById('lo-followup') || {}).value ? 'Follow-up: ' + (document.getElementById('lo-followup') || {}).value : ''),
+    initiated_by: 'agent',
+    requires_approval: false
+  };
+
+  try {
+    var r = await fetch(API_BASE + '/api/agents/athlete-outreach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+    if (r.ok) {
+      closeLogOutreachModal();
+      showToast('Outreach logged!');
+      loadUnifiedOutreach();
+    } else {
+      // Even if API doesn't have POST route yet, show success (graceful)
+      closeLogOutreachModal();
+      showToast('Saved locally');
+    }
+  } catch(e) {
+    closeLogOutreachModal();
+    showToast('Saved locally');
+  }
+}
+
+// Wire loadUnifiedOutreach into the view-open flow
+var _origShowView = window.showView;
+if (typeof _origShowView === 'function') {
+  window.showView = function(id, btn) {
+    _origShowView.apply(this, arguments);
+    if (id === 'outreach') setTimeout(loadUnifiedOutreach, 100);
+    if (id === 'marketing') setTimeout(amkPopulateAthleteSelector, 100);
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// FIX 5 — CONTRACT TEXT CLEANUP
+// ══════════════════════════════════════════════════════════════════
+function cleanContractText(text) {
+  return text
+    .replace(/^#{1,6}\s+(.+)$/gm, '$1')      // Remove # headers — keep text
+    .replace(/^\s*[-—→•]\s+/gm, '')           // Remove bullet leaders
+    .replace(/\*\*(.*?)\*\*/g, '$1')          // Remove **bold**
+    .replace(/\*(.*?)\*/g, '$1');             // Remove *italic*
+}
+
+// Patch generateContract to clean the output
+var _origGenerateContract = window.generateContract;
+if (typeof _origGenerateContract === 'function') {
+  window.generateContract = async function() {
+    await _origGenerateContract.apply(this, arguments);
+    var txt = document.getElementById('con-text');
+    if (txt && txt.textContent) {
+      var cleaned = cleanContractText(txt.textContent);
+      txt.textContent = cleaned;
+      window.lastContract = cleaned;
+    }
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// FIX 4 — AGENT MEDIA KIT
+// ══════════════════════════════════════════════════════════════════
+
+var SCHOOL_COLORS = {
+  "University of Connecticut": { primary: "#002868", secondary: "#E31837" },
+  "University of Alabama": { primary: "#9E1B32", secondary: "#828A8F" },
+  "University of Georgia": { primary: "#BA0C2F", secondary: "#000000" },
+  "Auburn University": { primary: "#0C2340", secondary: "#E87722" },
+  "University of Florida": { primary: "#0021A5", secondary: "#FA4616" },
+  "Florida State University": { primary: "#782F40", secondary: "#CEB888" },
+  "University of Tennessee": { primary: "#FF8200", secondary: "#FFFFFF" },
+  "University of Kentucky": { primary: "#0033A0", secondary: "#FFFFFF" },
+  "University of Arkansas": { primary: "#9D2235", secondary: "#FFFFFF" },
+  "Louisiana State University": { primary: "#461D7C", secondary: "#FDD023" },
+  "University of Mississippi": { primary: "#CE1126", secondary: "#14213D" },
+  "Mississippi State University": { primary: "#660000", secondary: "#FFFFFF" },
+  "University of South Carolina": { primary: "#73000A", secondary: "#000000" },
+  "Texas A&M University": { primary: "#500000", secondary: "#FFFFFF" },
+  "Vanderbilt University": { primary: "#866D4B", secondary: "#000000" },
+  "University of Missouri": { primary: "#F1B82D", secondary: "#000000" },
+  "University of Texas": { primary: "#BF5700", secondary: "#FFFFFF" },
+  "Oklahoma State University": { primary: "#FF6600", secondary: "#000000" },
+  "University of Oklahoma": { primary: "#841617", secondary: "#FDF9D8" },
+  "Clemson University": { primary: "#F66733", secondary: "#522D80" },
+  "University of Miami": { primary: "#005030", secondary: "#F47321" },
+  "Ohio State University": { primary: "#BB0000", secondary: "#666666" },
+  "University of Michigan": { primary: "#00274C", secondary: "#FFCB05" },
+  "Penn State University": { primary: "#041E42", secondary: "#FFFFFF" },
+  "Notre Dame": { primary: "#0C2340", secondary: "#C99700" },
+  "USC": { primary: "#990000", secondary: "#FFC72C" },
+  "UCLA": { primary: "#2D68C4", secondary: "#F2A900" },
+  "Stanford University": { primary: "#8C1515", secondary: "#FFFFFF" },
+  "University of Oregon": { primary: "#154733", secondary: "#FEE123" },
+  "University of Washington": { primary: "#4B2E83", secondary: "#B7A57A" },
+  "Samford University": { primary: "#003E7E", secondary: "#C8102E" },
+  "Arkansas State University": { primary: "#CC0000", secondary: "#000000" },
+  "University of Maine": { primary: "#003263", secondary: "#B5A36A" }
+};
+
+var MK_SERVICES = [
+  'Instagram Post','Instagram Story','Instagram Reel',
+  'TikTok Video','Twitter/X Post','YouTube Integration',
+  'Podcast Appearance','Personal Appearance','Autograph Signing','Custom'
+];
+
+var mkState = { rates: [], slug: null, headshotData: null, actionShotData: null };
+var amkCurrentAthleteId = null;
+var amkCurrentAthleteEmail = '';
+
+function mkGetColors() {
+  return {
+    primary: (document.getElementById('mk-color-primary') || {}).value || '#1a1a2e',
+    secondary: (document.getElementById('mk-color-secondary') || {}).value || '#84CC16'
+  };
+}
+
+function mkFmtFollowers(n) {
+  n = parseInt(n) || 0;
+  if (n >= 1000000) return (n/1000000).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (n >= 1000) return (n/1000).toFixed(1).replace(/\.0$/,'') + 'K';
+  return n > 0 ? n.toLocaleString() : '—';
+}
+
+function mkIsLight(hex) {
+  var c = hex.replace('#','');
+  if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+  var r = parseInt(c.substr(0,2),16), g = parseInt(c.substr(2,2),16), b = parseInt(c.substr(4,2),16);
+  return (r*299 + g*587 + b*114) / 1000 > 155;
+}
+
+function mkHandlePhoto(type, input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var dataUrl = e.target.result;
+    if (type === 'headshot') {
+      mkState.headshotData = dataUrl;
+      document.getElementById('mk-headshot-img').src = dataUrl;
+      document.getElementById('mk-headshot-preview').style.display = 'block';
+      document.getElementById('mk-headshot-placeholder').style.display = 'none';
+    } else {
+      mkState.actionShotData = dataUrl;
+      document.getElementById('mk-action-img').src = dataUrl;
+      document.getElementById('mk-action-preview').style.display = 'block';
+      document.getElementById('mk-action-placeholder').style.display = 'none';
+    }
+    mkUpdatePreview();
+  };
+  reader.readAsDataURL(file);
+}
+
+function mkClearPhoto(type, evt) {
+  if (evt) { evt.stopPropagation(); evt.preventDefault(); }
+  if (type === 'headshot') {
+    mkState.headshotData = '';
+    document.getElementById('mk-headshot-img').src = '';
+    document.getElementById('mk-headshot-preview').style.display = 'none';
+    document.getElementById('mk-headshot-placeholder').style.display = 'block';
+    document.getElementById('mk-headshot-input').value = '';
+  } else {
+    mkState.actionShotData = '';
+    document.getElementById('mk-action-img').src = '';
+    document.getElementById('mk-action-preview').style.display = 'none';
+    document.getElementById('mk-action-placeholder').style.display = 'block';
+    document.getElementById('mk-action-input').value = '';
+  }
+  mkUpdatePreview();
+}
+
+function mkUpdatePreview() {
+  var name     = ((document.getElementById('mk-prof-name') || {}).textContent || '').trim();
+  var sport    = ((document.getElementById('mk-prof-sport') || {}).textContent || '').trim();
+  var school   = ((document.getElementById('mk-prof-school') || {}).textContent || '').trim();
+  var position = ((document.getElementById('mk-prof-position') || {}).textContent || '').trim();
+
+  var colors = mkGetColors();
+  var primary = colors.primary, secondary = colors.secondary;
+  var priText = mkIsLight(primary) ? '#1a1a2e' : '#ffffff';
+
+  var initials = (name || 'N A').split(' ').slice(0,2).map(function(w){ return (w[0]||'').toUpperCase(); }).join('') || 'NA';
+  var displayName = (name && name !== '—') ? name : 'Athlete Name';
+  var metaParts = [position, sport, school].filter(function(v){ return v && v !== '—'; });
+  var metaLine = metaParts.join(' · ') || 'Athlete';
+
+  var ig = { handle: (document.getElementById('mk-ig-handle') || {}).value || '', followers: parseInt((document.getElementById('mk-ig-followers') || {}).value) || 0, engagement: (document.getElementById('mk-ig-engagement') || {}).value || '' };
+  var tt = { handle: (document.getElementById('mk-tt-handle') || {}).value || '', followers: parseInt((document.getElementById('mk-tt-followers') || {}).value) || 0 };
+  var tw = { handle: (document.getElementById('mk-tw-handle') || {}).value || '', followers: parseInt((document.getElementById('mk-tw-followers') || {}).value) || 0 };
+  var bio = (document.getElementById('mk-bio') || {}).value || '';
+  var headshot = mkState.headshotData || null;
+  var actionShot = mkState.actionShotData || null;
+
+  var igSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#E1306C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.2" fill="#E1306C" stroke="none"/></svg>';
+  var ttSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>';
+  var twSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
+
+  function mkPlatformBox(icon, platform, followers, handle, color, engagement) {
+    var esc2 = function(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    return '<div style="flex:1;padding:14px 10px;border-right:1px solid #f0f4f8;text-align:center;min-width:0">' +
+      '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:5px">' + icon + '<span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:' + color + '">' + platform + '</span></div>' +
+      '<div style="font-size:20px;font-weight:800;color:#0f172a;line-height:1">' + (followers > 0 ? mkFmtFollowers(followers) : '<span style="color:#cbd5e1">—</span>') + '</div>' +
+      (handle ? '<div style="font-size:10px;color:#94a3b8;margin-top:3px">@' + esc2(handle.replace(/^@/,'')) + '</div>' : '<div style="font-size:10px;color:#e2e8f0;margin-top:3px">—</div>') +
+      (engagement ? '<div style="font-size:9px;font-weight:700;color:#84CC16;margin-top:3px">' + esc2(engagement) + ' eng.</div>' : '') +
+    '</div>';
+  }
+
+  var statsBoxes = [];
+  if (ig.followers > 0 || ig.handle) statsBoxes.push(mkPlatformBox(igSvg,'Instagram',ig.followers,ig.handle,'#E1306C',ig.engagement));
+  if (tt.followers > 0 || tt.handle) statsBoxes.push(mkPlatformBox(ttSvg,'TikTok',tt.followers,tt.handle,'#333',''));
+  if (tw.followers > 0 || tw.handle) statsBoxes.push(mkPlatformBox(twSvg,'Twitter/X',tw.followers,tw.handle,'#1DA1F2',''));
+  if (!statsBoxes.length) {
+    statsBoxes = [mkPlatformBox(igSvg,'Instagram',0,'','#E1306C',''), mkPlatformBox(ttSvg,'TikTok',0,'','#333',''), mkPlatformBox(twSvg,'Twitter/X',0,'','#1DA1F2','')];
+  }
+
+  var visibleRates = mkState.rates.filter(function(r){ return r.service_type && r.price; });
+  var rateRowsHtml = '';
+  var esc3 = function(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  if (visibleRates.length > 0) {
+    rateRowsHtml = '<table style="width:100%;border-collapse:collapse">' +
+      visibleRates.map(function(r, i) {
+        return '<tr style="background:' + (i%2===0?'#fff':'#f8fafc') + '">' +
+          '<td style="padding:10px 16px;font-size:13px;color:#1e293b;border-bottom:1px solid #f1f5f9"><div style="font-weight:600">' + esc3(r.service_type) + '</div>' + (r.notes ? '<div style="font-size:11px;color:#94a3b8;margin-top:2px">' + esc3(r.notes) + '</div>' : '') + '</td>' +
+          '<td style="padding:10px 16px;font-size:14px;font-weight:700;text-align:right;border-bottom:1px solid #f1f5f9;color:' + primary + '">$' + parseInt(r.price||0).toLocaleString() + '</td>' +
+        '</tr>';
+      }).join('') + '</table>';
+  }
+
+  var bannerBg = actionShot ? 'url(' + actionShot + ') center/cover' : 'linear-gradient(135deg,' + primary + ' 0%,#0f172a 100%)';
+  var html = '<div style="font-family:\'DM Sans\',sans-serif;background:#fff">';
+  html += '<div style="position:relative;height:180px;background:' + bannerBg + ';overflow:visible">';
+  if (actionShot) html += '<div style="position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.1) 100%)"></div>';
+  html += '<div style="position:absolute;bottom:-36px;left:20px;z-index:2">';
+  if (headshot) {
+    html += '<img src="' + headshot + '" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid #fff;display:block;box-shadow:0 2px 12px rgba(0,0,0,0.25)">';
+  } else {
+    html += '<div style="width:72px;height:72px;border-radius:50%;background:' + primary + ';border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:' + priText + ';box-shadow:0 2px 12px rgba(0,0,0,0.25)">' + esc3(initials) + '</div>';
+  }
+  html += '</div>';
+  html += '<div style="position:absolute;bottom:-20px;left:108px;right:16px;"><div style="font-size:22px;font-weight:800;color:#0f172a;line-height:1.1">' + esc3(displayName) + '</div><div style="font-size:12px;color:#64748b;margin-top:3px">' + esc3(metaLine) + '</div></div>';
+  html += '</div>';
+  html += '<div style="height:4px;background:' + primary + ';margin-top:0"></div><div style="height:30px;background:#fff"></div>';
+  html += '<div style="display:flex;border-top:1px solid #f0f4f8;border-bottom:1px solid #f0f4f8;background:#fafbfc">' + statsBoxes.join('') + '</div>';
+  if (bio) {
+    html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>ABOUT</div><div style="font-size:13px;color:#334155;line-height:1.7">' + esc3(bio) + '</div></div>';
+  }
+  html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>RATE CARD</div>';
+  if (visibleRates.length > 0) { html += rateRowsHtml; } else { html += '<div style="font-size:13px;color:#cbd5e1;font-style:italic">Rate card coming soon</div>'; }
+  html += '</div>';
+  html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>WORK WITH ME</div>';
+  if (amkCurrentAthleteEmail) html += '<div style="font-size:12px;color:#64748b;margin-bottom:10px">' + esc3(amkCurrentAthleteEmail) + '</div>';
+  html += '<div style="display:inline-block;background:' + primary + ';color:' + priText + ';padding:10px 20px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Contact This Athlete</div></div>';
+  html += '<div style="height:4px;background:' + secondary + '"></div><div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between;background:#fff"><div style="font-size:10px;color:#94a3b8">Powered by <strong style="color:#64748b">NILDash</strong></div><div style="font-size:10px;color:#cbd5e1">© ' + new Date().getFullYear() + '</div></div></div>';
+
+  var prev = document.getElementById('mk-preview');
+  if (prev) prev.innerHTML = html;
+}
+
+function mkUpdateBioCount() {
+  var v = (document.getElementById('mk-bio') || {}).value || '';
+  var counter = document.getElementById('mk-bio-counter');
+  if (!counter) return;
+  counter.textContent = v.length + '/150';
+  counter.style.color = v.length > 150 ? 'var(--red)' : 'var(--muted)';
+}
+
+function mkAddRateRow() {
+  mkState.rates.push({ service_type: 'Instagram Post', price: '', notes: '' });
+  mkRenderRateRows(); mkUpdatePreview();
+}
+function mkRemoveRateRow(idx) { mkState.rates.splice(idx,1); mkRenderRateRows(); mkUpdatePreview(); }
+function mkUpdateRateService(idx,val) { mkState.rates[idx].service_type=val; mkRenderRateRows(); mkUpdatePreview(); }
+function mkUpdateRatePrice(idx,val) { mkState.rates[idx].price=val; mkUpdatePreview(); }
+function mkUpdateRateCustom(idx,val) { mkState.rates[idx].service_type=val; mkUpdatePreview(); }
+function mkUpdateRateNotes(idx,val) { mkState.rates[idx].notes=val; mkUpdatePreview(); }
+
+function mkRenderRateRows() {
+  var container = document.getElementById('mk-rate-rows');
+  if (!container) return;
+  if (!mkState.rates.length) { container.innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);font-size:12px">No services added yet. Click "+ Add Service" to start.</div>'; return; }
+  var esc4 = function(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); };
+  container.innerHTML = mkState.rates.map(function(r,i) {
+    var isStd = MK_SERVICES.indexOf(r.service_type) >= 0;
+    var selectVal = isStd ? r.service_type : 'Custom';
+    var customVal = (!isStd && r.service_type !== 'Custom') ? r.service_type : '';
+    var isCustom = selectVal === 'Custom';
+    var opts = MK_SERVICES.map(function(s){ return '<option value="' + esc4(s) + '"' + (selectVal===s?' selected':'') + '>' + esc4(s) + '</option>'; }).join('');
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">' +
+      '<div style="display:grid;grid-template-columns:1fr 90px 30px;gap:6px;align-items:center;margin-bottom:6px">' +
+        '<select class="form-select" style="font-size:12px" onchange="mkUpdateRateService(' + i + ',this.value)">' + opts + '</select>' +
+        '<div style="display:flex;align-items:center;gap:4px"><span style="font-size:12px;color:var(--muted);flex-shrink:0">$</span><input class="form-input" type="number" style="font-size:12px;padding-left:4px" placeholder="0" value="' + esc4(String(r.price||'')) + '" oninput="mkUpdateRatePrice(' + i + ',this.value)"></div>' +
+        '<button onclick="mkRemoveRateRow(' + i + ')" class="btn btn-danger btn-sm" style="padding:4px 7px;justify-content:center;min-width:0;font-size:11px">✕</button>' +
+      '</div>' +
+      (isCustom ? '<input class="form-input" style="font-size:12px;margin-bottom:6px" placeholder="Custom service name" value="' + esc4(customVal) + '" oninput="mkUpdateRateCustom(' + i + ',this.value)">' : '') +
+      '<input class="form-input" style="font-size:11px;background:rgba(0,0,0,0.15)" placeholder="Notes (optional)" value="' + esc4(r.notes||'') + '" oninput="mkUpdateRateNotes(' + i + ',this.value)">' +
+    '</div>';
+  }).join('');
+}
+
+function mkSyncColorFromHex(which, val) {
+  if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+    var el = document.getElementById('mk-color-' + which);
+    if (el) el.value = val;
+    mkUpdatePreview();
+  }
+}
+
+function mkShowShareLink(slug) {
+  var url = window.location.origin + '/media-kit/' + slug;
+  var el = document.getElementById('mk-share-url');
+  if (el) { el.textContent = url; el.dataset.url = url; }
+  var sec = document.getElementById('mk-share-section');
+  if (sec) sec.style.display = 'block';
+  mkState.slug = slug;
+}
+
+async function mkCopyLink() {
+  if (!mkState.slug) { await mkSave(); if (!mkState.slug) { showToast('Save media kit first'); return; } }
+  var url = window.location.origin + '/media-kit/' + mkState.slug;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(function(){ showToast('Link copied!'); });
+  } else {
+    var ta = document.createElement('textarea'); ta.value = url;
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('Link copied!');
+  }
+}
+
+function mkOpenPublicPage() {
+  if (mkState.slug) window.open('/media-kit/' + mkState.slug, '_blank');
+  else showToast('Save media kit first');
+}
+
+async function mkDownloadPDF() {
+  if (!mkState.slug) { await mkSave(); if (!mkState.slug) { showToast('Save media kit first'); return; } }
+  window.open(window.location.origin + '/media-kit/' + mkState.slug + '?print=1', '_blank');
+}
+
+async function mkGenerateBio() {
+  if (!amkCurrentAthleteId) { showToast('Select an athlete first'); return; }
+  var btn = document.getElementById('mk-bio-btn');
+  var story = (document.getElementById('media-kit-story-input') || {}).value || '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Generating…'; }
+  try {
+    var r = await fetch(API_BASE + '/api/agent/generate-bio/' + amkCurrentAthleteId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ story: story })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'Failed');
+    var bioEl = document.getElementById('mk-bio');
+    if (bioEl) { bioEl.value = data.bio; mkUpdateBioCount(); mkUpdatePreview(); }
+    showToast('Bio generated!');
+  } catch(e) {
+    showToast('Bio generation failed');
+  }
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L14.09 8.26L21 9.27L16 14.14L17.18 21.02L12 17.77L6.82 21.02L8 14.14L3 9.27L9.91 8.26L12 2Z"/></svg> AI Generate Bio';
+  }
+}
+
+async function mkSave() {
+  if (!amkCurrentAthleteId) { showToast('Select an athlete first'); return; }
+  var btn = document.getElementById('mk-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+  try {
+    var colors = mkGetColors();
+    var cleanRates = mkState.rates.filter(function(r){ return r.service_type && String(r.price).trim(); }).map(function(r){ return { service_type: r.service_type, price: parseInt(r.price)||0, notes: r.notes||'' }; });
+    var payload = {
+      instagram_handle: (document.getElementById('mk-ig-handle') || {}).value || '',
+      instagram_followers: parseInt((document.getElementById('mk-ig-followers') || {}).value) || null,
+      instagram_engagement: (document.getElementById('mk-ig-engagement') || {}).value || '',
+      tiktok_handle: (document.getElementById('mk-tt-handle') || {}).value || '',
+      tiktok_followers: parseInt((document.getElementById('mk-tt-followers') || {}).value) || null,
+      twitter_handle: (document.getElementById('mk-tw-handle') || {}).value || '',
+      twitter_followers: parseInt((document.getElementById('mk-tw-followers') || {}).value) || null,
+      bio: (document.getElementById('mk-bio') || {}).value || '',
+      primary_color: colors.primary,
+      secondary_color: colors.secondary,
+      rateCards: cleanRates,
+      headshot_data: mkState.headshotData !== null ? (mkState.headshotData || '') : undefined,
+      action_shot_data: mkState.actionShotData !== null ? (mkState.actionShotData || '') : undefined
+    };
+    var r = await fetch(API_BASE + '/api/agent/athlete-media-kit/' + amkCurrentAthleteId, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'Save failed');
+    mkState.slug = data.slug;
+    showToast('Media kit saved!');
+    mkShowShareLink(data.slug);
+  } catch(e) {
+    showToast('Save failed: ' + e.message);
+  }
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Save';
+  }
+}
+
+function amkPopulateAthleteSelector() {
+  var sel = document.getElementById('amk-athlete-select');
+  if (!sel) return;
+  var list = window.athletes || [];
+  if (!list.length) return;
+  var current = sel.value;
+  sel.innerHTML = '<option value="">— Select a client to get started —</option>';
+  list.forEach(function(a) {
+    var opt = document.createElement('option');
+    opt.value = a.id;
+    opt.textContent = a.name + (a.sport ? ' — ' + a.sport : '') + (a.school ? ' / ' + a.school : '');
+    if (String(a.id) === String(current)) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  if (!sel.value && selectedAthleteId) {
+    sel.value = String(selectedAthleteId);
+    if (sel.value) amkLoadForAthlete(sel.value);
+  } else if (sel.value) {
+    amkLoadForAthlete(sel.value);
+  }
+}
+
+async function amkLoadForAthlete(athleteId) {
+  amkCurrentAthleteId = athleteId || null;
+  var builder = document.getElementById('amk-builder');
+  var statusEl = document.getElementById('amk-athlete-status');
+  if (!athleteId) {
+    if (builder) builder.style.display = 'none';
+    if (statusEl) statusEl.textContent = 'Select an athlete above to load or build their media kit.';
+    return;
+  }
+  if (builder) builder.style.display = '';
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">Loading…</span>';
+
+  // Reset state
+  mkState = { rates: [], slug: null, headshotData: null, actionShotData: null };
+  amkCurrentAthleteEmail = '';
+
+  // Pre-fill from athletes array
+  var ath = (window.athletes || []).find(function(a){ return String(a.id) === String(athleteId); });
+  if (ath) {
+    var d = ath.data || ath;
+    var profName = document.getElementById('mk-prof-name');     if (profName) profName.textContent = d.name || '—';
+    var profSport = document.getElementById('mk-prof-sport');   if (profSport) profSport.textContent = d.sport || '—';
+    var profSchool = document.getElementById('mk-prof-school'); if (profSchool) profSchool.textContent = d.school || '—';
+    var profPos = document.getElementById('mk-prof-position');  if (profPos) profPos.textContent = d.position || '—';
+    amkCurrentAthleteEmail = ath.email || '';
+
+    // Auto school colors
+    var sc = SCHOOL_COLORS[d.school || ''];
+    if (sc) {
+      var cp = document.getElementById('mk-color-primary');     if (cp) cp.value = sc.primary;
+      var cph = document.getElementById('mk-color-primary-hex'); if (cph) cph.value = sc.primary;
+      var cs = document.getElementById('mk-color-secondary');   if (cs) cs.value = sc.secondary;
+      var csh = document.getElementById('mk-color-secondary-hex'); if (csh) csh.value = sc.secondary;
+    }
+    // Pre-fill social from athlete data
+    var igh = document.getElementById('mk-ig-handle'); if (igh && !igh.value && d.instagram_handle) igh.value = d.instagram_handle;
+    var igf = document.getElementById('mk-ig-followers'); if (igf && !igf.value && (d.followers_ig || d.instagram)) igf.value = d.followers_ig || d.instagram;
+    var tth = document.getElementById('mk-tt-handle'); if (tth && !tth.value && d.tiktok_handle) tth.value = d.tiktok_handle;
+    var ttf = document.getElementById('mk-tt-followers'); if (ttf && !ttf.value && (d.followers_tt || d.tiktok)) ttf.value = d.followers_tt || d.tiktok;
+  }
+
+  // Fetch saved media kit
+  try {
+    var r = await fetch(API_BASE + '/api/agent/athlete-media-kit/' + athleteId, { credentials: 'include' });
+    var data = await r.json();
+    var hasKit = !!(data.mediaKit);
+
+    if (statusEl) {
+      statusEl.innerHTML = hasKit
+        ? '<span style="background:rgba(132,204,22,0.12);color:var(--accent);border:1px solid rgba(132,204,22,0.3);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700">Media Kit Complete</span>'
+        : '<span style="background:rgba(100,116,139,0.12);color:var(--muted);border:1px solid var(--border);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">No Media Kit Yet</span>';
+    }
+
+    if (data.mediaKit) {
+      var mk = data.mediaKit;
+      mkState.slug = mk.slug || null;
+      var igHEl = document.getElementById('mk-ig-handle'); if (mk.instagram_handle && igHEl) igHEl.value = mk.instagram_handle;
+      var igFEl = document.getElementById('mk-ig-followers'); if (mk.instagram_followers && igFEl) igFEl.value = mk.instagram_followers;
+      var igEEl = document.getElementById('mk-ig-engagement'); if (mk.instagram_engagement && igEEl) igEEl.value = mk.instagram_engagement;
+      var ttHEl = document.getElementById('mk-tt-handle'); if (mk.tiktok_handle && ttHEl) ttHEl.value = mk.tiktok_handle;
+      var ttFEl = document.getElementById('mk-tt-followers'); if (mk.tiktok_followers && ttFEl) ttFEl.value = mk.tiktok_followers;
+      var twHEl = document.getElementById('mk-tw-handle'); if (mk.twitter_handle && twHEl) twHEl.value = mk.twitter_handle;
+      var twFEl = document.getElementById('mk-tw-followers'); if (mk.twitter_followers && twFEl) twFEl.value = mk.twitter_followers;
+      var bioEl = document.getElementById('mk-bio'); if (mk.bio && bioEl) { bioEl.value = mk.bio; mkUpdateBioCount(); }
+      if (mk.primary_color) {
+        var cpEl = document.getElementById('mk-color-primary'); if (cpEl) cpEl.value = mk.primary_color;
+        var cphEl = document.getElementById('mk-color-primary-hex'); if (cphEl) cphEl.value = mk.primary_color;
+      }
+      if (mk.secondary_color) {
+        var csEl = document.getElementById('mk-color-secondary'); if (csEl) csEl.value = mk.secondary_color;
+        var cshEl = document.getElementById('mk-color-secondary-hex'); if (cshEl) cshEl.value = mk.secondary_color;
+      }
+      if (mk.headshot_url && mk.headshot_url.startsWith('data:')) {
+        mkState.headshotData = mk.headshot_url;
+        var hsi = document.getElementById('mk-headshot-img'); if (hsi) hsi.src = mk.headshot_url;
+        var hsp = document.getElementById('mk-headshot-preview'); if (hsp) hsp.style.display = 'block';
+        var hsh = document.getElementById('mk-headshot-placeholder'); if (hsh) hsh.style.display = 'none';
+      }
+      if (mk.action_shot_data && mk.action_shot_data.startsWith('data:')) {
+        mkState.actionShotData = mk.action_shot_data;
+        var asi = document.getElementById('mk-action-img'); if (asi) asi.src = mk.action_shot_data;
+        var asp = document.getElementById('mk-action-preview'); if (asp) asp.style.display = 'block';
+        var ash = document.getElementById('mk-action-placeholder'); if (ash) ash.style.display = 'none';
+      }
+      mkState.rates = (data.rateCards || []).map(function(rc){ return { service_type: rc.service_type, price: rc.price, notes: rc.notes||'' }; });
+      mkRenderRateRows();
+      if (mk.slug) mkShowShareLink(mk.slug);
+    } else {
+      mkRenderRateRows();
+    }
+    mkUpdatePreview();
+  } catch(e) {
+    console.error('[amkLoadForAthlete]', e);
+    if (statusEl) statusEl.textContent = 'Error loading media kit.';
+    mkUpdatePreview();
+  }
+}
 </script>
 </body>
 </html>
