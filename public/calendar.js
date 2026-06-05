@@ -131,10 +131,15 @@ var NILCal = (function () {
     return map;
   }
 
-  // ── Render monthly grid ───────────────────────────────────────
-  function renderGrid() {
+  // ── Shared label setter — called by both renderGrid and renderList ──────────
+  function setMonthLabel() {
     var labelEl = document.getElementById('cal-month-label');
     if (labelEl) labelEl.textContent = MONTHS[calMonth] + ' ' + calYear;
+  }
+
+  // ── Render monthly grid ───────────────────────────────────────
+  function renderGrid() {
+    setMonthLabel();
     var grid = document.getElementById('cal-grid');
     if (!grid) return;
 
@@ -196,6 +201,7 @@ var NILCal = (function () {
   // ── Render list view ──────────────────────────────────────────
   // Columns: Athlete | Brand | Deliverable | Due Date | Status | Actions
   function renderList() {
+    setMonthLabel();
     var wrap = document.getElementById('cal-list-wrap');
     if (!wrap) return;
     if (!filteredEvents.length) {
@@ -515,5 +521,6 @@ var NILCal = (function () {
     saveEvent: function() {},
     deleteEvent: function() {},
     showEvents: selectDay,
+    initLabel: setMonthLabel,
   };
 })();

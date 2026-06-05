@@ -4693,7 +4693,7 @@ async function showView(id, btn) {
   const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
-  if (id === 'calendar') { loadCalendar(); initAgentGCalStatus(); }
+  if (id === 'calendar') { if (window.NILCal) NILCal.initLabel(); loadCalendar(); initAgentGCalStatus(); }
   if (id === 'analytics') loadAnalytics();
   if (id === 'command') setTimeout(updateNilRateKpi, 800);
   if (id === 'roster') renderRoster();
@@ -5779,10 +5779,11 @@ async function loadPipeline() {
   } else {
     // Agent-wide: use /api/agent/deals which mirrors the Home dashboard source of truth
     const raw = await fetch(`${API_BASE}/api/agent/deals`).then(r => r.json()).catch(() => []);
+    const safeRaw = Array.isArray(raw) ? raw : [];
     // Attach athlete names from loaded roster
     const athMap = {};
     (athletes || []).forEach(a => { athMap[a.id] = a.name; });
-    allDeals = raw.map(d => ({...d, athleteName: athMap[d.athleteId || d.athlete_id] || d.athleteName || '—'}));
+    allDeals = safeRaw.map(d => ({...d, athleteName: athMap[d.athleteId || d.athlete_id] || d.athleteName || '—'}));
   }
 
   window._pipelineDeals = allDeals;
@@ -6642,14 +6643,13 @@ async function loadAnalytics() {
   if (!body) return;
   body.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">Loading analytics...</div>';
   try {
-  // Gather all deals across all athletes
-  const allDeals = [];
-  console.log('[analytics] loading deals for', athletes.length, 'athletes');
-  for (const ath of athletes) {
-    const deals = await fetch(API_BASE + '/api/athletes/' + ath.id + '/deals').then(r=>r.json()).catch(()=>[]);
-    console.log('[analytics] athlete', ath.name, ':', Array.isArray(deals) ? deals.length : 'non-array', 'deals');
-    (Array.isArray(deals) ? deals : []).forEach(d => allDeals.push({ ...d, athleteName: ath.name, athleteId: ath.id }));
-  }
+  // Gather all deals via agent-wide endpoint (same source of truth as Home and Pipeline)
+  const athMap = {};
+  (athletes || []).forEach(a => { athMap[a.id] = a.name; });
+  const rawDeals = await fetch(API_BASE + '/api/agent/deals').then(r=>r.json()).catch(()=>[]);
+  const safeDeals = Array.isArray(rawDeals) ? rawDeals : [];
+  const allDeals = safeDeals.map(d => ({ ...d, athleteName: athMap[d.athleteId || d.athlete_id] || d.athleteName || '—' }));
+  console.log('[analytics] loaded', allDeals.length, 'deals via /api/agent/deals');
   if (!athletes.length) {
     body.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:48px">No analytics data yet — add clients and deals to your pipeline to see insights.</div>';
     return;

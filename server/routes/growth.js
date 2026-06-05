@@ -14,9 +14,13 @@ const FROM_EMAIL   = 'jmcompton04@gmail.com'; // TODO: swap to hello@comptongrou
 const DAILY_SEND_LIMIT = 30;
 
 // ── Admin guard ───────────────────────────────────────────────────────────────
+// Uses the same session shape as the rest of the app:
+// req.session.userId (set by requireAuth) + req.session.role (set on login).
 function requireAdmin(req, res, next) {
-  const user = req.session && req.session.user;
-  if (!user || user.role !== 'admin') {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  if (req.session.role !== 'admin') {
     return res.status(403).json({ error: 'Admin only' });
   }
   next();
