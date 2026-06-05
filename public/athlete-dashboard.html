@@ -1348,7 +1348,7 @@ function showView(id, navBtn) {
   if (id === 'outreach')    loadOutreach();
   if (id === 'marketing')   { loadCaptionDeals(); }
   if (id === 'mediakit')    loadMediaKit();
-  if (id === 'calendar')    { AthlCal.reload(); initGCalStatus(); }
+  if (id === 'calendar')    { AthlCal.initLabel(); AthlCal.reload(); initGCalStatus(); }
   if (id === 'pipeline')    loadDeals();
   if (id === 'compliance')  initAthleteCompliance();
   if (id === 'email')       { loadEmailHistory(); initGmailStatus(); }
@@ -2998,7 +2998,8 @@ var AthlCal = (function() {
     var monthLabel = document.getElementById('cal-month-label');
     if (!gridWrap) return;
 
-    monthLabel.textContent = MONTHS[_curMonth] + ' ' + _curYear;
+    // Always set the month label — even when showing empty state
+    if (monthLabel) monthLabel.textContent = MONTHS[_curMonth] + ' ' + _curYear;
 
     if (!_filtered.length) {
       emptyEl.style.display = 'block';
@@ -3108,7 +3109,11 @@ var AthlCal = (function() {
     _render();
   }
 
-  return { reload, applyFilter, prevMonth, nextMonth, today, toggleListMode, selectDay };
+  function initLabel() {
+    var el = document.getElementById('cal-month-label');
+    if (el) el.textContent = MONTHS[_curMonth] + ' ' + _curYear;
+  }
+  return { reload, applyFilter, prevMonth, nextMonth, today, toggleListMode, selectDay, initLabel };
 })();
 
 // Legacy alias so Home still works

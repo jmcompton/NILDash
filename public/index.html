@@ -3099,7 +3099,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
     </div><!-- /content -->
 
   <!-- ── Growth Tab ─────────────────────────────────────────────────────────── -->
-  <div id="view-growth" class="view" style="display:none">
+  <div id="view-growth" class="view">
     <div class="page-title">Growth</div>
     <div class="page-sub">Admin-only · Automated outreach to NIL agents and schools</div>
 
@@ -4672,7 +4672,7 @@ async function loadKPIs() {
   if (!selectedAthleteId) return;
   try {
     const deals = await fetch(`${API_BASE}/api/athletes/${selectedAthleteId}/deals`).then(r=>r.json());
-    const total = deals.reduce((s,d) => s + (d.value||0), 0);
+    const total = deals.reduce((s,d) => s + (parseInt(d.value) || 0), 0);
     document.getElementById('kpi-pipeline').textContent = '$' + (total/1000).toFixed(0) + 'K';
     document.getElementById('kpi-deals').textContent = deals.filter(d=>d.stage!=='Closed').length;
   } catch {}
@@ -5769,20 +5769,28 @@ async function loadPipeline() {
   let allDeals = [];
   var filterEl = document.getElementById('pipe-filter-client');
   var filterActive = filterEl && filterEl.checked;
-  var athleteList = filterActive ? athletes.filter(a => a.id === selectedAthleteId) : athletes;
-  // Parallel fetch — much faster than sequential
-  const results = await Promise.all(
-    athleteList.map(ath =>
-      fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[])
-        .then(deals => deals.map(d => ({...d, athleteName: ath.name})))
-    )
-  );
-  allDeals = results.flat();
+
+  if (filterActive && selectedAthleteId) {
+    // Single-athlete filter: fetch just the selected athlete's deals
+    const ath = athletes.find(a => a.id === selectedAthleteId);
+    allDeals = await fetch(`${API_BASE}/api/athletes/${selectedAthleteId}/deals`)
+      .then(r => r.json()).catch(() => []);
+    if (ath) allDeals = allDeals.map(d => ({...d, athleteName: ath.name}));
+  } else {
+    // Agent-wide: use /api/agent/deals which mirrors the Home dashboard source of truth
+    const raw = await fetch(`${API_BASE}/api/agent/deals`).then(r => r.json()).catch(() => []);
+    // Attach athlete names from loaded roster
+    const athMap = {};
+    (athletes || []).forEach(a => { athMap[a.id] = a.name; });
+    allDeals = raw.map(d => ({...d, athleteName: athMap[d.athleteId || d.athlete_id] || d.athleteName || '—'}));
+  }
+
   window._pipelineDeals = allDeals;
-  const total = allDeals.reduce((s,d)=>s+(d.value||0),0);
-  document.getElementById('pipe-total').textContent = '$'+(total/1000).toFixed(0)+'K';
-  document.getElementById('pipe-count').textContent = allDeals.filter(d=>d.stage!=='Closed').length;
-  document.getElementById('pipe-closing').textContent = allDeals.filter(d=>d.stage==='Closing').length;
+  // Use parseInt to avoid string-concatenation bugs with JSONB string values
+  const total = allDeals.reduce((s,d) => s + (parseInt(d.value) || 0), 0);
+  document.getElementById('pipe-total').textContent = '$' + (total / 1000).toFixed(0) + 'K';
+  document.getElementById('pipe-count').textContent = allDeals.filter(d => d.stage !== 'Closed').length;
+  document.getElementById('pipe-closing').textContent = allDeals.filter(d => d.stage === 'Closing').length;
 
   const board = document.getElementById('pipelineBoard');
   if (window.NILPipeline) { NILPipeline.render(allDeals, board); }
@@ -6633,12 +6641,18 @@ async function loadAnalytics() {
   const body = document.getElementById('analytics-body');
   if (!body) return;
   body.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">Loading analytics...</div>';
-
+  try {
   // Gather all deals across all athletes
   const allDeals = [];
+  console.log('[analytics] loading deals for', athletes.length, 'athletes');
   for (const ath of athletes) {
     const deals = await fetch(API_BASE + '/api/athletes/' + ath.id + '/deals').then(r=>r.json()).catch(()=>[]);
-    deals.forEach(d => allDeals.push({ ...d, athleteName: ath.name, athleteId: ath.id }));
+    console.log('[analytics] athlete', ath.name, ':', Array.isArray(deals) ? deals.length : 'non-array', 'deals');
+    (Array.isArray(deals) ? deals : []).forEach(d => allDeals.push({ ...d, athleteName: ath.name, athleteId: ath.id }));
+  }
+  if (!athletes.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:48px">No analytics data yet — add clients and deals to your pipeline to see insights.</div>';
+    return;
   }
 
   const commRate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
@@ -6748,6 +6762,13 @@ async function loadAnalytics() {
   }
 
   body.innerHTML = html;
+  } catch(analyticsErr) {
+    console.error('[analytics] Error:', analyticsErr);
+    body.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:48px">' +
+      '<div style="margin-bottom:12px">Failed to load analytics.</div>' +
+      '<button onclick="loadAnalytics()" style="padding:8px 20px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;cursor:pointer">↻ Refresh</button>' +
+      '</div>';
+  }
 }
 
     async function setCommFilter(f) {

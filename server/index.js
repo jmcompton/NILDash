@@ -758,6 +758,19 @@ app.patch('/api/athletes/:id/note', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Agent-wide deals (used by Pipeline tab) ────────────────────
+// Returns all deals for the current agent across all athletes.
+// Same data source as /api/agent/home-data so Pipeline and Home stay in sync.
+app.get('/api/agent/deals', requireAuth, async (req, res) => {
+  try {
+    const deals = await store.getDealsByAgent(req.session.userId);
+    res.json(deals);
+  } catch (e) {
+    console.error('[agent/deals]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Deals ──────────────────────────────────────────────────────
 app.get('/api/athletes/:id/deals', requireAuth, async (req, res) => {
   // FIXED: verify caller owns this athlete or is the athlete themselves
