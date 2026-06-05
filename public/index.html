@@ -229,6 +229,7 @@ body::before{display:none}
 .ai-status{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(240,244,255,0.4);font-family:'DM Sans',sans-serif;font-weight:500}
 .ai-status::before{content:'';width:6px;height:6px;border-radius:50%;background:#84CC16;flex-shrink:0;animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes spPulse{0%,100%{opacity:0.4}50%{opacity:0.9}}
 
 .content{padding:28px 36px 24px 36px;width:100%;box-sizing:border-box}
 
@@ -3109,6 +3110,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button id="gtab-prospects-btn" onclick="growthModule.switchTab('prospects')" style="padding:8px 16px;border:none;background:none;color:var(--accent);font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-1px">Prospects</button>
       <button id="gtab-sequences-btn" onclick="growthModule.switchTab('sequences')" style="padding:8px 16px;border:none;background:none;color:var(--muted);font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px">Sequences</button>
       <button id="gtab-log-btn" onclick="growthModule.switchTab('log')" style="padding:8px 16px;border:none;background:none;color:var(--muted);font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px">Outreach Log</button>
+      <button id="gtab-social-btn" onclick="growthModule.switchTab('social')" style="padding:8px 16px;border:none;background:none;color:var(--muted);font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px">Social Posts</button>
     </div>
 
     <!-- ── Prospects Tab ── -->
@@ -3206,6 +3208,66 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </table>
       </div>
     </div>
+    <!-- ── Social Posts Tab ── -->
+    <div id="gtab-social" style="display:none">
+
+      <!-- Header -->
+      <div style="margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+          <!-- X (Twitter) logo -->
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="color:var(--text);flex-shrink:0"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+          <div style="font-size:16px;font-weight:700;color:var(--text)">X (Twitter) Post Generator</div>
+        </div>
+        <div style="font-size:13px;color:var(--muted);padding-left:30px">Generate athlete-targeted posts for @MyNILDash</div>
+      </div>
+
+      <!-- Topic filter pills -->
+      <div style="margin-bottom:18px">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;font-family:var(--mono);margin-bottom:10px">Feature Topics</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="sptopic-deal" onclick="growthModule.toggleTopic('deal')" data-sp-active="true" style="padding:6px 14px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.4);border-radius:99px;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mono);transition:all 0.15s">Deal Scan</button>
+          <button id="sptopic-kit" onclick="growthModule.toggleTopic('kit')" data-sp-active="true" style="padding:6px 14px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.4);border-radius:99px;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mono);transition:all 0.15s">Media Kit Builder</button>
+          <button id="sptopic-gmail" onclick="growthModule.toggleTopic('gmail')" data-sp-active="true" style="padding:6px 14px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.4);border-radius:99px;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mono);transition:all 0.15s">Gmail Integration</button>
+        </div>
+      </div>
+
+      <!-- Generate button -->
+      <div style="margin-bottom:24px">
+        <button id="sp-generate-btn" onclick="growthModule.generateSocialPosts()" style="padding:10px 22px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.35);border-radius:var(--r-sm);color:var(--accent);font-size:13px;font-weight:700;cursor:pointer;font-family:var(--mono);transition:all 0.15s;display:inline-flex;align-items:center;gap:8px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9V3z"/></svg>
+          Generate 10 Posts
+        </button>
+      </div>
+
+      <!-- Loading state (10 skeleton cards) -->
+      <div id="sp-loading" style="display:none">
+        <div style="font-size:12px;color:var(--muted);font-family:var(--mono);margin-bottom:14px;display:flex;align-items:center;gap:8px">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);animation:spPulse 1s ease-in-out infinite"></span>
+          Generating posts with AI...
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px" id="sp-skeleton-grid">
+        </div>
+      </div>
+
+      <!-- Error state -->
+      <div id="sp-error" style="display:none;padding:14px 16px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:var(--r-sm);color:#f87171;font-size:13px;font-family:var(--mono);margin-bottom:16px">Could not generate posts. Please try again.</div>
+
+      <!-- Posts grid -->
+      <div id="sp-posts-grid" style="display:none;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px"></div>
+
+      <!-- Bottom action bar -->
+      <div id="sp-actions" style="display:none;gap:10px;margin-top:20px;align-items:center;flex-wrap:wrap">
+        <button onclick="growthModule.generateSocialPosts()" style="padding:9px 18px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">↻ Regenerate All</button>
+        <button onclick="growthModule.copyAllPosts()" style="padding:9px 18px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mono)" id="sp-copy-all-btn">📋 Copy All</button>
+      </div>
+
+      <!-- Scheduling tip -->
+      <div id="sp-tip" style="display:none;margin-top:20px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);font-size:12px;color:var(--muted);line-height:1.6">
+        <span style="color:var(--accent);font-weight:700;font-family:var(--mono)">Tip:</span> Post 1–2 times per day for best reach. Use a scheduling tool like Buffer or Hootsuite to plan your posts in advance. Include <span style="color:var(--accent)">mynildash.com/athletes</span> in every post.
+      </div>
+
+    </div><!-- /gtab-social -->
+
   </div><!-- /view-growth -->
 
   </main>
@@ -12747,13 +12809,14 @@ var growthModule = (function() {
   }
 
   function switchTab(tab) {
-    ['prospects','sequences','log'].forEach(function(t) {
+    ['prospects','sequences','log','social'].forEach(function(t) {
       var panel = document.getElementById('gtab-' + t);
       var btn   = document.getElementById('gtab-' + t + '-btn');
       if (!panel || !btn) return;
       var active = t === tab;
       panel.style.display = active ? 'block' : 'none';
       btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+      btn.style.fontWeight = active ? '700' : '600';
       btn.style.borderBottomColor = active ? 'var(--accent)' : 'transparent';
     });
   }
@@ -12880,6 +12943,203 @@ var growthModule = (function() {
     }
   }
 
+  // ── Social Posts Module ────────────────────────────────────────────────────
+  var _socialPosts = [];   // current batch of 10 post strings
+  var _spTopics = { deal: true, kit: true, gmail: true };
+
+  function toggleTopic(key) {
+    _spTopics[key] = !_spTopics[key];
+    var btn = document.getElementById('sptopic-' + key);
+    if (!btn) return;
+    if (_spTopics[key]) {
+      btn.style.background = 'rgba(132,204,22,0.12)';
+      btn.style.borderColor = 'rgba(132,204,22,0.4)';
+      btn.style.color = 'var(--accent)';
+    } else {
+      btn.style.background = 'var(--surface2)';
+      btn.style.borderColor = 'var(--border)';
+      btn.style.color = 'var(--muted)';
+    }
+  }
+
+  // Clipboard helper — works on iPhone Safari
+  async function _spCopy(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch (e2) { return false; }
+    }
+  }
+
+  function _spCountColor(n) {
+    if (n <= 239) return 'var(--accent)';
+    if (n <= 279) return '#FBBF24';
+    return '#EF4444';
+  }
+
+  // Highlight #hashtags with green spans (for display only)
+  function _spHighlight(text) {
+    return text.replace(/(#\w+)/g, '<span style="color:var(--accent);font-weight:600">$1</span>');
+  }
+
+  function _spSkeletonCard() {
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;min-height:130px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+        '<div style="width:36px;height:10px;background:var(--surface2);border-radius:4px;animation:spPulse 1.2s ease-in-out infinite"></div>' +
+        '<div style="width:18px;height:18px;background:var(--surface2);border-radius:3px;animation:spPulse 1.2s ease-in-out infinite"></div>' +
+      '</div>' +
+      '<div style="height:10px;background:var(--surface2);border-radius:4px;margin-bottom:8px;animation:spPulse 1.2s ease-in-out infinite"></div>' +
+      '<div style="height:10px;background:var(--surface2);border-radius:4px;margin-bottom:8px;width:85%;animation:spPulse 1.2s ease-in-out infinite"></div>' +
+      '<div style="height:10px;background:var(--surface2);border-radius:4px;width:60%;animation:spPulse 1.2s ease-in-out infinite"></div>' +
+    '</div>';
+  }
+
+  function _renderPostCard(post, idx) {
+    var n = post.length;
+    var countColor = _spCountColor(n);
+    var id = 'sp-card-' + idx;
+    return '<div id="' + id + '" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px">' +
+      // Top row: post number + X icon
+      '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<span style="font-size:10px;font-weight:700;color:var(--muted);font-family:var(--mono)">' + (idx+1) + '/10</span>' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:var(--muted);flex-shrink:0"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>' +
+      '</div>' +
+      // Text display (toggled with textarea on edit)
+      '<div id="' + id + '-display" style="font-size:13px;color:var(--text);line-height:1.6;word-break:break-word">' + _spHighlight(post) + '</div>' +
+      '<textarea id="' + id + '-edit" style="display:none;width:100%;padding:8px;background:var(--surface2);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--text);font-size:13px;line-height:1.6;resize:vertical;min-height:80px;font-family:inherit;box-sizing:border-box" oninput="growthModule.spUpdateCount(' + idx + ')">' + post.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</textarea>' +
+      // Bottom row: char count + buttons
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+        '<span id="' + id + '-count" style="font-size:11px;font-weight:600;color:' + countColor + ';font-family:var(--mono)">' + n + '/280</span>' +
+        '<div style="display:flex;gap:6px">' +
+          '<button id="' + id + '-copy-btn" onclick="growthModule.copySocialPost(' + idx + ')" style="padding:5px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--mono);transition:all 0.15s;display:inline-flex;align-items:center;gap:4px">📋 Copy</button>' +
+          '<button id="' + id + '-edit-btn" onclick="growthModule.editSocialPost(' + idx + ')" style="padding:5px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--mono);transition:all 0.15s;display:inline-flex;align-items:center;gap:4px">✏️ Edit</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function spUpdateCount(idx) {
+    var ta = document.getElementById('sp-card-' + idx + '-edit');
+    var countEl = document.getElementById('sp-card-' + idx + '-count');
+    if (!ta || !countEl) return;
+    var n = ta.value.length;
+    countEl.textContent = n + '/280';
+    countEl.style.color = _spCountColor(n);
+    _socialPosts[idx] = ta.value; // keep in sync
+  }
+
+  function editSocialPost(idx) {
+    var display = document.getElementById('sp-card-' + idx + '-display');
+    var ta = document.getElementById('sp-card-' + idx + '-edit');
+    var btn = document.getElementById('sp-card-' + idx + '-edit-btn');
+    if (!display || !ta || !btn) return;
+    var isEditing = ta.style.display !== 'none';
+    if (isEditing) {
+      // Done editing — update display
+      var updated = ta.value;
+      _socialPosts[idx] = updated;
+      display.innerHTML = _spHighlight(updated);
+      display.style.display = '';
+      ta.style.display = 'none';
+      btn.textContent = '✏️ Edit';
+      spUpdateCount(idx);
+    } else {
+      // Enter edit mode
+      ta.value = _socialPosts[idx];
+      display.style.display = 'none';
+      ta.style.display = 'block';
+      ta.focus();
+      btn.textContent = '✓ Done';
+    }
+  }
+
+  async function copySocialPost(idx) {
+    var btn = document.getElementById('sp-card-' + idx + '-copy-btn');
+    var text = _socialPosts[idx] || '';
+    var ok = await _spCopy(text);
+    if (btn) {
+      btn.textContent = ok ? '✓ Copied!' : '✗ Failed';
+      btn.style.color = ok ? 'var(--accent)' : '#EF4444';
+      setTimeout(function() { btn.textContent = '📋 Copy'; btn.style.color = 'var(--text)'; }, 2000);
+    }
+  }
+
+  async function copyAllPosts() {
+    var allBtn = document.getElementById('sp-copy-all-btn');
+    var text = _socialPosts.filter(Boolean).join('\n\n---\n\n');
+    var ok = await _spCopy(text);
+    if (allBtn) {
+      allBtn.textContent = ok ? '✓ All Copied!' : '✗ Failed';
+      setTimeout(function() { allBtn.textContent = '📋 Copy All'; }, 2500);
+    }
+  }
+
+  async function generateSocialPosts() {
+    var topics = Object.keys(_spTopics).filter(function(k) { return _spTopics[k]; });
+    if (topics.length === 0) {
+      alert('Select at least one topic before generating.');
+      return;
+    }
+    var genBtn  = document.getElementById('sp-generate-btn');
+    var loading = document.getElementById('sp-loading');
+    var skelGrid = document.getElementById('sp-skeleton-grid');
+    var grid    = document.getElementById('sp-posts-grid');
+    var errEl   = document.getElementById('sp-error');
+    var actions = document.getElementById('sp-actions');
+    var tip     = document.getElementById('sp-tip');
+
+    // Show loading, hide previous results
+    if (genBtn)  { genBtn.disabled = true; genBtn.style.opacity = '0.5'; }
+    if (errEl)   errEl.style.display = 'none';
+    if (grid)    { grid.style.display = 'none'; grid.innerHTML = ''; }
+    if (actions) actions.style.display = 'none';
+    if (tip)     tip.style.display = 'none';
+
+    // Build skeleton cards
+    if (skelGrid) {
+      skelGrid.innerHTML = '';
+      for (var i = 0; i < 10; i++) skelGrid.innerHTML += _spSkeletonCard();
+    }
+    if (loading) loading.style.display = 'block';
+
+    try {
+      var r = await fetch('/api/growth/generate-social-posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topics: topics })
+      });
+      var data = await r.json();
+      if (!r.ok || data.error) throw new Error(data.error || 'Unknown error');
+
+      _socialPosts = data.posts || [];
+      if (loading) loading.style.display = 'none';
+
+      // Render cards
+      if (grid) {
+        grid.innerHTML = _socialPosts.map(function(p, i) { return _renderPostCard(p, i); }).join('');
+        grid.style.display = 'grid';
+      }
+      if (actions) { actions.style.display = 'flex'; }
+      if (tip)     { tip.style.display = 'block'; }
+    } catch (e) {
+      if (loading) loading.style.display = 'none';
+      if (errEl)   { errEl.textContent = 'Could not generate posts. Please try again.'; errEl.style.display = 'block'; }
+      console.error('[social-posts] generation error:', e.message);
+    } finally {
+      if (genBtn) { genBtn.disabled = false; genBtn.style.opacity = '1'; }
+    }
+  }
+
   return {
     load,
     loadBadge,
@@ -12891,7 +13151,14 @@ var growthModule = (function() {
     draftSequence,
     saveSequence,
     runDailyOutreach,
-    renderProspects
+    renderProspects,
+    // Social Posts
+    toggleTopic,
+    generateSocialPosts,
+    copySocialPost,
+    editSocialPost,
+    copyAllPosts,
+    spUpdateCount,
   };
 })();
 </script>

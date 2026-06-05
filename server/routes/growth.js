@@ -224,6 +224,68 @@ Return JSON only — no markdown, no explanation:
   }
 });
 
+// ── POST /api/growth/generate-social-posts ───────────────────────────────────
+// AI generates 10 X (Twitter) posts promoting selected NILDash features
+router.post('/generate-social-posts', async (req, res) => {
+  const { topics } = req.body;
+  if (!Array.isArray(topics) || topics.length === 0) {
+    return res.status(400).json({ error: 'At least one topic is required' });
+  }
+
+  const FEATURE_DESCRIPTIONS = {
+    deal:  'Deal Scan: AI that analyzes NIL deal offers and tells athletes if the offer is fair before they sign. Stops athletes from signing bad deals.',
+    kit:   'Media Kit Builder: Instantly generates a professional branded media kit for athletes including stats, photos, and rate card. No agent needed.',
+    gmail: 'Gmail Integration: Athletes can send professional NIL outreach emails directly from their own Gmail account through NILDash.',
+  };
+
+  const selectedFeatures = topics
+    .filter(t => FEATURE_DESCRIPTIONS[t])
+    .map(t => FEATURE_DESCRIPTIONS[t])
+    .join('\n');
+
+  const systemPrompt = `You are a social media strategist for NILDash, an AI-powered NIL management platform for college athletes. Generate 10 unique X (Twitter) posts targeted at college athletes.
+
+The posts should promote these features: ${topics.join(', ')}
+
+Feature descriptions to use:
+${selectedFeatures}
+
+Tone: Confident, direct, speaks to college athletes aged 18-22. Empowering. Anti-establishment (you don't need an agent to get paid). Short punchy sentences.
+
+Angle: 'Become Your Own NIL Agent' — athletes can manage their own NIL with AI tools that used to only be available through expensive agents.
+
+Each post must:
+- Be under 280 characters including hashtags
+- End with a call to action linking to mynildash.com/athletes
+- Include 3-5 relevant hashtags from this list: #NIL #CollegeAthlete #NILDeals #CollegeSports #NILMoney #BeYourOwnAgent #NILDash #StudentAthlete #CollegeFootball #CollegeBasketball #WBB #NILAgent #GetPaid
+- Vary in structure — some questions, some statements, some stats-based, some story-based
+- Never sound corporate or salesy
+- Never repeat the same opening word
+
+Return ONLY a JSON array of 10 strings, no other text, no markdown, no numbering.`;
+
+  const userPrompt = 'Generate the 10 posts now.';
+
+  try {
+    const raw = await ai.oneShot(userPrompt, systemPrompt, 2500, GROWTH_MODEL);
+    let posts = [];
+    try {
+      const arrMatch = raw.match(/\[[\s\S]*\]/);
+      if (arrMatch) posts = JSON.parse(arrMatch[0]);
+    } catch (parseErr) {
+      console.error('[growth/generate-social-posts] parse error:', parseErr.message, 'raw:', raw.slice(0, 200));
+      return res.status(500).json({ error: 'AI returned unparseable JSON' });
+    }
+    if (!Array.isArray(posts) || posts.length === 0) {
+      return res.status(500).json({ error: 'AI returned no posts' });
+    }
+    res.json({ posts });
+  } catch (e) {
+    console.error('[growth/generate-social-posts]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── GET /api/growth/outreach-log ──────────────────────────────────────────────
 router.get('/outreach-log', async (req, res) => {
   try {
