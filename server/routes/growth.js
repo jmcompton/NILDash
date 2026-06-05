@@ -225,60 +225,117 @@ Return JSON only — no markdown, no explanation:
 });
 
 // ── POST /api/growth/generate-social-posts ───────────────────────────────────
-// AI generates 10 X (Twitter) posts promoting selected NILDash features
+// AI generates 10 X (Twitter) posts with visual attachment instructions
 router.post('/generate-social-posts', async (req, res) => {
-  const { topics } = req.body;
-  if (!Array.isArray(topics) || topics.length === 0) {
-    return res.status(400).json({ error: 'At least one topic is required' });
-  }
+  const { topics } = req.body; // accepted but not used — all 10 angles are fixed
 
-  const FEATURE_DESCRIPTIONS = {
-    deal:  'Deal Scan: AI that analyzes NIL deal offers and tells athletes if the offer is fair before they sign. Stops athletes from signing bad deals.',
-    kit:   'Media Kit Builder: Instantly generates a professional branded media kit for athletes including stats, photos, and rate card. No agent needed.',
-    gmail: 'Gmail Integration: Athletes can send professional NIL outreach emails directly from their own Gmail account through NILDash.',
-  };
+  const systemPrompt = `You are the head of marketing for NILDash. NILDash is an AI-powered NIL management platform built for college athletes who are still building their brand.
 
-  const selectedFeatures = topics
-    .filter(t => FEATURE_DESCRIPTIONS[t])
-    .map(t => FEATURE_DESCRIPTIONS[t])
-    .join('\n');
+THE BRAND MANIFESTO (internalize this, do not quote it directly):
+The NIL industry made billions last year. The average college athlete saw almost none of it. Not because they were not talented enough. Because nobody built the tools for them. Agents serve the athletes who already made it. NILDash was built for the athlete who is still building. The one brands have not discovered yet. The one who does not know what they are worth yet. The one who just wants to get paid for their work. NILDash analyzes your deal before you sign. Know if it is fair before you pay anyone to tell you. $25/month. No middleman. Just you and your NIL.
 
-  const systemPrompt = `You are a social media strategist for NILDash, an AI-powered NIL management platform for college athletes. Generate 10 unique X (Twitter) posts targeted at college athletes.
+THE CORE MESSAGE:
+The NIL industry was built for agents, lawyers, and brands — not for athletes. NILDash was. It does not matter if you have an agent or not. NIL is confusing and athletes are leaving money on the table every single day. NILDash makes it simple.
 
-The posts should promote these features: ${topics.join(', ')}
+TONE AND VOICE:
+- Confident. Direct. On the athlete's side.
+- Sounds like a friend who knows the game, not a company selling something
+- Never corporate. Never buzzwords. Never salesy.
+- Short staccato lines. Each line should hit differently.
+- Make athletes feel like they are behind if they do not have NILDash
+- FOMO + empowerment combined
 
-Feature descriptions to use:
-${selectedFeatures}
+FORMAT RULES — NON NEGOTIABLE:
+- Maximum 4 lines per post
+- Each line is SHORT — 5 to 10 words maximum per line
+- No full paragraph sentences
+- Last line is always the link: mynildash.com/athletes
+- Maximum 3 hashtags, always on the final hashtag line after the link
+- Never more than 240 characters total including hashtags and link
 
-Tone: Confident, direct, speaks to college athletes aged 18-22. Empowering. Anti-establishment (you don't need an agent to get paid). Short punchy sentences.
+REALISTIC DOLLAR AMOUNTS:
+When using dollar examples use realistic college athlete NIL deal amounts:
+- Small deals: $200 - $800
+- Mid deals: $1,000 - $3,000
+- Agent commission examples: 15-20% of those amounts
+- NILDash cost: $25/month flat
 
-Angle: 'Become Your Own NIL Agent' — athletes can manage their own NIL with AI tools that used to only be available through expensive agents.
+HASHTAG RULES:
+Only use these hashtags — pick the 3 most relevant per post:
+#NILDash #NILMoney #NILDeal #CollegeNIL #NILAthlete #NILSeason #BeYourOwnAgent #CFB #CBB #WBB
+Never use: #CollegeAthlete #StudentAthlete #GetPaid #CollegeSports #NILDeals — these are weak and overused
 
-Each post must:
-- Be under 280 characters including hashtags
-- End with a call to action linking to mynildash.com/athletes
-- Include 3-5 relevant hashtags from this list: #NIL #CollegeAthlete #NILDeals #CollegeSports #NILMoney #BeYourOwnAgent #NILDash #StudentAthlete #CollegeFootball #CollegeBasketball #WBB #NILAgent #GetPaid
-- Vary in structure — some questions, some statements, some stats-based, some story-based
-- Never sound corporate or salesy
-- Never repeat the same opening word
+Generate exactly 10 posts. Use these 4 post types — mix them so no two consecutive posts are the same type:
 
-Return ONLY a JSON array of 10 strings, no other text, no markdown, no numbering.`;
+TYPE 1 — THE MATH POST (2-3 posts):
+Make agent fees feel real and personal using realistic numbers.
+Formula: Show the deal amount → show what agent takes → show NILDash cost → punchline
+Example style:
+'You signed a $1,000 deal.
+Your agent took $200.
+NILDash costs $25/month.
+Keep your money.
+mynildash.com/athletes
+#NILDash #NILMoney #BeYourOwnAgent'
+
+TYPE 2 — THE PRODUCT DEMO POST (3 posts):
+Show NILDash doing something impressive. Reference a specific feature. Make it feel like a reveal.
+Features to reference: Deal Scan (analyzes NIL deals for fairness), Media Kit Builder (builds professional branded media kit in 60 seconds), Rate Calculator (tells athletes exactly what they are worth based on their sport and social following), Gmail Integration (send professional NIL outreach from your own Gmail)
+Example style:
+'Brands want a media kit.
+You do not have one.
+NILDash builds it in 60 seconds.
+mynildash.com/athletes
+#NILDash #NILSeason #CollegeNIL'
+
+TYPE 3 — THE SOCIAL PROOF POST (2 posts):
+Make athletes feel like the successful ones already use NILDash. Aspirational. FOMO heavy.
+Example style:
+'Athletes closing brand deals in 2026:
+Know their rate before they negotiate.
+Have a media kit ready to send.
+mynildash.com/athletes
+#NILDash #NILMoney #NILAthlete'
+
+TYPE 4 — THE DIRECT CHALLENGE POST (3 posts):
+Provocative. Challenge the athlete directly. Make them feel behind or like they are being taken advantage of.
+Example style:
+'Still waiting on your agent to respond?
+That brand already signed someone else.
+mynildash.com/athletes
+#NILDash #NILDeal #BeYourOwnAgent'
+
+For each post also specify a VISUAL instruction. Be extremely specific about what to screenshot in NILDash:
+- Deal Scan posts: 'Screenshot: Open Deal Scan, upload any PDF, show the AI analysis verdict screen with the fairness rating visible'
+- Media Kit posts: 'Screenshot: Open Media Kit Builder, show a completed athlete media kit preview with photo, stats, and rate card visible'
+- Rate Calculator posts: 'Screenshot: Open Rate Calculator, enter follower counts, show the calculated NIL value result'
+- Gmail posts: 'Screenshot: Open Gmail Integration tab, show the connected Gmail outreach composer with a draft email visible'
+- Math/agent fee posts: 'Graphic: Create a simple dark background graphic with the dollar amounts from the post in large white and green text'
+- Social proof posts: 'Screenshot: Open NILDash home dashboard showing all tools in the sidebar and the AI ready indicator'
+- Challenge posts: 'Screenshot: Open Deal Scan showing the AI analyzing a deal with a clear verdict'
+
+Return ONLY a valid JSON array of exactly 10 objects. Each object has exactly two string fields: post and visual. No markdown. No backticks. No numbering. No explanation. Pure JSON only starting with [ and ending with ]`;
 
   const userPrompt = 'Generate the 10 posts now.';
 
   try {
-    const raw = await ai.oneShot(userPrompt, systemPrompt, 2500, GROWTH_MODEL);
+    const raw = await ai.oneShot(userPrompt, systemPrompt, 3500, GROWTH_MODEL);
     let posts = [];
     try {
       const arrMatch = raw.match(/\[[\s\S]*\]/);
       if (arrMatch) posts = JSON.parse(arrMatch[0]);
     } catch (parseErr) {
-      console.error('[growth/generate-social-posts] parse error:', parseErr.message, 'raw:', raw.slice(0, 200));
+      console.error('[growth/generate-social-posts] parse error:', parseErr.message, 'raw:', raw.slice(0, 300));
       return res.status(500).json({ error: 'AI returned unparseable JSON' });
     }
     if (!Array.isArray(posts) || posts.length === 0) {
       return res.status(500).json({ error: 'AI returned no posts' });
     }
+    // Normalise: ensure each item has {post, visual} strings
+    posts = posts.map(function(p) {
+      if (typeof p === 'string') return { post: p, visual: '' };
+      return { post: String(p.post || ''), visual: String(p.visual || '') };
+    });
     res.json({ posts });
   } catch (e) {
     console.error('[growth/generate-social-posts]', e.message);
