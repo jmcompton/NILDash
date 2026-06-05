@@ -12944,7 +12944,7 @@ var growthModule = (function() {
   }
 
   // ── Social Posts Module ────────────────────────────────────────────────────
-  var _socialPosts = [];   // current batch of 10 post strings
+  var _socialPosts = [];   // current batch of 10 {post, visual} objects
   var _spTopics = { deal: true, kit: true, gmail: true };
 
   function toggleTopic(key) {
@@ -13005,7 +13005,9 @@ var growthModule = (function() {
   }
 
   function _renderPostCard(post, idx) {
-    var n = post.length;
+    var postText = (post && post.post) ? post.post : '';
+    var visualText = (post && post.visual) ? post.visual : '';
+    var n = postText.length;
     var countColor = _spCountColor(n);
     var id = 'sp-card-' + idx;
     return '<div id="' + id + '" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:10px">' +
@@ -13015,8 +13017,8 @@ var growthModule = (function() {
         '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="color:var(--muted);flex-shrink:0"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>' +
       '</div>' +
       // Text display (toggled with textarea on edit)
-      '<div id="' + id + '-display" style="font-size:13px;color:var(--text);line-height:1.6;word-break:break-word">' + _spHighlight(post) + '</div>' +
-      '<textarea id="' + id + '-edit" style="display:none;width:100%;padding:8px;background:var(--surface2);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--text);font-size:13px;line-height:1.6;resize:vertical;min-height:80px;font-family:inherit;box-sizing:border-box" oninput="growthModule.spUpdateCount(' + idx + ')">' + post.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</textarea>' +
+      '<div id="' + id + '-display" style="font-size:13px;color:var(--text);line-height:1.6;word-break:break-word">' + _spHighlight(postText) + '</div>' +
+      '<textarea id="' + id + '-edit" style="display:none;width:100%;padding:8px;background:var(--surface2);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--text);font-size:13px;line-height:1.6;resize:vertical;min-height:80px;font-family:inherit;box-sizing:border-box" oninput="growthModule.spUpdateCount(' + idx + ')">' + postText.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</textarea>' +
       // Bottom row: char count + buttons
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
         '<span id="' + id + '-count" style="font-size:11px;font-weight:600;color:' + countColor + ';font-family:var(--mono)">' + n + '/280</span>' +
@@ -13025,6 +13027,11 @@ var growthModule = (function() {
           '<button id="' + id + '-edit-btn" onclick="growthModule.editSocialPost(' + idx + ')" style="padding:5px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--mono);transition:all 0.15s;display:inline-flex;align-items:center;gap:4px">✏️ Edit</button>' +
         '</div>' +
       '</div>' +
+      // Visual attachment instruction
+      (visualText ? '<div style="border-top:1px solid #C9A84C;background:rgba(201,168,76,0.05);border-radius:0 0 var(--r-sm) var(--r-sm);padding:8px 10px;display:flex;align-items:flex-start;gap:8px;margin-top:2px">' +
+        '<span style="font-size:14px;flex-shrink:0;margin-top:1px">📸</span>' +
+        '<span style="font-size:11px;color:#C9A84C;font-style:italic;line-height:1.5">' + visualText.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>' +
+      '</div>' : '') +
     '</div>';
   }
 
@@ -13035,7 +13042,7 @@ var growthModule = (function() {
     var n = ta.value.length;
     countEl.textContent = n + '/280';
     countEl.style.color = _spCountColor(n);
-    _socialPosts[idx] = ta.value; // keep in sync
+    if (_socialPosts[idx]) _socialPosts[idx].post = ta.value; // keep in sync
   }
 
   function editSocialPost(idx) {
@@ -13047,7 +13054,7 @@ var growthModule = (function() {
     if (isEditing) {
       // Done editing — update display
       var updated = ta.value;
-      _socialPosts[idx] = updated;
+      if (_socialPosts[idx]) _socialPosts[idx].post = updated;
       display.innerHTML = _spHighlight(updated);
       display.style.display = '';
       ta.style.display = 'none';
@@ -13055,7 +13062,7 @@ var growthModule = (function() {
       spUpdateCount(idx);
     } else {
       // Enter edit mode
-      ta.value = _socialPosts[idx];
+      ta.value = (_socialPosts[idx] && _socialPosts[idx].post) ? _socialPosts[idx].post : '';
       display.style.display = 'none';
       ta.style.display = 'block';
       ta.focus();
@@ -13065,7 +13072,7 @@ var growthModule = (function() {
 
   async function copySocialPost(idx) {
     var btn = document.getElementById('sp-card-' + idx + '-copy-btn');
-    var text = _socialPosts[idx] || '';
+    var text = (_socialPosts[idx] && _socialPosts[idx].post) ? _socialPosts[idx].post : '';
     var ok = await _spCopy(text);
     if (btn) {
       btn.textContent = ok ? '✓ Copied!' : '✗ Failed';
@@ -13076,7 +13083,7 @@ var growthModule = (function() {
 
   async function copyAllPosts() {
     var allBtn = document.getElementById('sp-copy-all-btn');
-    var text = _socialPosts.filter(Boolean).join('\n\n---\n\n');
+    var text = _socialPosts.filter(Boolean).map(function(p) { return (p && p.post) ? p.post : ''; }).filter(Boolean).join('\n\n');
     var ok = await _spCopy(text);
     if (allBtn) {
       allBtn.textContent = ok ? '✓ All Copied!' : '✗ Failed';
