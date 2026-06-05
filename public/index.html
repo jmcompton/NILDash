@@ -1029,6 +1029,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <span class="nav-dot-item"></span>Settings
       </button>
 
+      <!-- Growth tab — admin only, hidden by default -->
+      <button class="nav-item" id="growthNavBtn" onclick="showView('growth',this);growthModule.load()" style="display:none;color:#a78bfa;border-color:rgba(167,139,250,0.2)">
+        <span class="nav-dot-item" style="background:#a78bfa"></span>Growth
+        <span id="growth-badge" style="display:none;margin-left:auto;background:#a78bfa;color:#fff;font-size:10px;font-weight:700;border-radius:9999px;padding:1px 6px;line-height:1.6"></span>
+      </button>
+
     </nav>
 
     <div class="sidebar-bottom">
@@ -3091,6 +3097,116 @@ tbody td{padding:11px 14px;vertical-align:middle}
   </div>
 
     </div><!-- /content -->
+
+  <!-- ── Growth Tab ─────────────────────────────────────────────────────────── -->
+  <div id="view-growth" class="view" style="display:none">
+    <div class="page-title">Growth</div>
+    <div class="page-sub">Admin-only · Automated outreach to NIL agents and schools</div>
+
+    <!-- Sub-tab nav -->
+    <div style="display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
+      <button id="gtab-prospects-btn" onclick="growthModule.switchTab('prospects')" style="padding:8px 16px;border:none;background:none;color:var(--accent);font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-1px">Prospects</button>
+      <button id="gtab-sequences-btn" onclick="growthModule.switchTab('sequences')" style="padding:8px 16px;border:none;background:none;color:var(--muted);font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px">Sequences</button>
+      <button id="gtab-log-btn" onclick="growthModule.switchTab('log')" style="padding:8px 16px;border:none;background:none;color:var(--muted);font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px">Outreach Log</button>
+    </div>
+
+    <!-- ── Prospects Tab ── -->
+    <div id="gtab-prospects" style="display:block">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px">
+        <button onclick="growthModule.findProspects('agent')" style="padding:9px 16px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mono)">🔍 Find Agents</button>
+        <button onclick="growthModule.findProspects('school')" style="padding:9px 16px;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.3);border-radius:var(--r-sm);color:#a78bfa;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mono)">🏫 Find Schools</button>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <label style="font-size:11px;color:var(--muted);font-family:var(--mono)">Filter:</label>
+          <select id="growth-filter" onchange="growthModule.renderProspects()" style="padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px">
+            <option value="all">All</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="skip">Skipped</option>
+            <option value="replied">Replied</option>
+            <option value="converted">Converted</option>
+          </select>
+        </div>
+      </div>
+      <div id="growth-prospects-loading" style="display:none;color:var(--muted);font-size:12px;font-family:var(--mono);padding:12px">Searching for prospects…</div>
+      <div id="growth-prospects-table-wrap" style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Name</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Type</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Email</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Location</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Status</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="growth-prospects-tbody">
+            <tr><td colspan="6" style="padding:20px 10px;color:var(--muted);font-size:12px">No prospects yet — click Find Agents or Find Schools to get started.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── Sequences Tab ── -->
+    <div id="gtab-sequences" style="display:none">
+      <div style="display:flex;gap:12px;margin-bottom:20px">
+        <button id="gseq-tab-agent" onclick="growthModule.switchSeqType('agent')" style="padding:7px 14px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Agent Sequence</button>
+        <button id="gseq-tab-school" onclick="growthModule.switchSeqType('school')" style="padding:7px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mono)">School Sequence</button>
+      </div>
+      <input type="hidden" id="gseq-current-type" value="agent">
+
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-bottom:16px">
+        <button onclick="growthModule.draftSequence()" style="padding:8px 16px;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.3);border-radius:var(--r-sm);color:#a78bfa;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mono)">✨ AI Draft</button>
+        <button onclick="growthModule.saveSequence()" style="padding:8px 16px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--mono)">💾 Save Sequence</button>
+      </div>
+
+      <!-- Email 1 -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;font-family:var(--mono)">Email 1 — Initial Outreach</div>
+        <input id="gseq-subject1" type="text" placeholder="Subject line…" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;margin-bottom:8px;box-sizing:border-box">
+        <textarea id="gseq-body1" rows="5" placeholder="Email body…" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>
+      </div>
+      <!-- Email 2 -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;font-family:var(--mono)">Email 2 — Follow-up (Day 3)</div>
+        <input id="gseq-subject2" type="text" placeholder="Subject line…" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;margin-bottom:8px;box-sizing:border-box">
+        <textarea id="gseq-body2" rows="5" placeholder="Email body…" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>
+      </div>
+      <!-- Email 3 -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;font-family:var(--mono)">Email 3 — Final Ask (Day 7)</div>
+        <input id="gseq-subject3" type="text" placeholder="Subject line…" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;margin-bottom:8px;box-sizing:border-box">
+        <textarea id="gseq-body3" rows="5" placeholder="Email body…" style="width:100%;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>
+      </div>
+      <div id="gseq-status" style="font-size:11px;color:var(--muted);font-family:var(--mono);padding:4px 0"></div>
+    </div>
+
+    <!-- ── Outreach Log Tab ── -->
+    <div id="gtab-log" style="display:none">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:16px">
+        <button onclick="growthModule.runDailyOutreach()" style="padding:9px 18px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:var(--r-sm);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">▶ Run Daily Outreach</button>
+      </div>
+      <div id="growth-log-status" style="font-size:12px;color:var(--muted);font-family:var(--mono);margin-bottom:12px"></div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Prospect</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Type</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Step</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Sent</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Status</th>
+              <th style="text-align:left;padding:8px 10px;color:var(--muted);font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="growth-log-tbody">
+            <tr><td colspan="6" style="padding:20px 10px;color:var(--muted);font-size:12px">No outreach sent yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /view-growth -->
+
   </main>
 </div>
 
@@ -3961,6 +4077,11 @@ async function bootApp() {
   // Show admin mode switcher
   var adminSwitcher = document.getElementById('adminModeSwitcher');
   if (adminSwitcher) adminSwitcher.style.display = _isAdmin ? 'block' : 'none';
+
+  // Show Growth tab for admin only
+  var growthNavBtn = document.getElementById('growthNavBtn');
+  if (growthNavBtn) growthNavBtn.style.display = _isAdmin ? 'flex' : 'none';
+  if (_isAdmin) growthModule.loadBadge();
 
   // Restore saved commission rate
   const savedRate = localStorage.getItem('nilCommissionRate');
@@ -12429,6 +12550,292 @@ async function amkLoadForAthlete(athleteId) {
     mkUpdatePreview();
   }
 }
+</script>
+
+<!-- ── Growth Module ─────────────────────────────────────────────────────── -->
+<script>
+var growthModule = (function() {
+  var _prospects = [];
+  var _sequences = {};
+  var _log = [];
+  var _currentSeqType = 'agent';
+
+  var STATUS_COLORS = {
+    pending:   { bg: 'rgba(251,191,36,0.1)',  border: 'rgba(251,191,36,0.3)',  color: '#fbbf24' },
+    approved:  { bg: 'rgba(132,204,22,0.1)',  border: 'rgba(132,204,22,0.3)',  color: '#84CC16' },
+    skip:      { bg: 'rgba(107,114,128,0.1)', border: 'rgba(107,114,128,0.3)', color: '#6b7280' },
+    replied:   { bg: 'rgba(167,139,250,0.1)', border: 'rgba(167,139,250,0.3)', color: '#a78bfa' },
+    converted: { bg: 'rgba(34,197,94,0.1)',   border: 'rgba(34,197,94,0.3)',   color: '#22c55e' }
+  };
+
+  function statusPill(s) {
+    var c = STATUS_COLORS[s] || STATUS_COLORS.pending;
+    return '<span style="padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:700;font-family:var(--mono);background:' + c.bg + ';border:1px solid ' + c.border + ';color:' + c.color + '">' + s + '</span>';
+  }
+
+  function fmtDate(d) {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'2-digit' });
+  }
+
+  async function load() {
+    await Promise.all([loadProspects(), loadSequences(), loadLog()]);
+    renderProspects();
+    renderLog();
+  }
+
+  async function loadProspects() {
+    try {
+      var r = await fetch('/api/growth/prospects');
+      if (r.ok) _prospects = await r.json();
+    } catch(e) { console.warn('[growth] loadProspects:', e.message); }
+  }
+
+  async function loadSequences() {
+    try {
+      var r = await fetch('/api/growth/sequences');
+      if (r.ok) {
+        var rows = await r.json();
+        _sequences = {};
+        rows.forEach(function(s) { _sequences[s.type] = s; });
+        renderSequence('agent');
+      }
+    } catch(e) { console.warn('[growth] loadSequences:', e.message); }
+  }
+
+  async function loadLog() {
+    try {
+      var r = await fetch('/api/growth/outreach-log');
+      if (r.ok) _log = await r.json();
+    } catch(e) { console.warn('[growth] loadLog:', e.message); }
+  }
+
+  async function loadBadge() {
+    try {
+      var r = await fetch('/api/growth/badge');
+      if (!r.ok) return;
+      var data = await r.json();
+      var badge = document.getElementById('growth-badge');
+      if (!badge) return;
+      if (data.replied > 0) {
+        badge.textContent = data.replied;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    } catch(e) {}
+  }
+
+  function renderProspects() {
+    var filter = (document.getElementById('growth-filter') || {}).value || 'all';
+    var tbody = document.getElementById('growth-prospects-tbody');
+    if (!tbody) return;
+    var rows = filter === 'all' ? _prospects : _prospects.filter(function(p) { return p.status === filter; });
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:20px 10px;color:var(--muted);font-size:12px">No prospects match the filter.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function(p) {
+      var actions = '';
+      if (p.status === 'pending') {
+        actions += '<button onclick="growthModule.setStatus(' + p.id + ',\'approved\')" style="padding:4px 10px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:4px;color:var(--accent);font-size:11px;cursor:pointer;margin-right:4px">Add to Outreach</button>';
+        actions += '<button onclick="growthModule.setStatus(' + p.id + ',\'skip\')" style="padding:4px 10px;background:rgba(107,114,128,0.1);border:1px solid rgba(107,114,128,0.3);border-radius:4px;color:#6b7280;font-size:11px;cursor:pointer">Skip</button>';
+      } else if (p.status === 'replied') {
+        actions += '<button onclick="growthModule.setStatus(' + p.id + ',\'converted\')" style="padding:4px 10px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.3);border-radius:4px;color:#22c55e;font-size:11px;cursor:pointer">Mark Converted</button>';
+      }
+      actions += '<button onclick="growthModule.deleteProp(' + p.id + ')" style="padding:4px 8px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:4px;color:#ef4444;font-size:11px;cursor:pointer;margin-left:4px">✕</button>';
+      return '<tr style="border-bottom:1px solid var(--border)">' +
+        '<td style="padding:9px 10px;color:var(--text);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + (p.name || '—') + '<div style="font-size:10px;color:var(--muted)">' + (p.website || '') + '</div></td>' +
+        '<td style="padding:9px 10px"><span style="padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;font-family:var(--mono);background:' + (p.type==='agent' ? 'rgba(132,204,22,0.08)' : 'rgba(167,139,250,0.08)') + ';color:' + (p.type==='agent' ? 'var(--accent)' : '#a78bfa') + '">' + p.type + '</span></td>' +
+        '<td style="padding:9px 10px;color:var(--muted);font-size:11px">' + (p.email || '—') + '</td>' +
+        '<td style="padding:9px 10px;color:var(--muted);font-size:11px">' + (p.location || '—') + '</td>' +
+        '<td style="padding:9px 10px">' + statusPill(p.status) + '</td>' +
+        '<td style="padding:9px 10px;white-space:nowrap">' + actions + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderSequence(type) {
+    var seq = _sequences[type] || {};
+    ['subject1','body1','subject2','body2','subject3','body3'].forEach(function(k) {
+      var el = document.getElementById('gseq-' + k);
+      if (el) el.value = seq[k] || '';
+    });
+  }
+
+  function renderLog() {
+    var tbody = document.getElementById('growth-log-tbody');
+    if (!tbody) return;
+    if (!_log.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="padding:20px 10px;color:var(--muted);font-size:12px">No outreach sent yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = _log.map(function(l) {
+      var actions = '';
+      if (l.prospect_status !== 'replied' && l.prospect_status !== 'converted') {
+        actions = '<button onclick="growthModule.setStatus(' + l.prospect_id + ',\'replied\')" style="padding:4px 10px;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.3);border-radius:4px;color:#a78bfa;font-size:11px;cursor:pointer">Mark Replied</button>';
+      } else {
+        actions = statusPill(l.prospect_status);
+      }
+      return '<tr style="border-bottom:1px solid var(--border)">' +
+        '<td style="padding:9px 10px;color:var(--text)">' + (l.prospect_name || '—') + '<div style="font-size:10px;color:var(--muted)">' + (l.prospect_email || '') + '</div></td>' +
+        '<td style="padding:9px 10px"><span style="font-size:10px;font-weight:700;font-family:var(--mono);color:' + (l.prospect_type==='agent' ? 'var(--accent)' : '#a78bfa') + '">' + (l.prospect_type || '—') + '</span></td>' +
+        '<td style="padding:9px 10px;color:var(--text);font-family:var(--mono)">Email ' + (l.sequence_step || 1) + '</td>' +
+        '<td style="padding:9px 10px;color:var(--muted);font-size:11px">' + fmtDate(l.sent_at) + '</td>' +
+        '<td style="padding:9px 10px">' + statusPill(l.status || 'sent') + '</td>' +
+        '<td style="padding:9px 10px">' + actions + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function switchTab(tab) {
+    ['prospects','sequences','log'].forEach(function(t) {
+      var panel = document.getElementById('gtab-' + t);
+      var btn   = document.getElementById('gtab-' + t + '-btn');
+      if (!panel || !btn) return;
+      var active = t === tab;
+      panel.style.display = active ? 'block' : 'none';
+      btn.style.color = active ? 'var(--accent)' : 'var(--muted)';
+      btn.style.borderBottomColor = active ? 'var(--accent)' : 'transparent';
+    });
+  }
+
+  function switchSeqType(type) {
+    _currentSeqType = type;
+    document.getElementById('gseq-current-type').value = type;
+    var agentBtn  = document.getElementById('gseq-tab-agent');
+    var schoolBtn = document.getElementById('gseq-tab-school');
+    if (agentBtn)  { agentBtn.style.background  = type==='agent'  ? 'rgba(132,204,22,0.1)' : 'var(--surface2)'; agentBtn.style.color  = type==='agent'  ? 'var(--accent)' : 'var(--muted)'; agentBtn.style.borderColor  = type==='agent'  ? 'rgba(132,204,22,0.3)' : 'var(--border)'; }
+    if (schoolBtn) { schoolBtn.style.background = type==='school' ? 'rgba(167,139,250,0.1)' : 'var(--surface2)'; schoolBtn.style.color = type==='school' ? '#a78bfa'       : 'var(--muted)'; schoolBtn.style.borderColor = type==='school' ? 'rgba(167,139,250,0.3)' : 'var(--border)'; }
+    renderSequence(type);
+  }
+
+  async function findProspects(type) {
+    var loading = document.getElementById('growth-prospects-loading');
+    if (loading) loading.style.display = 'block';
+    try {
+      var r = await fetch('/api/growth/find-prospects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type })
+      });
+      var data = await r.json();
+      if (!r.ok) { alert('Error: ' + (data.error || 'Unknown')); return; }
+      await loadProspects();
+      renderProspects();
+      if (loading) loading.style.display = 'none';
+      // brief toast
+      var st = document.getElementById('gseq-status');
+      if (st) { st.textContent = 'Found ' + (data.inserted || 0) + ' new prospects.'; setTimeout(function(){st.textContent='';},3000); }
+    } catch(e) {
+      alert('Network error: ' + e.message);
+    } finally {
+      if (loading) loading.style.display = 'none';
+    }
+  }
+
+  async function setStatus(id, status) {
+    try {
+      var r = await fetch('/api/growth/prospects/' + id + '/status', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      if (!r.ok) { var d=await r.json(); alert('Error: '+(d.error||'Unknown')); return; }
+      // Update locally
+      _prospects = _prospects.map(function(p) { return p.id===id ? Object.assign({},p,{status}) : p; });
+      _log = _log.map(function(l) { return l.prospect_id===id ? Object.assign({},l,{prospect_status:status}) : l; });
+      renderProspects();
+      renderLog();
+      loadBadge();
+    } catch(e) { alert('Network error: '+e.message); }
+  }
+
+  async function deleteProp(id) {
+    if (!confirm('Delete this prospect?')) return;
+    try {
+      await fetch('/api/growth/prospects/' + id, { method: 'DELETE' });
+      _prospects = _prospects.filter(function(p) { return p.id !== id; });
+      renderProspects();
+    } catch(e) { alert('Network error: '+e.message); }
+  }
+
+  async function draftSequence() {
+    var type = document.getElementById('gseq-current-type').value;
+    var st = document.getElementById('gseq-status');
+    if (st) st.textContent = 'Drafting sequence with AI…';
+    try {
+      var r = await fetch('/api/growth/draft-sequence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type })
+      });
+      var data = await r.json();
+      if (!r.ok) { if(st) st.textContent='Error: '+(data.error||'Unknown'); return; }
+      ['subject1','body1','subject2','body2','subject3','body3'].forEach(function(k) {
+        var el = document.getElementById('gseq-' + k);
+        if (el && data[k]) el.value = data[k];
+      });
+      if (st) { st.textContent = '✅ Draft ready — review and save.'; setTimeout(function(){st.textContent='';},4000); }
+    } catch(e) {
+      if (st) st.textContent = 'Network error: ' + e.message;
+    }
+  }
+
+  async function saveSequence() {
+    var type = document.getElementById('gseq-current-type').value;
+    var payload = { type };
+    ['subject1','body1','subject2','body2','subject3','body3'].forEach(function(k) {
+      var el = document.getElementById('gseq-' + k);
+      payload[k] = el ? el.value : '';
+    });
+    var st = document.getElementById('gseq-status');
+    try {
+      var r = await fetch('/api/growth/sequences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      var data = await r.json();
+      if (!r.ok) { if(st) st.textContent='Error: '+(data.error||'Unknown'); return; }
+      _sequences[type] = data;
+      if (st) { st.textContent = '✅ Sequence saved.'; setTimeout(function(){st.textContent='';},3000); }
+    } catch(e) {
+      if (st) st.textContent = 'Network error: ' + e.message;
+    }
+  }
+
+  async function runDailyOutreach() {
+    var logSt = document.getElementById('growth-log-status');
+    if (logSt) logSt.textContent = 'Sending emails…';
+    try {
+      var r = await fetch('/api/growth/send-daily', { method: 'POST' });
+      var data = await r.json();
+      if (!r.ok) { if(logSt) logSt.textContent='Error: '+(data.error||'Unknown'); return; }
+      if (logSt) logSt.textContent = '✅ Sent ' + (data.sent||0) + ' email(s). ' + (data.message||'');
+      await loadLog();
+      renderLog();
+      await loadProspects();
+      renderProspects();
+    } catch(e) {
+      if (logSt) logSt.textContent = 'Network error: ' + e.message;
+    }
+  }
+
+  return {
+    load,
+    loadBadge,
+    switchTab,
+    switchSeqType,
+    findProspects,
+    setStatus,
+    deleteProp,
+    draftSequence,
+    saveSequence,
+    runDailyOutreach,
+    renderProspects
+  };
+})();
 </script>
 </body>
 </html>

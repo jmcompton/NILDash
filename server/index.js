@@ -4407,6 +4407,15 @@ try {
   console.warn('[email] Sync poller failed to start:', e.message);
 }
 
+// ── Growth Tab (Admin-only B2B Outreach) ──────────────────────────────────────
+try {
+  const growthRoutes = require('./routes/growth');
+  app.use('/api/growth', requireAuth, growthRoutes);
+  console.log('[growth] Growth tab routes loaded');
+} catch (e) {
+  console.warn('[growth] Failed to load growth routes:', e.message);
+}
+
 // ── Outreach Automation Engine ────────────────────────────────────────────────
 // Isolated route module — zero interference with existing routes above.
 try {
@@ -7089,6 +7098,48 @@ app.listen(PORT, async () => {
     }
   } catch (err) {
     console.warn('[migrations] Migration run failed (non-fatal):', err.message);
+  }
+
+  // ── Growth Tab DB Tables ──────────────────────────────────────────
+  try {
+    await store.pool.query(`
+      CREATE TABLE IF NOT EXISTS growth_prospects (
+        id         SERIAL PRIMARY KEY,
+        type       TEXT NOT NULL DEFAULT 'agent',
+        name       TEXT NOT NULL,
+        email      TEXT NOT NULL UNIQUE,
+        website    TEXT,
+        location   TEXT,
+        notes      TEXT,
+        status     TEXT NOT NULL DEFAULT 'pending',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await store.pool.query(`
+      CREATE TABLE IF NOT EXISTS growth_sequences (
+        id         SERIAL PRIMARY KEY,
+        type       TEXT NOT NULL UNIQUE,
+        name       TEXT,
+        subject1   TEXT, body1 TEXT,
+        subject2   TEXT, body2 TEXT,
+        subject3   TEXT, body3 TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await store.pool.query(`
+      CREATE TABLE IF NOT EXISTS growth_outreach_log (
+        id            SERIAL PRIMARY KEY,
+        prospect_id   INTEGER NOT NULL REFERENCES growth_prospects(id) ON DELETE CASCADE,
+        sequence_step INTEGER NOT NULL DEFAULT 1,
+        sent_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        resend_id     TEXT,
+        status        TEXT NOT NULL DEFAULT 'sent'
+      )
+    `);
+    console.log('[growth] ✅ Growth DB tables ready');
+  } catch (err) {
+    console.warn('[growth] DB table creation failed (non-fatal):', err.message);
   }
 
   // ── Fix 2025 deliverable dates → 2026 (one-time data correction) ──
