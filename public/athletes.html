@@ -24,7 +24,9 @@
   --r:12px;
 }
 html{scroll-behavior:smooth}
-body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;position:relative}
+/* Subtle lime gradient overlay at top of page */
+body::before{content:'';position:fixed;top:0;left:0;right:0;height:300px;background:linear-gradient(to bottom,rgba(200,255,0,0.04) 0%,transparent 100%);pointer-events:none;z-index:0}
 a{text-decoration:none;color:inherit}
 
 /* ── NAV ── */
@@ -40,23 +42,32 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;padding:0 5%;height:64px;dis
 
 /* ── HERO ── */
 .hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:80px 5% 60px;position:relative;overflow:hidden}
+/* Radial glows */
 .hero::before{content:'';position:absolute;top:-200px;right:-200px;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(200,255,0,0.06) 0%,transparent 70%);pointer-events:none}
 .hero::after{content:'';position:absolute;bottom:-100px;left:-100px;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(200,255,0,0.04) 0%,transparent 70%);pointer-events:none}
-.hero-eyebrow{font-size:11px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--lime);margin-bottom:20px;display:flex;align-items:center;gap:10px}
-.hero-eyebrow::before{content:'';display:inline-block;width:24px;height:2px;background:var(--lime)}
-.hero-headline{font-family:'Bebas Neue',sans-serif;font-size:clamp(56px,9vw,100px);line-height:0.92;letter-spacing:0.01em;color:var(--text);margin-bottom:28px;max-width:900px}
+/* Diagonal geometric line texture — right side of hero */
+.hero-geo{position:absolute;top:0;right:0;bottom:0;width:55%;background-image:repeating-linear-gradient(-52deg,rgba(200,255,0,0.055) 0px,rgba(200,255,0,0.055) 1px,transparent 1px,transparent 44px);pointer-events:none;z-index:0;-webkit-mask-image:linear-gradient(to left,rgba(0,0,0,0.65) 0%,transparent 80%);mask-image:linear-gradient(to left,rgba(0,0,0,0.65) 0%,transparent 80%)}
+/* Eyebrow: vertical lime bar above the label text */
+.hero-eyebrow{font-size:11px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--lime);margin-bottom:20px;display:flex;align-items:flex-start;flex-direction:column;gap:12px;position:relative;z-index:1}
+.hero-eyebrow::before{content:'';display:block;width:4px;height:80px;background:var(--lime);flex-shrink:0}
+/* Headline with very subtle lime glow */
+.hero-headline{font-family:'Bebas Neue',sans-serif;font-size:clamp(56px,9vw,100px);line-height:0.92;letter-spacing:0.01em;color:var(--text);margin-bottom:28px;max-width:900px;text-shadow:0 0 120px rgba(200,255,0,0.08);position:relative;z-index:1}
 .hero-headline span{color:var(--lime)}
-.hero-sub{font-size:clamp(16px,2vw,20px);color:var(--muted);max-width:520px;line-height:1.55;margin-bottom:40px;font-weight:400}
+.hero-sub{font-size:clamp(16px,2vw,20px);color:var(--muted);max-width:520px;line-height:1.55;margin-bottom:40px;font-weight:400;position:relative;z-index:1}
 .hero-sub strong{color:var(--text);font-weight:700}
-.hero-btns{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:72px}
+.hero-btns{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:72px;position:relative;z-index:1}
 .btn-primary-lime{background:var(--lime);color:#0A0E1A;font-size:15px;font-weight:800;padding:15px 32px;border-radius:6px;border:none;cursor:pointer;transition:all 0.15s;letter-spacing:0.02em;display:inline-flex;align-items:center;gap:8px}
 .btn-primary-lime:hover{background:#d4ff26;transform:translateY(-2px);box-shadow:0 8px 32px rgba(200,255,0,0.25)}
 .btn-outline{background:transparent;color:var(--text);font-size:15px;font-weight:600;padding:15px 32px;border-radius:6px;border:1.5px solid rgba(255,255,255,0.2);cursor:pointer;transition:all 0.15s;display:inline-flex;align-items:center;gap:8px}
 .btn-outline:hover{border-color:rgba(255,255,255,0.5);transform:translateY(-2px)}
-.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.07);border-radius:10px;overflow:hidden;max-width:600px}
-.hero-stat{padding:20px 24px;background:var(--bg)}
+/* Stat cards — lime top border + green-tinted dark background */
+.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.07);border-radius:10px;overflow:hidden;max-width:600px;position:relative;z-index:1}
+.hero-stat{padding:20px 24px;background:#0F1A0F;border-top:2px solid rgba(200,255,0,0.45)}
 .hero-stat-num{font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--lime);letter-spacing:0.03em;line-height:1}
 .hero-stat-lbl{font-size:12px;color:var(--muted);margin-top:4px;font-weight:500}
+
+/* ── SECTION DIVIDERS ── */
+.section,.how-section,.pricing-section,.faq-section{border-top:1px solid rgba(200,255,0,0.08)}
 
 /* ── FEATURES ── */
 .section{padding:100px 5%}
@@ -64,30 +75,41 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;padding:0 5%;height:64px;dis
 .section-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,5vw,56px);color:var(--text);line-height:1.05;margin-bottom:20px;letter-spacing:0.02em}
 .section-sub{font-size:16px;color:var(--muted);max-width:520px;line-height:1.6;margin-bottom:56px}
 .features-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
-.feat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:28px;transition:all 0.2s;cursor:default}
-.feat-card:hover{border-color:var(--lime-border);background:linear-gradient(135deg,var(--surface) 60%,rgba(200,255,0,0.03) 100%);transform:translateY(-3px);box-shadow:0 12px 40px rgba(0,0,0,0.3)}
-.feat-icon{width:42px;height:42px;background:var(--lime-dim);border:1px solid var(--lime-border);border-radius:8px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;font-size:20px}
-.feat-num{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:0.15em;color:var(--lime);opacity:0.6;margin-bottom:8px}
-.feat-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:10px;letter-spacing:-0.01em}
-.feat-desc{font-size:13px;color:var(--muted);line-height:1.65}
+/* Feature card — left border starts transparent, top lime strip fades in on hover */
+.feat-card{background:var(--surface);border:1px solid var(--border);border-left:3px solid transparent;border-radius:var(--r);padding:28px;transition:border-color 0.2s,border-left-color 0.2s,background 0.2s,transform 0.2s,box-shadow 0.2s;cursor:default;position:relative;overflow:hidden}
+.feat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--lime);opacity:0;transition:opacity 0.2s;z-index:2}
+.feat-card:hover{border-color:var(--lime-border);border-left-color:var(--lime);background:linear-gradient(135deg,#192819 60%,rgba(200,255,0,0.04) 100%);transform:translateY(-3px);box-shadow:0 12px 40px rgba(0,0,0,0.3)}
+.feat-card:hover::before{opacity:1}
+/* Card number — large watermark in top-right background */
+.feat-num{font-family:'Bebas Neue',sans-serif;font-size:88px;color:var(--lime);opacity:0.12;position:absolute;top:4px;right:12px;line-height:1;letter-spacing:-0.02em;pointer-events:none;user-select:none;z-index:0}
+.feat-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:10px;letter-spacing:-0.01em;position:relative;z-index:1}
+.feat-desc{font-size:13px;color:var(--muted);line-height:1.65;position:relative;z-index:1}
 
 /* ── HOW IT WORKS ── */
 .how-section{padding:100px 5%;background:var(--surface)}
 .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-top:56px}
 .step{padding:40px 32px;background:var(--bg);position:relative}
-.step:not(:last-child)::after{content:'→';position:absolute;right:-1px;top:50%;transform:translateY(-50%);font-size:20px;color:rgba(200,255,0,0.3);z-index:1;background:var(--surface);padding:8px 4px}
-.step-num{font-family:'Bebas Neue',sans-serif;font-size:64px;color:var(--lime);opacity:0.15;line-height:1;margin-bottom:16px}
+/* Connecting arrow between steps */
+.step:not(:last-child)::after{content:'→';position:absolute;right:-1px;top:50%;transform:translateY(-50%);font-size:24px;color:rgba(200,255,0,0.55);z-index:1;background:var(--surface);padding:8px 6px;font-weight:700}
+/* Step numbers — massive background watermark */
+.step-num{font-family:'Bebas Neue',sans-serif;font-size:120px;color:var(--lime);opacity:0.18;line-height:1;margin-bottom:16px;letter-spacing:-0.02em}
 .step-title{font-size:18px;font-weight:800;color:var(--text);margin-bottom:10px}
 .step-desc{font-size:14px;color:var(--muted);line-height:1.65}
 
 /* ── PRICING ── */
+/* Gentle pulse animation on the pricing card border + glow */
+@keyframes pricingPulse{
+  0%,100%{box-shadow:0 0 40px rgba(200,255,0,0.12),0 20px 60px rgba(0,0,0,0.3);border-color:rgba(200,255,0,0.25)}
+  50%{box-shadow:0 0 60px rgba(200,255,0,0.22),0 20px 60px rgba(0,0,0,0.3);border-color:rgba(200,255,0,0.5)}
+}
 .pricing-section{padding:100px 5%;text-align:center}
-.pricing-card{background:var(--surface);border:1px solid var(--lime-border);border-radius:16px;padding:48px 40px;max-width:480px;margin:56px auto 0;position:relative;overflow:hidden}
+.pricing-card{background:var(--surface);border:1px solid var(--lime-border);border-radius:16px;padding:48px 40px;max-width:480px;margin:56px auto 0;position:relative;overflow:hidden;animation:pricingPulse 3s ease-in-out infinite}
 .pricing-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--lime),rgba(200,255,0,0.3))}
 .pricing-badge{display:inline-block;background:var(--lime-dim);border:1px solid var(--lime-border);color:var(--lime);font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:5px 14px;border-radius:40px;margin-bottom:20px}
 .pricing-plan{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:0.08em;color:var(--text);margin-bottom:8px}
-.pricing-price{font-family:'Bebas Neue',sans-serif;font-size:72px;color:var(--lime);letter-spacing:-0.01em;line-height:1;margin-bottom:6px}
-.pricing-price sub{font-family:'DM Sans',sans-serif;font-size:18px;font-weight:600;color:var(--muted);vertical-align:bottom;margin-bottom:8px;letter-spacing:0}
+/* Larger, more dramatic price */
+.pricing-price{font-family:'Bebas Neue',sans-serif;font-size:96px;color:var(--lime);letter-spacing:-0.02em;line-height:1;margin-bottom:6px}
+.pricing-price sub{font-family:'DM Sans',sans-serif;font-size:18px;font-weight:600;color:var(--muted);vertical-align:bottom;margin-bottom:10px;letter-spacing:0}
 .pricing-trial{font-size:14px;color:var(--muted);margin-bottom:32px}
 .pricing-features{list-style:none;text-align:left;margin-bottom:36px;display:flex;flex-direction:column;gap:12px}
 .pricing-features li{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--text);font-weight:500}
@@ -136,7 +158,6 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
 .modal-sub{font-size:13px;color:var(--muted)}
 .modal-body{padding:24px 28px 28px}
 .modal-success{padding:48px 28px;text-align:center;display:none}
-.modal-success-icon{font-size:48px;margin-bottom:16px}
 .modal-success h2{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--text);margin-bottom:8px}
 .modal-success p{font-size:14px;color:var(--muted);line-height:1.65}
 .modal-success .email-highlight{color:var(--lime);font-weight:700}
@@ -160,7 +181,7 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
 .signin-note{text-align:center;font-size:13px;color:var(--muted);margin-top:16px}
 .signin-note a{color:var(--lime);font-weight:600}
 .pass-wrap{position:relative}
-.pass-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.3);font-size:14px;padding:4px;transition:color 0.15s}
+.pass-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.3);padding:4px;transition:color 0.15s;display:flex;align-items:center}
 .pass-toggle:hover{color:rgba(255,255,255,0.7)}
 .strength-bar{height:3px;border-radius:2px;margin-top:6px;background:rgba(255,255,255,0.08);overflow:hidden}
 .strength-fill{height:100%;border-radius:2px;transition:width 0.3s,background 0.3s;width:0%}
@@ -171,12 +192,15 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
   .steps{grid-template-columns:1fr}
   .step::after{display:none}
   .form-row{grid-template-columns:1fr}
+  .step-num{font-size:80px}
 }
 @media(max-width:640px){
   nav{padding:0 4%}
   .nav-links{display:none}
   .nav-mobile-cta{display:block;background:var(--lime);color:#0A0E1A;font-size:13px;font-weight:800;padding:8px 18px;border-radius:6px;border:none;cursor:pointer}
   .hero{padding:72px 4% 50px}
+  .hero-geo{display:none}
+  .hero-eyebrow::before{height:50px}
   .hero-stats{grid-template-columns:1fr}
   .section,.how-section,.pricing-section,.faq-section,.final-cta{padding:70px 4%}
   .faq-section{max-width:100%}
@@ -185,6 +209,9 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
   .hero-btns{flex-direction:column}
   .btn-primary-lime,.btn-outline{width:100%;justify-content:center;text-align:center}
   .pricing-card{padding:32px 24px}
+  .pricing-price{font-size:72px}
+  .feat-num{font-size:64px}
+  .step-num{font-size:72px}
 }
 </style>
 </head>
@@ -206,6 +233,8 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
 
 <!-- HERO -->
 <section class="hero" id="hero">
+  <!-- Diagonal geometric texture (right side) -->
+  <div class="hero-geo"></div>
   <div class="hero-eyebrow">NILDash for Athletes</div>
   <h1 class="hero-headline">BECOME YOUR OWN<br><span>NIL AGENT.</span></h1>
   <p class="hero-sub">AI tools that used to cost thousands in agent fees. Now <strong>$25/month.</strong> First month free.</p>
@@ -243,43 +272,36 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
   <div class="features-grid">
     <div class="feat-card">
       <div class="feat-num">01</div>
-      <div class="feat-icon">🔍</div>
       <div class="feat-title">Deal Scan</div>
       <div class="feat-desc">Upload any NIL deal offer and our AI instantly analyzes it. Know if the offer is fair, what you should counter with, and whether the terms protect you — before you sign anything.</div>
     </div>
     <div class="feat-card">
       <div class="feat-num">02</div>
-      <div class="feat-icon">📊</div>
       <div class="feat-title">Rate Calculator</div>
       <div class="feat-desc">Stop guessing what you're worth. Enter your social media following and sport, and NILDash calculates your fair market NIL rate based on real deal data across your conference and position.</div>
     </div>
     <div class="feat-card">
       <div class="feat-num">03</div>
-      <div class="feat-icon">⚡</div>
       <div class="feat-title">Media Kit Builder</div>
       <div class="feat-desc">Generate a professional, branded media kit in seconds. Includes your stats, social reach, rate card, and AI-written bio. Send it to any brand directly from the platform.</div>
     </div>
     <div class="feat-card">
       <div class="feat-num">04</div>
-      <div class="feat-icon">📧</div>
       <div class="feat-title">Gmail Integration</div>
       <div class="feat-desc">Connect your Gmail and send professional NIL outreach emails directly from your own account. No agent email, no middleman — just you reaching out to brands that fit your brand.</div>
     </div>
     <div class="feat-card">
       <div class="feat-num">05</div>
-      <div class="feat-icon">🛡</div>
       <div class="feat-title">Compliance Tab</div>
       <div class="feat-desc">Stay within NCAA NIL rules automatically. NILDash flags any deal terms that could put your eligibility at risk before you sign.</div>
     </div>
     <div class="feat-card">
       <div class="feat-num">06</div>
-      <div class="feat-icon">📅</div>
       <div class="feat-title">Deal Calendar</div>
       <div class="feat-desc">Track every deliverable from every brand deal in one place. Never miss a post deadline or forfeit payment because you forgot.</div>
     </div>
     <div class="feat-card">
       <div class="feat-num">07</div>
-      <div class="feat-icon">🤖</div>
       <div class="feat-title">AI Command Center</div>
       <div class="feat-desc">Ask anything about your NIL — deal negotiation tactics, rate benchmarks, outreach scripts, contract terms. Your AI advisor available 24/7.</div>
     </div>
@@ -413,8 +435,7 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
 
     <!-- Success state -->
     <div class="modal-success" id="signupSuccess">
-      <div class="modal-success-icon">📬</div>
-      <h2>CHECK YOUR EMAIL!</h2>
+      <h2>CHECK YOUR EMAIL</h2>
       <p>We sent a verification link to<br><span class="email-highlight" id="successEmail"></span></p>
       <p style="margin-top:12px">Click the link in your email to verify your account and set up your subscription. Check your spam folder if you don't see it within a minute.</p>
     </div>
@@ -438,7 +459,9 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
         <label>Password *</label>
         <div class="pass-wrap">
           <input type="password" id="s-pass" placeholder="Min 8 characters" autocomplete="new-password">
-          <button class="pass-toggle" type="button" onclick="togglePass('s-pass')">👁</button>
+          <button class="pass-toggle" type="button" onclick="togglePass('s-pass')" aria-label="Toggle password visibility">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
         </div>
         <div class="strength-bar"><div class="strength-fill" id="strength-fill"></div></div>
         <div class="strength-text" id="strength-text"></div>
@@ -448,7 +471,9 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
         <label>Confirm Password *</label>
         <div class="pass-wrap">
           <input type="password" id="s-pass2" placeholder="Re-enter password" autocomplete="new-password">
-          <button class="pass-toggle" type="button" onclick="togglePass('s-pass2')">👁</button>
+          <button class="pass-toggle" type="button" onclick="togglePass('s-pass2')" aria-label="Toggle password visibility">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
         </div>
         <div class="field-error" id="e-pass2"></div>
       </div>
