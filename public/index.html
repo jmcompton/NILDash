@@ -2289,9 +2289,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <button onclick="exportDealsCSV()" style="padding:6px 14px;border-radius:40px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Export CSV</button>
         </div>
         <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
-          <div class="kpi"><div class="kpi-label">Total Pipeline</div><div class="kpi-val" id="pipe-total">$0</div></div>
-          <div class="kpi"><div class="kpi-label">Deals Active</div><div class="kpi-val" id="pipe-count">0</div></div>
-          <div class="kpi"><div class="kpi-label">Closing Soon</div><div class="kpi-val" id="pipe-closing">0</div></div>
+          <div class="kpi"><div class="kpi-label">Total Pipeline</div><div class="kpi-val" id="pipe-total" style="font-size:18px;color:var(--muted)">—</div></div>
+          <div class="kpi"><div class="kpi-label">Deals Active</div><div class="kpi-val" id="pipe-count" style="font-size:18px;color:var(--muted)">—</div></div>
+          <div class="kpi"><div class="kpi-label">Closing Soon</div><div class="kpi-val" id="pipe-closing" style="font-size:18px;color:var(--muted)">—</div></div>
         </div>
         <div class="pipeline" id="pipelineBoard"></div>
         <div style="margin-top:20px">
@@ -4294,6 +4294,11 @@ async function onAthleteChange() {
     document.getElementById('cmdClientLabel').textContent = ath.name;
     loadKPIs();
     clearAllResults();
+    // If Home is the active view, refresh the brief now that a client is confirmed
+    const homeView = document.getElementById('view-home');
+    if (homeView && homeView.classList.contains('active')) {
+      loadHomeBrief();
+    }
   }
   tmPreFillFromAthlete();
 }
@@ -4518,12 +4523,23 @@ async function loadHomeBrief() {
   const footerEl  = document.getElementById('home-brief-footer');
   if (!bulletsEl) return;
 
+  // Don't fire the AI call until a client is actually selected
+  if (!selectedAthleteId) {
+    bulletsEl.innerHTML = '<span style="font-size:11px;color:#4B5563;font-style:italic">Select a client above to load your AI brief.</span>';
+    if (footerEl) footerEl.style.display = 'none';
+    return;
+  }
+
   const ICONS = [
     '<i class="ti ti-alert-circle" style="color:#EF4444;font-size:12px;flex-shrink:0;margin-top:1px"></i>',
     '<i class="ti ti-clock"        style="color:#F59E0B;font-size:12px;flex-shrink:0;margin-top:1px"></i>',
     '<i class="ti ti-calendar-event" style="color:#84CC16;font-size:12px;flex-shrink:0;margin-top:1px"></i>',
     '<i class="ti ti-mail"         style="color:#84CC16;font-size:12px;flex-shrink:0;margin-top:1px"></i>',
   ];
+
+  // Show skeleton while loading
+  const skeletonEl = document.getElementById('home-brief-skeleton');
+  if (skeletonEl) skeletonEl.style.display = 'flex';
 
   try {
     const timeout = new Promise(resolve => setTimeout(() => resolve({ bullets: null }), 9000));
@@ -5789,8 +5805,15 @@ async function loadPipeline() {
   window._pipelineDeals = allDeals;
   // Use parseInt to avoid string-concatenation bugs with JSONB string values
   const total = allDeals.reduce((s,d) => s + (parseInt(d.value) || 0), 0);
-  document.getElementById('pipe-total').textContent = '$' + (total / 1000).toFixed(0) + 'K';
-  document.getElementById('pipe-count').textContent = allDeals.filter(d => d.stage !== 'Closed').length;
+
+  // Restore normal font-size/color after loading state
+  ['pipe-total','pipe-count','pipe-closing'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.style.fontSize = ''; el.style.color = ''; }
+  });
+
+  document.getElementById('pipe-total').textContent   = '$' + (total / 1000).toFixed(0) + 'K';
+  document.getElementById('pipe-count').textContent   = allDeals.filter(d => d.stage !== 'Closed').length;
   document.getElementById('pipe-closing').textContent = allDeals.filter(d => d.stage === 'Closing').length;
 
   const board = document.getElementById('pipelineBoard');
@@ -6642,6 +6665,7 @@ async function loadAnalytics() {
   const body = document.getElementById('analytics-body');
   if (!body) return;
   body.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:40px">Loading analytics...</div>';
+  let rendered = false;
   try {
   // Gather all deals via agent-wide endpoint (same source of truth as Home and Pipeline)
   const athMap = {};
@@ -6652,6 +6676,7 @@ async function loadAnalytics() {
   console.log('[analytics] loaded', allDeals.length, 'deals via /api/agent/deals');
   if (!athletes.length) {
     body.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:48px">No analytics data yet — add clients and deals to your pipeline to see insights.</div>';
+    rendered = true;
     return;
   }
 
@@ -6762,12 +6787,23 @@ async function loadAnalytics() {
   }
 
   body.innerHTML = html;
+  rendered = true;
   } catch(analyticsErr) {
     console.error('[analytics] Error:', analyticsErr);
+    rendered = true;
     body.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:48px">' +
-      '<div style="margin-bottom:12px">Failed to load analytics.</div>' +
+      '<div style="margin-bottom:8px;font-size:14px">Failed to load analytics.</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-bottom:16px">' + escHtml(analyticsErr.message || String(analyticsErr)) + '</div>' +
       '<button onclick="loadAnalytics()" style="padding:8px 20px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;cursor:pointer">↻ Refresh</button>' +
       '</div>';
+  } finally {
+    // Safety net: if nothing rendered (e.g. early return threw), clear the spinner
+    if (!rendered && body) {
+      body.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:48px">' +
+        '<div style="margin-bottom:12px">Analytics unavailable.</div>' +
+        '<button onclick="loadAnalytics()" style="padding:8px 20px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;cursor:pointer">↻ Refresh</button>' +
+        '</div>';
+    }
   }
 }
 

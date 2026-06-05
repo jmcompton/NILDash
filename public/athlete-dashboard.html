@@ -1351,7 +1351,7 @@ function showView(id, navBtn) {
   if (id === 'calendar')    { AthlCal.initLabel(); AthlCal.reload(); initGCalStatus(); }
   if (id === 'pipeline')    loadDeals();
   if (id === 'compliance')  initAthleteCompliance();
-  if (id === 'email')       { loadEmailHistory(); initGmailStatus(); }
+  if (id === 'email')       { initGmailStatus().then(function(){ loadEmailHistory(); }); }
   if (id === 'profile')     loadProfileForm();
 }
 
@@ -2946,7 +2946,7 @@ var AthlCal = (function() {
   var _selectedDay = null;
 
   function _statusBadge(e, today) {
-    var ds = e.event_date ? e.event_date.split('T')[0] : null;
+    var ds = e.event_date ? String(e.event_date).substring(0,10) : null;
     if (e.status === 'completed') return '<span style="font-size:10px;color:var(--green);font-weight:600">✓ Done</span>';
     if (ds && ds < today) return '<span style="font-size:10px;color:var(--red);font-weight:600">Overdue</span>';
     return '<span style="font-size:10px;color:var(--orange);font-weight:600">Pending</span>';
@@ -2957,9 +2957,14 @@ var AthlCal = (function() {
       var r = await fetch('/api/athlete/calendar', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
       var data = await r.json();
       _events = data.events || [];
+      console.log('[AthlCal] raw events from /api/athlete/calendar:', _events.length, 'events');
+      if (_events.length > 0) {
+        console.log('[AthlCal] first 3 events (dates):', _events.slice(0,3).map(function(e){ return { title: e.title, event_date: e.event_date }; }));
+      }
       _populateBrandFilter();
       applyFilter();
     } catch(e) {
+      console.error('[AthlCal] reload error:', e.message);
       document.getElementById('cal-empty-state').style.display = 'block';
       document.getElementById('cal-grid-wrap').style.display = 'none';
     }
@@ -2981,7 +2986,7 @@ var AthlCal = (function() {
     _filtered = _events.filter(function(e) {
       if (brand && e.brand !== brand) return false;
       if (status) {
-        var ds = e.event_date ? e.event_date.split('T')[0] : null;
+        var ds = e.event_date ? String(e.event_date).substring(0,10) : null;
         if (status === 'completed' && e.status !== 'completed') return false;
         if (status === 'pending' && (e.status === 'completed' || (ds && ds < today))) return false;
         if (status === 'overdue' && (e.status === 'completed' || !ds || ds >= today)) return false;
@@ -3037,13 +3042,14 @@ var AthlCal = (function() {
     grid.innerHTML = cells.map(function(day) {
       if (!day) return '<div style="background:var(--surface2);opacity:0.3;border-right:1px solid var(--border);border-bottom:1px solid var(--border)"></div>';
       var ds = _curYear + '-' + String(_curMonth+1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
-      var dayEvents = _filtered.filter(function(e){ return e.event_date && e.event_date.split('T')[0] === ds; });
+      // Use substring(0,10) to handle any date format: "2026-06-15", "2026-06-15T00:00:00Z", "2026-06-15 00:00:00"
+      var dayEvents = _filtered.filter(function(e){ return e.event_date && String(e.event_date).substring(0,10) === ds; });
       var isToday = ds === today;
       var isSelected = ds === _selectedDay;
       return '<div class="cal-cell' + (isToday?' today':'') + (isSelected?' today':'') + '" onclick="AthlCal.selectDay(\'' + ds + '\')" style="' + (isSelected ? 'border:1px solid var(--accent);' : '') + '">' +
         '<div style="font-size:11px;font-weight:' + (isToday?'700':'400') + ';color:' + (isToday?'var(--accent)':'var(--muted)') + ';margin-bottom:3px">' + day + '</div>' +
         dayEvents.slice(0,3).map(function(e) {
-          var statusCls = e.status === 'completed' ? 'status-completed' : (e.event_date && e.event_date.split('T')[0] < today && e.status !== 'completed') ? 'status-overdue' : '';
+          var statusCls = e.status === 'completed' ? 'status-completed' : (e.event_date && String(e.event_date).substring(0,10) < today && e.status !== 'completed') ? 'status-overdue' : '';
           return '<div class="cal-event-dot ' + statusCls + '">' + esc(e.brand || e.title || '—') + '</div>';
         }).join('') +
         (dayEvents.length > 3 ? '<div style="font-size:9px;color:var(--muted);margin-top:2px">+' + (dayEvents.length-3) + ' more</div>' : '') +
@@ -3056,7 +3062,7 @@ var AthlCal = (function() {
     var sorted = _filtered.slice().sort(function(a,b){ return (a.event_date||'') < (b.event_date||'') ? -1 : 1; });
     if (!sorted.length) { el.innerHTML = '<div class="empty-state" style="padding:24px"><div class="empty-text">No deliverables.</div></div>'; return; }
     el.innerHTML = '<div style="padding:12px 16px">' + sorted.map(function(e) {
-      var ds = e.event_date ? e.event_date.split('T')[0] : null;
+      var ds = e.event_date ? String(e.event_date).substring(0,10) : null;
       var dateObj = ds ? new Date(ds + 'T00:00:00') : null;
       var mon = dateObj ? MONTHS[dateObj.getMonth()] : '—';
       var day = dateObj ? dateObj.getDate() : '—';
@@ -3081,7 +3087,7 @@ var AthlCal = (function() {
     var label = document.getElementById('cal-selected-label');
     var list = document.getElementById('cal-selected-list');
     if (!_selectedDay) { panel.style.display = 'none'; return; }
-    var dayEvents = _filtered.filter(function(e){ return e.event_date && e.event_date.split('T')[0] === _selectedDay; });
+    var dayEvents = _filtered.filter(function(e){ return e.event_date && String(e.event_date).substring(0,10) === _selectedDay; });
     if (!dayEvents.length) { panel.style.display = 'none'; return; }
     panel.style.display = 'block';
     var d = new Date(_selectedDay + 'T00:00:00');
@@ -3803,9 +3809,29 @@ function adpStartOutreach(brand, email, athName) {
 // ══════════════════════════════════════════════════════════════════
 async function loadEmailHistory() {
   var el = document.getElementById('email-history');
+  if (!el) return;
   el.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   try {
-    var r = await fetch('/api/athlete/outreach', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
+    // If Gmail isn't connected, show helpful message instead of spinning
+    if (!_gmailConnected) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-text" style="text-align:center;line-height:1.5">Connect Gmail above to see email history.<br><span style="font-size:10px;color:var(--muted)">Sent outreach emails will appear here.</span></div></div>';
+      return;
+    }
+
+    // Timeout to prevent infinite spinner if fetch hangs
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = controller ? setTimeout(function(){ controller.abort(); }, 8000) : null;
+
+    var r = await fetch('/api/athlete/outreach', {
+      headers: { 'Authorization': 'Bearer ' + athleteToken },
+      signal: controller ? controller.signal : undefined,
+    });
+    if (timer) clearTimeout(timer);
+
+    if (!r.ok) {
+      el.innerHTML = '<div class="empty-state"><div class="empty-text">Unable to load email history (error ' + r.status + ').</div></div>';
+      return;
+    }
     var data = await r.json();
     var history = (data.outreach || []).filter(function(o){ return o.brand_contact_email; });
     if (!history.length) {
@@ -3822,7 +3848,11 @@ async function loadEmailHistory() {
       '</div>';
     }).join('');
   } catch(e) {
-    el.innerHTML = '<div class="empty-state"><div class="empty-text">Failed to load email history.</div></div>';
+    console.warn('[emailHistory] error:', e.message);
+    var msg = (e.name === 'AbortError')
+      ? 'Email history timed out — check your connection.'
+      : 'Failed to load email history.';
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">' + msg + '</div></div>';
   }
 }
 
