@@ -59,6 +59,63 @@ const apiLimiter = rateLimit({
   message: { error: 'Too many requests. Please slow down.' },
 });
 
+// ── Stripe webhook — raw body MUST come before express.json() ─────────────
+// This endpoint uses express.raw() to preserve the raw body for Stripe signature verification.
+app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    console.warn('[stripe-webhook] STRIPE_WEBHOOK_SECRET not set — skipping signature verification');
+  }
+  let event;
+  try {
+    if (webhookSecret && sig) {
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+      event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    } else {
+      event = JSON.parse(req.body.toString());
+    }
+  } catch (e) {
+    console.error('[stripe-webhook] Signature verification failed:', e.message);
+    return res.status(400).send('Webhook signature verification failed');
+  }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const athleteId = session.metadata && session.metadata.athlete_id;
+    if (athleteId) {
+      try {
+        await store.pool.query(
+          `UPDATE athletes SET
+             stripe_subscription_id = $1,
+             subscription_status = 'active',
+             onboarding_complete = TRUE
+           WHERE id = $2`,
+          [session.subscription || null, athleteId]
+        );
+        console.log('[stripe-webhook] Activated athlete', athleteId, 'subscription', session.subscription);
+      } catch (e) {
+        console.error('[stripe-webhook] DB update failed:', e.message);
+      }
+    }
+  }
+
+  if (event.type === 'customer.subscription.deleted' || event.type === 'customer.subscription.paused') {
+    const sub = event.data.object;
+    try {
+      await store.pool.query(
+        `UPDATE athletes SET subscription_status = 'inactive' WHERE stripe_subscription_id = $1`,
+        [sub.id]
+      );
+      console.log('[stripe-webhook] Deactivated subscription', sub.id);
+    } catch (e) {
+      console.error('[stripe-webhook] DB deactivation failed:', e.message);
+    }
+  }
+
+  res.json({ received: true });
+});
+
 app.use(express.json({ limit: '50kb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.set('trust proxy', 1);
@@ -2537,6 +2594,10 @@ app.get('/athlete-signup', (req, res) => {
   res.sendFile(require('path').join(__dirname, '..', 'public', 'athlete-signup.html'));
 });
 
+app.get('/athletes', (req, res) => {
+  res.sendFile(require('path').join(__dirname, '..', 'public', 'athletes.html'));
+});
+
 // ══════════════════════════════════════════════════════════════════
 // ATHLETE SELF-SERVE AUTH ROUTES (JWT-based, separate from session auth)
 // ══════════════════════════════════════════════════════════════════
@@ -2788,6 +2849,225 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
   } catch (e) {
     console.error('[athlete/me]', e.message);
     res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ATHLETE SELF-SIGNUP FLOW
+// ══════════════════════════════════════════════════════════════════
+
+// POST /api/athlete/self-signup — public, creates unverified athlete + sends verification email
+app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
+  try {
+    const { name, email, password, school, sport, position,
+            instagram_followers, tiktok_followers, twitter_followers } = req.body;
+
+    if (!name || !email || !password || !school || !sport)
+      return res.status(400).json({ error: 'Name, email, password, school, and sport are required.' });
+    if (password.length < 8)
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRx.test(normalizedEmail))
+      return res.status(400).json({ error: 'Please enter a valid email address.' });
+
+    // Check if email already registered
+    const existing = await store.pool.query('SELECT id FROM athletes WHERE email = $1', [normalizedEmail]);
+    if (existing.rows.length)
+      return res.status(400).json({ error: 'An account with this email already exists. Try logging in.' });
+
+    const crypto = require('crypto');
+    const bcrypt = require('bcryptjs');
+    const passwordHash = await bcrypt.hash(password, 12);
+    const verifyToken = crypto.randomBytes(32).toString('hex');
+    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const athleteId = 'self-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
+
+    await store.pool.query(
+      `INSERT INTO athletes (id, agent_id, data, email, password_hash,
+         athlete_type, email_verified, email_verify_token, email_verify_expires,
+         subscription_status, instagram_followers, tiktok_followers, twitter_followers,
+         onboarding_complete, created_at, updated_at)
+       VALUES ($1, NULL, $2, $3, $4, 'self_managed', FALSE, $5, $6,
+               'inactive', $7, $8, $9, FALSE, NOW(), NOW())`,
+      [
+        athleteId,
+        JSON.stringify({ name, sport, school, position: position || null }),
+        normalizedEmail,
+        passwordHash,
+        verifyToken,
+        verifyExpires,
+        instagram_followers ? parseInt(instagram_followers) : null,
+        tiktok_followers ? parseInt(tiktok_followers) : null,
+        twitter_followers ? parseInt(twitter_followers) : null,
+      ]
+    );
+
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    const verifyUrl = `${appUrl}/api/athlete/verify-email?token=${verifyToken}`;
+
+    await resend.emails.send({
+      from: 'NILDash <noreply@mynildash.com>',
+      to: normalizedEmail,
+      subject: 'Verify your NILDash account',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
+          <div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#0A0E1A;margin-bottom:8px">
+            NIL<span style="color:#C8FF00">DASH</span>
+          </div>
+          <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;color:#0A0E1A">Verify your email to get started</h2>
+          <p style="color:#374151;font-size:15px;line-height:1.6;margin-bottom:24px">
+            Hi ${name.split(' ')[0]}, you're one step away from your free 30-day trial.
+            Click below to verify your email and set up your subscription.
+          </p>
+          <a href="${verifyUrl}"
+             style="display:inline-block;background:#C8FF00;color:#0A0E1A;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px">
+            Verify Email &amp; Continue →
+          </a>
+          <p style="color:#6B7280;font-size:12px;margin-top:24px">
+            This link expires in 24 hours. If you didn't sign up for NILDash, you can safely ignore this email.
+          </p>
+        </div>
+      `,
+    }).catch(e => console.error('[self-signup] Email send failed:', e.message));
+
+    console.log(`[self-signup] Created athlete ${athleteId} email=${normalizedEmail}`);
+    res.json({ ok: true, message: 'Check your email to verify your account.' });
+  } catch (e) {
+    console.error('[self-signup]', e.message, e.stack);
+    res.status(500).json({ error: 'Signup failed. Please try again.' });
+  }
+});
+
+// GET /api/athlete/verify-email?token= — verifies email, creates Stripe checkout, redirects
+app.get('/api/athlete/verify-email', async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).send('Missing token');
+
+  try {
+    const r = await store.pool.query(
+      'SELECT * FROM athletes WHERE email_verify_token = $1 AND athlete_type = $2',
+      [token, 'self_managed']
+    );
+    if (!r.rows.length)
+      return res.status(400).send('Invalid or expired verification link. Please sign up again.');
+
+    const athlete = r.rows[0];
+    if (athlete.email_verified)
+      return res.redirect('/athletes?verified=already');
+
+    if (new Date(athlete.email_verify_expires) < new Date())
+      return res.status(400).send('This verification link has expired (24 hours). Please sign up again.');
+
+    // Mark email verified
+    await store.pool.query(
+      'UPDATE athletes SET email_verified = TRUE, email_verify_token = NULL WHERE id = $1',
+      [athlete.id]
+    );
+
+    // If no Stripe key configured, skip checkout and issue JWT directly (dev mode)
+    if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PRICE_ID) {
+      console.warn('[verify-email] Stripe not configured — activating athlete directly (dev mode)');
+      await store.pool.query(
+        'UPDATE athletes SET subscription_status = $1, onboarding_complete = TRUE WHERE id = $2',
+        ['active', athlete.id]
+      );
+      const jwt = require('jsonwebtoken');
+      const athleteJwt = jwt.sign({
+        id: athlete.id,
+        email: athlete.email,
+        role: 'athlete',
+        agent_id: null,
+        athlete_name: athlete.data && athlete.data.name ? athlete.data.name : '',
+        athlete_type: 'self_managed',
+      }, ATHLETE_JWT_SECRET, { expiresIn: '30d' });
+      return res.redirect(`/athlete-dashboard.html?jwt=${athleteJwt}&new=1`);
+    }
+
+    // Create Stripe customer + checkout session
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+
+    const customer = await stripe.customers.create({
+      email: athlete.email,
+      name: athlete.data && athlete.data.name ? athlete.data.name : '',
+      metadata: { athlete_id: athlete.id },
+    });
+
+    await store.pool.query(
+      'UPDATE athletes SET stripe_customer_id = $1 WHERE id = $2',
+      [customer.id, athlete.id]
+    );
+
+    const checkoutSession = await stripe.checkout.sessions.create({
+      customer: customer.id,
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+      subscription_data: { trial_period_days: 30 },
+      success_url: `${appUrl}/api/athlete/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/athletes?cancelled=1`,
+      metadata: { athlete_id: athlete.id },
+    });
+
+    console.log(`[verify-email] Redirecting athlete ${athlete.id} to Stripe checkout`);
+    res.redirect(checkoutSession.url);
+  } catch (e) {
+    console.error('[verify-email]', e.message, e.stack);
+    res.status(500).send('Something went wrong. Please try again or contact support.');
+  }
+});
+
+// GET /api/athlete/stripe-complete?session_id= — exchange Stripe session for JWT, redirect to dashboard
+app.get('/api/athlete/stripe-complete', async (req, res) => {
+  const { session_id } = req.query;
+  if (!session_id)
+    return res.redirect('/athletes?error=missing_session');
+
+  try {
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+
+    if (!session || session.status !== 'complete')
+      return res.redirect('/athletes?error=payment_incomplete');
+
+    const athleteId = session.metadata && session.metadata.athlete_id;
+    if (!athleteId)
+      return res.redirect('/athletes?error=invalid_session');
+
+    const r = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [athleteId]);
+    if (!r.rows.length)
+      return res.redirect('/athletes?error=athlete_not_found');
+
+    const athlete = r.rows[0];
+
+    // Update subscription status if webhook hasn't fired yet
+    if (athlete.subscription_status !== 'active') {
+      await store.pool.query(
+        `UPDATE athletes SET subscription_status = 'active', onboarding_complete = TRUE,
+           stripe_subscription_id = COALESCE(stripe_subscription_id, $1)
+         WHERE id = $2`,
+        [session.subscription || null, athleteId]
+      );
+    }
+
+    const jwt = require('jsonwebtoken');
+    const athleteJwt = jwt.sign({
+      id: athlete.id,
+      email: athlete.email,
+      role: 'athlete',
+      agent_id: null,
+      athlete_name: athlete.data && athlete.data.name ? athlete.data.name : '',
+      athlete_type: 'self_managed',
+    }, ATHLETE_JWT_SECRET, { expiresIn: '30d' });
+
+    console.log(`[stripe-complete] Issued JWT for athlete ${athleteId}`);
+    // Redirect to dashboard with JWT in URL param; dashboard will extract and store it
+    res.redirect(`/athlete-dashboard.html?jwt=${athleteJwt}&new=1`);
+  } catch (e) {
+    console.error('[stripe-complete]', e.message, e.stack);
+    res.redirect('/athletes?error=server_error');
   }
 });
 

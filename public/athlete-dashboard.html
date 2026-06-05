@@ -533,7 +533,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         </div>
         <button class="run-btn" style="width:100%;justify-content:center" id="rate-calc-btn" onclick="runRateCalc()">Calculate Rate</button>
         <button class="run-btn" style="width:100%;justify-content:center;margin-top:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border)" onclick="runRateScript()">Negotiation Talking Points</button>
-        <button class="btn btn-ghost btn-sm" style="width:100%;margin-top:8px;justify-content:center" onclick="shareRateWithAgent()">Share with Agent</button>
+        <button class="btn btn-ghost btn-sm agent-only" style="width:100%;margin-top:8px;justify-content:center" onclick="shareRateWithAgent()">Share with Agent</button>
       </div>
       <div>
         <div class="rate-result" id="rateResult">
@@ -639,7 +639,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:24px">
       <button class="run-btn" id="or-run-btn" onclick="writeAthleteOutreach()">Write Outreach</button>
-      <div style="font-size:11px;color:var(--muted)">Your agent can see all outreach you send</div>
+      <div class="agent-only" style="font-size:11px;color:var(--muted)">Your agent can see all outreach you send</div>
     </div>
     <div id="or-results" style="display:none;margin-bottom:24px">
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px">
@@ -1014,7 +1014,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
     <!-- Empty state -->
     <div id="cal-empty-state" style="display:none;text-align:center;padding:48px 24px;color:var(--muted);font-size:13px">
-      No deliverables yet — your agent adds calendar events when deals are signed.
+      No deliverables yet — add your first deal to see events here.
     </div>
 
     <!-- Monthly grid (default) -->
@@ -1081,7 +1081,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="form-group"><label class="form-label">Brand Name</label><input type="text" class="form-input" id="email-brand" placeholder="e.g. Nike"></div>
         <div class="form-group"><label class="form-label">Subject</label><input type="text" class="form-input" id="email-subject" placeholder="NIL Partnership Opportunity — Your Name"></div>
         <div class="form-group"><label class="form-label">Message</label><textarea class="form-textarea" id="email-body" style="min-height:160px" placeholder="Write your email…"></textarea></div>
-        <div class="form-group" style="display:flex;align-items:center;gap:8px">
+        <div class="form-group agent-only" style="display:flex;align-items:center;gap:8px">
           <input type="checkbox" id="email-cc-agent" style="width:auto;cursor:pointer">
           <label class="form-label" style="margin:0;cursor:pointer" for="email-cc-agent">CC my agent on this email</label>
         </div>
@@ -1303,6 +1303,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 // ══════════════════════════════════════════════════════════════════
 // GLOBALS
 // ══════════════════════════════════════════════════════════════════
+// If redirected from Stripe with ?jwt=..., store the token then clean the URL
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var jwtParam = params.get('jwt');
+  if (jwtParam) {
+    localStorage.setItem('athlete_token', jwtParam);
+    var isNew = params.get('new') === '1';
+    history.replaceState(null, '', window.location.pathname + (isNew ? '?welcome=1' : ''));
+  }
+})();
+
 var athleteToken = localStorage.getItem('athlete_token');
 var athleteUser  = null;
 var athleteProfile = null;
@@ -1357,6 +1368,14 @@ function showView(id, navBtn) {
 
 // ══════════════════════════════════════════════════════════════════
 // INIT
+// Hide UI elements that only make sense when an agent manages this athlete
+function applyAgentUIVisibility() {
+  var isSelfManaged = !athleteProfile || !athleteProfile.agent_id;
+  document.querySelectorAll('.agent-only').forEach(function(el) {
+    el.style.display = isSelfManaged ? 'none' : '';
+  });
+}
+
 // ══════════════════════════════════════════════════════════════════
 async function init() {
   console.log('[dashboard] init start, token present:', !!athleteToken);
@@ -1366,7 +1385,8 @@ async function init() {
     });
     if (r.status === 401) { signOut(); return; }
     athleteProfile = await r.json();
-    console.log('[dashboard] profile loaded:', athleteProfile.name);
+    console.log('[dashboard] profile loaded:', athleteProfile.name, 'agent_id:', athleteProfile.agent_id);
+    applyAgentUIVisibility();
     renderHome();
   } catch(e) {
     console.error('[dashboard] init error:', e);
@@ -1377,8 +1397,14 @@ async function init() {
     document.getElementById('main-wrap').style.flexDirection = 'column';
   }
 
-  // Handle Google Calendar OAuth redirect params
+  // Welcome toast for new self-managed athletes
   var urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('welcome') === '1') {
+    showToast('Welcome to NILDash! Your 30-day free trial has started.', 'success');
+    history.replaceState(null, '', window.location.pathname);
+  }
+
+  // Handle Google Calendar OAuth redirect params
   var gcalResult = urlParams.get('gcal');
   if (gcalResult === 'connected') {
     showToast('Google Calendar connected! Your deliverables will sync automatically.', 'success');
@@ -2568,7 +2594,8 @@ function renderOutreachKanban(outreach) {
   var groups = {};
   OUTREACH_STAGES.forEach(function(s){ groups[s] = []; });
   outreach.forEach(function(o){
-    var s = o.requires_approval && o.agent_approved === null ? 'sent' : (o.status || 'sent');
+    var hasAgent = athleteProfile && athleteProfile.agent_id;
+    var s = (hasAgent && o.requires_approval && o.agent_approved === null) ? 'sent' : (o.status || 'sent');
     if (!groups[s]) groups[s] = [];
     groups[s].push(o);
   });
@@ -2582,9 +2609,9 @@ function renderOutreachKanban(outreach) {
           return '<div class="kanban-card">' +
             '<div class="kanban-brand">' + esc(o.brand_name || '—') + '</div>' +
             '<div class="kanban-date">' + date + '</div>' +
-            (o.requires_approval && o.agent_approved === null ? '<div style="font-size:10px;color:var(--yellow);margin-top:4px">⏳ Pending agent approval</div>' : '') +
-            (o.agent_approved === true ? '<div style="font-size:10px;color:var(--green);margin-top:4px">✓ Approved</div>' : '') +
-            (o.agent_approved === false ? '<div style="font-size:10px;color:var(--red);margin-top:4px">✗ Rejected</div>' : '') +
+            (hasAgent && o.requires_approval && o.agent_approved === null ? '<div style="font-size:10px;color:var(--yellow);margin-top:4px">⏳ Pending agent approval</div>' : '') +
+            (hasAgent && o.agent_approved === true ? '<div style="font-size:10px;color:var(--green);margin-top:4px">✓ Approved</div>' : '') +
+            (hasAgent && o.agent_approved === false ? '<div style="font-size:10px;color:var(--red);margin-top:4px">✗ Rejected</div>' : '') +
           '</div>';
         }).join('') : '<div style="padding:10px;font-size:12px;color:var(--muted);text-align:center;opacity:0.4">Empty</div>') +
       '</div>';

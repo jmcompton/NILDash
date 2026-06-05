@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NILDash — Built for Athletes</title>
+<meta name="description" content="AI tools that used to cost thousands in agent fees. Now $25/month. First month free. Deal Scan, Rate Calculator, Media Kit Builder, Gmail Integration and more.">
+<link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
+<link rel="apple-touch-icon" href="/images/nildash-icon-120x120.png">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── RESET & BASE ── */
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0A0E1A;
+  --surface:#111827;
+  --surface2:#1a2235;
+  --border:rgba(255,255,255,0.08);
+  --text:#F0F4FF;
+  --muted:rgba(240,244,255,0.5);
+  --lime:#C8FF00;
+  --lime-dim:rgba(200,255,0,0.12);
+  --lime-border:rgba(200,255,0,0.25);
+  --r:12px;
+}
+html{scroll-behavior:smooth}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+a{text-decoration:none;color:inherit}
+
+/* ── NAV ── */
+nav{position:fixed;top:0;left:0;right:0;z-index:200;padding:0 5%;height:64px;display:flex;align-items:center;justify-content:space-between;background:rgba(10,14,26,0.92);backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,0.06)}
+.nav-logo{font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:0.06em;color:var(--text)}
+.nav-logo span{color:var(--lime)}
+.nav-links{display:flex;align-items:center;gap:28px}
+.nav-links a{font-size:13px;font-weight:500;color:var(--muted);transition:color 0.15s}
+.nav-links a:hover{color:var(--text)}
+.nav-cta{background:var(--lime);color:#0A0E1A;font-size:13px;font-weight:800;padding:9px 22px;border-radius:6px;border:none;cursor:pointer;transition:all 0.15s;letter-spacing:0.02em}
+.nav-cta:hover{background:#d4ff26;transform:translateY(-1px)}
+.nav-mobile-cta{display:none}
+
+/* ── HERO ── */
+.hero{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:80px 5% 60px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-200px;right:-200px;width:700px;height:700px;border-radius:50%;background:radial-gradient(circle,rgba(200,255,0,0.06) 0%,transparent 70%);pointer-events:none}
+.hero::after{content:'';position:absolute;bottom:-100px;left:-100px;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(200,255,0,0.04) 0%,transparent 70%);pointer-events:none}
+.hero-eyebrow{font-size:11px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--lime);margin-bottom:20px;display:flex;align-items:center;gap:10px}
+.hero-eyebrow::before{content:'';display:inline-block;width:24px;height:2px;background:var(--lime)}
+.hero-headline{font-family:'Bebas Neue',sans-serif;font-size:clamp(56px,9vw,100px);line-height:0.92;letter-spacing:0.01em;color:var(--text);margin-bottom:28px;max-width:900px}
+.hero-headline span{color:var(--lime)}
+.hero-sub{font-size:clamp(16px,2vw,20px);color:var(--muted);max-width:520px;line-height:1.55;margin-bottom:40px;font-weight:400}
+.hero-sub strong{color:var(--text);font-weight:700}
+.hero-btns{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:72px}
+.btn-primary-lime{background:var(--lime);color:#0A0E1A;font-size:15px;font-weight:800;padding:15px 32px;border-radius:6px;border:none;cursor:pointer;transition:all 0.15s;letter-spacing:0.02em;display:inline-flex;align-items:center;gap:8px}
+.btn-primary-lime:hover{background:#d4ff26;transform:translateY(-2px);box-shadow:0 8px 32px rgba(200,255,0,0.25)}
+.btn-outline{background:transparent;color:var(--text);font-size:15px;font-weight:600;padding:15px 32px;border-radius:6px;border:1.5px solid rgba(255,255,255,0.2);cursor:pointer;transition:all 0.15s;display:inline-flex;align-items:center;gap:8px}
+.btn-outline:hover{border-color:rgba(255,255,255,0.5);transform:translateY(-2px)}
+.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.07);border-radius:10px;overflow:hidden;max-width:600px}
+.hero-stat{padding:20px 24px;background:var(--bg)}
+.hero-stat-num{font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--lime);letter-spacing:0.03em;line-height:1}
+.hero-stat-lbl{font-size:12px;color:var(--muted);margin-top:4px;font-weight:500}
+
+/* ── FEATURES ── */
+.section{padding:100px 5%}
+.section-eyebrow{font-size:11px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--lime);margin-bottom:16px}
+.section-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,5vw,56px);color:var(--text);line-height:1.05;margin-bottom:20px;letter-spacing:0.02em}
+.section-sub{font-size:16px;color:var(--muted);max-width:520px;line-height:1.6;margin-bottom:56px}
+.features-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.feat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:28px;transition:all 0.2s;cursor:default}
+.feat-card:hover{border-color:var(--lime-border);background:linear-gradient(135deg,var(--surface) 60%,rgba(200,255,0,0.03) 100%);transform:translateY(-3px);box-shadow:0 12px 40px rgba(0,0,0,0.3)}
+.feat-icon{width:42px;height:42px;background:var(--lime-dim);border:1px solid var(--lime-border);border-radius:8px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;font-size:20px}
+.feat-num{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:0.15em;color:var(--lime);opacity:0.6;margin-bottom:8px}
+.feat-title{font-size:16px;font-weight:800;color:var(--text);margin-bottom:10px;letter-spacing:-0.01em}
+.feat-desc{font-size:13px;color:var(--muted);line-height:1.65}
+
+/* ── HOW IT WORKS ── */
+.how-section{padding:100px 5%;background:var(--surface)}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-top:56px}
+.step{padding:40px 32px;background:var(--bg);position:relative}
+.step:not(:last-child)::after{content:'→';position:absolute;right:-1px;top:50%;transform:translateY(-50%);font-size:20px;color:rgba(200,255,0,0.3);z-index:1;background:var(--surface);padding:8px 4px}
+.step-num{font-family:'Bebas Neue',sans-serif;font-size:64px;color:var(--lime);opacity:0.15;line-height:1;margin-bottom:16px}
+.step-title{font-size:18px;font-weight:800;color:var(--text);margin-bottom:10px}
+.step-desc{font-size:14px;color:var(--muted);line-height:1.65}
+
+/* ── PRICING ── */
+.pricing-section{padding:100px 5%;text-align:center}
+.pricing-card{background:var(--surface);border:1px solid var(--lime-border);border-radius:16px;padding:48px 40px;max-width:480px;margin:56px auto 0;position:relative;overflow:hidden}
+.pricing-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--lime),rgba(200,255,0,0.3))}
+.pricing-badge{display:inline-block;background:var(--lime-dim);border:1px solid var(--lime-border);color:var(--lime);font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:5px 14px;border-radius:40px;margin-bottom:20px}
+.pricing-plan{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:0.08em;color:var(--text);margin-bottom:8px}
+.pricing-price{font-family:'Bebas Neue',sans-serif;font-size:72px;color:var(--lime);letter-spacing:-0.01em;line-height:1;margin-bottom:6px}
+.pricing-price sub{font-family:'DM Sans',sans-serif;font-size:18px;font-weight:600;color:var(--muted);vertical-align:bottom;margin-bottom:8px;letter-spacing:0}
+.pricing-trial{font-size:14px;color:var(--muted);margin-bottom:32px}
+.pricing-features{list-style:none;text-align:left;margin-bottom:36px;display:flex;flex-direction:column;gap:12px}
+.pricing-features li{display:flex;align-items:center;gap:12px;font-size:14px;color:var(--text);font-weight:500}
+.pricing-features li::before{content:'✓';color:var(--lime);font-weight:900;font-size:14px;flex-shrink:0}
+.pricing-cta{width:100%;background:var(--lime);color:#0A0E1A;font-size:15px;font-weight:800;padding:17px 32px;border-radius:8px;border:none;cursor:pointer;transition:all 0.15s;letter-spacing:0.02em;margin-bottom:16px}
+.pricing-cta:hover{background:#d4ff26;transform:translateY(-1px)}
+.pricing-fine{font-size:12px;color:var(--muted);line-height:1.6}
+
+/* ── FAQ ── */
+.faq-section{padding:100px 5%;max-width:780px;margin:0 auto}
+.faq-list{margin-top:56px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.faq-item{border-bottom:1px solid var(--border)}
+.faq-item:last-child{border-bottom:none}
+.faq-q{width:100%;background:none;border:none;padding:22px 24px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-size:15px;font-weight:600;color:var(--text);text-align:left;gap:16px;transition:background 0.15s;font-family:'DM Sans',sans-serif}
+.faq-q:hover{background:rgba(255,255,255,0.03)}
+.faq-arrow{font-size:18px;color:var(--lime);flex-shrink:0;transition:transform 0.2s;display:inline-block}
+.faq-item.open .faq-arrow{transform:rotate(45deg)}
+.faq-a{display:none;padding:0 24px 20px;font-size:14px;color:var(--muted);line-height:1.7}
+.faq-item.open .faq-a{display:block}
+
+/* ── FINAL CTA ── */
+.final-cta{padding:100px 5%;background:linear-gradient(135deg,#0d1a06 0%,#0f2208 50%,rgba(200,255,0,0.04) 100%);border-top:1px solid var(--lime-border);text-align:center}
+.final-cta-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(48px,7vw,80px);color:var(--text);line-height:0.95;margin-bottom:16px}
+.final-cta-title span{color:var(--lime)}
+.final-cta-sub{font-size:16px;color:var(--muted);max-width:480px;margin:0 auto 40px;line-height:1.6}
+
+/* ── FOOTER ── */
+footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.footer-logo{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:0.06em}
+.footer-logo span{color:var(--lime)}
+.footer-links{display:flex;gap:24px;align-items:center}
+.footer-links a{font-size:13px;color:var(--muted);transition:color 0.15s}
+.footer-links a:hover{color:var(--text)}
+.footer-copy{font-size:12px;color:rgba(255,255,255,0.2)}
+
+/* ── SIGNUP MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(8px)}
+.modal-overlay.open{display:flex}
+.modal{background:#111827;border:1px solid rgba(255,255,255,0.1);border-radius:16px;width:100%;max-width:540px;max-height:90vh;overflow-y:auto;position:relative}
+.modal-header{padding:28px 28px 20px;border-bottom:1px solid rgba(255,255,255,0.08);position:sticky;top:0;background:#111827;z-index:1}
+.modal-close{position:absolute;top:20px;right:20px;background:none;border:none;cursor:pointer;color:var(--muted);font-size:20px;line-height:1;padding:4px;transition:color 0.15s}
+.modal-close:hover{color:var(--text)}
+.modal-logo{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:0.08em;margin-bottom:8px}
+.modal-logo span{color:var(--lime)}
+.modal-title{font-size:22px;font-weight:800;color:var(--text);margin-bottom:4px}
+.modal-sub{font-size:13px;color:var(--muted)}
+.modal-body{padding:24px 28px 28px}
+.modal-success{padding:48px 28px;text-align:center;display:none}
+.modal-success-icon{font-size:48px;margin-bottom:16px}
+.modal-success h2{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--text);margin-bottom:8px}
+.modal-success p{font-size:14px;color:var(--muted);line-height:1.65}
+.modal-success .email-highlight{color:var(--lime);font-weight:700}
+
+/* ── FORM ── */
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:700;color:rgba(255,255,255,0.6);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em}
+.field label .opt{font-weight:400;text-transform:none;letter-spacing:0;color:rgba(255,255,255,0.3);font-size:11px}
+.field input,.field select{width:100%;padding:11px 14px;background:rgba(255,255,255,0.05);border:1.5px solid rgba(255,255,255,0.1);border-radius:8px;font-size:14px;color:var(--text);outline:none;font-family:'DM Sans',sans-serif;transition:border-color 0.15s;-webkit-appearance:none}
+.field select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(255,255,255,0.3)' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:36px}
+.field select option{background:#111827;color:var(--text)}
+.field input:focus,.field select:focus{border-color:var(--lime);box-shadow:0 0 0 3px rgba(200,255,0,0.08)}
+.field input::placeholder{color:rgba(255,255,255,0.2)}
+.field-error{font-size:11px;color:#F87171;margin-top:4px}
+.form-error-box{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#F87171;margin-bottom:16px;display:none}
+.section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:var(--lime);opacity:0.7;margin:20px 0 14px;padding-bottom:8px;border-bottom:1px solid rgba(200,255,0,0.1)}
+.submit-btn{width:100%;background:var(--lime);color:#0A0E1A;font-size:15px;font-weight:800;padding:16px;border-radius:8px;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;letter-spacing:0.02em;transition:all 0.15s;margin-top:8px}
+.submit-btn:hover{background:#d4ff26}
+.submit-btn:disabled{opacity:0.5;cursor:not-allowed}
+.signin-note{text-align:center;font-size:13px;color:var(--muted);margin-top:16px}
+.signin-note a{color:var(--lime);font-weight:600}
+.pass-wrap{position:relative}
+.pass-toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.3);font-size:14px;padding:4px;transition:color 0.15s}
+.pass-toggle:hover{color:rgba(255,255,255,0.7)}
+.strength-bar{height:3px;border-radius:2px;margin-top:6px;background:rgba(255,255,255,0.08);overflow:hidden}
+.strength-fill{height:100%;border-radius:2px;transition:width 0.3s,background 0.3s;width:0%}
+.strength-text{font-size:11px;margin-top:4px;color:rgba(255,255,255,0.4)}
+
+/* ── RESPONSIVE ── */
+@media(max-width:860px){
+  .steps{grid-template-columns:1fr}
+  .step::after{display:none}
+  .form-row{grid-template-columns:1fr}
+}
+@media(max-width:640px){
+  nav{padding:0 4%}
+  .nav-links{display:none}
+  .nav-mobile-cta{display:block;background:var(--lime);color:#0A0E1A;font-size:13px;font-weight:800;padding:8px 18px;border-radius:6px;border:none;cursor:pointer}
+  .hero{padding:72px 4% 50px}
+  .hero-stats{grid-template-columns:1fr}
+  .section,.how-section,.pricing-section,.faq-section,.final-cta{padding:70px 4%}
+  .faq-section{max-width:100%}
+  footer{flex-direction:column;align-items:flex-start;gap:12px}
+  .footer-links{flex-wrap:wrap;gap:16px}
+  .hero-btns{flex-direction:column}
+  .btn-primary-lime,.btn-outline{width:100%;justify-content:center;text-align:center}
+  .pricing-card{padding:32px 24px}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-logo">NIL<span>DASH</span></a>
+  <div class="nav-links">
+    <a href="#features">Features</a>
+    <a href="#how-it-works">How It Works</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#faq">FAQ</a>
+    <a href="/athlete-login.html" style="color:rgba(255,255,255,0.5)">Sign In</a>
+  </div>
+  <button class="nav-cta" onclick="openSignup()">Start Free Trial</button>
+  <button class="nav-mobile-cta" onclick="openSignup()">Get Started</button>
+</nav>
+
+<!-- HERO -->
+<section class="hero" id="hero">
+  <div class="hero-eyebrow">NILDash for Athletes</div>
+  <h1 class="hero-headline">BECOME YOUR OWN<br><span>NIL AGENT.</span></h1>
+  <p class="hero-sub">AI tools that used to cost thousands in agent fees. Now <strong>$25/month.</strong> First month free.</p>
+  <div class="hero-btns">
+    <button class="btn-primary-lime" onclick="openSignup()">
+      Start Free Trial
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+    </button>
+    <a href="#features" class="btn-outline">
+      See How It Works
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>
+    </a>
+  </div>
+  <div class="hero-stats">
+    <div class="hero-stat">
+      <div class="hero-stat-num">$2.3B+</div>
+      <div class="hero-stat-lbl">NIL Market Size</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">7 AI Tools</div>
+      <div class="hero-stat-lbl">Built for Athletes</div>
+    </div>
+    <div class="hero-stat">
+      <div class="hero-stat-num">$0</div>
+      <div class="hero-stat-lbl">Agent Fees</div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="section" id="features">
+  <div class="section-eyebrow">Platform Features</div>
+  <h2 class="section-title">EVERYTHING YOU NEED TO RUN YOUR<br>NIL LIKE A BUSINESS</h2>
+  <p class="section-sub">Seven AI-powered tools. One platform. No agent required.</p>
+  <div class="features-grid">
+    <div class="feat-card">
+      <div class="feat-num">01</div>
+      <div class="feat-icon">🔍</div>
+      <div class="feat-title">Deal Scan</div>
+      <div class="feat-desc">Upload any NIL deal offer and our AI instantly analyzes it. Know if the offer is fair, what you should counter with, and whether the terms protect you — before you sign anything.</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-num">02</div>
+      <div class="feat-icon">📊</div>
+      <div class="feat-title">Rate Calculator</div>
+      <div class="feat-desc">Stop guessing what you're worth. Enter your social media following and sport, and NILDash calculates your fair market NIL rate based on real deal data across your conference and position.</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-num">03</div>
+      <div class="feat-icon">⚡</div>
+      <div class="feat-title">Media Kit Builder</div>
+      <div class="feat-desc">Generate a professional, branded media kit in seconds. Includes your stats, social reach, rate card, and AI-written bio. Send it to any brand directly from the platform.</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-num">04</div>
+      <div class="feat-icon">📧</div>
+      <div class="feat-title">Gmail Integration</div>
+      <div class="feat-desc">Connect your Gmail and send professional NIL outreach emails directly from your own account. No agent email, no middleman — just you reaching out to brands that fit your brand.</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-num">05</div>
+      <div class="feat-icon">🛡</div>
+      <div class="feat-title">Compliance Tab</div>
+      <div class="feat-desc">Stay within NCAA NIL rules automatically. NILDash flags any deal terms that could put your eligibility at risk before you sign.</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-num">06</div>
+      <div class="feat-icon">📅</div>
+      <div class="feat-title">Deal Calendar</div>
+      <div class="feat-desc">Track every deliverable from every brand deal in one place. Never miss a post deadline or forfeit payment because you forgot.</div>
+    </div>
+    <div class="feat-card">
+      <div class="feat-num">07</div>
+      <div class="feat-icon">🤖</div>
+      <div class="feat-title">AI Command Center</div>
+      <div class="feat-desc">Ask anything about your NIL — deal negotiation tactics, rate benchmarks, outreach scripts, contract terms. Your AI advisor available 24/7.</div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how-section" id="how-it-works">
+  <div style="max-width:900px">
+    <div class="section-eyebrow">Simple Setup</div>
+    <h2 class="section-title">GET STARTED IN 3 STEPS</h2>
+  </div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">01</div>
+      <div class="step-title">Create Your Account</div>
+      <div class="step-desc">Sign up in 60 seconds. Enter your school, sport, and social following. No credit card required for your first 30 days.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">02</div>
+      <div class="step-title">Connect Your Gmail</div>
+      <div class="step-desc">Link your Gmail so you can send professional NIL outreach directly from your own email — not an agent's address.</div>
+    </div>
+    <div class="step">
+      <div class="step-num">03</div>
+      <div class="step-title">Start Getting Paid</div>
+      <div class="step-desc">Scan deals, build your media kit, and reach out to brands — all in one place. Your NIL business starts Day 1.</div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="pricing-section" id="pricing">
+  <div class="section-eyebrow" style="text-align:center">Pricing</div>
+  <h2 class="section-title" style="text-align:center">SIMPLE PRICING.<br>NO AGENT COMMISSION.</h2>
+  <p style="color:var(--muted);font-size:15px;text-align:center">Agents charge 15–20% of every deal you close. NILDash is flat.</p>
+  <div class="pricing-card">
+    <div class="pricing-badge">30-Day Free Trial</div>
+    <div class="pricing-plan">ATHLETE PLAN</div>
+    <div class="pricing-price"><sub>$</sub>25<sub style="font-size:16px">/mo</sub></div>
+    <div class="pricing-trial">First 30 days free. Cancel anytime. No contracts.</div>
+    <ul class="pricing-features">
+      <li>All 7 AI tools included</li>
+      <li>Unlimited deal scans</li>
+      <li>Media kit builder</li>
+      <li>Gmail integration</li>
+      <li>Deal calendar</li>
+      <li>AI Command Center</li>
+      <li>Compliance checker</li>
+    </ul>
+    <button class="pricing-cta" onclick="openSignup()">Start Free Trial — No Card Charge for 30 Days</button>
+    <div class="pricing-fine">After 30 days, $25/month. Cancel anytime before trial ends and you won't be charged.</div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="faq-section" id="faq">
+  <div style="text-align:center">
+    <div class="section-eyebrow">FAQ</div>
+    <h2 class="section-title">COMMON QUESTIONS</h2>
+  </div>
+  <div class="faq-list">
+    <div class="faq-item">
+      <button class="faq-q" onclick="toggleFaq(this)">
+        Do I need an agent to use NILDash?
+        <span class="faq-arrow">+</span>
+      </button>
+      <div class="faq-a">No. NILDash is built for athletes who want to manage their own NIL without paying 15–20% agent commission. You get the same AI tools agents use — without giving up a cut of your deals.</div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="toggleFaq(this)">
+        What happens after my free trial?
+        <span class="faq-arrow">+</span>
+      </button>
+      <div class="faq-a">After 30 days you'll be charged $25/month automatically. You can cancel anytime before the trial ends and you won't be charged anything.</div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="toggleFaq(this)">
+        Is this legal under NCAA rules?
+        <span class="faq-arrow">+</span>
+      </button>
+      <div class="faq-a">Yes. NILDash is a software platform, not an agent. Using AI tools to manage your own NIL is fully compliant with NCAA rules.</div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="toggleFaq(this)">
+        What sports does NILDash support?
+        <span class="faq-arrow">+</span>
+      </button>
+      <div class="faq-a">All college sports. Our rate calculator and deal intelligence covers football, basketball, baseball, softball, soccer, volleyball, swimming, track, and more.</div>
+    </div>
+    <div class="faq-item">
+      <button class="faq-q" onclick="toggleFaq(this)">
+        Can I use NILDash if I already have an agent?
+        <span class="faq-arrow">+</span>
+      </button>
+      <div class="faq-a">Absolutely. Many athletes use NILDash alongside their agent to track deals, manage deliverables, and stay on top of their NIL business independently.</div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final-cta">
+  <div class="final-cta-title">YOUR NIL.<br><span>YOUR RULES.</span></div>
+  <p class="final-cta-sub">Join athletes who are taking control of their NIL without giving away their commission.</p>
+  <button class="btn-primary-lime" onclick="openSignup()" style="font-size:16px;padding:17px 40px">
+    Start Free Trial
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+  </button>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-logo">NIL<span>DASH</span></div>
+  <div class="footer-links">
+    <a href="/privacy">Privacy Policy</a>
+    <a href="mailto:contact@mynildash.com">contact@mynildash.com</a>
+  </div>
+  <div class="footer-copy">© 2026 NILDash. All rights reserved.</div>
+</footer>
+
+<!-- SIGNUP MODAL -->
+<div class="modal-overlay" id="signupModal">
+  <div class="modal" id="signupModalInner">
+    <!-- Header -->
+    <div class="modal-header">
+      <button class="modal-close" onclick="closeSignup()" aria-label="Close">✕</button>
+      <div class="modal-logo">NIL<span>DASH</span></div>
+      <div class="modal-title">Start Your Free Trial</div>
+      <div class="modal-sub">30 days free. No credit card charged until after trial.</div>
+    </div>
+
+    <!-- Success state -->
+    <div class="modal-success" id="signupSuccess">
+      <div class="modal-success-icon">📬</div>
+      <h2>CHECK YOUR EMAIL!</h2>
+      <p>We sent a verification link to<br><span class="email-highlight" id="successEmail"></span></p>
+      <p style="margin-top:12px">Click the link in your email to verify your account and set up your subscription. Check your spam folder if you don't see it within a minute.</p>
+    </div>
+
+    <!-- Form body -->
+    <div class="modal-body" id="signupFormBody">
+      <div class="form-error-box" id="signupError"></div>
+
+      <div class="section-label">Your Info</div>
+      <div class="field">
+        <label>Full Name *</label>
+        <input type="text" id="s-name" placeholder="e.g. Marcus Webb" autocomplete="name">
+        <div class="field-error" id="e-name"></div>
+      </div>
+      <div class="field">
+        <label>Email *</label>
+        <input type="email" id="s-email" placeholder="your@email.com" autocomplete="email">
+        <div class="field-error" id="e-email"></div>
+      </div>
+      <div class="field">
+        <label>Password *</label>
+        <div class="pass-wrap">
+          <input type="password" id="s-pass" placeholder="Min 8 characters" autocomplete="new-password">
+          <button class="pass-toggle" type="button" onclick="togglePass('s-pass')">👁</button>
+        </div>
+        <div class="strength-bar"><div class="strength-fill" id="strength-fill"></div></div>
+        <div class="strength-text" id="strength-text"></div>
+        <div class="field-error" id="e-pass"></div>
+      </div>
+      <div class="field">
+        <label>Confirm Password *</label>
+        <div class="pass-wrap">
+          <input type="password" id="s-pass2" placeholder="Re-enter password" autocomplete="new-password">
+          <button class="pass-toggle" type="button" onclick="togglePass('s-pass2')">👁</button>
+        </div>
+        <div class="field-error" id="e-pass2"></div>
+      </div>
+
+      <div class="section-label">Your Program</div>
+      <div class="field">
+        <label>School / University *</label>
+        <input type="text" id="s-school" placeholder="e.g. University of Georgia" autocomplete="organization">
+        <div class="field-error" id="e-school"></div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Sport *</label>
+          <select id="s-sport">
+            <option value="">Select sport…</option>
+            <option value="Football">Football</option>
+            <option value="Men's Basketball">Men's Basketball</option>
+            <option value="Women's Basketball">Women's Basketball</option>
+            <option value="Baseball">Baseball</option>
+            <option value="Softball">Softball</option>
+            <option value="Soccer">Soccer</option>
+            <option value="Volleyball">Volleyball</option>
+            <option value="Swimming & Diving">Swimming &amp; Diving</option>
+            <option value="Track & Field">Track &amp; Field</option>
+            <option value="Tennis">Tennis</option>
+            <option value="Golf">Golf</option>
+            <option value="Wrestling">Wrestling</option>
+            <option value="Lacrosse">Lacrosse</option>
+            <option value="Field Hockey">Field Hockey</option>
+            <option value="Gymnastics">Gymnastics</option>
+            <option value="Other">Other</option>
+          </select>
+          <div class="field-error" id="e-sport"></div>
+        </div>
+        <div class="field">
+          <label>Position <span class="opt">(optional)</span></label>
+          <input type="text" id="s-position" placeholder="e.g. Wide Receiver">
+        </div>
+      </div>
+
+      <div class="section-label">Social Following <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;opacity:0.6">— helps calculate your NIL value</span></div>
+      <div class="form-row">
+        <div class="field">
+          <label>Instagram Followers <span class="opt">(opt)</span></label>
+          <input type="number" id="s-ig" placeholder="e.g. 5000" min="0">
+        </div>
+        <div class="field">
+          <label>TikTok Followers <span class="opt">(opt)</span></label>
+          <input type="number" id="s-tt" placeholder="e.g. 12000" min="0">
+        </div>
+      </div>
+      <div class="field">
+        <label>Twitter/X Followers <span class="opt">(optional)</span></label>
+        <input type="number" id="s-tw" placeholder="e.g. 3000" min="0">
+      </div>
+
+      <button class="submit-btn" id="signupSubmitBtn" onclick="submitSignup()">Create Account — Start Free Trial</button>
+      <div class="signin-note">Already have an account? <a href="/athlete-login.html">Sign in →</a></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Modal ─────────────────────────────────────────────────────────
+function openSignup() {
+  document.getElementById('signupModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeSignup() {
+  document.getElementById('signupModal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+document.getElementById('signupModal').addEventListener('click', function(e) {
+  if (e.target === this) closeSignup();
+});
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeSignup(); });
+
+// ── FAQ accordion ─────────────────────────────────────────────────
+function toggleFaq(btn) {
+  var item = btn.parentElement;
+  var isOpen = item.classList.contains('open');
+  document.querySelectorAll('.faq-item.open').forEach(function(el) { el.classList.remove('open'); });
+  if (!isOpen) item.classList.add('open');
+}
+
+// ── Password toggle ───────────────────────────────────────────────
+function togglePass(id) {
+  var inp = document.getElementById(id);
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+// ── Password strength ─────────────────────────────────────────────
+document.getElementById('s-pass').addEventListener('input', function() {
+  var val = this.value;
+  var fill = document.getElementById('strength-fill');
+  var text = document.getElementById('strength-text');
+  if (!val) { fill.style.width = '0%'; text.textContent = ''; return; }
+  var score = 0;
+  if (val.length >= 8) score++;
+  if (val.length >= 12) score++;
+  if (/[A-Z]/.test(val)) score++;
+  if (/[0-9]/.test(val)) score++;
+  if (/[^A-Za-z0-9]/.test(val)) score++;
+  var levels = [
+    {w:'20%',bg:'#EF4444',label:'Weak'},
+    {w:'40%',bg:'#F97316',label:'Fair'},
+    {w:'60%',bg:'#EAB308',label:'Fair'},
+    {w:'80%',bg:'#22C55E',label:'Strong'},
+    {w:'100%',bg:'#C8FF00',label:'Very Strong'},
+  ];
+  var lvl = levels[Math.min(score, levels.length-1)];
+  fill.style.width = lvl.w; fill.style.background = lvl.bg;
+  text.textContent = lvl.label; text.style.color = lvl.bg;
+});
+
+// ── Signup submit ─────────────────────────────────────────────────
+async function submitSignup() {
+  var name     = document.getElementById('s-name').value.trim();
+  var email    = document.getElementById('s-email').value.trim().toLowerCase();
+  var pass     = document.getElementById('s-pass').value;
+  var pass2    = document.getElementById('s-pass2').value;
+  var school   = document.getElementById('s-school').value.trim();
+  var sport    = document.getElementById('s-sport').value;
+  var position = document.getElementById('s-position').value.trim();
+  var ig       = parseInt(document.getElementById('s-ig').value) || 0;
+  var tt       = parseInt(document.getElementById('s-tt').value) || 0;
+  var tw       = parseInt(document.getElementById('s-tw').value) || 0;
+
+  // Clear errors
+  ['e-name','e-email','e-pass','e-pass2','e-school','e-sport'].forEach(function(id){
+    document.getElementById(id).textContent = '';
+  });
+  var errBox = document.getElementById('signupError');
+  errBox.style.display = 'none'; errBox.textContent = '';
+
+  // Validate
+  var ok = true;
+  if (!name) { document.getElementById('e-name').textContent = 'Full name is required'; ok = false; }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { document.getElementById('e-email').textContent = 'Valid email is required'; ok = false; }
+  if (!pass || pass.length < 8) { document.getElementById('e-pass').textContent = 'Password must be at least 8 characters'; ok = false; }
+  if (pass !== pass2) { document.getElementById('e-pass2').textContent = 'Passwords do not match'; ok = false; }
+  if (!school) { document.getElementById('e-school').textContent = 'School is required'; ok = false; }
+  if (!sport) { document.getElementById('e-sport').textContent = 'Please select your sport'; ok = false; }
+  if (!ok) return;
+
+  var btn = document.getElementById('signupSubmitBtn');
+  btn.disabled = true; btn.textContent = 'Creating account…';
+
+  try {
+    var r = await fetch('/api/athlete/self-signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password: pass, school, sport, position, instagram_followers: ig || null, tiktok_followers: tt || null, twitter_followers: tw || null })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) {
+      errBox.textContent = data.error || 'Signup failed. Please try again.';
+      errBox.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Create Account — Start Free Trial';
+      return;
+    }
+    // Show success
+    document.getElementById('signupFormBody').style.display = 'none';
+    document.getElementById('successEmail').textContent = email;
+    document.getElementById('signupSuccess').style.display = 'block';
+    document.querySelector('.modal-header').style.display = 'none';
+  } catch(e) {
+    errBox.textContent = 'Network error. Please check your connection and try again.';
+    errBox.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Create Account — Start Free Trial';
+  }
+}
+</script>
+</body>
+</html>

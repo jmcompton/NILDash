@@ -242,6 +242,18 @@ async function init() {
     // Google Calendar integration
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS google_refresh_token TEXT`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS google_calendar_id TEXT`,
+    // Self-managed athlete support
+    `ALTER TABLE athletes ALTER COLUMN agent_id DROP NOT NULL`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS athlete_type TEXT DEFAULT 'agent_managed'`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS email_verify_token TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS email_verify_expires TIMESTAMPTZ`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'inactive'`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS instagram_followers INTEGER`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS tiktok_followers INTEGER`,
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS twitter_followers INTEGER`,
   ];
   for (const sql of _athleteAuthMigrations) {
     await pool.query(sql).catch(e => console.warn('[migration]', e.message));
