@@ -429,7 +429,9 @@ var NILCal = (function () {
       applyFilters();
 
       // Auto-navigate to the most relevant month if the current month is empty.
-      // Priority: earliest upcoming event, then most recent past event.
+      // Only ever navigate to the current month or a FUTURE month — never jump
+      // backward to a past year (which would happen if stale 2025 data existed).
+      // Priority: earliest upcoming event. Past events stay put; agent navigates back manually.
       if (!listMode && filteredEvents.length > 0) {
         var todayStr = new Date().toISOString().split('T')[0];
         var currentMonthHasEvents = filteredEvents.some(function(ev) {
@@ -438,17 +440,22 @@ var NILCal = (function () {
           return d.startsWith(calYear + '-' + pad(calMonth + 1));
         });
         if (!currentMonthHasEvents) {
-          // Find first upcoming event, falling back to first event overall
+          // Find the first upcoming (future) event — never a past-year event
           var target = null;
           for (var i = 0; i < filteredEvents.length; i++) {
             var evDate = filteredEvents[i].event_date ? filteredEvents[i].event_date.split('T')[0] : null;
             if (!evDate) continue;
-            if (evDate >= todayStr) { target = evDate; break; }  // first upcoming
+            if (evDate >= todayStr) { target = evDate; break; }  // first upcoming only
           }
-          if (!target) target = filteredEvents[0].event_date.split('T')[0]; // fall back to first
-          calYear  = parseInt(target.split('-')[0]);
-          calMonth = parseInt(target.split('-')[1]) - 1;
-          console.log('[NILCal] auto-navigated to', MONTHS[calMonth], calYear);
+          // Only navigate if the target is in the current year or later
+          if (target) {
+            var targetYear = parseInt(target.split('-')[0]);
+            if (targetYear >= new Date().getFullYear()) {
+              calYear  = targetYear;
+              calMonth = parseInt(target.split('-')[1]) - 1;
+              console.log('[NILCal] auto-navigated to', MONTHS[calMonth], calYear);
+            }
+          }
         }
       }
 

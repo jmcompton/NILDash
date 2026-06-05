@@ -7091,6 +7091,29 @@ app.listen(PORT, async () => {
     console.warn('[migrations] Migration run failed (non-fatal):', err.message);
   }
 
+  // ── Fix 2025 deliverable dates → 2026 (one-time data correction) ──
+  // Amber Bretton and any other athlete whose dates were extracted with
+  // wrong year (2025) due to stale AI prompt examples.  Safe to run
+  // every boot — only rows with year=2025 are touched; subsequent boots
+  // find no matching rows and update 0 rows.
+  try {
+    const delFix = await store.pool.query(
+      `UPDATE athlete_deliverables
+       SET due_date = due_date + INTERVAL '1 year'
+       WHERE due_date IS NOT NULL
+         AND EXTRACT(YEAR FROM due_date) = 2025`
+    );
+    const evtFix = await store.pool.query(
+      `UPDATE athlete_calendar_events
+       SET event_date = event_date + INTERVAL '1 year'
+       WHERE event_date IS NOT NULL
+         AND EXTRACT(YEAR FROM event_date) = 2025`
+    );
+    console.log(`[dateFix] ✅ Updated ${delFix.rowCount} deliverable(s) and ${evtFix.rowCount} calendar event(s) from 2025 → 2026`);
+  } catch (err) {
+    console.warn('[dateFix] Date fix failed (non-fatal):', err.message);
+  }
+
   // ── Start Roster Automation Scheduler ────────────────────────────
   // Runs inside this process — resilient across restarts via DB timestamps.
   // Light sync every 6h, deep sync every 24h, tick every 30min.

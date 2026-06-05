@@ -92,12 +92,15 @@ async function extractText(buffer, mimetype) {
 async function extractDeliverablesFromText(ai, contractText, brandHint) {
   const text = contractText.substring(0, MAX_TEXT_CHARS);
 
+  const currentYear = new Date().getFullYear();
   const prompt = `You are a senior sports attorney and contract analyst specializing in NIL (Name, Image, Likeness) agreements.
 
 Read this NIL contract and extract EVERY obligation, deliverable, and payment milestone.
 
 CONTRACT TEXT:
 ${text}
+
+TODAY'S DATE: ${new Date().toISOString().split('T')[0]} (current year is ${currentYear})
 
 For EACH deliverable extract:
 - description: exact obligation (what the athlete must do)
@@ -116,16 +119,17 @@ RULES:
 - Confidence ≥85 = clear contractual obligation. 70-84 = probable. Below 70 = flag only.
 - If the brand is obvious from context, use it even if not repeated on each line
 - If no due_date exists, return null — do NOT fabricate dates
+- IMPORTANT: All dates must use the actual year from the contract. If the contract does not specify a year, use ${currentYear}. Never output dates with year ${currentYear - 1} unless the contract explicitly states that year.
 - Return ONLY a valid JSON array, no markdown, no commentary
 
-OUTPUT FORMAT:
+OUTPUT FORMAT (example using current year ${currentYear}):
 [
   {
     "description": "Post 2 Instagram Reels featuring product during campaign",
     "brand": "Nike",
-    "due_date": "2025-09-01",
-    "start_date": "2025-06-01",
-    "end_date": "2025-12-31",
+    "due_date": "${currentYear}-09-01",
+    "start_date": "${currentYear}-06-01",
+    "end_date": "${currentYear}-12-31",
     "recurrence": "monthly",
     "contract_duration_months": 6,
     "deliverable_type": "social_post",
@@ -168,6 +172,7 @@ OUTPUT FORMAT:
 // ── Validate and sanitize a single AI deliverable ─────────────────────────
 function validateDeliverable(raw, fallbackBrand) {
   const issues = [];
+  const currentYear = new Date().getFullYear();
 
   const description = (raw.description || raw.deliverable_description || '').trim();
   if (!description) return { valid: false, issues: ['missing description'] };
@@ -180,6 +185,25 @@ function validateDeliverable(raw, fallbackBrand) {
   const recurrence = raw.recurrence || null;
   const durationMonths = raw.contract_duration_months ? parseInt(raw.contract_duration_months, 10) : null;
   const deliverableType = raw.deliverable_type || 'other';
+
+  // Log raw dates from AI so we can verify year correctness
+  console.log('[contractExtraction] raw AI dates:', {
+    description: description.substring(0, 60),
+    due_date: raw.due_date || null,
+    start_date: raw.start_date || null,
+    end_date: raw.end_date || null,
+  });
+
+  // Warn if AI returned a past year — this indicates the prompt bias bug
+  [dueDate, startDate, endDate].forEach(d => {
+    if (d) {
+      const yr = parseInt(d.split('-')[0], 10);
+      if (yr < currentYear) {
+        console.warn(`[contractExtraction] ⚠️  Date ${d} is in a past year (${yr}). Current year is ${currentYear}. Check AI prompt or contract text.`);
+        issues.push(`date in past year: ${d}`);
+      }
+    }
+  });
 
   if (!dueDate && !startDate) issues.push('no date specified');
   if (confidence < MIN_CONFIDENCE) issues.push(`low confidence: ${confidence}`);
