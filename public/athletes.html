@@ -47,6 +47,8 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;padding:0 5%;height:64px;dis
 .hero::after{content:'';position:absolute;bottom:-100px;left:-100px;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(200,255,0,0.04) 0%,transparent 70%);pointer-events:none}
 /* Diagonal geometric line texture — right side of hero */
 .hero-geo{position:absolute;top:0;right:0;bottom:0;width:55%;background-image:repeating-linear-gradient(-52deg,rgba(200,255,0,0.055) 0px,rgba(200,255,0,0.055) 1px,transparent 1px,transparent 44px);pointer-events:none;z-index:0;-webkit-mask-image:linear-gradient(to left,rgba(0,0,0,0.65) 0%,transparent 80%);mask-image:linear-gradient(to left,rgba(0,0,0,0.65) 0%,transparent 80%)}
+/* Vertical "NILDASH" watermark — right side of hero */
+.hero-watermark{position:absolute;right:-20px;top:50%;transform:translateY(-50%);font-family:'Bebas Neue',sans-serif;font-size:220px;color:#C8FF00;opacity:0.055;letter-spacing:-5px;writing-mode:vertical-rl;text-orientation:mixed;z-index:0;pointer-events:none;user-select:none;line-height:1}
 /* Eyebrow: vertical lime bar above the label text */
 .hero-eyebrow{font-size:11px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--lime);margin-bottom:20px;display:flex;align-items:flex-start;flex-direction:column;gap:12px;position:relative;z-index:1}
 .hero-eyebrow::before{content:'';display:block;width:4px;height:80px;background:var(--lime);flex-shrink:0}
@@ -200,6 +202,7 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
   .nav-mobile-cta{display:block;background:var(--lime);color:#0A0E1A;font-size:13px;font-weight:800;padding:8px 18px;border-radius:6px;border:none;cursor:pointer}
   .hero{padding:72px 4% 50px}
   .hero-geo{display:none}
+  .hero-watermark{font-size:120px;opacity:0.04}
   .hero-eyebrow::before{height:50px}
   .hero-stats{grid-template-columns:1fr}
   .section,.how-section,.pricing-section,.faq-section,.final-cta{padding:70px 4%}
@@ -235,6 +238,8 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
 <section class="hero" id="hero">
   <!-- Diagonal geometric texture (right side) -->
   <div class="hero-geo"></div>
+  <!-- Vertical watermark text — right edge of hero -->
+  <div class="hero-watermark">NILDASH</div>
   <div class="hero-eyebrow">NILDash for Athletes</div>
   <h1 class="hero-headline">BECOME YOUR OWN<br><span>NIL AGENT.</span></h1>
   <p class="hero-sub">AI tools that used to cost thousands in agent fees. Now <strong>$25/month.</strong> First month free.</p>
