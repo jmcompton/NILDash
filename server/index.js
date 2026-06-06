@@ -2958,77 +2958,128 @@ app.get('/api/athlete/verify-email', async (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(400).send('Missing token');
 
+  console.log(`[verify] token received: ...${token.slice(-12)}`);
+
   try {
+    // ── 1. Look up athlete by token ────────────────────────────────────────────
     const r = await store.pool.query(
       'SELECT * FROM athletes WHERE email_verify_token = $1 AND athlete_type = $2',
       [token, 'self_managed']
     );
+    console.log(`[verify] DB query returned ${r.rows.length} row(s)`);
+
     if (!r.rows.length)
       return res.status(400).send('Invalid or expired verification link. Please sign up again.');
 
     const athlete = r.rows[0];
+    console.log(`[verify] athlete found id=${athlete.id} email=${athlete.email} verified=${athlete.email_verified}`);
+
     if (athlete.email_verified)
       return res.redirect('/athletes?verified=already');
 
-    if (new Date(athlete.email_verify_expires) < new Date())
+    if (new Date(athlete.email_verify_expires) < new Date()) {
+      console.log(`[verify] token expired at ${athlete.email_verify_expires}`);
       return res.status(400).send('This verification link has expired (24 hours). Please sign up again.');
+    }
 
-    // Mark email verified
+    // ── 2. Mark email verified ─────────────────────────────────────────────────
     await store.pool.query(
       'UPDATE athletes SET email_verified = TRUE, email_verify_token = NULL WHERE id = $1',
       [athlete.id]
     );
+    console.log(`[verify] email marked verified for athlete=${athlete.id}`);
 
-    // If no Stripe key configured, skip checkout and issue JWT directly (dev mode)
-    if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_PRICE_ID) {
-      console.warn('[verify-email] Stripe not configured — activating athlete directly (dev mode)');
+    // Helper: issue JWT and redirect directly to dashboard (bypassing Stripe)
+    const _issueJwtAndRedirect = async (status) => {
       await store.pool.query(
         'UPDATE athletes SET subscription_status = $1, onboarding_complete = TRUE WHERE id = $2',
-        ['active', athlete.id]
+        [status, athlete.id]
       );
-      const jwt = require('jsonwebtoken');
-      const athleteJwt = jwt.sign({
+      const jwtLib = require('jsonwebtoken');
+      const athleteName = (athlete.data && athlete.data.name) ? athlete.data.name : '';
+      const athleteJwt = jwtLib.sign({
         id: athlete.id,
         email: athlete.email,
         role: 'athlete',
         agent_id: null,
-        athlete_name: athlete.data && athlete.data.name ? athlete.data.name : '',
+        athlete_name: athleteName,
         athlete_type: 'self_managed',
       }, ATHLETE_JWT_SECRET, { expiresIn: '30d' });
+      console.log(`[verify] JWT issued for athlete=${athlete.id} status=${status}`);
       return res.redirect(`/athlete-dashboard.html?jwt=${athleteJwt}&new=1`);
+    };
+
+    // ── 3. Determine Stripe mode ───────────────────────────────────────────────
+    const stripeKey = process.env.STRIPE_SECRET_KEY || '';
+    const stripePrice = process.env.STRIPE_PRICE_ID || '';
+    const isTestKey = stripeKey.startsWith('sk_test_');
+
+    // No Stripe configured at all → skip checkout entirely
+    if (!stripeKey || !stripePrice) {
+      console.warn('[verify] Stripe not configured — activating athlete directly (dev mode)');
+      return await _issueJwtAndRedirect('active');
     }
 
-    // Create Stripe customer + checkout session
-    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    // ── 4. Attempt Stripe customer + checkout session ──────────────────────────
+    console.log(`[verify] stripe attempt — key type: ${isTestKey ? 'test' : 'live'} price=${stripePrice}`);
 
-    const customer = await stripe.customers.create({
-      email: athlete.email,
-      name: athlete.data && athlete.data.name ? athlete.data.name : '',
-      metadata: { athlete_id: athlete.id },
-    });
+    let checkoutUrl = null;
+    try {
+      const stripe = require('stripe')(stripeKey);
+      const appUrl = process.env.APP_URL || 'https://mynildash.com';
 
-    await store.pool.query(
-      'UPDATE athletes SET stripe_customer_id = $1 WHERE id = $2',
-      [customer.id, athlete.id]
-    );
+      const customer = await stripe.customers.create({
+        email: athlete.email,
+        name: (athlete.data && athlete.data.name) ? athlete.data.name : '',
+        metadata: { athlete_id: athlete.id },
+      });
+      console.log(`[verify] stripe customer created id=${customer.id}`);
 
-    const checkoutSession = await stripe.checkout.sessions.create({
-      customer: customer.id,
-      payment_method_types: ['card'],
-      mode: 'subscription',
-      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-      subscription_data: { trial_period_days: 30 },
-      success_url: `${appUrl}/api/athlete/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${appUrl}/athletes?cancelled=1`,
-      metadata: { athlete_id: athlete.id },
-    });
+      await store.pool.query(
+        'UPDATE athletes SET stripe_customer_id = $1 WHERE id = $2',
+        [customer.id, athlete.id]
+      );
 
-    console.log(`[verify-email] Redirecting athlete ${athlete.id} to Stripe checkout`);
-    res.redirect(checkoutSession.url);
-  } catch (e) {
-    console.error('[verify-email]', e.message, e.stack);
-    res.status(500).send('Something went wrong. Please try again or contact support.');
+      const checkoutSession = await stripe.checkout.sessions.create({
+        customer: customer.id,
+        payment_method_types: ['card'],
+        mode: 'subscription',
+        line_items: [{ price: stripePrice, quantity: 1 }],
+        subscription_data: { trial_period_days: 30 },
+        success_url: `${appUrl}/api/athlete/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/athletes?cancelled=1`,
+        metadata: { athlete_id: athlete.id },
+      });
+
+      checkoutUrl = checkoutSession.url;
+      console.log(`[verify] stripe checkout session created id=${checkoutSession.id}`);
+    } catch (stripeErr) {
+      // Log the full Stripe error object so the error code / decline code is visible
+      console.error('[verify] Stripe call failed — full error:', JSON.stringify(stripeErr, Object.getOwnPropertyNames(stripeErr)));
+      console.error('[verify] Stripe error message:', stripeErr.message);
+
+      // DEV BYPASS: if using a test key, skip Stripe and activate the athlete directly
+      if (isTestKey) {
+        console.warn('[verify] Test key detected + Stripe failed — activating athlete directly (dev bypass)');
+        return await _issueJwtAndRedirect('trialing');
+      }
+
+      // Live key failure — surface the error rather than silently swallowing it
+      return res.status(500).send(
+        'Account verified but payment setup failed. Please contact support@mynildash.com with your email address.'
+      );
+    }
+
+    // ── 5. Redirect to Stripe checkout ────────────────────────────────────────
+    console.log(`[verify] redirecting athlete=${athlete.id} to Stripe checkout`);
+    res.redirect(checkoutUrl);
+
+  } catch (err) {
+    // Catch-all: log the full error object (not just .message) so nothing is hidden
+    console.error('[verify-email-error] Unhandled exception:', err);
+    console.error('[verify-email-error] message:', err.message);
+    console.error('[verify-email-error] stack:', err.stack);
+    res.status(500).send('Something went wrong. Please try again or contact support@mynildash.com');
   }
 });
 
