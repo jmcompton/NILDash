@@ -3989,6 +3989,125 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
   } catch (e) { console.error('[athlete/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// Helper: load an athlete object for AI calls (followers from data JSON or columns)
+async function _loadAthleteObjForAI(athleteId) {
+  const r = await store.pool.query(
+    `SELECT a.data, a.instagram_followers, a.tiktok_followers, a.twitter_followers,
+            a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
+            a.data->>'instagram' as ig, a.data->>'tiktok' as tt, a.data->>'position' as position,
+            a.data->>'year' as year, a.data->>'engagement' as engagement, a.data->>'stats' as stats
+     FROM athletes a WHERE a.id = $1`, [athleteId]);
+  const ath = r.rows[0];
+  if (!ath) return null;
+  return {
+    name: ath.name, sport: ath.sport, position: ath.position, year: ath.year,
+    school: ath.school,
+    instagram: parseInt(ath.ig) || ath.instagram_followers || 0,
+    tiktok: parseInt(ath.tt) || ath.tiktok_followers || 0,
+    twitter: ath.twitter_followers || 0,
+    engagement: parseFloat(ath.engagement) || 0,
+    stats: ath.stats || '',
+  };
+}
+
+// POST /api/athlete/deal-pitch — generate a personalized pitch for a brand (preview)
+app.post('/api/athlete/deal-pitch', verifyAthleteToken, aiLimiter, async (req, res) => {
+  try {
+    const brand = req.body.brand || {};
+    if (!brand.brand && !brand.brand_name) return res.status(400).json({ error: 'brand required' });
+    const athleteObj = await _loadAthleteObjForAI(req.athlete.id);
+    if (!athleteObj) return res.status(404).json({ error: 'Athlete not found' });
+    const pitch = await ai.generateDealPitch(athleteObj, brand);
+    res.json({ pitch });
+  } catch (e) { console.error('[athlete/deal-pitch]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/athlete/deal-pipeline — list this athlete's pipeline
+app.get('/api/athlete/deal-pipeline', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `SELECT * FROM athlete_deal_pipeline WHERE athlete_id=$1 ORDER BY
+         CASE status WHEN 'deal_closed' THEN 0 WHEN 'in_talks' THEN 1 WHEN 'pitched' THEN 2
+                     WHEN 'not_contacted' THEN 3 WHEN 'no_response' THEN 4 ELSE 5 END,
+         updated_at DESC`,
+      [req.athlete.id]
+    );
+    res.json({ pipeline: r.rows });
+  } catch (e) { console.error('[deal-pipeline GET]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/deal-pipeline — add/save a brand to pipeline
+app.post('/api/athlete/deal-pipeline', verifyAthleteToken, async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.brand_name) return res.status(400).json({ error: 'brand_name required' });
+    // Avoid duplicates: if this brand already exists for athlete, return it
+    const existing = await store.pool.query(
+      `SELECT * FROM athlete_deal_pipeline WHERE athlete_id=$1 AND LOWER(brand_name)=LOWER($2) LIMIT 1`,
+      [req.athlete.id, b.brand_name]
+    );
+    if (existing.rows.length) return res.json({ entry: existing.rows[0], existed: true });
+    const status = b.status || 'not_contacted';
+    const pitchedAt = status === 'pitched' ? new Date() : null;
+    const r = await store.pool.query(
+      `INSERT INTO athlete_deal_pipeline
+         (athlete_id, agent_id, brand_name, brand_category, contact_email, contact_name,
+          status, deal_value, pitch_subject, pitch_body, pitched_at, last_contact_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11) RETURNING *`,
+      [req.athlete.id, req.athlete.agent_id || null, b.brand_name, b.brand_category || null,
+       b.contact_email || null, b.contact_name || null, status, b.deal_value || null,
+       b.pitch_subject || null, b.pitch_body || null, pitchedAt]
+    );
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_pipeline_add', `Added ${b.brand_name} to deal pipeline`, {}).catch(()=>{});
+    res.json({ entry: r.rows[0] });
+  } catch (e) { console.error('[deal-pipeline POST]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/athlete/deal-pipeline/:id — update status / notes
+app.put('/api/athlete/deal-pipeline/:id', verifyAthleteToken, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const b = req.body || {};
+    const own = await store.pool.query('SELECT * FROM athlete_deal_pipeline WHERE id=$1 AND athlete_id=$2', [id, req.athlete.id]);
+    if (!own.rows.length) return res.status(404).json({ error: 'Not found' });
+    const cur = own.rows[0];
+    const status = b.status || cur.status;
+    // When transitioning to pitched, record pitched_at if not already set
+    const pitchedAt = (status === 'pitched' && !cur.pitched_at) ? new Date() : cur.pitched_at;
+    const lastContact = (b.touch || status === 'pitched') ? new Date() : cur.last_contact_at;
+    const r = await store.pool.query(
+      `UPDATE athlete_deal_pipeline
+         SET status=$1, notes=COALESCE($2,notes), deal_value=COALESCE($3,deal_value),
+             pitched_at=$4, last_contact_at=$5, updated_at=NOW()
+       WHERE id=$6 AND athlete_id=$7 RETURNING *`,
+      [status, b.notes ?? null, b.deal_value ?? null, pitchedAt, lastContact, id, req.athlete.id]
+    );
+    res.json({ entry: r.rows[0] });
+  } catch (e) { console.error('[deal-pipeline PUT]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/deal-pipeline/:id/followup — generate (and optionally send) a follow-up
+app.post('/api/athlete/deal-pipeline/:id/followup', verifyAthleteToken, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const own = await store.pool.query('SELECT * FROM athlete_deal_pipeline WHERE id=$1 AND athlete_id=$2', [id, req.athlete.id]);
+    if (!own.rows.length) return res.status(404).json({ error: 'Not found' });
+    const entry = own.rows[0];
+    const athleteObj = await _loadAthleteObjForAI(req.athlete.id);
+    const followup = await ai.generateFollowUp(athleteObj, entry);
+    // If send=true and we have a contact email, send it via the shared email path
+    if (req.body.send && entry.contact_email) {
+      await _sendAthleteEmail(req.athlete, entry.contact_email, followup.subject, followup.body);
+      await store.pool.query(
+        `UPDATE athlete_deal_pipeline SET last_contact_at=NOW(), updated_at=NOW() WHERE id=$1 AND athlete_id=$2`,
+        [id, req.athlete.id]
+      );
+      return res.json({ followup, sent: true });
+    }
+    res.json({ followup, sent: false });
+  } catch (e) { console.error('[deal-pipeline followup]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/athlete/rate-calculator — calculate athlete's own rates (full benchmarks)
 app.post('/api/athlete/rate-calculator', verifyAthleteToken, async (req, res) => {
   try {
@@ -4300,6 +4419,114 @@ app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, r
   }
 });
 
+// Shared athlete email send: Gmail-if-connected, else Resend. Logs + saves to agent inbox.
+// Returns { via } and throws on failure (caller handles HTTP).
+async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
+  const athleteId = athlete.id;
+  let agentId = athlete.agent_id;
+  if (!agentId) {
+    const ag = await store.pool.query('SELECT agent_id FROM athletes WHERE id=$1', [athleteId]).catch(() => ({ rows: [] }));
+    agentId = ag.rows[0]?.agent_id || null;
+  }
+  let athleteName = athlete.athlete_name || athlete.name || null;
+  if (!athleteName) {
+    const nr = await store.pool.query(`SELECT data->>'name' AS name FROM athletes WHERE id=$1`, [athleteId]).catch(() => ({ rows: [] }));
+    athleteName = nr.rows[0]?.name || null;
+  }
+  const athleteEmail = athlete.email || null;
+
+  let agentEmail = null;
+  if (opts.cc_agent && agentId) {
+    const ar = await store.pool.query('SELECT email FROM users WHERE id=$1', [agentId]).catch(() => ({ rows: [] }));
+    agentEmail = ar.rows[0]?.email || null;
+  }
+
+  const athRow = await store.pool.query(
+    'SELECT gmail_refresh_token, gmail_address FROM athletes WHERE id=$1', [athleteId]
+  ).then(r => r.rows[0] || {});
+  const gmailRefreshToken = athRow.gmail_refresh_token || null;
+
+  if (gmailSend && gmailSend.isAvailable() && gmailRefreshToken) {
+    await gmailSend.sendEmail({ refreshToken: gmailRefreshToken, to, subject, body, cc: agentEmail || undefined });
+    console.log(`[athlete/email] sent via Gmail as ${athRow.gmail_address} to=${to} subject="${subject}" athlete=${athleteId}`);
+  } else {
+    const fromDisplay = athleteName ? `${athleteName} via NILDash` : 'NILDash Athlete';
+    const emailPayload = {
+      from:    `${fromDisplay} <noreply@mynildash.com>`,
+      replyTo: athleteEmail || undefined,
+      to:      [to],
+      subject,
+      text: body,
+      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`,
+    };
+    if (agentEmail) emailPayload.cc = [agentEmail];
+    await resend.emails.send(emailPayload);
+    console.log(`[athlete/email] sent via Resend from="${fromDisplay}" replyTo=${athleteEmail} to=${to} subject="${subject}" athlete=${athleteId}`);
+  }
+
+  await store.pool.query(
+    `INSERT INTO athlete_brand_outreach (athlete_id, agent_id, brand_name, brand_contact_email, message_sent, initiated_by, status)
+     VALUES ($1,$2,$3,$4,$5,'athlete','sent')`,
+    [athleteId, agentId, opts.brand_name || subject, to, body]
+  ).catch(() => {});
+
+  const senderEmail = gmailRefreshToken ? (athRow.gmail_address || athleteEmail) : athleteEmail;
+  if (agentId) {
+    await store.pool.query(
+      `INSERT INTO athlete_messages (athlete_id, athlete_name, athlete_email, agent_id, to_address, subject, body)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [athleteId, athleteName, senderEmail, agentId, to, subject, body]
+    ).catch(() => {});
+  }
+
+  await logAthleteActivity(athleteId, agentId, 'email_sent',
+    `Sent email to ${to}: "${subject}"`, { to, subject, via: gmailRefreshToken ? 'gmail' : 'resend' }).catch(()=>{});
+
+  return { via: gmailRefreshToken ? 'gmail' : 'resend' };
+}
+
+// POST /api/athlete/deal-pitch/send — send a pitch to a brand and record/upsert in pipeline
+app.post('/api/athlete/deal-pitch/send', verifyAthleteToken, async (req, res) => {
+  try {
+    const { to, subject, body, brand } = req.body || {};
+    if (!to || !subject || !body) return res.status(400).json({ error: 'to, subject, and body required' });
+    await _sendAthleteEmail(req.athlete, to, subject, body, { brand_name: (brand && (brand.brand || brand.brand_name)) || subject });
+
+    // Upsert into pipeline as "pitched"
+    const brandName = (brand && (brand.brand || brand.brand_name)) || to;
+    const existing = await store.pool.query(
+      `SELECT id FROM athlete_deal_pipeline WHERE athlete_id=$1 AND LOWER(brand_name)=LOWER($2) LIMIT 1`,
+      [req.athlete.id, brandName]
+    );
+    let entry;
+    if (existing.rows.length) {
+      entry = (await store.pool.query(
+        `UPDATE athlete_deal_pipeline SET status='pitched',
+           pitched_at=COALESCE(pitched_at, NOW()), last_contact_at=NOW(),
+           pitch_subject=$3, pitch_body=$4, updated_at=NOW()
+         WHERE id=$1 AND athlete_id=$2 RETURNING *`,
+        [existing.rows[0].id, req.athlete.id, subject, body]
+      )).rows[0];
+    } else {
+      entry = (await store.pool.query(
+        `INSERT INTO athlete_deal_pipeline
+           (athlete_id, agent_id, brand_name, brand_category, contact_email, contact_name,
+            status, deal_value, pitch_subject, pitch_body, pitched_at, last_contact_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'pitched',$7,$8,$9,NOW(),NOW()) RETURNING *`,
+        [req.athlete.id, req.athlete.agent_id || null, brandName,
+         brand?.category || null, to, brand?.contactName || null,
+         brand ? `$${brand.estimatedValueLow||''}-$${brand.estimatedValueHigh||''}` : null,
+         subject, body]
+      )).rows[0];
+    }
+    res.json({ ok: true, entry });
+  } catch (e) {
+    console.error('[deal-pitch/send]', e.message);
+    if (e.code === 'GMAIL_TOKEN_EXPIRED') return res.status(401).json({ error: 'gmail_token_expired' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/athlete/email/send — athlete sends tracked email
 // • If the athlete has connected their Gmail → sends via Gmail API (from their real address)
 // • Otherwise → falls back to Resend (from noreply@mynildash.com with reply-to set)
@@ -4307,88 +4534,7 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
   try {
     const { to, subject, body, cc_agent } = req.body;
     if (!to || !subject || !body) return res.status(400).json({ error: 'to, subject, and body required' });
-
-    const athleteId = req.athlete.id;
-
-    // agent_id from JWT; fall back to DB if somehow missing
-    let agentId = req.athlete.agent_id;
-    if (!agentId) {
-      const ag = await store.pool.query('SELECT agent_id FROM athletes WHERE id=$1', [athleteId]).catch(() => ({ rows: [] }));
-      agentId = ag.rows[0]?.agent_id || null;
-    }
-
-    // athlete name from JWT or DB
-    let athleteName = req.athlete.athlete_name || req.athlete.name || null;
-    if (!athleteName) {
-      const nr = await store.pool.query(`SELECT data->>'name' AS name FROM athletes WHERE id=$1`, [athleteId]).catch(() => ({ rows: [] }));
-      athleteName = nr.rows[0]?.name || null;
-    }
-    const athleteEmail = req.athlete.email || null;
-
-    // agent email for CC
-    let agentEmail = null;
-    if (cc_agent && agentId) {
-      const ar = await store.pool.query('SELECT email FROM users WHERE id=$1', [agentId]).catch(() => ({ rows: [] }));
-      agentEmail = ar.rows[0]?.email || null;
-    }
-
-    // ── Decide send path ─────────────────────────────────────────────
-    // Look up gmail_refresh_token on athletes table
-    const athRow = await store.pool.query(
-      'SELECT gmail_refresh_token, gmail_address FROM athletes WHERE id=$1',
-      [athleteId]
-    ).then(r => r.rows[0] || {});
-    const gmailRefreshToken = athRow.gmail_refresh_token || null;
-
-    if (gmailSend && gmailSend.isAvailable() && gmailRefreshToken) {
-      // ── PATH A: send via the athlete's own Gmail account ──────────
-      await gmailSend.sendEmail({
-        refreshToken: gmailRefreshToken,
-        to,
-        subject,
-        body,
-        cc: agentEmail || undefined,
-      });
-      console.log(`[athlete/email] sent via Gmail as ${athRow.gmail_address} to=${to} subject="${subject}" athlete=${athleteId}`);
-    } else {
-      // ── PATH B: fall back to Resend (noreply@mynildash.com) ───────
-      const fromDisplay = athleteName ? `${athleteName} via NILDash` : 'NILDash Athlete';
-      const emailPayload = {
-        from:    `${fromDisplay} <noreply@mynildash.com>`,
-        replyTo: athleteEmail || undefined,
-        to:      [to],
-        subject,
-        text: body,
-        html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`,
-      };
-      if (agentEmail) emailPayload.cc = [agentEmail];
-      await resend.emails.send(emailPayload);
-      console.log(`[athlete/email] sent via Resend from="${fromDisplay}" replyTo=${athleteEmail} to=${to} subject="${subject}" athlete=${athleteId}`);
-    }
-
-    // ── Log in athlete_brand_outreach ───────────────────────────────
-    await store.pool.query(
-      `INSERT INTO athlete_brand_outreach (athlete_id, agent_id, brand_name, brand_contact_email, message_sent, initiated_by, status)
-       VALUES ($1,$2,$3,$4,$5,'athlete','sent')`,
-      [athleteId, agentId, subject, to, body]
-    ).catch(() => {});
-
-    // ── Save to athlete_messages so agent sees it in Athlete Emails tab ──
-    const senderEmail = gmailRefreshToken ? (athRow.gmail_address || athleteEmail) : athleteEmail;
-    if (agentId) {
-      await store.pool.query(
-        `INSERT INTO athlete_messages (athlete_id, athlete_name, athlete_email, agent_id, to_address, subject, body)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [athleteId, athleteName, senderEmail, agentId, to, subject, body]
-      );
-      console.log(`[athlete/email] athlete_messages saved agentId=${agentId}`);
-    } else {
-      console.warn('[athlete/email] no agentId — skipping athlete_messages save');
-    }
-
-    await logAthleteActivity(athleteId, agentId, 'email_sent',
-      `Sent email to ${to}: "${subject}"`, { to, subject, cc_agent: !!cc_agent, via: gmailRefreshToken ? 'gmail' : 'resend' });
-
+    await _sendAthleteEmail(req.athlete, to, subject, body, { cc_agent });
     res.json({ ok: true, message: 'Email sent.' });
   } catch (e) {
     console.error('[athlete/email]', e.message);

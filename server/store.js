@@ -317,6 +317,31 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_log_athlete ON athlete_activity_log(athlete_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_activity_log_agent ON athlete_activity_log(agent_id)`).catch(() => {});
 
+  // ── Deal Scan Pipeline (local brand outreach tracking) ────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS athlete_deal_pipeline (
+      id SERIAL PRIMARY KEY,
+      athlete_id TEXT NOT NULL,
+      agent_id TEXT,
+      brand_name TEXT NOT NULL,
+      brand_category TEXT,
+      contact_email TEXT,
+      contact_name TEXT,
+      status TEXT DEFAULT 'not_contacted',
+      deal_value TEXT,
+      pitch_subject TEXT,
+      pitch_body TEXT,
+      notes TEXT,
+      pitched_at TIMESTAMPTZ,
+      last_contact_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] athlete_deal_pipeline table ready'))
+    .catch(e => console.error('[init] athlete_deal_pipeline:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_pipeline_athlete ON athlete_deal_pipeline(athlete_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_pipeline_status ON athlete_deal_pipeline(status)`).catch(() => {});
+
   // ── Athlete Self-Managed Deals ────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS athlete_self_deals (

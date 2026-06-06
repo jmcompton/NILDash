@@ -240,6 +240,26 @@ async function oneShot(prompt, system, maxTokens, model) {
   }
 }
 
+// Web-search-enabled one-shot. Uses Anthropic's server-side web_search tool so
+// brand discovery returns REAL, verifiable local businesses. Falls back to the
+// caller's error handling on timeout/failure.
+async function oneShotWebSearch(prompt, system, maxTokens, maxSearches) {
+  const ai = getClient();
+  const msg = await ai.messages.create({
+    model: MODEL_STANDARD,
+    max_tokens: maxTokens || 3000,
+    system: system || 'You are a precise research assistant.',
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxSearches || 5 }],
+    messages: [{ role: 'user', content: prompt }],
+  });
+  // Collect all text blocks from the final assistant turn
+  const text = (msg.content || [])
+    .filter(b => b.type === 'text')
+    .map(b => b.text)
+    .join('\n');
+  return text;
+}
+
 async function oneShotWithSearch(prompt, systemPrompt) {
   // Skip web search attempt - use high-quality oneShot with rich context instead
   // (web_search tool was causing timeouts on Railway - oneShot with good prompts is more reliable)
@@ -386,63 +406,108 @@ async function getDealRecommendations(athlete, role, excludeBrands) {
     ? `\nEXCLUDE THESE BRANDS COMPLETELY — do not suggest them under any circumstances: ${excludeBrands.join(', ')}\nYou must return 6 DIFFERENT brands from this list.`
     : '';
 
-  const prompt = `You are a NIL deal researcher. Find 6 real brand opportunities for this athlete, prioritizing LOCAL businesses first.
+  // Deal-value range for this athlete's tier (nano/micro get small local deals)
+  const valLow  = tier === 'macro' ? 2500 : tier === 'mid' ? 800 : tier === 'micro' ? 250 : 100;
+  const valHigh = tier === 'macro' ? 15000 : tier === 'mid' ? 4000 : tier === 'micro' ? 1000 : 500;
+
+  // Sport-specific local category hints
+  const sportCats = {
+    baseball: 'batting cages, baseball/softball academies, sporting goods stores',
+    softball: 'batting cages, softball academies, sporting goods stores',
+    basketball: 'basketball training facilities, sneaker/shoe stores, sports apparel shops',
+    football: 'sports bars, BBQ/wing restaurants, sporting goods, training facilities',
+    soccer: 'soccer clubs, sports medicine clinics, athletic apparel shops',
+  };
+  const catHint = sportCats[sport.toLowerCase()] || 'sports training facilities, sporting goods stores';
+
+  const prompt = `Find 6 REAL local NIL brand sponsorship opportunities for a college athlete. Use web search to verify every business actually exists in their market.
 
 ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${school}
-LOCATION: ${school} is in ${city}, ${state}
-SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | ${athlete.engagement||0}% engagement | Tier: ${tier}
-MARKETABILITY SCORE: ${rate.marketabilityScore}/100
-TOP CATEGORIES: ${(rate.sponsorCategories||[]).map(c=>c.name).join(', ')}
+MARKET: ${city}, ${state} (search for businesses located here and within ~25 miles)
+SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Tier: ${tier} (small/nano-influencer — target LOCAL businesses, not national corporate)
 ${exclusionLine}
 
-GEOGRAPHIC PRIORITY — return results in this order:
-Layer 1 — HYPERLOCAL (tier: "local"): Real businesses physically located in or near ${city} and within 10 miles. College-town restaurants, local gyms, regional banks, car dealerships, local clothing stores, sports shops. These must be REAL named businesses in ${city}/${state}.
-Layer 2 — REGIONAL (tier: "regional"): ${state}-based companies or regional chains with a strong ${state} presence. Regional grocery chains, regional banks, state-wide food brands, ${state} media companies.
-Layer 3 — NATIONAL (tier: "national"): National brands ONLY if they have documented NIL or college athlete partnership programs in 2025-2026.
+THIS IS LOCAL-FIRST. A ${tier}-tier athlete will NOT land Nike. They land deals with the local car dealership, the gym down the street, the regional Chick-fil-A franchise owner, the supplement store. Realistic local deal value for this athlete: $${valLow}–$${valHigh} per post/campaign.
 
-OUTPUT RULES:
-- Return at least 3 LOCAL results first, then regional, then national
-- Do NOT include Nike, Adidas, Gatorade unless confirmed they run NIL programs at this tier
-- Each brand must have a specific reason why they fit THIS athlete
-- Every brand returned MUST be a real, verifiable business — not invented or hallucinated
-- For EVERY brand, you MUST provide a contact email. Use this priority order:
-  1. A known partnerships or NIL-specific email (e.g. nil@brand.com, partnerships@brand.com, athletes@brand.com)
-  2. Their marketing contact email (marketing@brand.com, sponsorships@brand.com)
-  3. Their general contact email from their website (contact@brand.com, hello@brand.com, info@brand.com)
-  4. For local businesses, use the format: manager@businessname.com or info@businessname.com
-- contactEmail must NEVER be null — always provide a best-guess email based on standard business email formats
-- contactTitle should be specific: "NIL Partnerships Manager", "Marketing Director", "Sponsorship Coordinator", "Owner" (for small local), etc.
+SEARCH these high-probability local NIL categories in ${city}, ${state}:
+- Local car dealerships (the #1 local NIL spender)
+- Gyms / fitness centers / CrossFit boxes
+- Regional restaurant franchises (Chick-fil-A, Raising Cane's, Zaxby's, Wingstop franchisees) — find the local franchise/owner
+- Supplement / nutrition stores
+- Coffee shops, apparel boutiques
+- Local insurance agents (State Farm/Allstate local agencies)
+- Sports training facilities, physical therapy / sports medicine clinics
+- Regional banks / credit unions, real estate companies
+- Sport-specific for ${sport}: ${catHint}
 
-Return ONLY a JSON array of 6 deals, sorted local first then regional then national:
+For EACH of the 6, web-search to confirm it's real and find a real contact email from their actual website. Score each 1–100 on: likelihood of doing local NIL deals, sport relevance, community connection, deal-size potential, and existing local sports sponsorship.
+
+RULES:
+- Every brand MUST be a real, verifiable business you found via search. NEVER invent a business. If you can only verify 4 real ones, return 4 with a note — do NOT pad with fabricated names.
+- contactEmail: use the real email from their website. If not found, use the standard owner@/info@/contact@ format for THAT business's real domain. Never fabricate a fake domain.
+- whyFit must reference THIS athlete's sport/school/market and the LOCAL angle.
+
+After researching, output ONLY a JSON array (no markdown, no preamble) of up to 6 objects sorted by fitScore descending:
 [{
   "rank": 1,
   "brand": "Exact Real Business Name",
   "tier": "local",
-  "campaign": "Specific campaign concept for this athlete in 1-2 sentences",
-  "category": "local|nutrition|apparel|tech|finance|food|beverage|gaming|auto|grooming",
-  "dealType": "post|reel|ambassador|appearance|licensing",
-  "rationale": "Why this brand fits — cite location, NIL history, or audience match",
+  "category": "auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|local",
+  "dealType": "post|reel|ambassador|appearance",
+  "campaign": "Specific 1-sentence campaign concept for this athlete",
+  "rationale": "2-3 sentences: why this brand fits THIS athlete — sport, school, local market, community angle",
+  "estimatedValueLow": ${valLow},
+  "estimatedValueHigh": ${valHigh},
+  "contactApproach": "Best way to reach out (e.g. DM the owner, email the marketing manager, visit in person)",
   "timingNote": "Best time to reach out and why",
-  "fitScore": 85,
+  "fitScore": 88,
   "isLocal": true,
-  "contactName": "First Last or null if genuinely unknown",
-  "contactTitle": "Their exact title — never leave this generic",
-  "contactEmail": "real@email.com — REQUIRED, never null",
-  "contactLinkedIn": "linkedin.com/in/person or null if unknown"
+  "contactName": "Owner/Manager real name or null if not found",
+  "contactTitle": "Owner | Marketing Director | Franchise Owner | etc",
+  "contactEmail": "real@realbusiness.com",
+  "contactLinkedIn": "linkedin.com/in/person or null"
 }]`;
 
+  // ── PRIMARY PATH: web-search-backed discovery ──────────────────────────────
   try {
-    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Every brand must be a real verifiable business. Every contactEmail field is REQUIRED — never return null for contactEmail. Use standard business email formats (partnerships@, nil@, marketing@, contact@, info@) based on the brand name.', 2500, MODEL_FAST);
+    const raw = await oneShotWebSearch(prompt,
+      'You are a local NIL deal researcher. Use web search to find and VERIFY real local businesses. Never fabricate a business or a contact domain. Your final message must be ONLY a valid JSON array starting with [ and ending with ]. No markdown fences, no commentary.',
+      4000, 8);
+    const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const si = c.indexOf('[');
+    const ei = c.lastIndexOf(']');
+    if (si === -1 || ei <= si) throw new Error('No array in web-search response');
+    const parsed = JSON.parse(c.substring(si, ei + 1));
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
+    parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+    return parsed.map((d, i) => ({
+      ...d,
+      rank: i + 1,
+      estimatedValueLow: d.estimatedValueLow || valLow,
+      estimatedValueHigh: d.estimatedValueHigh || valHigh,
+      suggestedRate: { low: rate.low, high: rate.high },
+    }));
+  } catch (webErr) {
+    console.warn('[deal-scan] web search path failed, falling back to model-knowledge:', webErr.message);
+  }
+
+  // ── FALLBACK PATH: model-knowledge (no web search) ─────────────────────────
+  try {
+    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown. Every brand must be a real verifiable business. Every contactEmail is REQUIRED and must use the real business domain.', 3000, MODEL_FAST);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
     if (si === -1 || ei <= si) throw new Error('No array');
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-    // Sort by tier: local first, regional second, national last
-    const tierOrder = { local: 0, regional: 1, national: 2 };
-    parsed.sort((a, b) => (tierOrder[a.tier] ?? 2) - (tierOrder[b.tier] ?? 2));
-    return parsed.map((d, i) => ({ ...d, rank: i + 1, suggestedRate: { low: rate.low, high: rate.high } }));
+    parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+    return parsed.map((d, i) => ({
+      ...d,
+      rank: i + 1,
+      estimatedValueLow: d.estimatedValueLow || valLow,
+      estimatedValueHigh: d.estimatedValueHigh || valHigh,
+      suggestedRate: { low: rate.low, high: rate.high },
+    }));
   } catch (err) {
     console.error('Deal scan error:', err.message);
     const sportBrands = {
@@ -458,10 +523,79 @@ Return ONLY a JSON array of 6 deals, sorted local first then regional then natio
       dealType: i<2?'ambassador':'reel',
       rationale: `Strong fit for ${sport} athletes — established brand with college NIL programs.`,
       fitScore: 75-i*3, isLocal: false,
+      estimatedValueLow: valLow, estimatedValueHigh: valHigh,
       suggestedRate: { low: rate.low, high: rate.high },
       timingNote: 'Open — reach out via brand NIL portal',
+      contactApproach: 'Apply through the brand NIL/ambassador portal',
       contactName: null, contactTitle: 'NIL Partnerships Team', contactEmail: null, contactLinkedIn: null
     }));
+  }
+}
+
+// ─── Deal-Scan Pitch Generation ──────────────────────────────────────────────
+// Generates a personalized, authentic outreach pitch in the athlete's real voice.
+async function generateDealPitch(athlete, brand) {
+  const sport = athlete.sport || 'athlete';
+  const school = athlete.school || 'my school';
+  const loc = getSchoolLocation(school);
+  const ig = (athlete.instagram || 0).toLocaleString();
+  const tt = (athlete.tiktok || 0).toLocaleString();
+  const reach = ((athlete.instagram || 0) + (athlete.tiktok || 0)).toLocaleString();
+
+  const prompt = `Write a short, authentic NIL partnership outreach email from a college athlete to a local business.
+
+ATHLETE: ${athlete.name}, ${athlete.position || ''} ${sport} player at ${school} (${loc.city}, ${loc.state})
+AUDIENCE: ${ig} Instagram + ${tt} TikTok followers (${reach} total), mostly local to ${loc.city}
+BRAND: ${brand.brand || brand.brand_name} (${brand.category || 'local business'})
+WHY THIS BRAND: ${brand.rationale || brand.whyFit || ''}
+CAMPAIGN IDEA: ${brand.campaign || 'a social media partnership'}
+
+VOICE RULES — this must sound like a real college athlete wrote it, not a marketer:
+- No formal openers like "I hope this email finds you well" or "I am writing to"
+- No markdown, no bullet points, no headers
+- 3-4 short paragraphs max
+- Lead with the LOCAL connection (same town, fan of the business, etc.)
+- Make a specific, simple ask
+- Reference the brand specifically — what they do, why it fits
+- Warm, direct, confident but not arrogant
+- Sign off with just the athlete's first name
+
+Return ONLY valid JSON: {"subject":"...","body":"..."}`;
+
+  try {
+    const raw = await oneShot(prompt, 'You write authentic, casual-but-professional outreach emails in a real college athlete\'s voice. Output ONLY valid JSON {"subject","body"} — no markdown, no preamble.', 1200, MODEL_STANDARD);
+    const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const m = c.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('No JSON');
+    const out = JSON.parse(m[0]);
+    if (!out.subject || !out.body) throw new Error('Missing fields');
+    return out;
+  } catch (err) {
+    console.error('[generateDealPitch]', err.message);
+    const bn = brand.brand || brand.brand_name || 'your business';
+    return {
+      subject: `${athlete.name} x ${bn} — local partnership idea`,
+      body: `Hi,\n\nI'm ${athlete.name}, a ${sport} player at ${school} here in ${loc.city}. I follow ${bn} and love what you do in the community.\n\nI've built an audience of about ${reach} followers, most of them local, and I'd love to partner with you on some content that puts ${bn} in front of them. I think a simple social campaign could be a great fit.\n\nWould you be open to a quick chat about it?\n\nThanks,\n${(athlete.name||'').split(' ')[0] || athlete.name}`,
+    };
+  }
+}
+
+// Generates a brief 2-sentence follow-up message for a brand that hasn't responded.
+async function generateFollowUp(athlete, brand) {
+  const bn = brand.brand_name || brand.brand || 'your business';
+  const prompt = `Write a very short, friendly follow-up email (2 sentences max) from college athlete ${athlete.name} to ${bn}. They reached out before about an NIL partnership and haven't heard back. Casual, no pressure, no markdown. Return ONLY JSON {"subject":"...","body":"..."}.`;
+  try {
+    const raw = await oneShot(prompt, 'You write short friendly follow-up emails in a real athlete\'s voice. Output ONLY JSON {"subject","body"}.', 500, MODEL_FAST);
+    const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const m = c.match(/\{[\s\S]*\}/);
+    if (m) { const out = JSON.parse(m[0]); if (out.subject && out.body) return out; }
+    throw new Error('parse');
+  } catch (err) {
+    const first = (athlete.name||'').split(' ')[0] || athlete.name;
+    return {
+      subject: `Following up — ${athlete.name} x ${bn}`,
+      body: `Hi, just wanted to follow up on my note about a partnership with ${bn} — no pressure at all, but I'd still love to connect if you're open to it.\n\nThanks,\n${first}`,
+    };
   }
 }
 
@@ -665,6 +799,8 @@ module.exports = {
   calculateRate,
   calculateRateLive,
   getDealRecommendations,
+  generateDealPitch,
+  generateFollowUp,
   buildSystemPrompt,
   generateAthleteBrandKit,
   generateOutreach

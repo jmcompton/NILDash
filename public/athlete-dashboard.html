@@ -453,9 +453,49 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div class="ds-ai-content" id="dealscanText">Click "Scan Deals with AI" to find brand opportunities matched to your profile.</div>
     </div>
 
+    <!-- Follow-up reminder banner -->
+    <div id="ds-followup-banner" style="display:none;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.35);border-radius:10px;padding:12px 16px;margin-bottom:14px;font-size:12px;color:#f59e0b;line-height:1.5"></div>
+
     <div id="scan-ranked-label" style="display:none;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">Ranked Opportunities</div>
     <div id="scan-results" style="display:flex;flex-direction:column;gap:10px">
       <div style="text-align:center;color:var(--muted);padding:24px;font-size:12px">Run a deal scan to see recommendations</div>
+    </div>
+
+    <!-- My Pipeline -->
+    <div id="ds-pipeline-section" style="margin-top:34px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:13px;font-weight:700;color:var(--text);letter-spacing:0.04em;text-transform:uppercase">My Pipeline</div>
+        <button onclick="loadDealPipeline()" style="padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Refresh</button>
+      </div>
+      <div id="ds-pipeline-body">
+        <div style="text-align:center;color:var(--muted);padding:18px;font-size:12px">No brands in your pipeline yet. Add one from an opportunity above.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Send Pitch modal -->
+  <div id="pitch-overlay" onclick="closePitchModal()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1400"></div>
+  <div id="pitch-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:560px;max-width:94vw;max-height:90vh;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:16px;z-index:1401;padding:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <div id="pitch-title" style="font-size:16px;font-weight:700;color:var(--text)">Send Pitch</div>
+      <button onclick="closePitchModal()" style="background:transparent;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1">&times;</button>
+    </div>
+    <div id="pitch-gmail-status" style="font-size:11px;margin-bottom:14px"></div>
+    <div id="pitch-loading" style="text-align:center;padding:30px;color:var(--muted);font-size:13px">Writing your pitch…</div>
+    <div id="pitch-form" style="display:none">
+      <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:5px">To</label>
+      <input id="pitch-to" type="email" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;margin-bottom:12px">
+      <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:5px">Subject</label>
+      <input id="pitch-subject" type="text" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;margin-bottom:12px">
+      <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:5px">Message</label>
+      <textarea id="pitch-body" rows="11" style="width:100%;padding:11px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;line-height:1.55;font-family:'DM Sans',sans-serif;resize:vertical;margin-bottom:16px"></textarea>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button id="pitch-send-btn" onclick="submitPitch()" style="flex:1;min-width:160px;padding:12px;background:#84CC16;color:#0A0E1A;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Send Now</button>
+        <button onclick="copyPitchToClipboard()" style="padding:12px 16px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Copy Pitch</button>
+      </div>
+      <div id="pitch-connect-row" style="display:none;margin-top:12px">
+        <a href="/api/athlete/gmail/connect" style="display:inline-block;font-size:12px;color:#60a5fa;text-decoration:none">→ Connect Gmail to send from your own address</a>
+      </div>
     </div>
   </div>
 
@@ -1368,6 +1408,7 @@ function showView(id, navBtn) {
   if (id === 'email')       { initGmailStatus().then(function(){ loadEmailHistory(); }); }
   if (id === 'profile')     loadProfileForm();
   if (id === 'rate')        initRateCalculator();
+  if (id === 'dealscan')    loadDealPipeline();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1392,6 +1433,7 @@ async function init() {
     console.log('[dashboard] profile loaded:', athleteProfile.name, 'agent_id:', athleteProfile.agent_id);
     applyAgentUIVisibility();
     renderHome();
+    if (typeof loadDealPipeline === 'function') loadDealPipeline().catch(function(){});
   } catch(e) {
     console.error('[dashboard] init error:', e);
     showToast('Failed to load profile. Please refresh.', 'error');
@@ -1971,109 +2013,301 @@ function renderAthleteDealsTable(recs) {
   }
   window._athleteDealScanResults = recs;
   label.style.display = 'block';
+
   var catColors = {
-    'local':'rgba(132,204,22,0.15);color:var(--accent)',
-    'food':'rgba(245,158,11,0.15);color:#f59e0b',
-    'restaurant':'rgba(245,158,11,0.15);color:#f59e0b',
-    'auto':'rgba(59,130,246,0.15);color:#60a5fa',
-    'gym':'rgba(239,68,68,0.15);color:#f87171',
-    'finance':'rgba(16,185,129,0.15);color:#34d399',
-    'bank':'rgba(16,185,129,0.15);color:#34d399'
+    'local':'rgba(132,204,22,0.15);color:#84CC16','auto':'rgba(59,130,246,0.15);color:#60a5fa',
+    'gym':'rgba(239,68,68,0.15);color:#f87171','food':'rgba(245,158,11,0.15);color:#f59e0b',
+    'restaurant':'rgba(245,158,11,0.15);color:#f59e0b','nutrition':'rgba(16,185,129,0.15);color:#34d399',
+    'apparel':'rgba(168,85,247,0.15);color:#c084fc','finance':'rgba(16,185,129,0.15);color:#34d399',
+    'insurance':'rgba(16,185,129,0.15);color:#34d399','realestate':'rgba(59,130,246,0.15);color:#60a5fa',
+    'training':'rgba(245,158,11,0.15);color:#f59e0b'
   };
-  var tierBadge = {
-    local: '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.18);color:var(--accent);font-weight:700;border:1px solid rgba(132,204,22,0.3)">LOCAL</span>',
-    regional: '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(59,130,246,0.15);color:#60a5fa;font-weight:700;border:1px solid rgba(59,130,246,0.25)">REGIONAL</span>',
-    national: '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(148,163,184,0.12);color:var(--muted);font-weight:700;border:1px solid var(--border)">NATIONAL</span>'
-  };
-  var dealTypeMap = {
-    'post':'IG Post','reel':'IG Reel','ambassador':'Ambassador','appearance':'Appearance',
-    'licensing':'Licensing','tiktok':'TikTok','youtube':'YouTube',
-    'Social Media Post':'Social Post','Brand Ambassador':'Ambassador','Autograph Signing':'Autograph'
-  };
+
   container.innerHTML = recs.map(function(d, i) {
-    var brand = d.brand || 'Brand';
+    var brand = d.brand || d.brand_name || 'Brand';
     var score = d.fitScore || 80;
-    var scoreColor = score >= 85 ? 'var(--accent)' : score >= 70 ? '#f59e0b' : 'var(--muted)';
+    var scoreColor = score >= 85 ? '#84CC16' : score >= 70 ? '#f59e0b' : 'var(--muted)';
     var isTop = i === 0;
-    var tier = d.tier || (d.isLocal ? 'local' : 'national');
-    var timingNote = d.timingNote || '';
-    var timingUrgent = timingNote && /now|open|peak|spring/i.test(timingNote);
-    var timingShort = timingNote.length > 70 ? timingNote.substring(0, 70) + '…' : timingNote;
-    var dealType = d.dealType || '';
-    var dealTypeLabel = dealTypeMap[dealType] || dealType || 'Post';
     var cat = (d.category || '').toLowerCase();
     var catStyle = catColors[cat] || 'rgba(255,255,255,0.06);color:var(--muted)';
-    var brandSafe = brand.replace(/"/g, '&quot;');
-    var campaignSafe = (d.campaign || '').replace(/"/g, '').substring(0, 40);
+    var lo = d.estimatedValueLow, hi = d.estimatedValueHigh;
+    var valStr = (lo || hi) ? ('$' + (lo||hi).toLocaleString() + (hi && hi!==lo ? '–$' + hi.toLocaleString() : '') + ' per post') : '';
+    var localBadge = (d.isLocal !== false) ? '<span style="font-size:9px;padding:2px 8px;border-radius:4px;background:rgba(132,204,22,0.18);color:#84CC16;font-weight:700;border:1px solid rgba(132,204,22,0.3)">LOCAL</span>' : '';
 
-    // Contact section
-    var linkedInSearch = 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(brand + ' partnerships manager NIL');
-    var contactHtml = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' +
-      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px">CONTACT</div>' +
-      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
-      '<div style="width:30px;height:30px;border-radius:50%;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.25);display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
-      '<svg width="14" height="14" fill="none" stroke="var(--accent)" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>' +
-      '<div style="flex:1;min-width:0">';
-    if (d.contactName) {
-      contactHtml += '<div style="font-size:12px;font-weight:600;color:var(--text)">' + esc(d.contactName) + '</div>';
+    // Contact block
+    var contactHtml = '';
+    if (d.contactName || d.contactTitle || d.contactEmail) {
+      contactHtml += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' +
+        '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:6px">CONTACT</div>';
+      if (d.contactName) contactHtml += '<div style="font-size:12px;font-weight:600;color:var(--text)">' + esc(d.contactName) + (d.contactTitle ? ' <span style="font-weight:400;color:var(--muted)">— ' + esc(d.contactTitle) + '</span>' : '') + '</div>';
+      else if (d.contactTitle) contactHtml += '<div style="font-size:12px;color:var(--muted)">' + esc(d.contactTitle) + '</div>';
+      if (d.contactEmail) contactHtml += '<a href="mailto:' + esc(d.contactEmail) + '" style="font-size:12px;color:#84CC16;text-decoration:none;display:inline-block;margin-top:3px">' + esc(d.contactEmail) + '</a>';
+      if (d.contactApproach) contactHtml += '<div style="font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5"><span style="color:var(--text);font-weight:600">Approach:</span> ' + esc(d.contactApproach) + '</div>';
+      contactHtml += '</div>';
     }
-    if (d.contactTitle) {
-      contactHtml += '<div style="font-size:11px;color:var(--muted)">' + esc(d.contactTitle) + '</div>';
-    }
-    if (d.contactEmail) {
-      contactHtml += '<div style="font-size:11px;color:#84CC16;margin-top:2px">' + esc(d.contactEmail) + '</div>';
-    }
-    contactHtml += '</div>';
-    // CTA button — prefer mailto email, fall back to LinkedIn, then search
-    if (d.contactEmail) {
-      contactHtml += '<a href="mailto:' + esc(d.contactEmail) + '" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:7px 14px;background:rgba(132,204,22,0.15);border:1px solid rgba(132,204,22,0.4);color:var(--accent);border-radius:6px;text-decoration:none;white-space:nowrap;flex-shrink:0">Send Email</a>';
-    } else if (d.contactLinkedIn) {
-      contactHtml += '<a href="' + esc(d.contactLinkedIn) + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:7px 14px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:#60a5fa;border-radius:6px;text-decoration:none;white-space:nowrap;flex-shrink:0">LinkedIn</a>';
-    } else {
-      contactHtml += '<a href="' + linkedInSearch + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:7px 14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);color:#60a5fa;border-radius:6px;text-decoration:none;white-space:nowrap;flex-shrink:0">Find Contact</a>';
-    }
-    contactHtml += '</div></div>';
 
     return '<div style="background:var(--surface2);border:1px solid ' + (isTop ? 'rgba(132,204,22,0.3)' : 'var(--border)') + ';border-radius:12px;padding:18px 20px">' +
-      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
-        '<div style="flex:1;min-width:220px">' +
-          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:200px">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
             '<span style="font-size:11px;color:var(--muted)">#' + (d.rank || i + 1) + '</span>' +
-            '<span style="font-size:15px;font-weight:700;color:var(--text)">' + esc(brand) + '</span>' +
-            (tierBadge[tier] || tierBadge.national) +
-            (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:var(--accent);border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
+            '<span style="font-size:17px;font-weight:700;color:var(--text)">' + esc(brand) + '</span>' +
+            (d.category ? '<span style="font-size:10px;padding:3px 9px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
+            localBadge +
+            (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:#84CC16;border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
           '</div>' +
-          '<div style="font-size:12px;color:var(--text);margin-bottom:8px;line-height:1.5;font-weight:500">' + esc(d.campaign || '') + '</div>' +
-          '<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">' + esc(d.rationale || '') + '</div>' +
-          '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
-            (d.category ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
-            (dealTypeLabel ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.06);color:var(--muted)">' + esc(dealTypeLabel) + '</span>' : '') +
-            (timingShort ? (timingUrgent
-              ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#f59e0b">' + esc(timingShort) + '</span>'
-              : '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--muted)">' + esc(timingShort) + '</span>') : '') +
-          '</div>' +
+          (valStr ? '<div style="font-size:13px;font-weight:700;color:#84CC16;margin-bottom:8px">' + valStr + '</div>' : '') +
+          (d.rationale ? '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:4px">' + esc(d.rationale) + '</div>' : '') +
+          (d.campaign ? '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px"><span style="color:var(--text);font-weight:600">Idea:</span> ' + esc(d.campaign) + '</div>' : '') +
           contactHtml +
         '</div>' +
-        // Small utility buttons (top right)
-        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:7px;min-width:120px">' +
-          '<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">' +
-            '<div style="width:52px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden">' +
-              '<div style="width:' + score + '%;height:100%;background:' + scoreColor + ';border-radius:2px"></div>' +
-            '</div>' +
-            '<span style="font-size:12px;color:' + scoreColor + ';font-weight:700">' + score + '</span>' +
-          '</div>' +
-          '<button onclick="prefillOutreach(&quot;' + brandSafe + '&quot;)" style="padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;width:100%;font-family:\'DM Sans\',sans-serif;transition:all 0.15s" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--accent)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--muted)\'">Write Outreach</button>' +
-          '<button onclick="athleteAddToPipeline(&quot;' + brandSafe + '&quot;,&quot;' + (d.dealType || 'post') + '&quot;,&quot;' + campaignSafe + '&quot;)" style="padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;width:100%;font-family:\'DM Sans\',sans-serif;transition:all 0.15s" onmouseover="this.style.borderColor=\'#4ade80\';this.style.color=\'#4ade80\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--muted)\'">+ Pipeline</button>' +
-          '<button onclick="prefillOutreach(&quot;' + brandSafe + '&quot;)" style="padding:6px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;width:100%;font-family:\'DM Sans\',sans-serif;transition:all 0.15s" onmouseover="this.style.borderColor=\'#60a5fa\';this.style.color=\'#60a5fa\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--muted)\'">+ Outreach</button>' +
+        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:60px">' +
+          '<span style="font-size:22px;color:' + scoreColor + ';font-weight:700;line-height:1">' + score + '</span>' +
+          '<span style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">Fit Score</span>' +
+          '<div style="width:54px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden;margin-top:3px"><div style="width:' + score + '%;height:100%;background:' + scoreColor + '"></div></div>' +
         '</div>' +
       '</div>' +
-      // Full-width primary Analyze Deal button at bottom of card
-      '<button onclick="openAnalyzeDealPanel(&quot;' + brandSafe + '&quot;,' + i + ')" ' +
-        'style="display:block;width:100%;margin-top:14px;padding:11px 0;background:#84CC16;color:#0A0E1A;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif;letter-spacing:0.02em;transition:all 0.15s" ' +
-        'onmouseover="this.style.background=\'#96e020\';this.style.boxShadow=\'0 4px 14px rgba(132,204,22,0.3)\'" ' +
-        'onmouseout="this.style.background=\'#84CC16\';this.style.boxShadow=\'none\'">Analyze Deal</button>' +
+      // Pitch preview (collapsible, lazy-generated)
+      '<div id="pitchprev-' + i + '" style="display:none;margin-top:14px;padding:14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--muted);line-height:1.6"></div>' +
+      // Actions
+      '<div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">' +
+        '<button onclick="openPitchModal(' + i + ')" style="flex:1;min-width:150px;padding:11px;background:#84CC16;color:#0A0E1A;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">Send Pitch</button>' +
+        '<button onclick="togglePitchPreview(' + i + ')" style="padding:11px 14px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">Preview Pitch</button>' +
+        '<button onclick="trackBrand(' + i + ')" style="padding:11px 14px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">+ Track</button>' +
+      '</div>' +
     '</div>';
   }).join('');
+}
+
+// ── Pitch preview (inline) ──────────────────────────────────────────
+async function togglePitchPreview(i) {
+  var el = document.getElementById('pitchprev-' + i);
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  if (el.getAttribute('data-loaded') === '1') return;
+  el.innerHTML = 'Writing a preview pitch…';
+  var brand = (window._athleteDealScanResults || [])[i];
+  try {
+    var r = await fetch('/api/athlete/deal-pitch', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({ brand: brand })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) { el.innerHTML = 'Could not generate pitch.'; return; }
+    el.setAttribute('data-loaded','1');
+    el.innerHTML = '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:6px">Pitch Preview</div>' +
+      '<div style="color:var(--text);font-weight:600;margin-bottom:6px">' + esc(data.pitch.subject) + '</div>' +
+      '<div style="white-space:pre-wrap">' + esc(data.pitch.body) + '</div>';
+  } catch(e) { el.innerHTML = 'Connection error.'; }
+}
+
+// ── Send Pitch modal ────────────────────────────────────────────────
+var _pitchBrand = null;
+async function openPitchModal(i) {
+  var brand = (window._athleteDealScanResults || [])[i];
+  if (!brand) return;
+  _pitchBrand = brand;
+  document.getElementById('pitch-title').textContent = 'Pitch ' + (brand.brand || brand.brand_name || '');
+  document.getElementById('pitch-overlay').style.display = 'block';
+  document.getElementById('pitch-modal').style.display = 'block';
+  document.getElementById('pitch-loading').style.display = 'block';
+  document.getElementById('pitch-form').style.display = 'none';
+
+  // Gmail status
+  var gmailConnected = false;
+  try {
+    var gs = await fetch('/api/athlete/gmail/status', { headers:{'Authorization':'Bearer ' + athleteToken} });
+    var gd = await gs.json();
+    gmailConnected = !!gd.connected;
+    var st = document.getElementById('pitch-gmail-status');
+    if (gmailConnected) st.innerHTML = '<span style="color:#84CC16">● Sending from your Gmail (' + esc(gd.email||'') + ')</span>';
+    else st.innerHTML = '<span style="color:var(--muted)">Gmail not connected — we\'ll send from NILDash with your email as reply-to, or you can copy &amp; paste.</span>';
+  } catch(e){}
+  document.getElementById('pitch-connect-row').style.display = gmailConnected ? 'none' : 'block';
+
+  // Generate pitch
+  try {
+    var r = await fetch('/api/athlete/deal-pitch', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({ brand: brand })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'failed');
+    document.getElementById('pitch-to').value = brand.contactEmail || '';
+    document.getElementById('pitch-subject').value = data.pitch.subject || '';
+    document.getElementById('pitch-body').value = data.pitch.body || '';
+    document.getElementById('pitch-loading').style.display = 'none';
+    document.getElementById('pitch-form').style.display = 'block';
+  } catch(e) {
+    document.getElementById('pitch-loading').innerHTML = 'Could not generate pitch. Please try again.';
+  }
+}
+function closePitchModal() {
+  document.getElementById('pitch-overlay').style.display = 'none';
+  document.getElementById('pitch-modal').style.display = 'none';
+}
+async function submitPitch() {
+  var to = document.getElementById('pitch-to').value.trim();
+  var subject = document.getElementById('pitch-subject').value.trim();
+  var body = document.getElementById('pitch-body').value.trim();
+  if (!to || !subject || !body) { showToast('Fill in to, subject, and message'); return; }
+  var btn = document.getElementById('pitch-send-btn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    var r = await fetch('/api/athlete/deal-pitch/send', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({ to: to, subject: subject, body: body, brand: _pitchBrand })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) {
+      if (data.error === 'gmail_token_expired') showToast('Gmail expired — reconnect or copy the pitch');
+      else showToast('Send failed: ' + (data.error || 'error'));
+      return;
+    }
+    showToast('Pitch sent to ' + (_pitchBrand.brand || _pitchBrand.brand_name) + '!');
+    closePitchModal();
+    loadDealPipeline();
+  } catch(e) { showToast('Connection error'); }
+  finally { btn.disabled = false; btn.textContent = 'Send Now'; }
+}
+function copyPitchToClipboard() {
+  var subject = document.getElementById('pitch-subject').value;
+  var body = document.getElementById('pitch-body').value;
+  navigator.clipboard.writeText('Subject: ' + subject + '\n\n' + body).then(function(){ showToast('Pitch copied'); });
+}
+
+// ── Pipeline ────────────────────────────────────────────────────────
+async function trackBrand(i) {
+  var b = (window._athleteDealScanResults || [])[i];
+  if (!b) return;
+  try {
+    var r = await fetch('/api/athlete/deal-pipeline', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({
+        brand_name: b.brand || b.brand_name, brand_category: b.category,
+        contact_email: b.contactEmail, contact_name: b.contactName,
+        deal_value: (b.estimatedValueLow||b.estimatedValueHigh) ? ('$'+(b.estimatedValueLow||'')+'-$'+(b.estimatedValueHigh||'')) : null
+      })
+    });
+    var data = await r.json();
+    if (r.ok && !data.error) { showToast(data.existed ? 'Already in pipeline' : 'Added to pipeline'); loadDealPipeline(); }
+    else showToast('Could not add: ' + (data.error||'error'));
+  } catch(e){ showToast('Connection error'); }
+}
+
+var DS_STATUS = [
+  {key:'not_contacted', label:'Not Contacted', color:'var(--muted)'},
+  {key:'pitched', label:'Pitched', color:'#60a5fa'},
+  {key:'in_talks', label:'In Talks', color:'#f59e0b'},
+  {key:'deal_closed', label:'Deal Closed', color:'#84CC16'},
+  {key:'no_response', label:'No Response', color:'#f87171'}
+];
+function dsStatusMeta(k){ return DS_STATUS.find(function(s){return s.key===k;}) || DS_STATUS[0]; }
+
+async function loadDealPipeline() {
+  var body = document.getElementById('ds-pipeline-body');
+  var banner = document.getElementById('ds-followup-banner');
+  if (!body) return;
+  try {
+    var r = await fetch('/api/athlete/deal-pipeline', { headers:{'Authorization':'Bearer ' + athleteToken} });
+    var data = await r.json();
+    var rows = data.pipeline || [];
+    if (!rows.length) {
+      body.innerHTML = '<div style="text-align:center;color:var(--muted);padding:18px;font-size:12px">No brands in your pipeline yet. Add one from an opportunity above.</div>';
+      if (banner) banner.style.display = 'none';
+      updateDealScanNavBadge(0);
+      return;
+    }
+    // Follow-up reminders: pitched > 7 days, no later contact
+    var now = Date.now();
+    var needFollowup = rows.filter(function(e){
+      if (e.status !== 'pitched') return false;
+      var last = e.last_contact_at || e.pitched_at;
+      if (!last) return false;
+      return (now - new Date(last).getTime()) > 7*86400000;
+    });
+    if (banner) {
+      if (needFollowup.length) {
+        banner.style.display = 'block';
+        banner.innerHTML = '⏰ <strong>' + needFollowup.length + '</strong> brand' + (needFollowup.length>1?'s':'') + ' pitched over 7 days ago with no response — time to follow up: ' +
+          needFollowup.map(function(e){ return esc(e.brand_name); }).join(', ');
+      } else banner.style.display = 'none';
+    }
+    updateDealScanNavBadge(needFollowup.length);
+
+    body.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="text-align:left;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.05em">' +
+        '<th style="padding:8px 10px;font-weight:700">Brand</th>' +
+        '<th style="padding:8px 10px;font-weight:700">Status</th>' +
+        '<th style="padding:8px 10px;font-weight:700">Pitched</th>' +
+        '<th style="padding:8px 10px;font-weight:700">Last Contact</th>' +
+        '<th style="padding:8px 10px;font-weight:700">Actions</th>' +
+      '</tr></thead><tbody>' +
+      rows.map(function(e){
+        var m = dsStatusMeta(e.status);
+        var pitched = e.pitched_at ? new Date(e.pitched_at).toLocaleDateString() : '—';
+        var last = e.last_contact_at || e.pitched_at;
+        var daysSince = last ? Math.floor((now - new Date(last).getTime())/86400000) : null;
+        var lastStr = last ? (daysSince + 'd ago') : '—';
+        var overdue = e.status === 'pitched' && daysSince != null && daysSince > 7;
+        var statusSel = '<select onchange="updatePipelineStatus(' + e.id + ', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:' + m.color + ';border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;font-family:\'DM Sans\',sans-serif">' +
+          DS_STATUS.map(function(s){ return '<option value="' + s.key + '"' + (s.key===e.status?' selected':'') + '>' + s.label + '</option>'; }).join('') + '</select>';
+        return '<tr style="border-top:1px solid var(--border)">' +
+          '<td style="padding:10px;color:var(--text);font-weight:600">' + esc(e.brand_name) + (e.deal_value ? '<div style="font-size:10px;color:var(--muted);font-weight:400">' + esc(e.deal_value) + '</div>' : '') + '</td>' +
+          '<td style="padding:10px">' + statusSel + '</td>' +
+          '<td style="padding:10px;color:var(--muted)">' + pitched + '</td>' +
+          '<td style="padding:10px;color:' + (overdue?'#f59e0b':'var(--muted)') + '">' + lastStr + (overdue?' ⏰':'') + '</td>' +
+          '<td style="padding:10px"><div style="display:flex;gap:6px;flex-wrap:wrap">' +
+            (e.contact_email ? '<button onclick="sendFollowUp(' + e.id + ')" style="padding:5px 9px;background:transparent;border:1px solid rgba(245,158,11,0.4);color:#f59e0b;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">Follow Up</button>' : '') +
+            '<button onclick="updatePipelineStatus(' + e.id + ',\'deal_closed\')" style="padding:5px 9px;background:transparent;border:1px solid rgba(132,204,22,0.4);color:#84CC16;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">Mark Closed</button>' +
+          '</div></td>' +
+        '</tr>';
+      }).join('') + '</tbody></table></div>';
+  } catch(e) {
+    body.innerHTML = '<div style="text-align:center;color:var(--muted);padding:18px;font-size:12px">Could not load pipeline.</div>';
+  }
+}
+
+async function updatePipelineStatus(id, status) {
+  try {
+    var r = await fetch('/api/athlete/deal-pipeline/' + id, {
+      method:'PUT', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({ status: status })
+    });
+    var data = await r.json();
+    if (r.ok && !data.error) { showToast('Status updated'); loadDealPipeline(); }
+    else showToast('Update failed');
+  } catch(e){ showToast('Connection error'); }
+}
+
+async function sendFollowUp(id) {
+  if (!confirm('Send a follow-up message to this brand?')) return;
+  try {
+    var r = await fetch('/api/athlete/deal-pipeline/' + id + '/followup', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({ send: true })
+    });
+    var data = await r.json();
+    if (r.ok && data.sent) { showToast('Follow-up sent'); loadDealPipeline(); }
+    else if (r.ok && !data.sent) { showToast('Drafted, but no contact email on file'); }
+    else showToast('Could not send follow-up');
+  } catch(e){ showToast('Connection error'); }
+}
+
+function updateDealScanNavBadge(count) {
+  var nav = document.querySelector('[data-view="dealscan"]');
+  if (!nav) return;
+  var badge = nav.querySelector('.ds-nav-badge');
+  if (count > 0) {
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'ds-nav-badge';
+      badge.style.cssText = 'margin-left:6px;background:#f59e0b;color:#0A0E1A;font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px';
+      nav.appendChild(badge);
+    }
+    badge.textContent = count;
+  } else if (badge) { badge.remove(); }
 }
 
 function prefillOutreach(brandName) {
