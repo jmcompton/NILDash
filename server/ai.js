@@ -404,7 +404,14 @@ OUTPUT RULES:
 - Return at least 3 LOCAL results first, then regional, then national
 - Do NOT include Nike, Adidas, Gatorade unless confirmed they run NIL programs at this tier
 - Each brand must have a specific reason why they fit THIS athlete
-- Include a real partnership contact if you know one (marketing/partnerships director)
+- Every brand returned MUST be a real, verifiable business — not invented or hallucinated
+- For EVERY brand, you MUST provide a contact email. Use this priority order:
+  1. A known partnerships or NIL-specific email (e.g. nil@brand.com, partnerships@brand.com, athletes@brand.com)
+  2. Their marketing contact email (marketing@brand.com, sponsorships@brand.com)
+  3. Their general contact email from their website (contact@brand.com, hello@brand.com, info@brand.com)
+  4. For local businesses, use the format: manager@businessname.com or info@businessname.com
+- contactEmail must NEVER be null — always provide a best-guess email based on standard business email formats
+- contactTitle should be specific: "NIL Partnerships Manager", "Marketing Director", "Sponsorship Coordinator", "Owner" (for small local), etc.
 
 Return ONLY a JSON array of 6 deals, sorted local first then regional then national:
 [{
@@ -418,14 +425,14 @@ Return ONLY a JSON array of 6 deals, sorted local first then regional then natio
   "timingNote": "Best time to reach out and why",
   "fitScore": 85,
   "isLocal": true,
-  "contactName": "Specific person's name or null",
-  "contactTitle": "Their title (e.g. Marketing Director, NIL Partnerships Manager)",
-  "contactEmail": "email@brand.com or null if unknown",
+  "contactName": "First Last or null if genuinely unknown",
+  "contactTitle": "Their exact title — never leave this generic",
+  "contactEmail": "real@email.com — REQUIRED, never null",
   "contactLinkedIn": "linkedin.com/in/person or null if unknown"
 }]`;
 
   try {
-    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Use your comprehensive knowledge of real local businesses in college towns, regional brands, and documented NIL partnership contacts to identify genuine opportunities.', 2500, MODEL_FAST);
+    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown, no preamble. Your entire response must be parseable JSON. Every brand must be a real verifiable business. Every contactEmail field is REQUIRED — never return null for contactEmail. Use standard business email formats (partnerships@, nil@, marketing@, contact@, info@) based on the brand name.', 2500, MODEL_FAST);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');

@@ -290,7 +290,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="nav-item" data-view="command" onclick="showView('command',this)">AI Command</div>
     <div class="nav-item" data-view="dealscan" onclick="showView('dealscan',this)">Deal Scan</div>
     <div class="nav-item" data-view="rate" onclick="showView('rate',this)">Rate Calculator</div>
-    <div class="nav-item" data-view="team-match" onclick="showView('team-match',this)">Team Match</div>
+    <div class="nav-item" data-view="team-match" onclick="showView('team-match',this)" style="display:none">Team Match</div>
 
     <div class="nav-section-label">Outreach</div>
     <div class="nav-item" data-view="outreach" onclick="showView('outreach',this)">Outreach</div>
@@ -463,6 +463,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   <div class="view" id="view-rate">
     <div class="page-title">RATE CALCULATOR</div>
     <div class="page-sub">Estimate your NIL value for any deliverable type — powered by your actual follower data and live market benchmarks.</div>
+    <div id="rate-no-followers-prompt" style="display:none;margin-bottom:16px;padding:14px 16px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:8px;font-size:13px;color:#fbbf24">
+      Add your follower counts in <button onclick="showView('profile',document.querySelector('[data-view=profile]'))" style="background:none;border:none;color:#84CC16;cursor:pointer;font-size:13px;font-weight:600;padding:0;text-decoration:underline">My Profile</button> to get an accurate rate estimate.
+    </div>
     <div style="display:grid;grid-template-columns:300px 1fr;gap:20px;align-items:start">
       <div class="card">
         <div class="card-title">Deliverable</div>
@@ -1364,6 +1367,7 @@ function showView(id, navBtn) {
   if (id === 'compliance')  initAthleteCompliance();
   if (id === 'email')       { initGmailStatus().then(function(){ loadEmailHistory(); }); }
   if (id === 'profile')     loadProfileForm();
+  if (id === 'rate')        initRateCalculator();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2003,28 +2007,30 @@ function renderAthleteDealsTable(recs) {
     var campaignSafe = (d.campaign || '').replace(/"/g, '').substring(0, 40);
 
     // Contact section
-    var hasContact = d.contactName || d.contactEmail;
     var linkedInSearch = 'https://www.linkedin.com/search/results/people/?keywords=' + encodeURIComponent(brand + ' partnerships manager NIL');
     var contactHtml = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' +
-      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:6px">Partnership Contact</div>' +
-      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-      '<div style="width:28px;height:28px;border-radius:50%;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.25);display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
+      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px">CONTACT</div>' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+      '<div style="width:30px;height:30px;border-radius:50%;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.25);display:flex;align-items:center;justify-content:center;flex-shrink:0">' +
       '<svg width="14" height="14" fill="none" stroke="var(--accent)" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>' +
       '<div style="flex:1;min-width:0">';
     if (d.contactName) {
-      contactHtml += '<div style="font-size:11px;font-weight:600;color:var(--text)">' + esc(d.contactName) + '</div>';
-      if (d.contactTitle) contactHtml += '<div style="font-size:10px;color:var(--muted)">' + esc(d.contactTitle) + '</div>';
-    } else {
-      contactHtml += '<div style="font-size:11px;color:var(--muted);font-style:italic">Contact not found</div>';
-      contactHtml += '<div style="font-size:10px;color:var(--muted)">' + esc(d.contactTitle || 'Partnerships Team') + '</div>';
+      contactHtml += '<div style="font-size:12px;font-weight:600;color:var(--text)">' + esc(d.contactName) + '</div>';
+    }
+    if (d.contactTitle) {
+      contactHtml += '<div style="font-size:11px;color:var(--muted)">' + esc(d.contactTitle) + '</div>';
+    }
+    if (d.contactEmail) {
+      contactHtml += '<div style="font-size:11px;color:#84CC16;margin-top:2px">' + esc(d.contactEmail) + '</div>';
     }
     contactHtml += '</div>';
+    // CTA button — prefer mailto email, fall back to LinkedIn, then search
     if (d.contactEmail) {
-      contactHtml += '<a href="mailto:' + esc(d.contactEmail) + '" style="font-size:10px;padding:4px 10px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.25);color:var(--accent);border-radius:20px;text-decoration:none;white-space:nowrap">Email</a>';
+      contactHtml += '<a href="mailto:' + esc(d.contactEmail) + '" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:7px 14px;background:rgba(132,204,22,0.15);border:1px solid rgba(132,204,22,0.4);color:var(--accent);border-radius:6px;text-decoration:none;white-space:nowrap;flex-shrink:0">Send Email</a>';
     } else if (d.contactLinkedIn) {
-      contactHtml += '<a href="' + esc(d.contactLinkedIn) + '" target="_blank" style="font-size:10px;padding:4px 10px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.25);color:#60a5fa;border-radius:20px;text-decoration:none;white-space:nowrap">LinkedIn</a>';
+      contactHtml += '<a href="' + esc(d.contactLinkedIn) + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:7px 14px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);color:#60a5fa;border-radius:6px;text-decoration:none;white-space:nowrap;flex-shrink:0">LinkedIn</a>';
     } else {
-      contactHtml += '<a href="' + linkedInSearch + '" target="_blank" style="font-size:10px;padding:4px 10px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);color:#60a5fa;border-radius:20px;text-decoration:none;white-space:nowrap">Find on LinkedIn</a>';
+      contactHtml += '<a href="' + linkedInSearch + '" target="_blank" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:7px 14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);color:#60a5fa;border-radius:6px;text-decoration:none;white-space:nowrap;flex-shrink:0">Find Contact</a>';
     }
     contactHtml += '</div></div>';
 
@@ -2174,6 +2180,27 @@ async function athleteAIOutreach(idx) {
 // RATE CALCULATOR
 // ══════════════════════════════════════════════════════════════════
 var _lastRate = null;
+
+// Called when Rate Calculator view is opened — pre-populates profile data and auto-runs
+function initRateCalculator() {
+  var p = athleteProfile;
+  if (!p) return;
+
+  var ig = parseInt(p.followers_ig || p.instagram_followers || p.instagram) || 0;
+  var tt = parseInt(p.followers_tt || p.tiktok_followers || p.tiktok) || 0;
+  var tw = parseInt(p.followers_tw || p.twitter_followers || p.twitter) || 0;
+
+  // Show/hide the "no follower data" prompt
+  var noFollowersPrompt = document.getElementById('rate-no-followers-prompt');
+  if (noFollowersPrompt) {
+    noFollowersPrompt.style.display = (ig === 0 && tt === 0) ? 'block' : 'none';
+  }
+
+  // Auto-run the calculation if the athlete has any follower data
+  if (ig > 0 || tt > 0) {
+    runRateCalc();
+  }
+}
 
 async function runRateCalc() {
   var btn = document.getElementById('rate-calc-btn');
