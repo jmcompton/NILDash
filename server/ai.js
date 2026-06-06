@@ -243,10 +243,10 @@ async function oneShot(prompt, system, maxTokens, model) {
 // Web-search-enabled one-shot. Uses Anthropic's server-side web_search tool so
 // brand discovery returns REAL, verifiable local businesses. Falls back to the
 // caller's error handling on timeout/failure.
-async function oneShotWebSearch(prompt, system, maxTokens, maxSearches) {
+async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
   const ai = getClient();
   const msg = await ai.messages.create({
-    model: MODEL_STANDARD,
+    model: model || MODEL_STANDARD,
     max_tokens: maxTokens || 3000,
     system: system || 'You are a precise research assistant.',
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxSearches || 5 }],
@@ -393,6 +393,9 @@ function getSchoolLocation(school) {
 }
 
 async function getDealRecommendations(athlete, role, excludeBrands) {
+  // Deal Scan uses Sonnet (scoped to this function only) — faster than Opus,
+  // strong enough for structured local-brand research.
+  const MODEL_DEALSCAN = 'claude-sonnet-4-5';
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
@@ -470,10 +473,10 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
 
   // ── PRIMARY PATH: web-search-backed discovery ──────────────────────────────
   try {
-    console.log(`[dealScan] Using web search for brand discovery — market=${city}, ${state} sport=${sport}`);
+    console.log(`[dealScan] Using web search for brand discovery — model=${MODEL_DEALSCAN} market=${city}, ${state} sport=${sport}`);
     const raw = await oneShotWebSearch(prompt,
       'You are a local NIL deal researcher. Use web search to find and VERIFY real local businesses. Never fabricate a business or a contact domain. Your final message must be ONLY a valid JSON array starting with [ and ending with ]. No markdown fences, no commentary.',
-      4000, 8);
+      4000, 8, MODEL_DEALSCAN);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
@@ -495,7 +498,7 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
 
   // ── FALLBACK PATH: model-knowledge (no web search) ─────────────────────────
   try {
-    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown. Every brand must be a real verifiable business. Every contactEmail is REQUIRED and must use the real business domain.', 3000, MODEL_FAST);
+    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown. Every brand must be a real verifiable business. Every contactEmail is REQUIRED and must use the real business domain.', 3000, MODEL_DEALSCAN);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');

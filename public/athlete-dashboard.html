@@ -184,6 +184,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .ds-ai-label{font-size:10px;color:var(--accent);letter-spacing:1.5px;text-transform:uppercase;font-weight:600}
 .ds-ai-content{font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap;font-family:'DM Sans',sans-serif}
 .ds-spinner{width:12px;height:12px;border:1.5px solid rgba(132,204,22,0.25);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite;display:none;flex-shrink:0}
+/* Deal Scan progress steps */
+.ds-step{display:flex;align-items:center;gap:11px;transition:opacity 0.3s ease}
+.ds-step-ico{width:18px;height:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.ds-step-dot{width:9px;height:9px;border-radius:50%;background:#3a4150}
+.ds-step-text{font-size:13px;color:var(--muted);transition:all 0.25s ease;line-height:1.3}
+.ds-step.active .ds-step-text{color:#fff;font-size:14px;font-weight:600}
+.ds-step.active .ds-step-dot{background:#84CC16;box-shadow:0 0 0 0 rgba(132,204,22,0.6);animation:dsPulse 1.2s ease-in-out infinite}
+.ds-step.done .ds-step-text{color:var(--muted);font-size:12px}
+.ds-step.pending{opacity:0.45}
+.ds-check{color:#84CC16}
+@keyframes dsPulse{0%{box-shadow:0 0 0 0 rgba(132,204,22,0.55)}70%{box-shadow:0 0 0 7px rgba(132,204,22,0)}100%{box-shadow:0 0 0 0 rgba(132,204,22,0)}}
+@media (max-width:480px){.ds-step-text{font-size:12px}.ds-step.active .ds-step-text{font-size:13px}.ds-step.done .ds-step-text{font-size:11px}}
 .ds-run-btn{background:var(--accent);color:#0A0E1A;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:700;padding:9px 22px;border-radius:40px;border:none;cursor:pointer;transition:all 0.15s;letter-spacing:0.3px}
 .ds-run-btn:hover{background:#6BAE10}
 .ds-run-btn:disabled{opacity:0.5;cursor:not-allowed}
@@ -451,6 +463,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="ds-ai-label">AI Deal Scan</div>
       </div>
       <div class="ds-ai-content" id="dealscanText">Click "Scan Deals with AI" to find brand opportunities matched to your profile.</div>
+    </div>
+
+    <!-- Live progress card -->
+    <div id="ds-progress" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:0;margin-bottom:16px;overflow:hidden">
+      <div style="height:4px;width:100%;background:var(--surface)">
+        <div id="ds-progress-bar" style="height:100%;width:0%;background:#84CC16;border-radius:0 2px 2px 0;transition:width 0.6s ease"></div>
+      </div>
+      <div style="padding:18px 20px">
+        <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#84CC16;margin-bottom:14px">Scanning for Deals</div>
+        <div id="ds-progress-steps" style="display:flex;flex-direction:column;gap:11px"></div>
+      </div>
     </div>
 
     <!-- Follow-up reminder banner -->
@@ -1951,46 +1974,135 @@ function scrollChat() {
 var _athleteDealScanResults = [];
 var _athleteExcludeBrands = [];
 
+// ── Live progress indicator ─────────────────────────────────────────
+var _dsProgTimers = [];
+function _dsMarketLabel() {
+  var s = (athleteProfile && athleteProfile.school) ? String(athleteProfile.school).trim() : '';
+  if (!s) return 'local';
+  // Keep it short for mobile
+  return (s.length > 22 ? s.substring(0, 22) + '…' : s) + ' area';
+}
+function _dsRenderSteps(steps, activeIdx) {
+  var box = document.getElementById('ds-progress-steps');
+  if (!box) return;
+  box.innerHTML = steps.map(function(label, i) {
+    var cls = i < activeIdx ? 'done' : (i === activeIdx ? 'active' : 'pending');
+    var ico = i < activeIdx
+      ? '<svg class="ds-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+      : '<span class="ds-step-dot"></span>';
+    return '<div class="ds-step ' + cls + '"><div class="ds-step-ico">' + ico + '</div>' +
+           '<div class="ds-step-text">' + esc(label) + '</div></div>';
+  }).join('');
+}
+function _dsClearTimers() { _dsProgTimers.forEach(function(t){ clearTimeout(t); }); _dsProgTimers = []; }
+
+// Starts the progress animation. Returns { minDisplay: Promise, finish: fn }
+function startDealScanProgress() {
+  var steps = [
+    'Finding your market...',
+    'Searching ' + _dsMarketLabel() + ' businesses...',
+    'Finding NIL-friendly brands...',
+    'Checking contact information...',
+    'Scoring opportunities for you...',
+    'Almost there...'
+  ];
+  var timings = [0, 1000, 3000, 6000, 9000, 12000];
+  var card = document.getElementById('ds-progress');
+  var bar  = document.getElementById('ds-progress-bar');
+  card.style.display = 'block';
+  card.style.opacity = '1';
+  bar.style.transition = 'none';
+  bar.style.width = '0%';
+
+  // Continuous fill 0 → 90% over the full sequence
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      bar.style.transition = 'width 12s linear';
+      bar.style.width = '90%';
+    });
+  });
+
+  _dsClearTimers();
+  var minDisplayResolve;
+  var minDisplay = new Promise(function(res){ minDisplayResolve = res; });
+
+  steps.forEach(function(_, i) {
+    var t = setTimeout(function(){
+      _dsRenderSteps(steps, i);
+      if (i >= 3) minDisplayResolve(); // step 4 reached → safe to show results
+    }, timings[i]);
+    _dsProgTimers.push(t);
+  });
+  // Fallback: never block longer than the full sequence + a beat
+  _dsProgTimers.push(setTimeout(minDisplayResolve, timings[timings.length - 1] + 500));
+
+  function finish() {
+    _dsClearTimers();
+    _dsRenderSteps(steps, steps.length); // all checkmarks
+    bar.style.transition = 'width 0.4s ease';
+    bar.style.width = '100%';
+    return new Promise(function(res){
+      setTimeout(function(){
+        card.style.transition = 'opacity 0.45s ease';
+        card.style.opacity = '0';
+        setTimeout(function(){ card.style.display = 'none'; card.style.opacity = '1'; res(); }, 450);
+      }, 450);
+    });
+  }
+  return { minDisplay: minDisplay, finish: finish };
+}
+
 async function runDealScan() {
   var btn = document.getElementById('scan-btn');
   var box = document.getElementById('dealscanAI');
-  var txt = document.getElementById('dealscanText');
-  var spinner = document.getElementById('dealscanSpinner');
 
   btn.disabled = true; btn.textContent = 'Scanning…';
-  box.classList.add('visible');
-  txt.textContent = 'Scanning…';
-  spinner.style.display = 'block';
+  box.classList.remove('visible'); // hide the old generic block; use progress card
   document.getElementById('scan-results').innerHTML = '';
   document.getElementById('scan-ranked-label').style.display = 'none';
   console.log('[deal-scan] Starting scan');
 
+  var prog = startDealScanProgress();
+
+  function showError(msg) {
+    _dsClearTimers();
+    var card = document.getElementById('ds-progress');
+    if (card) card.style.display = 'none';
+    box.classList.add('visible');
+    var txt = document.getElementById('dealscanText');
+    var spinner = document.getElementById('dealscanSpinner');
+    if (spinner) spinner.style.display = 'none';
+    if (txt) txt.textContent = msg;
+  }
+
   try {
-    var r = await fetch('/api/athlete/deal-scan', {
+    var fetchPromise = fetch('/api/athlete/deal-scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
       body: JSON.stringify({ deal_type: '', budget_range: '', exclude_brands: _athleteExcludeBrands })
-    });
-    var data = await r.json();
-    if (!r.ok || data.error) {
-      txt.textContent = 'Scan failed: ' + (data.error || 'Unknown error');
-      return;
-    }
-    var opps = data.opportunities || [];
-    _athleteDealScanResults = opps;
+    }).then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); });
 
-    if (!opps.length) {
-      txt.textContent = 'No opportunities found. Try again.';
+    var result = await fetchPromise;
+    // Don't let results feel instant — wait until at least step 4
+    await prog.minDisplay;
+
+    if (!result.ok || result.data.error) {
+      showError('Scan failed: ' + (result.data.error || 'Unknown error'));
       return;
     }
-    txt.textContent = 'Found ' + opps.length + ' ranked opportunities. Top pick: ' + esc(opps[0].brand || '') + '.';
+    var opps = result.data.opportunities || [];
+    _athleteDealScanResults = opps;
+    if (!opps.length) {
+      showError('No opportunities found. Try again.');
+      return;
+    }
+    await prog.finish(); // bar to 100%, checkmarks, fade out
     renderAthleteDealsTable(opps);
   } catch(e) {
-    txt.textContent = 'Connection error. Please try again.';
+    showError('Connection error. Please try again.');
     console.error('[deal-scan] error:', e);
   } finally {
     btn.disabled = false; btn.textContent = 'Scan Deals with AI';
-    spinner.style.display = 'none';
   }
 }
 
