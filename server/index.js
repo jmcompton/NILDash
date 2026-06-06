@@ -3006,25 +3006,25 @@ app.get('/api/athlete/verify-email', async (req, res) => {
         athlete_type: 'self_managed',
       }, ATHLETE_JWT_SECRET, { expiresIn: '30d' });
       console.log(`[verify] JWT issued for athlete=${athlete.id} status=${status}`);
-      return res.redirect(`/athlete-dashboard.html?jwt=${athleteJwt}&new=1`);
+      return res.redirect(`/athlete-dashboard.html?jwt=${athleteJwt}&new=1&welcome=1`);
     };
 
-    // ── 3. Determine Stripe mode ───────────────────────────────────────────────
+    // ── 3. Stripe checkout — only attempted with a confirmed live key ─────────────
+    // ANY other condition (test key, missing key, missing price, connection error)
+    // falls through to the bypass and gets the athlete into the portal immediately.
     const stripeKey = process.env.STRIPE_SECRET_KEY || '';
     const stripePrice = process.env.STRIPE_PRICE_ID || '';
-    const isTestKey = stripeKey.startsWith('sk_test_');
+    const isLiveKey = stripeKey.startsWith('sk_live_');
 
-    // No Stripe configured at all → skip checkout entirely
-    if (!stripeKey || !stripePrice) {
-      console.warn('[verify] Stripe not configured — activating athlete directly (dev mode)');
-      return await _issueJwtAndRedirect('active');
-    }
-
-    // ── 4. Attempt Stripe customer + checkout session ──────────────────────────
-    console.log(`[verify] stripe attempt — key type: ${isTestKey ? 'test' : 'live'} price=${stripePrice}`);
+    console.log(`[verify] stripe key type=${isLiveKey ? 'live' : 'test/missing'} price=${stripePrice || 'missing'}`);
 
     let checkoutUrl = null;
     try {
+      if (!isLiveKey || !stripePrice) {
+        // Not a live key or no price ID — throw immediately to hit the bypass
+        throw new Error('TEST_MODE_BYPASS');
+      }
+
       const stripe = require('stripe')(stripeKey);
       const appUrl = process.env.APP_URL || 'https://mynildash.com';
 
@@ -3053,24 +3053,19 @@ app.get('/api/athlete/verify-email', async (req, res) => {
 
       checkoutUrl = checkoutSession.url;
       console.log(`[verify] stripe checkout session created id=${checkoutSession.id}`);
+
     } catch (stripeErr) {
-      // Log the full Stripe error object so the error code / decline code is visible
-      console.error('[verify] Stripe call failed — full error:', JSON.stringify(stripeErr, Object.getOwnPropertyNames(stripeErr)));
-      console.error('[verify] Stripe error message:', stripeErr.message);
-
-      // DEV BYPASS: if using a test key, skip Stripe and activate the athlete directly
-      if (isTestKey) {
-        console.warn('[verify] Test key detected + Stripe failed — activating athlete directly (dev bypass)');
-        return await _issueJwtAndRedirect('trialing');
+      // Log everything — connection errors, test-mode throws, invalid price IDs, etc.
+      if (stripeErr.message !== 'TEST_MODE_BYPASS') {
+        console.error('[verify] Stripe error — full:', JSON.stringify(stripeErr, Object.getOwnPropertyNames(stripeErr)));
+        console.error('[verify] Stripe error message:', stripeErr.message);
       }
-
-      // Live key failure — surface the error rather than silently swallowing it
-      return res.status(500).send(
-        'Account verified but payment setup failed. Please contact support@mynildash.com with your email address.'
-      );
+      // Bypass: activate the athlete directly regardless of why Stripe failed
+      console.log('[verify] bypassing Stripe — activating athlete directly');
+      return await _issueJwtAndRedirect('trialing');
     }
 
-    // ── 5. Redirect to Stripe checkout ────────────────────────────────────────
+    // ── 4. Redirect to Stripe checkout (live path only) ───────────────────────
     console.log(`[verify] redirecting athlete=${athlete.id} to Stripe checkout`);
     res.redirect(checkoutUrl);
 
