@@ -2839,6 +2839,10 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
       instagram_handle: ath.instagram_handle,
       tiktok_handle: ath.tiktok_handle,
       twitter_handle: ath.twitter_handle,
+      // Follower counts — prefer dedicated columns (self-signup), fall back to data JSON (agent-managed)
+      instagram_followers: ath.instagram_followers != null ? ath.instagram_followers : (ath.followers_ig != null ? parseInt(ath.followers_ig) : null),
+      tiktok_followers: ath.tiktok_followers != null ? ath.tiktok_followers : (ath.followers_tiktok != null ? parseInt(ath.followers_tiktok) : null),
+      twitter_followers: ath.twitter_followers != null ? ath.twitter_followers : null,
       followers_ig: ath.followers_ig,
       agent_name: ath.agent_name,
       agency_name: ath.agency_name,
@@ -3878,6 +3882,7 @@ app.post('/api/athlete/command', verifyAthleteToken, aiLimiter, async (req, res)
 
     const athR = await store.pool.query(
       `SELECT a.data, a.instagram_handle, a.tiktok_handle,
+              a.instagram_followers, a.tiktok_followers,
               a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'position' as position,
               a.data->>'school' as school, a.data->>'year' as year,
               a.data->>'instagram' as ig, a.data->>'tiktok' as tt
@@ -3885,8 +3890,9 @@ app.post('/api/athlete/command', verifyAthleteToken, aiLimiter, async (req, res)
       [req.athlete.id]
     );
     const ath = athR.rows[0] || {};
-    const ig = parseInt(ath.ig || 0);
-    const tt = parseInt(ath.tt || 0);
+    // Followers: prefer data JSON (agent-managed), fall back to dedicated columns (self-signup)
+    const ig = parseInt(ath.ig || 0) || ath.instagram_followers || 0;
+    const tt = parseInt(ath.tt || 0) || ath.tiktok_followers || 0;
     const nilLow = Math.round(ig * 0.01 / 10) * 10;
     const nilHigh = Math.round(ig * 0.03 / 10) * 10;
     const nilEst = nilLow > 0 ? `$${nilLow.toLocaleString()}–$${nilHigh.toLocaleString()} per post` : 'TBD (add followers to profile)';
@@ -3945,6 +3951,7 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
   try {
     const athR = await store.pool.query(
       `SELECT a.data, a.instagram_handle, a.tiktok_handle,
+              a.instagram_followers, a.tiktok_followers, a.twitter_followers,
               a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
               a.data->>'schoolTier' as school_tier, a.data->>'instagram' as ig,
               a.data->>'tiktok' as tt, a.data->>'position' as position, a.data->>'year' as year,
@@ -3955,6 +3962,10 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     const ath = athR.rows[0];
     if (!ath) return res.status(404).json({ error: 'Athlete not found' });
 
+    // Followers: prefer data JSON (agent-managed), fall back to dedicated columns (self-signup)
+    const dsIg = parseInt(ath.ig) || ath.instagram_followers || 0;
+    const dsTt = parseInt(ath.tt) || ath.tiktok_followers || 0;
+
     // Build athlete object in the format ai.getDealRecommendations() expects
     const athleteObj = {
       name: ath.name,
@@ -3963,8 +3974,8 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
       year: ath.year,
       school: ath.school,
       schoolTier: ath.school_tier,
-      instagram: parseInt(ath.ig) || 0,
-      tiktok: parseInt(ath.tt) || 0,
+      instagram: dsIg,
+      tiktok: dsTt,
       engagement: parseFloat(ath.engagement) || 0,
       stats: ath.stats || '',
     };
@@ -3984,7 +3995,13 @@ app.post('/api/athlete/rate-calculator', verifyAthleteToken, async (req, res) =>
     const delivType = req.body.deliverable_type || 'ig-reel';
     const row = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [req.athlete.id]);
     if (!row.rows.length) return res.status(404).json({ error: 'Athlete not found' });
-    const athleteObj = { id: row.rows[0].id, agentId: row.rows[0].agent_id, ...row.rows[0].data };
+    const dbRow = row.rows[0];
+    const athleteObj = { id: dbRow.id, agentId: dbRow.agent_id, ...dbRow.data };
+    // Merge dedicated follower columns (self-signup) — nilViewVal reads .instagram/.tiktok/.twitter
+    // Prefer the data JSON value if present (agent-managed), otherwise use the dedicated column.
+    if (athleteObj.instagram == null && dbRow.instagram_followers != null) athleteObj.instagram = dbRow.instagram_followers;
+    if (athleteObj.tiktok == null && dbRow.tiktok_followers != null) athleteObj.tiktok = dbRow.tiktok_followers;
+    if (athleteObj.twitter == null && dbRow.twitter_followers != null) athleteObj.twitter = dbRow.twitter_followers;
     const {
       nilViewVal, cleanRange, generateRateDrivers, generateRateLimitations,
       calcMarketReliabilityScore, generateConfidenceTypes, generateComparableNote,
