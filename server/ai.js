@@ -470,6 +470,7 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
 
   // ── PRIMARY PATH: web-search-backed discovery ──────────────────────────────
   try {
+    console.log(`[dealScan] Using web search for brand discovery — market=${city}, ${state} sport=${sport}`);
     const raw = await oneShotWebSearch(prompt,
       'You are a local NIL deal researcher. Use web search to find and VERIFY real local businesses. Never fabricate a business or a contact domain. Your final message must be ONLY a valid JSON array starting with [ and ending with ]. No markdown fences, no commentary.',
       4000, 8);
@@ -480,6 +481,7 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+    console.log(`[dealScan] web search returned ${parsed.length} verified brand(s)`);
     return parsed.map((d, i) => ({
       ...d,
       rank: i + 1,
@@ -488,7 +490,7 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
       suggestedRate: { low: rate.low, high: rate.high },
     }));
   } catch (webErr) {
-    console.warn('[deal-scan] web search path failed, falling back to model-knowledge:', webErr.message);
+    console.warn('[dealScan] web search path failed, falling back to model-knowledge:', webErr.message);
   }
 
   // ── FALLBACK PATH: model-knowledge (no web search) ─────────────────────────
