@@ -471,20 +471,67 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
   "contactLinkedIn": "linkedin.com/in/person or null"
 }]`;
 
-  // ── PRIMARY PATH: web-search-backed discovery ──────────────────────────────
+  // ── PRIMARY PATH: two-phase parallel web search + fast scoring ──────────────
+  // STRATEGY (why this is fast): the old approach ran a single turn that did up to
+  // 8 web searches SEQUENTIALLY and enriched all 6 brands in one shot (~30s). Here
+  // we run 3 lightweight web searches IN PARALLEL (Promise.allSettled) that only
+  // collect real business names + domains, then do ONE fast no-search Sonnet call
+  // to score + enrich into the final JSON. Parallel search (~6-10s) + scoring
+  // (~3-4s) ≈ 10-14s, with every brand still grounded in real web-search results.
   try {
     console.log(`[dealScan] Using web search for brand discovery — model=${MODEL_DEALSCAN} market=${city}, ${state} sport=${sport}`);
-    const raw = await oneShotWebSearch(prompt,
-      'You are a local NIL deal researcher. Use web search to find and VERIFY real local businesses. Never fabricate a business or a contact domain. Your final message must be ONLY a valid JSON array starting with [ and ending with ]. No markdown fences, no commentary.',
-      4000, 8, MODEL_DEALSCAN);
+
+    const searchSys = 'You find real local businesses via web search. Output ONLY a JSON array, no commentary, no markdown.';
+    const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email"} (email only if shown on their site, else null). Favor: ${cats}. ONLY a JSON array.`;
+
+    const searches = [
+      oneShotWebSearch(mk(`${sport} NIL sponsors and local businesses in ${city}, ${state}`, 'car dealerships, gyms, restaurants'), searchSys, 700, 3, MODEL_DEALSCAN),
+      oneShotWebSearch(mk(`local businesses near ${school} in ${city}, ${state} that sponsor college athletes`, 'restaurants, retail, fitness, services'), searchSys, 700, 3, MODEL_DEALSCAN),
+      oneShotWebSearch(mk(`${city} ${state} ${sport} local brand ambassador and NIL deals`, catHint), searchSys, 700, 3, MODEL_DEALSCAN),
+    ];
+    const settled = await Promise.allSettled(searches);
+
+    const found = [];
+    const seen = new Set();
+    for (const s of settled) {
+      if (s.status !== 'fulfilled' || !s.value) continue;
+      try {
+        const t = s.value.replace(/```json/g, '').replace(/```/g, '').trim();
+        const a = t.indexOf('['), b = t.lastIndexOf(']');
+        if (a === -1 || b <= a) continue;
+        const arr = JSON.parse(t.substring(a, b + 1));
+        for (const it of (Array.isArray(arr) ? arr : [])) {
+          const nm = ((it && it.name) || '').trim();
+          if (!nm) continue;
+          const key = nm.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null });
+        }
+      } catch (_) { /* skip unparseable search result */ }
+    }
+    console.log(`[dealScan] phase 1 parallel search found ${found.length} candidate businesses`);
+    if (found.length < 3) throw new Error('Too few candidates from parallel search');
+
+    // Phase 2 — score + enrich the real businesses (no web search → fast)
+    const candidatesJson = JSON.stringify(found.slice(0, 16));
+    const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}, ${city}, ${state}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}
+
+These REAL local businesses were just found via web search:
+${candidatesJson}
+
+Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfully — do not give everything the same number). Write a 2-3 sentence rationale for each that references this athlete's sport, school, and the ${city} market. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
+[{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
+
+    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business or an email domain — only use the businesses and domains provided.', 1800, MODEL_DEALSCAN);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
-    if (si === -1 || ei <= si) throw new Error('No array in web-search response');
+    if (si === -1 || ei <= si) throw new Error('No array in scoring response');
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-    console.log(`[dealScan] web search returned ${parsed.length} verified brand(s)`);
+    console.log(`[dealScan] phase 2 scored ${parsed.length} brand(s)`);
     return parsed.map((d, i) => ({
       ...d,
       rank: i + 1,
@@ -493,7 +540,7 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
       suggestedRate: { low: rate.low, high: rate.high },
     }));
   } catch (webErr) {
-    console.warn('[dealScan] web search path failed, falling back to model-knowledge:', webErr.message);
+    console.warn('[dealScan] two-phase path failed, falling back to model-knowledge:', webErr.message);
   }
 
   // ── FALLBACK PATH: model-knowledge (no web search) ─────────────────────────
