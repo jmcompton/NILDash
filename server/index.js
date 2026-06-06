@@ -2881,7 +2881,7 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
     const bcrypt = require('bcryptjs');
     const passwordHash = await bcrypt.hash(password, 12);
     const verifyToken = crypto.randomBytes(32).toString('hex');
-    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    const verifyExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
     const athleteId = 'self-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
 
     await store.pool.query(
@@ -2958,18 +2958,45 @@ app.get('/api/athlete/verify-email', async (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(400).send('Missing token');
 
-  console.log(`[verify] token received: ...${token.slice(-12)}`);
+  console.log(`[verify] token received: ...${token.slice(-12)} (len=${token.length})`);
 
   try {
     // ── 1. Look up athlete by token ────────────────────────────────────────────
-    const r = await store.pool.query(
-      'SELECT * FROM athletes WHERE email_verify_token = $1 AND athlete_type = $2',
-      [token, 'self_managed']
-    );
+    // Primary query: token only, no type filter — avoids missing rows if
+    // athlete_type was stored with an unexpected value
+    const sql = 'SELECT * FROM athletes WHERE email_verify_token = $1';
+    const params = [token];
+    console.log('[verify] query:', sql, params);
+    const r = await store.pool.query(sql, params);
     console.log(`[verify] DB query returned ${r.rows.length} row(s)`);
 
-    if (!r.rows.length)
+    // Diagnostic: if 0 rows, check whether the token column exists at all
+    if (!r.rows.length) {
+      try {
+        const colCheck = await store.pool.query(
+          `SELECT column_name FROM information_schema.columns
+           WHERE table_name='athletes' AND column_name='email_verify_token'`
+        );
+        console.log(`[verify] email_verify_token column exists: ${colCheck.rows.length > 0}`);
+
+        // Also check the most recent self_managed athletes so we can compare tokens
+        const recent = await store.pool.query(
+          `SELECT id, email, athlete_type, email_verify_token, email_verified, email_verify_expires
+           FROM athletes WHERE athlete_type = 'self_managed' ORDER BY created_at DESC LIMIT 3`
+        );
+        console.log('[verify] recent self_managed athletes:', JSON.stringify(recent.rows.map(row => ({
+          id: row.id,
+          email: row.email,
+          type: row.athlete_type,
+          token_tail: row.email_verify_token ? row.email_verify_token.slice(-12) : null,
+          verified: row.email_verified,
+          expires: row.email_verify_expires,
+        }))));
+      } catch (diagErr) {
+        console.error('[verify] diagnostic query failed:', diagErr.message);
+      }
       return res.status(400).send('Invalid or expired verification link. Please sign up again.');
+    }
 
     const athlete = r.rows[0];
     console.log(`[verify] athlete found id=${athlete.id} email=${athlete.email} verified=${athlete.email_verified}`);
