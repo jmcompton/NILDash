@@ -2907,30 +2907,43 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
     const appUrl = process.env.APP_URL || 'https://mynildash.com';
     const verifyUrl = `${appUrl}/api/athlete/verify-email?token=${verifyToken}`;
 
-    await resend.emails.send({
-      from: 'NILDash <noreply@mynildash.com>',
-      to: normalizedEmail,
-      subject: 'Verify your NILDash account',
-      html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
-          <div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#0A0E1A;margin-bottom:8px">
-            NIL<span style="color:#C8FF00">DASH</span>
+    // Always log the verify URL so we can manually verify during testing / if email fails
+    console.log(`[self-signup] verify-url athlete=${athleteId} email=${normalizedEmail} url=${verifyUrl}`);
+
+    try {
+      const emailResult = await resend.emails.send({
+        from: 'NILDash <noreply@mynildash.com>',
+        to: normalizedEmail,
+        subject: 'Verify your NILDash account',
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
+            <div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#0A0E1A;margin-bottom:8px">
+              NIL<span style="color:#C8FF00">DASH</span>
+            </div>
+            <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;color:#0A0E1A">Verify your email to get started</h2>
+            <p style="color:#374151;font-size:15px;line-height:1.6;margin-bottom:24px">
+              Hi ${name.split(' ')[0]}, you're one step away from your free 30-day trial.
+              Click below to verify your email and set up your subscription.
+            </p>
+            <a href="${verifyUrl}"
+               style="display:inline-block;background:#C8FF00;color:#0A0E1A;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px">
+              Verify Email &amp; Continue →
+            </a>
+            <p style="color:#6B7280;font-size:12px;margin-top:24px">
+              This link expires in 24 hours. If you didn't sign up for NILDash, you can safely ignore this email.
+            </p>
           </div>
-          <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;color:#0A0E1A">Verify your email to get started</h2>
-          <p style="color:#374151;font-size:15px;line-height:1.6;margin-bottom:24px">
-            Hi ${name.split(' ')[0]}, you're one step away from your free 30-day trial.
-            Click below to verify your email and set up your subscription.
-          </p>
-          <a href="${verifyUrl}"
-             style="display:inline-block;background:#C8FF00;color:#0A0E1A;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px">
-            Verify Email &amp; Continue →
-          </a>
-          <p style="color:#6B7280;font-size:12px;margin-top:24px">
-            This link expires in 24 hours. If you didn't sign up for NILDash, you can safely ignore this email.
-          </p>
-        </div>
-      `,
-    }).catch(e => console.error('[self-signup] Email send failed:', e.message));
+        `,
+      });
+      console.log(`[self-signup] Email sent ok id=${emailResult && emailResult.id ? emailResult.id : 'n/a'} to=${normalizedEmail}`);
+    } catch (emailErr) {
+      // Log the full error object so Resend status codes / error codes are visible in Railway logs
+      console.error('[self-signup] Email send failed — full error:', JSON.stringify(emailErr, Object.getOwnPropertyNames(emailErr)));
+      console.error('[self-signup] Email message:', emailErr.message);
+      // Fallback: verify URL already logged above — admin can paste it directly to verify the account
+      console.log(`[self-signup] FALLBACK verify-url (email failed): ${verifyUrl}`);
+      // Do NOT abort — account was created, athlete can resend or be manually verified
+    }
 
     console.log(`[self-signup] Created athlete ${athleteId} email=${normalizedEmail}`);
     res.json({ ok: true, message: 'Check your email to verify your account.' });
