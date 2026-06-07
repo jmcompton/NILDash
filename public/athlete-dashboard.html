@@ -2144,7 +2144,9 @@ function renderAthleteDealsTable(recs) {
       '<div style="display:flex;gap:9px;margin-top:14px;flex-wrap:wrap">' +
         '<button onclick="openPitchModal(' + i + ')" style="flex:1;min-width:150px;padding:11px;background:#84CC16;color:#0A0E1A;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">Send Pitch</button>' +
         '<button onclick="togglePitchPreview(' + i + ')" style="padding:11px 14px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">Preview Pitch</button>' +
-        '<button onclick="trackBrand(' + i + ')" style="padding:11px 14px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">+ Track</button>' +
+        (function(){ var tracked = _isBrandTracked(brand);
+          return '<button onclick="trackBrand(' + i + ', this)"' + (tracked ? ' disabled' : '') +
+            ' style="padding:11px 14px;background:' + (tracked ? 'rgba(132,204,22,0.12)' : 'transparent') + ';border:1px solid ' + (tracked ? 'rgba(132,204,22,0.4)' : 'var(--border)') + ';color:' + (tracked ? '#84CC16' : 'var(--muted)') + ';border-radius:8px;font-size:12px;font-weight:600;cursor:' + (tracked ? 'default' : 'pointer') + ';font-family:\'DM Sans\',sans-serif">' + (tracked ? 'Tracked ✓' : '+ Track') + '</button>'; })() +
       '</div>' +
     '</div>';
   }).join('');
@@ -2248,90 +2250,101 @@ function copyPitchToClipboard() {
   navigator.clipboard.writeText('Subject: ' + subject + '\n\n' + body).then(function(){ showToast('Pitch copied'); });
 }
 
-// ── Pipeline ────────────────────────────────────────────────────────
-async function trackBrand(i) {
+// ── Pipeline (unified with Brand Tracker) ───────────────────────────
+// Brand Tracker (athlete_self_deals) is the single source of truth. "+ Track"
+// creates a Brand Tracker deal at the Outreach stage; "My Pipeline" below reads
+// the Outreach-stage deals back from the same store.
+var _trackedBrandSet = {};
+function _normBrand(s){ return String(s || '').trim().toLowerCase(); }
+function _isBrandTracked(name){ return !!_trackedBrandSet[_normBrand(name)]; }
+
+async function trackBrand(i, btnEl) {
   var b = (window._athleteDealScanResults || [])[i];
   if (!b) return;
+  var brandName = b.brand || b.brand_name;
+  if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Tracking…'; }
   try {
-    var r = await fetch('/api/athlete/deal-pipeline', {
+    var r = await fetch('/api/athlete/deals/from-scan', {
       method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
       body: JSON.stringify({
-        brand_name: b.brand || b.brand_name, brand_category: b.category,
-        contact_email: b.contactEmail, contact_name: b.contactName,
-        deal_value: (b.estimatedValueLow||b.estimatedValueHigh) ? ('$'+(b.estimatedValueLow||'')+'-$'+(b.estimatedValueHigh||'')) : null
+        brand: brandName, category: b.category,
+        contactEmail: b.contactEmail, contactName: b.contactName,
+        estimatedValueLow: b.estimatedValueLow, estimatedValueHigh: b.estimatedValueHigh,
+        rationale: b.rationale, campaign: b.campaign, contactApproach: b.contactApproach,
+        fitScore: b.fitScore, isLocal: b.isLocal
       })
     });
     var data = await r.json();
-    if (r.ok && !data.error) { showToast(data.existed ? 'Already in pipeline' : 'Added to pipeline'); loadDealPipeline(); }
-    else showToast('Could not add: ' + (data.error||'error'));
-  } catch(e){ showToast('Connection error'); }
+    if (r.ok && !data.error) {
+      showToast(data.existed ? 'Already in Brand Tracker' : 'Added to Brand Tracker');
+      _trackedBrandSet[_normBrand(brandName)] = true;
+      if (btnEl) _markTrackedButton(btnEl);
+      loadDealPipeline();
+    } else {
+      showToast('Could not add: ' + (data.error||'error'));
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = '+ Track'; }
+    }
+  } catch(e){
+    showToast('Connection error');
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = '+ Track'; }
+  }
 }
 
-var DS_STATUS = [
-  {key:'not_contacted', label:'Not Contacted', color:'var(--muted)'},
-  {key:'pitched', label:'Pitched', color:'#60a5fa'},
-  {key:'in_talks', label:'In Talks', color:'#f59e0b'},
-  {key:'deal_closed', label:'Deal Closed', color:'#84CC16'},
-  {key:'no_response', label:'No Response', color:'#f87171'}
-];
-function dsStatusMeta(k){ return DS_STATUS.find(function(s){return s.key===k;}) || DS_STATUS[0]; }
+function _markTrackedButton(btn){
+  btn.disabled = true;
+  btn.textContent = 'Tracked ✓';
+  btn.style.background = 'rgba(132,204,22,0.12)';
+  btn.style.borderColor = 'rgba(132,204,22,0.4)';
+  btn.style.color = '#84CC16';
+  btn.style.cursor = 'default';
+}
+
+// Outreach-stage deals belong to the "My Pipeline" view.
+var DS_OUTREACH_STAGES = ['Prospect','Contacted'];
+var DS_DEAL_STAGES = ['Prospect','Contacted','Negotiating','Signed','Completed','Lost'];
 
 async function loadDealPipeline() {
   var body = document.getElementById('ds-pipeline-body');
   var banner = document.getElementById('ds-followup-banner');
   if (!body) return;
   try {
-    var r = await fetch('/api/athlete/deal-pipeline', { headers:{'Authorization':'Bearer ' + athleteToken} });
+    var r = await fetch('/api/athlete/deals', { headers:{'Authorization':'Bearer ' + athleteToken} });
     var data = await r.json();
-    var rows = data.pipeline || [];
+    var allDeals = data.deals || [];
+    // Refresh the tracked-brand set so Deal Scan cards show "Tracked ✓".
+    _trackedBrandSet = {};
+    allDeals.forEach(function(d){ _trackedBrandSet[_normBrand(d.brand_name)] = true; });
+    if (banner) banner.style.display = 'none';
+
+    var rows = allDeals.filter(function(d){ return DS_OUTREACH_STAGES.indexOf(d.stage) > -1; });
+    updateDealScanNavBadge(rows.length);
     if (!rows.length) {
-      body.innerHTML = '<div style="text-align:center;color:var(--muted);padding:18px;font-size:12px">No brands in your pipeline yet. Add one from an opportunity above.</div>';
-      if (banner) banner.style.display = 'none';
-      updateDealScanNavBadge(0);
+      body.innerHTML = '<div style="text-align:center;color:var(--muted);padding:18px;font-size:12px">No brands in your pipeline yet. Add one from an opportunity above. Promote a deal to Negotiating/Signed in <strong>Brand Tracker</strong> to activate it.</div>';
       return;
     }
-    // Follow-up reminders: pitched > 7 days, no later contact
-    var now = Date.now();
-    var needFollowup = rows.filter(function(e){
-      if (e.status !== 'pitched') return false;
-      var last = e.last_contact_at || e.pitched_at;
-      if (!last) return false;
-      return (now - new Date(last).getTime()) > 7*86400000;
-    });
-    if (banner) {
-      if (needFollowup.length) {
-        banner.style.display = 'block';
-        banner.innerHTML = '⏰ <strong>' + needFollowup.length + '</strong> brand' + (needFollowup.length>1?'s':'') + ' pitched over 7 days ago with no response — time to follow up: ' +
-          needFollowup.map(function(e){ return esc(e.brand_name); }).join(', ');
-      } else banner.style.display = 'none';
-    }
-    updateDealScanNavBadge(needFollowup.length);
 
     body.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
       '<thead><tr style="text-align:left;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.05em">' +
         '<th style="padding:8px 10px;font-weight:700">Brand</th>' +
-        '<th style="padding:8px 10px;font-weight:700">Status</th>' +
-        '<th style="padding:8px 10px;font-weight:700">Pitched</th>' +
-        '<th style="padding:8px 10px;font-weight:700">Last Contact</th>' +
+        '<th style="padding:8px 10px;font-weight:700">Category</th>' +
+        '<th style="padding:8px 10px;font-weight:700">Est. Value</th>' +
+        '<th style="padding:8px 10px;font-weight:700">Fit</th>' +
+        '<th style="padding:8px 10px;font-weight:700">Stage</th>' +
         '<th style="padding:8px 10px;font-weight:700">Actions</th>' +
       '</tr></thead><tbody>' +
       rows.map(function(e){
-        var m = dsStatusMeta(e.status);
-        var pitched = e.pitched_at ? new Date(e.pitched_at).toLocaleDateString() : '—';
-        var last = e.last_contact_at || e.pitched_at;
-        var daysSince = last ? Math.floor((now - new Date(last).getTime())/86400000) : null;
-        var lastStr = last ? (daysSince + 'd ago') : '—';
-        var overdue = e.status === 'pitched' && daysSince != null && daysSince > 7;
-        var statusSel = '<select onchange="updatePipelineStatus(' + e.id + ', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:' + m.color + ';border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;font-family:\'DM Sans\',sans-serif">' +
-          DS_STATUS.map(function(s){ return '<option value="' + s.key + '"' + (s.key===e.status?' selected':'') + '>' + s.label + '</option>'; }).join('') + '</select>';
+        var stageSel = '<select onchange="updatePipelineDealStage(' + e.id + ', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:11px;font-weight:600;font-family:\'DM Sans\',sans-serif">' +
+          DS_DEAL_STAGES.map(function(s){ return '<option value="' + s + '"' + (s===e.stage?' selected':'') + '>' + s + '</option>'; }).join('') + '</select>';
+        var valStr = e.value ? ('$' + Number(e.value).toLocaleString()) : '—';
         return '<tr style="border-top:1px solid var(--border)">' +
-          '<td style="padding:10px;color:var(--text);font-weight:600">' + esc(e.brand_name) + (e.deal_value ? '<div style="font-size:10px;color:var(--muted);font-weight:400">' + esc(e.deal_value) + '</div>' : '') + '</td>' +
-          '<td style="padding:10px">' + statusSel + '</td>' +
-          '<td style="padding:10px;color:var(--muted)">' + pitched + '</td>' +
-          '<td style="padding:10px;color:' + (overdue?'#f59e0b':'var(--muted)') + '">' + lastStr + (overdue?' ⏰':'') + '</td>' +
+          '<td style="padding:10px;color:var(--text);font-weight:600">' + esc(e.brand_name) + (e.contact_email ? '<div style="font-size:10px;color:var(--muted);font-weight:400">' + esc(e.contact_email) + '</div>' : '') + '</td>' +
+          '<td style="padding:10px;color:var(--muted)">' + esc(e.category || '—') + '</td>' +
+          '<td style="padding:10px;color:var(--accent);font-family:\'JetBrains Mono\',monospace">' + valStr + '</td>' +
+          '<td style="padding:10px;color:var(--muted)">' + (e.fit_score != null ? e.fit_score : '—') + '</td>' +
+          '<td style="padding:10px">' + stageSel + '</td>' +
           '<td style="padding:10px"><div style="display:flex;gap:6px;flex-wrap:wrap">' +
-            (e.contact_email ? '<button onclick="sendFollowUp(' + e.id + ')" style="padding:5px 9px;background:transparent;border:1px solid rgba(245,158,11,0.4);color:#f59e0b;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">Follow Up</button>' : '') +
-            '<button onclick="updatePipelineStatus(' + e.id + ',\'deal_closed\')" style="padding:5px 9px;background:transparent;border:1px solid rgba(132,204,22,0.4);color:#84CC16;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">Mark Closed</button>' +
+            '<button onclick="openDealModal(' + e.id + ')" style="padding:5px 9px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">Open</button>' +
+            '<button onclick="updatePipelineDealStage(' + e.id + ',\'Negotiating\')" style="padding:5px 9px;background:transparent;border:1px solid rgba(132,204,22,0.4);color:#84CC16;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">Activate</button>' +
           '</div></td>' +
         '</tr>';
       }).join('') + '</tbody></table></div>';
@@ -2340,29 +2353,20 @@ async function loadDealPipeline() {
   }
 }
 
-async function updatePipelineStatus(id, status) {
+// Advance a tracked deal's stage from the Deal Scan pipeline view. Writes to the
+// same Brand Tracker store (athlete_self_deals) — no separate pipeline table.
+async function updatePipelineDealStage(id, stage) {
   try {
-    var r = await fetch('/api/athlete/deal-pipeline/' + id, {
+    var r = await fetch('/api/athlete/deals/' + id, {
       method:'PUT', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
-      body: JSON.stringify({ status: status })
+      body: JSON.stringify({ stage: stage })
     });
     var data = await r.json();
-    if (r.ok && !data.error) { showToast('Status updated'); loadDealPipeline(); }
-    else showToast('Update failed');
-  } catch(e){ showToast('Connection error'); }
-}
-
-async function sendFollowUp(id) {
-  if (!confirm('Send a follow-up message to this brand?')) return;
-  try {
-    var r = await fetch('/api/athlete/deal-pipeline/' + id + '/followup', {
-      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
-      body: JSON.stringify({ send: true })
-    });
-    var data = await r.json();
-    if (r.ok && data.sent) { showToast('Follow-up sent'); loadDealPipeline(); }
-    else if (r.ok && !data.sent) { showToast('Drafted, but no contact email on file'); }
-    else showToast('Could not send follow-up');
+    if (r.ok && !data.error) {
+      showToast('Stage updated → ' + stage);
+      loadDealPipeline();
+      if (typeof dealsCache !== 'undefined') loadDeals && loadDeals();
+    } else showToast('Update failed');
   } catch(e){ showToast('Connection error'); }
 }
 
@@ -2946,9 +2950,12 @@ async function loadCaptionDeals() {
   try {
     var r = await fetch('/api/athlete/deals', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
     var data = await r.json();
-    var deals = (data.deals || []).filter(function(d){ return d.stage !== 'Lost' && d.stage !== 'Completed'; });
+    // Only ACTIVE deals feed the marketing tools (Outreach-stage deals do not
+    // appear until promoted to Negotiating/Signed in Brand Tracker).
+    var ACTIVE_STAGES = ['Negotiating','Signed'];
+    var deals = (data.deals || []).filter(function(d){ return ACTIVE_STAGES.indexOf(d.stage) > -1; });
     if (!deals.length) {
-      sel.innerHTML = '<option value="">No active deals — add one in Brand Tracker</option>';
+      sel.innerHTML = '<option value="">No active deals — promote a deal to Active in Brand Tracker</option>';
     } else {
       sel.innerHTML = deals.map(function(d){
         return '<option value="' + esc(d.brand_name) + '">' + esc(d.brand_name) + (d.deal_type ? ' — ' + esc(d.deal_type) : '') + '</option>';

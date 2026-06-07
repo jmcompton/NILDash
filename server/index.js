@@ -3918,6 +3918,73 @@ app.post('/api/athlete/deals', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[athlete/deals POST]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// POST /api/athlete/deals/from-scan — "+ Track" a Deal Scan opportunity into
+// Brand Tracker at the Outreach stage (Prospect). Single source of truth: this
+// replaces the old separate athlete_deal_pipeline write. Dedupes on
+// athlete + normalized brand name.
+app.post('/api/athlete/deals/from-scan', verifyAthleteToken, async (req, res) => {
+  try {
+    const o = req.body || {};
+    const brandName = (o.brand || o.brand_name || '').trim();
+    if (!brandName) return res.status(400).json({ error: 'brand name required' });
+
+    const fitScore = (o.fitScore != null && !isNaN(parseInt(o.fitScore))) ? parseInt(o.fitScore) : null;
+    const isLocal = (o.isLocal === false) ? false : true; // scan marks local unless explicitly national
+
+    // Dedupe: case/whitespace-insensitive match for this athlete.
+    const existing = await store.pool.query(
+      `SELECT * FROM athlete_self_deals
+       WHERE athlete_id=$1 AND LOWER(TRIM(brand_name))=LOWER(TRIM($2)) LIMIT 1`,
+      [req.athlete.id, brandName]
+    );
+    if (existing.rows.length) {
+      // Already tracked — optionally refresh the fit score, but never duplicate.
+      if (fitScore != null) {
+        await store.pool.query(
+          `UPDATE athlete_self_deals SET fit_score=$1, updated_at=NOW() WHERE id=$2 AND athlete_id=$3`,
+          [fitScore, existing.rows[0].id, req.athlete.id]
+        ).catch(() => {});
+      }
+      return res.json({ ok: true, existed: true, deal: existing.rows[0] });
+    }
+
+    // Map the rate range: store numeric midpoint in value, keep range text + idea
+    // + approach in notes/description so nothing is lost.
+    const lo = parseInt(o.estimatedValueLow) || null;
+    const hi = parseInt(o.estimatedValueHigh) || null;
+    let value = null, rangeText = null;
+    if (lo && hi) { value = Math.round((lo + hi) / 2); rangeText = '$' + lo.toLocaleString() + '–$' + hi.toLocaleString() + ' per post'; }
+    else if (lo || hi) { value = lo || hi; rangeText = '$' + (lo || hi).toLocaleString() + ' per post'; }
+
+    const description = o.rationale || null;
+    const noteParts = [];
+    if (rangeText) noteParts.push('Estimated rate: ' + rangeText);
+    if (o.campaign) noteParts.push('Idea: ' + o.campaign);
+    if (o.contactApproach) noteParts.push('Approach: ' + o.contactApproach);
+    if (fitScore != null) noteParts.push('Fit score: ' + fitScore);
+    const notes = noteParts.join('\n\n') || null;
+
+    const stage = 'Prospect'; // Outreach-stage entry point
+    const stageHistory = JSON.stringify([{ stage, date: new Date().toISOString(), note: 'Tracked from Deal Scan' }]);
+    const r = await store.pool.query(
+      `INSERT INTO athlete_self_deals
+         (athlete_id, agent_id, brand_name, deal_type, value, stage, description, notes,
+          category, contact_name, contact_email, fit_score, source, is_local, stage_history)
+       VALUES ($1,$2,$3,'Other',$4,$5,$6,$7,$8,$9,$10,$11,'deal_scan',$12,$13) RETURNING *`,
+      [req.athlete.id, req.athlete.agent_id || null, brandName, value, stage,
+       description, notes, o.category || null, o.contactName || null,
+       o.contactEmail || null, fitScore, isLocal, stageHistory]
+    );
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_tracked_from_scan',
+      `Tracked ${brandName} from Deal Scan`, { deal_id: r.rows[0].id, brand: brandName }).catch(() => {});
+    console.log(`[athlete/deals/from-scan] tracked brand=${brandName} athlete=${req.athlete.id}`);
+    res.json({ ok: true, existed: false, deal: r.rows[0] });
+  } catch (e) {
+    console.error('[athlete/deals/from-scan]', e && e.stack ? e.stack : e);
+    res.status(500).json({ error: 'Could not track deal: ' + (e && e.message ? e.message : 'unknown error') });
+  }
+});
+
 // PUT /api/athlete/deals/:id — update deal
 app.put('/api/athlete/deals/:id', verifyAthleteToken, async (req, res) => {
   try {
@@ -4531,31 +4598,45 @@ app.post('/api/athlete/deal-pitch/send', verifyAthleteToken, async (req, res) =>
     if (!to || !subject || !body) return res.status(400).json({ error: 'to, subject, and body required' });
     await _sendAthleteEmail(req.athlete, to, subject, body, { brand_name: (brand && (brand.brand || brand.brand_name)) || subject });
 
-    // Upsert into pipeline as "pitched"
+    // Upsert into Brand Tracker (single source of truth). Sending a pitch moves
+    // the deal to the "Contacted" stage (still in the Outreach group). If the
+    // deal is already further along (Negotiating/Signed/etc.) we leave its stage.
     const brandName = (brand && (brand.brand || brand.brand_name)) || to;
     const existing = await store.pool.query(
-      `SELECT id FROM athlete_deal_pipeline WHERE athlete_id=$1 AND LOWER(brand_name)=LOWER($2) LIMIT 1`,
+      `SELECT * FROM athlete_self_deals
+       WHERE athlete_id=$1 AND LOWER(TRIM(brand_name))=LOWER(TRIM($2)) LIMIT 1`,
       [req.athlete.id, brandName]
     );
     let entry;
     if (existing.rows.length) {
+      const cur = existing.rows[0];
+      const advanceFrom = ['Prospect']; // only auto-advance from the very first stage
+      const newStage = advanceFrom.indexOf(cur.stage) > -1 ? 'Contacted' : cur.stage;
+      let stageHistory = cur.stage_history || [];
+      if (newStage !== cur.stage) {
+        stageHistory = [...stageHistory, { stage: newStage, date: new Date().toISOString(), note: 'Pitch sent' }];
+      }
       entry = (await store.pool.query(
-        `UPDATE athlete_deal_pipeline SET status='pitched',
-           pitched_at=COALESCE(pitched_at, NOW()), last_contact_at=NOW(),
-           pitch_subject=$3, pitch_body=$4, updated_at=NOW()
-         WHERE id=$1 AND athlete_id=$2 RETURNING *`,
-        [existing.rows[0].id, req.athlete.id, subject, body]
+        `UPDATE athlete_self_deals SET stage=$1, contact_email=COALESCE(contact_email,$2),
+           stage_history=$3, updated_at=NOW()
+         WHERE id=$4 AND athlete_id=$5 RETURNING *`,
+        [newStage, to, JSON.stringify(stageHistory), cur.id, req.athlete.id]
       )).rows[0];
     } else {
+      const lo = brand && parseInt(brand.estimatedValueLow);
+      const hi = brand && parseInt(brand.estimatedValueHigh);
+      let value = null, rangeText = null;
+      if (lo && hi) { value = Math.round((lo + hi) / 2); rangeText = '$' + lo.toLocaleString() + '–$' + hi.toLocaleString() + ' per post'; }
+      else if (lo || hi) { value = lo || hi; }
+      const notes = [rangeText ? 'Estimated rate: ' + rangeText : null, 'Pitched ' + new Date().toLocaleDateString()].filter(Boolean).join('\n\n');
+      const stageHistory = JSON.stringify([{ stage: 'Contacted', date: new Date().toISOString(), note: 'Pitch sent from Deal Scan' }]);
       entry = (await store.pool.query(
-        `INSERT INTO athlete_deal_pipeline
-           (athlete_id, agent_id, brand_name, brand_category, contact_email, contact_name,
-            status, deal_value, pitch_subject, pitch_body, pitched_at, last_contact_at)
-         VALUES ($1,$2,$3,$4,$5,$6,'pitched',$7,$8,$9,NOW(),NOW()) RETURNING *`,
-        [req.athlete.id, req.athlete.agent_id || null, brandName,
-         brand?.category || null, to, brand?.contactName || null,
-         brand ? `$${brand.estimatedValueLow||''}-$${brand.estimatedValueHigh||''}` : null,
-         subject, body]
+        `INSERT INTO athlete_self_deals
+           (athlete_id, agent_id, brand_name, deal_type, value, stage, notes,
+            category, contact_name, contact_email, source, stage_history)
+         VALUES ($1,$2,$3,'Other',$4,'Contacted',$5,$6,$7,$8,'deal_scan',$9) RETURNING *`,
+        [req.athlete.id, req.athlete.agent_id || null, brandName, value, notes,
+         brand?.category || null, brand?.contactName || null, to, stageHistory]
       )).rows[0];
     }
     res.json({ ok: true, entry });

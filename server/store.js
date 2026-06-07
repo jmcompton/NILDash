@@ -374,6 +374,71 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_self_deals_athlete ON athlete_self_deals(athlete_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_self_deals_agent ON athlete_self_deals(agent_id)`).catch(() => {});
 
+  // Additive columns so Brand Tracker can be the single source of truth for
+  // tracked brands (Deal Scan "+ Track" now writes here, not a separate store).
+  // All nullable; no existing column is altered or dropped.
+  const _selfDealsMigrations = [
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS category TEXT`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS contact_name TEXT`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS contact_email TEXT`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS fit_score INTEGER`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS is_local BOOLEAN`,
+  ];
+  for (const sql of _selfDealsMigrations) {
+    await pool.query(sql).catch(e => console.error('[init] self_deals migration:', e.message));
+  }
+
+  // One-time data migration: fold any pre-existing Deal Scan pipeline rows
+  // (athlete_deal_pipeline) into Brand Tracker (athlete_self_deals) as
+  // Outreach-stage deals, deduped by athlete + normalized brand. Guarded by an
+  // app_flags row so it only runs once and never resurrects deleted deals.
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_flags (key TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+  try {
+    const flag = await pool.query(`SELECT 1 FROM app_flags WHERE key = 'pipeline_to_deals_migrated'`);
+    if (!flag.rows.length) {
+      const PSTATUS_TO_STAGE = {
+        not_contacted: 'Prospect', pitched: 'Contacted', in_talks: 'Negotiating',
+        deal_closed: 'Signed', no_response: 'Contacted',
+      };
+      const legacy = await pool.query(`SELECT * FROM athlete_deal_pipeline`);
+      let moved = 0;
+      for (const row of legacy.rows) {
+        const dupe = await pool.query(
+          `SELECT 1 FROM athlete_self_deals WHERE athlete_id=$1 AND LOWER(TRIM(brand_name))=LOWER(TRIM($2)) LIMIT 1`,
+          [row.athlete_id, row.brand_name]
+        );
+        if (dupe.rows.length) continue;
+        const stage = PSTATUS_TO_STAGE[row.status] || 'Prospect';
+        // deal_value is free text like "$500-$1500"; keep the original text in
+        // notes and try to derive a numeric midpoint for the value column.
+        let value = null;
+        const nums = String(row.deal_value || '').match(/\d[\d,]*/g);
+        if (nums && nums.length) {
+          const parsed = nums.map(n => parseInt(n.replace(/,/g, ''), 10)).filter(n => !isNaN(n));
+          if (parsed.length) value = Math.round(parsed.reduce((a, b) => a + b, 0) / parsed.length);
+        }
+        const noteParts = [];
+        if (row.deal_value) noteParts.push('Rate range: ' + row.deal_value);
+        if (row.notes) noteParts.push(row.notes);
+        const stageHistory = JSON.stringify([{ stage, date: new Date().toISOString(), note: 'Migrated from Deal Scan pipeline' }]);
+        await pool.query(
+          `INSERT INTO athlete_self_deals
+             (athlete_id, agent_id, brand_name, deal_type, value, stage, description, notes,
+              category, contact_name, contact_email, source, stage_history, created_at)
+           VALUES ($1,$2,$3,'Other',$4,$5,$6,$7,$8,$9,$10,'deal_scan',$11,COALESCE($12,NOW()))`,
+          [row.athlete_id, row.agent_id || null, row.brand_name, value, stage,
+           null, noteParts.join('\n\n') || null, row.brand_category || null,
+           row.contact_name || null, row.contact_email || null, stageHistory, row.created_at || null]
+        ).then(() => { moved++; }).catch(e => console.error('[init] pipeline->deals row:', e.message));
+      }
+      await pool.query(`INSERT INTO app_flags (key) VALUES ('pipeline_to_deals_migrated') ON CONFLICT DO NOTHING`).catch(() => {});
+      console.log(`[init] pipeline->deals migration complete: ${moved} deal(s) moved`);
+    }
+  } catch (e) {
+    console.error('[init] pipeline->deals migration skipped:', e.message);
+  }
+
   // ── Email Integration Tables (additive — never modifies existing tables) ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_accounts (
