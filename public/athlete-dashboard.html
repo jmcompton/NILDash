@@ -1171,7 +1171,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="page-title">BRAND TRACKER</div>
         <div class="page-sub" style="margin-bottom:0">Track every brand opportunity from first contact to signed contract.</div>
       </div>
-      <button class="btn btn-primary" onclick="openDealModal()">+ Add Deal</button>
+      <button class="btn btn-primary" id="bt-add-deal-btn" onclick="openDealModal()">+ Add Deal</button>
     </div>
     <!-- Filter tabs -->
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
@@ -1514,14 +1514,12 @@ function applyAgentUIVisibility() {
 
 // ══════════════════════════════════════════════════════════════════
 async function init() {
-  console.log('[dashboard] init start, token present:', !!athleteToken);
   try {
     var r = await fetch('/api/athlete/me', {
       headers: { 'Authorization': 'Bearer ' + athleteToken }
     });
     if (r.status === 401) { signOut(); return; }
     athleteProfile = await r.json();
-    console.log('[dashboard] profile loaded:', athleteProfile.name, 'agent_id:', athleteProfile.agent_id);
     applyAgentUIVisibility();
     renderHome();
     if (typeof loadDealPipeline === 'function') loadDealPipeline().catch(function(){});
@@ -1592,17 +1590,21 @@ var ONB_VIDEOS = {
 };
 
 // The 5 activation tasks. `key` is persisted in onboarding_state.checklist.
-// `view` + `nav` drive the "Show me" jump; `target` is the control to spotlight.
+// `view` is the tab to open. `targets` is an ordered list of candidate controls
+// to spotlight — the first that exists wins. The tool's sidebar nav item is
+// ALWAYS appended as a guaranteed fallback (see onbSelectors), so an empty
+// account (no media kit / no deals / no outreach) can never break the tour:
+// every step still renders a visible coachmark and the tour advances 1→5.
 var ONB_TASKS = [
-  { key:'profile',    name:'Complete your profile',        view:'profile',  target:'#prof-save-btn',
+  { key:'profile',    name:'Complete your profile',        view:'profile',  targets:['#prof-save-btn'],
     desc:"This is your home base. We use your sport, school and socials to make every tool accurate." },
-  { key:'deal_scan',  name:'Run your first Deal Scan',     view:'dealscan', target:'#scan-btn',
+  { key:'deal_scan',  name:'Run your first Deal Scan',     view:'dealscan', targets:['#scan-btn'],
     desc:"Deal Scan finds real brands that fit you — across local, social and top NIL spenders. Hit scan and watch them roll in." },
-  { key:'media_kit',  name:'Build & publish your Media Kit',view:'mediakit', target:'#mk-save-btn',
+  { key:'media_kit',  name:'Build & publish your Media Kit',view:'mediakit', targets:['#mk-save-btn'],
     desc:"Your Media Kit is the one link you send to brands. Fill it in, save it, and share the link." },
-  { key:'track_brand',name:'Track your first brand',       view:'pipeline', target:'[data-view="pipeline"]',
+  { key:'track_brand',name:'Track your first brand',       view:'pipeline', targets:['#bt-add-deal-btn'],
     desc:"Brand Tracker is your deal pipeline. Add a brand from a Deal Scan to start tracking the conversation." },
-  { key:'outreach',   name:'Send your first outreach',     view:'outreach', target:'[data-view="outreach"]',
+  { key:'outreach',   name:'Send your first outreach',     view:'outreach', targets:['#or-run-btn'],
     desc:"Outreach writes the pitch for you. Pick a brand, generate a message, and send it." },
 ];
 
@@ -1649,6 +1651,42 @@ function onbDoneCount() {
   return ONB_TASKS.filter(function(t){ return s.checklist && s.checklist[t.key]; }).length;
 }
 
+// Mark tasks complete WITHOUT a toast (used by reconcile on load). Only persists
+// when something actually changed. `updates` = { key:true, ... }.
+function onbMarkSilent(updates) {
+  var s = onbGetState();
+  var patch = { checklist: {} };
+  var changed = false;
+  Object.keys(updates).forEach(function(k){
+    if (updates[k] && !(s.checklist && s.checklist[k])) { patch.checklist[k] = true; changed = true; }
+  });
+  if (changed) onbSave(patch);
+  return changed;
+}
+
+// Reconcile the checklist against reality so it never shows a task incomplete
+// when the athlete has clearly done it. Profile + media kit come from the
+// already-loaded profile; tracked-brand + outreach are best-effort network
+// checks. (deal_scan stays driven by its action hook + persisted flag.)
+async function onbReconcile() {
+  if (!onbIsSelfManaged()) return;
+  var p = athleteProfile || {};
+  var updates = {};
+  if (p.sport && p.school) updates.profile = true;
+  if (p.media_kit_slug) updates.media_kit = true;
+  try {
+    var dr = await fetch('/api/athlete/deals', { headers:{ 'Authorization':'Bearer ' + athleteToken } });
+    var dd = await dr.json();
+    if (dd && dd.deals && dd.deals.length) updates.track_brand = true;
+  } catch(e) {}
+  try {
+    var or = await fetch('/api/athlete/outreach', { headers:{ 'Authorization':'Bearer ' + athleteToken } });
+    var od = await or.json();
+    if (od && od.outreach && od.outreach.length) updates.outreach = true;
+  } catch(e) {}
+  if (onbMarkSilent(updates)) onbRenderChecklist();
+}
+
 // Decide whether to auto-launch onboarding on first load
 function onbMaybeStart() {
   if (!onbIsSelfManaged()) return;
@@ -1658,14 +1696,18 @@ function onbMaybeStart() {
     s.setupDone = true;
   }
   onbRenderChecklist();
+  onbReconcile(); // keep the checklist accurate on every load (fire-and-forget)
   if (s.dismissed || s.tourDone) return;
   if (!s.setupDone) { onbShowWelcome(); }
   else { onbShowTourIntro(); }
 }
 
-// Manual relaunch from Help nav
+// Manual relaunch from Help nav — ALWAYS restarts cleanly from step 1.
 function onbReplay() {
   if (!onbIsSelfManaged()) { showToast('The guided tour is for self-managed athletes.', 'error'); return; }
+  onbCloseSpot();     // clear any leftover coachmark from a previous run
+  onbCloseOverlay();
+  onbTourIdx = 0;     // reset the step pointer so we never resume mid-tour
   var s = onbGetState();
   if (!s.setupDone) onbShowWelcome();
   else onbShowTourIntro();
@@ -1806,13 +1848,38 @@ function onbTourStep() {
   if (onbTourIdx >= ONB_TASKS.length) { onbCloseSpot(); onbFinishTour(); return; }
   var t = ONB_TASKS[onbTourIdx];
   onbCloseOverlay();
-  // Navigate to the feature's view
+  // Navigate to the feature's view, then wait for it to render before
+  // spotlighting. A missing target NEVER ends the tour (see onbFindEl fallback).
   var nav = document.querySelector('[data-view="' + t.view + '"]');
   if (nav) showView(t.view, nav);
-  // Spotlight after the view renders
-  setTimeout(function(){ onbSpotlight(t, onbTourIdx + 1, ONB_TASKS.length); }, 280);
+  onbWaitAndSpot(t, 0);
 }
 
+// Poll briefly for the step's primary (content) control to appear — some views
+// render async. Once found (or after the wait budget) render the coachmark on
+// the best available element (content control, else the guaranteed nav item).
+function onbWaitAndSpot(t, attempt) {
+  var content = onbFindContentEl(t);
+  if (content || attempt >= 8) { onbRenderTourCoach(t); return; }
+  setTimeout(function(){ onbWaitAndSpot(t, attempt + 1); }, 100);
+}
+
+function onbRenderTourCoach(t) {
+  var stepNum = onbTourIdx + 1, total = ONB_TASKS.length;
+  var isLast = stepNum >= total;
+  var el = onbFindEl(t); // content control or guaranteed nav fallback
+  var html =
+    '<h4>' + esc(t.name) + ' <span style="color:var(--muted);font-weight:400">(' + stepNum + '/' + total + ')</span></h4>' +
+    '<p>' + esc(t.desc) + '</p>' +
+    onbVideoHTML(t.key) +
+    '<div class="onb-tip-actions">' +
+      '<button class="tip-skip" onclick="onbSkipAll()">Skip tour</button>' +
+      '<button class="tip-next" onclick="onbTourNext()">' + (isLast ? 'Finish' : 'Next') + '</button>' +
+    '</div>';
+  onbPlaceCoach(el, html);
+}
+
+// Always advances; clamped to completion in onbTourStep. Never ends early.
 function onbTourNext() { onbTourIdx++; onbTourStep(); }
 
 function onbFinishTour() {
@@ -1845,69 +1912,89 @@ function onbCloseSpot() {
   });
 }
 
-function onbSpotlight(task, stepNum, total) {
+// Selector list for a task: its primary content target(s), with the view's
+// sidebar nav item ALWAYS appended as a guaranteed always-present fallback.
+function onbSelectors(task) {
+  return (task.targets || []).concat('[data-view="' + task.view + '"]');
+}
+
+// First existing CONTENT control (no nav fallback). Used to poll for async
+// render — returns null until the real target appears (or we give up).
+function onbFindContentEl(task) {
+  var sels = task.targets || [];
+  for (var i = 0; i < sels.length; i++) {
+    var el = document.querySelector(sels[i]);
+    if (el && el.getClientRects().length) return el;
+  }
+  return null;
+}
+
+// Best available element for spotlighting: prefer a content control that has
+// layout boxes, else any existing selector (incl. the guaranteed nav item).
+// Never returns null in practice because the nav fallback always exists.
+function onbFindEl(task) {
+  var sels = onbSelectors(task);
+  var firstExisting = null;
+  for (var i = 0; i < sels.length; i++) {
+    var el = document.querySelector(sels[i]);
+    if (!el) continue;
+    if (!firstExisting) firstExisting = el;
+    if (el.getClientRects().length) return el;
+  }
+  return firstExisting;
+}
+
+// Position the coachmark ring + tip over `el` and show it with `html`.
+// Uses INSTANT scroll then reads the rect AFTER scrolling so the tip is never
+// placed off-screen; clamps the tip within the viewport.
+function onbPlaceCoach(el, html) {
   onbEnsureSpot();
-  var el = document.querySelector(task.target);
-  // Fallback to the nav item if the in-view control isn't found
-  if (!el) el = document.querySelector('[data-view="' + task.view + '"]');
   var ring = document.getElementById('onb-spot-ring');
   var tip = document.getElementById('onb-tip');
   var bd = document.getElementById('onb-spot-backdrop');
   bd.classList.add('show');
-  if (el && el.scrollIntoView) { try { el.scrollIntoView({block:'center', behavior:'smooth'}); } catch(e){} }
-  var rect = el ? el.getBoundingClientRect() : { top: window.innerHeight/2-20, left: window.innerWidth/2-100, width:200, height:40 };
+  if (el && el.scrollIntoView) { try { el.scrollIntoView({ block:'center', inline:'nearest' }); } catch(e){} }
+  var rect = el ? el.getBoundingClientRect()
+                : { top: window.innerHeight/2-20, left: window.innerWidth/2-100, width:200, height:40 };
   var pad = 6;
   ring.style.top = (rect.top - pad) + 'px';
   ring.style.left = (rect.left - pad) + 'px';
   ring.style.width = (rect.width + pad*2) + 'px';
   ring.style.height = (rect.height + pad*2) + 'px';
   ring.classList.add('show');
-  // Tip placement: below the element if room, else above
+  // Set content first so we can measure the tip's real size before clamping.
+  tip.innerHTML = html;
+  tip.classList.add('show');
+  var th = tip.offsetHeight || 170;
+  var tw = tip.offsetWidth || 280;
   var tipTop = rect.top + rect.height + 14;
-  if (tipTop + 160 > window.innerHeight) tipTop = Math.max(12, rect.top - 170);
-  var tipLeft = Math.min(Math.max(12, rect.left), window.innerWidth - 280);
+  if (tipTop + th > window.innerHeight - 12) tipTop = Math.max(12, rect.top - th - 14);
+  if (tipTop < 12) tipTop = 12;
+  var tipLeft = Math.min(Math.max(12, rect.left), window.innerWidth - tw - 12);
+  if (tipLeft < 12) tipLeft = 12;
   tip.style.top = tipTop + 'px';
   tip.style.left = tipLeft + 'px';
-  var isLast = stepNum >= total;
-  tip.innerHTML =
-    '<h4>' + esc(task.name) + ' <span style="color:var(--muted);font-weight:400">(' + stepNum + '/' + total + ')</span></h4>' +
-    '<p>' + esc(task.desc) + '</p>' +
-    onbVideoHTML(task.key) +
-    '<div class="onb-tip-actions">' +
-      '<button class="tip-skip" onclick="onbSkipAll()">Skip tour</button>' +
-      '<button class="tip-next" onclick="onbTourNext()">' + (isLast ? 'Finish' : 'Next') + '</button>' +
-    '</div>';
-  tip.classList.add('show');
 }
 
-// One-off spotlight (used by checklist "Show me" buttons, no Next chain)
+// One-off spotlight (used by checklist "Show me" buttons, no Next chain).
+// Navigates, waits for async render, then places the coachmark.
 function onbShowMe(key) {
   var t = ONB_TASKS.find(function(x){ return x.key === key; });
   if (!t) return;
   var nav = document.querySelector('[data-view="' + t.view + '"]');
   if (nav) showView(t.view, nav);
-  setTimeout(function(){
-    onbEnsureSpot();
-    var el = document.querySelector(t.target) || document.querySelector('[data-view="' + t.view + '"]');
-    var ring = document.getElementById('onb-spot-ring');
-    var tip = document.getElementById('onb-tip');
-    var bd = document.getElementById('onb-spot-backdrop');
-    bd.classList.add('show');
-    if (el && el.scrollIntoView) { try { el.scrollIntoView({block:'center', behavior:'smooth'}); } catch(e){} }
-    var rect = el ? el.getBoundingClientRect() : { top: window.innerHeight/2, left: window.innerWidth/2-100, width:200, height:40 };
-    var pad = 6;
-    ring.style.top=(rect.top-pad)+'px'; ring.style.left=(rect.left-pad)+'px';
-    ring.style.width=(rect.width+pad*2)+'px'; ring.style.height=(rect.height+pad*2)+'px';
-    ring.classList.add('show');
-    var tipTop = rect.top + rect.height + 14;
-    if (tipTop + 140 > window.innerHeight) tipTop = Math.max(12, rect.top - 150);
-    tip.style.top = tipTop + 'px';
-    tip.style.left = Math.min(Math.max(12, rect.left), window.innerWidth - 280) + 'px';
-    tip.innerHTML =
-      '<h4>' + esc(t.name) + '</h4><p>' + esc(t.desc) + '</p>' + onbVideoHTML(t.key) +
+  onbWaitAndShowMe(t, 0);
+}
+function onbWaitAndShowMe(t, attempt) {
+  var content = onbFindContentEl(t);
+  if (content || attempt >= 8) {
+    var el = onbFindEl(t);
+    var html = '<h4>' + esc(t.name) + '</h4><p>' + esc(t.desc) + '</p>' + onbVideoHTML(t.key) +
       '<div class="onb-tip-actions"><span></span><button class="tip-next" onclick="onbCloseSpot()">Got it</button></div>';
-    tip.classList.add('show');
-  }, 280);
+    onbPlaceCoach(el, html);
+    return;
+  }
+  setTimeout(function(){ onbWaitAndShowMe(t, attempt + 1); }, 100);
 }
 
 // ── Activation checklist widget (rendered into Home) ──
@@ -2352,7 +2439,6 @@ async function sendCommand() {
   var btn = document.getElementById('command-send-btn');
   btn.disabled = true; btn.textContent = '…';
   cmdStreaming = true;
-  console.log('[ai-command] Sending message');
 
   try {
     var r = await fetch('/api/athlete/command', {
@@ -2537,7 +2623,6 @@ async function runDealScan() {
 
   btn.disabled = true; btn.textContent = 'Scanning…';
   box.classList.remove('visible');
-  console.log('[deal-scan] Starting 3-lane scan');
 
   // Reset state + reveal the lane containers with per-column loaders.
   window._athleteDealScanResults = [];
@@ -3830,9 +3915,7 @@ var AthlCal = (function() {
       var r = await fetch('/api/athlete/calendar', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
       var data = await r.json();
       _events = data.events || [];
-      console.log('[AthlCal] raw events from /api/athlete/calendar:', _events.length, 'events');
       if (_events.length > 0) {
-        console.log('[AthlCal] first 3 events (dates):', _events.slice(0,3).map(function(e){ return { title: e.title, event_date: e.event_date }; }));
       }
       _populateBrandFilter();
       applyFilter();
@@ -4956,7 +5039,6 @@ async function saveProfile() {
     showToast('Profile saved!', 'success');
     athleteProfile = Object.assign(athleteProfile, payload);
     if (typeof onbComplete === 'function') onbComplete('profile');
-    console.log('[profile] saved:', Object.keys(payload).filter(function(k){ return payload[k]; }).join(', '));
   } catch(e) { showToast('Network error', 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Changes'; }
 }
@@ -5348,14 +5430,12 @@ function mkUpdatePreview() {
 function loadMediaKit() {
   if (mkLoaded) return;
   mkLoaded = true;
-  console.log('[media-kit] loadMediaKit() start — athleteProfile:', JSON.stringify(athleteProfile));
   mkPreFillFromProfile();
   fetch('/api/athlete/media-kit', {
     headers: { 'Authorization': 'Bearer ' + athleteToken }
   })
   .then(function(r){ return r.json(); })
   .then(function(data) {
-    console.log('[media-kit] API response — mediaKit:', !!data.mediaKit, 'rateCards:', (data.rateCards||[]).length);
     if (data.mediaKit) {
       mkPopulateForm(data.mediaKit, data.rateCards || []);
     }
@@ -5369,7 +5449,6 @@ function loadMediaKit() {
 
 function mkPreFillFromProfile() {
   var p = athleteProfile || {};
-  console.log('[media-kit] mkPreFillFromProfile() — name:', p.name, 'school:', p.school, 'sport:', p.sport, 'position:', p.position);
   document.getElementById('mk-prof-name').textContent = p.name || '—';
   document.getElementById('mk-prof-sport').textContent = p.sport || '—';
   document.getElementById('mk-prof-school').textContent = p.school || '—';
@@ -5387,7 +5466,6 @@ function mkPreFillFromProfile() {
 
   // Auto-detect and apply school colors (only if no saved colors yet)
   var sc = SCHOOL_COLORS[p.school || ''];
-  console.log('[media-kit] school color lookup — school:', p.school, '— found:', !!sc, sc ? sc : '(no match)');
   if (sc) {
     document.getElementById('mk-color-primary').value = sc.primary;
     document.getElementById('mk-color-primary-hex').value = sc.primary;
@@ -5435,7 +5513,6 @@ function mkPopulateForm(mk, rates) {
 }
 
 function mkAddRateRow() {
-  console.log('[media-kit] mkAddRateRow() — total rows now:', mkState.rates.length + 1);
   mkState.rates.push({ service_type: 'Instagram Post', price: '', notes: '' });
   mkRenderRateRows();
   mkUpdatePreview();
@@ -5508,7 +5585,6 @@ async function mkGenerateBio() {
   var btn = document.getElementById('mk-bio-btn');
   var storyEl = document.getElementById('media-kit-story-input');
   var story = storyEl ? storyEl.value.trim() : '';
-  console.log('[media-kit] mkGenerateBio() — story provided:', !!story);
   btn.disabled = true; btn.textContent = '⏳ Generating…';
   try {
     var r = await fetch('/api/athlete/generate-bio', {
@@ -5626,7 +5702,6 @@ function mkSyncColorFromHex(which, val) {
 // UTILITIES
 // ══════════════════════════════════════════════════════════════════
 function signOut() {
-  console.log('[dashboard] sign out');
   localStorage.removeItem('athlete_token');
   localStorage.removeItem('athlete_user');
   window.location.href = '/athlete-login.html';
