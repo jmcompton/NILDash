@@ -257,6 +257,10 @@ async function init() {
     // Athlete's home/competition state — drives state-specific NIL compliance.
     // User-editable in Profile; falls back to school→state auto-detection.
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS state TEXT`,
+    // First-run onboarding state (welcome wizard, guided tour, activation
+    // checklist). Separate from onboarding_complete (which is payment/account
+    // activation). Holds JSON like { dismissed, setupDone, checklist:{...} }.
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS onboarding_state JSONB DEFAULT '{}'::jsonb`,
   ];
   for (const sql of _athleteAuthMigrations) {
     await pool.query(sql).catch(e => console.warn('[migration]', e.message));

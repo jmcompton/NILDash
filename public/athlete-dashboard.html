@@ -301,6 +301,57 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 /* ── Marketing tabs ── */
 .mkt-tab-btn{padding:8px 16px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;margin-bottom:-1px;font-family:'DM Sans',sans-serif;transition:all 0.15s}
 .mkt-tab-btn.active{border-bottom-color:var(--accent);color:var(--accent)}
+/* ── Onboarding: welcome + setup wizard ── */
+.onb-overlay{position:fixed;inset:0;z-index:9000;background:rgba(8,10,12,0.82);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+.onb-overlay.hidden{display:none}
+.onb-card{background:var(--surface,#15181c);border:1px solid var(--border,#262b31);border-radius:18px;width:100%;max-width:520px;padding:28px;box-shadow:0 24px 60px rgba(0,0,0,0.5);animation:onbIn .25s ease}
+@keyframes onbIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.onb-emoji{font-size:40px;line-height:1;margin-bottom:10px}
+.onb-card h2{font-size:22px;margin:0 0 8px;color:var(--text,#fff)}
+.onb-card p.onb-sub{color:var(--muted,#8a929b);font-size:14px;line-height:1.5;margin:0 0 18px}
+.onb-field{margin-bottom:14px}
+.onb-field label{display:block;font-size:12px;font-weight:600;color:var(--muted,#8a929b);margin-bottom:5px}
+.onb-field input,.onb-field select{width:100%;box-sizing:border-box;background:var(--surface2,#1d2127);border:1px solid var(--border,#262b31);border-radius:10px;padding:11px 12px;color:var(--text,#fff);font-size:14px;font-family:'DM Sans',sans-serif}
+.onb-row{display:flex;gap:10px}
+.onb-row .onb-field{flex:1}
+.onb-why{font-size:12px;color:var(--muted,#8a929b);background:rgba(132,204,22,0.06);border-left:2px solid var(--accent,#84cc16);border-radius:6px;padding:8px 10px;margin:0 0 16px;line-height:1.4}
+.onb-actions{display:flex;gap:10px;align-items:center;margin-top:6px}
+.onb-btn{flex:1;background:var(--accent,#84cc16);color:#0a0d10;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif}
+.onb-btn.secondary{background:transparent;color:var(--muted,#8a929b);border:1px solid var(--border,#262b31)}
+.onb-skip{background:none;border:none;color:var(--muted,#8a929b);font-size:12px;cursor:pointer;text-decoration:underline;font-family:'DM Sans',sans-serif}
+.onb-dots{display:flex;gap:6px;justify-content:center;margin-top:16px}
+.onb-dots span{width:7px;height:7px;border-radius:50%;background:var(--border,#262b31)}
+.onb-dots span.on{background:var(--accent,#84cc16)}
+.onb-video{position:relative;width:100%;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:var(--surface2,#1d2127);margin:0 0 16px;border:1px solid var(--border,#262b31)}
+.onb-video iframe{width:100%;height:100%;border:0}
+/* ── Activation checklist widget ── */
+.onb-check{background:var(--surface,#15181c);border:1px solid var(--border,#262b31);border-radius:14px;padding:18px;margin-bottom:18px}
+.onb-check-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.onb-check-head h3{margin:0;font-size:15px;color:var(--text,#fff)}
+.onb-progress{height:6px;background:var(--surface2,#1d2127);border-radius:99px;overflow:hidden;margin:8px 0 14px}
+.onb-progress > i{display:block;height:100%;background:var(--accent,#84cc16);border-radius:99px;transition:width .4s ease}
+.onb-task{display:flex;align-items:center;gap:11px;padding:9px 0;border-top:1px solid var(--border,#262b31)}
+.onb-task:first-of-type{border-top:none}
+.onb-task .tick{width:22px;height:22px;border-radius:50%;border:2px solid var(--border,#3a4149);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px;color:transparent}
+.onb-task.done .tick{background:var(--accent,#84cc16);border-color:var(--accent,#84cc16);color:#0a0d10}
+.onb-task .tname{flex:1;font-size:13px;color:var(--text,#fff)}
+.onb-task.done .tname{color:var(--muted,#8a929b);text-decoration:line-through}
+.onb-task .tgo{background:transparent;border:1px solid var(--border,#262b31);color:var(--accent,#84cc16);border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif}
+.onb-task.done .tgo{display:none}
+.onb-check-done{text-align:center;font-size:13px;color:var(--accent,#84cc16);font-weight:600;padding:6px 0}
+/* ── Coachmark spotlight ── */
+.onb-spot-backdrop{position:fixed;inset:0;z-index:9100;background:rgba(8,10,12,0.6);display:none}
+.onb-spot-backdrop.show{display:block}
+.onb-spot-ring{position:fixed;z-index:9101;border:2px solid var(--accent,#84cc16);border-radius:12px;box-shadow:0 0 0 4px rgba(132,204,22,0.25),0 0 0 9999px rgba(8,10,12,0.6);pointer-events:none;transition:all .25s ease;display:none}
+.onb-spot-ring.show{display:block}
+.onb-tip{position:fixed;z-index:9102;max-width:260px;background:var(--surface,#15181c);border:1px solid var(--accent,#84cc16);border-radius:12px;padding:14px;box-shadow:0 16px 40px rgba(0,0,0,0.5);display:none}
+.onb-tip.show{display:block}
+.onb-tip h4{margin:0 0 6px;font-size:14px;color:var(--text,#fff)}
+.onb-tip p{margin:0 0 12px;font-size:12px;color:var(--muted,#8a929b);line-height:1.45}
+.onb-tip .onb-tip-actions{display:flex;gap:8px;justify-content:space-between;align-items:center}
+.onb-tip button.tip-next{background:var(--accent,#84cc16);color:#0a0d10;border:none;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif}
+.onb-tip button.tip-skip{background:none;border:none;color:var(--muted,#8a929b);font-size:11px;cursor:pointer;text-decoration:underline;font-family:'DM Sans',sans-serif}
+@media(max-width:600px){.onb-card{padding:22px 18px}.onb-row{flex-direction:column;gap:0}.onb-tip{max-width:calc(100vw - 32px)}}
 </style>
 </head>
 <body>
@@ -344,6 +395,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   </nav>
 
   <div class="sidebar-bottom">
+    <div class="nav-item" onclick="onbReplay()" style="color:var(--accent)">? Help &amp; Replay Tour</div>
     <div class="nav-item" onclick="signOut()" style="color:var(--red)">Sign Out</div>
   </div>
 </div>
@@ -363,6 +415,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
   <!-- ════ VIEW: HOME ════ -->
   <div class="view active" id="view-home">
+
+    <!-- ── Onboarding activation checklist (self-managed athletes) ── -->
+    <div id="onb-checklist-host"></div>
 
     <!-- ── AI Brief Card (4 bullets) ── -->
     <div style="background:#0D1520;border-left:3px solid #84CC16;border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:12px">
@@ -1496,6 +1551,377 @@ async function init() {
     showToast('Gmail connection failed: ' + gmailReason, 'error');
     history.replaceState(null, '', window.location.pathname);
   }
+
+  // First-run onboarding (self-managed athletes only)
+  onbMaybeStart();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ONBOARDING — welcome + profile setup wizard, guided tour, checklist
+// ══════════════════════════════════════════════════════════════════
+//
+// VIDEO SLOTS: To add a short walkthrough video to any tour step, paste an
+// embeddable URL (Loom share embed or YouTube embed) into the matching key
+// below. Leave it as '' (empty string) to gracefully show description-only —
+// the player is hidden and nothing breaks. Examples of valid embed URLs:
+//   YouTube: 'https://www.youtube.com/embed/VIDEO_ID'
+//   Loom:    'https://www.loom.com/embed/VIDEO_ID'
+var ONB_VIDEOS = {
+  welcome:    '',
+  dealscan:   '',
+  mediakit:   '',
+  pipeline:   '',
+  outreach:   '',
+  rate:       '',
+  command:    '',
+};
+
+// The 5 activation tasks. `key` is persisted in onboarding_state.checklist.
+// `view` + `nav` drive the "Show me" jump; `target` is the control to spotlight.
+var ONB_TASKS = [
+  { key:'profile',    name:'Complete your profile',        view:'profile',  target:'#prof-save-btn',
+    desc:"This is your home base. We use your sport, school and socials to make every tool accurate." },
+  { key:'deal_scan',  name:'Run your first Deal Scan',     view:'dealscan', target:'#scan-btn',
+    desc:"Deal Scan finds real brands that fit you — across local, social and top NIL spenders. Hit scan and watch them roll in." },
+  { key:'media_kit',  name:'Build & publish your Media Kit',view:'mediakit', target:'#mk-save-btn',
+    desc:"Your Media Kit is the one link you send to brands. Fill it in, save it, and share the link." },
+  { key:'track_brand',name:'Track your first brand',       view:'pipeline', target:'[data-view="pipeline"]',
+    desc:"Brand Tracker is your deal pipeline. Add a brand from a Deal Scan to start tracking the conversation." },
+  { key:'outreach',   name:'Send your first outreach',     view:'outreach', target:'[data-view="outreach"]',
+    desc:"Outreach writes the pitch for you. Pick a brand, generate a message, and send it." },
+];
+
+var onbState = null; // mirror of server onboarding_state
+
+function onbGetState() {
+  if (onbState) return onbState;
+  onbState = (athleteProfile && athleteProfile.onboarding_state) || {};
+  if (!onbState.checklist) onbState.checklist = {};
+  return onbState;
+}
+
+function onbSave(patch) {
+  // Optimistic local merge + persist to server (shallow merge server-side)
+  var s = onbGetState();
+  Object.assign(s, patch);
+  if (patch.checklist) s.checklist = Object.assign({}, s.checklist, patch.checklist);
+  if (athleteProfile) athleteProfile.onboarding_state = s;
+  return fetch('/api/athlete/onboarding', {
+    method:'PUT',
+    headers:{ 'Authorization':'Bearer ' + athleteToken, 'Content-Type':'application/json' },
+    body: JSON.stringify(patch)
+  }).catch(function(){});
+}
+
+function onbIsSelfManaged() {
+  return !athleteProfile || !athleteProfile.agent_id;
+}
+
+// Mark an activation task complete (idempotent). Refreshes checklist UI.
+function onbComplete(key) {
+  if (!onbIsSelfManaged()) return;
+  var s = onbGetState();
+  if (s.checklist && s.checklist[key]) return; // already done
+  var patch = { checklist: {} }; patch.checklist[key] = true;
+  onbSave(patch);
+  onbRenderChecklist();
+  var t = ONB_TASKS.find(function(x){ return x.key === key; });
+  if (t) showToast('Nice! "' + t.name + '" done ✓', 'success');
+}
+
+function onbDoneCount() {
+  var s = onbGetState();
+  return ONB_TASKS.filter(function(t){ return s.checklist && s.checklist[t.key]; }).length;
+}
+
+// Decide whether to auto-launch onboarding on first load
+function onbMaybeStart() {
+  if (!onbIsSelfManaged()) return;
+  var s = onbGetState();
+  // If profile already has the essentials, treat setup as done
+  if (!s.setupDone && athleteProfile && athleteProfile.name && athleteProfile.sport && athleteProfile.school) {
+    s.setupDone = true;
+  }
+  onbRenderChecklist();
+  if (s.dismissed || s.tourDone) return;
+  if (!s.setupDone) { onbShowWelcome(); }
+  else { onbShowTourIntro(); }
+}
+
+// Manual relaunch from Help nav
+function onbReplay() {
+  if (!onbIsSelfManaged()) { showToast('The guided tour is for self-managed athletes.', 'error'); return; }
+  var s = onbGetState();
+  if (!s.setupDone) onbShowWelcome();
+  else onbShowTourIntro();
+}
+
+// ── Overlay helpers ──
+function onbEnsureOverlay() {
+  var ov = document.getElementById('onb-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'onb-overlay'; ov.className = 'onb-overlay hidden';
+    document.body.appendChild(ov);
+  }
+  return ov;
+}
+function onbCloseOverlay() {
+  var ov = document.getElementById('onb-overlay');
+  if (ov) ov.classList.add('hidden');
+}
+
+function onbVideoHTML(key) {
+  var url = ONB_VIDEOS[key];
+  if (!url) return '';
+  return '<div class="onb-video"><iframe src="' + esc(url) + '" allow="autoplay; fullscreen" allowfullscreen></iframe></div>';
+}
+
+// ── STEP 0: Welcome ──
+function onbShowWelcome() {
+  var ov = onbEnsureOverlay();
+  var first = ((athleteProfile && athleteProfile.name) || '').split(' ')[0] || 'there';
+  ov.innerHTML =
+    '<div class="onb-card">' +
+      '<div class="onb-emoji">👋</div>' +
+      '<h2>Welcome, ' + esc(first) + '!</h2>' +
+      '<p class="onb-sub">NILDash helps you find brand deals, price them right, and pitch like a pro. ' +
+      "Let's spend 60 seconds setting you up so every tool gives you real numbers.</p>" +
+      onbVideoHTML('welcome') +
+      '<div class="onb-actions">' +
+        '<button class="onb-btn" onclick="onbShowSetup()">Let’s go</button>' +
+      '</div>' +
+      '<div style="text-align:center;margin-top:12px"><button class="onb-skip" onclick="onbSkipAll()">Skip for now</button></div>' +
+    '</div>';
+  ov.classList.remove('hidden');
+}
+
+// ── STEP 0b: Profile setup wizard (single screen, pre-filled) ──
+function onbShowSetup() {
+  var ov = onbEnsureOverlay();
+  var p = athleteProfile || {};
+  function val(v){ return v == null ? '' : String(v); }
+  ov.innerHTML =
+    '<div class="onb-card">' +
+      '<div class="onb-emoji">⚡</div>' +
+      '<h2>Set up your profile</h2>' +
+      '<p class="onb-sub">Confirm these so your rates, deal scans and media kit are accurate.</p>' +
+      '<div class="onb-field"><label>Full name</label><input id="onb-name" value="' + esc(val(p.name)) + '" placeholder="Your name"></div>' +
+      '<div class="onb-row">' +
+        '<div class="onb-field"><label>Sport</label><input id="onb-sport" value="' + esc(val(p.sport)) + '" placeholder="e.g. Football"></div>' +
+        '<div class="onb-field"><label>Position</label><input id="onb-position" value="' + esc(val(p.position)) + '" placeholder="e.g. QB"></div>' +
+      '</div>' +
+      '<div class="onb-field"><label>School</label><input id="onb-school" value="' + esc(val(p.school)) + '" placeholder="e.g. UCLA"></div>' +
+      '<div class="onb-row">' +
+        '<div class="onb-field"><label>Instagram handle</label><input id="onb-ig" value="' + esc(val(p.instagram_handle)) + '" placeholder="@you"></div>' +
+        '<div class="onb-field"><label>IG followers</label><input id="onb-ig-f" type="number" value="' + esc(val(p.instagram_followers)) + '" placeholder="0"></div>' +
+      '</div>' +
+      '<div class="onb-row">' +
+        '<div class="onb-field"><label>TikTok handle</label><input id="onb-tt" value="' + esc(val(p.tiktok_handle)) + '" placeholder="@you"></div>' +
+        '<div class="onb-field"><label>TikTok followers</label><input id="onb-tt-f" type="number" value="' + esc(val(p.tiktok_followers)) + '" placeholder="0"></div>' +
+      '</div>' +
+      '<div class="onb-row">' +
+        '<div class="onb-field"><label>X / Twitter handle</label><input id="onb-tw" value="' + esc(val(p.twitter_handle)) + '" placeholder="@you"></div>' +
+        '<div class="onb-field"><label>X followers</label><input id="onb-tw-f" type="number" value="' + esc(val(p.twitter_followers)) + '" placeholder="0"></div>' +
+      '</div>' +
+      '<div class="onb-why">Why we ask: follower counts power your rate estimates, and your sport + school help us match you with brands that actually pay athletes like you.</div>' +
+      '<div class="onb-actions">' +
+        '<button class="onb-btn secondary" onclick="onbSkipAll()">Skip</button>' +
+        '<button class="onb-btn" id="onb-setup-save" onclick="onbSaveSetup()">Save &amp; continue</button>' +
+      '</div>' +
+      '<div class="onb-dots"><span class="on"></span><span></span></div>' +
+    '</div>';
+  ov.classList.remove('hidden');
+}
+
+async function onbSaveSetup() {
+  function gv(id){ var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+  var payload = {
+    name: gv('onb-name'), sport: gv('onb-sport'), position: gv('onb-position'), school: gv('onb-school'),
+    instagram_handle: gv('onb-ig'), instagram_followers: gv('onb-ig-f') || 0,
+    tiktok_handle: gv('onb-tt'), tiktok_followers: gv('onb-tt-f') || 0,
+    twitter_handle: gv('onb-tw')
+  };
+  var btn = document.getElementById('onb-setup-save');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    var r = await fetch('/api/athlete/profile', {
+      method:'PUT',
+      headers:{ 'Authorization':'Bearer ' + athleteToken, 'Content-Type':'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) throw new Error('save failed');
+    // Reflect locally
+    Object.assign(athleteProfile, payload);
+    athleteProfile.name = payload.name; athleteProfile.sport = payload.sport;
+    athleteProfile.school = payload.school; athleteProfile.position = payload.position;
+    onbSave({ setupDone:true, checklist:{ profile:true } });
+    renderHome();
+    onbRenderChecklist();
+    showToast('Profile saved!', 'success');
+    onbShowTourIntro();
+  } catch(e) {
+    showToast('Could not save profile. Please try again.', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Save & continue'; }
+  }
+}
+
+// ── STEP 1: Tour intro ──
+function onbShowTourIntro() {
+  var ov = onbEnsureOverlay();
+  ov.innerHTML =
+    '<div class="onb-card">' +
+      '<div class="onb-emoji">🧭</div>' +
+      '<h2>Quick tour of your tools</h2>' +
+      '<p class="onb-sub">5 quick stops. For each one we’ll show you what it does and take you right to it. ' +
+      'You can stop anytime — your checklist on the Home page tracks your progress.</p>' +
+      onbVideoHTML('command') +
+      '<div class="onb-actions">' +
+        '<button class="onb-btn secondary" onclick="onbFinishTour()">Maybe later</button>' +
+        '<button class="onb-btn" onclick="onbStartTour()">Start tour</button>' +
+      '</div>' +
+    '</div>';
+  ov.classList.remove('hidden');
+}
+
+var onbTourIdx = 0;
+function onbStartTour() { onbTourIdx = 0; onbTourStep(); }
+
+function onbTourStep() {
+  if (onbTourIdx >= ONB_TASKS.length) { onbCloseSpot(); onbFinishTour(); return; }
+  var t = ONB_TASKS[onbTourIdx];
+  onbCloseOverlay();
+  // Navigate to the feature's view
+  var nav = document.querySelector('[data-view="' + t.view + '"]');
+  if (nav) showView(t.view, nav);
+  // Spotlight after the view renders
+  setTimeout(function(){ onbSpotlight(t, onbTourIdx + 1, ONB_TASKS.length); }, 280);
+}
+
+function onbTourNext() { onbTourIdx++; onbTourStep(); }
+
+function onbFinishTour() {
+  onbCloseSpot();
+  onbCloseOverlay();
+  onbSave({ tourDone:true });
+  showToast('Tour complete! Your checklist is on the Home page.', 'success');
+  onbRenderChecklist();
+}
+
+function onbSkipAll() {
+  onbCloseSpot();
+  onbCloseOverlay();
+  onbSave({ dismissed:true });
+  onbRenderChecklist();
+}
+
+// ── Coachmark spotlight ──
+function onbEnsureSpot() {
+  if (!document.getElementById('onb-spot-ring')) {
+    var bd = document.createElement('div'); bd.id='onb-spot-backdrop'; bd.className='onb-spot-backdrop';
+    var ring = document.createElement('div'); ring.id='onb-spot-ring'; ring.className='onb-spot-ring';
+    var tip = document.createElement('div'); tip.id='onb-tip'; tip.className='onb-tip';
+    document.body.appendChild(bd); document.body.appendChild(ring); document.body.appendChild(tip);
+  }
+}
+function onbCloseSpot() {
+  ['onb-spot-backdrop','onb-spot-ring','onb-tip'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.classList.remove('show');
+  });
+}
+
+function onbSpotlight(task, stepNum, total) {
+  onbEnsureSpot();
+  var el = document.querySelector(task.target);
+  // Fallback to the nav item if the in-view control isn't found
+  if (!el) el = document.querySelector('[data-view="' + task.view + '"]');
+  var ring = document.getElementById('onb-spot-ring');
+  var tip = document.getElementById('onb-tip');
+  var bd = document.getElementById('onb-spot-backdrop');
+  bd.classList.add('show');
+  if (el && el.scrollIntoView) { try { el.scrollIntoView({block:'center', behavior:'smooth'}); } catch(e){} }
+  var rect = el ? el.getBoundingClientRect() : { top: window.innerHeight/2-20, left: window.innerWidth/2-100, width:200, height:40 };
+  var pad = 6;
+  ring.style.top = (rect.top - pad) + 'px';
+  ring.style.left = (rect.left - pad) + 'px';
+  ring.style.width = (rect.width + pad*2) + 'px';
+  ring.style.height = (rect.height + pad*2) + 'px';
+  ring.classList.add('show');
+  // Tip placement: below the element if room, else above
+  var tipTop = rect.top + rect.height + 14;
+  if (tipTop + 160 > window.innerHeight) tipTop = Math.max(12, rect.top - 170);
+  var tipLeft = Math.min(Math.max(12, rect.left), window.innerWidth - 280);
+  tip.style.top = tipTop + 'px';
+  tip.style.left = tipLeft + 'px';
+  var isLast = stepNum >= total;
+  tip.innerHTML =
+    '<h4>' + esc(task.name) + ' <span style="color:var(--muted);font-weight:400">(' + stepNum + '/' + total + ')</span></h4>' +
+    '<p>' + esc(task.desc) + '</p>' +
+    onbVideoHTML(task.key) +
+    '<div class="onb-tip-actions">' +
+      '<button class="tip-skip" onclick="onbSkipAll()">Skip tour</button>' +
+      '<button class="tip-next" onclick="onbTourNext()">' + (isLast ? 'Finish' : 'Next') + '</button>' +
+    '</div>';
+  tip.classList.add('show');
+}
+
+// One-off spotlight (used by checklist "Show me" buttons, no Next chain)
+function onbShowMe(key) {
+  var t = ONB_TASKS.find(function(x){ return x.key === key; });
+  if (!t) return;
+  var nav = document.querySelector('[data-view="' + t.view + '"]');
+  if (nav) showView(t.view, nav);
+  setTimeout(function(){
+    onbEnsureSpot();
+    var el = document.querySelector(t.target) || document.querySelector('[data-view="' + t.view + '"]');
+    var ring = document.getElementById('onb-spot-ring');
+    var tip = document.getElementById('onb-tip');
+    var bd = document.getElementById('onb-spot-backdrop');
+    bd.classList.add('show');
+    if (el && el.scrollIntoView) { try { el.scrollIntoView({block:'center', behavior:'smooth'}); } catch(e){} }
+    var rect = el ? el.getBoundingClientRect() : { top: window.innerHeight/2, left: window.innerWidth/2-100, width:200, height:40 };
+    var pad = 6;
+    ring.style.top=(rect.top-pad)+'px'; ring.style.left=(rect.left-pad)+'px';
+    ring.style.width=(rect.width+pad*2)+'px'; ring.style.height=(rect.height+pad*2)+'px';
+    ring.classList.add('show');
+    var tipTop = rect.top + rect.height + 14;
+    if (tipTop + 140 > window.innerHeight) tipTop = Math.max(12, rect.top - 150);
+    tip.style.top = tipTop + 'px';
+    tip.style.left = Math.min(Math.max(12, rect.left), window.innerWidth - 280) + 'px';
+    tip.innerHTML =
+      '<h4>' + esc(t.name) + '</h4><p>' + esc(t.desc) + '</p>' + onbVideoHTML(t.key) +
+      '<div class="onb-tip-actions"><span></span><button class="tip-next" onclick="onbCloseSpot()">Got it</button></div>';
+    tip.classList.add('show');
+  }, 280);
+}
+
+// ── Activation checklist widget (rendered into Home) ──
+function onbRenderChecklist() {
+  var host = document.getElementById('onb-checklist-host');
+  if (!host) return;
+  if (!onbIsSelfManaged()) { host.innerHTML = ''; return; }
+  var s = onbGetState();
+  var done = onbDoneCount();
+  var total = ONB_TASKS.length;
+  if (done >= total) {
+    host.innerHTML = '<div class="onb-check"><div class="onb-check-done">🎉 You’re all set — you’ve activated every tool. Nice work!</div></div>';
+    return;
+  }
+  var pct = Math.round((done/total)*100);
+  var rows = ONB_TASKS.map(function(t){
+    var isDone = !!(s.checklist && s.checklist[t.key]);
+    return '<div class="onb-task' + (isDone?' done':'') + '">' +
+      '<div class="tick">✓</div>' +
+      '<div class="tname">' + esc(t.name) + '</div>' +
+      '<button class="tgo" onclick="onbShowMe(\'' + t.key + '\')">Show me</button>' +
+      '</div>';
+  }).join('');
+  host.innerHTML =
+    '<div class="onb-check">' +
+      '<div class="onb-check-head"><h3>Get started</h3><span style="font-size:12px;color:var(--muted)">' + done + '/' + total + ' done</span></div>' +
+      '<div class="onb-progress"><i style="width:' + pct + '%"></i></div>' +
+      rows +
+    '</div>';
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2132,6 +2558,7 @@ async function runDealScan() {
   try {
     await Promise.allSettled(jobs);
     await prog.finish();
+    if (typeof onbComplete === 'function') onbComplete('deal_scan');
   } catch(e) {
     _dsClearTimers();
     var card = document.getElementById('ds-progress');
@@ -2355,6 +2782,7 @@ async function trackBrand(i, btnEl) {
     var data = await r.json();
     if (r.ok && !data.error) {
       showToast(data.existed ? 'Already in Brand Tracker' : 'Added to Brand Tracker');
+      if (typeof onbComplete === 'function') onbComplete('track_brand');
       _trackedBrandSet[_normBrand(brandName)] = true;
       if (btnEl) _markTrackedButton(btnEl);
       loadDealPipeline();
@@ -3003,6 +3431,7 @@ async function submitOutreach() {
     var data = await r.json();
     if (!r.ok) { showToast(data.error || 'Failed to send', 'error'); return; }
     showToast('Outreach sent to ' + brand + '!', 'success');
+    if (typeof onbComplete === 'function') onbComplete('outreach');
     document.getElementById('outreach-modal').style.display = 'none';
     loadOutreach();
   } catch(e) { showToast('Network error', 'error'); }
@@ -4446,6 +4875,7 @@ async function saveProfile() {
     if (!r.ok) { showToast(data.error || 'Failed to save', 'error'); return; }
     showToast('Profile saved!', 'success');
     athleteProfile = Object.assign(athleteProfile, payload);
+    if (typeof onbComplete === 'function') onbComplete('profile');
     console.log('[profile] saved:', Object.keys(payload).filter(function(k){ return payload[k]; }).join(', '));
   } catch(e) { showToast('Network error', 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Changes'; }
@@ -5053,6 +5483,7 @@ async function mkSave() {
     if (!r.ok || data.error) throw new Error(data.error || 'Save failed');
     mkState.slug = data.slug;
     showToast('Media kit saved!', 'success');
+    if (typeof onbComplete === 'function') onbComplete('media_kit');
     mkShowShareLink(data.slug);
   } catch(e) {
     showToast('Save failed: ' + e.message, 'error');

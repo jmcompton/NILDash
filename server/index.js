@@ -2855,6 +2855,7 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
       agent_id: ath.agent_id,
       visibility,
       deliverables: deliverables.rows,
+      onboarding_state: ath.onboarding_state || {},
     });
   } catch (e) {
     console.error('[athlete/me]', e.message);
@@ -4820,7 +4821,7 @@ Return ONLY valid JSON (no markdown):
 // PUT /api/athlete/profile — athlete updates own editable fields
 app.put('/api/athlete/profile', verifyAthleteToken, async (req, res) => {
   try {
-    const { phone, instagram_handle, tiktok_handle, twitter_handle, instagram_followers, tiktok_followers, bio, state } = req.body;
+    const { phone, instagram_handle, tiktok_handle, twitter_handle, instagram_followers, tiktok_followers, bio, state, name, sport, school, position } = req.body;
     await store.pool.query(
       `UPDATE athletes SET phone=COALESCE($1,phone), instagram_handle=COALESCE($2,instagram_handle),
        tiktok_handle=COALESCE($3,tiktok_handle), twitter_handle=COALESCE($4,twitter_handle), updated_at=NOW()
@@ -4859,9 +4860,47 @@ app.put('/api/athlete/profile', verifyAthleteToken, async (req, res) => {
         [JSON.stringify(bio), req.athlete.id]
       );
     }
+    // Identity fields live in the data JSONB (used by media kit, deal scan,
+    // rates). The onboarding setup wizard sets these; only touch a key when it
+    // was explicitly sent so partial saves never wipe other fields.
+    const identity = { name, sport, school, position };
+    for (const [key, val] of Object.entries(identity)) {
+      if (val !== undefined) {
+        await store.pool.query(
+          `UPDATE athletes SET data = jsonb_set(COALESCE(data,'{}'), $1, $2::jsonb), updated_at=NOW() WHERE id=$3`,
+          [`{${key}}`, JSON.stringify(val || ''), req.athlete.id]
+        );
+      }
+    }
     console.log(`[athlete/profile] updated athlete=${req.athlete.id}`);
     res.json({ ok: true });
   } catch (e) { console.error('[athlete/profile]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/athlete/onboarding — current first-run onboarding state
+app.get('/api/athlete/onboarding', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `SELECT onboarding_state FROM athletes WHERE id=$1`, [req.athlete.id]
+    );
+    res.json({ onboarding_state: (r.rows[0] && r.rows[0].onboarding_state) || {} });
+  } catch (e) { console.error('[athlete/onboarding:get]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/athlete/onboarding — shallow-merge a partial state patch
+app.put('/api/athlete/onboarding', verifyAthleteToken, async (req, res) => {
+  try {
+    const patch = (req.body && typeof req.body === 'object') ? req.body : {};
+    const r = await store.pool.query(
+      `UPDATE athletes
+         SET onboarding_state = COALESCE(onboarding_state, '{}'::jsonb) || $1::jsonb,
+             updated_at = NOW()
+       WHERE id=$2
+       RETURNING onboarding_state`,
+      [JSON.stringify(patch), req.athlete.id]
+    );
+    res.json({ ok: true, onboarding_state: (r.rows[0] && r.rows[0].onboarding_state) || {} });
+  } catch (e) { console.error('[athlete/onboarding:put]', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // GET /api/agents/athlete-activity — agent sees all athlete activity
