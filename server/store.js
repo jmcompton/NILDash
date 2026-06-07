@@ -261,6 +261,10 @@ async function init() {
     // checklist). Separate from onboarding_complete (which is payment/account
     // activation). Holds JSON like { dismissed, setupDone, checklist:{...} }.
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS onboarding_state JSONB DEFAULT '{}'::jsonb`,
+    // Most-recent Deal Scan results, persisted per lane so re-entering Deal Scan
+    // (or reloading) re-hydrates the athlete's ranked opportunities instead of a
+    // blank slate. Shape: { local:{opportunities:[...],ts}, social:{...}, topnil:{...} }.
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS deal_scan_cache JSONB DEFAULT '{}'::jsonb`,
   ];
   for (const sql of _athleteAuthMigrations) {
     await pool.query(sql).catch(e => console.warn('[migration]', e.message));

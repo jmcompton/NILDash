@@ -4143,9 +4143,61 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     const recommendations = await ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands, lane);
     await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_scan', `Ran deal scan (${lane})`, {});
     console.log(`[athlete/deal-scan] lane=${lane} found=${recommendations.length}`);
-    res.json({ opportunities: recommendations, lane });
+    // Persist this lane's results so re-entering Deal Scan / reloading re-hydrates
+    // the athlete's opportunities. NON-DESTRUCTIVE: only overwrite when we got
+    // genuine results, so a transient empty refresh never wipes a good cache.
+    if (recommendations.length) {
+      await store.pool.query(
+        `UPDATE athletes SET deal_scan_cache = COALESCE(deal_scan_cache, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
+        [JSON.stringify({ [lane]: { opportunities: recommendations, ts: Date.now() } }), req.athlete.id]
+      ).catch(e => console.error('[athlete/deal-scan] cache persist:', e.message));
+    }
+    const rateCard = await _athleteRateCard(req.athlete.id);
+    res.json({ opportunities: recommendations, lane, rateCard });
   } catch (e) { console.error('[athlete/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
+
+// GET /api/athlete/deal-scan/cache — hydrate the last persisted scan + rate card
+app.get('/api/athlete/deal-scan/cache', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id = $1', [req.athlete.id]);
+    const cache = (r.rows[0] && r.rows[0].deal_scan_cache) || {};
+    const rateCard = await _athleteRateCard(req.athlete.id);
+    res.json({ cache, rateCard });
+  } catch (e) { console.error('[athlete/deal-scan/cache]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// Build the athlete's per-deliverable rate card using the SAME model the Rate
+// Calculator uses (benchmarks.nilViewVal + cleanRange) — single source of truth.
+// Returns { rates:{deliverable:{low,high}}, dealValueLow, dealValueHigh }.
+// dealValueLow ≈ a single deliverable; dealValueHigh ≈ a multi-deliverable bundle.
+async function _athleteRateCard(athleteId) {
+  try {
+    const row = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [athleteId]);
+    if (!row.rows.length) return null;
+    const dbRow = row.rows[0];
+    const a = { id: dbRow.id, ...(dbRow.data || {}) };
+    if (a.instagram == null && dbRow.instagram_followers != null) a.instagram = dbRow.instagram_followers;
+    if (a.tiktok == null && dbRow.tiktok_followers != null) a.tiktok = dbRow.tiktok_followers;
+    if (a.twitter == null && dbRow.twitter_followers != null) a.twitter = dbRow.twitter_followers;
+    const { nilViewVal, cleanRange } = require('./benchmarks');
+    const cr = (t) => { const r = nilViewVal(a, t); return cleanRange(r.low, r.high); };
+    const rates = {
+      'ig-post': cr('ig-post'), 'ig-reel': cr('ig-reel'), 'stories': cr('stories'),
+      'tiktok': cr('tiktok'), 'appearance-inperson': cr('appearance-inperson'), 'bundle': cr('bundle'),
+    };
+    const singleLows = ['ig-post', 'ig-reel', 'stories', 'tiktok']
+      .map(k => rates[k] && rates[k].low).filter(Boolean);
+    let dealValueLow = singleLows.length ? Math.min(...singleLows) : ((rates['ig-post'] && rates['ig-post'].low) || 0);
+    let dealValueHigh = (rates['bundle'] && rates['bundle'].high) || 0;
+    if (!dealValueHigh || dealValueHigh <= dealValueLow) {
+      const allHighs = Object.values(rates).map(r => r && r.high).filter(Boolean);
+      dealValueHigh = allHighs.length ? Math.max(...allHighs) : dealValueLow * 3;
+    }
+    if (dealValueHigh <= dealValueLow) dealValueHigh = dealValueLow * 3;
+    return { rates, dealValueLow, dealValueHigh };
+  } catch (e) { console.error('[_athleteRateCard]', e.message); return null; }
+}
 
 // Helper: load an athlete object for AI calls (followers from data JSON or columns)
 async function _loadAthleteObjForAI(athleteId) {

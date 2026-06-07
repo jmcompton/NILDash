@@ -1499,7 +1499,7 @@ function showView(id, navBtn) {
   if (id === 'email')       { initGmailStatus().then(function(){ loadEmailHistory(); }); mkSetupToggle('email-include-mk', 'email-mk-hint', 'email-body'); }
   if (id === 'profile')     loadProfileForm();
   if (id === 'rate')        initRateCalculator();
-  if (id === 'dealscan')    loadDealPipeline();
+  if (id === 'dealscan')    { loadDealPipeline(); loadDealScanCache(); }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2500,6 +2500,14 @@ function scrollChat() {
 // ── Deal Scan ──────────────────────────────────────────────────────
 var _athleteDealScanResults = [];
 var _athleteExcludeBrands = [];
+// Per-lane scan state. _dsLaneData[lane] === null means "never scanned" (the
+// only state allowed to show the empty "No matches" message). Once a lane has
+// returned results it is never wiped — refreshes/errors keep the last good set.
+var _dsLaneData = { local: null, social: null, topnil: null };
+var _dsLaneNote = { local: '', social: '', topnil: '' };
+var _dsLaneBusy = { local: false, social: false, topnil: false };
+window._athleteRateCard = null; // { rates:{deliverable:{low,high}}, dealValueLow, dealValueHigh }
+function _dsHasAnyData() { return DS_LANES.some(function(l){ return _dsLaneData[l] !== null; }); }
 
 // ── Live progress indicator ─────────────────────────────────────────
 var _dsProgTimers = [];
@@ -2617,42 +2625,100 @@ function _setLaneCount(lane, n) {
   if (b) b.textContent = (typeof n === 'number') ? n : 0;
 }
 
-async function runDealScan() {
-  var btn = document.getElementById('scan-btn');
-  var box = document.getElementById('dealscanAI');
+// Hydrate the lanes from the last persisted scan when entering Deal Scan, so the
+// athlete sees their opportunities instead of a blank slate. Only hydrates when
+// nothing is loaded yet — never clobbers an in-progress or already-rendered scan.
+async function loadDealScanCache() {
+  if (_dsHasAnyData()) return;
+  try {
+    var r = await fetch('/api/athlete/deal-scan/cache', {
+      headers: { 'Authorization': 'Bearer ' + athleteToken }
+    });
+    if (!r.ok) return;
+    var d = await r.json();
+    if (d && d.rateCard) window._athleteRateCard = d.rateCard;
+    var cache = (d && d.cache) || {};
+    var any = false;
+    DS_LANES.forEach(function(lane){
+      var c = cache[lane];
+      if (c && Array.isArray(c.opportunities)) { _dsLaneData[lane] = c.opportunities; if (c.opportunities.length) any = true; }
+    });
+    if (any) {
+      document.getElementById('scan-ranked-label').style.display = 'block';
+      document.getElementById('ds-lanes').style.display = '';
+      document.getElementById('ds-lane-tabs').style.display = '';
+      var emptyEl = document.getElementById('scan-results-empty');
+      if (emptyEl) emptyEl.style.display = 'none';
+      switchLane('local');
+      _dsRenderAll();
+    }
+  } catch(e) { /* hydration is best-effort; never block the view */ }
+}
 
-  btn.disabled = true; btn.textContent = 'Scanning…';
-  box.classList.remove('visible');
+async function runDealScan()    { return _dsRunScan(false); }
+async function runDealRefresh() { return _dsRunScan(true); }
 
-  // Reset state + reveal the lane containers with per-column loaders.
-  window._athleteDealScanResults = [];
+// Core scan/refresh. CORE PRINCIPLE: never destroy good content before its
+// replacement arrives. On refresh, existing cards stay visible (with a per-lane
+// loading note); a lane is only replaced once NEW results actually come back. A
+// lane that returns nothing/errors keeps whatever it already had.
+async function _dsRunScan(isRefresh) {
+  var btn  = document.getElementById('scan-btn');
+  var rbtn = document.getElementById('scan-refresh-btn');
+  var box  = document.getElementById('dealscanAI');
+  if (box) box.classList.remove('visible');
+  if (isRefresh) { if (rbtn) { rbtn.disabled = true; rbtn.textContent = 'Refreshing…'; } }
+  else { if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; } }
+
   document.getElementById('scan-ranked-label').style.display = 'block';
   var emptyEl = document.getElementById('scan-results-empty');
   if (emptyEl) emptyEl.style.display = 'none';
   document.getElementById('ds-lanes').style.display = '';
   document.getElementById('ds-lane-tabs').style.display = ''; // CSS hides on desktop
-  switchLane('local');
-  DS_LANES.forEach(function(l){
-    var bdy = document.getElementById('scan-results-' + l);
-    if (bdy) bdy.innerHTML = _dsLaneLoadingHtml();
-    _setLaneCount(l, '…');
-  });
+  if (!_dsHasAnyData()) switchLane('local');
+
+  // Exclude already-shown brands on refresh so we surface fresh ones.
+  var exclude = isRefresh
+    ? (window._athleteDealScanResults || []).map(function(d){ return d.brand || ''; }).filter(Boolean)
+    : [];
+
+  DS_LANES.forEach(function(l){ _dsLaneBusy[l] = true; _dsLaneNote[l] = ''; });
+  _dsRenderAll();
 
   var prog = startDealScanProgress();
 
-  // Fire all three lanes in parallel; render each column the moment it returns.
   var jobs = DS_LANES.map(function(lane){
     return fetch('/api/athlete/deal-scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
-      body: JSON.stringify({ lane: lane, exclude_brands: _athleteExcludeBrands })
+      body: JSON.stringify({ lane: lane, exclude_brands: exclude })
     })
       .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
       .then(function(res){
         var opps = (res.ok && res.data && !res.data.error) ? (res.data.opportunities || []) : [];
-        _renderLane(lane, opps);
+        if (res.ok && res.data && res.data.rateCard) window._athleteRateCard = res.data.rateCard;
+        _dsLaneBusy[lane] = false;
+        if (!opps.length) {
+          // Nothing new. Keep existing cards if we have them; only show the
+          // genuine "No matches" empty state on a brand-new (never-scanned) lane.
+          if (_dsLaneData[lane] && _dsLaneData[lane].length) {
+            _dsLaneNote[lane] = isRefresh ? "Couldn't find new ones right now — showing your latest." : '';
+          } else {
+            _dsLaneData[lane] = []; // first scan, genuinely empty
+          }
+        } else {
+          _dsLaneData[lane] = opps; // replace only now that real results arrived
+        }
+        _dsRenderAll();
       })
-      .catch(function(e){ console.error('[deal-scan] lane ' + lane + ' error:', e); _renderLane(lane, []); });
+      .catch(function(e){
+        console.error('[deal-scan] lane ' + lane + ' error:', e);
+        _dsLaneBusy[lane] = false;
+        // On error, KEEP existing cards. Only fall to empty state if the lane
+        // has truly never returned results.
+        if (_dsLaneData[lane] === null && !isRefresh) _dsLaneData[lane] = [];
+        _dsRenderAll();
+      });
   });
 
   try {
@@ -2664,44 +2730,62 @@ async function runDealScan() {
     var card = document.getElementById('ds-progress');
     if (card) card.style.display = 'none';
   } finally {
-    btn.disabled = false; btn.textContent = 'Scan Deals with AI';
+    DS_LANES.forEach(function(l){ _dsLaneBusy[l] = false; });
+    _dsRenderAll();
+    if (btn)  { btn.disabled = false;  btn.textContent = 'Scan Deals with AI'; }
+    if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh'; }
   }
 }
 
-async function runDealRefresh() {
-  var btn = document.getElementById('scan-refresh-btn');
-  btn.disabled = true; btn.textContent = 'Refreshing…';
-  _athleteExcludeBrands = (window._athleteDealScanResults || []).map(function(d){ return d.brand || ''; }).filter(Boolean);
-  await runDealScan();
-  _athleteExcludeBrands = [];
-  btn.disabled = false; btn.textContent = 'Refresh';
-}
+// Render ALL lanes from _dsLaneData, rebuilding the flat global index array so
+// Send Pitch / Preview / + Track stay correct across columns. Called on every
+// state change. A lane only goes empty when it has genuinely never returned.
+function _dsRenderAll() {
+  window._athleteDealScanResults = [];
+  var anyData = false;
+  DS_LANES.forEach(function(lane){
+    var body = document.getElementById('scan-results-' + lane);
+    var data = _dsLaneData[lane];
+    var busy = _dsLaneBusy[lane];
+    _setLaneCount(lane, data ? data.length : (busy ? '…' : 0));
+    if (!body) return;
 
-// Render one lane's column. Each opportunity gets a stable GLOBAL index into
-// window._athleteDealScanResults so Send Pitch / Preview / + Track keep working
-// across all three columns. Lanes render independently as their fetch returns.
-function _renderLane(lane, opps) {
-  var body = document.getElementById('scan-results-' + lane);
-  _setLaneCount(lane, opps.length);
-  if (!body) return;
-  if (!opps.length) {
-    body.innerHTML = '<div class="ds-lane-empty">No ' + esc(_dsLaneMeta[lane].label.toLowerCase()) + ' matches found right now. Try Refresh.</div>';
-    return;
-  }
+    if (data === null) {
+      // Never scanned: show a loader if a first scan is running, else nothing
+      // (the page-level empty-state below covers the brand-new athlete).
+      body.innerHTML = busy ? _dsLaneLoadingHtml() : '';
+      return;
+    }
+    anyData = true;
 
-  // National-fallback banner only applies to the Local lane.
-  var banner = '';
-  if (lane === 'local' && opps[0] && opps[0].resultType === 'national') {
-    banner = '<div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:11px;color:#f59e0b;line-height:1.5">' +
-      '<strong>National brands shown.</strong> ' + esc(opps[0].fallbackNote || 'We couldn\'t complete a local search for your market, so these are national brands with NIL programs.') + '</div>';
-  }
+    // Loading note while refreshing, kept ABOVE existing cards (non-destructive).
+    var topNote = '';
+    if (busy && data.length) topNote += '<div class="ds-lane-loading" style="margin-bottom:8px"><span class="ds-lane-spin"></span> Finding new matches…</div>';
+    if (_dsLaneNote[lane]) topNote += '<div style="font-size:11px;color:var(--muted);background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-bottom:8px">' + esc(_dsLaneNote[lane]) + '</div>';
 
-  var html = opps.map(function(d, idx){
-    var gi = window._athleteDealScanResults.length;
-    window._athleteDealScanResults.push(d);
-    return _dsCardHtml(d, gi, lane, idx === 0);
-  }).join('');
-  body.innerHTML = banner + html;
+    if (!data.length) {
+      body.innerHTML = topNote + '<div class="ds-lane-empty">No ' + esc(_dsLaneMeta[lane].label.toLowerCase()) + ' matches found right now. Try Refresh.</div>';
+      return;
+    }
+
+    // National-fallback banner only applies to the Local lane.
+    var banner = '';
+    if (lane === 'local' && data[0] && data[0].resultType === 'national') {
+      banner = '<div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:11px;color:#f59e0b;line-height:1.5">' +
+        '<strong>National brands shown.</strong> ' + esc(data[0].fallbackNote || 'We couldn\'t complete a local search for your market, so these are national brands with NIL programs.') + '</div>';
+    }
+
+    var html = data.map(function(d, idx){
+      var gi = window._athleteDealScanResults.length;
+      window._athleteDealScanResults.push(d);
+      return _dsCardHtml(d, gi, lane, idx === 0);
+    }).join('');
+    body.innerHTML = topNote + banner + html;
+  });
+
+  // Page-level empty state: only when NO lane has ever returned (truly new).
+  var emptyEl = document.getElementById('scan-results-empty');
+  if (emptyEl) emptyEl.style.display = anyData ? 'none' : '';
 }
 
 function _dsCardHtml(d, i, lane, isTop) {
@@ -2710,8 +2794,15 @@ function _dsCardHtml(d, i, lane, isTop) {
   var scoreColor = score >= 85 ? '#84CC16' : score >= 70 ? '#f59e0b' : 'var(--muted)';
   var cat = (d.category || '').toLowerCase();
   var catStyle = _dsCatColors[cat] || 'rgba(255,255,255,0.06);color:var(--muted)';
-  var lo = d.estimatedValueLow, hi = d.estimatedValueHigh;
-  var valStr = (lo || hi) ? ('$' + (lo||hi).toLocaleString() + (hi && hi!==lo ? '–$' + hi.toLocaleString() : '') + ' per post') : '';
+  // Deliverable-agnostic estimate. The brand's actual ask is unknown, so we show
+  // a scope-labeled RANGE from the athlete's own rate model (low ≈ a single
+  // deliverable, high ≈ a multi-deliverable package) — never "per post".
+  var rc = window._athleteRateCard;
+  var lo = (rc && rc.dealValueLow)  || d.estimatedValueLow  || 0;
+  var hi = (rc && rc.dealValueHigh) || d.estimatedValueHigh || 0;
+  var valStr = (lo || hi)
+    ? ('Est. deal value: $' + (lo||hi).toLocaleString() + (hi && hi!==lo ? '–$' + hi.toLocaleString() : ''))
+    : '';
   var laneMeta = _dsLaneMeta[lane] || _dsLaneMeta.local;
   var laneChip = '<span class="ds-lane-chip" style="background:' + laneMeta.chip + '">' + esc(laneMeta.label) + '</span>';
 
@@ -2735,7 +2826,7 @@ function _dsCardHtml(d, i, lane, isTop) {
           (d.category ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
           (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:#84CC16;border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
         '</div>' +
-        (valStr ? '<div style="font-size:13px;font-weight:700;color:#84CC16;margin-bottom:8px">' + valStr + '</div>' : '') +
+        (valStr ? '<div style="margin-bottom:8px"><span style="font-size:13px;font-weight:700;color:#84CC16">' + valStr + '</span> <span style="font-size:10px;color:var(--muted)">varies by deliverable</span></div>' : '') +
         (d.rationale ? '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:4px">' + esc(d.rationale) + '</div>' : '') +
         (d.campaign ? '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px"><span style="color:var(--text);font-weight:600">Idea:</span> ' + esc(d.campaign) + '</div>' : '') +
         contactHtml +
@@ -2747,14 +2838,44 @@ function _dsCardHtml(d, i, lane, isTop) {
       '</div>' +
     '</div>' +
     '<div id="pitchprev-' + i + '" style="display:none;margin-top:12px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:12px;color:var(--muted);line-height:1.6"></div>' +
+    '<div id="dsrates-' + i + '" style="display:none;margin-top:12px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px"></div>' +
     '<div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">' +
       '<button onclick="openPitchModal(' + i + ')" style="flex:1;min-width:110px;padding:10px;background:#84CC16;color:#0A0E1A;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif">Send Pitch</button>' +
       '<button onclick="togglePitchPreview(' + i + ')" style="padding:10px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">Preview</button>' +
+      '<button onclick="toggleDsRates(' + i + ')" style="padding:10px 12px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:11px;font-weight:600;cursor:pointer;font-family:\'DM Sans\',sans-serif">My rates</button>' +
       (function(){ var tracked = _isBrandTracked(brand);
         return '<button onclick="trackBrand(' + i + ', this)"' + (tracked ? ' disabled' : '') +
           ' style="padding:10px 12px;background:' + (tracked ? 'rgba(132,204,22,0.12)' : 'transparent') + ';border:1px solid ' + (tracked ? 'rgba(132,204,22,0.4)' : 'var(--border)') + ';color:' + (tracked ? '#84CC16' : 'var(--muted)') + ';border-radius:8px;font-size:11px;font-weight:600;cursor:' + (tracked ? 'default' : 'pointer') + ';font-family:\'DM Sans\',sans-serif">' + (tracked ? 'Tracked ✓' : '+ Track') + '</button>'; })() +
     '</div>' +
   '</div>';
+}
+
+// ── Per-deliverable rate card (one tap from any opportunity) ─────────
+// Exact numbers for whatever the brand actually wants, pulled from the SAME
+// rate model the Rate Calculator uses (server window._athleteRateCard).
+function _dsRateCardHtml() {
+  var rc = window._athleteRateCard;
+  if (!rc || !rc.rates) {
+    return '<div style="font-size:11px;color:var(--muted);line-height:1.5">Add your follower counts in My Profile to see your per-deliverable rates.</div>';
+  }
+  var labels = { 'ig-post':'IG Post', 'ig-reel':'IG Reel', 'stories':'IG Story', 'tiktok':'TikTok', 'appearance-inperson':'In-Person / Appearance', 'bundle':'Bundle (Reel + Post + Story)' };
+  var order = ['ig-post','ig-reel','stories','tiktok','appearance-inperson','bundle'];
+  var rows = order.map(function(k){
+    var v = rc.rates[k]; if (!v) return '';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">' +
+      '<span style="font-size:11px;color:var(--muted)">' + labels[k] + '</span>' +
+      '<span style="font-size:11px;font-weight:700;color:#84CC16;font-family:\'JetBrains Mono\',monospace">$' + (v.low||0).toLocaleString() + '–$' + (v.high||0).toLocaleString() + '</span>' +
+    '</div>';
+  }).join('');
+  return '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:4px">Your rate card</div>' +
+    rows +
+    '<div style="font-size:10px;color:var(--muted);margin-top:7px;line-height:1.5">Exact numbers for whatever the brand asks. Full detail in the Rate Calculator.</div>';
+}
+function toggleDsRates(i) {
+  var el = document.getElementById('dsrates-' + i);
+  if (!el) return;
+  if (el.style.display === 'none' || !el.style.display) { el.innerHTML = _dsRateCardHtml(); el.style.display = 'block'; }
+  else { el.style.display = 'none'; }
 }
 
 // ── Pitch preview (inline) ──────────────────────────────────────────
@@ -2776,7 +2897,8 @@ async function togglePitchPreview(i) {
     el.setAttribute('data-loaded','1');
     el.innerHTML = '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:6px">Pitch Preview</div>' +
       '<div style="color:var(--text);font-weight:600;margin-bottom:6px">' + esc(data.pitch.subject) + '</div>' +
-      '<div style="white-space:pre-wrap">' + esc(data.pitch.body) + '</div>';
+      '<div style="white-space:pre-wrap">' + esc(data.pitch.body) + '</div>' +
+      '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' + _dsRateCardHtml() + '</div>';
   } catch(e) { el.innerHTML = 'Connection error.'; }
 }
 
