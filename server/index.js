@@ -3957,7 +3957,9 @@ app.post('/api/athlete/deals/from-scan', verifyAthleteToken, async (req, res) =>
     else if (lo || hi) { value = lo || hi; rangeText = '$' + (lo || hi).toLocaleString() + ' per post'; }
 
     const description = o.rationale || null;
+    const laneLabel = o.lane === 'social' ? 'Social brand' : o.lane === 'topnil' ? 'Top NIL spender' : (isLocal ? 'Local business' : null);
     const noteParts = [];
+    if (laneLabel) noteParts.push('Source lane: ' + laneLabel);
     if (rangeText) noteParts.push('Estimated rate: ' + rangeText);
     if (o.campaign) noteParts.push('Idea: ' + o.campaign);
     if (o.contactApproach) noteParts.push('Approach: ' + o.contactApproach);
@@ -4131,11 +4133,14 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     };
 
     const excludeBrands = req.body.exclude_brands || [];
-    console.log(`[athlete/deal-scan] athlete=${req.athlete.id} name=${athleteObj.name} sport=${athleteObj.sport} school=${athleteObj.school}`);
-    const recommendations = await ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands);
-    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_scan', 'Ran deal scan', {});
-    console.log(`[athlete/deal-scan] found=${recommendations.length}`);
-    res.json({ opportunities: recommendations });
+    // Lane: 'local' (default), 'social', or 'topnil'. The frontend fires all
+    // three in parallel and renders each column as it returns.
+    const lane = ['local', 'social', 'topnil'].includes(req.body.lane) ? req.body.lane : 'local';
+    console.log(`[athlete/deal-scan] athlete=${req.athlete.id} lane=${lane} name=${athleteObj.name} sport=${athleteObj.sport} school=${athleteObj.school}`);
+    const recommendations = await ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands, lane);
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_scan', `Ran deal scan (${lane})`, {});
+    console.log(`[athlete/deal-scan] lane=${lane} found=${recommendations.length}`);
+    res.json({ opportunities: recommendations, lane });
   } catch (e) { console.error('[athlete/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 

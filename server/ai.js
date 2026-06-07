@@ -470,7 +470,148 @@ function validateContactEmail(email, websiteUrl) {
   return email.trim();
 }
 
-async function getDealRecommendations(athlete, role, excludeBrands) {
+// ─── Deal Scan: SOCIAL + TOP NIL SPENDER lanes ───────────────────────────────
+// Shared two-phase (parallel web search → fast scoring) brand-discovery helper
+// for the two non-local lanes. Unlike the LOCAL lane, these are NOT tied to the
+// athlete's city — they surface DTC/online brands (SOCIAL) and currently
+// NIL-active brands (TOP NIL) that realistically do deals at THIS athlete's
+// follower tier. A 2,000-follower athlete should see micro/nano-friendly brands,
+// never Nike.
+async function _scanBrandLane(athlete, lane, excludeBrands) {
+  const MODEL_DEALSCAN = 'claude-sonnet-4-5';
+  const rate = calculateRate(athlete, 'ig-reel');
+  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+  const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
+  const sport = athlete.sport || 'football';
+  const school = athlete.school || 'their school';
+  const valLow  = tier === 'macro' ? 2500 : tier === 'mid' ? 800 : tier === 'micro' ? 250 : 100;
+  const valHigh = tier === 'macro' ? 15000 : tier === 'mid' ? 4000 : tier === 'micro' ? 1000 : 500;
+
+  const exclusionLine = excludeBrands && excludeBrands.length > 0
+    ? `\nEXCLUDE THESE BRANDS COMPLETELY — do not suggest them: ${excludeBrands.join(', ')}`
+    : '';
+
+  const tierGuidance = tier === 'macro'
+    ? 'This is a large creator — national brands and bigger budgets are realistic.'
+    : tier === 'mid'
+    ? 'This is a mid-tier creator — established DTC brands and mid-size NIL programs, not the largest national giants.'
+    : 'This is a SMALL (micro/nano) creator. ONLY suggest brands that genuinely run programs for small creators at this follower tier. Do NOT suggest Nike, Adidas, Gatorade, or other mega-brands that only sign stars.';
+
+  const laneCfg = lane === 'social'
+    ? {
+        label: 'Social',
+        resultType: 'social',
+        categoryEnum: 'supplements|apparel|energydrink|app|accessories|beauty|nutrition|fitness|dtc',
+        queries: [
+          `DTC and online brands with creator/influencer ambassador programs that partner with ${tier}-tier college athletes (~${reach.toLocaleString()} followers) — supplements, apparel, energy drinks, apps, accessories 2025`,
+          `direct-to-consumer brands actively recruiting nano and micro college athlete creators on Instagram and TikTok ${new Date().getFullYear()}`,
+          `${sport} micro-influencer brand ambassador programs supplements apparel accessories open to small creators`,
+        ],
+        retryQuery: `online DTC brands running affiliate or ambassador programs for small Instagram and TikTok creators`,
+        scoreIntro: `These REAL DTC / social-media brands were just found via web search. They run creator/ambassador programs.`,
+        favor: 'DTC supplements, apparel, energy drinks, fitness apps, accessories that work with small creators',
+      }
+    : {
+        label: 'Top NIL',
+        resultType: 'topnil',
+        categoryEnum: 'nutrition|apparel|tech|finance|food|energydrink|auto|retail|nil',
+        queries: [
+          `brands most active in college NIL deals in ${new Date().getFullYear()} that ALSO sign smaller and mid-tier college athletes in ${sport} — not just the biggest stars`,
+          `top NIL-spending companies with athlete ambassador programs open to ${tier}-tier ${sport} college athletes`,
+          `NIL-active brands partnering with everyday college athletes ${sport} ambassador roster programs ${new Date().getFullYear()}`,
+        ],
+        retryQuery: `companies with the most active college athlete NIL ambassador programs that accept smaller athletes`,
+        scoreIntro: `These REAL NIL-active brands were just found via web search. They currently run college athlete NIL/ambassador programs.`,
+        favor: 'currently NIL-active brands that sign college and smaller athletes in this sport',
+      };
+
+  const searchSys = 'You find real brands via web search. Output ONLY a JSON array, no commentary, no markdown.';
+  const mk = (q) => `Use web search: ${q}. Return up to 8 REAL brands you actually find, each as {"name","website","category","email"} (email only if shown on their site, else null). Favor: ${laneCfg.favor}. ONLY a JSON array.`;
+
+  try {
+    console.log(`[dealScan:${lane}] web search brand discovery — model=${MODEL_DEALSCAN} sport=${sport} tier=${tier}`);
+    const settled = await Promise.allSettled(
+      laneCfg.queries.map((q) => oneShotWebSearch(mk(q), searchSys, 700, 3, MODEL_DEALSCAN))
+    );
+
+    const found = [];
+    const seen = new Set();
+    const collect = (raw) => {
+      try {
+        const t = (raw || '').replace(/```json/g, '').replace(/```/g, '').trim();
+        const a = t.indexOf('['), b = t.lastIndexOf(']');
+        if (a === -1 || b <= a) return;
+        const arr = JSON.parse(t.substring(a, b + 1));
+        for (const it of (Array.isArray(arr) ? arr : [])) {
+          const nm = ((it && it.name) || '').trim();
+          if (!nm) continue;
+          const key = nm.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null });
+        }
+      } catch (_) { /* skip unparseable */ }
+    };
+    for (const s of settled) if (s.status === 'fulfilled') collect(s.value);
+    console.log(`[dealScan:${lane}] phase 1 found ${found.length} candidates`);
+
+    if (found.length < 3) {
+      try {
+        const retry = await oneShotWebSearch(mk(laneCfg.retryQuery), searchSys, 800, 4, MODEL_DEALSCAN);
+        collect(retry);
+      } catch (_) {}
+      console.log(`[dealScan:${lane}] after retry: ${found.length} candidates`);
+    }
+    if (found.length < 3) throw new Error('Too few candidates');
+
+    const candidatesJson = JSON.stringify(found.slice(0, 16));
+    const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier). ${tierGuidance} Realistic deal value ~$${valLow}-$${valHigh}.${exclusionLine}
+
+${laneCfg.scoreIntro}
+${candidatesJson}
+
+Pick the 6 best for THIS athlete and score each 1-100 (vary the scores meaningfully). Each rationale is 1-2 sentences referencing this athlete's sport/tier and WHY this brand actually does deals at this follower level. For contactEmail: use the email given if present, otherwise info@/partnerships@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
+[{"rank":1,"brand":"","tier":"${laneCfg.resultType}","category":"${laneCfg.categoryEnum}","dealType":"post|reel|ambassador|affiliate","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":false,"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
+
+    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a brand or an email domain — only use the brands and domains provided.', 1800, MODEL_DEALSCAN);
+    const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const si = c.indexOf('['), ei = c.lastIndexOf(']');
+    if (si === -1 || ei <= si) throw new Error('No array in scoring response');
+    const parsed = JSON.parse(c.substring(si, ei + 1));
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
+    parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+    const siteByName = new Map();
+    for (const f of found) if (f.name) siteByName.set(f.name.toLowerCase().trim(), f.website);
+    return parsed.map((d, i) => {
+      const site = (d.brand && siteByName.get(d.brand.toLowerCase().trim())) || d.website || null;
+      return {
+        ...d,
+        rank: i + 1,
+        resultType: laneCfg.resultType,
+        lane,
+        isLocal: false,
+        contactEmail: validateContactEmail(d.contactEmail, site),
+        estimatedValueLow: d.estimatedValueLow || valLow,
+        estimatedValueHigh: d.estimatedValueHigh || valHigh,
+        suggestedRate: { low: rate.low, high: rate.high },
+      };
+    });
+  } catch (err) {
+    console.warn(`[dealScan:${lane}] failed: ${err.message}`);
+    return [];
+  }
+}
+
+async function getDealRecommendations(athlete, role, excludeBrands, lane) {
+  // Deal Scan now has THREE lanes. The original LOCAL lane lives below; the
+  // SOCIAL (DTC/online brands) and TOP NIL SPENDERS lanes are handled by the
+  // shared brand-lane helper. Each lane runs independently so the frontend can
+  // fire all three in parallel and render each column progressively.
+  lane = lane || 'local';
+  if (lane === 'social' || lane === 'topnil') {
+    return _scanBrandLane(athlete, lane, excludeBrands);
+  }
+
   // Deal Scan uses Sonnet (scoped to this function only) — faster than Opus,
   // strong enough for structured local-brand research.
   const MODEL_DEALSCAN = 'claude-sonnet-4-5';
@@ -654,6 +795,7 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
         ...d,
         rank: i + 1,
         resultType: 'local',
+        lane: 'local',
         contactEmail: validEmail, // null when not verifiable — never fabricated
         estimatedValueLow: d.estimatedValueLow || valLow,
         estimatedValueHigh: d.estimatedValueHigh || valHigh,
@@ -678,6 +820,7 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
       ...d,
       rank: i + 1,
       resultType: 'local',
+      lane: 'local',
       contactEmail: validateContactEmail(d.contactEmail, d.website || null),
       estimatedValueLow: d.estimatedValueLow || valLow,
       estimatedValueHigh: d.estimatedValueHigh || valHigh,
@@ -693,6 +836,7 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
     const fallbackBrands = sportBrands[sport.toLowerCase()] || sportBrands.football;
     return fallbackBrands.map((b,i) => ({
       rank: i+1, brand: b, tier: i < 2 ? 'regional' : 'national',
+      lane: 'local',
       // Honest labeling: these are national brands shown because local search
       // could not be completed — the UI must NOT present them as local matches.
       resultType: 'national',
