@@ -379,17 +379,95 @@ const SCHOOL_LOCATIONS = {
   'University of Maine': { city: 'Orono', state: 'Maine' },
 };
 
-function getSchoolLocation(school) {
-  if (!school) return { city: 'Unknown City', state: 'Unknown State' };
-  // Exact match
+// Runtime cache for web-geocoded schools so we only pay the search once per
+// school per process.
+const _schoolLocationCache = new Map();
+
+// Synchronous map-only lookup. Returns null when the school isn't known.
+function lookupSchoolLocation(school) {
+  if (!school) return null;
   if (SCHOOL_LOCATIONS[school]) return SCHOOL_LOCATIONS[school];
-  // Partial match
   for (const key of Object.keys(SCHOOL_LOCATIONS)) {
     if (school.includes(key) || key.includes(school)) return SCHOOL_LOCATIONS[key];
   }
-  // Fallback: extract state from name
-  const cleaned = school.replace(/University|College|State|Institute|of Technology/gi, '').trim();
-  return { city: cleaned + ' area', state: cleaned };
+  return null;
+}
+
+// Resolve a school to a real {city, state}. Tries the hardcoded map first
+// (instant), then a one-shot web search to geocode unknown schools. NEVER
+// synthesizes a state from the school name — a bad location poisons every Deal
+// Scan query. Falls back to a clearly-flagged unknown location if all else fails.
+async function getSchoolLocation(school) {
+  if (!school) return { city: 'Unknown City', state: 'Unknown State', known: false };
+
+  const mapped = lookupSchoolLocation(school);
+  if (mapped) return { ...mapped, known: true };
+
+  const cacheKey = school.trim().toLowerCase();
+  if (_schoolLocationCache.has(cacheKey)) return _schoolLocationCache.get(cacheKey);
+
+  // Web-search geocode for schools not in the map.
+  try {
+    const raw = await oneShotWebSearch(
+      `What U.S. city and state is "${school}" located in? Use web search to confirm. Return ONLY JSON: {"city":"","state":""}`,
+      'You are a geocoding API. Return ONLY a single JSON object with the school\'s real city and full state name. No prose.',
+      300,
+      2,
+      MODEL_FAST
+    );
+    const m = raw && raw.match(/\{[\s\S]*\}/);
+    if (m) {
+      const parsed = JSON.parse(m[0]);
+      if (parsed.city && parsed.state) {
+        const result = { city: String(parsed.city).trim(), state: String(parsed.state).trim(), known: true };
+        _schoolLocationCache.set(cacheKey, result);
+        return result;
+      }
+    }
+  } catch (e) {
+    console.warn('[getSchoolLocation] web geocode failed for', school, '-', e.message);
+  }
+
+  // Last resort: flag as unknown rather than fabricating a state.
+  const result = { city: 'Unknown City', state: 'Unknown State', known: false };
+  _schoolLocationCache.set(cacheKey, result);
+  return result;
+}
+
+// Free/consumer mail providers are never a legitimate business contact domain
+// for a verified local business — and are the classic shape of a hallucinated
+// email. Reject them outright.
+const _FREE_EMAIL_DOMAINS = new Set([
+  'gmail.com','yahoo.com','hotmail.com','outlook.com','aol.com','icloud.com',
+  'live.com','msn.com','protonmail.com','gmx.com','mail.com','ymail.com',
+]);
+
+function _domainFromUrl(url) {
+  if (!url) return null;
+  try {
+    const u = String(url).replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+    return u.split(/[\/?#]/)[0].toLowerCase().trim() || null;
+  } catch { return null; }
+}
+
+// Validate a contactEmail against the business's real website domain. Returns
+// the email if it's plausibly real, otherwise null (never fabricate). When a
+// website domain is known, the email domain must match it. Free-mail is always
+// rejected.
+function validateContactEmail(email, websiteUrl) {
+  if (!email || typeof email !== 'string') return null;
+  const m = email.trim().toLowerCase().match(/^[^\s@]+@([^\s@]+\.[^\s@]+)$/);
+  if (!m) return null;
+  const emailDomain = m[1];
+  if (_FREE_EMAIL_DOMAINS.has(emailDomain)) return null;
+  const siteDomain = _domainFromUrl(websiteUrl);
+  if (siteDomain) {
+    // Require the email domain to match (or be a subdomain of) the site domain.
+    if (emailDomain !== siteDomain && !emailDomain.endsWith('.' + siteDomain) && !siteDomain.endsWith('.' + emailDomain)) {
+      return null;
+    }
+  }
+  return email.trim();
 }
 
 async function getDealRecommendations(athlete, role, excludeBrands) {
@@ -400,9 +478,10 @@ async function getDealRecommendations(athlete, role, excludeBrands) {
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
   const school = athlete.school || 'Unknown';
-  const loc = getSchoolLocation(school);
+  const loc = await getSchoolLocation(school);
   const city = loc.city;
   const state = loc.state;
+  const locationKnown = loc.known !== false;
   const sport = athlete.sport || 'football';
 
   const exclusionLine = excludeBrands && excludeBrands.length > 0
@@ -479,6 +558,14 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
   // to score + enrich into the final JSON. Parallel search (~6-10s) + scoring
   // (~3-4s) ≈ 10-14s, with every brand still grounded in real web-search results.
   try {
+    // If we couldn't resolve a real city/state, a local web search would only
+    // produce garbage queries. Skip straight to the honestly-labeled national
+    // fallback rather than presenting bogus "local" results.
+    if (!locationKnown) {
+      console.warn(`[dealScan] location unknown for school="${school}" — skipping local search, using national fallback`);
+      throw new Error('Unknown athlete market — cannot do local search');
+    }
+
     console.log(`[dealScan] Using web search for brand discovery — model=${MODEL_DEALSCAN} market=${city}, ${state} sport=${sport}`);
 
     const searchSys = 'You find real local businesses via web search. Output ONLY a JSON array, no commentary, no markdown.';
@@ -511,6 +598,31 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
       } catch (_) { /* skip unparseable search result */ }
     }
     console.log(`[dealScan] phase 1 parallel search found ${found.length} candidate businesses`);
+
+    // One broadened retry before giving up on local results entirely.
+    if (found.length < 3) {
+      console.warn(`[dealScan] only ${found.length} candidates — running one broadened retry search`);
+      try {
+        const retryRaw = await oneShotWebSearch(
+          mk(`popular local businesses, restaurants, gyms, car dealerships and shops in ${city}, ${state}`, 'any local business that advertises locally'),
+          searchSys, 800, 4, MODEL_DEALSCAN
+        );
+        const t = (retryRaw || '').replace(/```json/g, '').replace(/```/g, '').trim();
+        const a = t.indexOf('['), b = t.lastIndexOf(']');
+        if (a !== -1 && b > a) {
+          const arr = JSON.parse(t.substring(a, b + 1));
+          for (const it of (Array.isArray(arr) ? arr : [])) {
+            const nm = ((it && it.name) || '').trim();
+            if (!nm) continue;
+            const key = nm.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null });
+          }
+        }
+      } catch (_) { /* retry failed — fall through to the count check */ }
+      console.log(`[dealScan] after retry: ${found.length} candidate businesses`);
+    }
     if (found.length < 3) throw new Error('Too few candidates from parallel search');
 
     // Phase 2 — score + enrich the real businesses (no web search → fast)
@@ -532,13 +644,22 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
     console.log(`[dealScan] phase 2 scored ${parsed.length} brand(s)`);
-    return parsed.map((d, i) => ({
-      ...d,
-      rank: i + 1,
-      estimatedValueLow: d.estimatedValueLow || valLow,
-      estimatedValueHigh: d.estimatedValueHigh || valHigh,
-      suggestedRate: { low: rate.low, high: rate.high },
-    }));
+    // Map real business name -> website domain so we can validate contact emails.
+    const siteByName = new Map();
+    for (const f of found) if (f.name) siteByName.set(f.name.toLowerCase().trim(), f.website);
+    return parsed.map((d, i) => {
+      const site = (d.brand && siteByName.get(d.brand.toLowerCase().trim())) || d.website || null;
+      const validEmail = validateContactEmail(d.contactEmail, site);
+      return {
+        ...d,
+        rank: i + 1,
+        resultType: 'local',
+        contactEmail: validEmail, // null when not verifiable — never fabricated
+        estimatedValueLow: d.estimatedValueLow || valLow,
+        estimatedValueHigh: d.estimatedValueHigh || valHigh,
+        suggestedRate: { low: rate.low, high: rate.high },
+      };
+    });
   } catch (webErr) {
     console.warn('[dealScan] two-phase path failed, falling back to model-knowledge:', webErr.message);
   }
@@ -556,6 +677,8 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
     return parsed.map((d, i) => ({
       ...d,
       rank: i + 1,
+      resultType: 'local',
+      contactEmail: validateContactEmail(d.contactEmail, d.website || null),
       estimatedValueLow: d.estimatedValueLow || valLow,
       estimatedValueHigh: d.estimatedValueHigh || valHigh,
       suggestedRate: { low: rate.low, high: rate.high },
@@ -570,6 +693,10 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
     const fallbackBrands = sportBrands[sport.toLowerCase()] || sportBrands.football;
     return fallbackBrands.map((b,i) => ({
       rank: i+1, brand: b, tier: i < 2 ? 'regional' : 'national',
+      // Honest labeling: these are national brands shown because local search
+      // could not be completed — the UI must NOT present them as local matches.
+      resultType: 'national',
+      fallbackNote: 'National brands — we couldn\'t complete a local search for your market.',
       campaign: `${athlete.name} partnership with ${b}`,
       category: i===0?'equipment':i===1?'nutrition':'apparel',
       dealType: i<2?'ambassador':'reel',
@@ -589,7 +716,7 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
 async function generateDealPitch(athlete, brand) {
   const sport = athlete.sport || 'athlete';
   const school = athlete.school || 'my school';
-  const loc = getSchoolLocation(school);
+  const loc = await getSchoolLocation(school);
   const ig = (athlete.instagram || 0).toLocaleString();
   const tt = (athlete.tiktok || 0).toLocaleString();
   const reach = ((athlete.instagram || 0) + (athlete.tiktok || 0)).toLocaleString();

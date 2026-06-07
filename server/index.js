@@ -1226,7 +1226,7 @@ Include 3 KEY DATA POINTS to quote. Word-for-word scripts only.`;
 });
 
 // ── AI ask (non-streaming, works on all hosting) ──────────────
-app.post('/api/ai/ask', requireAuth, async (req, res) => {
+app.post('/api/ai/ask', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, message } = req.body;
   if (!message) return res.status(400).json({ error: 'message required' });
   const athlete = athleteId ? await store.getAthlete(athleteId) : null;
@@ -1362,7 +1362,7 @@ app.post('/api/ai/compliance', requireAuth, aiLimiter, async (req, res) => {
 });
 
 // -- Player URL Fetch --
-app.post('/api/ai/player-fetch', requireAuth, async (req, res) => {
+app.post('/api/ai/player-fetch', requireAuth, aiLimiter, async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'url required' });
   try {
@@ -2485,7 +2485,7 @@ app.post('/api/admin/cleanup-duplicates', requireAuth, async (req, res) => {
 });
 
 // ── Help AI ──────────────────────────────────────────────────
-app.post('/api/ai/help', requireAuth, async (req, res) => {
+app.post('/api/ai/help', requireAuth, aiLimiter, async (req, res) => {
   const { messages, system } = req.body;
   if (!messages) return res.status(400).json({ error: 'messages required' });
   try {
@@ -2602,7 +2602,12 @@ app.get('/athletes', (req, res) => {
 // ATHLETE SELF-SERVE AUTH ROUTES (JWT-based, separate from session auth)
 // ══════════════════════════════════════════════════════════════════
 const jwt = require('jsonwebtoken');
-const ATHLETE_JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'nildash-athlete-secret';
+// Fail closed: never fall back to a hardcoded secret (a known fallback lets
+// anyone forge athlete tokens). Require a real secret from the environment.
+const ATHLETE_JWT_SECRET = process.env.ATHLETE_JWT_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET;
+if (!ATHLETE_JWT_SECRET) {
+  throw new Error('ATHLETE_JWT_SECRET (or JWT_SECRET / SESSION_SECRET) must be set — refusing to start with an insecure default athlete-auth secret.');
+}
 
 // Middleware: verify athlete JWT from Authorization: Bearer header
 function verifyAthleteToken(req, res, next) {
@@ -2876,8 +2881,8 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
     if (!emailRx.test(normalizedEmail))
       return res.status(400).json({ error: 'Please enter a valid email address.' });
 
-    // Check if email already registered
-    const existing = await store.pool.query('SELECT id FROM athletes WHERE email = $1', [normalizedEmail]);
+    // Check if email already registered (case-insensitive)
+    const existing = await store.pool.query('SELECT id FROM athletes WHERE LOWER(email) = $1', [normalizedEmail]);
     if (existing.rows.length)
       return res.status(400).json({ error: 'An account with this email already exists. Try logging in.' });
 
@@ -2888,25 +2893,32 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
     const verifyExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
     const athleteId = 'self-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
 
-    await store.pool.query(
-      `INSERT INTO athletes (id, agent_id, data, email, password_hash,
-         athlete_type, email_verified, email_verify_token, email_verify_expires,
-         subscription_status, instagram_followers, tiktok_followers, twitter_followers,
-         onboarding_complete, created_at, updated_at)
-       VALUES ($1, NULL, $2, $3, $4, 'self_managed', FALSE, $5, $6,
-               'inactive', $7, $8, $9, FALSE, NOW(), NOW())`,
-      [
-        athleteId,
-        JSON.stringify({ name, sport, school, position: position || null }),
-        normalizedEmail,
-        passwordHash,
-        verifyToken,
-        verifyExpires,
-        instagram_followers ? parseInt(instagram_followers) : null,
-        tiktok_followers ? parseInt(tiktok_followers) : null,
-        twitter_followers ? parseInt(twitter_followers) : null,
-      ]
-    );
+    try {
+      await store.pool.query(
+        `INSERT INTO athletes (id, agent_id, data, email, password_hash,
+           athlete_type, email_verified, email_verify_token, email_verify_expires,
+           subscription_status, instagram_followers, tiktok_followers, twitter_followers,
+           onboarding_complete, created_at, updated_at)
+         VALUES ($1, NULL, $2, $3, $4, 'self_managed', FALSE, $5, $6,
+                 'inactive', $7, $8, $9, FALSE, NOW(), NOW())`,
+        [
+          athleteId,
+          JSON.stringify({ name, sport, school, position: position || null }),
+          normalizedEmail,
+          passwordHash,
+          verifyToken,
+          verifyExpires,
+          instagram_followers ? parseInt(instagram_followers) : null,
+          tiktok_followers ? parseInt(tiktok_followers) : null,
+          twitter_followers ? parseInt(twitter_followers) : null,
+        ]
+      );
+    } catch (insErr) {
+      // Unique-violation = a concurrent signup won the race for this email.
+      if (insErr.code === '23505')
+        return res.status(400).json({ error: 'An account with this email already exists. Try logging in.' });
+      throw insErr;
+    }
 
     const appUrl = process.env.APP_URL || 'https://mynildash.com';
     const verifyUrl = `${appUrl}/api/athlete/verify-email?token=${verifyToken}`;
@@ -2934,7 +2946,7 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
               Verify Email &amp; Continue →
             </a>
             <p style="color:#6B7280;font-size:12px;margin-top:24px">
-              This link expires in 24 hours. If you didn't sign up for NILDash, you can safely ignore this email.
+              This link expires in 7 days. If you didn't sign up for NILDash, you can safely ignore this email.
             </p>
           </div>
         `,
@@ -2954,6 +2966,72 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
   } catch (e) {
     console.error('[self-signup]', e.message, e.stack);
     res.status(500).json({ error: 'Signup failed. Please try again.' });
+  }
+});
+
+// POST /api/athlete/resend-verification — re-issue a verification email
+// (e.g. the original Resend send failed). Always responds 200 to avoid leaking
+// which emails are registered.
+app.post('/api/athlete/resend-verification', authLimiter, async (req, res) => {
+  try {
+    const email = (req.body.email || '').toLowerCase().trim();
+    if (!email) return res.status(400).json({ error: 'Email is required.' });
+
+    const r = await store.pool.query(
+      `SELECT id, data, email, email_verified FROM athletes WHERE LOWER(email) = $1`, [email]);
+    const athlete = r.rows[0];
+
+    // Only act for an existing, still-unverified account. Respond identically
+    // either way so attackers can't enumerate accounts.
+    if (athlete && !athlete.email_verified) {
+      const crypto = require('crypto');
+      const verifyToken = crypto.randomBytes(32).toString('hex');
+      const verifyExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      await store.pool.query(
+        `UPDATE athletes SET email_verify_token=$1, email_verify_expires=$2, updated_at=NOW() WHERE id=$3`,
+        [verifyToken, verifyExpires, athlete.id]
+      );
+
+      const appUrl = process.env.APP_URL || 'https://mynildash.com';
+      const verifyUrl = `${appUrl}/api/athlete/verify-email?token=${verifyToken}`;
+      const name = (athlete.data && athlete.data.name) ? athlete.data.name : 'there';
+      console.log(`[resend-verification] verify-url athlete=${athlete.id} email=${email} url=${verifyUrl}`);
+
+      try {
+        await resend.emails.send({
+          from: 'NILDash <noreply@mynildash.com>',
+          to: email,
+          subject: 'Verify your NILDash account',
+          html: `
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
+              <div style="font-size:22px;font-weight:800;letter-spacing:-0.5px;color:#0A0E1A;margin-bottom:8px">
+                NIL<span style="color:#C8FF00">DASH</span>
+              </div>
+              <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;color:#0A0E1A">Verify your email to get started</h2>
+              <p style="color:#374151;font-size:15px;line-height:1.6;margin-bottom:24px">
+                Hi ${String(name).split(' ')[0]}, here's your verification link.
+                Click below to verify your email and set up your subscription.
+              </p>
+              <a href="${verifyUrl}"
+                 style="display:inline-block;background:#C8FF00;color:#0A0E1A;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px">
+                Verify Email &amp; Continue →
+              </a>
+              <p style="color:#6B7280;font-size:12px;margin-top:24px">
+                This link expires in 7 days. If you didn't sign up for NILDash, you can safely ignore this email.
+              </p>
+            </div>
+          `,
+        });
+      } catch (emailErr) {
+        console.error('[resend-verification] Email send failed:', emailErr.message);
+        console.log(`[resend-verification] FALLBACK verify-url (email failed): ${verifyUrl}`);
+      }
+    }
+
+    res.json({ ok: true, message: 'If that account exists and is unverified, a new verification email is on its way.' });
+  } catch (e) {
+    console.error('[resend-verification]', e.message);
+    res.status(500).json({ error: 'Could not resend verification. Please try again.' });
   }
 });
 
@@ -3010,7 +3088,7 @@ app.get('/api/athlete/verify-email', async (req, res) => {
 
     if (new Date(athlete.email_verify_expires) < new Date()) {
       console.log(`[verify] token expired at ${athlete.email_verify_expires}`);
-      return res.status(400).send('This verification link has expired (24 hours). Please sign up again.');
+      return res.status(400).send('This verification link has expired (7 days). Please sign up again.');
     }
 
     // ── 2. Mark email verified ─────────────────────────────────────────────────
@@ -3274,9 +3352,10 @@ app.post('/api/athlete/write-outreach', verifyAthleteToken, aiLimiter, async (re
   try {
     const { brand, category, contact, goal } = req.body;
     if (!brand) return res.status(400).json({ error: 'brand is required' });
-    const athR = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [req.athlete.id]);
-    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
-    const a = { ...athR.rows[0].data, id: athR.rows[0].id };
+    // Use the canonical loader so dedicated follower columns (self-signup
+    // athletes) are merged — building from data JSON alone reported 0 followers.
+    const a = await _loadAthleteObjForAI(req.athlete.id);
+    if (!a) return res.status(404).json({ error: 'Athlete not found' });
     const goalStr = goal ? `$${Number(goal).toLocaleString()}` : 'a fair NIL rate';
     const contactStr = contact ? `Contact: ${contact}` : '';
     const prompt = `Write sponsorship outreach for a college athlete targeting a brand deal.
@@ -4160,9 +4239,9 @@ app.post('/api/athlete/rate-calculator', verifyAthleteToken, async (req, res) =>
 app.post('/api/athlete/rate-talking-points', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const { deliverable_type } = req.body;
-    const athR = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [req.athlete.id]);
-    if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
-    const a = { ...athR.rows[0].data, id: athR.rows[0].id };
+    // Canonical loader merges dedicated follower columns (self-signup athletes).
+    const a = await _loadAthleteObjForAI(req.athlete.id);
+    if (!a) return res.status(404).json({ error: 'Athlete not found' });
     const { nilViewVal, cleanRange } = require('./benchmarks');
     const rate = nilViewVal(a, deliverable_type || 'ig-reel');
     const cleaned = cleanRange(rate.low, rate.high);
@@ -4184,70 +4263,9 @@ Be direct and practical. Write in first-person so the athlete can say it directl
   } catch (e) { console.error('[athlete/rate-talking-points]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/team-match — find best programs for athlete (transfer/recruitment)
-app.post('/api/athlete/team-match', verifyAthleteToken, aiLimiter, async (req, res) => {
-  try {
-    const { conference, min_nil, sort_by } = req.body;
-    const athR = await store.pool.query(
-      `SELECT a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'position' as position,
-              a.data->>'school' as school, a.data->>'year' as year FROM athletes a WHERE a.id = $1`,
-      [req.athlete.id]
-    );
-    const ath = athR.rows[0] || {};
-    const confStr = conference && conference !== 'any' ? `Conference preference: ${conference}` : 'Any conference';
-    const nilStr = min_nil && parseInt(min_nil) > 0 ? `Minimum NIL: $${parseInt(min_nil).toLocaleString()}/year` : 'Any NIL level';
-    const sortStr = sort_by === 'nil' ? 'Sort results by NIL value (highest first)' : sort_by === 'exposure' ? 'Sort by pro exposure / draft potential' : 'Sort by overall fit score (highest first)';
-
-    // Revenue share: House v. NCAA settlement $20.5M pool allocation by sport
-    const sportRevenueShare = {
-      football: 0.75, 'mens basketball': 0.15, "men's basketball": 0.15,
-      basketball: 0.10, "women's basketball": 0.07, 'womens basketball': 0.07,
-      baseball: 0.008, softball: 0.008, soccer: 0.007, volleyball: 0.007,
-      swimming: 0.005, track: 0.005, lacrosse: 0.005, gymnastics: 0.005,
-      wrestling: 0.004, tennis: 0.004, golf: 0.003, cross: 0.003,
-    };
-    const sportKey = (ath.sport || '').toLowerCase();
-    const sportPct = Object.entries(sportRevenueShare).find(([k]) => sportKey.includes(k))?.[1] || 0.008;
-    const totalPool = 20500000;
-    const sportPool = Math.round(totalPool * sportPct);
-
-    const prompt = `You are an NIL transfer portal analyst with deep knowledge of 2025-2026 college athletics.
-
-ATHLETE: ${ath.name} | Sport: ${ath.sport} | Position: ${ath.position} | Year: ${ath.year}
-CURRENT SCHOOL: ${ath.school}
-FILTERS: ${confStr} | ${nilStr}
-SORT: ${sortStr}
-
-Find 8 real college programs that would be a strong transfer destination for this ${ath.sport} ${ath.position}.
-
-For each program include:
-1. Is this program actively looking for a ${ath.position} in the 2025-2026 transfer portal? Give specific reason (graduation loss, depth chart gap, etc.)
-2. Revenue share estimate — the House v. NCAA settlement distributes ~$${sportPool.toLocaleString()} annually for ${ath.sport} across the program (based on $20.5M total pool). What is the per-athlete estimate based on typical roster size?
-3. NIL collective activity and market for this position
-
-Return ONLY a valid JSON array, no markdown:
-[{
-  "school": "School Name",
-  "conference": "Conference Name",
-  "location": "City, State",
-  "nil_rating": "High/Medium/Low",
-  "nil_estimate": "$X,000–$X,000/year",
-  "revenue_share_est": "$X,000–$X,000/year",
-  "revenue_share_label": "Estimated (House Settlement)",
-  "why_fit": "Two specific sentences about program fit and NIL opportunity",
-  "position_need": "Why they need this position (e.g. 'Lost starter to graduation, have open roster spot')",
-  "portal_status": "Actively recruiting|Likely recruiting|Unknown",
-  "match_score": 85
-}]`;
-
-    const raw = await ai.oneShot(prompt, 'You are an NIL transfer portal analyst with comprehensive knowledge of 2025-2026 college sports transfer needs, House settlement revenue sharing, and NIL collective activity by school. Return only valid JSON arrays.');
-    let programs = [];
-    try { const m = raw.match(/\[[\s\S]*\]/); if (m) programs = JSON.parse(m[0]); } catch(e) {}
-    if (sort_by === 'nil') programs.sort((a,b) => (b.match_score||0) - (a.match_score||0));
-    console.log(`[athlete/team-match] athlete=${req.athlete.id} sport=${ath.sport} position=${ath.position} programs=${programs.length}`);
-    res.json({ programs, sportPool });
-  } catch (e) { console.error('[athlete/team-match]', e.message); res.status(500).json({ error: e.message }); }
-});
+// NOTE: POST /api/athlete/team-match removed — the athlete-portal Team Match
+// view was hidden (display:none) and unreachable. The agent-portal Team Match
+// (/api/ai/team-match) remains active and untouched.
 
 // POST /api/athlete/marketing/content-ideas
 app.post('/api/athlete/marketing/content-ideas', verifyAthleteToken, aiLimiter, async (req, res) => {
@@ -4702,15 +4720,28 @@ app.put('/api/athlete/profile', verifyAthleteToken, async (req, res) => {
        WHERE id=$5`,
       [phone||null, instagram_handle||null, tiktok_handle||null, twitter_handle||null, req.athlete.id]
     );
-    // Update JSONB data fields for follower counts and bio
-    const updates = {};
-    if (instagram_followers !== undefined) updates.instagram = parseInt(instagram_followers) || 0;
-    if (tiktok_followers !== undefined) updates.tiktok = parseInt(tiktok_followers) || 0;
-    if (bio !== undefined) updates.bio = bio;
-    for (const [key, val] of Object.entries(updates)) {
+    // Persist follower counts to the dedicated columns (canonical store for
+    // self-signup athletes) so edits survive reload and are visible to every
+    // read path. Also mirror into the JSONB data so agent-managed reads stay
+    // consistent.
+    if (instagram_followers !== undefined) {
+      const v = parseInt(instagram_followers) || 0;
       await store.pool.query(
-        `UPDATE athletes SET data = jsonb_set(COALESCE(data,'{}'), '{${key}}', $1::jsonb), updated_at=NOW() WHERE id=$2`,
-        [JSON.stringify(val), req.athlete.id]
+        `UPDATE athletes SET instagram_followers=$1, data = jsonb_set(COALESCE(data,'{}'), '{instagram}', $2::jsonb), updated_at=NOW() WHERE id=$3`,
+        [v, JSON.stringify(v), req.athlete.id]
+      );
+    }
+    if (tiktok_followers !== undefined) {
+      const v = parseInt(tiktok_followers) || 0;
+      await store.pool.query(
+        `UPDATE athletes SET tiktok_followers=$1, data = jsonb_set(COALESCE(data,'{}'), '{tiktok}', $2::jsonb), updated_at=NOW() WHERE id=$3`,
+        [v, JSON.stringify(v), req.athlete.id]
+      );
+    }
+    if (bio !== undefined) {
+      await store.pool.query(
+        `UPDATE athletes SET data = jsonb_set(COALESCE(data,'{}'), '{bio}', $1::jsonb), updated_at=NOW() WHERE id=$2`,
+        [JSON.stringify(bio), req.athlete.id]
       );
     }
     console.log(`[athlete/profile] updated athlete=${req.athlete.id}`);
@@ -7656,10 +7687,17 @@ app.listen(PORT, async () => {
     const path = require('path');
     const migDir = path.join(__dirname, 'migrations');
     const files  = fs.readdirSync(migDir).filter(f => f.endsWith('.sql')).sort();
+    // Continue-on-error: a single failing migration must NEVER abort the loop
+    // and block every later migration (this previously hid migrations 007-011
+    // behind the is_dismissed index failure).
     for (const file of files) {
-      const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
-      await store.pool.query(sql);
-      console.log(`[migrations] ✅ ${file}`);
+      try {
+        const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
+        await store.pool.query(sql);
+        console.log(`[migrations] ✅ ${file}`);
+      } catch (mErr) {
+        console.warn(`[migrations] ⚠️  ${file} failed (non-fatal, continuing):`, mErr.message);
+      }
     }
   } catch (err) {
     console.warn('[migrations] Migration run failed (non-fatal):', err.message);

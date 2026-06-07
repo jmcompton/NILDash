@@ -302,7 +302,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="nav-item" data-view="command" onclick="showView('command',this)">AI Command</div>
     <div class="nav-item" data-view="dealscan" onclick="showView('dealscan',this)">Deal Scan</div>
     <div class="nav-item" data-view="rate" onclick="showView('rate',this)">Rate Calculator</div>
-    <div class="nav-item" data-view="team-match" onclick="showView('team-match',this)" style="display:none">Team Match</div>
 
     <div class="nav-section-label">Outreach</div>
     <div class="nav-item" data-view="outreach" onclick="showView('outreach',this)">Outreach</div>
@@ -631,57 +630,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <div id="rate-talking-points-body" style="font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap"></div>
         </div>
       </div>
-    </div>
-  </div>
-
-  <!-- ════ VIEW: TEAM MATCH ════ -->
-  <div class="view" id="view-team-match">
-    <div class="page-title">FIND YOUR BEST PROGRAMS</div>
-    <div class="page-sub">Transfer Portal Intelligence — scan for the best NIL transfer destinations ranked by fit score, NIL value, and pro exposure.</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px">
-      <div>
-        <label class="form-label-sm">Conference</label>
-        <select class="select-sm" id="tm-conf">
-          <option value="any">Any conference</option>
-          <optgroup label="Power 4">
-            <option value="SEC">SEC</option><option value="Big Ten">Big Ten</option><option value="ACC">ACC</option><option value="Big 12">Big 12</option>
-          </optgroup>
-          <optgroup label="High Major">
-            <option value="AAC">AAC</option><option value="Mountain West">Mountain West</option><option value="Pac-12">Pac-12</option><option value="Independent">Independent</option>
-          </optgroup>
-          <optgroup label="Mid Major">
-            <option value="Sun Belt">Sun Belt</option><option value="MAC">MAC</option><option value="CUSA">Conference USA</option><option value="Big East">Big East</option><option value="Atlantic 10">Atlantic 10</option><option value="MVC">Missouri Valley</option><option value="WCC">West Coast</option><option value="SoCon">Southern Conference</option><option value="Big South">Big South</option><option value="OVC">Ohio Valley</option><option value="Ivy">Ivy League</option>
-          </optgroup>
-          <optgroup label="FCS">
-            <option value="MEAC">MEAC</option><option value="SWAC">SWAC</option><option value="CAA">CAA</option><option value="Big Sky">Big Sky</option><option value="Pioneer">Pioneer League</option>
-          </optgroup>
-        </select>
-      </div>
-      <div>
-        <label class="form-label-sm">Min NIL / year</label>
-        <select class="select-sm" id="tm-minnil">
-          <option value="0" selected>Any amount</option>
-          <option value="100000">$100K+</option><option value="250000">$250K+</option><option value="500000">$500K+</option><option value="1000000">$1M+</option>
-        </select>
-      </div>
-      <div>
-        <label class="form-label-sm">Sort by</label>
-        <select class="select-sm" id="tm-sort">
-          <option value="fit">Fit score</option><option value="nil">NIL value</option><option value="exposure">Pro exposure</option>
-        </select>
-      </div>
-      <div style="display:flex;align-items:flex-end">
-        <button class="run-btn" style="width:100%;justify-content:center" id="tm-btn" onclick="runTeamMatch()">Scan Transfer Portal →</button>
-      </div>
-    </div>
-    <div id="tm-summary" style="display:none"></div>
-    <div id="tm-results"></div>
-    <div class="ai-block" id="tm-playbook-block">
-      <div class="ai-header">
-        <div class="spinner ds-spinner" id="tm-spinner" style="display:none;width:12px;height:12px;border-width:1.5px"></div>
-        <div class="ai-label" id="tm-playbook-label">Transfer Playbook</div>
-      </div>
-      <div class="ai-content" id="tm-playbook-text"></div>
     </div>
   </div>
 
@@ -1388,7 +1336,7 @@ var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov',
 var PIPELINE_STAGES = ['Prospect','Contacted','Negotiating','Signed','Completed','Lost'];
 var VIEW_TITLES = {
   home:'HOME', command:'AI COMMAND', dealscan:'DEAL SCAN', rate:'RATE CALCULATOR',
-  'team-match':'FIND YOUR BEST PROGRAMS', outreach:'OUTREACH', marketing:'MARKETING TOOLS',
+  outreach:'OUTREACH', marketing:'MARKETING TOOLS',
   mediakit:'MEDIA KIT',
   calendar:'CALENDAR', pipeline:'BRAND TRACKER', compliance:'NIL COMPLIANCE',
   email:'EMAIL', profile:'MY PROFILE'
@@ -2126,6 +2074,15 @@ function renderAthleteDealsTable(recs) {
   window._athleteDealScanResults = recs;
   label.style.display = 'block';
 
+  // Honest labeling: if these are national fallback results (local search
+  // couldn't complete), show a clear banner instead of implying they're local.
+  var isNational = recs[0] && recs[0].resultType === 'national';
+  var nationalBanner = isNational
+    ? '<div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:12px;color:#f59e0b;line-height:1.5">' +
+        '<strong>National brands shown.</strong> ' + esc(recs[0].fallbackNote || 'We couldn\'t complete a local search for your market, so these are national brands with NIL programs — not local opportunities.') +
+      '</div>'
+    : '';
+
   var catColors = {
     'local':'rgba(132,204,22,0.15);color:#84CC16','auto':'rgba(59,130,246,0.15);color:#60a5fa',
     'gym':'rgba(239,68,68,0.15);color:#f87171','food':'rgba(245,158,11,0.15);color:#f59e0b',
@@ -2135,7 +2092,7 @@ function renderAthleteDealsTable(recs) {
     'training':'rgba(245,158,11,0.15);color:#f59e0b'
   };
 
-  container.innerHTML = recs.map(function(d, i) {
+  container.innerHTML = nationalBanner + recs.map(function(d, i) {
     var brand = d.brand || d.brand_name || 'Brand';
     var score = d.fitScore || 80;
     var scoreColor = score >= 85 ? '#84CC16' : score >= 70 ? '#f59e0b' : 'var(--muted)';
@@ -2796,88 +2753,6 @@ function shareRateWithAgent() {
 // ══════════════════════════════════════════════════════════════════
 // TEAM MATCH
 // ══════════════════════════════════════════════════════════════════
-async function runTeamMatch() {
-  var btn = document.getElementById('tm-btn');
-  btn.disabled = true; btn.textContent = 'Scanning…';
-  var results = document.getElementById('tm-results');
-  var summary = document.getElementById('tm-summary');
-  var playbookBlock = document.getElementById('tm-playbook-block');
-  results.innerHTML = '<div class="empty-state"><div class="spinner"></div><div class="empty-text" style="margin-top:12px">Finding best programs for you…</div></div>';
-  if (summary) summary.style.display = 'none';
-  if (playbookBlock) playbookBlock.classList.remove('visible');
-
-  try {
-    var r = await fetch('/api/athlete/team-match', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
-      body: JSON.stringify({
-        conference: document.getElementById('tm-conf').value,
-        min_nil: document.getElementById('tm-minnil').value,
-        sort_by: document.getElementById('tm-sort').value
-      })
-    });
-    var data = await r.json();
-    if (!r.ok || data.error) {
-      results.innerHTML = '<div class="empty-state"><div class="empty-text">Error: ' + esc(data.error || 'Match failed') + '</div></div>';
-      return;
-    }
-    var programs = data.programs || data.matches || [];
-    if (!programs.length) {
-      results.innerHTML = '<div class="empty-state"><div class="empty-text">No programs found. Try different filters.</div></div>';
-      return;
-    }
-    // Summary bar
-    if (summary) {
-      summary.style.display = 'block';
-      summary.innerHTML = '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 14px;margin-bottom:16px;font-size:11px;color:var(--muted)">' +
-        'Found <strong style="color:var(--text)">' + programs.length + ' programs</strong> matching your criteria. ' +
-        'Sorted by <strong style="color:var(--text)">' + (document.getElementById('tm-sort').options[document.getElementById('tm-sort').selectedIndex].text) + '</strong>.' +
-      '</div>';
-    }
-    results.innerHTML = '<div class="grid-3" style="margin-top:0">' +
-      programs.map(function(p,i) {
-        var score = p.match_score || p.fit_score;
-        var nil_est = p.nil_estimate || p.nil_rating || '';
-        var rev_share = p.revenue_share_est || '';
-        var rev_label = p.revenue_share_label || 'Estimated';
-        var portalActive = p.portal_status && /actively/i.test(p.portal_status);
-        var posNeed = p.position_need || '';
-        return '<div class="team-card">' +
-          (i < 3 ? '<div style="font-size:9px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">#' + (i+1) + ' Match</div>' : '') +
-          '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px;flex-wrap:wrap">' +
-            '<div class="team-name" style="margin-bottom:0">' + esc(p.school || p.name || '') + '</div>' +
-            (portalActive ? '<span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(132,204,22,0.15);color:var(--accent);font-weight:700;flex-shrink:0;align-self:center">RECRUITING</span>' : '') +
-          '</div>' +
-          '<div class="team-conference">' + esc(p.conference || '') + (p.location ? ' · ' + esc(p.location) : '') + '</div>' +
-          (posNeed ? '<div style="font-size:10px;padding:5px 8px;border-radius:4px;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);color:var(--accent);margin-top:6px;line-height:1.4">Looking for ' + esc(posNeed) + '</div>' : '') +
-          (nil_est ? '<div style="margin-top:8px;display:flex;align-items:center;gap:5px"><svg width="11" height="11" fill="none" stroke="#34d399" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg><span style="font-size:11px;color:#34d399;font-weight:600">NIL: ' + esc(nil_est) + '</span></div>' : '') +
-          (rev_share ? '<div style="margin-top:4px;display:flex;align-items:center;gap:5px"><svg width="11" height="11" fill="none" stroke="#60a5fa" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><span style="font-size:10px;color:#60a5fa">Rev Share: ' + esc(rev_share) + '</span><span style="font-size:9px;color:var(--muted)">(' + esc(rev_label) + ')</span></div>' : '') +
-          '<div class="team-reason" style="margin-top:8px;font-size:11px;color:var(--muted);line-height:1.5">' + esc(p.why_fit || p.reason || '') + '</div>' +
-          (score ? '<div class="team-fit">Fit: ' + esc(String(score)) + '%</div>' : '') +
-        '</div>';
-      }).join('') + '</div>';
-
-    // Show AI playbook block
-    if (playbookBlock) {
-      playbookBlock.classList.add('visible');
-      var playbookLabel = document.getElementById('tm-playbook-label');
-      var playbookText = document.getElementById('tm-playbook-text');
-      if (playbookText) {
-        playbookText.textContent = 'Based on your top matches, here are your transfer strategy recommendations:\n\n' +
-          '1. Lead with your NIL value when contacting programs — you have leverage.\n' +
-          '2. Research each program\'s recent NIL collective activity before reaching out.\n' +
-          '3. Request a position-specific meeting with the coaching staff first.\n' +
-          '4. Ask about roster depth charts to understand your path to playing time.\n' +
-          '5. Compare academic programs and campus culture alongside athletic fit.';
-      }
-    }
-  } catch(e) {
-    results.innerHTML = '<div class="empty-state"><div class="empty-text">Network error. Please try again.</div></div>';
-  } finally {
-    btn.disabled = false; btn.textContent = 'Scan Transfer Portal →';
-  }
-}
-
 // ══════════════════════════════════════════════════════════════════
 // OUTREACH — WRITE (AI multi-channel)
 // ══════════════════════════════════════════════════════════════════

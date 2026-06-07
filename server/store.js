@@ -259,6 +259,13 @@ async function init() {
     await pool.query(sql).catch(e => console.warn('[migration]', e.message));
   }
 
+  // Enforce one account per email (case-insensitive). Partial index so
+  // agent-managed athletes without an email are unaffected. If existing
+  // duplicates block creation, log and continue (handled at signup too).
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_athletes_email_unique ON athletes (LOWER(email)) WHERE email IS NOT NULL`
+  ).catch(e => console.warn('[migration] athletes email unique index:', e.message));
+
   // New invite tokens table (replaces/supplements athlete_invites for new flow)
   // NOTE: No FK constraint on athlete_id to avoid silent failures on old DBs
   await pool.query(`
@@ -648,17 +655,13 @@ async function init() {
       created_at      TIMESTAMPTZ DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS university_daily_actions (
-      id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      university_id   TEXT NOT NULL,
-      action_type     TEXT NOT NULL,
-      athlete_id      TEXT,
-      priority        TEXT DEFAULT 'medium',
-      message         TEXT,
-      metadata        JSONB DEFAULT '{}',
-      resolved        BOOLEAN DEFAULT FALSE,
-      created_at      TIMESTAMPTZ DEFAULT NOW()
-    );
+    -- NOTE: university_daily_actions is owned by migration 006
+    -- (server/migrations/006_nil_director_dashboard.sql). It was previously
+    -- duplicated here with a conflicting legacy schema (priority TEXT, message,
+    -- resolved) which made migration 006's CREATE TABLE IF NOT EXISTS a no-op
+    -- and caused the is_dismissed index to fail on every deploy. Removed so the
+    -- migration's canonical schema (priority INTEGER, title, detail,
+    -- is_dismissed, ...) is the single source of truth.
 
     CREATE TABLE IF NOT EXISTS ingestion_events (
       id              TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
