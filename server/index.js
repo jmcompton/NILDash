@@ -2812,7 +2812,8 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
               a.data->>'school' as school, a.data->>'position' as position,
               a.data->>'followers_ig' as followers_ig, a.data->>'followers_tiktok' as followers_tiktok,
               u.name as agent_name, NULL::TEXT as agency_name,
-              ai.visibility
+              ai.visibility,
+              (SELECT slug FROM media_kits WHERE athlete_id = a.id AND slug IS NOT NULL LIMIT 1) as media_kit_slug
        FROM athletes a
        LEFT JOIN users u ON a.agent_id = u.id
        LEFT JOIN athlete_invites ai ON ai.athlete_id = a.id
@@ -2856,6 +2857,7 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
       visibility,
       deliverables: deliverables.rows,
       onboarding_state: ath.onboarding_state || {},
+      media_kit_slug: ath.media_kit_slug || null,
     });
   } catch (e) {
     console.error('[athlete/me]', e.message);
@@ -4563,13 +4565,18 @@ async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
     console.log(`[athlete/email] sent via Gmail as ${athRow.gmail_address} to=${to} subject="${subject}" athlete=${athleteId}`);
   } else {
     const fromDisplay = athleteName ? `${athleteName} via NILDash` : 'NILDash Athlete';
+    // Escape, then auto-linkify any http(s) URL (e.g. the appended Media Kit
+    // link) so it renders as a clickable link in the HTML email. The Gmail
+    // path sends text/plain, where Gmail auto-links bare URLs on its own.
+    const _escHtml = body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const _linkedHtml = _escHtml.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" style="color:#2563eb">$1</a>');
     const emailPayload = {
       from:    `${fromDisplay} <noreply@mynildash.com>`,
       replyTo: athleteEmail || undefined,
       to:      [to],
       subject,
       text: body,
-      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</div>`,
+      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${_linkedHtml.replace(/\n/g,'<br>')}</div>`,
     };
     if (agentEmail) emailPayload.cc = [agentEmail];
     await resend.emails.send(emailPayload);

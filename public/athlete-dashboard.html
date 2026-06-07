@@ -614,7 +614,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:5px">Subject</label>
       <input id="pitch-subject" type="text" style="width:100%;padding:9px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'DM Sans',sans-serif;margin-bottom:12px">
       <label style="display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:5px">Message</label>
-      <textarea id="pitch-body" rows="11" style="width:100%;padding:11px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;line-height:1.55;font-family:'DM Sans',sans-serif;resize:vertical;margin-bottom:16px"></textarea>
+      <textarea id="pitch-body" rows="11" style="width:100%;padding:11px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;line-height:1.55;font-family:'DM Sans',sans-serif;resize:vertical;margin-bottom:12px"></textarea>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+        <input type="checkbox" id="pitch-include-mk" onchange="mkToggleFor('pitch-body','pitch-include-mk')" style="width:auto;cursor:pointer">
+        <label for="pitch-include-mk" style="margin:0;cursor:pointer;font-size:12px;color:var(--muted)">Include my Media Kit link</label>
+        <span id="pitch-mk-hint" style="display:none;font-size:11px;color:var(--muted)">— <a href="#" onclick="goToMediaKit(event)" style="color:#60a5fa;text-decoration:none">Build your Media Kit to include it</a></span>
+      </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <button id="pitch-send-btn" onclick="submitPitch()" style="flex:1;min-width:160px;padding:12px;background:#84CC16;color:#0A0E1A;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">Send Now</button>
         <button onclick="copyPitchToClipboard()" style="padding:12px 16px;background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif">Copy Pitch</button>
@@ -1203,6 +1208,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
           <input type="checkbox" id="email-cc-agent" style="width:auto;cursor:pointer">
           <label class="form-label" style="margin:0;cursor:pointer" for="email-cc-agent">CC my agent on this email</label>
         </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <input type="checkbox" id="email-include-mk" onchange="mkToggleFor('email-body','email-include-mk')" style="width:auto;cursor:pointer">
+          <label class="form-label" style="margin:0;cursor:pointer" for="email-include-mk">Include my Media Kit link</label>
+          <span id="email-mk-hint" style="display:none;font-size:11px;color:var(--muted)">— <a href="#" onclick="goToMediaKit(event)" style="color:#60a5fa;text-decoration:none">Build your Media Kit to include it</a></span>
+        </div>
         <div style="display:flex;gap:10px;align-items:center">
           <button class="btn btn-ghost btn-sm" id="email-draft-btn" onclick="aiDraftEmail()">AI Draft</button>
           <button class="btn btn-primary" id="email-send-btn" onclick="sendEmail()">Send Email</button>
@@ -1375,6 +1385,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     </div>
     <div class="form-group"><label class="form-label">Why is this brand a good fit?</label><input type="text" class="form-input" id="mo-relevance" placeholder="e.g. I use their products every day and my audience aligns"></div>
     <div class="form-group"><label class="form-label">Message *</label><textarea class="form-textarea" id="mo-message" placeholder="Your outreach message…"></textarea></div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <input type="checkbox" id="mo-include-mk" onchange="mkToggleFor('mo-message','mo-include-mk')" style="width:auto;cursor:pointer">
+      <label for="mo-include-mk" style="margin:0;cursor:pointer;font-size:12px;color:var(--muted)">Include my Media Kit link</label>
+      <span id="mo-mk-hint" style="display:none;font-size:11px;color:var(--muted)">— <a href="#" onclick="goToMediaKit(event)" style="color:#60a5fa;text-decoration:none">Build your Media Kit to include it</a></span>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-ghost btn-sm" id="mo-draft-btn" onclick="aiDraftOutreachModal()">AI Draft</button>
       <button class="btn btn-ghost" onclick="document.getElementById('outreach-modal').style.display='none'">Cancel</button>
@@ -1481,7 +1496,7 @@ function showView(id, navBtn) {
   if (id === 'calendar')    { AthlCal.initLabel(); AthlCal.reload(); initGCalStatus(); }
   if (id === 'pipeline')    loadDeals();
   if (id === 'compliance')  initAthleteCompliance();
-  if (id === 'email')       { initGmailStatus().then(function(){ loadEmailHistory(); }); }
+  if (id === 'email')       { initGmailStatus().then(function(){ loadEmailHistory(); }); mkSetupToggle('email-include-mk', 'email-mk-hint', 'email-body'); }
   if (id === 'profile')     loadProfileForm();
   if (id === 'rate')        initRateCalculator();
   if (id === 'dealscan')    loadDealPipeline();
@@ -2680,6 +2695,61 @@ async function togglePitchPreview(i) {
   } catch(e) { el.innerHTML = 'Connection error.'; }
 }
 
+// ── Media Kit link helpers (shared by pitch / outreach / email) ──────
+// The athlete's public media-kit URL, available globally from /api/athlete/me
+// (media_kit_slug) or, as a fallback, from the Media Kit tab state (mkState).
+function athMediaKitUrl() {
+  var slug = (athleteProfile && athleteProfile.media_kit_slug) ||
+             (typeof mkState !== 'undefined' && mkState && mkState.slug) || null;
+  return slug ? (window.location.origin + '/media-kit/' + slug) : null;
+}
+function athHasMediaKit() { return !!athMediaKitUrl(); }
+
+// The exact, natural line we append. Used as the marker for strip/re-sync so
+// toggling never leaves a duplicate or a stale line behind.
+var MK_LINK_PREFIX = "Here's my media kit if you want the full picture: ";
+
+// Remove any line we previously appended (matched by the prefix).
+function _stripMkLine(body) {
+  return String(body || '').split('\n')
+    .filter(function(l){ return l.indexOf(MK_LINK_PREFIX) === -1; })
+    .join('\n').replace(/\s+$/, '');
+}
+// Return the body with the media-kit line present (on) or removed (off).
+// Never inserts a broken link, and won't duplicate a URL the AI already wrote.
+function _withMkLine(body, on) {
+  var base = _stripMkLine(body);
+  var url = athMediaKitUrl();
+  if (on && url && base.indexOf(url) === -1) {
+    base = base.replace(/\s+$/, '') + '\n\n' + MK_LINK_PREFIX + url;
+  }
+  return base;
+}
+// Live-sync a textarea to the current checkbox state (called on toggle/draft).
+function mkToggleFor(textareaId, checkboxId) {
+  var ta = document.getElementById(textareaId);
+  var cb = document.getElementById(checkboxId);
+  if (!ta) return;
+  ta.value = _withMkLine(ta.value, !!(cb && cb.checked));
+}
+// Initialise a toggle: default ON + enabled when a media kit exists, otherwise
+// disabled with a hint linking to the Media Kit tab. Syncs the textarea.
+function mkSetupToggle(checkboxId, hintId, textareaId) {
+  var cb = document.getElementById(checkboxId);
+  var hint = document.getElementById(hintId);
+  var has = athHasMediaKit();
+  if (cb) { cb.disabled = !has; cb.checked = has; }
+  if (hint) hint.style.display = has ? 'none' : 'inline';
+  if (textareaId) mkToggleFor(textareaId, checkboxId);
+}
+function goToMediaKit(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  try { closePitchModal(); } catch(_) {}
+  var om = document.getElementById('outreach-modal'); if (om) om.style.display = 'none';
+  var nav = document.querySelector('[data-view="mediakit"]');
+  showView('mediakit', nav);
+}
+
 // ── Send Pitch modal ────────────────────────────────────────────────
 var _pitchBrand = null;
 async function openPitchModal(i) {
@@ -2717,6 +2787,8 @@ async function openPitchModal(i) {
     document.getElementById('pitch-body').value = data.pitch.body || '';
     document.getElementById('pitch-loading').style.display = 'none';
     document.getElementById('pitch-form').style.display = 'block';
+    // Default the Media Kit toggle ON (when published) and append the link.
+    mkSetupToggle('pitch-include-mk', 'pitch-mk-hint', 'pitch-body');
   } catch(e) {
     document.getElementById('pitch-loading').innerHTML = 'Could not generate pitch. Please try again.';
   }
@@ -2728,7 +2800,9 @@ function closePitchModal() {
 async function submitPitch() {
   var to = document.getElementById('pitch-to').value.trim();
   var subject = document.getElementById('pitch-subject').value.trim();
-  var body = document.getElementById('pitch-body').value.trim();
+  // Enforce the Media Kit line at send time so it's always present when ON.
+  var cb = document.getElementById('pitch-include-mk');
+  var body = _withMkLine(document.getElementById('pitch-body').value.trim(), !!(cb && cb.checked));
   if (!to || !subject || !body) { showToast('Fill in to, subject, and message'); return; }
   var btn = document.getElementById('pitch-send-btn');
   btn.disabled = true; btn.textContent = 'Sending…';
@@ -2751,7 +2825,9 @@ async function submitPitch() {
 }
 function copyPitchToClipboard() {
   var subject = document.getElementById('pitch-subject').value;
-  var body = document.getElementById('pitch-body').value;
+  var cb = document.getElementById('pitch-include-mk');
+  // Ensure the Media Kit link survives Copy Pitch when the toggle is ON.
+  var body = _withMkLine(document.getElementById('pitch-body').value, !!(cb && cb.checked));
   navigator.clipboard.writeText('Subject: ' + subject + '\n\n' + body).then(function(){ showToast('Pitch copied'); });
 }
 
@@ -3386,6 +3462,7 @@ function openOutreachModal(brandName) {
   ['mo-brand','mo-website','mo-email','mo-relevance','mo-message'].forEach(function(id){ document.getElementById(id).value = ''; });
   if (brandName) document.getElementById('mo-brand').value = brandName;
   document.getElementById('outreach-modal').style.display = 'flex';
+  mkSetupToggle('mo-include-mk', 'mo-mk-hint', 'mo-message');
 }
 
 function maybeCloseOutreach(e) {
@@ -3404,7 +3481,7 @@ async function aiDraftOutreachModal() {
       body: JSON.stringify({ brand_name: brand, brand_website: document.getElementById('mo-website').value.trim(), sport_relevance: document.getElementById('mo-relevance').value.trim() })
     });
     var data = await r.json();
-    if (data.draft) document.getElementById('mo-message').value = data.draft;
+    if (data.draft) { document.getElementById('mo-message').value = data.draft; mkToggleFor('mo-message','mo-include-mk'); }
     else showToast('AI draft failed', 'error');
   } catch(e) { showToast('AI draft failed', 'error'); }
   finally { btn.disabled = false; btn.textContent = 'AI Draft'; }
@@ -3412,7 +3489,8 @@ async function aiDraftOutreachModal() {
 
 async function submitOutreach() {
   var brand = document.getElementById('mo-brand').value.trim();
-  var message = document.getElementById('mo-message').value.trim();
+  var _moCb = document.getElementById('mo-include-mk');
+  var message = _withMkLine(document.getElementById('mo-message').value.trim(), !!(_moCb && _moCb.checked));
   if (!brand || !message) { showToast('Brand name and message are required', 'error'); return; }
   var btn = document.getElementById('mo-send-btn');
   btn.disabled = true; btn.textContent = 'Sending…';
@@ -4696,6 +4774,7 @@ async function aiDraftEmail() {
     var data = await r.json();
     if (data.draft) {
       document.getElementById('email-body').value = data.draft;
+      mkToggleFor('email-body', 'email-include-mk');
       if (!document.getElementById('email-subject').value) document.getElementById('email-subject').value = 'NIL Partnership Opportunity';
     } else showToast('AI draft failed', 'error');
   } catch(e) { showToast('AI draft failed', 'error'); }
@@ -4798,7 +4877,8 @@ async function disconnectGmail() {
 
 async function sendEmail() {
   var to      = document.getElementById('email-to').value.trim();
-  var body    = document.getElementById('email-body').value.trim();
+  var _emCb   = document.getElementById('email-include-mk');
+  var body    = _withMkLine(document.getElementById('email-body').value.trim(), !!(_emCb && _emCb.checked));
   var subject = document.getElementById('email-subject').value.trim();
   var brand   = document.getElementById('email-brand').value.trim();
   var ccAgent = document.getElementById('email-cc-agent').checked;
