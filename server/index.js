@@ -2839,6 +2839,7 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
       sport: ath.sport,
       school: ath.school,
       position: ath.position,
+      state: ath.state || null,
       email: ath.email,
       phone: ath.phone,
       instagram_handle: ath.instagram_handle,
@@ -3464,14 +3465,17 @@ app.post('/api/athlete/ai-draft-outreach', verifyAthleteToken, aiLimiter, async 
     const systemPrompt = `You are an NIL outreach specialist. Write a professional, personable outreach email from a college athlete to a brand. The email should be concise (under 200 words), highlight the athlete's platform and relevance to the brand, and include a clear ask. Return only the email body, no subject line.`;
     const userPrompt = `Athlete: ${ath.name || 'the athlete'}, ${ath.sport || 'college sport'} at ${ath.school || 'their university'}. Instagram: @${ath.instagram_handle || 'handle'} (${ath.followers_ig || 'unknown'} followers). Brand: ${brand_name}${brand_website ? ` (${brand_website})` : ''}. Why it's a good fit: ${sport_relevance || 'strong brand alignment with the athlete\'s sport and audience'}.`;
 
-    const response = await ai.chat([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ]);
-    res.json({ draft: response });
+    // Use the proven oneShot helper (matches the working /write-outreach
+    // generator). The previous ai.chat() call did not exist on the ai module
+    // and threw "ai.chat is not a function", surfacing as a generic 500.
+    const response = await ai.oneShot(userPrompt, systemPrompt, 800);
+    const draft = (response || '').trim();
+    if (!draft) return res.status(502).json({ error: 'AI returned an empty draft. Please try again.' });
+    res.json({ draft });
   } catch (e) {
-    console.error('[ai-draft-outreach]', e.message);
-    res.status(500).json({ error: 'AI draft failed' });
+    // Log the full error + stack so the true exception is visible in Railway logs.
+    console.error('[ai-draft-outreach] FAILED:', e && e.stack ? e.stack : e);
+    res.status(500).json({ error: 'AI draft failed: ' + (e && e.message ? e.message : 'unknown error') });
   }
 });
 
@@ -4327,10 +4331,11 @@ app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, r
   try {
     const { dealType, brand, value, description, signingDate, universityNotified } = req.body;
 
-    // Fetch athlete info for state resolution
+    // Fetch athlete info for state resolution (includes the editable `state` column)
     const athR = await store.pool.query(
       `SELECT a.data->>'name' as name, a.data->>'sport' as sport,
-              a.data->>'school' as school, a.data->>'schoolTier' as school_tier
+              a.data->>'school' as school, a.data->>'schoolTier' as school_tier,
+              a.state as state
        FROM athletes a WHERE a.id = $1`,
       [req.athlete.id]
     );
@@ -4341,7 +4346,8 @@ app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, r
     const SCHOOL_STATES = {
       'University of Connecticut': 'Connecticut', 'UConn': 'Connecticut',
       'Yale University': 'Connecticut', 'University of Alabama': 'Alabama',
-      'Auburn University': 'Alabama', 'University of Georgia': 'Georgia',
+      'Auburn University': 'Alabama', 'Samford University': 'Alabama', 'Samford': 'Alabama',
+      'University of Georgia': 'Georgia',
       'Georgia Tech': 'Georgia', 'University of Florida': 'Florida',
       'Florida State University': 'Florida', 'University of Miami': 'Florida',
       'University of Tennessee': 'Tennessee', 'Vanderbilt University': 'Tennessee',
@@ -4375,14 +4381,22 @@ app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, r
       'Boston University': 'Massachusetts', 'University of Massachusetts': 'Massachusetts',
     };
 
-    let state = SCHOOL_STATES[school] || '';
+    // Resolution order: explicit request state > saved profile state column >
+    // school→state map (exact, then partial). Manual entry ALWAYS wins over
+    // auto-detect. If nothing resolves we fall back to a federal/SPARTA-only
+    // check (no hard block).
+    let state = (req.body.state && req.body.state.trim()) || (ath.state && ath.state.trim()) || '';
+    if (!state) {
+      state = SCHOOL_STATES[school] || '';
+    }
     if (!state) {
       // Try partial match
       for (const [k, v] of Object.entries(SCHOOL_STATES)) {
         if (school.includes(k) || k.includes(school)) { state = v; break; }
       }
     }
-    if (!state) state = req.body.state || 'Unknown';
+    const stateResolved = !!state;
+    const stateLabel = stateResolved ? state : 'your state (unspecified)';
 
     // SPARTA 72-hour calculation
     let spartaSection = '';
@@ -4403,14 +4417,18 @@ app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, r
       ? '\n- ATHLETE NOTE: University has NOT been notified. Remind athlete to notify athletic department within 72 hours of signing.'
       : '';
 
-    const prompt = 'Analyze this NIL deal for compliance in ' + state + ':\n' +
+    const checksLine = stateResolved
+      ? 'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 5) SPARTA compliance - notify ' + school + ' within 72 hours of signing 6) School-specific NIL policies\n\n'
+      : 'NOTE: The athlete\'s state could not be determined, so do a FEDERAL-LEVEL and SPARTA-only review (do not invent state-specific laws). Check: 1) Federal disclosure requirements 2) $600 NIL reporting threshold 3) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 4) SPARTA compliance - notify ' + school + ' within 72 hours of signing 5) NCAA House settlement rules. Recommend the athlete add their State in Profile for a state-specific check.\n\n';
+
+    const prompt = 'Analyze this NIL deal for compliance' + (stateResolved ? ' in ' + state : ' (state unknown — federal/SPARTA scope only)') + ':\n' +
       'Athlete: ' + (ath.name||'Unknown') + ', ' + (ath.sport||'Unknown') + ', ' + school + ' (' + (ath.school_tier||'unknown') + ')\n' +
       'Deal: ' + (dealType||'general') + ' with ' + (brand||'unknown brand') + ' worth $' + (parseInt(value)||0) + '\n' +
       'Description: ' + (description||'not provided') + '\n' +
       (signingDate ? 'Signing Date: ' + signingDate + '\n' : '') +
       notificationNote + '\n' +
-      'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 5) SPARTA compliance - notify ' + school + ' within 72 hours of signing 6) School-specific NIL policies\n\n' +
-      'Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text athlete must send to university athletic department within 72 hours","sourceNote":"what laws this is based on"}';
+      checksLine +
+      'Return ONLY JSON: {"state":"' + (stateResolved ? state : 'Federal (state unspecified)') + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text athlete must send to university athletic department within 72 hours","sourceNote":"what laws this is based on"}';
 
     const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with comprehensive knowledge of all 50 state NIL laws as of 2025-2026, plus the NCAA House settlement rules. Return only valid JSON.', 8000);
     const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -4428,8 +4446,11 @@ app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, r
         hoursLeft, status: hoursLeft > 24 ? 'on-track' : hoursLeft > 0 ? 'urgent' : 'overdue'
       };
     }
-    parsed.resolvedState = state;
-    console.log('[athlete/compliance] state:', state, 'status:', parsed.status);
+    parsed.resolvedState = stateResolved ? state : '';
+    if (!stateResolved) {
+      parsed.stateNote = 'State could not be determined automatically. This is a federal/SPARTA-level review only. Add your State in My Profile for a state-specific compliance check.';
+    }
+    console.log('[athlete/compliance] state:', stateResolved ? state : '(unresolved → federal)', 'status:', parsed.status);
     res.json(parsed);
   } catch (e) {
     console.error('[athlete/compliance]', e.message);
@@ -4713,13 +4734,21 @@ Return ONLY valid JSON (no markdown):
 // PUT /api/athlete/profile — athlete updates own editable fields
 app.put('/api/athlete/profile', verifyAthleteToken, async (req, res) => {
   try {
-    const { phone, instagram_handle, tiktok_handle, twitter_handle, instagram_followers, tiktok_followers, bio } = req.body;
+    const { phone, instagram_handle, tiktok_handle, twitter_handle, instagram_followers, tiktok_followers, bio, state } = req.body;
     await store.pool.query(
       `UPDATE athletes SET phone=COALESCE($1,phone), instagram_handle=COALESCE($2,instagram_handle),
        tiktok_handle=COALESCE($3,tiktok_handle), twitter_handle=COALESCE($4,twitter_handle), updated_at=NOW()
        WHERE id=$5`,
       [phone||null, instagram_handle||null, tiktok_handle||null, twitter_handle||null, req.athlete.id]
     );
+    // State is explicitly set (allow clearing back to null). Only touch the
+    // column when the field was sent so other saves don't wipe it.
+    if (state !== undefined) {
+      await store.pool.query(
+        `UPDATE athletes SET state=$1, updated_at=NOW() WHERE id=$2`,
+        [state || null, req.athlete.id]
+      );
+    }
     // Persist follower counts to the dedicated columns (canonical store for
     // self-signup athletes) so edits survive reload and are visible to every
     // read path. Also mirror into the JSONB data so agent-managed reads stay

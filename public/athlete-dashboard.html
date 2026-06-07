@@ -1239,6 +1239,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <div class="form-group"><label class="form-label">Sport</label><div class="form-input" style="opacity:0.5" id="prof-sport">—</div></div>
         <div class="form-group"><label class="form-label">School</label><div class="form-input" style="opacity:0.5" id="prof-school">—</div></div>
         <div class="form-group"><label class="form-label">Position / Year</label><div class="form-input" style="opacity:0.5" id="prof-position">—</div></div>
+        <div class="form-group"><label class="form-label">State</label><input type="text" class="form-input" id="prof-state" placeholder="e.g. Alabama"><div style="font-size:12px;color:var(--text-dim);margin-top:4px;">Used for state-specific NIL compliance. Overrides school auto-detection.</div></div>
       </div>
       <div class="card">
         <div class="card-title">Social Media & Bio</div>
@@ -1709,9 +1710,10 @@ function renderAthHomeNILValue() {
 
   // Calculate ranges
   var igPostLow  = ig ? Math.max(50,  Math.round(ig * 0.01 / 10) * 10)  : 0;
-  var igPostHigh = ig ? Math.round(ig * 0.03 / 10) * 10                  : 0;
+  var igPostHigh = ig ? Math.max(igPostLow, Math.round(ig * 0.03 / 10) * 10) : 0;
   var ttPostLow  = tt ? Math.max(30,  Math.round(tt * 0.005 / 10) * 10) : 0;
-  var ttPostHigh = tt ? Math.round(tt * 0.015 / 10) * 10                 : 0;
+  // High must never fall below the floored low (small accounts hit the $30 floor).
+  var ttPostHigh = tt ? Math.max(ttPostLow, Math.round(tt * 0.015 / 10) * 10) : 0;
 
   // Headline: highest single-post estimate
   var topHigh = Math.max(igPostHigh, ttPostHigh);
@@ -1758,13 +1760,13 @@ function renderHomeNIL(p) {
   var rows = '';
   if (ig) {
     var igLow = Math.max(50, Math.round(ig * 0.01 / 10) * 10);
-    var igHigh = Math.round(ig * 0.03 / 10) * 10;
+    var igHigh = Math.max(igLow, Math.round(ig * 0.03 / 10) * 10);
     rows += rateRow('IG Reel / Post', fmtRange(igLow, igHigh));
     rows += rateRow('IG Story', fmtRange(Math.round(igLow * 0.45), Math.round(igHigh * 0.45)));
   }
   if (tt) {
     var ttLow = Math.max(30, Math.round(tt * 0.005 / 10) * 10);
-    var ttHigh = Math.round(tt * 0.015 / 10) * 10;
+    var ttHigh = Math.max(ttLow, Math.round(tt * 0.015 / 10) * 10);
     rows += rateRow('TikTok Post', fmtRange(ttLow, ttHigh));
   }
   el.innerHTML = rows;
@@ -2589,8 +2591,11 @@ async function runRateCalc() {
         ['TikTok Followers', tt.toLocaleString()],
         ['Social Tier', tier],
         ['Total Reach', reach.toLocaleString()],
-        ['Year', p.year || '—'],
       ];
+      // Only show class Year when we actually have it (no dangling em dash).
+      if (p.year) items.push(['Class Year', p.year]);
+      // Always show the benchmark vintage so "Data used for this calculation" has a year.
+      items.push(['Benchmark Data', (rate && rate.dataYear) ? rate.dataYear : new Date().getFullYear() + ' NIL benchmarks']);
       ctxBody.innerHTML = items.map(function(item) {
         return '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:8px 10px">' +
           '<div style="font-size:10px;color:var(--muted);margin-bottom:2px">' + item[0] + '</div>' +
@@ -2697,10 +2702,11 @@ async function runRateCalc() {
 
     // Comparable Market
     var compBox = document.getElementById('rate-comparable-market');
-    if (compBox && rate.compNote) {
+    var compText = _formatCompNote(rate.compNote);
+    if (compBox && compText) {
       compBox.style.display = 'block';
       compBox.innerHTML = '<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px">Comparable Market</div>' +
-        '<div style="font-size:12px;color:var(--text);line-height:1.6">' + esc(rate.compNote) + '</div>';
+        '<div style="font-size:12px;color:var(--text);line-height:1.6">' + esc(compText) + '</div>';
     }
 
     // Momentum Signal
@@ -3571,7 +3577,7 @@ var _athCompUnivNotified = null;
 
 var _SCHOOL_STATES_FRONTEND = {
   'University of Connecticut':'Connecticut','UConn':'Connecticut',
-  'University of Alabama':'Alabama','Alabama':'Alabama',
+  'University of Alabama':'Alabama','Alabama':'Alabama','Auburn University':'Alabama','Auburn':'Alabama','Samford University':'Alabama','Samford':'Alabama',
   'University of Arizona':'Arizona','Arizona State':'Arizona',
   'University of Arkansas':'Arkansas','Arkansas':'Arkansas',
   'UCLA':'California','USC':'California','UC Berkeley':'California','University of California':'California','Stanford':'California','Cal Poly':'California',
@@ -3610,8 +3616,31 @@ var _SCHOOL_STATES_FRONTEND = {
   'West Virginia University':'West Virginia','West Virginia':'West Virginia'
 };
 
+// Comparable-market note can arrive as a plain string (legacy) or as a
+// structured object { tierLabel, sportLabel, reachLabel, source }. Render a
+// readable sentence either way — never "[object Object]".
+function _formatCompNote(note) {
+  if (!note) return '';
+  if (typeof note === 'string') return note;
+  if (typeof note === 'object') {
+    var sport = note.sportLabel || 'athletes';
+    var tier = note.tierLabel || '';
+    var reach = note.reachLabel || '';
+    var src = note.source || '';
+    var sentence = 'Benchmarked against ' + sport;
+    if (tier) sentence += ' at ' + tier + ' programs';
+    if (reach) sentence += ' with ' + reach;
+    if (src) sentence += ' (' + src + ')';
+    var hasDetail = note.sportLabel || note.tierLabel || note.reachLabel;
+    return hasDetail ? sentence : (src || '');
+  }
+  return '';
+}
+
 function _resolveAthleteState() {
   var p = athleteProfile || {};
+  // Manually-entered profile State always wins over school auto-detection.
+  if (p.state && p.state.trim()) return p.state.trim();
   var school = p.school || '';
   if (!school) return '';
   if (_SCHOOL_STATES_FRONTEND[school]) return _SCHOOL_STATES_FRONTEND[school];
@@ -3679,7 +3708,8 @@ async function runAthleteCompliance() {
   var value = document.getElementById('ath-comp-value').value;
   var description = document.getElementById('ath-comp-description').value.trim();
   var signingDate = document.getElementById('ath-comp-signing-date').value;
-  if (!state) { showToast('State not detected — please update your school in Profile', 'error'); return; }
+  // No hard block: if state is unresolved, the backend runs a federal/SPARTA-only
+  // check and returns a non-blocking stateNote.
   var btn = document.getElementById('ath-comp-btn');
   btn.disabled = true; btn.textContent = 'Checking…';
   document.getElementById('ath-comp-results').style.display = 'none';
@@ -3687,7 +3717,7 @@ async function runAthleteCompliance() {
     var r = await fetch('/api/athlete/compliance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
-      body: JSON.stringify({ dealType: dealType, brand: brand, value: value, description: description, signingDate: signingDate, universityNotified: _athCompUnivNotified })
+      body: JSON.stringify({ state: state, dealType: dealType, brand: brand, value: value, description: description, signingDate: signingDate, universityNotified: _athCompUnivNotified })
     });
     var data = await r.json();
     if (!r.ok || data.error) { showToast('Error: ' + (data.error || 'Check failed'), 'error'); return; }
@@ -3712,6 +3742,10 @@ function renderAthleteComplianceResults(data) {
   };
   banner.style.cssText = (styleMap[data.status] || styleMap.warning) + ';border-radius:var(--r-sm);padding:14px 18px;margin-bottom:20px;font-size:13px;font-weight:700';
   banner.textContent = msgMap[data.status] || msgMap.warning;
+  if (data.stateNote) {
+    banner.innerHTML = (msgMap[data.status] || msgMap.warning) +
+      '<div style="margin-top:8px;font-weight:500;font-size:12px;opacity:0.85">ℹ ' + esc(data.stateNote) + '</div>';
+  }
 
   // SPARTA section
   var spartaSection = document.getElementById('ath-comp-sparta-section');
@@ -4294,6 +4328,7 @@ function loadProfileForm() {
   document.getElementById('prof-sport').textContent = p.sport || '—';
   document.getElementById('prof-school').textContent = p.school || '—';
   document.getElementById('prof-position').textContent = [p.position, p.year].filter(Boolean).join(' · ') || '—';
+  document.getElementById('prof-state').value = p.state || '';
   document.getElementById('prof-ig').value = p.instagram_handle || '';
   document.getElementById('prof-ig-followers').value = p.followers_ig || p.instagram_followers || '';
   document.getElementById('prof-tt').value = p.tiktok_handle || '';
@@ -4312,7 +4347,8 @@ async function saveProfile() {
     tiktok_handle: document.getElementById('prof-tt').value.trim().replace(/^@/,'') || null,
     tiktok_followers: parseInt(document.getElementById('prof-tt-followers').value) || null,
     twitter_handle: document.getElementById('prof-tw').value.trim().replace(/^@/,'') || null,
-    bio: document.getElementById('prof-bio').value.trim() || null
+    bio: document.getElementById('prof-bio').value.trim() || null,
+    state: document.getElementById('prof-state').value.trim() || null
   };
   try {
     var r = await fetch('/api/athlete/profile', {
@@ -5016,7 +5052,10 @@ function rateRow(label, val) {
 }
 
 function fmtRange(low, high) {
-  return '$' + Math.round(low).toLocaleString() + ' – $' + Math.round(high).toLocaleString();
+  // Always render ascending so a row can never invert (e.g. "$30 – $20").
+  var a = Math.round(Math.min(low, high));
+  var b = Math.round(Math.max(low, high));
+  return '$' + a.toLocaleString() + ' – $' + b.toLocaleString();
 }
 
 function calBadge(d, today) {

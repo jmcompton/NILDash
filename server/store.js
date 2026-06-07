@@ -254,6 +254,9 @@ async function init() {
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS instagram_followers INTEGER`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS tiktok_followers INTEGER`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS twitter_followers INTEGER`,
+    // Athlete's home/competition state — drives state-specific NIL compliance.
+    // User-editable in Profile; falls back to school→state auto-detection.
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS state TEXT`,
   ];
   for (const sql of _athleteAuthMigrations) {
     await pool.query(sql).catch(e => console.warn('[migration]', e.message));
