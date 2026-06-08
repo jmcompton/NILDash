@@ -21,6 +21,13 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com';
 
+// ── BILLING FLAG ──────────────────────────────────────────────────────────
+// The self-managed athlete portal is FREE. Stripe billing code below is kept
+// fully intact but bypassed while this flag is off. To re-enable paid billing
+// later, set env BILLING_ENABLED=true (no rebuild / no code changes needed):
+// the athlete verify-email flow will resume creating Stripe checkout + trial.
+const BILLING_ENABLED = process.env.BILLING_ENABLED === 'true';
+
 // Security headers
 app.use(helmet({ contentSecurityPolicy: false }));
 
@@ -2942,8 +2949,8 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
             </div>
             <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;color:#0A0E1A">Verify your email to get started</h2>
             <p style="color:#374151;font-size:15px;line-height:1.6;margin-bottom:24px">
-              Hi ${name.split(' ')[0]}, you're one step away from your free 30-day trial.
-              Click below to verify your email and set up your subscription.
+              Hi ${name.split(' ')[0]}, you're one step away from your free NILDash portal.
+              Click below to verify your email and jump right in — no card required.
             </p>
             <a href="${verifyUrl}"
                style="display:inline-block;background:#C8FF00;color:#0A0E1A;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px">
@@ -3014,7 +3021,7 @@ app.post('/api/athlete/resend-verification', authLimiter, async (req, res) => {
               <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;color:#0A0E1A">Verify your email to get started</h2>
               <p style="color:#374151;font-size:15px;line-height:1.6;margin-bottom:24px">
                 Hi ${String(name).split(' ')[0]}, here's your verification link.
-                Click below to verify your email and set up your subscription.
+                Click below to verify your email and jump into your free portal.
               </p>
               <a href="${verifyUrl}"
                  style="display:inline-block;background:#C8FF00;color:#0A0E1A;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px">
@@ -3121,6 +3128,15 @@ app.get('/api/athlete/verify-email', async (req, res) => {
       console.log(`[verify] JWT issued for athlete=${athlete.id} status=${status}`);
       return res.redirect(`/athlete-dashboard.html?jwt=${athleteJwt}&new=1&welcome=1`);
     };
+
+    // ── FREE PORTAL ───────────────────────────────────────────────────────────
+    // Billing is disabled (BILLING_ENABLED=false): no card, no checkout, no trial.
+    // Verified athletes go straight into the portal with permanent free access.
+    // (The Stripe block below is preserved for when billing is re-enabled.)
+    if (!BILLING_ENABLED) {
+      console.log(`[verify] billing disabled — granting free access to athlete=${athlete.id}`);
+      return await _issueJwtAndRedirect('free');
+    }
 
     // ── 3. Stripe checkout — only attempted with a confirmed live key ─────────────
     // ANY other condition (test key, missing key, missing price, connection error)

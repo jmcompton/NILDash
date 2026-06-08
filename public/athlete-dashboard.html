@@ -1535,7 +1535,7 @@ async function init() {
   // Welcome toast for new self-managed athletes
   var urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('welcome') === '1') {
-    showToast('Welcome to NILDash! Your 30-day free trial has started.', 'success');
+    showToast('Welcome to NILDash! Your free account is ready.', 'success');
     history.replaceState(null, '', window.location.pathname);
   }
 
