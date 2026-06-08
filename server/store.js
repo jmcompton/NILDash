@@ -392,9 +392,46 @@ async function init() {
     `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS fit_score INTEGER`,
     `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'manual'`,
     `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS is_local BOOLEAN`,
+    // ── Money Loop columns (agreement → invoice → paid → earnings) ──────────────
+    // All additive + nullable (or defaulted). Existing rows backfill cleanly:
+    // fee_pct defaults 0 (fee OFF), disclosure_status defaults 'not_required'.
+    // These are DISPLAY/RECORD ONLY — no payment processing, no money movement.
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS deliverables TEXT`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS timeline TEXT`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS fee_pct NUMERIC DEFAULT 0`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS fee_amount NUMERIC`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS net_amount NUMERIC`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS paid_date DATE`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS amount_received NUMERIC`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS agreement_text TEXT`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS agreement_json JSONB`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS agreement_generated_at TIMESTAMPTZ`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS invoice_text TEXT`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS invoice_json JSONB`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS invoice_number TEXT`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS invoice_issue_date DATE`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS invoice_due_date DATE`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS payee_info TEXT`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS disclosure_status TEXT DEFAULT 'not_required'`,
+    `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS disclosure_date DATE`,
   ];
   for (const sql of _selfDealsMigrations) {
     await pool.query(sql).catch(e => console.error('[init] self_deals migration:', e.message));
+  }
+
+  // ── Stage remap to the full money-loop lifecycle ─────────────────────────────
+  // Old stages: Prospect, Contacted, Negotiating, Signed, Completed, Lost.
+  // New loop:   Prospect → Pitched → In Talks → Agreed → Contract → Invoiced →
+  //             Paid → Completed (plus terminal "Lost"). These UPDATEs are
+  //             idempotent: new code never writes the old labels, so after the
+  //             first run no rows match and re-running is a no-op. No data lost.
+  const _stageRemap = [
+    `UPDATE athlete_self_deals SET stage='Pitched'  WHERE stage='Contacted'`,
+    `UPDATE athlete_self_deals SET stage='In Talks'  WHERE stage='Negotiating'`,
+    `UPDATE athlete_self_deals SET stage='Agreed'    WHERE stage='Signed'`,
+  ];
+  for (const sql of _stageRemap) {
+    await pool.query(sql).catch(e => console.error('[init] self_deals stage remap:', e.message));
   }
 
   // One-time data migration: fold any pre-existing Deal Scan pipeline rows

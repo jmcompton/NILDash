@@ -388,6 +388,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="nav-section-label">Deals</div>
     <div class="nav-item" data-view="calendar" onclick="showView('calendar',this)">Calendar</div>
     <div class="nav-item" data-view="pipeline" onclick="showView('pipeline',this)">Brand Tracker</div>
+    <div class="nav-item" data-view="earnings" onclick="showView('earnings',this)">Earnings</div>
     <div class="nav-item" data-view="compliance" onclick="showView('compliance',this)">Compliance</div>
 
     <div class="nav-section-label">Account</div>
@@ -1183,6 +1184,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div id="deal-pipeline"><div class="empty-state"><div class="spinner"></div></div></div>
   </div>
 
+  <!-- ════ VIEW: EARNINGS ════ -->
+  <div class="view" id="view-earnings">
+    <div class="page-title">EARNINGS</div>
+    <div class="page-sub" style="margin-bottom:16px">Your NIL money, tracked in one place — paid, pending, year-to-date, and a year-end summary for tax time.</div>
+    <div id="earnings-body"><div class="empty-state"><div class="spinner"></div></div></div>
+  </div>
+
   <!-- ════ VIEW: EMAIL ════ -->
   <div class="view" id="view-email">
     <div class="page-title">EMAIL</div>
@@ -1233,6 +1241,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
     <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:20px;font-size:11px;color:#fbbf24">
       This tool uses AI to check current NIL rules for your state. Always verify with a licensed attorney before executing deals. NIL laws change frequently.
+    </div>
+
+    <!-- Deals needing school disclosure (tied to Brand Tracker disclosure_status) -->
+    <div id="comp-disclosure-banner" style="display:none;background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.3);border-radius:var(--r-sm);padding:14px 16px;margin-bottom:20px">
+      <div style="font-size:12px;font-weight:700;color:#fb923c;margin-bottom:8px">⚠ Deals to disclose to your school</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Once a deal is Agreed or under Contract, federal and school rules require you to disclose it. Mark each one disclosed after you notify your athletic department.</div>
+      <div id="comp-disclosure-list"></div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -1417,18 +1432,98 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div class="form-group">
         <label class="form-label">Stage</label>
         <select class="form-select" id="dm-stage">
-          <option>Prospect</option><option>Contacted</option><option>Negotiating</option>
-          <option>Signed</option><option>Completed</option><option>Lost</option>
+          <option>Prospect</option><option>Pitched</option><option>In Talks</option>
+          <option>Agreed</option><option>Contract</option><option>Invoiced</option>
+          <option>Paid</option><option>Completed</option><option>Lost</option>
         </select>
       </div>
       <div class="form-group"><label class="form-label">Start Date</label><input type="date" class="form-input" id="dm-date"></div>
     </div>
+    <div class="form-group"><label class="form-label">Deliverables</label><textarea class="form-textarea" id="dm-deliverables" placeholder="e.g. 3 Instagram posts + 2 stories over 60 days" style="min-height:60px"></textarea></div>
+    <div class="form-group"><label class="form-label">Timeline</label><input type="text" class="form-input" id="dm-timeline" placeholder="e.g. Posts due Mar 1–Apr 30; payment net 30"></div>
     <div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="dm-desc" placeholder="What does this deal involve?" style="min-height:70px"></textarea></div>
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="dm-notes" placeholder="Internal notes…" style="min-height:60px"></textarea></div>
     <input type="hidden" id="dm-edit-id">
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="document.getElementById('deal-modal').style.display='none'">Cancel</button>
       <button class="btn btn-primary" id="dm-save-btn" onclick="saveDeal()">Save Deal</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     AGREEMENT MODAL
+════════════════════════════════════════ -->
+<div class="modal-overlay" id="agreement-modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-title">DEAL AGREEMENT — <span id="ag-brand"></span></div>
+    <div class="grid-2">
+      <div class="form-group"><label class="form-label">Deal Amount ($)</label><input type="number" class="form-input" id="ag-amount" placeholder="e.g. 2500"></div>
+      <div class="form-group"><label class="form-label">Timeline</label><input type="text" class="form-input" id="ag-timeline" placeholder="e.g. Posts due Mar 1–Apr 30"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Deliverables</label><textarea class="form-textarea" id="ag-deliverables" placeholder="e.g. 3 Instagram posts + 2 stories" style="min-height:60px"></textarea></div>
+    <div class="form-group"><label class="form-label">Additional Terms (optional)</label><textarea class="form-textarea" id="ag-terms" placeholder="Anything else you've agreed to…" style="min-height:50px"></textarea></div>
+    <input type="hidden" id="ag-deal-id">
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-primary" id="ag-gen-btn" onclick="generateAgreement()">Generate Agreement</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('agreement-modal').style.display='none'">Close</button>
+    </div>
+    <div id="ag-output-wrap" style="display:none">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn btn-ghost btn-sm" onclick="copyMoneyDoc('ag-output')">Copy</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadMoneyDoc('ag-output','agreement')">Download</button>
+      </div>
+      <pre id="ag-output" style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;max-height:340px;overflow:auto;color:var(--text)"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     INVOICE MODAL
+════════════════════════════════════════ -->
+<div class="modal-overlay" id="invoice-modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal" style="max-width:680px">
+    <div class="modal-title">INVOICE — <span id="iv-brand"></span></div>
+    <div class="grid-2">
+      <div class="form-group"><label class="form-label">Amount Due ($)</label><input type="number" class="form-input" id="iv-amount" placeholder="e.g. 2500"></div>
+      <div class="form-group"><label class="form-label">Due Date</label><input type="date" class="form-input" id="iv-due"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Deliverables / Description</label><textarea class="form-textarea" id="iv-deliverables" placeholder="What you're billing for" style="min-height:50px"></textarea></div>
+    <div class="form-group"><label class="form-label">Your Payment Instructions *</label><textarea class="form-textarea" id="iv-payee" placeholder="e.g. Venmo @yourhandle / PayPal you@email.com / Bank: routing + account" style="min-height:60px"></textarea><div style="font-size:11px;color:var(--muted);margin-top:4px">How the brand should pay you. NILDash does not process or hold any money.</div></div>
+    <input type="hidden" id="iv-deal-id">
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-primary" id="iv-gen-btn" onclick="generateInvoice()">Generate Invoice</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('invoice-modal').style.display='none'">Close</button>
+    </div>
+    <div id="iv-output-wrap" style="display:none">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn btn-ghost btn-sm" onclick="copyMoneyDoc('iv-output')">Copy</button>
+        <button class="btn btn-ghost btn-sm" onclick="downloadMoneyDoc('iv-output','invoice')">Download</button>
+      </div>
+      <pre id="iv-output" style="white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;max-height:340px;overflow:auto;color:var(--text)"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     MARK PAID MODAL
+════════════════════════════════════════ -->
+<div class="modal-overlay" id="markpaid-modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal">
+    <div class="modal-title">MARK PAID — <span id="mp-brand"></span></div>
+    <div class="grid-2">
+      <div class="form-group"><label class="form-label">Date Received</label><input type="date" class="form-input" id="mp-date"></div>
+      <div class="form-group"><label class="form-label">Amount Received ($)</label><input type="number" class="form-input" id="mp-amount" placeholder="e.g. 2500"></div>
+    </div>
+    <div id="mp-fee-preview" style="display:none;font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px"></div>
+    <div class="form-group" style="display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="mp-complete" style="width:auto;cursor:pointer">
+      <label for="mp-complete" style="margin:0;cursor:pointer;font-size:12px;color:var(--muted)">Also mark this deal Completed</label>
+    </div>
+    <input type="hidden" id="mp-deal-id">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="document.getElementById('markpaid-modal').style.display='none'">Cancel</button>
+      <button class="btn btn-primary" id="mp-save-btn" onclick="markDealPaid()">Mark Paid</button>
     </div>
   </div>
 </div>
@@ -1453,12 +1548,15 @@ var athleteUser  = null;
 var athleteProfile = null;
 var dealsCache = [];
 var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-var PIPELINE_STAGES = ['Prospect','Contacted','Negotiating','Signed','Completed','Lost'];
+// Full money-loop lifecycle (plus terminal "Lost"). The deal moves left→right.
+var PIPELINE_STAGES = ['Prospect','Pitched','In Talks','Agreed','Contract','Invoiced','Paid','Completed','Lost'];
+var LOOP_STAGES = ['Prospect','Pitched','In Talks','Agreed','Contract','Invoiced','Paid','Completed'];
+var PLATFORM_FEE_PCT = 0; // hydrated from /api/athlete/deals (display/record only)
 var VIEW_TITLES = {
   home:'HOME', command:'AI COMMAND', dealscan:'DEAL SCAN', rate:'RATE CALCULATOR',
   outreach:'OUTREACH', marketing:'MARKETING TOOLS',
   mediakit:'MEDIA KIT',
-  calendar:'CALENDAR', pipeline:'BRAND TRACKER', compliance:'NIL COMPLIANCE',
+  calendar:'CALENDAR', pipeline:'BRAND TRACKER', earnings:'EARNINGS', compliance:'NIL COMPLIANCE',
   email:'EMAIL', profile:'MY PROFILE'
 };
 
@@ -1495,6 +1593,7 @@ function showView(id, navBtn) {
   if (id === 'mediakit')    loadMediaKit();
   if (id === 'calendar')    { AthlCal.initLabel(); AthlCal.reload(); initGCalStatus(); }
   if (id === 'pipeline')    loadDeals();
+  if (id === 'earnings')    loadEarnings();
   if (id === 'compliance')  initAthleteCompliance();
   if (id === 'email')       { initGmailStatus().then(function(){ loadEmailHistory(); }); mkSetupToggle('email-include-mk', 'email-mk-hint', 'email-body'); }
   if (id === 'profile')     loadProfileForm();
@@ -4227,6 +4326,7 @@ async function loadDeals() {
     var r = await fetch('/api/athlete/deals', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
     var data = await r.json();
     dealsCache = data.deals || [];
+    if (data.platform_fee_pct != null) PLATFORM_FEE_PCT = Number(data.platform_fee_pct) || 0;
     renderDealPipeline(dealsCache);
   } catch(e) {
     el.innerHTML = '<div class="empty-state"><div class="empty-text">Failed to load deals.</div></div>';
@@ -4261,10 +4361,10 @@ function renderDealPipeline(deals) {
     return;
   }
 
-  // Filter by tab
-  var ACTIVE_STAGES   = ['Signed','Negotiating'];
-  var OUTREACH_STAGES = ['Prospect','Contacted'];
-  var CLOSED_STAGES   = ['Completed','Lost'];
+  // Filter by tab (mapped onto the full money-loop lifecycle)
+  var ACTIVE_STAGES   = ['In Talks','Agreed','Contract','Invoiced'];
+  var OUTREACH_STAGES = ['Prospect','Pitched'];
+  var CLOSED_STAGES   = ['Paid','Completed','Lost'];
   var filtered = deals.filter(function(d) {
     if (_btActiveFilter === 'active')   return ACTIVE_STAGES.indexOf(d.stage) > -1;
     if (_btActiveFilter === 'outreach') return OUTREACH_STAGES.indexOf(d.stage) > -1;
@@ -4277,36 +4377,92 @@ function renderDealPipeline(deals) {
     return;
   }
 
-  // Stage badge colors
-  var stageBadge = {
-    'Prospect':    {bg:'rgba(100,116,139,0.12)',color:'#94a3b8'},
-    'Contacted':   {bg:'rgba(59,130,246,0.12)', color:'#60a5fa'},
-    'Negotiating': {bg:'rgba(245,158,11,0.12)', color:'#fbbf24'},
-    'Signed':      {bg:'rgba(132,204,22,0.12)', color:'#84CC16'},
-    'Completed':   {bg:'rgba(34,197,94,0.12)',  color:'#4ade80'},
-    'Lost':        {bg:'rgba(239,68,68,0.12)',  color:'#f87171'}
-  };
-
   el.innerHTML = '<div style="display:flex;flex-direction:column;gap:10px">' +
-    filtered.map(function(d) {
-      var sb = stageBadge[d.stage] || stageBadge['Prospect'];
-      var stageEl = '<span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:4px;background:' + sb.bg + ';color:' + sb.color + ';text-transform:uppercase;letter-spacing:0.05em">' + esc(d.stage) + '</span>';
-      var lastActivity = d.updated_at ? 'Updated ' + new Date(d.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : (d.created_at ? 'Added ' + new Date(d.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '');
-      return '<div class="bt-card" onclick="openDealModal(' + d.id + ')">' +
-        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
-          '<div style="font-size:14px;font-weight:700;color:var(--text);flex:1">' + esc(d.brand_name) + '</div>' +
-          stageEl +
-          (d.value ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700;color:var(--accent)">$' + Number(d.value).toLocaleString() + '</div>' : '') +
-        '</div>' +
-        '<div style="display:flex;gap:16px;font-size:11px;color:var(--muted);flex-wrap:wrap">' +
-          (function(){ var typeLabel = (d.category && String(d.category).toLowerCase() !== 'other') ? d.category : d.deal_type;
-            return typeLabel ? '<span>' + esc(typeLabel) + '</span>' : ''; })() +
-          (lastActivity ? '<span>' + esc(lastActivity) + '</span>' : '') +
-          (d.start_date ? '<span>Starts ' + new Date(d.start_date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + '</span>' : '') +
-        '</div>' +
-        (d.notes ? '<div style="font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;line-height:1.5">' + esc(d.notes.slice(0,140)) + (d.notes.length > 140 ? '…' : '') + '</div>' : '') +
-      '</div>';
+    filtered.map(function(d) { return renderDealCard(d); }).join('') + '</div>';
+}
+
+// Stage badge colors for the full money-loop lifecycle.
+var STAGE_BADGE = {
+  'Prospect':  {bg:'rgba(100,116,139,0.12)',color:'#94a3b8'},
+  'Pitched':   {bg:'rgba(59,130,246,0.12)', color:'#60a5fa'},
+  'In Talks':  {bg:'rgba(245,158,11,0.12)', color:'#fbbf24'},
+  'Agreed':    {bg:'rgba(132,204,22,0.12)', color:'#84CC16'},
+  'Contract':  {bg:'rgba(168,85,247,0.14)', color:'#c084fc'},
+  'Invoiced':  {bg:'rgba(14,165,233,0.14)', color:'#38bdf8'},
+  'Paid':      {bg:'rgba(34,197,94,0.16)',  color:'#4ade80'},
+  'Completed': {bg:'rgba(34,197,94,0.12)',  color:'#22c55e'},
+  'Lost':      {bg:'rgba(239,68,68,0.12)',  color:'#f87171'}
+};
+
+function _stageBtn(label, fn, accent) {
+  return '<button onclick="event.stopPropagation();' + fn + '" style="font-size:10px;font-weight:700;padding:5px 10px;border-radius:5px;cursor:pointer;border:1px solid ' +
+    (accent ? 'var(--accent);background:rgba(132,204,22,0.12);color:var(--accent)' : 'var(--border);background:var(--surface2);color:var(--muted)') + '">' + label + '</button>';
+}
+
+function renderDealCard(d) {
+  var sb = STAGE_BADGE[d.stage] || STAGE_BADGE['Prospect'];
+  var stageEl = '<span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:4px;background:' + sb.bg + ';color:' + sb.color + ';text-transform:uppercase;letter-spacing:0.05em">' + esc(d.stage) + '</span>';
+  var lastActivity = d.updated_at ? 'Updated ' + new Date(d.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : (d.created_at ? 'Added ' + new Date(d.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '');
+
+  // Money-loop progress rail
+  var idx = LOOP_STAGES.indexOf(d.stage);
+  var railHtml = '';
+  if (idx > -1) {
+    railHtml = '<div style="display:flex;gap:3px;margin-top:8px">' + LOOP_STAGES.map(function(s,i){
+      var on = i <= idx;
+      return '<div title="' + esc(s) + '" style="flex:1;height:4px;border-radius:2px;background:' + (on ? 'var(--accent)' : 'var(--border)') + '"></div>';
     }).join('') + '</div>';
+  }
+
+  // Fee breakdown (only shown when a platform fee is configured > 0)
+  var feeHtml = '';
+  if (PLATFORM_FEE_PCT > 0 && d.value) {
+    feeHtml = '<div style="display:flex;gap:14px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;flex-wrap:wrap">' +
+      '<span>Deal: <strong style="color:var(--text)">$' + Number(d.value).toLocaleString() + '</strong></span>' +
+      '<span>NILDash fee (' + (d.fee_pct != null ? d.fee_pct : PLATFORM_FEE_PCT) + '%): <strong style="color:#f87171">$' + Number(d.fee_amount||0).toLocaleString() + '</strong></span>' +
+      '<span>Net to you: <strong style="color:var(--accent)">$' + Number(d.net_amount!=null?d.net_amount:d.value).toLocaleString() + '</strong></span>' +
+    '</div>';
+  }
+
+  // Disclosure pill (required once Agreed/Contract)
+  var disc = d.disclosure_status || 'not_required';
+  var discHtml = '';
+  if (disc === 'pending') {
+    discHtml = '<span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:4px;background:rgba(249,115,22,0.12);color:#fb923c">⚠ DISCLOSE TO SCHOOL</span>';
+  } else if (disc === 'disclosed') {
+    discHtml = '<span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:4px;background:rgba(34,197,94,0.12);color:#4ade80">✓ DISCLOSED</span>';
+  }
+
+  // Money-loop action buttons
+  var actions = [];
+  actions.push(_stageBtn('Edit', 'openDealModal(' + d.id + ')'));
+  actions.push(_stageBtn('Agreement', 'openAgreementModal(' + d.id + ')'));
+  actions.push(_stageBtn('Invoice', 'openInvoiceModal(' + d.id + ')'));
+  if (d.stage !== 'Paid' && d.stage !== 'Completed' && d.stage !== 'Lost') {
+    actions.push(_stageBtn('Mark Paid', 'openMarkPaidModal(' + d.id + ')', true));
+  }
+  if (disc === 'pending') {
+    actions.push(_stageBtn('Mark Disclosed', "setDealDisclosure(" + d.id + ",'disclosed')"));
+  }
+  var actionsHtml = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + actions.join('') + '</div>';
+
+  var typeLabel = (d.category && String(d.category).toLowerCase() !== 'other') ? d.category : d.deal_type;
+  return '<div class="bt-card">' +
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+      '<div style="font-size:14px;font-weight:700;color:var(--text);flex:1">' + esc(d.brand_name) + '</div>' +
+      discHtml + stageEl +
+      (d.value ? '<div style="font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700;color:var(--accent)">$' + Number(d.value).toLocaleString() + '</div>' : '') +
+    '</div>' +
+    railHtml +
+    '<div style="display:flex;gap:16px;font-size:11px;color:var(--muted);flex-wrap:wrap;margin-top:8px">' +
+      (typeLabel ? '<span>' + esc(typeLabel) + '</span>' : '') +
+      (lastActivity ? '<span>' + esc(lastActivity) + '</span>' : '') +
+      (d.paid_date ? '<span>Paid ' + new Date(d.paid_date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + '</span>' : (d.start_date ? '<span>Starts ' + new Date(d.start_date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + '</span>' : '')) +
+    '</div>' +
+    (d.deliverables ? '<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">' + esc(String(d.deliverables).slice(0,140)) + '</div>' : '') +
+    feeHtml +
+    actionsHtml +
+  '</div>';
 }
 
 function openDealModal(dealId) {
@@ -4321,13 +4477,15 @@ function openDealModal(dealId) {
       document.getElementById('dm-value').value = deal.value || '';
       document.getElementById('dm-stage').value = deal.stage || 'Prospect';
       document.getElementById('dm-date').value = deal.start_date ? deal.start_date.split('T')[0] : '';
+      document.getElementById('dm-deliverables').value = deal.deliverables || '';
+      document.getElementById('dm-timeline').value = deal.timeline || '';
       document.getElementById('dm-desc').value = deal.description || '';
       document.getElementById('dm-notes').value = deal.notes || '';
       document.getElementById('dm-edit-id').value = deal.id;
     }
   } else {
     title.textContent = 'ADD DEAL';
-    ['dm-brand','dm-value','dm-date','dm-desc','dm-notes'].forEach(function(id){ document.getElementById(id).value = ''; });
+    ['dm-brand','dm-value','dm-date','dm-deliverables','dm-timeline','dm-desc','dm-notes'].forEach(function(id){ document.getElementById(id).value = ''; });
     document.getElementById('dm-type').value = 'Social Media Post';
     document.getElementById('dm-stage').value = 'Prospect';
   }
@@ -4350,6 +4508,8 @@ async function saveDeal() {
     value: parseFloat(document.getElementById('dm-value').value) || null,
     stage: document.getElementById('dm-stage').value,
     start_date: document.getElementById('dm-date').value || null,
+    deliverables: document.getElementById('dm-deliverables').value.trim() || null,
+    timeline: document.getElementById('dm-timeline').value.trim() || null,
     description: document.getElementById('dm-desc').value.trim() || null,
     notes: document.getElementById('dm-notes').value.trim() || null
   };
@@ -4366,6 +4526,234 @@ async function saveDeal() {
     loadDeals();
   } catch(e) { showToast('Network error', 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Save Deal'; }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MONEY LOOP — agreement / invoice / mark paid / disclosure
+// (Documents are generated server-side; copy + download client-side.
+//  No payment processing — NILDash never touches money.)
+// ══════════════════════════════════════════════════════════════════
+function _dealById(id) { return dealsCache.find(function(d){ return d.id === id; }); }
+
+function openAgreementModal(id) {
+  var d = _dealById(id); if (!d) return;
+  document.getElementById('ag-deal-id').value = id;
+  document.getElementById('ag-brand').textContent = d.brand_name || '';
+  document.getElementById('ag-amount').value = d.value || '';
+  document.getElementById('ag-timeline').value = d.timeline || '';
+  document.getElementById('ag-deliverables').value = d.deliverables || d.description || '';
+  document.getElementById('ag-terms').value = '';
+  var out = document.getElementById('ag-output'); out.textContent = '';
+  document.getElementById('ag-output-wrap').style.display = 'none';
+  if (d.agreement_text) { out.textContent = d.agreement_text; document.getElementById('ag-output-wrap').style.display = 'block'; }
+  document.getElementById('agreement-modal').style.display = 'flex';
+}
+
+async function generateAgreement() {
+  var id = document.getElementById('ag-deal-id').value;
+  var btn = document.getElementById('ag-gen-btn');
+  btn.disabled = true; btn.textContent = 'Generating…';
+  try {
+    var r = await fetch('/api/athlete/deals/' + id + '/agreement', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({
+        amount: parseFloat(document.getElementById('ag-amount').value) || null,
+        deliverables: document.getElementById('ag-deliverables').value.trim() || null,
+        timeline: document.getElementById('ag-timeline').value.trim() || null,
+        terms: document.getElementById('ag-terms').value.trim() || null
+      })
+    });
+    var data = await r.json();
+    if (!r.ok) { showToast(data.error || 'Failed to generate', 'error'); return; }
+    document.getElementById('ag-output').textContent = data.agreement;
+    document.getElementById('ag-output-wrap').style.display = 'block';
+    showToast('Agreement generated', 'success');
+    loadDeals();
+  } catch(e) { showToast('Network error', 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Generate Agreement'; }
+}
+
+function openInvoiceModal(id) {
+  var d = _dealById(id); if (!d) return;
+  document.getElementById('iv-deal-id').value = id;
+  document.getElementById('iv-brand').textContent = d.brand_name || '';
+  document.getElementById('iv-amount').value = d.value || '';
+  document.getElementById('iv-deliverables').value = d.deliverables || d.description || '';
+  document.getElementById('iv-payee').value = d.payee_info || '';
+  document.getElementById('iv-due').value = d.invoice_due_date ? String(d.invoice_due_date).split('T')[0] : '';
+  var out = document.getElementById('iv-output'); out.textContent = '';
+  document.getElementById('iv-output-wrap').style.display = 'none';
+  if (d.invoice_text) { out.textContent = d.invoice_text; document.getElementById('iv-output-wrap').style.display = 'block'; }
+  document.getElementById('invoice-modal').style.display = 'flex';
+}
+
+async function generateInvoice() {
+  var id = document.getElementById('iv-deal-id').value;
+  var payee = document.getElementById('iv-payee').value.trim();
+  if (!payee) { showToast('Add your payment instructions first', 'error'); return; }
+  var btn = document.getElementById('iv-gen-btn');
+  btn.disabled = true; btn.textContent = 'Generating…';
+  try {
+    var r = await fetch('/api/athlete/deals/' + id + '/invoice', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({
+        amount: parseFloat(document.getElementById('iv-amount').value) || null,
+        deliverables: document.getElementById('iv-deliverables').value.trim() || null,
+        payee_info: payee,
+        due_date: document.getElementById('iv-due').value || null
+      })
+    });
+    var data = await r.json();
+    if (!r.ok) { showToast(data.error || 'Failed to generate', 'error'); return; }
+    document.getElementById('iv-output').textContent = data.invoice;
+    document.getElementById('iv-output-wrap').style.display = 'block';
+    showToast('Invoice generated', 'success');
+    loadDeals();
+  } catch(e) { showToast('Network error', 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Generate Invoice'; }
+}
+
+function openMarkPaidModal(id) {
+  var d = _dealById(id); if (!d) return;
+  document.getElementById('mp-deal-id').value = id;
+  document.getElementById('mp-brand').textContent = d.brand_name || '';
+  document.getElementById('mp-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('mp-amount').value = d.value || '';
+  document.getElementById('mp-complete').checked = false;
+  var fp = document.getElementById('mp-fee-preview');
+  if (PLATFORM_FEE_PCT > 0) {
+    var amt = Number(d.value) || 0;
+    var fee = Math.round(amt * PLATFORM_FEE_PCT) / 100;
+    fp.style.display = 'block';
+    fp.textContent = 'NILDash fee (' + PLATFORM_FEE_PCT + '%): $' + fee.toLocaleString() + ' (record only) · Net to you: $' + (amt - fee).toLocaleString();
+  } else { fp.style.display = 'none'; }
+  document.getElementById('markpaid-modal').style.display = 'flex';
+}
+
+async function markDealPaid() {
+  var id = document.getElementById('mp-deal-id').value;
+  var btn = document.getElementById('mp-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    var r = await fetch('/api/athlete/deals/' + id + '/mark-paid', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({
+        paid_date: document.getElementById('mp-date').value || null,
+        amount_received: parseFloat(document.getElementById('mp-amount').value) || null,
+        stage: document.getElementById('mp-complete').checked ? 'Completed' : 'Paid'
+      })
+    });
+    var data = await r.json();
+    if (!r.ok) { showToast(data.error || 'Failed', 'error'); return; }
+    showToast('Deal marked paid! 🎉', 'success');
+    document.getElementById('markpaid-modal').style.display = 'none';
+    loadDeals();
+  } catch(e) { showToast('Network error', 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Mark Paid'; }
+}
+
+async function setDealDisclosure(id, status) {
+  try {
+    var r = await fetch('/api/athlete/deals/' + id + '/disclosure', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer ' + athleteToken},
+      body: JSON.stringify({ disclosure_status: status })
+    });
+    var data = await r.json();
+    if (!r.ok) { showToast(data.error || 'Failed', 'error'); return; }
+    showToast(status === 'disclosed' ? 'Marked disclosed to school' : 'Disclosure updated', 'success');
+    loadDeals();
+  } catch(e) { showToast('Network error', 'error'); }
+}
+
+function copyMoneyDoc(elId) {
+  var txt = document.getElementById(elId).textContent || '';
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(function(){ showToast('Copied to clipboard', 'success'); });
+  else showToast('Copy not supported', 'error');
+}
+
+function downloadMoneyDoc(elId, kind) {
+  var txt = document.getElementById(elId).textContent || '';
+  if (!txt) return;
+  var blob = new Blob([txt], { type:'text/plain' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = 'nildash-' + kind + '-' + new Date().toISOString().slice(0,10) + '.txt';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ── EARNINGS DASHBOARD ──────────────────────────────────────────────
+async function loadEarnings() {
+  var el = document.getElementById('earnings-body');
+  el.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  try {
+    var r = await fetch('/api/athlete/earnings', { headers:{'Authorization':'Bearer ' + athleteToken} });
+    var data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'failed');
+    renderEarnings(data);
+  } catch(e) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-text">Failed to load earnings.</div></div>';
+  }
+}
+
+function _usd(n) { return '$' + (Number(n)||0).toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:2}); }
+
+function renderEarnings(e) {
+  var el = document.getElementById('earnings-body');
+  function stat(label, val, color) {
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">' +
+      '<div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:8px">' + label + '</div>' +
+      '<div style="font-family:\'JetBrains Mono\',monospace;font-size:22px;font-weight:800;color:' + (color||'var(--text)') + '">' + val + '</div>' +
+    '</div>';
+  }
+  var cards = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px">' +
+    stat('Total Earned', _usd(e.total_earned), 'var(--accent)') +
+    stat('Pending', _usd(e.total_pending), '#fbbf24') +
+    stat('Deals Closed', String(e.deals_closed||0)) +
+    stat(e.current_year + ' (YTD)', _usd(e.ytd_earned)) +
+  '</div>';
+
+  var feeNote = '';
+  if (e.platform_fee_pct > 0) {
+    feeNote = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;margin-bottom:20px;font-size:12px;color:var(--muted)">' +
+      'Recorded NILDash fee (' + e.platform_fee_pct + '%, display only): <strong style="color:#f87171">' + _usd(e.total_fees) + '</strong> · ' +
+      'Net to you: <strong style="color:var(--accent)">' + _usd(e.total_net) + '</strong></div>';
+  }
+
+  // Year-end summary table
+  var yearRows = (e.by_year||[]).map(function(y){
+    return '<tr style="border-top:1px solid var(--border)">' +
+      '<td style="padding:8px 6px;font-weight:700">' + y.year + '</td>' +
+      '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace">' + _usd(y.earned) + '</td>' +
+      (e.platform_fee_pct > 0 ? '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:#f87171">' + _usd(y.fees) + '</td>' : '') +
+      (e.platform_fee_pct > 0 ? '<td style="padding:8px 6px;text-align:right;font-family:\'JetBrains Mono\',monospace;color:var(--accent)">' + _usd(y.net) + '</td>' : '') +
+      '<td style="padding:8px 6px;text-align:right">' + y.count + '</td>' +
+    '</tr>';
+  }).join('');
+  var yearTable = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:20px">' +
+    '<div style="font-size:12px;font-weight:700;margin-bottom:6px">Year-End Summary <span style="font-weight:400;color:var(--muted)">— totals by calendar year for tax time</span></div>' +
+    (yearRows ?
+      '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:0.5px">' +
+        '<th style="text-align:left;padding:6px">Year</th><th style="text-align:right;padding:6px">Earned</th>' +
+        (e.platform_fee_pct > 0 ? '<th style="text-align:right;padding:6px">Fee</th><th style="text-align:right;padding:6px">Net</th>' : '') +
+        '<th style="text-align:right;padding:6px">Deals</th></tr></thead><tbody>' + yearRows + '</tbody></table>'
+      : '<div style="font-size:12px;color:var(--muted)">No paid deals yet. Mark a deal Paid in the Brand Tracker and it shows up here.</div>') +
+  '</div>';
+
+  // Paid deals list
+  var paidRows = (e.paid_deals||[]).map(function(p){
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border)">' +
+      '<div><div style="font-size:13px;font-weight:700;color:var(--text)">' + esc(p.brand) + '</div>' +
+      '<div style="font-size:11px;color:var(--muted)">' + (p.paid_date ? new Date(p.paid_date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : p.stage) + '</div></div>' +
+      '<div style="font-family:\'JetBrains Mono\',monospace;font-weight:700;color:var(--accent)">' + _usd(p.amount) + '</div>' +
+    '</div>';
+  }).join('');
+  var paidList = '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px">' +
+    '<div style="font-size:12px;font-weight:700;margin-bottom:4px">Paid Deals</div>' +
+    (paidRows || '<div style="font-size:12px;color:var(--muted);padding-top:8px">Nothing paid yet.</div>') +
+  '</div>';
+
+  el.innerHTML = cards + feeNote + yearTable + paidList;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -4448,7 +4836,30 @@ function _resolveAthleteState() {
   return '';
 }
 
+async function renderDisclosureBanner() {
+  var banner = document.getElementById('comp-disclosure-banner');
+  var list = document.getElementById('comp-disclosure-list');
+  if (!banner || !list) return;
+  try {
+    if (!dealsCache.length) {
+      var r = await fetch('/api/athlete/deals', { headers:{'Authorization':'Bearer ' + athleteToken} });
+      var data = await r.json(); dealsCache = data.deals || [];
+      if (data.platform_fee_pct != null) PLATFORM_FEE_PCT = Number(data.platform_fee_pct) || 0;
+    }
+  } catch(e) {}
+  var pending = dealsCache.filter(function(d){ return d.disclosure_status === 'pending'; });
+  if (!pending.length) { banner.style.display = 'none'; return; }
+  banner.style.display = 'block';
+  list.innerHTML = pending.map(function(d){
+    return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border)">' +
+      '<div style="font-size:12px;color:var(--text)"><strong>' + esc(d.brand_name) + '</strong> <span style="color:var(--muted)">· ' + esc(d.stage) + (d.value ? ' · $' + Number(d.value).toLocaleString() : '') + '</span></div>' +
+      '<button onclick="setDealDisclosure(' + d.id + ",'disclosed').then(function(){renderDisclosureBanner();})\" style=\"font-size:10px;font-weight:700;padding:5px 10px;border-radius:5px;cursor:pointer;border:1px solid var(--accent);background:rgba(132,204,22,0.12);color:var(--accent)\">Mark Disclosed</button>" +
+    '</div>';
+  }).join('');
+}
+
 function initAthleteCompliance() {
+  renderDisclosureBanner();
   var state = _resolveAthleteState();
   var disp = document.getElementById('ath-comp-state-display');
   var inp  = document.getElementById('ath-comp-state');

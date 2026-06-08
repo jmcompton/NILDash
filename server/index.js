@@ -28,6 +28,32 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com';
 // the athlete verify-email flow will resume creating Stripe checkout + trial.
 const BILLING_ENABLED = process.env.BILLING_ENABLED === 'true';
 
+// ── PLATFORM FEE (display / record only — OFF by default) ───────────────────
+// Percentage NILDash records on each athlete deal for transparency in the
+// money loop. Defaults to 0 (OFF). When > 0, each deal computes & stores
+// fee_amount and net_amount and shows a breakdown (amount / fee / net).
+// IMPORTANT: this is DISPLAY/RECORD ONLY. NILDash does NOT collect this fee.
+// There is NO payment processing, NO Stripe Connect, NO payouts, NO money
+// movement anywhere in this loop. To turn it on later set env PLATFORM_FEE_PCT
+// (e.g. PLATFORM_FEE_PCT=5) — no rebuild required.
+const PLATFORM_FEE_PCT = (function () {
+  const v = parseFloat(process.env.PLATFORM_FEE_PCT || '0');
+  if (!isFinite(v) || v < 0) return 0;
+  return Math.min(v, 100); // clamp to a sane range
+})();
+
+// computeFee(amount) → { fee_pct, fee_amount, net_amount } for a given deal
+// amount, using the configured PLATFORM_FEE_PCT. Pure math, no side effects.
+function computeFee(amount) {
+  const amt = Number(amount);
+  if (!isFinite(amt) || amt <= 0) {
+    return { fee_pct: PLATFORM_FEE_PCT, fee_amount: 0, net_amount: 0 };
+  }
+  const fee_amount = Math.round((amt * PLATFORM_FEE_PCT) / 100 * 100) / 100;
+  const net_amount = Math.round((amt - fee_amount) * 100) / 100;
+  return { fee_pct: PLATFORM_FEE_PCT, fee_amount, net_amount };
+}
+
 // Security headers
 app.use(helmet({ contentSecurityPolicy: false }));
 
@@ -3914,21 +3940,23 @@ app.get('/api/athlete/deals', verifyAthleteToken, async (req, res) => {
       'SELECT * FROM athlete_self_deals WHERE athlete_id = $1 ORDER BY created_at DESC',
       [req.athlete.id]
     );
-    res.json({ deals: r.rows });
+    res.json({ deals: r.rows, platform_fee_pct: PLATFORM_FEE_PCT });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/athlete/deals — create self-managed deal
 app.post('/api/athlete/deals', verifyAthleteToken, async (req, res) => {
   try {
-    const { brand_name, deal_type, value, stage, description, start_date, notes } = req.body;
+    const { brand_name, deal_type, value, stage, description, start_date, notes, deliverables, timeline } = req.body;
     if (!brand_name) return res.status(400).json({ error: 'brand_name required' });
     const stageHistory = [{ stage: stage || 'Prospect', date: new Date().toISOString(), note: 'Deal created' }];
+    const fee = computeFee(value); // display/record only
     const r = await store.pool.query(
-      `INSERT INTO athlete_self_deals (athlete_id, agent_id, brand_name, deal_type, value, stage, description, start_date, notes, stage_history)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO athlete_self_deals (athlete_id, agent_id, brand_name, deal_type, value, stage, description, start_date, notes, stage_history, deliverables, timeline, fee_pct, fee_amount, net_amount)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
       [req.athlete.id, req.athlete.agent_id, brand_name, deal_type || 'Other', value || null,
-       stage || 'Prospect', description || null, start_date || null, notes || null, JSON.stringify(stageHistory)]
+       stage || 'Prospect', description || null, start_date || null, notes || null, JSON.stringify(stageHistory),
+       deliverables || null, timeline || null, fee.fee_pct, value ? fee.fee_amount : null, value ? fee.net_amount : null]
     );
     await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_added',
       `Added deal: ${brand_name}`, { deal_id: r.rows[0].id, brand: brand_name, value });
@@ -4009,7 +4037,7 @@ app.post('/api/athlete/deals/from-scan', verifyAthleteToken, async (req, res) =>
 // PUT /api/athlete/deals/:id — update deal
 app.put('/api/athlete/deals/:id', verifyAthleteToken, async (req, res) => {
   try {
-    const { brand_name, deal_type, value, stage, description, notes, start_date } = req.body;
+    const { brand_name, deal_type, value, stage, description, notes, start_date, deliverables, timeline } = req.body;
     const cur = await store.pool.query(
       'SELECT * FROM athlete_self_deals WHERE id = $1 AND athlete_id = $2',
       [req.params.id, req.athlete.id]
@@ -4022,17 +4050,31 @@ app.put('/api/athlete/deals/:id', verifyAthleteToken, async (req, res) => {
       await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_stage_changed',
         `${existing.brand_name}: ${existing.stage} → ${stage}`, { deal_id: existing.id });
     }
+    // Recompute fee breakdown when the deal amount changes (display/record only).
+    const newValue = (value != null) ? value : existing.value;
+    const fee = computeFee(newValue);
+    // Once a deal reaches Agreed/Contract, disclosure becomes required (prompt
+    // the athlete to disclose to their school). Don't downgrade an existing status.
+    let disclosureStatus = existing.disclosure_status || 'not_required';
+    const newStage = stage || existing.stage;
+    if ((newStage === 'Agreed' || newStage === 'Contract') && disclosureStatus === 'not_required') {
+      disclosureStatus = 'pending';
+    }
     const r = await store.pool.query(
       `UPDATE athlete_self_deals SET
          brand_name=COALESCE($1,brand_name), deal_type=COALESCE($2,deal_type),
          value=COALESCE($3,value), stage=COALESCE($4,stage), description=COALESCE($5,description),
          notes=COALESCE($6,notes), start_date=COALESCE($7::DATE,start_date),
-         stage_history=$8, updated_at=NOW()
-       WHERE id=$9 AND athlete_id=$10 RETURNING *`,
+         deliverables=COALESCE($8,deliverables), timeline=COALESCE($9,timeline),
+         fee_pct=$10, fee_amount=$11, net_amount=$12, disclosure_status=$13,
+         stage_history=$14, updated_at=NOW()
+       WHERE id=$15 AND athlete_id=$16 RETURNING *`,
       [brand_name||null, deal_type||null, value||null, stage||null, description||null,
-       notes||null, start_date||null, JSON.stringify(stageHistory), req.params.id, req.athlete.id]
+       notes||null, start_date||null, deliverables||null, timeline||null,
+       fee.fee_pct, (newValue ? fee.fee_amount : null), (newValue ? fee.net_amount : null),
+       disclosureStatus, JSON.stringify(stageHistory), req.params.id, req.athlete.id]
     );
-    res.json({ ok: true, deal: r.rows[0] });
+    res.json({ ok: true, deal: r.rows[0], platform_fee_pct: PLATFORM_FEE_PCT });
   } catch (e) { console.error('[athlete/deals PUT]', e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -4043,6 +4085,317 @@ app.delete('/api/athlete/deals/:id', verifyAthleteToken, async (req, res) => {
       [req.params.id, req.athlete.id]);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// MONEY LOOP — agreement → invoice → paid → earnings (+ disclosure)
+// Deterministic, plain-language document generation. NO payment processing,
+// NO Stripe Connect, NO payouts, NO money movement. Generate / store / display
+// only. The platform fee (PLATFORM_FEE_PCT) is record/display only.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Fetch this athlete's identity (name/school/sport) for documents.
+async function _getAthleteIdentity(athleteId) {
+  const r = await store.pool.query(
+    `SELECT a.email, a.phone,
+            a.data->>'name' as name, a.data->>'sport' as sport,
+            a.data->>'school' as school, a.data->>'position' as position,
+            a.state as state
+     FROM athletes a WHERE a.id = $1`, [athleteId]
+  );
+  return r.rows[0] || {};
+}
+
+function _money(n) {
+  const v = Number(n) || 0;
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function _today() { return new Date().toISOString().slice(0, 10); }
+function _fmtDate(d) {
+  if (!d) return '';
+  try { return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); }
+  catch (e) { return String(d); }
+}
+
+// Build the plain-language NIL deal agreement text.
+function _buildAgreementText({ athlete, deal, deliverables, amount, timeline, terms }) {
+  const fee = computeFee(amount);
+  const lines = [];
+  lines.push('NIL DEAL AGREEMENT');
+  lines.push('==================');
+  lines.push('');
+  lines.push('Date: ' + _fmtDate(_today()));
+  lines.push('');
+  lines.push('PARTIES');
+  lines.push('-------');
+  lines.push('Athlete: ' + (athlete.name || '—'));
+  if (athlete.school) lines.push('School: ' + athlete.school);
+  if (athlete.sport) lines.push('Sport: ' + athlete.sport + (athlete.position ? ' (' + athlete.position + ')' : ''));
+  lines.push('Brand / Partner: ' + (deal.brand_name || '—'));
+  lines.push('');
+  lines.push('DELIVERABLES');
+  lines.push('------------');
+  lines.push(deliverables || deal.deliverables || deal.description || 'See description provided by the parties.');
+  lines.push('');
+  lines.push('COMPENSATION');
+  lines.push('------------');
+  lines.push('Total deal amount: ' + _money(amount));
+  if (fee.fee_pct > 0) {
+    lines.push('NILDash platform fee (' + fee.fee_pct + '%): ' + _money(fee.fee_amount) + ' (record only — not collected by NILDash)');
+    lines.push('Net to athlete: ' + _money(fee.net_amount));
+  }
+  lines.push('');
+  lines.push('TIMELINE');
+  lines.push('--------');
+  lines.push(timeline || deal.timeline || 'To be agreed by the parties.');
+  lines.push('');
+  lines.push('BASIC TERMS');
+  lines.push('-----------');
+  lines.push('1. The athlete will complete the deliverables described above in good faith.');
+  lines.push('2. The brand will pay the total deal amount per the timeline and any invoice issued.');
+  lines.push('3. The athlete retains ownership of their name, image, and likeness except as');
+  lines.push('   licensed for the specific deliverables in this agreement.');
+  lines.push('4. The athlete will include any disclosures required by the FTC and by their');
+  lines.push('   school/conference/state NIL rules (e.g. #ad / #sponsored).');
+  lines.push('5. Either party may end the agreement in writing if the other materially breaches it.');
+  if (terms && String(terms).trim()) {
+    lines.push('6. Additional terms: ' + String(terms).trim());
+  }
+  lines.push('');
+  lines.push('SIGNATURES');
+  lines.push('----------');
+  lines.push('Athlete: ____________________________   Date: ____________');
+  lines.push('Brand:   ____________________________   Date: ____________');
+  lines.push('');
+  lines.push('---');
+  lines.push('This is not legal advice. This is a plain-language template to help you');
+  lines.push('organize a NIL deal. Review it with a qualified professional (and your');
+  lines.push('school compliance office) before signing.');
+  return lines.join('\n');
+}
+
+// POST /api/athlete/deals/:id/agreement — generate & store a deal agreement
+app.post('/api/athlete/deals/:id/agreement', verifyAthleteToken, async (req, res) => {
+  try {
+    const cur = await store.pool.query(
+      'SELECT * FROM athlete_self_deals WHERE id=$1 AND athlete_id=$2',
+      [req.params.id, req.athlete.id]
+    );
+    if (!cur.rows.length) return res.status(404).json({ error: 'Deal not found' });
+    const deal = cur.rows[0];
+    const athlete = await _getAthleteIdentity(req.athlete.id);
+    const b = req.body || {};
+    const amount = (b.amount != null && b.amount !== '') ? Number(b.amount) : (deal.value || 0);
+    const deliverables = (b.deliverables || deal.deliverables || deal.description || '').trim() || null;
+    const timeline = (b.timeline || deal.timeline || '').trim() || null;
+    const terms = (b.terms || '').trim() || null;
+    const text = _buildAgreementText({ athlete, deal, deliverables, amount, timeline, terms });
+    const json = { athlete: { name: athlete.name, school: athlete.school, sport: athlete.sport },
+                   brand: deal.brand_name, deliverables, amount, timeline, terms,
+                   fee: computeFee(amount), generated_at: new Date().toISOString() };
+    const fee = computeFee(amount);
+    const r = await store.pool.query(
+      `UPDATE athlete_self_deals SET
+         agreement_text=$1, agreement_json=$2, agreement_generated_at=NOW(),
+         deliverables=COALESCE($3,deliverables), timeline=COALESCE($4,timeline),
+         value=COALESCE($5,value), fee_pct=$6, fee_amount=$7, net_amount=$8, updated_at=NOW()
+       WHERE id=$9 AND athlete_id=$10 RETURNING *`,
+      [text, JSON.stringify(json), deliverables, timeline, amount || null,
+       fee.fee_pct, amount ? fee.fee_amount : null, amount ? fee.net_amount : null,
+       req.params.id, req.athlete.id]
+    );
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_agreement_generated',
+      `Generated agreement for ${deal.brand_name}`, { deal_id: deal.id }).catch(() => {});
+    res.json({ ok: true, agreement: text, deal: r.rows[0] });
+  } catch (e) { console.error('[athlete/deals agreement]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// Build the invoice text.
+function _buildInvoiceText({ athlete, deal, invoiceNumber, issueDate, dueDate, deliverables, amount, payeeInfo }) {
+  const fee = computeFee(amount);
+  const lines = [];
+  lines.push('INVOICE');
+  lines.push('=======');
+  lines.push('');
+  lines.push('Invoice #: ' + invoiceNumber);
+  lines.push('Issue date: ' + _fmtDate(issueDate));
+  lines.push('Due date: ' + _fmtDate(dueDate));
+  lines.push('');
+  lines.push('FROM (PAYEE)');
+  lines.push('------------');
+  lines.push(athlete.name || '—');
+  if (athlete.school) lines.push(athlete.school + (athlete.sport ? ' — ' + athlete.sport : ''));
+  if (athlete.email) lines.push(athlete.email);
+  if (athlete.phone) lines.push(athlete.phone);
+  lines.push('');
+  lines.push('BILL TO (PAYER)');
+  lines.push('---------------');
+  lines.push(deal.brand_name || '—');
+  if (deal.contact_name) lines.push('Attn: ' + deal.contact_name);
+  if (deal.contact_email) lines.push(deal.contact_email);
+  lines.push('');
+  lines.push('DESCRIPTION');
+  lines.push('-----------');
+  lines.push(deliverables || deal.deliverables || deal.description || 'NIL deliverables');
+  lines.push('');
+  lines.push('AMOUNT');
+  lines.push('------');
+  lines.push('Amount due: ' + _money(amount));
+  if (fee.fee_pct > 0) {
+    lines.push('(NILDash platform fee ' + fee.fee_pct + '%: ' + _money(fee.fee_amount) + ' — record only; net to athlete ' + _money(fee.net_amount) + ')');
+  }
+  lines.push('');
+  lines.push('PAYMENT INSTRUCTIONS');
+  lines.push('--------------------');
+  lines.push(payeeInfo || 'See payment details provided by the athlete.');
+  lines.push('');
+  lines.push('Please reference invoice #' + invoiceNumber + ' with your payment. Thank you!');
+  return lines.join('\n');
+}
+
+// POST /api/athlete/deals/:id/invoice — generate & store an invoice
+app.post('/api/athlete/deals/:id/invoice', verifyAthleteToken, async (req, res) => {
+  try {
+    const cur = await store.pool.query(
+      'SELECT * FROM athlete_self_deals WHERE id=$1 AND athlete_id=$2',
+      [req.params.id, req.athlete.id]
+    );
+    if (!cur.rows.length) return res.status(404).json({ error: 'Deal not found' });
+    const deal = cur.rows[0];
+    const athlete = await _getAthleteIdentity(req.athlete.id);
+    const b = req.body || {};
+    const payeeInfo = (b.payee_info || deal.payee_info || '').trim() || null;
+    if (!payeeInfo) return res.status(400).json({ error: 'Payment instructions (payee_info) are required to generate an invoice.' });
+    const amount = (b.amount != null && b.amount !== '') ? Number(b.amount) : (deal.value || 0);
+    const deliverables = (b.deliverables || deal.deliverables || deal.description || '').trim() || null;
+    const invoiceNumber = (b.invoice_number || deal.invoice_number || ('INV-' + String(deal.id).padStart(4, '0') + '-' + _today().replace(/-/g, ''))).trim();
+    const issueDate = b.issue_date || deal.invoice_issue_date || _today();
+    let dueDate = b.due_date || deal.invoice_due_date || null;
+    if (!dueDate) { const d = new Date(); d.setDate(d.getDate() + 30); dueDate = d.toISOString().slice(0, 10); }
+    const text = _buildInvoiceText({ athlete, deal, invoiceNumber, issueDate, dueDate, deliverables, amount, payeeInfo });
+    const json = { invoiceNumber, issueDate, dueDate, deliverables, amount, payeeInfo,
+                   payer: deal.brand_name, fee: computeFee(amount), generated_at: new Date().toISOString() };
+    const fee = computeFee(amount);
+    // Generating an invoice advances the deal to "Invoiced" (unless already Paid/Completed).
+    let newStage = deal.stage;
+    let stageHistory = deal.stage_history || [];
+    if (['Prospect', 'Pitched', 'In Talks', 'Agreed', 'Contract'].indexOf(deal.stage) > -1) {
+      newStage = 'Invoiced';
+      stageHistory = [...stageHistory, { stage: newStage, date: new Date().toISOString(), note: 'Invoice generated' }];
+    }
+    const r = await store.pool.query(
+      `UPDATE athlete_self_deals SET
+         invoice_text=$1, invoice_json=$2, invoice_number=$3,
+         invoice_issue_date=$4::DATE, invoice_due_date=$5::DATE, payee_info=$6,
+         deliverables=COALESCE($7,deliverables), value=COALESCE($8,value),
+         fee_pct=$9, fee_amount=$10, net_amount=$11, stage=$12, stage_history=$13, updated_at=NOW()
+       WHERE id=$14 AND athlete_id=$15 RETURNING *`,
+      [text, JSON.stringify(json), invoiceNumber, issueDate, dueDate, payeeInfo,
+       deliverables, amount || null, fee.fee_pct, amount ? fee.fee_amount : null, amount ? fee.net_amount : null,
+       newStage, JSON.stringify(stageHistory), req.params.id, req.athlete.id]
+    );
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_invoice_generated',
+      `Generated invoice ${invoiceNumber} for ${deal.brand_name}`, { deal_id: deal.id }).catch(() => {});
+    res.json({ ok: true, invoice: text, deal: r.rows[0] });
+  } catch (e) { console.error('[athlete/deals invoice]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/deals/:id/mark-paid — record payment received (no money movement)
+app.post('/api/athlete/deals/:id/mark-paid', verifyAthleteToken, async (req, res) => {
+  try {
+    const cur = await store.pool.query(
+      'SELECT * FROM athlete_self_deals WHERE id=$1 AND athlete_id=$2',
+      [req.params.id, req.athlete.id]
+    );
+    if (!cur.rows.length) return res.status(404).json({ error: 'Deal not found' });
+    const deal = cur.rows[0];
+    const b = req.body || {};
+    const paidDate = b.paid_date || _today();
+    const amountReceived = (b.amount_received != null && b.amount_received !== '') ? Number(b.amount_received) : (deal.value || 0);
+    const fee = computeFee(amountReceived); // recompute against what was actually received
+    const newStage = (b.stage === 'Completed') ? 'Completed' : 'Paid';
+    const stageHistory = [...(deal.stage_history || []),
+      { stage: newStage, date: new Date().toISOString(), note: 'Marked paid: ' + _money(amountReceived) }];
+    const r = await store.pool.query(
+      `UPDATE athlete_self_deals SET
+         paid_date=$1::DATE, amount_received=$2, value=COALESCE(value,$2),
+         fee_pct=$3, fee_amount=$4, net_amount=$5, stage=$6, stage_history=$7, updated_at=NOW()
+       WHERE id=$8 AND athlete_id=$9 RETURNING *`,
+      [paidDate, amountReceived, fee.fee_pct, fee.fee_amount, fee.net_amount,
+       newStage, JSON.stringify(stageHistory), req.params.id, req.athlete.id]
+    );
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_marked_paid',
+      `${deal.brand_name} marked paid: ${_money(amountReceived)}`, { deal_id: deal.id }).catch(() => {});
+    res.json({ ok: true, deal: r.rows[0] });
+  } catch (e) { console.error('[athlete/deals mark-paid]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/athlete/deals/:id/disclosure — update school-disclosure status
+app.post('/api/athlete/deals/:id/disclosure', verifyAthleteToken, async (req, res) => {
+  try {
+    const allowed = ['not_required', 'pending', 'disclosed'];
+    const status = (req.body && req.body.disclosure_status) || '';
+    if (allowed.indexOf(status) === -1) return res.status(400).json({ error: 'Invalid disclosure_status' });
+    const disclosureDate = status === 'disclosed' ? (req.body.disclosure_date || _today()) : null;
+    const r = await store.pool.query(
+      `UPDATE athlete_self_deals SET disclosure_status=$1, disclosure_date=$2::DATE, updated_at=NOW()
+       WHERE id=$3 AND athlete_id=$4 RETURNING *`,
+      [status, disclosureDate, req.params.id, req.athlete.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Deal not found' });
+    await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_disclosure_updated',
+      `${r.rows[0].brand_name} disclosure: ${status}`, { deal_id: r.rows[0].id }).catch(() => {});
+    res.json({ ok: true, deal: r.rows[0] });
+  } catch (e) { console.error('[athlete/deals disclosure]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/athlete/earnings — system-of-record earnings summary (math from deals)
+app.get('/api/athlete/earnings', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      'SELECT * FROM athlete_self_deals WHERE athlete_id=$1', [req.athlete.id]
+    );
+    const deals = r.rows;
+    const PAID = ['Paid', 'Completed'];
+    const PENDING = ['Agreed', 'Contract', 'Invoiced'];
+    const year = new Date().getFullYear();
+    let totalEarned = 0, totalPending = 0, ytdEarned = 0, dealsClosed = 0, totalFees = 0, totalNet = 0;
+    const byYear = {}; // year -> { earned, net, fees, count }
+    const paidList = [];
+    for (const d of deals) {
+      if (PAID.indexOf(d.stage) > -1) {
+        const received = Number(d.amount_received != null ? d.amount_received : (d.value || 0)) || 0;
+        const fee = Number(d.fee_amount || 0);
+        const net = Number(d.net_amount != null ? d.net_amount : received) || received;
+        totalEarned += received;
+        totalFees += fee;
+        totalNet += net;
+        dealsClosed += 1;
+        const py = d.paid_date ? new Date(d.paid_date).getFullYear() : (d.updated_at ? new Date(d.updated_at).getFullYear() : year);
+        if (py === year) ytdEarned += received;
+        if (!byYear[py]) byYear[py] = { year: py, earned: 0, net: 0, fees: 0, count: 0 };
+        byYear[py].earned += received; byYear[py].net += net; byYear[py].fees += fee; byYear[py].count += 1;
+        paidList.push({ id: d.id, brand: d.brand_name, amount: received, fee, net,
+                        paid_date: d.paid_date, stage: d.stage });
+      } else if (PENDING.indexOf(d.stage) > -1) {
+        totalPending += Number(d.value || 0) || 0;
+      }
+    }
+    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+    res.json({
+      platform_fee_pct: PLATFORM_FEE_PCT,
+      current_year: year,
+      total_earned: round2(totalEarned),
+      total_net: round2(totalNet),
+      total_fees: round2(totalFees),
+      total_pending: round2(totalPending),
+      deals_closed: dealsClosed,
+      ytd_earned: round2(ytdEarned),
+      by_year: Object.values(byYear).sort((a, b) => b.year - a.year)
+        .map(y => ({ year: y.year, earned: round2(y.earned), net: round2(y.net), fees: round2(y.fees), count: y.count })),
+      paid_deals: paidList.sort((a, b) => new Date(b.paid_date || 0) - new Date(a.paid_date || 0)),
+    });
+  } catch (e) { console.error('[athlete/earnings]', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/athlete/command — athlete AI command (SSE stream)
