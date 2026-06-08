@@ -205,6 +205,15 @@ async function init() {
     `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS manually_edited BOOLEAN DEFAULT FALSE`,
     // Google Calendar — track which NILDash events have been pushed to Google Calendar
     `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS google_event_id TEXT`,
+    // ── Athlete-created deliverables ──────────────────────────────────────────
+    // Self-managed athletes have NULL agent_id, so the calendar events table can
+    // no longer require agent_id. Idempotent: dropping a NOT NULL that's already
+    // gone is a harmless no-op. Existing agent-created rows are unaffected.
+    `ALTER TABLE athlete_calendar_events ALTER COLUMN agent_id DROP NOT NULL`,
+    // Optional platform/type label (Instagram Post, Story, Reel, TikTok, …) and a
+    // link to a money-loop deal (athlete_self_deals.id). Both nullable/additive.
+    `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS event_type TEXT`,
+    `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS deal_id INTEGER`,
   ];
   for (const sql of _contractMigrations) {
     await pool.query(sql).catch(() => {});

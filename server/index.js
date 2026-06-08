@@ -3576,6 +3576,148 @@ app.put('/api/athlete/calendar/:id/status', verifyAthleteToken, async (req, res)
   } catch (e) { console.error('[athlete/calendar/status]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// ════════════════════════════════════════════════════════════════════════════
+// ATHLETE-CREATED DELIVERABLES
+// Lets a self-managed athlete create dated deliverables directly. These are
+// written to the SAME table the calendar reads (athlete_calendar_events), so
+// they appear on the in-app calendar immediately AND are picked up by the
+// existing Google Calendar sync (which pushes rows where google_event_id IS NULL).
+// We do NOT touch the working sync/auth — we just create rows in its source.
+// ════════════════════════════════════════════════════════════════════════════
+const ATHLETE_DELIVERABLE_TYPES = ['Instagram Post', 'Instagram Story', 'Instagram Reel', 'TikTok', 'Appearance', 'Other'];
+function _normDeliverableType(t) {
+  if (!t) return null;
+  const match = ATHLETE_DELIVERABLE_TYPES.find(x => x.toLowerCase() === String(t).trim().toLowerCase());
+  return match || String(t).trim().slice(0, 60);
+}
+function _dateOnly(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  // Accept "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm" (datetime) — store the date part.
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
+// GET /api/athlete/deliverables — list this athlete's calendar deliverables.
+// (Same source as GET /api/athlete/calendar; provided as an explicit list endpoint.)
+app.get('/api/athlete/deliverables', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      'SELECT * FROM athlete_calendar_events WHERE athlete_id=$1 ORDER BY event_date ASC',
+      [req.athlete.id]
+    );
+    res.json({ deliverables: r.rows });
+  } catch (e) { console.error('[athlete/deliverables GET]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// Shared create helper — inserts one dated deliverable into athlete_calendar_events.
+async function _createAthleteDeliverable(athlete, { title, due_date, event_type, notes, deal_id }) {
+  const date = _dateOnly(due_date);
+  if (!title || !String(title).trim()) { const e = new Error('title required'); e.status = 400; throw e; }
+  if (!date) { const e = new Error('valid due date required'); e.status = 400; throw e; }
+
+  // If linked to a money-loop deal, pull the brand for display/grouping.
+  let brand = null, dealId = null;
+  if (deal_id != null && deal_id !== '') {
+    const dr = await store.pool.query(
+      'SELECT id, brand_name FROM athlete_self_deals WHERE id=$1 AND athlete_id=$2',
+      [deal_id, athlete.id]
+    );
+    if (dr.rows.length) { brand = dr.rows[0].brand_name; dealId = dr.rows[0].id; }
+  }
+
+  let color = null;
+  try { const { brandColor } = require('./services/contractExtraction'); color = brandColor(brand); } catch (e) {}
+
+  const id = 'evt-' + require('crypto').randomBytes(8).toString('hex');
+  const evType = _normDeliverableType(event_type);
+  const r = await store.pool.query(
+    `INSERT INTO athlete_calendar_events
+       (id, athlete_id, agent_id, deal_id, title, event_date, brand, color, event_type,
+        status, is_generated, manually_modified, notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',FALSE,TRUE,$10) RETURNING *`,
+    [id, athlete.id, athlete.agent_id || null, dealId, String(title).trim(), date, brand, color, evType, notes || null]
+  );
+  const ev = r.rows[0];
+  // Best-effort immediate push to Google Calendar (no-op if not connected).
+  _pushEventToGCal(athlete.id, ev).catch(() => {});
+  await logAthleteActivity(athlete.id, athlete.agent_id, 'deliverable_created',
+    `Added deliverable: ${ev.title}`, { event_id: ev.id, brand }).catch(() => {});
+  return ev;
+}
+
+// POST /api/athlete/deliverables — create a dated deliverable
+app.post('/api/athlete/deliverables', verifyAthleteToken, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const ev = await _createAthleteDeliverable(req.athlete, {
+      title: b.title, due_date: b.due_date, event_type: b.event_type, notes: b.notes, deal_id: b.deal_id
+    });
+    console.log(`[athlete/deliverables] created id=${ev.id} athlete=${req.athlete.id}`);
+    res.json({ ok: true, deliverable: ev });
+  } catch (e) {
+    console.error('[athlete/deliverables POST]', e.message);
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// POST /api/athlete/deals/:id/deliverables — create a deliverable linked to a deal
+app.post('/api/athlete/deals/:id/deliverables', verifyAthleteToken, async (req, res) => {
+  try {
+    const owns = await store.pool.query(
+      'SELECT id FROM athlete_self_deals WHERE id=$1 AND athlete_id=$2',
+      [req.params.id, req.athlete.id]
+    );
+    if (!owns.rows.length) return res.status(404).json({ error: 'Deal not found' });
+    const b = req.body || {};
+    const ev = await _createAthleteDeliverable(req.athlete, {
+      title: b.title, due_date: b.due_date, event_type: b.event_type, notes: b.notes, deal_id: req.params.id
+    });
+    console.log(`[athlete/deals/deliverables] deal=${req.params.id} event=${ev.id}`);
+    res.json({ ok: true, deliverable: ev });
+  } catch (e) {
+    console.error('[athlete/deals/deliverables POST]', e.message);
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// PUT /api/athlete/deliverables/:id — edit a deliverable
+app.put('/api/athlete/deliverables/:id', verifyAthleteToken, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const cur = await store.pool.query(
+      'SELECT * FROM athlete_calendar_events WHERE id=$1 AND athlete_id=$2',
+      [req.params.id, req.athlete.id]
+    );
+    if (!cur.rows.length) return res.status(404).json({ error: 'Deliverable not found' });
+    const date = (b.due_date != null && b.due_date !== '') ? _dateOnly(b.due_date) : null;
+    if (b.due_date != null && b.due_date !== '' && !date) return res.status(400).json({ error: 'valid due date required' });
+    const evType = (b.event_type != null) ? _normDeliverableType(b.event_type) : null;
+    const r = await store.pool.query(
+      `UPDATE athlete_calendar_events SET
+         title=COALESCE($1,title), event_date=COALESCE($2::DATE,event_date),
+         event_type=COALESCE($3,event_type), notes=COALESCE($4,notes),
+         status=COALESCE($5,status), manually_modified=TRUE
+       WHERE id=$6 AND athlete_id=$7 RETURNING *`,
+      [b.title ? String(b.title).trim() : null, date, evType, (b.notes != null ? b.notes : null),
+       b.status || null, req.params.id, req.athlete.id]
+    );
+    res.json({ ok: true, deliverable: r.rows[0] });
+  } catch (e) { console.error('[athlete/deliverables PUT]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/athlete/deliverables/:id — remove a deliverable
+app.delete('/api/athlete/deliverables/:id', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      'DELETE FROM athlete_calendar_events WHERE id=$1 AND athlete_id=$2 RETURNING id',
+      [req.params.id, req.athlete.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Deliverable not found' });
+    res.json({ ok: true });
+  } catch (e) { console.error('[athlete/deliverables DELETE]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // ── Google Calendar Integration ───────────────────────────────────────────────
 // Athlete connects their Google Calendar → NILDash pushes deliverables as events.
 // Agent connects → can subscribe to each athlete's dedicated "NIL — [Name]" calendar.

@@ -1123,6 +1123,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
         <option value="overdue">Overdue</option>
       </select>
       <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" onclick="openDeliverableModal()" style="font-size:11px">+ Add Deliverable</button>
         <button id="cal-list-toggle" onclick="AthlCal.toggleListMode()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif">☰ List View</button>
         <button onclick="AthlCal.reload()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:11px;font-family:'DM Sans',sans-serif">↻</button>
       </div>
@@ -1138,7 +1139,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
     <!-- Empty state -->
     <div id="cal-empty-state" style="display:none;text-align:center;padding:48px 24px;color:var(--muted);font-size:13px">
-      No deliverables yet — add your first deal to see events here.
+      No deliverables yet — <a href="#" onclick="openDeliverableModal();return false" style="color:var(--accent);text-decoration:none">add a deliverable</a> to see it here and sync it to Google Calendar.
     </div>
 
     <!-- Monthly grid (default) -->
@@ -1524,6 +1525,37 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="document.getElementById('markpaid-modal').style.display='none'">Cancel</button>
       <button class="btn btn-primary" id="mp-save-btn" onclick="markDealPaid()">Mark Paid</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════
+     DELIVERABLE MODAL
+════════════════════════════════════════ -->
+<div class="modal-overlay" id="deliverable-modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal">
+    <div class="modal-title" id="dl-modal-title">ADD DELIVERABLE</div>
+    <div class="form-group"><label class="form-label">Title *</label><input type="text" class="form-input" id="dl-title" placeholder="e.g. Post Reel for Gatorade"></div>
+    <div class="grid-2">
+      <div class="form-group"><label class="form-label">Due Date *</label><input type="date" class="form-input" id="dl-date"></div>
+      <div class="form-group">
+        <label class="form-label">Type</label>
+        <select class="form-select" id="dl-type">
+          <option>Instagram Post</option><option>Instagram Story</option><option>Instagram Reel</option>
+          <option>TikTok</option><option>Appearance</option><option>Other</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" id="dl-deal-wrap">
+      <label class="form-label">Link to Deal (optional)</label>
+      <select class="form-select" id="dl-deal"><option value="">— None —</option></select>
+    </div>
+    <div class="form-group"><label class="form-label">Notes</label><textarea class="form-textarea" id="dl-notes" placeholder="Any details…" style="min-height:60px"></textarea></div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Appears on your calendar instantly. Hit “Sync Now” on the Calendar tab to push it to your Google Calendar.</div>
+    <input type="hidden" id="dl-deal-id-fixed">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="document.getElementById('deliverable-modal').style.display='none'">Cancel</button>
+      <button class="btn btn-primary" id="dl-save-btn" onclick="saveDeliverable()">Save Deliverable</button>
     </div>
   </div>
 </div>
@@ -4251,7 +4283,7 @@ var AthlCal = (function() {
         '</div>' +
         '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">' +
           _statusBadge(e, today) +
-          (e.status !== 'completed' ? '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 9px" onclick="markDeliverable(' + e.id + ',this)">✓ Done</button>' : '') +
+          (e.status !== 'completed' ? '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 9px" onclick="markDeliverable(\'' + e.id + '\',this)">✓ Done</button>' : '') +
         '</div>' +
       '</div>';
     }).join('') + '</div>';
@@ -4276,7 +4308,7 @@ var AthlCal = (function() {
         '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + esc(e.brand||'') + (e.deal_type?' · '+esc(e.deal_type):'') + '</div></div>' +
         '<div style="display:flex;align-items:center;gap:8px">' +
           _statusBadge(e, today) +
-          (e.status !== 'completed' ? '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 9px" onclick="markDeliverable(' + e.id + ',this)">✓ Done</button>' : '') +
+          (e.status !== 'completed' ? '<button class="btn btn-ghost btn-sm" style="font-size:10px;padding:3px 9px" onclick="markDeliverable(\'' + e.id + '\',this)">✓ Done</button>' : '') +
         '</div>' +
       '</div>';
     }).join('');
@@ -4314,6 +4346,78 @@ async function markDeliverable(id, btn) {
     showToast('Marked complete!', 'success');
     loadCalendar();
   } catch(e) { showToast('Network error', 'error'); btn.disabled = false; btn.textContent = '✓ Done'; }
+}
+
+// ── Athlete-created deliverables (calendar modal) ──────────────────
+async function openDeliverableModal(dealId) {
+  // Ensure deals are loaded for the link-to-deal select
+  if (!dealsCache.length) {
+    try {
+      var r = await fetch('/api/athlete/deals', { headers: { 'Authorization': 'Bearer ' + athleteToken } });
+      var data = await r.json(); dealsCache = data.deals || [];
+    } catch(e) {}
+  }
+  // Reset fields
+  document.getElementById('dl-title').value = '';
+  document.getElementById('dl-date').value = '';
+  document.getElementById('dl-type').value = 'Instagram Post';
+  document.getElementById('dl-notes').value = '';
+  document.getElementById('dl-deal-id-fixed').value = '';
+  var sel = document.getElementById('dl-deal');
+  sel.innerHTML = '<option value="">— None —</option>' + dealsCache.map(function(d){
+    return '<option value="' + d.id + '">' + esc(d.brand_name || ('Deal #' + d.id)) + (d.deal_type ? ' — ' + esc(d.deal_type) : '') + '</option>';
+  }).join('');
+  var wrap = document.getElementById('dl-deal-wrap');
+  if (dealId != null && typeof dealId !== 'object') {
+    sel.value = String(dealId);
+    document.getElementById('dl-deal-id-fixed').value = String(dealId);
+    wrap.style.display = 'none'; // locked to this deal
+    var d = _dealById(dealId);
+    document.getElementById('dl-modal-title').textContent = 'ADD DELIVERABLE' + (d && d.brand_name ? ' · ' + d.brand_name.toUpperCase() : '');
+  } else {
+    wrap.style.display = '';
+    document.getElementById('dl-modal-title').textContent = 'ADD DELIVERABLE';
+  }
+  document.getElementById('deliverable-modal').style.display = 'flex';
+}
+
+async function saveDeliverable() {
+  var title = document.getElementById('dl-title').value.trim();
+  var date = document.getElementById('dl-date').value;
+  if (!title) { showToast('Title is required', 'error'); return; }
+  if (!date) { showToast('Due date is required', 'error'); return; }
+  var fixed = document.getElementById('dl-deal-id-fixed').value;
+  var dealId = fixed || document.getElementById('dl-deal').value || '';
+  var body = {
+    title: title,
+    due_date: date,
+    event_type: document.getElementById('dl-type').value,
+    notes: document.getElementById('dl-notes').value.trim()
+  };
+  var url = '/api/athlete/deliverables';
+  if (dealId) { url = '/api/athlete/deals/' + dealId + '/deliverables'; }
+  else { body.deal_id = null; }
+  var btn = document.getElementById('dl-save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    var r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + athleteToken },
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) {
+      var err = await r.json().catch(function(){ return {}; });
+      showToast(err.error || 'Failed to save deliverable', 'error');
+      btn.disabled = false; btn.textContent = 'Save Deliverable'; return;
+    }
+    showToast('Deliverable added to your calendar!', 'success');
+    document.getElementById('deliverable-modal').style.display = 'none';
+    btn.disabled = false; btn.textContent = 'Save Deliverable';
+    if (typeof loadCalendar === 'function') loadCalendar();
+  } catch(e) {
+    showToast('Network error', 'error');
+    btn.disabled = false; btn.textContent = 'Save Deliverable';
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -4436,6 +4540,7 @@ function renderDealCard(d) {
   // Money-loop action buttons
   var actions = [];
   actions.push(_stageBtn('Edit', 'openDealModal(' + d.id + ')'));
+  actions.push(_stageBtn('+ Deliverable', 'openDeliverableModal(' + d.id + ')'));
   actions.push(_stageBtn('Agreement', 'openAgreementModal(' + d.id + ')'));
   actions.push(_stageBtn('Invoice', 'openInvoiceModal(' + d.id + ')'));
   if (d.stage !== 'Paid' && d.stage !== 'Completed' && d.stage !== 'Lost') {
