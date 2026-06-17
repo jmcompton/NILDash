@@ -8135,22 +8135,25 @@ app.post('/api/agent/daily-brief', requireAuth, aiLimiter, async (req, res) => {
          ORDER BY updated_at ASC LIMIT 6`,
         [agentId]
       ),
-      // 5. Deliverables due this week
+      // 5. Deliverables due this week — Mon–Sun window, matching the Home
+      //    "Deliverables This Week" panel (/api/agent/home-data). Previously this
+      //    used a forward-only CURRENT_DATE..+7d window, which dropped items earlier
+      //    this week and made the brief say "none" while the panel listed several.
       store.pool.query(
         `SELECT COUNT(*) AS count,
                 ARRAY(SELECT DISTINCT a2.data->>'name'
                       FROM athlete_calendar_events ace2
                       JOIN athletes a2 ON ace2.athlete_id = a2.id
                       WHERE ace2.agent_id = $1
-                        AND ace2.event_date >= CURRENT_DATE
-                        AND ace2.event_date <= CURRENT_DATE + INTERVAL '7 days'
+                        AND ace2.event_date >= DATE_TRUNC('week', CURRENT_DATE)
+                        AND ace2.event_date <  DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
                         AND ace2.status != 'completed'
                       LIMIT 5) AS athlete_names
          FROM athlete_calendar_events ace
          JOIN athletes a ON ace.athlete_id = a.id
          WHERE ace.agent_id = $1
-           AND ace.event_date >= CURRENT_DATE
-           AND ace.event_date <= CURRENT_DATE + INTERVAL '7 days'
+           AND ace.event_date >= DATE_TRUNC('week', CURRENT_DATE)
+           AND ace.event_date <  DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days'
            AND ace.status != 'completed'`,
         [agentId]
       ),

@@ -1107,13 +1107,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
         <!-- ── Two-column: Deliverables this week + Follow-ups ── -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px">
+          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;min-width:0;overflow:hidden">
             <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Deliverables This Week</div>
             <div id="home-week-delivs" style="display:flex;flex-direction:column;gap:0">
               <div style="font-size:11px;color:#4B5563">Loading…</div>
             </div>
           </div>
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px">
+          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;min-width:0;overflow:hidden">
             <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Follow-Ups Needed</div>
             <div id="home-followups-list" style="display:flex;flex-direction:column;gap:0">
               <div style="font-size:11px;color:#4B5563">Loading…</div>
@@ -2982,7 +2982,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </select>
           </div>
           <div style="display:flex;align-items:flex-end">
-            <button class="run-btn" style="width:100%" id="tm-run-btn" onclick="runTeamMatch()">Scan Transfer Portal →</button>
+            <button class="run-btn" style="width:100%" id="tm-run-btn" onclick="runTeamMatch()">Scan Teams →</button>
           </div>
         </div>
 
@@ -4619,7 +4619,7 @@ function renderHomeWeekDelivs(delivs) {
       <div style="width:7px;height:7px;border-radius:50%;background:${dotColor};flex-shrink:0"></div>
       <div style="flex:1;min-width:0">
         <div style="font-size:11px;color:#E5E7EB;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(d.title||'—')}</div>
-        <div style="font-size:10px;color:#4B5563">${escHtml(d.athlete_name||'')}${d.brand ? ' · '+escHtml(d.brand) : ''}</div>
+        <div style="font-size:10px;color:#4B5563;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(d.athlete_name||'')}${d.brand ? ' · '+escHtml(d.brand) : ''}</div>
       </div>
       <div style="font-size:9px;padding:2px 6px;border-radius:99px;background:${tagBg};color:${tagColor};white-space:nowrap;flex-shrink:0">${tagText}</div>
     </div>`;
@@ -4744,6 +4744,7 @@ async function showView(id, btn) {
   document.getElementById('view-' + id).classList.add('active');
   if (btn) btn.classList.add('active');
   const labels = { home:'Home', command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
+    marketing:'Media Kit',
     negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
@@ -5843,8 +5844,11 @@ async function loadPipeline() {
   }
 
   window._pipelineDeals = allDeals;
-  // Use parseInt to avoid string-concatenation bugs with JSONB string values
-  const total = allDeals.reduce((s,d) => s + (parseInt(d.value) || 0), 0);
+  // Total Pipeline = ACTIVE deals only (exclude Closed/Lost) to match Home's $12K/15.
+  // Use parseInt to avoid string-concatenation bugs with JSONB string values.
+  const total = allDeals
+    .filter(d => d.stage !== 'Closed' && d.stage !== 'Lost')
+    .reduce((s,d) => s + (parseInt(d.value) || 0), 0);
 
   // Restore normal font-size/color after loading state
   ['pipe-total','pipe-count','pipe-closing'].forEach(id => {
@@ -6722,8 +6726,9 @@ async function loadAnalytics() {
 
   const commRate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
   const closed = allDeals.filter(d => d.stage === 'Closed');
-  const active = allDeals.filter(d => d.stage !== 'Closed');
-  const totalPipeline = allDeals.reduce((s,d)=>s+(parseInt(d.value)||0),0);
+  const active = allDeals.filter(d => d.stage !== 'Closed' && d.stage !== 'Lost');
+  // Total Pipeline = ACTIVE deals only (exclude Closed/Lost) to match Home's $12K/15.
+  const totalPipeline = active.reduce((s,d)=>s+(parseInt(d.value)||0),0);
   const totalClosed = closed.reduce((s,d)=>s+(parseInt(d.value)||0),0);
   const totalComm = Math.round(totalClosed * commRate);
 
@@ -6770,7 +6775,7 @@ async function loadAnalytics() {
   }
 
   var html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">' +
-    kpi('Total Pipeline', '$' + (totalPipeline/1000).toFixed(0) + 'K', allDeals.length + ' deals') +
+    kpi('Total Pipeline', '$' + (totalPipeline/1000).toFixed(0) + 'K', active.length + ' deals') +
     kpi('Closed Value', '$' + (totalClosed/1000).toFixed(0) + 'K', closed.length + ' closed') +
     kpi('My Commission', '$' + totalComm.toLocaleString(), (commRate*100).toFixed(0) + '% rate') +
     kpi('Active Deals', active.length, stages.filter(s=>s!=='Closed').map(s=>bystage[s]?.count||0).reduce((a,b)=>a+b,0) + ' in pipeline') +
@@ -6861,12 +6866,17 @@ async function loadAnalytics() {
     async function renderCommission() {
       const rate = parseFloat(document.getElementById('comm-rate')?.value || 15) / 100;
 
-      // Gather all deals across all athletes
-      const allDeals = [];
-      for (const ath of athletes) {
-        const deals = await fetch(`${API_BASE}/api/athletes/${ath.id}/deals`).then(r=>r.json()).catch(()=>[]);
-        deals.forEach(d => allDeals.push({ ...d, athleteName: ath.name, athleteId: ath.id }));
-      }
+      // Use the SAME agent-wide source of truth as Pipeline/Analytics/Home so
+      // Commission reflects every deal (not just ones the roster loop resolves).
+      // athleteName comes from the server JOIN; athMap is only a fallback.
+      const athMap = {};
+      (athletes || []).forEach(a => { athMap[a.id] = a.name; });
+      const rawC = await fetch(`${API_BASE}/api/agent/deals`).then(r=>r.json()).catch(()=>[]);
+      const allDeals = (Array.isArray(rawC) ? rawC : []).map(d => ({
+        ...d,
+        athleteId: d.athleteId || d.athlete_id,
+        athleteName: d.athleteName || athMap[d.athleteId || d.athlete_id] || '—',
+      }));
 
       // Filter
       let filtered = allDeals;

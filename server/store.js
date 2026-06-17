@@ -1146,13 +1146,28 @@ async function getDeal(id) {
   if (!r.rows[0]) return null;
   return { id: r.rows[0].id, athleteId: r.rows[0].athlete_id, agentId: r.rows[0].agent_id, ...r.rows[0].data };
 }
+// Attach athleteName server-side via LEFT JOIN (same source Outreach/Calendar use:
+// a.data->>'name') so Pipeline/Analytics/Commission don't depend on the frontend
+// roster to resolve the name. LEFT JOIN keeps deals whose athlete link is missing.
 async function getDealsByAthlete(athleteId) {
-  const r = await pool.query('SELECT * FROM deals WHERE athlete_id=$1', [athleteId]);
-  return r.rows.map(row => ({ id: row.id, athleteId: row.athlete_id, agentId: row.agent_id, ...row.data }));
+  const r = await pool.query(
+    `SELECT d.*, a.data->>'name' AS athlete_name
+       FROM deals d LEFT JOIN athletes a ON a.id = d.athlete_id
+      WHERE d.athlete_id=$1`, [athleteId]);
+  return r.rows.map(row => ({
+    id: row.id, athleteId: row.athlete_id, agentId: row.agent_id, ...row.data,
+    athleteName: row.athlete_name || (row.data && row.data.athleteName) || null,
+  }));
 }
 async function getDealsByAgent(agentId) {
-  const r = await pool.query('SELECT * FROM deals WHERE agent_id=$1', [agentId]);
-  return r.rows.map(row => ({ id: row.id, athleteId: row.athlete_id, agentId: row.agent_id, ...row.data }));
+  const r = await pool.query(
+    `SELECT d.*, a.data->>'name' AS athlete_name
+       FROM deals d LEFT JOIN athletes a ON a.id = d.athlete_id
+      WHERE d.agent_id=$1`, [agentId]);
+  return r.rows.map(row => ({
+    id: row.id, athleteId: row.athlete_id, agentId: row.agent_id, ...row.data,
+    athleteName: row.athlete_name || (row.data && row.data.athleteName) || null,
+  }));
 }
 async function saveDeal(id, data) {
   const { athleteId, agentId, ...rest } = data;
