@@ -244,8 +244,13 @@ async function openThread(threadId) {
     EmailState.activeMessages = msgs;
     await emailAPI.post(`/threads/${threadId}/read`, {});
     renderMessagePane(thread, msgs);
+    document.getElementById('email-listview').style.display = 'none';
+    if (pane) pane.style.display = 'block';
+    window.scrollTo(0, 0);
   } catch (e) {
-    if (pane) pane.innerHTML = '<div style="padding:24px;color:#f87171;font-size:12px">Failed to load messages.</div>';
+    document.getElementById('email-listview').style.display = 'none';
+    if (pane) { pane.style.display = 'block'; pane.innerHTML = '<div style="padding:16px 20px;border-bottom:1px solid var(--border)"><button onclick="emailModule.closeThread()" style="font-size:11px;padding:5px 12px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer">← Back</button></div><div style="padding:24px;color:#f87171;font-size:12px">Failed to load messages.</div>'; }
+    window.scrollTo(0, 0);
   }
 }
 
@@ -257,11 +262,14 @@ function renderMessagePane(thread, messages) {
 
   pane.innerHTML = `
     <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-      <div>
-        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px">${escHtml(thread.subject || '(no subject)')}</div>
-        <div style="font-size:11px;color:var(--muted)">${messages.length} message${messages.length !== 1 ? 's' : ''}</div>
+      <div style="display:flex;align-items:center;gap:12px;min-width:0">
+        <button onclick="emailModule.closeThread()" style="font-size:11px;padding:5px 12px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer;flex-shrink:0">← Back</button>
+        <div style="min-width:0">
+          <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(thread.subject || '(no subject)')}</div>
+          <div style="font-size:11px;color:var(--muted)">${messages.length} message${messages.length !== 1 ? 's' : ''}</div>
+        </div>
       </div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-shrink:0">
         ${lastMsg ? `<button onclick="emailModule.openComposer('reply')" style="font-size:11px;padding:5px 12px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-weight:700;cursor:pointer">Reply</button>` : ''}
         <button onclick="emailModule.openComposer('new')" style="font-size:11px;padding:5px 12px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer">Compose</button>
       </div>
@@ -481,6 +489,16 @@ async function initEmailModule() {
   await loadEmailInbox();
 }
 
+function closeThread() {
+  const pane = document.getElementById('email-message-pane');
+  const listview = document.getElementById('email-listview');
+  if (pane) pane.style.display = 'none';
+  if (listview) listview.style.display = '';
+  EmailState.activeThread = null;
+  renderThreadList();
+  window.scrollTo(0, 0);
+}
+
 // Export to window so index.html can call these directly
 window.emailModule = {
   init:               initEmailModule,
@@ -495,6 +513,7 @@ window.emailModule = {
   disconnectEmailAccount,
   triggerEmailSync,
   openThread,
+  closeThread,
   openComposer,
   closeComposer,
   sendComposedEmail,

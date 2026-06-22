@@ -3028,16 +3028,18 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
     <!-- ── Tab: My Gmail ── -->
     <div id="email-panel-gmail">
-      <div class="page-sub" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
-        <span>Your connected email conversations</span>
-        <button onclick="emailModule.openComposer('new')" style="font-size:12px;padding:7px 16px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-weight:700;cursor:pointer">+ Compose</button>
-      </div>
-      <div style="margin-bottom:14px">
-        <input id="email-search-input" type="search" placeholder="Search emails…" oninput="emailModule.searchEmails(this.value)" style="width:100%;max-width:400px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
-      </div>
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:16px">
-        <div id="email-thread-list">
-          <div style="padding:20px;color:var(--muted);font-size:12px;text-align:center">Loading inbox…</div>
+      <div id="email-listview">
+        <div class="page-sub" style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between">
+          <span>Your connected email conversations</span>
+          <button onclick="emailModule.openComposer('new')" style="font-size:12px;padding:7px 16px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#000;font-weight:700;cursor:pointer">+ Compose</button>
+        </div>
+        <div style="margin-bottom:14px">
+          <input id="email-search-input" type="search" placeholder="Search emails…" oninput="emailModule.searchEmails(this.value)" style="width:100%;max-width:400px;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;outline:none">
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:16px">
+          <div id="email-thread-list">
+            <div style="padding:20px;color:var(--muted);font-size:12px;text-align:center">Loading inbox…</div>
+          </div>
         </div>
       </div>
       <div id="email-message-pane" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;display:none"></div>
