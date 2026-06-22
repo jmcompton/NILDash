@@ -9,7 +9,7 @@ const ai      = require('../ai');
 const { Resend } = require('resend');
 const resend  = new Resend(process.env.RESEND_API_KEY);
 
-const GROWTH_MODEL = 'claude-opus-4-5';
+const GROWTH_MODEL = 'claude-opus-4-8';
 const FROM_EMAIL   = 'jmcompton04@gmail.com'; // TODO: swap to hello@comptongroupllc.com when Outlook is configured
 const DAILY_SEND_LIMIT = 30;
 

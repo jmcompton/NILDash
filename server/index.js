@@ -466,7 +466,7 @@ app.post('/api/university/ai/compliance-check', requireUniversityAuth, async (re
     const Anthropic = require('@anthropic-ai/sdk');
     const client = new Anthropic();
     const msg = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1024,
       messages: [{ role: 'user', content: userPrompt }],
       system: systemPrompt,
@@ -532,7 +532,7 @@ app.post('/api/university/ai/deal-recommendations/:athleteId', requireUniversity
     const Anthropic = require('@anthropic-ai/sdk');
     const client = new Anthropic();
     const msg = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1500,
       messages: [{ role: 'user', content: userPrompt }],
       system: systemPrompt,
@@ -4596,7 +4596,7 @@ Never give legal advice but help them understand what questions to ask.`;
     res.flushHeaders();
 
     const stream = anthropicClient.messages.stream({
-      model: 'claude-opus-4-5', max_tokens: 1024, system,
+      model: 'claude-opus-4-8', max_tokens: 1024, system,
       messages: [{ role: 'user', content: message }],
     });
     stream.on('text', text => res.write(`data: ${JSON.stringify({ text })}\n\n`));
@@ -4954,7 +4954,7 @@ Number them 1, 2, 3.`;
 
     const system = `You are a social media copywriter for college athletes. Write captions that sound exactly like a real college athlete wrote them — casual, authentic, genuine. Never corporate. Never over-enthusiastic. Use natural language a 20-year-old would actually use. Don't use phrases like "super excited" or "amazing opportunity" or "blessed". Make it sound like they dashed it off between practice and class.`;
 
-    const raw = await ai.oneShot(prompt, system, 800, 'claude-sonnet-4-20250514');
+    const raw = await ai.oneShot(prompt, system, 800, 'claude-sonnet-4-6');
     console.log('[generate-caption] brand:', brand, 'type:', postType, 'athlete:', req.athlete.id);
     res.json({ captions: raw || '' });
   } catch (e) {
@@ -6570,7 +6570,7 @@ app.post('/api/university/roster/preview', requireAuth, requireUniversityMode, r
 If a field is missing or unclear, set it to null. Combine any full name fields into first_name and last_name. Be flexible — column names vary by school. If you cannot determine the structure at all, return an empty array [].`;
 
     const msg = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: 'user', content: `Map this roster file:\n\n${rawText}` }],
@@ -6759,7 +6759,7 @@ Rules:
 Return format: {"athletes": [...], "note": "optional note"}`;
 
     const message = await client.messages.create({
-      model: 'claude-opus-4-5',
+      model: 'claude-opus-4-8',
       max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -7136,7 +7136,7 @@ app.post('/api/pdf/analyze', requireAuth, aiLimiter, pdfScanUpload.single('pdf')
       const Anthropic = require('@anthropic-ai/sdk');
       const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
       const resp = await anthropic.messages.create({
-        model: 'claude-opus-4-20250514',
+        model: 'claude-opus-4-8',
         max_tokens: 4096,
         messages: [{ role: 'user', content: [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } },
@@ -7690,7 +7690,7 @@ The bio must:
 Under 200 characters total.`;
     }
 
-    const bio = await ai.oneShot(prompt, system, 200, 'claude-sonnet-4-20250514');
+    const bio = await ai.oneShot(prompt, system, 200, 'claude-sonnet-4-6');
     console.log('[generate-bio] success — bio length:', (bio||'').length, '— preview:', (bio||'').substring(0, 60));
     res.json({ bio: (bio || '').trim().slice(0, 300) });
   } catch (e) {

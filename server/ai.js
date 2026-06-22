@@ -185,7 +185,7 @@ async function streamResponse(athlete, message, role, res) {
   res.flushHeaders();
 
   const stream = ai.messages.stream({
-    model: 'claude-opus-4-5',
+    model: 'claude-opus-4-8',
     max_tokens: 1024,
     system: await buildSystemPrompt(athlete, role),
     messages: [{ role: 'user', content: message }],
@@ -202,9 +202,9 @@ async function streamResponse(athlete, message, role, res) {
 }
 
 // Fast model for quick structured tasks (deal scan, enrichment, contact discovery)
-const MODEL_FAST  = 'claude-haiku-4-5';
+const MODEL_FAST  = 'claude-haiku-4-5-20251001';
 // Standard model for quality writing (pitch emails, brand kit)
-const MODEL_STANDARD = 'claude-opus-4-5';
+const MODEL_STANDARD = 'claude-opus-4-8';
 
 // ── Feature flags ─────────────────────────────────────────────────────────────
 // Set to false to revert to legacy email generation prompts
@@ -478,7 +478,7 @@ function validateContactEmail(email, websiteUrl) {
 // follower tier. A 2,000-follower athlete should see micro/nano-friendly brands,
 // never Nike.
 async function _scanBrandLane(athlete, lane, excludeBrands) {
-  const MODEL_DEALSCAN = 'claude-sonnet-4-5';
+  const MODEL_DEALSCAN = 'claude-sonnet-4-6';
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
@@ -614,7 +614,7 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane) {
 
   // Deal Scan uses Sonnet (scoped to this function only) — faster than Opus,
   // strong enough for structured local-brand research.
-  const MODEL_DEALSCAN = 'claude-sonnet-4-5';
+  const MODEL_DEALSCAN = 'claude-sonnet-4-6';
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';

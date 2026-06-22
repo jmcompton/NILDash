@@ -667,7 +667,7 @@ Return ONLY valid JSON:
   try {
     const client = getClient();
     const msg = await client.messages.create({
-      model:     'claude-opus-4-5',
+      model:     'claude-opus-4-8',
       max_tokens: 2048,
       messages:  [{ role: 'user', content: prompt }],
     });

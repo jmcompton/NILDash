@@ -311,7 +311,7 @@ RULES:
 
   try {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1500,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       system: `You are an athlete data lookup assistant. Search for real, verified information about college athletes.

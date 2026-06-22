@@ -67,7 +67,7 @@ async function extractText(buffer, mimetype) {
   if (mimetype === 'application/pdf') {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const resp = await anthropic.messages.create({
-      model: 'claude-opus-4-20250514',
+      model: 'claude-opus-4-8',
       max_tokens: 4096,
       messages: [{
         role: 'user',
