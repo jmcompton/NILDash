@@ -4678,6 +4678,42 @@ app.get('/api/athlete/deal-scan/cache', verifyAthleteToken, async (req, res) => 
   } catch (e) { console.error('[athlete/deal-scan/cache]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// POST /api/agent/deal-scan — agent-side three-lane deal scan for a client athlete
+app.post('/api/agent/deal-scan', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    const { athleteId, lane, exclude_brands } = req.body;
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    // agentId is camelCase from store.getAthlete() — confirmed by existing ownership checks
+    if (athlete.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    const validLane = ['local', 'social', 'topnil'].includes(lane) ? lane : 'local';
+    const excludeBrands = Array.isArray(exclude_brands) ? exclude_brands : [];
+    const recommendations = await ai.getDealRecommendations(athlete, 'agent', excludeBrands, validLane);
+    if (recommendations.length) {
+      await store.pool.query(
+        `UPDATE athletes SET deal_scan_cache = COALESCE(deal_scan_cache, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
+        [JSON.stringify({ [validLane]: { opportunities: recommendations, ts: Date.now() } }), athleteId]
+      ).catch(e => console.error('[agent/deal-scan] cache persist:', e.message));
+    }
+    const rateCard = await _athleteRateCard(athleteId);
+    res.json({ opportunities: recommendations, lane: validLane, rateCard });
+  } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/agent/deal-scan/cache — hydrate last persisted scan for a client athlete
+app.get('/api/agent/deal-scan/cache', requireAuth, async (req, res) => {
+  try {
+    const athleteId = req.query.athleteId;
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    if (athlete.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id = $1', [athleteId]);
+    const cache = (r.rows[0] && r.rows[0].deal_scan_cache) || {};
+    const rateCard = await _athleteRateCard(athleteId);
+    res.json({ cache, rateCard });
+  } catch (e) { console.error('[agent/deal-scan/cache]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // Build the athlete's per-deliverable rate card using the SAME model the Rate
 // Calculator uses (benchmarks.nilViewVal + cleanRange) — single source of truth.
 // Returns { rates:{deliverable:{low,high}}, dealValueLow, dealValueHigh }.

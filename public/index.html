@@ -742,6 +742,38 @@ tbody td{padding:11px 14px;vertical-align:middle}
 }
 .ucp-nav-item:hover { background: rgba(26,58,92,0.15); color: #94a3b8; }
 .ucp-nav-active { color: #e2e8f0 !important; background: rgba(26,58,92,0.3) !important; }
+/* ── Deal Scan three-lane layout ── */
+.ds-lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+.ds-lane{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column;min-width:0}
+.ds-lane-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.ds-lane-title{font-size:13px;font-weight:800;color:var(--text);letter-spacing:0.02em}
+.ds-lane-count{font-size:11px;font-weight:700;color:#84CC16;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.3);border-radius:20px;padding:1px 9px;min-width:24px;text-align:center}
+.ds-lane-sub{font-size:10px;color:var(--muted);margin:3px 0 12px;line-height:1.4}
+.ds-lane-body{display:flex;flex-direction:column;gap:10px;max-height:1100px;overflow-y:auto;padding-right:2px}
+.ds-lane-empty{text-align:center;color:var(--muted);padding:22px 10px;font-size:11px;line-height:1.5}
+.ds-lane-loading{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:11px;padding:22px 10px}
+.ds-lane-spin{width:13px;height:13px;border:1.5px solid rgba(132,204,22,0.25);border-top-color:#84CC16;border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0}
+.ds-lane-tabs{display:none;gap:6px;margin-bottom:14px}
+.ds-lane-tab{flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;padding:9px 6px;border-radius:9px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:5px}
+.ds-lane-tab.active{background:rgba(132,204,22,0.12);border-color:rgba(132,204,22,0.45);color:#84CC16}
+.ds-tab-count{font-size:10px;font-weight:700;background:rgba(255,255,255,0.08);border-radius:20px;padding:0 6px;min-width:18px;text-align:center}
+.ds-lane-tab.active .ds-tab-count{background:rgba(132,204,22,0.2)}
+.ds-lane-chip{font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:0.03em}
+.ds-step{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
+.ds-step.active{color:var(--text)}
+.ds-step.done{color:#84CC16}
+.ds-step-ico{flex-shrink:0;width:16px;height:16px;display:flex;align-items:center;justify-content:center}
+.ds-step-dot{width:7px;height:7px;border-radius:50%;background:var(--border)}
+.ds-step.active .ds-step-dot{background:#84CC16}
+.ds-check{stroke:#84CC16}
+@media(max-width:900px){
+  .ds-lanes{grid-template-columns:1fr;gap:0}
+  .ds-lane-tabs{display:flex}
+  .ds-lane{display:none;border:none;padding:0;background:transparent}
+  .ds-lane.active{display:flex}
+  .ds-lane-head,.ds-lane-sub{display:none}
+  .ds-lane-body{max-height:none;overflow:visible}
+}
 </style>
 </head>
 <body>
@@ -1206,18 +1238,45 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
       <!--  DEALS  -->
       <div id="view-deals" class="view">
-
         <div style="margin-bottom:16px">
-          <button id="deals-refresh-btn" onclick="runDealsRefresh()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;margin-right:8px">Refresh</button><button class="run-btn" id="deals-run-btn" onclick="runDealScan()">Scan Deals with AI</button>
+          <button id="deals-refresh-btn" onclick="runDealRefresh()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;margin-right:8px">Refresh</button><button class="run-btn" id="deals-run-btn" onclick="runDealScan()">Scan Deals with AI</button>
         </div>
-        <div class="ai-block" id="dealsAI" style="margin-bottom:16px">
-          <div class="ai-header"><div class="spinner" id="dealsSpinner"></div><div class="ai-label">AI Deal Scan</div></div>
-          <div class="ai-content" id="dealsText">Select a client and click Scan Deals to get AI-ranked recommendations.</div>
+        <!-- Live progress card -->
+        <div id="ds-progress" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:0;margin-bottom:16px;overflow:hidden">
+          <div style="height:4px;width:100%;background:var(--surface)">
+            <div id="ds-progress-bar" style="height:100%;width:0%;background:#84CC16;border-radius:0 2px 2px 0;transition:width 0.6s ease"></div>
+          </div>
+          <div style="padding:18px 20px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:#84CC16;margin-bottom:14px">Scanning for Deals</div>
+            <div id="ds-progress-steps" style="display:flex;flex-direction:column;gap:11px"></div>
+          </div>
         </div>
-        <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">Ranked Opportunities</div>
-        <div id="dealsTbody" style="display:flex;flex-direction:column;gap:10px">
-          <div style="text-align:center;color:var(--muted);padding:24px;font-size:12px">Run a deal scan to see recommendations</div>
+        <div id="scan-ranked-label" style="display:none;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">Ranked Opportunities</div>
+        <!-- Mobile lane switcher (segmented control; visible < 900px via CSS) -->
+        <div id="ds-lane-tabs" class="ds-lane-tabs" style="display:none">
+          <button class="ds-lane-tab active" data-lane="local" onclick="switchLane('local')">Local <span class="ds-tab-count" id="ds-tabcount-local">0</span></button>
+          <button class="ds-lane-tab" data-lane="social" onclick="switchLane('social')">Social <span class="ds-tab-count" id="ds-tabcount-social">0</span></button>
+          <button class="ds-lane-tab" data-lane="topnil" onclick="switchLane('topnil')">Top Spenders <span class="ds-tab-count" id="ds-tabcount-topnil">0</span></button>
         </div>
+        <!-- Three-lane grid (desktop) / one active lane (mobile) -->
+        <div id="ds-lanes" class="ds-lanes" style="display:none">
+          <div class="ds-lane active" data-lane="local">
+            <div class="ds-lane-head"><span class="ds-lane-title">Local</span><span class="ds-lane-count" id="ds-count-local">—</span></div>
+            <div class="ds-lane-sub">Businesses near your client's school</div>
+            <div class="ds-lane-body" id="scan-results-local"></div>
+          </div>
+          <div class="ds-lane" data-lane="social">
+            <div class="ds-lane-head"><span class="ds-lane-title">Social</span><span class="ds-lane-count" id="ds-count-social">—</span></div>
+            <div class="ds-lane-sub">Brands that work with creators their size</div>
+            <div class="ds-lane-body" id="scan-results-social"></div>
+          </div>
+          <div class="ds-lane" data-lane="topnil">
+            <div class="ds-lane-head"><span class="ds-lane-title">Top NIL Spenders</span><span class="ds-lane-count" id="ds-count-topnil">—</span></div>
+            <div class="ds-lane-sub">Big NIL brands that sign athletes like them</div>
+            <div class="ds-lane-body" id="scan-results-topnil"></div>
+          </div>
+        </div>
+        <div id="scan-results-empty" style="text-align:center;color:var(--muted);padding:24px;font-size:12px">Select a client and run a deal scan to see recommendations across Local, Social, and Top NIL Spenders.</div>
       </div>
 
       <!--  RATE  -->
@@ -4279,13 +4338,21 @@ async function clearAllResults() {
   const cmdOut = document.getElementById('commandOutput');
   if (cmdOut) { cmdOut.classList.remove('visible'); const ct = document.getElementById('commandText'); if (ct) ct.textContent = ''; }
 
-  // Deal scan
-  const dealAI = document.getElementById('dealsAI');
-  if (dealAI) dealAI.classList.remove('visible');
-  const dealsTxt = document.getElementById('dealsText');
-  if (dealsTxt) dealsTxt.textContent = 'Select a client and click Scan Deals to get AI-ranked recommendations.';
-  const dealsTbody = document.getElementById('dealsTbody');
-  if (dealsTbody) dealsTbody.innerHTML = '<div style="text-align:center;color:var(--muted);padding:24px;font-size:12px">Run a deal scan to see recommendations</div>';
+  // Deal scan — reset per-client lane state so switching clients gets a clean slate
+  _dsLaneData = { local: null, social: null, topnil: null };
+  _dsLaneBusy = { local: false, social: false, topnil: false };
+  _dsLaneNote = { local: '', social: '', topnil: '' };
+  window._dealScanResults = [];
+  var _scanRanked = document.getElementById('scan-ranked-label');
+  if (_scanRanked) _scanRanked.style.display = 'none';
+  var _dsLanesEl = document.getElementById('ds-lanes');
+  if (_dsLanesEl) _dsLanesEl.style.display = 'none';
+  var _dsLaneTabsEl = document.getElementById('ds-lane-tabs');
+  if (_dsLaneTabsEl) _dsLaneTabsEl.style.display = 'none';
+  var _dsEmptyEl = document.getElementById('scan-results-empty');
+  if (_dsEmptyEl) { _dsEmptyEl.style.display = ''; _dsEmptyEl.textContent = 'Select a client and run a deal scan to see recommendations across Local, Social, and Top NIL Spenders.'; }
+  var _dsProgress = document.getElementById('ds-progress');
+  if (_dsProgress) _dsProgress.style.display = 'none';
 
   // Rate calculator
   const rateAI = document.getElementById('rateAI');
@@ -4423,6 +4490,9 @@ async function selectAthlete(id) {
   renderRoster();
   onAthleteChange();
   showToast(ath.name + ' selected as active client');
+  // If the agent is already on Deal Scan, hydrate the new client's cache immediately
+  var dealsView = document.getElementById('view-deals');
+  if (dealsView && dealsView.classList.contains('active')) loadDealScanCache();
 }
 
 async function deleteAthlete(id) {
@@ -4759,6 +4829,7 @@ async function showView(id, btn) {
   if (id === 'athlete-portals') { loadAthletePortals(); setTimeout(loadAgentOutreach, 400); }
   if (id === 'contract') prefillContract();
   if (id === 'team-match') tmPreFillFromAthlete();
+  if (id === 'deals') { if (selectedAthleteId) loadDealScanCache(); }
   if (id === 'pdf-scan') loadPdfScanAthletes();
 }
 async function prefillContract() {
@@ -4820,71 +4891,326 @@ async function runCommand() {
   btn.disabled = false; btn.textContent = 'Run \u2192';
 }
 
-//  AI: DEALS 
-async function runDealScan() {
-  if (!selectedAthleteId) { showToast('Select a client first'); return; }
-  const box = document.getElementById('dealsAI');
-  const txt = document.getElementById('dealsText');
-  box.classList.add('visible'); txt.textContent = 'Scanning...';
-  document.getElementById('dealsSpinner').style.display = 'block';
-  try {
-    const {recommendations, error} = await fetch(`${API_BASE}/api/ai/deals`, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ athleteId: selectedAthleteId, excludeBrands: window._excludeDealBrands || [] }),
-    }).then(r=>r.json());
-    if(error) throw new Error(error);
-    renderDealsTable(recommendations);
-    txt.textContent = `Found ${recommendations.length} ranked opportunities. Top pick: ${recommendations[0]?.brand}.`;
-  } catch(e) { txt.textContent = ' ' + e.message; }
-  document.getElementById('dealsSpinner').style.display = 'none';
+// ══════════════════════════════════════════════════════════════════
+// ── Deal Scan — three-lane engine (ported from athlete portal) ────
+// esc alias so ported functions work without modification
+var esc = escHtml;
+
+// Per-lane scan state. null = never scanned; [] = scanned, genuinely empty.
+var _dsLaneData = { local: null, social: null, topnil: null };
+var _dsLaneNote = { local: '', social: '', topnil: '' };
+var _dsLaneBusy = { local: false, social: false, topnil: false };
+window._agentRateCard = null; // { rates:{deliverable:{low,high}}, dealValueLow, dealValueHigh }
+
+var DS_LANES = ['local', 'social', 'topnil'];
+var _dsLaneMeta = {
+  local:  { label: 'Local',       chip: 'rgba(132,204,22,0.18);color:#84CC16;border:1px solid rgba(132,204,22,0.3)' },
+  social: { label: 'Social',      chip: 'rgba(168,85,247,0.18);color:#c084fc;border:1px solid rgba(168,85,247,0.3)' },
+  topnil: { label: 'Top NIL',     chip: 'rgba(59,130,246,0.18);color:#60a5fa;border:1px solid rgba(59,130,246,0.3)' }
+};
+var _dsCatColors = {
+  'local':'rgba(132,204,22,0.15);color:#84CC16','auto':'rgba(59,130,246,0.15);color:#60a5fa',
+  'gym':'rgba(239,68,68,0.15);color:#f87171','food':'rgba(245,158,11,0.15);color:#f59e0b',
+  'restaurant':'rgba(245,158,11,0.15);color:#f59e0b','nutrition':'rgba(16,185,129,0.15);color:#34d399',
+  'apparel':'rgba(168,85,247,0.15);color:#c084fc','finance':'rgba(16,185,129,0.15);color:#34d399',
+  'insurance':'rgba(16,185,129,0.15);color:#34d399','realestate':'rgba(59,130,246,0.15);color:#60a5fa',
+  'training':'rgba(245,158,11,0.15);color:#f59e0b','supplements':'rgba(16,185,129,0.15);color:#34d399',
+  'energydrink':'rgba(239,68,68,0.15);color:#f87171','app':'rgba(59,130,246,0.15);color:#60a5fa',
+  'accessories':'rgba(168,85,247,0.15);color:#c084fc','beauty':'rgba(236,72,153,0.15);color:#f472b6',
+  'fitness':'rgba(245,158,11,0.15);color:#f59e0b','dtc':'rgba(168,85,247,0.15);color:#c084fc',
+  'tech':'rgba(59,130,246,0.15);color:#60a5fa','retail':'rgba(245,158,11,0.15);color:#f59e0b',
+  'nil':'rgba(132,204,22,0.15);color:#84CC16'
+};
+
+function _dsHasAnyData() { return DS_LANES.some(function(l){ return _dsLaneData[l] !== null; }); }
+function _dsLaneLoadingHtml() { return '<div class="ds-lane-loading"><span class="ds-lane-spin"></span> Searching…</div>'; }
+
+function switchLane(lane) {
+  document.querySelectorAll('#ds-lane-tabs .ds-lane-tab').forEach(function(t){
+    t.classList.toggle('active', t.getAttribute('data-lane') === lane);
+  });
+  document.querySelectorAll('#ds-lanes .ds-lane').forEach(function(c){
+    c.classList.toggle('active', c.getAttribute('data-lane') === lane);
+  });
+}
+function _setLaneCount(lane, n) {
+  var a = document.getElementById('ds-count-' + lane);
+  var b = document.getElementById('ds-tabcount-' + lane);
+  if (a) a.textContent = n;
+  if (b) b.textContent = (typeof n === 'number') ? n : 0;
 }
 
-async function renderDealsTable(recs) {
-  if (!recs || !recs.length) return;
-  window._dealScanResults = recs; // stored for ⚡ AI Outreach button access by index
-  var container = document.getElementById('dealsTbody');
-  container.innerHTML = recs.map(function(d,i) {
-    var score = d.fitScore || 80;
-    var scoreColor = score >= 85 ? 'var(--accent)' : score >= 70 ? '#f59e0b' : 'var(--muted)';
-    var isTop = i === 0;
-    var isLocal = d.isLocal || (d.category && d.category.toLowerCase() === 'local');
-    var timingUrgent = d.timingNote && (d.timingNote.toLowerCase().indexOf('now') !== -1 || d.timingNote.toLowerCase().indexOf('open') !== -1 || d.timingNote.toLowerCase().indexOf('peak') !== -1 || d.timingNote.toLowerCase().indexOf('spring') !== -1);
-    var timingShort = d.timingNote && d.timingNote.length > 70 ? d.timingNote.substring(0,70)+'...' : (d.timingNote||'');
-    var brandSafe = (d.brand||'').replace(/'/g, "\\'");
-    var dealTypeLabel = {'post':'IG Post','reel':'IG Reel','ambassador':'Ambassador','appearance':'Appearance','licensing':'Licensing','tiktok':'TikTok','youtube':'YouTube'}[d.dealType] || d.dealType || 'Post';
-    var catColors = {'local':'rgba(132,204,22,0.15);color:var(--accent)','food':'rgba(245,158,11,0.15);color:#f59e0b','restaurant':'rgba(245,158,11,0.15);color:#f59e0b','auto':'rgba(59,130,246,0.15);color:#60a5fa','gym':'rgba(239,68,68,0.15);color:#f87171','finance':'rgba(16,185,129,0.15);color:#34d399','bank':'rgba(16,185,129,0.15);color:#34d399'};
-    var catStyle = catColors[d.category] || 'rgba(255,255,255,0.06);color:var(--muted)';
-    return '<div style="background:var(--surface2);border:1px solid '+(isTop?'rgba(132,204,22,0.3)':'var(--border)')+';border-radius:var(--r);padding:18px 20px">' +
-      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
-        '<div style="flex:1;min-width:220px">' +
-          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
-            '<span style="font-size:11px;color:var(--muted)">#'+(d.rank||i+1)+'</span>' +
-            '<span style="font-size:15px;font-weight:700;color:var(--text)">'+(d.brand||'Brand')+'</span>' +
-            (isLocal ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.15);color:var(--accent);font-weight:700">LOCAL</span>' : '') +
-            (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:var(--accent);border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
-          '</div>' +
-          '<div style="font-size:12px;color:var(--text);margin-bottom:8px;line-height:1.5;font-weight:500">'+(d.campaign||'')+'</div>' +
-          '<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:12px">'+(d.rationale||'')+'</div>' +
-          '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">' +
-            '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:'+catStyle+'">'+(d.category||'brand')+'</span>' +
-            '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.06);color:var(--muted)">'+dealTypeLabel+'</span>' +
-            (timingShort ? (timingUrgent ? '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#f59e0b">'+timingShort+'</span>' : '<span style="font-size:10px;padding:3px 10px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--muted)">'+timingShort+'</span>') : '') +
-          '</div>' +
-        '</div>' +
-        '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:120px">' +
-          '<div style="display:flex;align-items:center;gap:5px">' +
-            '<div style="width:52px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden"><div style="width:'+score+'%;height:100%;background:'+scoreColor+';border-radius:2px"></div></div>' +
-            '<span style="font-size:12px;color:'+scoreColor+';font-weight:700">'+score+'</span>' +
-          '</div>' +
-          '<button onclick="prefillOutreach(&quot;'+brandSafe+'&quot;)" style="padding:8px 14px;background:var(--accent);color:#000;border:none;border-radius:40px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Write Outreach</button>' +
-          '<button onclick="addDealToPipeline(&quot;'+brandSafe+'&quot;,&quot;'+(d.dealType||'ig-post')+'&quot;,&quot;'+(d.campaign||'').replace(/"/g,'').substring(0,40)+'&quot;)" style="padding:7px 14px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">+ Pipeline</button>' +
-          '<button onclick="addDealToOutreach(&quot;'+brandSafe+'&quot;,&quot;'+(d.campaign||'').replace(/"/g,'').substring(0,40)+'&quot;)" style="padding:7px 14px;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.25);color:#60a5fa;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap">+ Outreach</button>' +
-          '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults['+i+']);}else{showToast(\'Outreach engine loading…\');}" style="padding:7px 14px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:40px;font-size:11px;cursor:pointer;white-space:nowrap;font-weight:600">⚡ AI Outreach</button>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
+// ── Progress animation ─────────────────────────────────────────────
+var _dsProgTimers = [];
+function _dsMarketLabel() {
+  var ath = athletes && athletes.find(function(a){ return a.id === selectedAthleteId; });
+  var s = (ath && ath.school) ? String(ath.school).trim() : '';
+  if (!s) return 'local';
+  return (s.length > 22 ? s.substring(0, 22) + '…' : s) + ' area';
+}
+function _dsRenderSteps(steps, activeIdx) {
+  var box = document.getElementById('ds-progress-steps');
+  if (!box) return;
+  box.innerHTML = steps.map(function(label, i) {
+    var cls = i < activeIdx ? 'done' : (i === activeIdx ? 'active' : 'pending');
+    var ico = i < activeIdx
+      ? '<svg class="ds-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+      : '<span class="ds-step-dot"></span>';
+    return '<div class="ds-step ' + cls + '"><div class="ds-step-ico">' + ico + '</div>' +
+           '<div class="ds-step-text">' + esc(label) + '</div></div>';
   }).join('');
 }
+function _dsClearTimers() { _dsProgTimers.forEach(function(t){ clearTimeout(t); }); _dsProgTimers = []; }
+
+function startDealScanProgress() {
+  var steps = [
+    'Finding your client\'s market...',
+    'Searching ' + _dsMarketLabel() + ' businesses...',
+    'Finding NIL-friendly brands...',
+    'Checking contact information...',
+    'Scoring opportunities...',
+    'Almost there...'
+  ];
+  var timings = [0, 1000, 3000, 6000, 9000, 12000];
+  var card = document.getElementById('ds-progress');
+  var bar  = document.getElementById('ds-progress-bar');
+  card.style.display = 'block';
+  card.style.opacity = '1';
+  bar.style.transition = 'none';
+  bar.style.width = '0%';
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      bar.style.transition = 'width 12s linear';
+      bar.style.width = '90%';
+    });
+  });
+  _dsClearTimers();
+  var minDisplayResolve;
+  var minDisplay = new Promise(function(res){ minDisplayResolve = res; });
+  steps.forEach(function(_, i) {
+    var t = setTimeout(function(){
+      _dsRenderSteps(steps, i);
+      if (i >= 3) minDisplayResolve();
+    }, timings[i]);
+    _dsProgTimers.push(t);
+  });
+  _dsProgTimers.push(setTimeout(minDisplayResolve, timings[timings.length - 1] + 500));
+  function finish() {
+    _dsClearTimers();
+    _dsRenderSteps(steps, steps.length);
+    bar.style.transition = 'width 0.4s ease';
+    bar.style.width = '100%';
+    return new Promise(function(res){
+      setTimeout(function(){
+        card.style.transition = 'opacity 0.45s ease';
+        card.style.opacity = '0';
+        setTimeout(function(){ card.style.display = 'none'; card.style.opacity = '1'; res(); }, 450);
+      }, 450);
+    });
+  }
+  return { minDisplay: minDisplay, finish: finish };
+}
+
+// Hydrate lanes from the last persisted scan when entering Deal Scan or selecting a client.
+// Only hydrates when nothing is loaded — never clobbers an in-progress scan.
+async function loadDealScanCache() {
+  if (_dsHasAnyData()) return;
+  if (!selectedAthleteId) return;
+  try {
+    var r = await fetch('/api/agent/deal-scan/cache?athleteId=' + encodeURIComponent(selectedAthleteId));
+    if (!r.ok) return;
+    var d = await r.json();
+    if (d && d.rateCard) window._agentRateCard = d.rateCard;
+    var cache = (d && d.cache) || {};
+    var any = false;
+    DS_LANES.forEach(function(lane){
+      var c = cache[lane];
+      if (c && Array.isArray(c.opportunities)) { _dsLaneData[lane] = c.opportunities; if (c.opportunities.length) any = true; }
+    });
+    if (any) {
+      document.getElementById('scan-ranked-label').style.display = 'block';
+      document.getElementById('ds-lanes').style.display = '';
+      document.getElementById('ds-lane-tabs').style.display = '';
+      var emptyEl = document.getElementById('scan-results-empty');
+      if (emptyEl) emptyEl.style.display = 'none';
+      switchLane('local');
+      _dsRenderAll();
+    }
+  } catch(e) { /* hydration is best-effort */ }
+}
+
+async function _dsRunScan(isRefresh) {
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  var btn  = document.getElementById('deals-run-btn');
+  var rbtn = document.getElementById('deals-refresh-btn');
+  if (isRefresh) { if (rbtn) { rbtn.disabled = true; rbtn.textContent = 'Refreshing…'; } }
+  else           { if (btn)  { btn.disabled  = true; btn.textContent  = 'Scanning…'; } }
+
+  document.getElementById('scan-ranked-label').style.display = 'block';
+  var emptyEl = document.getElementById('scan-results-empty');
+  if (emptyEl) emptyEl.style.display = 'none';
+  document.getElementById('ds-lanes').style.display = '';
+  document.getElementById('ds-lane-tabs').style.display = '';
+  if (!_dsHasAnyData()) switchLane('local');
+
+  var exclude = isRefresh
+    ? (window._dealScanResults || []).map(function(d){ return d.brand || ''; }).filter(Boolean)
+    : [];
+
+  DS_LANES.forEach(function(l){ _dsLaneBusy[l] = true; _dsLaneNote[l] = ''; });
+  _dsRenderAll();
+
+  var prog = startDealScanProgress();
+
+  var jobs = DS_LANES.map(function(lane){
+    return fetch('/api/agent/deal-scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: selectedAthleteId, lane: lane, exclude_brands: exclude })
+    })
+      .then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
+      .then(function(res){
+        var opps = (res.ok && res.data && !res.data.error) ? (res.data.opportunities || []) : [];
+        if (res.ok && res.data && res.data.rateCard) window._agentRateCard = res.data.rateCard;
+        _dsLaneBusy[lane] = false;
+        if (!opps.length) {
+          if (_dsLaneData[lane] && _dsLaneData[lane].length) {
+            _dsLaneNote[lane] = isRefresh ? "Couldn't find new ones right now — showing your latest." : '';
+          } else {
+            _dsLaneData[lane] = [];
+          }
+        } else {
+          _dsLaneData[lane] = opps;
+        }
+        _dsRenderAll();
+      })
+      .catch(function(e){
+        console.error('[deal-scan] lane ' + lane + ' error:', e);
+        _dsLaneBusy[lane] = false;
+        if (_dsLaneData[lane] === null && !isRefresh) _dsLaneData[lane] = [];
+        _dsRenderAll();
+      });
+  });
+
+  try {
+    await Promise.allSettled(jobs);
+    await prog.finish();
+  } catch(e) {
+    _dsClearTimers();
+    var card = document.getElementById('ds-progress');
+    if (card) card.style.display = 'none';
+  } finally {
+    DS_LANES.forEach(function(l){ _dsLaneBusy[l] = false; });
+    _dsRenderAll();
+    if (btn)  { btn.disabled  = false; btn.textContent  = 'Scan Deals with AI'; }
+    if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh'; }
+  }
+}
+
+// Render ALL lanes from _dsLaneData, rebuilding the flat window._dealScanResults
+// index so Pipeline / Outreach button indices stay correct across columns.
+function _dsRenderAll() {
+  window._dealScanResults = [];
+  var anyData = false;
+  DS_LANES.forEach(function(lane){
+    var body = document.getElementById('scan-results-' + lane);
+    var data = _dsLaneData[lane];
+    var busy = _dsLaneBusy[lane];
+    _setLaneCount(lane, data ? data.length : (busy ? '…' : 0));
+    if (!body) return;
+
+    if (data === null) {
+      body.innerHTML = busy ? _dsLaneLoadingHtml() : '';
+      return;
+    }
+    anyData = true;
+
+    var topNote = '';
+    if (busy && data.length) topNote += '<div class="ds-lane-loading" style="margin-bottom:8px"><span class="ds-lane-spin"></span> Finding new matches…</div>';
+    if (_dsLaneNote[lane]) topNote += '<div style="font-size:11px;color:var(--muted);background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-bottom:8px">' + esc(_dsLaneNote[lane]) + '</div>';
+
+    if (!data.length) {
+      body.innerHTML = topNote + '<div class="ds-lane-empty">No ' + esc(_dsLaneMeta[lane].label.toLowerCase()) + ' matches found right now. Try Refresh.</div>';
+      return;
+    }
+
+    var banner = '';
+    if (lane === 'local' && data[0] && data[0].resultType === 'national') {
+      banner = '<div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:11px;color:#f59e0b;line-height:1.5">' +
+        '<strong>National brands shown.</strong> ' + esc(data[0].fallbackNote || 'We couldn\'t complete a local search for this market, so these are national brands with NIL programs.') + '</div>';
+    }
+
+    var html = data.map(function(d, idx){
+      var gi = window._dealScanResults.length;
+      window._dealScanResults.push(d);
+      return _dsCardHtml(d, gi, lane, idx === 0);
+    }).join('');
+    body.innerHTML = topNote + banner + html;
+  });
+
+  var emptyEl = document.getElementById('scan-results-empty');
+  if (emptyEl) emptyEl.style.display = anyData ? 'none' : '';
+}
+
+function _dsCardHtml(d, i, lane, isTop) {
+  var brand = d.brand || d.brand_name || 'Brand';
+  var score = d.fitScore || 80;
+  var scoreColor = score >= 85 ? '#84CC16' : score >= 70 ? '#f59e0b' : 'var(--muted)';
+  var cat = (d.category || '').toLowerCase();
+  var catStyle = _dsCatColors[cat] || 'rgba(255,255,255,0.06);color:var(--muted)';
+  var rc = window._agentRateCard;
+  var lo = (rc && rc.dealValueLow)  || d.estimatedValueLow  || 0;
+  var hi = (rc && rc.dealValueHigh) || d.estimatedValueHigh || 0;
+  var valStr = (lo || hi)
+    ? ('Est. deal value: $' + (lo||hi).toLocaleString() + (hi && hi!==lo ? '–$' + hi.toLocaleString() : ''))
+    : '';
+  var laneMeta = _dsLaneMeta[lane] || _dsLaneMeta.local;
+  var laneChip = '<span class="ds-lane-chip" style="background:' + laneMeta.chip + '">' + esc(laneMeta.label) + '</span>';
+
+  var contactHtml = '';
+  if (d.contactName || d.contactTitle || d.contactEmail) {
+    contactHtml += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' +
+      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:6px">CONTACT</div>';
+    if (d.contactName) contactHtml += '<div style="font-size:12px;font-weight:600;color:var(--text)">' + esc(d.contactName) + (d.contactTitle ? ' <span style="font-weight:400;color:var(--muted)">— ' + esc(d.contactTitle) + '</span>' : '') + '</div>';
+    else if (d.contactTitle) contactHtml += '<div style="font-size:12px;color:var(--muted)">' + esc(d.contactTitle) + '</div>';
+    if (d.contactEmail) contactHtml += '<a href="mailto:' + esc(d.contactEmail) + '" style="font-size:12px;color:#84CC16;text-decoration:none;display:inline-block;margin-top:3px;word-break:break-all">' + esc(d.contactEmail) + '</a>';
+    if (d.contactApproach) contactHtml += '<div style="font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5"><span style="color:var(--text);font-weight:600">Approach:</span> ' + esc(d.contactApproach) + '</div>';
+    contactHtml += '</div>';
+  }
+
+  var brandSafe = brand.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  var campaignSafe = (d.campaign||'').replace(/"/g,'').substring(0,40);
+
+  return '<div style="background:var(--surface2);border:1px solid ' + (isTop ? 'rgba(132,204,22,0.3)' : 'var(--border)') + ';border-radius:12px;padding:15px 16px">' +
+    '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">' +
+          laneChip +
+          '<span style="font-size:15px;font-weight:700;color:var(--text)">' + esc(brand) + '</span>' +
+          (d.category ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
+          (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:#84CC16;border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
+        '</div>' +
+        (valStr ? '<div style="margin-bottom:8px"><span style="font-size:13px;font-weight:700;color:#84CC16">' + valStr + '</span> <span style="font-size:10px;color:var(--muted)">varies by deliverable</span></div>' : '') +
+        (d.rationale ? '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:4px">' + esc(d.rationale) + '</div>' : '') +
+        (d.campaign  ? '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px"><span style="color:var(--text);font-weight:600">Idea:</span> ' + esc(d.campaign) + '</div>' : '') +
+        contactHtml +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">' +
+        '<span style="font-size:20px;color:' + scoreColor + ';font-weight:700;line-height:1">' + score + '</span>' +
+        '<span style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">Fit</span>' +
+        '<div style="width:44px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden;margin-top:2px"><div style="width:' + score + '%;height:100%;background:' + scoreColor + '"></div></div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">' +
+      '<button onclick="prefillOutreach(\'' + brandSafe + '\')" style="flex:1;min-width:110px;padding:9px;background:var(--accent);color:#0A0E1A;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Write Outreach</button>' +
+      '<button onclick="addDealToPipeline(\'' + brandSafe + '\',\'' + esc(d.dealType||'ig-post') + '\',\'' + campaignSafe + '\')" style="padding:9px 12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">+ Pipeline</button>' +
+      '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="padding:9px 12px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">⚡ AI Outreach</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function runDealScan()    { return _dsRunScan(false); }
+function runDealRefresh() { return _dsRunScan(true); }
 // Deal Scan — Add to Pipeline
 async function addDealToPipeline(brand, dealType, campaign) {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
@@ -4969,18 +5295,6 @@ async function trackDealScanAction(brand, dealType, action) {
       body: JSON.stringify({ brand: brand, dealType: dealType, action: action, athleteId: selectedAthleteId })
     }).catch(function() {});
   } catch(e) {}
-}
-
-// Refresh deal scan with new results
-async function runDealsRefresh() {
-  var btn = document.getElementById('deals-refresh-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing...'; }
-  // Exclude all currently displayed brands so AI returns 6 fresh ones
-  var currentBrands = (window._dealScanResults || []).map(function(d) { return d.brand; }).filter(Boolean);
-  window._excludeDealBrands = currentBrands;
-  await runDealScan();
-  window._excludeDealBrands = [];
-  if (btn) { btn.disabled = false; btn.textContent = 'Refresh ↺'; }
 }
 
 async function prefillOutreach(brand) {
