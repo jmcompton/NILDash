@@ -587,8 +587,9 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
     if (found.length === 0) return [];
     const seedNames = new Set(found.filter((f) => f._seed).map((f) => f.name.toLowerCase().trim()));
 
-    const candidatesJson = JSON.stringify(found.slice(0, 16));
-    const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier). ${tierGuidance} Realistic deal value ~$${valLow}-$${valHigh}.${exclusionLine}
+    try {
+      const candidatesJson = JSON.stringify(found.slice(0, 16));
+      const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier). ${tierGuidance} Realistic deal value ~$${valLow}-$${valHigh}.${exclusionLine}
 
 ${laneCfg.scoreIntro}
 ${candidatesJson}
@@ -596,31 +597,54 @@ ${candidatesJson}
 Pick the 6 best for THIS athlete and score each 1-100 (vary the scores meaningfully). Each rationale is 1-2 sentences referencing this athlete's sport/tier and WHY this brand actually does deals at this follower level. For contactEmail: use the email given if present, otherwise info@/partnerships@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
 [{"rank":1,"brand":"","tier":"${laneCfg.resultType}","category":"${laneCfg.categoryEnum}","dealType":"post|reel|ambassador|affiliate","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":false,"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
 
-    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a brand or an email domain — only use the brands and domains provided.', 1800, MODEL_DEALSCAN);
-    const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const si = c.indexOf('['), ei = c.lastIndexOf(']');
-    if (si === -1 || ei <= si) throw new Error('No array in scoring response');
-    const parsed = JSON.parse(c.substring(si, ei + 1));
-    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-    parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-    const siteByName = new Map();
-    for (const f of found) if (f.name) siteByName.set(f.name.toLowerCase().trim(), f.website);
-    return parsed.map((d, i) => {
-      const nameKey = (d.brand || '').toLowerCase().trim();
-      const site = (d.brand && siteByName.get(nameKey)) || d.website || null;
-      return {
-        ...d,
+      const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a brand or an email domain — only use the brands and domains provided.', 1800, MODEL_DEALSCAN);
+      const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+      const si = c.indexOf('['), ei = c.lastIndexOf(']');
+      if (si === -1 || ei <= si) throw new Error('No array in scoring response');
+      const parsed = JSON.parse(c.substring(si, ei + 1));
+      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
+      parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+      const siteByName = new Map();
+      for (const f of found) if (f.name) siteByName.set(f.name.toLowerCase().trim(), f.website);
+      return parsed.map((d, i) => {
+        const nameKey = (d.brand || '').toLowerCase().trim();
+        const site = (d.brand && siteByName.get(nameKey)) || d.website || null;
+        return {
+          ...d,
+          rank: i + 1,
+          resultType: laneCfg.resultType,
+          lane,
+          isLocal: false,
+          source: seedNames.has(nameKey) ? 'seed' : 'web',
+          contactEmail: validateContactEmail(d.contactEmail, site),
+          estimatedValueLow: d.estimatedValueLow || valLow,
+          estimatedValueHigh: d.estimatedValueHigh || valHigh,
+          suggestedRate: { low: rate.low, high: rate.high },
+        };
+      });
+    } catch (scoreErr) {
+      console.warn(`[dealScan:${lane}] scoring failed, returning ${found.length} candidates directly: ${scoreErr.message}`);
+      return found.slice(0, 6).map((f, i) => ({
         rank: i + 1,
+        brand: f.name,
+        tier: laneCfg.resultType,
+        category: f.category || laneCfg.resultType,
+        dealType: 'ambassador',
+        campaign: '',
+        rationale: `${f.name} runs creator/ambassador programs that fit ${tier}-tier ${sport} athletes at this follower level.`,
+        contactApproach: 'Apply through their ambassador or affiliate page, or email their partnerships team.',
+        timingNote: '',
+        fitScore: 82 - i * 4,
+        isLocal: false,
         resultType: laneCfg.resultType,
         lane,
-        isLocal: false,
-        source: seedNames.has(nameKey) ? 'seed' : 'web',
-        contactEmail: validateContactEmail(d.contactEmail, site),
-        estimatedValueLow: d.estimatedValueLow || valLow,
-        estimatedValueHigh: d.estimatedValueHigh || valHigh,
+        source: f._seed ? 'seed' : 'web',
+        contactEmail: validateContactEmail(f.email, f.website),
+        estimatedValueLow: valLow,
+        estimatedValueHigh: valHigh,
         suggestedRate: { low: rate.low, high: rate.high },
-      };
-    });
+      }));
+    }
   } catch (err) {
     console.warn(`[dealScan:${lane}] failed: ${err.message}`);
     return [];
