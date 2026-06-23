@@ -4,6 +4,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal } = require('./benchmarks');
 const store = require('./store');
+const { getSeeds } = require('./dealScanSeeds');
 
 let client = null;
 
@@ -14,6 +15,13 @@ function getClient() {
     client = new Anthropic({ apiKey: key });
   }
   return client;
+}
+
+function withTimeout(promise, ms, fallbackValue) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallbackValue),
+    new Promise((resolve) => setTimeout(() => resolve(fallbackValue), ms)),
+  ]);
 }
 
 const SPORT_CONFERENCE_MAP = {
@@ -531,7 +539,7 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
   try {
     console.log(`[dealScan:${lane}] web search brand discovery — model=${MODEL_DEALSCAN} sport=${sport} tier=${tier}`);
     const settled = await Promise.allSettled(
-      laneCfg.queries.map((q) => oneShotWebSearch(mk(q), searchSys, 700, 3, MODEL_DEALSCAN))
+      laneCfg.queries.map((q) => withTimeout(oneShotWebSearch(mk(q), searchSys, 700, 3, MODEL_DEALSCAN), 8000, ''))
     );
 
     const found = [];
@@ -555,14 +563,29 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
     for (const s of settled) if (s.status === 'fulfilled') collect(s.value);
     console.log(`[dealScan:${lane}] phase 1 found ${found.length} candidates`);
 
-    if (found.length < 3) {
+    if (found.length < 6) {
       try {
-        const retry = await oneShotWebSearch(mk(laneCfg.retryQuery), searchSys, 800, 4, MODEL_DEALSCAN);
+        const retry = await withTimeout(oneShotWebSearch(mk(laneCfg.retryQuery), searchSys, 800, 4, MODEL_DEALSCAN), 8000, '');
         collect(retry);
       } catch (_) {}
       console.log(`[dealScan:${lane}] after retry: ${found.length} candidates`);
     }
-    if (found.length < 3) throw new Error('Too few candidates');
+    if (found.length < 6) {
+      const seeds = getSeeds(lane, tier) || [];
+      const excl = (excludeBrands || []).map((b) => (b || '').toLowerCase());
+      for (const s of seeds) {
+        if (found.length >= 14) break;
+        const nm = (s.name || '').trim();
+        if (!nm) continue;
+        const key = nm.toLowerCase();
+        if (seen.has(key) || excl.includes(key)) continue;
+        seen.add(key);
+        found.push({ name: nm, website: s.website || null, category: s.category || null, email: s.email || null, _seed: true });
+      }
+      console.log(`[dealScan:${lane}] seed top-up → ${found.length} candidates`);
+    }
+    if (found.length === 0) return [];
+    const seedNames = new Set(found.filter((f) => f._seed).map((f) => f.name.toLowerCase().trim()));
 
     const candidatesJson = JSON.stringify(found.slice(0, 16));
     const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier). ${tierGuidance} Realistic deal value ~$${valLow}-$${valHigh}.${exclusionLine}
@@ -583,13 +606,15 @@ Pick the 6 best for THIS athlete and score each 1-100 (vary the scores meaningfu
     const siteByName = new Map();
     for (const f of found) if (f.name) siteByName.set(f.name.toLowerCase().trim(), f.website);
     return parsed.map((d, i) => {
-      const site = (d.brand && siteByName.get(d.brand.toLowerCase().trim())) || d.website || null;
+      const nameKey = (d.brand || '').toLowerCase().trim();
+      const site = (d.brand && siteByName.get(nameKey)) || d.website || null;
       return {
         ...d,
         rank: i + 1,
         resultType: laneCfg.resultType,
         lane,
         isLocal: false,
+        source: seedNames.has(nameKey) ? 'seed' : 'web',
         contactEmail: validateContactEmail(d.contactEmail, site),
         estimatedValueLow: d.estimatedValueLow || valLow,
         estimatedValueHigh: d.estimatedValueHigh || valHigh,
@@ -713,9 +738,9 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
     const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email"} (email only if shown on their site, else null). Favor: ${cats}. ONLY a JSON array.`;
 
     const searches = [
-      oneShotWebSearch(mk(`${sport} NIL sponsors and local businesses in ${city}, ${state}`, 'car dealerships, gyms, restaurants'), searchSys, 700, 3, MODEL_DEALSCAN),
-      oneShotWebSearch(mk(`local businesses near ${school} in ${city}, ${state} that sponsor college athletes`, 'restaurants, retail, fitness, services'), searchSys, 700, 3, MODEL_DEALSCAN),
-      oneShotWebSearch(mk(`${city} ${state} ${sport} local brand ambassador and NIL deals`, catHint), searchSys, 700, 3, MODEL_DEALSCAN),
+      withTimeout(oneShotWebSearch(mk(`${sport} NIL sponsors and local businesses in ${city}, ${state}`, 'car dealerships, gyms, restaurants'), searchSys, 700, 3, MODEL_DEALSCAN), 8000, ''),
+      withTimeout(oneShotWebSearch(mk(`local businesses near ${school} in ${city}, ${state} that sponsor college athletes`, 'restaurants, retail, fitness, services'), searchSys, 700, 3, MODEL_DEALSCAN), 8000, ''),
+      withTimeout(oneShotWebSearch(mk(`${city} ${state} ${sport} local brand ambassador and NIL deals`, catHint), searchSys, 700, 3, MODEL_DEALSCAN), 8000, ''),
     ];
     const settled = await Promise.allSettled(searches);
 
@@ -744,10 +769,10 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
     if (found.length < 3) {
       console.warn(`[dealScan] only ${found.length} candidates — running one broadened retry search`);
       try {
-        const retryRaw = await oneShotWebSearch(
+        const retryRaw = await withTimeout(oneShotWebSearch(
           mk(`popular local businesses, restaurants, gyms, car dealerships and shops in ${city}, ${state}`, 'any local business that advertises locally'),
           searchSys, 800, 4, MODEL_DEALSCAN
-        );
+        ), 8000, '');
         const t = (retryRaw || '').replace(/```json/g, '').replace(/```/g, '').trim();
         const a = t.indexOf('['), b = t.lastIndexOf(']');
         if (a !== -1 && b > a) {
@@ -764,7 +789,20 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
       } catch (_) { /* retry failed — fall through to the count check */ }
       console.log(`[dealScan] after retry: ${found.length} candidate businesses`);
     }
-    if (found.length < 3) throw new Error('Too few candidates from parallel search');
+    if (found.length < 3) {
+      const archetypes = getSeeds('local', tier) || [];
+      for (const a of archetypes) {
+        if (found.length >= 12) break;
+        const nm = `${a.name} (${city}, ${state})`;
+        const key = nm.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        found.push({ name: nm, website: null, category: a.category || 'local', email: null, _seed: true });
+      }
+      console.log(`[dealScan] local seed top-up → ${found.length} candidates`);
+    }
+    if (found.length === 0) throw new Error('No local candidates and no seeds available');
+    const localSeedNames = new Set(found.filter((f) => f._seed).map((f) => f.name.toLowerCase().trim()));
 
     // Phase 2 — score + enrich the real businesses (no web search → fast)
     const candidatesJson = JSON.stringify(found.slice(0, 16));
@@ -789,13 +827,15 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
     const siteByName = new Map();
     for (const f of found) if (f.name) siteByName.set(f.name.toLowerCase().trim(), f.website);
     return parsed.map((d, i) => {
-      const site = (d.brand && siteByName.get(d.brand.toLowerCase().trim())) || d.website || null;
+      const nameKey = (d.brand || '').toLowerCase().trim();
+      const site = (d.brand && siteByName.get(nameKey)) || d.website || null;
       const validEmail = validateContactEmail(d.contactEmail, site);
       return {
         ...d,
         rank: i + 1,
         resultType: 'local',
         lane: 'local',
+        source: localSeedNames.has(nameKey) ? 'seed' : 'web',
         contactEmail: validEmail, // null when not verifiable — never fabricated
         estimatedValueLow: d.estimatedValueLow || valLow,
         estimatedValueHigh: d.estimatedValueHigh || valHigh,
@@ -821,6 +861,7 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
       rank: i + 1,
       resultType: 'local',
       lane: 'local',
+      source: 'web',
       contactEmail: validateContactEmail(d.contactEmail, d.website || null),
       estimatedValueLow: d.estimatedValueLow || valLow,
       estimatedValueHigh: d.estimatedValueHigh || valHigh,
