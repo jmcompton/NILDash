@@ -711,6 +711,27 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     }
   }
 
+  // ── Duplicate-submit guard ───────────────────────────────────
+  // A slow save can let a double-click through and create two identical clients.
+  // If this agent already created an athlete with the same name in the last 10
+  // seconds, treat it as the same submission and return that existing row instead
+  // of inserting a duplicate. A guard failure must never block a legitimate save,
+  // so any error here just falls through to the normal insert below.
+  try {
+    const dupR = await store.pool.query(
+      `SELECT id FROM athletes
+         WHERE agent_id=$1 AND data->>'name'=$2 AND created_at > NOW() - INTERVAL '10 seconds'
+         ORDER BY created_at DESC LIMIT 1`,
+      [req.session.userId, name]
+    );
+    if (dupR.rows.length > 0) {
+      const existing = await store.getAthlete(dupR.rows[0].id);
+      if (existing) return res.status(200).json(existing);
+    }
+  } catch (e) {
+    console.error('[create-athlete] duplicate guard failed:', e.message);
+  }
+
   const id = 'ath-' + Date.now();
   const athlete = await store.saveAthlete(id, {
     id, agentId: user.id, name, sport, position: position || '',

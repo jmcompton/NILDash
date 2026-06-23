@@ -4574,6 +4574,11 @@ async function addAthlete() {
   const err  = document.getElementById('addAthleteError');
   if (!name) { err.textContent = 'Name is required'; return; }
   err.textContent = '';
+  // Disable the Save button for the duration of the request so a slow save can't
+  // be double-clicked into duplicate clients. Re-enabled in finally (success or error).
+  const btn = document.getElementById('saveAthleteBtn');
+  const btnLabel = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
   try {
     const r = await fetch(`${API_BASE}/api/athletes`, {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -4608,6 +4613,7 @@ async function addAthlete() {
     ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes'].forEach(id => document.getElementById(id).value = '');
     showView('roster', document.querySelectorAll('.nav-item')[5]);
   } catch(e) { err.textContent = 'Error: ' + e.message; }
+  finally { if (btn) { btn.disabled = false; btn.textContent = btnLabel || 'Save Client →'; } }
 }
 
 //  HOME PAGE
