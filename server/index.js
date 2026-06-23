@@ -4612,39 +4612,45 @@ Never give legal advice but help them understand what questions to ask.`;
   }
 });
 
+// Shared helper: build the athleteObj shape ai.getDealRecommendations() expects.
+// Also returns agentId for ownership checks in the agent endpoint.
+async function loadDealScanAthlete(athleteId) {
+  const athR = await store.pool.query(
+    `SELECT a.data, a.agent_id, a.instagram_handle, a.tiktok_handle,
+            a.instagram_followers, a.tiktok_followers, a.twitter_followers,
+            a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
+            a.data->>'schoolTier' as school_tier, a.data->>'instagram' as ig,
+            a.data->>'tiktok' as tt, a.data->>'position' as position, a.data->>'year' as year,
+            a.data->>'engagement' as engagement, a.data->>'stats' as stats
+     FROM athletes a WHERE a.id = $1`,
+    [athleteId]
+  );
+  const ath = athR.rows[0];
+  if (!ath) return null;
+  // Followers: prefer data JSON (agent-managed), fall back to dedicated columns (self-signup)
+  const dsIg = parseInt(ath.ig) || ath.instagram_followers || 0;
+  const dsTt = parseInt(ath.tt) || ath.tiktok_followers || 0;
+  const athleteObj = {
+    name: ath.name,
+    sport: ath.sport,
+    position: ath.position,
+    year: ath.year,
+    school: ath.school,
+    schoolTier: ath.school_tier,
+    instagram: dsIg,
+    tiktok: dsTt,
+    engagement: parseFloat(ath.engagement) || 0,
+    stats: ath.stats || '',
+  };
+  return { agentId: ath.agent_id, athleteObj };
+}
+
 // POST /api/athlete/deal-scan — find brand deals for this athlete
 app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
-    const athR = await store.pool.query(
-      `SELECT a.data, a.instagram_handle, a.tiktok_handle,
-              a.instagram_followers, a.tiktok_followers, a.twitter_followers,
-              a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
-              a.data->>'schoolTier' as school_tier, a.data->>'instagram' as ig,
-              a.data->>'tiktok' as tt, a.data->>'position' as position, a.data->>'year' as year,
-              a.data->>'engagement' as engagement, a.data->>'stats' as stats
-       FROM athletes a WHERE a.id = $1`,
-      [req.athlete.id]
-    );
-    const ath = athR.rows[0];
-    if (!ath) return res.status(404).json({ error: 'Athlete not found' });
-
-    // Followers: prefer data JSON (agent-managed), fall back to dedicated columns (self-signup)
-    const dsIg = parseInt(ath.ig) || ath.instagram_followers || 0;
-    const dsTt = parseInt(ath.tt) || ath.tiktok_followers || 0;
-
-    // Build athlete object in the format ai.getDealRecommendations() expects
-    const athleteObj = {
-      name: ath.name,
-      sport: ath.sport,
-      position: ath.position,
-      year: ath.year,
-      school: ath.school,
-      schoolTier: ath.school_tier,
-      instagram: dsIg,
-      tiktok: dsTt,
-      engagement: parseFloat(ath.engagement) || 0,
-      stats: ath.stats || '',
-    };
+    const loaded = await loadDealScanAthlete(req.athlete.id);
+    if (!loaded) return res.status(404).json({ error: 'Athlete not found' });
+    const athleteObj = loaded.athleteObj;
 
     const excludeBrands = req.body.exclude_brands || [];
     // Lane: 'local' (default), 'social', or 'topnil'. The frontend fires all
@@ -4682,13 +4688,12 @@ app.get('/api/athlete/deal-scan/cache', verifyAthleteToken, async (req, res) => 
 app.post('/api/agent/deal-scan', requireAuth, aiLimiter, async (req, res) => {
   try {
     const { athleteId, lane, exclude_brands } = req.body;
-    const athlete = await store.getAthlete(athleteId);
-    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-    // agentId is camelCase from store.getAthlete() — confirmed by existing ownership checks
-    if (athlete.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    const loaded = await loadDealScanAthlete(athleteId);
+    if (!loaded) return res.status(404).json({ error: 'Athlete not found' });
+    if (loaded.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
     const validLane = ['local', 'social', 'topnil'].includes(lane) ? lane : 'local';
     const excludeBrands = Array.isArray(exclude_brands) ? exclude_brands : [];
-    const recommendations = await ai.getDealRecommendations(athlete, 'agent', excludeBrands, validLane);
+    const recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
     if (recommendations.length) {
       await store.pool.query(
         `UPDATE athletes SET deal_scan_cache = COALESCE(deal_scan_cache, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
