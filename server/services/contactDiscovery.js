@@ -151,7 +151,9 @@ RULES:
 - For email: infer the corporate format if you know it (e.g. first@company.com, first.last@company.com). Set confidence low if inferred.
 - For LinkedIn: only include a URL if you are confident it is accurate (https://linkedin.com/in/firstname-lastname-XXXXXX format).
 - Never fabricate phone numbers — always null.
-- Sort contacts by relevance: NIL/athlete-relations contacts first, then broader partnerships, then general marketing.`;
+- Sort contacts by relevance: NIL/athlete-relations contacts first, then broader partnerships, then general marketing.
+- NEVER return the CEO, founder, co-founder, President, or owner as the outreach contact, unless the brand is a small local business with no marketing or partnerships staff. Cold-pitching an NIL micro-deal to an executive gets ignored. Always prefer the person who runs partnerships, sponsorships, sports marketing, or influencer/creator marketing.
+- If you cannot name the right partnerships person, return the partnerships TEAM (name: null, title: 'Brand Partnerships Team') as the primary contact rather than naming an executive.`;
 
   const prompt = `I need to send a college athlete NIL partnership proposal to someone at "${brand}".
 
@@ -162,12 +164,12 @@ Company profile:
 - Description: ${description}
 ${socialLinks ? `- Social/links: ${socialLinks}` : ''}
 
-YOUR TASK: Search your knowledge of "${brand}" and identify the REAL people who handle:
-1. NIL deals / athlete sponsorships / college partnerships (HIGHEST PRIORITY — name this person if known)
-2. Brand partnerships / sponsorship deals
-3. Sports marketing or influencer/creator marketing
-4. Marketing VP or CMO (decision authority)
-5. PR or communications (secondary contact)
+YOUR TASK: Identify the REAL person at "${brand}" who would actually receive an athlete NIL partnership proposal:
+1. NIL / athlete relations / college partnerships lead (HIGHEST PRIORITY)
+2. Brand partnerships or sponsorship manager
+3. Sports marketing or influencer/creator marketing manager
+4. Marketing manager or brand manager (not the CMO unless it is a small company)
+Do NOT target the CEO, founder, co-founder, President, or owner. They do not handle inbound NIL micro-deals.
 
 For EACH person, think:
 - What is their actual name? (LinkedIn, press releases, company website "About" page, news coverage of sponsorship announcements)
@@ -190,8 +192,7 @@ Return a JSON array of up to 5 contacts:
   }
 ]
 
-IMPORTANT: If you know this brand has a dedicated sports marketing or NIL team, name them. If you know the CMO or VP Marketing, include them as secondary. Do NOT return generic placeholders if you can name real people.
-Always return at least 2 contacts.`;
+IMPORTANT: Name the real partnerships, sponsorship, or marketing person if you know them. If you only know executives (CEO/founder/President), do NOT return them — return the 'Brand Partnerships Team' instead. Do not return generic placeholders if you can name the real partnerships contact. Always return at least 2 contacts.`;
 
   let raw;
   try {
