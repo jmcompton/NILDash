@@ -1837,10 +1837,18 @@ Generate a complete, professional NIL contract with these sections:
 13. GOVERNING LAW
 14. SIGNATURES (with date lines for both parties)
 
+DRAFTING STYLE — draft this as a practicing sports and entertainment attorney would:
+- Open with a formal preamble naming the parties and the Effective Date, then WHEREAS recitals, then a NOW, THEREFORE clause.
+- Define and capitalize key terms on first use: the Athlete, the Brand, the Agency, this Agreement, the Term, the Services, the Compensation.
+- Use operative legal language throughout: shall, shall not, including without limitation, notwithstanding the foregoing. Reference defined terms, not casual descriptions.
+- Number every section with sub-sections (1, 1.1, 1.2). Clauses are precise and self-contained, with no commentary explaining what a clause does and no marketing language.
+- Include the boilerplate parties expect: severability, entire agreement, amendment in writing, assignment, notices, force majeure, counterparts and electronic signature.
+- This is a legally operative document, not a summary or description of one.
+
 Use professional legal language. Include specific dollar amounts and dates. Add FTC disclosure language. Make it ready to sign.`;
 
   try {
-    const contract = await ai.oneShot(prompt, 'You are a sports attorney specializing in NIL contracts. Generate complete, professional, legally sound NIL contracts ready for signature. Use precise legal language and proper legal document format: numbered sections (1., 1.1, 1.2), plain text section headers with no hashtags or markdown, clean paragraph text for each section. Never use hashtags (#), markdown formatting, or dashes as bullet points. Write it exactly as a real attorney would draft it.', 4000);
+    const contract = await ai.oneShot(prompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.", 4000);
     if (!contract || contract.length < 100) throw new Error('Contract generation failed');
     res.json({ contract, athleteName: athlete.name, brand, value });
   } catch (err) {
@@ -1848,7 +1856,7 @@ Use professional legal language. Include specific dollar amounts and dates. Add 
     // Retry with shorter prompt
     try {
       const shortPrompt = 'Generate a professional NIL contract between ' + athlete.name + ' (' + athlete.sport + ' at ' + (athlete.school||'university') + ') and ' + brand + ' for $' + parseInt(value||0).toLocaleString() + '. Deal type: ' + (dealType||'Social Media') + '. Deliverables: ' + (deliverables||'3 Instagram posts') + '. Include: parties, scope, compensation, term, exclusivity, usage rights, FTC disclosure, and signature lines. Use professional legal language.';
-      const contract = await ai.oneShot(shortPrompt, 'You are a sports attorney. Generate a complete NIL contract ready for signature. Format as a clean legal document with numbered sections (1., 1.1, 1.2) and plain paragraph text. No hashtags, no markdown, no bullet dashes.');
+      const contract = await ai.oneShot(shortPrompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.");
       res.json({ contract, athleteName: athlete.name, brand, value });
     } catch(err2) {
       res.status(503).json({ error: 'Contract generation temporarily unavailable. Please try again in 30 seconds.' });
