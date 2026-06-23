@@ -181,12 +181,6 @@ app.post('/api/auth/signup', async (req, res) => {
     return res.status(400).json({ error: 'Invalid role selected.' });
   if (await store.getUserByEmail(email))
     return res.status(400).json({ error: 'Email already registered' });
-  // Check if email is approved
-  try {
-    const approved = await store.pool.query('SELECT id FROM access_requests WHERE email=$1 AND status=$2', [email, 'approved']);
-    if (approved.rows.length === 0)
-      return res.status(403).json({ error: 'Your email has not been approved yet. Request access at mynildash.com/landing' });
-  } catch(e) { console.error('Approval check failed:', e.message); }
 
   const hash = await bcrypt.hash(password, 10);
   const id   = 'user-' + Date.now();
