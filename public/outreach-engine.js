@@ -425,7 +425,7 @@ async function sendOutreach(outreachId) {
     // Save any edits first
     if (subject || bodyText) {
       const bodyHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;color:#333"><p>${(bodyText || '').replace(/\n/g, '<br>')}</p></div>`;
-      await outreachAPI.patch('/' + outreachId, { subject, body_html: bodyHtml });
+      await outreachAPI.patch('/logs/' + outreachId, { subject, body_html: bodyHtml });
     }
 
     await outreachAPI.post('/logs/' + outreachId + '/send', { emailAccountId: accountId, toEmail });
@@ -446,16 +446,23 @@ async function sendOutreach(outreachId) {
 }
 
 async function saveDraft(outreachId) {
-  if (!outreachId) return;
   const subject  = document.getElementById('outreach-subject-input')?.value?.trim();
   const bodyText = document.getElementById('outreach-body-input')?.value?.trim();
+  const status   = document.getElementById('outreach-send-status');
+
+  if (!outreachId) {
+    if (status) { status.style.color = '#f87171'; status.textContent = 'Could not save: missing draft id'; }
+    return;
+  }
   if (!subject && !bodyText) return;
 
   try {
     const bodyHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;color:#333"><p>${(bodyText || '').replace(/\n/g, '<br>')}</p></div>`;
     await outreachAPI.patch('/logs/' + outreachId, { subject, body_html: bodyHtml });
+    if (status) { status.style.color = '#84CC16'; status.textContent = 'Edits saved ✓'; }
     showOutreachToast('Draft saved');
   } catch (e) {
+    if (status) { status.style.color = '#f87171'; status.textContent = 'Save failed: ' + e.message; }
     showOutreachToast('Save failed: ' + e.message, true);
   }
 }
