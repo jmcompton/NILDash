@@ -692,34 +692,35 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane) {
   };
   const catHint = sportCats[sport.toLowerCase()] || 'sports training facilities, sporting goods stores';
 
-  const prompt = `Find 6 REAL local NIL brand sponsorship opportunities for a college athlete. Use web search to verify every business actually exists in their market.
+  const prompt = `Name 6 REAL, well-known, established LOCAL businesses that genuinely operate in ${city}, ${state} and would realistically do an NIL deal with this college athlete. Use your own knowledge of this market — you do NOT have web search, so rely on what you actually know.
+
+MARKET RESOLUTION: If the market below shows "Unknown City" or "Unknown State", infer the real city and state from the school name "${school}" (you know where major colleges are located) and use THAT market for every business you name.
 
 ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${school}
-MARKET: ${city}, ${state} (search for businesses located here and within ~25 miles)
-SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Tier: ${tier} (small/nano-influencer — target LOCAL businesses, not national corporate)
+MARKET: ${city}, ${state}
+SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Tier: ${tier}
 ${exclusionLine}
 
-THIS IS LOCAL-FIRST. A ${tier}-tier athlete will NOT land Nike. They land deals with the local car dealership, the gym down the street, the regional Chick-fil-A franchise owner, the supplement store. Realistic local deal value for this athlete: $${valLow}–$${valHigh} per post/campaign.
+THIS IS LOCAL-FIRST. A ${tier}-tier athlete will NOT land Nike or other national giants. They land deals with the local car dealership, the gym down the street, the regional Chick-fil-A / Raising Cane's / Zaxby's franchise owner, the supplement store. Realistic local deal value for this athlete: $${valLow}–$${valHigh} per post/campaign. Tune every pick to this athlete's sport (${sport}), position (${athlete.position||'N/A'}), and ${tier} follower tier.
 
-SEARCH these high-probability local NIL categories in ${city}, ${state}:
+TARGET these high-probability local-NIL categories in ${city}, ${state}:
 - Local car dealerships (the #1 local NIL spender)
 - Gyms / fitness centers / CrossFit boxes
-- Regional restaurant franchises (Chick-fil-A, Raising Cane's, Zaxby's, Wingstop franchisees) — find the local franchise/owner
+- Popular restaurants near campus
 - Supplement / nutrition stores
-- Coffee shops, apparel boutiques
-- Local insurance agents (State Farm/Allstate local agencies)
-- Sports training facilities, physical therapy / sports medicine clinics
-- Regional banks / credit unions, real estate companies
+- Local franchise owners (Chick-fil-A, Raising Cane's, Zaxby's, Wingstop)
+- Local insurance agencies (State Farm / Allstate local agents)
+- Credit unions / community banks
+- Sports training facilities
 - Sport-specific for ${sport}: ${catHint}
 
-For EACH of the 6, web-search to confirm it's real and find a real contact email from their actual website. Score each 1–100 on: likelihood of doing local NIL deals, sport relevance, community connection, deal-size potential, and existing local sports sponsorship.
-
 RULES:
-- Every brand MUST be a real, verifiable business you found via search. NEVER invent a business. If you can only verify 4 real ones, return 4 with a note — do NOT pad with fabricated names.
-- contactEmail: use the real email from their website. If not found, use the standard owner@/info@/contact@ format for THAT business's real domain. Never fabricate a fake domain.
-- whyFit must reference THIS athlete's sport/school/market and the LOCAL angle.
+- Name only real, well-known businesses you are confident actually exist in that specific market. Prefer established, recognizable local names over generic placeholders. NEVER invent a business.
+- contactEmail: only use the real business domain in info@/owner@/contact@ form if you are confident of the real domain; otherwise null. Never fabricate a domain.
+- contactName: null unless you genuinely know the owner/manager's real name.
+- rationale must reference THIS athlete's sport / school / market and the LOCAL angle.
 
-After researching, output ONLY a JSON array (no markdown, no preamble) of up to 6 objects sorted by fitScore descending:
+Output ONLY a JSON array (no markdown, no preamble) of 6 objects sorted by fitScore descending. Score each 1–100 on likelihood of doing local NIL deals, sport relevance, community connection, and deal-size potential — vary the scores meaningfully:
 [{
   "rank": 1,
   "brand": "Exact Real Business Name",
@@ -734,28 +735,49 @@ After researching, output ONLY a JSON array (no markdown, no preamble) of up to 
   "timingNote": "Best time to reach out and why",
   "fitScore": 88,
   "isLocal": true,
-  "contactName": "Owner/Manager real name or null if not found",
+  "contactName": null,
   "contactTitle": "Owner | Marketing Director | Franchise Owner | etc",
-  "contactEmail": "real@realbusiness.com",
-  "contactLinkedIn": "linkedin.com/in/person or null"
+  "contactEmail": null,
+  "contactLinkedIn": null
 }]`;
 
-  // ── PRIMARY PATH: two-phase parallel web search + fast scoring ──────────────
-  // STRATEGY (why this is fast): the old approach ran a single turn that did up to
-  // 8 web searches SEQUENTIALLY and enriched all 6 brands in one shot (~30s). Here
-  // we run 3 lightweight web searches IN PARALLEL (Promise.allSettled) that only
-  // collect real business names + domains, then do ONE fast no-search Sonnet call
-  // to score + enrich into the final JSON. Parallel search (~6-10s) + scoring
-  // (~3-4s) ≈ 10-14s, with every brand still grounded in real web-search results.
+  // ── PRIMARY PATH: model-knowledge (no web search) ──────────────────────────
+  // The live web search is slow/flaky on Railway, so we generate from the model's
+  // own knowledge FIRST. It reliably names real, well-known local businesses and
+  // can infer the market from the school name even when getSchoolLocation fails.
+  // Web search is demoted to a fallback below.
   try {
-    // If we couldn't resolve a real city/state, a local web search would only
-    // produce garbage queries. Skip straight to the honestly-labeled national
-    // fallback rather than presenting bogus "local" results.
-    if (!locationKnown) {
-      console.warn(`[dealScan] location unknown for school="${school}" — skipping local search, using national fallback`);
-      throw new Error('Unknown athlete market — cannot do local search');
-    }
+    console.log(`[dealScan] model-knowledge primary — model=${MODEL_DEALSCAN} market=${city}, ${state} sport=${sport} locationKnown=${locationKnown}`);
+    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown. Every brand must be a real, well-known business that genuinely operates in the athlete\'s market. Never fabricate a business name or an email domain.', 3000, MODEL_DEALSCAN);
+    const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const si = c.indexOf('[');
+    const ei = c.lastIndexOf(']');
+    if (si === -1 || ei <= si) throw new Error('No array');
+    const parsed = JSON.parse(c.substring(si, ei + 1));
+    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
+    parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+    console.log(`[dealScan] model-knowledge produced ${parsed.length} local brand(s)`);
+    return parsed.map((d, i) => ({
+      ...d,
+      rank: i + 1,
+      resultType: 'local',
+      lane: 'local',
+      isLocal: true,
+      source: 'knowledge',
+      contactEmail: validateContactEmail(d.contactEmail, d.website || null),
+      estimatedValueLow: d.estimatedValueLow || valLow,
+      estimatedValueHigh: d.estimatedValueHigh || valHigh,
+      suggestedRate: { low: rate.low, high: rate.high },
+    }));
+  } catch (knowledgeErr) {
+    console.warn('[dealScan] model-knowledge path failed, trying web search:', knowledgeErr.message);
+  }
 
+  // ── FALLBACK PATH: two-phase parallel web search + fast scoring ─────────────
+  // Only runs if model-knowledge threw or returned nothing. 3 lightweight web
+  // searches run IN PARALLEL (Promise.allSettled) to collect real business names
+  // + domains, then ONE fast no-search Sonnet call scores + enriches the JSON.
+  try {
     console.log(`[dealScan] Using web search for brand discovery — model=${MODEL_DEALSCAN} market=${city}, ${state} sport=${sport}`);
 
     const searchSys = 'You find real local businesses via web search. Output ONLY a JSON array, no commentary, no markdown.';
@@ -867,32 +889,12 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
       };
     });
   } catch (webErr) {
-    console.warn('[dealScan] two-phase path failed, falling back to model-knowledge:', webErr.message);
+    console.warn('[dealScan] web-search path failed, using national fallback:', webErr.message);
   }
 
-  // ── FALLBACK PATH: model-knowledge (no web search) ─────────────────────────
-  try {
-    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown. Every brand must be a real verifiable business. Every contactEmail is REQUIRED and must use the real business domain.', 3000, MODEL_DEALSCAN);
-    const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const si = c.indexOf('[');
-    const ei = c.lastIndexOf(']');
-    if (si === -1 || ei <= si) throw new Error('No array');
-    const parsed = JSON.parse(c.substring(si, ei + 1));
-    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-    parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-    return parsed.map((d, i) => ({
-      ...d,
-      rank: i + 1,
-      resultType: 'local',
-      lane: 'local',
-      source: 'web',
-      contactEmail: validateContactEmail(d.contactEmail, d.website || null),
-      estimatedValueLow: d.estimatedValueLow || valLow,
-      estimatedValueHigh: d.estimatedValueHigh || valHigh,
-      suggestedRate: { low: rate.low, high: rate.high },
-    }));
-  } catch (err) {
-    console.error('Deal scan error:', err.message);
+  // ── LAST RESORT: national / sport brands (honestly labeled, NOT local) ─────
+  {
+    console.error('[dealScan] all local paths failed — returning national fallback');
     const sportBrands = {
       softball: ['Dick\'s Sporting Goods','BSN Sports','Rawlings','Mizuno','Wilson Sporting Goods'],
       football: ['Riddell','Athletic Greens (AG1)','BODYARMOR','Fanatics','Under Armour'],
