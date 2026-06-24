@@ -4716,7 +4716,12 @@ app.post('/api/agent/deal-scan', requireAuth, aiLimiter, async (req, res) => {
     if (loaded.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
     const validLane = ['local', 'social', 'topnil'].includes(lane) ? lane : 'local';
     const excludeBrands = Array.isArray(exclude_brands) ? exclude_brands : [];
-    const recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
+    let recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
+    // Never let Refresh empty a lane: if excluding already-shown brands exhausts the pool,
+    // re-run without the exclude so the agent always sees deals (repeats are fine here).
+    if ((!recommendations || recommendations.length === 0) && excludeBrands.length) {
+      recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', [], validLane);
+    }
     if (recommendations.length) {
       await store.pool.query(
         `UPDATE athletes SET deal_scan_cache = COALESCE(deal_scan_cache, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
