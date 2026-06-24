@@ -131,15 +131,15 @@ Return ONLY this JSON, no markdown:
   "brandDisplayName": "The clean, specific brand name to address on the brief (e.g. 'Mercedes-Benz of Tuscaloosa'), never the parent company or a combined name. Max 35 characters.",
   "tagline": "One plain sentence. Why this athlete and this brand make sense together right now. Max 20 words.",
   "reasons": [
-    "Fact-based reason — references actual numbers or known brand attributes. Max 30 words.",
-    "Fact-based reason. Max 30 words.",
-    "Fact-based reason. Max 30 words."
+    "Fact-based reason — references actual numbers or known brand attributes. Max 24 words. One complete sentence.",
+    "Fact-based reason. Max 24 words. One complete sentence.",
+    "Fact-based reason. Max 24 words. One complete sentence."
   ],
   "campaign": {
     "title": "Campaign name — specific to ${brand}. Max 8 words.",
-    "description": "What gets made: what's filmed, where, which platform, what the deliverable is. 2 sentences. No vague language."
+    "description": "What gets made: what's filmed, where, which platform, what the deliverable is. Two short complete sentences, max 42 words total. No vague language."
   },
-  "audienceNote": "One sentence: who specifically follows this athlete and why that audience is worth reaching for ${brand}."
+  "audienceNote": "One complete sentence, max 26 words: who specifically follows this athlete and why that audience is worth reaching for ${brand}."
 }`;
 
   const raw = await oneShot(prompt,
@@ -292,7 +292,7 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
       doc.rect(PAD, ry, CW, cardH).fill(SURF);
       doc.rect(PAD, ry, 3, cardH).fill(ACCENT);
       doc.fill(WHITE).fontSize(10.5).font('Helvetica')
-         .text(tr(rText, 140), PAD + 12, ry + 9, { width: CW - 18, lineGap: 2 });
+         .text(tr(rText, 190), PAD + 12, ry + 9, { width: CW - 18, lineGap: 2 });
     });
 
     // ── CAMPAIGN CONCEPT  Y 342–480 ──────────────────────────────────────────
@@ -300,7 +300,7 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
     sectionLabel('CAMPAIGN CONCEPT', 346);
 
     const campTitle = tr(onePager.campaign?.title || 'Partnership Campaign', 60);
-    const campDesc  = tr(onePager.campaign?.description || '', 240);
+    const campDesc  = tr(onePager.campaign?.description || '', 340);
 
     doc.rect(PAD, 366, CW, 108).fill(SURF);
     doc.rect(PAD, 366, CW, 2.5).fill(ACCENT);
@@ -313,7 +313,7 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
     doc.rect(PAD, 482, CW, 0.75).fill('#2A3050');
     sectionLabel('THE AUDIENCE', 488);
 
-    const audNote = tr(onePager.audienceNote || '', 220);
+    const audNote = tr(onePager.audienceNote || '', 240);
     doc.rect(PAD, 508, CW, 58).fill(SURF);
     doc.rect(PAD, 508, 3, 58).fill(ACCENT);
     doc.fill(LIGHT).fontSize(10.5).font('Helvetica')
