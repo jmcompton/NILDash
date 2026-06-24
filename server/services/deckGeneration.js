@@ -24,6 +24,14 @@ try { PDFDocument = require('pdfkit'); } catch (e) {
 
 const OUTPUT_DIR = process.env.DECK_OUTPUT_DIR || '/tmp/nildash-decks';
 
+// Normalize a brand name that may arrive as a slash-joined list (e.g.
+// "Parent Co / Subsidiary / DealerName") to a single consistent label.
+function cleanBrand(name) {
+  if (!name) return 'the brand';
+  const parts = String(name).split('/').map(s => s.trim()).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : String(name).trim();
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -90,7 +98,7 @@ async function generateDeck(inputs) {
 // ── One-Pager AI Content Generator ───────────────────────────────────────────
 
 async function generateOnePagerContent(athleteData, enrichment, matchScore, pitch) {
-  const brand = enrichment.brand_name;
+  const brand = cleanBrand(enrichment.brand_name);
   const ig    = formatFollowers(athleteData.instagram);
   const tt    = formatFollowers(athleteData.tiktok);
 
@@ -115,7 +123,8 @@ RULES — follow every one:
 - Be specific to this athlete's actual stats and this brand's actual products
 - Reasons must be facts, not opinions
 - Campaign must describe what literally gets made (what's filmed, where, what platform)
-- Everything must be based on real data above — no invented credentials
+- Never use he/she/his/her or any gendered word for the athlete. Use the athlete's last name or they/them. Position titles like forward or guard are fine. Refer to the sport plainly.
+- Use ONLY the data above. Never invent or imply sponsors, brand deals, endorsements, awards, rankings, compliance or FTC clearance, or any stat not provided. If data is thin, build the brief only from followers, engagement, sport, position, school, and location.
 
 Return ONLY this JSON, no markdown:
 {
@@ -242,7 +251,7 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
     // "for Brand" on same line as name
     const nameWidth = doc.widthOfString(tr(athleteData.name || 'Athlete', 40), { fontSize: 26 });
     doc.fill(MUTED).fontSize(14).font('Helvetica')
-       .text(`for ${tr(enrichment.brand_name, 30)}`, PAD, 68, { width: CW });
+       .text(`for ${tr(cleanBrand(enrichment.brand_name), 34)}`, PAD, 68, { width: CW });
 
     // ── HORIZONTAL RULE  Y 90 ────────────────────────────────────────────────
     doc.rect(PAD, 92, CW, 0.75).fill('#2A3050');
