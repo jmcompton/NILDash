@@ -153,7 +153,8 @@ RULES:
 - Never fabricate phone numbers — always null.
 - Sort contacts by relevance: NIL/athlete-relations contacts first, then broader partnerships, then general marketing.
 - NEVER return the CEO, founder, co-founder, President, or owner as the outreach contact, unless the brand is a small local business with no marketing or partnerships staff. Cold-pitching an NIL micro-deal to an executive gets ignored. Always prefer the person who runs partnerships, sponsorships, sports marketing, or influencer/creator marketing.
-- If you cannot name the right partnerships person, return the partnerships TEAM (name: null, title: 'Brand Partnerships Team') as the primary contact rather than naming an executive.`;
+- NATIONAL or REGIONAL brands (e.g. Celsius, Crocs, Gatorade): name the real partnerships, sponsorship, or marketing person if you know them. If you genuinely cannot, return 'Brand Partnerships Team' with a partnerships@company.com style email and confidence around 0.4.
+- LOCAL or single-location businesses (a specific car dealership, gym, restaurant, studio, salon, or one franchise location): the right contact is the General Manager, Marketing Manager, or for a very small shop the Owner. Return that ROLE (a real name if you know it, otherwise name null is fine) with confidence around 0.5, and outreach_notes telling the agent to call or visit the business and ask for that person by role. NEVER return a vague 'Brand Partnerships Team' for a local business — give the concrete role to ask for.`;
 
   const prompt = `I need to send a college athlete NIL partnership proposal to someone at "${brand}".
 
@@ -163,6 +164,8 @@ Company profile:
 - Website: ${website}
 - Description: ${description}
 ${socialLinks ? `- Social/links: ${socialLinks}` : ''}
+
+FIRST, decide what kind of business "${brand}" is: a national/regional brand, or a single local business (a specific dealership, gym, restaurant, studio, or one franchise location like 'Mercedes-Benz of Tuscaloosa'). Judge by the name and description, not just the size label. Then use the matching strategy from the rules. For a local business, the General Manager or Marketing Manager is the right person even if you do not know their name.
 
 YOUR TASK: Identify the REAL person at "${brand}" who would actually receive an athlete NIL partnership proposal:
 1. NIL / athlete relations / college partnerships lead (HIGHEST PRIORITY)
@@ -192,7 +195,7 @@ Return a JSON array of up to 5 contacts:
   }
 ]
 
-IMPORTANT: Name the real partnerships, sponsorship, or marketing person if you know them. If you only know executives (CEO/founder/President), do NOT return them — return the 'Brand Partnerships Team' instead. Do not return generic placeholders if you can name the real partnerships contact. Always return at least 2 contacts.`;
+IMPORTANT: For national/regional brands, name the real partnerships or marketing person if known, otherwise return the Brand Partnerships Team with a partnerships@ email. For local businesses, always return the General Manager and Marketing Manager roles with an approach to call or visit — never a vague placeholder. Always return at least 2 useful contacts, and never the CEO or owner of a large company.`;
 
   let raw;
   try {
@@ -232,25 +235,25 @@ function buildFallbackContacts(brandName) {
   return [
     {
       name: null,
-      title: 'Brand Partnerships Team',
+      title: 'Marketing Manager',
       email: null,
       phone: null,
       linkedin: null,
-      contact_type: 'partnership',
-      confidence_score: 0.2,
+      contact_type: 'marketing',
+      confidence_score: 0.45,
       source: 'ai_inference',
-      outreach_notes: `Reach out to ${brandName}'s general partnerships team.`,
+      outreach_notes: `Call or visit ${brandName} and ask for the person who handles marketing and local sponsorships.`,
     },
     {
       name: null,
-      title: 'Marketing Director',
+      title: 'General Manager',
       email: null,
       phone: null,
       linkedin: null,
-      contact_type: 'marketing_director',
-      confidence_score: 0.2,
+      contact_type: 'general',
+      confidence_score: 0.4,
       source: 'ai_inference',
-      outreach_notes: `${brandName}'s marketing leadership may handle sponsorship decisions.`,
+      outreach_notes: `The GM at ${brandName} can approve a local sponsorship or point you to the right person.`,
     },
   ];
 }
