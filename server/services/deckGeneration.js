@@ -248,9 +248,12 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
     doc.rect(PAD, 92, CW, 0.75).fill('#2A3050');
 
     // ── STAT PILLS  Y 98–155 ─────────────────────────────────────────────────
+    const shortSchool = (athleteData.school || '—')
+      .replace(/^University of /i, '')
+      .replace(/ University$/i, '');
     const stats = [
       { label: 'SPORT',       value: tr((athleteData.sport || '—').toUpperCase(), 10) },
-      { label: 'SCHOOL',      value: tr(athleteData.school || '—', 12) },
+      { label: 'SCHOOL',      value: tr(shortSchool, 14) },
       { label: 'INSTAGRAM',   value: formatFollowers(athleteData.instagram) },
       { label: 'TIKTOK',      value: formatFollowers(athleteData.tiktok) },
       { label: 'ENGAGEMENT',  value: `${athleteData.engagement || '—'}%` },
@@ -260,8 +263,8 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
       const px = PAD + i * (pillW + 8);
       doc.rect(px, 100, pillW, 52).fill(SURF);
       doc.rect(px, 100, pillW, 2.5).fill(ACCENT);
-      doc.fill(ACCENT).fontSize(14).font('Helvetica-Bold')
-         .text(s.value, px + 4, 112, { width: pillW - 8, align: 'center' });
+      doc.fill(ACCENT).fontSize(11).font('Helvetica-Bold')
+         .text(s.value, px + 4, 112, { width: pillW - 8, align: 'center', lineBreak: false });
       doc.fill(MUTED).fontSize(6.5).font('Helvetica')
          .text(s.label, px + 4, 136, { width: pillW - 8, align: 'center', characterSpacing: 1 });
     });
@@ -313,12 +316,6 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
 
     // ── SCORE BADGES  Y 650–690 ───────────────────────────────────────────────
     let bx = PAD;
-    if (matchScore?.compatibility_score) {
-      doc.rect(bx, 652, 118, 28).fill(ACCENT);
-      doc.fill(DARK).fontSize(10.5).font('Helvetica-Bold')
-         .text(`${matchScore.compatibility_score}% BRAND MATCH`, bx, 660, { width: 118, align: 'center' });
-      bx += 130;
-    }
     if (athleteData.engagement) {
       doc.rect(bx, 652, 118, 28).fill(SURF);
       doc.rect(bx, 652, 118, 2).fill(ACCENT);
