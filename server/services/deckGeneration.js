@@ -129,7 +129,7 @@ RULES — follow every one:
 Return ONLY this JSON, no markdown:
 {
   "brandDisplayName": "The clean, specific brand name to address on the brief (e.g. 'Mercedes-Benz of Tuscaloosa'), never the parent company or a combined name. Max 35 characters.",
-  "tagline": "One plain sentence. Why this athlete and this brand make sense together right now. Max 20 words.",
+  "tagline": "One plain sentence. Why this athlete and this brand make sense together right now. One complete sentence, max 16 words.",
   "reasons": [
     "Fact-based reason — references actual numbers or known brand attributes. Max 24 words. One complete sentence.",
     "Fact-based reason. Max 24 words. One complete sentence.",
@@ -321,7 +321,7 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
 
     // ── CTA BOX  Y 578–640 ────────────────────────────────────────────────────
     doc.rect(PAD, 578, CW, 58).fill(ACCENT);
-    const ctaText = tr(onePager.tagline || `${athleteData.name} is the right fit for ${enrichment.brand_name}.`, 100);
+    const ctaText = tr(onePager.tagline || `${athleteData.name} is the right fit for ${enrichment.brand_name}.`, 130);
     doc.fill(DARK).fontSize(12).font('Helvetica-Bold')
        .text(ctaText, PAD + 18, 598, { width: CW - 36, align: 'center', lineGap: 3 });
 
