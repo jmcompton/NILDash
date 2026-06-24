@@ -128,6 +128,7 @@ RULES — follow every one:
 
 Return ONLY this JSON, no markdown:
 {
+  "brandDisplayName": "The clean, specific brand name to address on the brief (e.g. 'Mercedes-Benz of Tuscaloosa'), never the parent company or a combined name. Max 35 characters.",
   "tagline": "One plain sentence. Why this athlete and this brand make sense together right now. Max 20 words.",
   "reasons": [
     "Fact-based reason — references actual numbers or known brand attributes. Max 30 words.",
@@ -151,6 +152,7 @@ Return ONLY this JSON, no markdown:
 
 function buildFallbackOnePager(athleteData, enrichment, matchScore, pitch) {
   return {
+    brandDisplayName: cleanBrand(enrichment.brand_name),
     tagline: `${athleteData.name} brings ${formatFollowers(athleteData.instagram)} Instagram followers to ${enrichment.brand_name}.`,
     reasons: [
       `${formatFollowers(athleteData.instagram)} Instagram followers and ${athleteData.engagement || '—'}% engagement rate.`,
@@ -251,7 +253,7 @@ async function renderOnePagerPDF(filePath, athleteData, enrichment, matchScore, 
     // "for Brand" on same line as name
     const nameWidth = doc.widthOfString(tr(athleteData.name || 'Athlete', 40), { fontSize: 26 });
     doc.fill(MUTED).fontSize(14).font('Helvetica')
-       .text(`for ${tr(cleanBrand(enrichment.brand_name), 34)}`, PAD, 68, { width: CW });
+       .text(`for ${tr(onePager.brandDisplayName || cleanBrand(enrichment.brand_name), 34)}`, PAD, 68, { width: CW });
 
     // ── HORIZONTAL RULE  Y 90 ────────────────────────────────────────────────
     doc.rect(PAD, 92, CW, 0.75).fill('#2A3050');
