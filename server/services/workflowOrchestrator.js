@@ -232,11 +232,11 @@ function renderProfessionalEmail(rawBody, agentName, agentEmail, deck, athleteDa
   for (const para of paragraphs) {
     if (signoffFound) break; // drop AI-generated name lines after "Best,"
 
-    const isSignoff = /^(Best|Regards|Sincerely|Thanks|Warm regards|Kind regards),?$/i.test(para.trim());
+    const isSignoff = /^(Best regards|Kind regards|Warm regards|Best|Regards|Sincerely|Thanks|Cheers)\s*,/i.test(para.trim());
     if (isSignoff) {
       signoffFound = true;
-      htmlParts.push(`<p style="${PARA}">${para.trim()}</p>`);
-      continue;
+      htmlParts.push(`<p style="${PARA}">Best,</p>`);
+      break;
     }
 
     // Opening salutation — render in normal weight (Dear X,)
