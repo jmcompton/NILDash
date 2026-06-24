@@ -1040,6 +1040,8 @@ CONTENT RULES — follow every one:
 - Slide 6 activations: describe real, specific campaign executions — what gets filmed, where, what the deliverable is. No vague "content series" descriptions.
 - No dollar amounts, no financial projections, no emojis.
 - Never state or assume the athlete's gender. Refer to the sport plainly (say 'basketball', never 'men's basketball' or 'women's basketball'). Do not use he/she/his/her for the athlete — use the athlete's name or they/them. No gendered descriptors of any kind.
+- NEVER invent or assume facts not in the athlete data above. Do not claim the athlete has existing sponsors, brand deals, endorsements, awards, rankings, or compliance/FTC clearance unless that exact information is provided. If the data is thin, build the pitch only from what IS given — followers, engagement, sport, position, school, and location. Inventing a partnership or status is a serious error.
+- Use the TARGET BRAND name exactly as provided. Do not substitute a parent company, subsidiary, dealership, or alternate brand name.
 
 Return ONLY this JSON — no markdown, no extra keys, no code fences:
 {
