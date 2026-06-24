@@ -4717,10 +4717,17 @@ app.post('/api/agent/deal-scan', requireAuth, aiLimiter, async (req, res) => {
     const validLane = ['local', 'social', 'topnil'].includes(lane) ? lane : 'local';
     const excludeBrands = Array.isArray(exclude_brands) ? exclude_brands : [];
     let recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
-    // Never let Refresh empty a lane: if excluding already-shown brands exhausts the pool,
-    // re-run without the exclude so the agent always sees deals (repeats are fine here).
-    if ((!recommendations || recommendations.length === 0) && excludeBrands.length) {
-      recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', [], validLane);
+    // Keep Refresh full: if excluding shown brands leaves a thin lane, top up from a no-exclude
+    // run, newest first, de-duped, up to TARGET so lanes don't shrink on repeated refreshes.
+    const TARGET = 6;
+    if (recommendations.length < TARGET && excludeBrands.length) {
+      const fresh = await ai.getDealRecommendations(loaded.athleteObj, 'agent', [], validLane);
+      const seen = new Set(recommendations.map(r => (r.brand || '').toLowerCase()));
+      for (const f of (fresh || [])) {
+        if (recommendations.length >= TARGET) break;
+        const key = (f.brand || '').toLowerCase();
+        if (key && !seen.has(key)) { seen.add(key); recommendations.push(f); }
+      }
     }
     if (recommendations.length) {
       await store.pool.query(
