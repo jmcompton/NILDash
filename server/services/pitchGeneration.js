@@ -106,10 +106,7 @@ Paragraph 4 (1-2 sentences): How ${athleteData.name}'s audience lines up with ${
 
 Paragraph 5 (2 sentences): "I've attached a quick overview if helpful." Then a soft close — "Happy to share more if it's worth a conversation." or similar.
 
-Sign off:
-Best,
-${agentSignature}
-${agentTitle}
+Do NOT write a sign-off, closing, your name, or any signature. End after the soft close above. The platform adds the signature automatically.
 
 Total: 150-175 words. No headers. No bullets. No bold text. Reads like a real email from a real person.`
     : `Write a 5-paragraph outreach email.
@@ -119,7 +116,7 @@ P2 (2-3 sentences): Introduce ${athleteData.name} with 1-2 key credentials.
 P3 (2-3 sentences): One specific campaign idea in plain English.
 P4 (1-2 sentences): Audience alignment — grounded, use "around" before numbers.
 P5 (2 sentences): Soft close referencing the attached pitch deck.
-Sign off: Best, ${agentSignature} / ${agentTitle}
+Do NOT write a sign-off, name, or signature. End after the soft close. The platform adds the signature automatically.
 Total: 160-200 words. No bullets. No headers.`;
 
   const prompt = `Write a complete NIL partnership outreach pitch package.

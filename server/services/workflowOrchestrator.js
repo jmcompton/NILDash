@@ -215,48 +215,47 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult) {
  * sign-off line and replaces the AI signature with a proper block.
  */
 function renderProfessionalEmail(rawBody, agentName, agentEmail, deck, athleteData, enrichment) {
-  // Clean, modern sales-email styling
   const FONT  = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
   const BASE  = `${FONT};font-size:15px;line-height:1.6;color:#222222`;
-  const PARA  = 'margin:0 0 16px 0';
-  const MUTED = 'color:#666666;font-size:13px;line-height:1.5';
+  const MUTED = 'color:#666666;font-size:13px';
 
-  // Normalise line endings and trim
   const body = (rawBody || '').replace(/\r\n/g, '\n').trim();
 
-  // Split into paragraphs. Prefer blank-line separation; if the model returned
-  // a single block separated only by single newlines, fall back to those so we
-  // never render a tightly-stacked wall of text.
+  // Split into paragraphs: blank lines first, fall back to single newlines.
   let paragraphs = body.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
   if (paragraphs.length <= 1 && body.includes('\n')) {
     paragraphs = body.split(/\n+/).map(p => p.trim()).filter(Boolean);
   }
 
-  const htmlParts = [];
+  // Drop the model's own sign-off and everything after it (we add our own).
+  const SIGNOFF = /^(best regards|kind regards|warm regards|sincerely|cheers|regards|best|thanks|thank you)\b/i;
+  const bodyParas = [];
   for (const para of paragraphs) {
-    // Stop at the model's sign-off; we render our own closing + signature below.
-    if (/^(Best regards|Kind regards|Warm regards|Best|Regards|Sincerely|Thanks|Thank you|Cheers)\s*[,.]?\s*$/i.test(para)) break;
-    const text = para.replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
-    if (text) htmlParts.push(`<p style="${PARA}">${text}</p>`);
+    if (SIGNOFF.test(para)) break;
+    const clean = para.replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (clean) bodyParas.push(clean);
   }
 
-  // Closing + signature (agent's real name + email only — no hardcoded company)
-  const signature = [
-    `<p style="margin:20px 0 0 0">Best,</p>`,
-    `<p style="margin:14px 0 0 0;font-weight:600;color:#111111">${agentName || 'NIL Agent'}</p>`,
-    agentEmail
-      ? `<p style="margin:3px 0 0 0;${MUTED}"><a href="mailto:${agentEmail}" style="color:#666666;text-decoration:none">${agentEmail}</a></p>`
-      : '',
-  ].filter(Boolean).join('\n');
+  // Gmail strips <p> margins, so build native lines with real blank lines between paragraphs.
+  const bodyHtml = bodyParas.map(p => `<div>${p}</div>`).join('<div><br></div>');
 
-  // Subtle attachment note
+  // Closing + signature: agent's real name + email only.
+  const sigLines = [
+    `<div>Best,</div>`,
+    `<div>${agentName || 'NIL Agent'}</div>`,
+    agentEmail
+      ? `<div><a href="mailto:${agentEmail}" style="color:#1a73e8;text-decoration:none">${agentEmail}</a></div>`
+      : '',
+  ].filter(Boolean).join('');
+
   const attachNote = deck?.file_path
-    ? `<p style="margin:22px 0 0 0;${MUTED};border-top:1px solid #eeeeee;padding-top:12px">Attached: ${athleteData.name} × ${enrichment.brand_name} overview</p>`
+    ? `<div><br></div><div style="${MUTED}">Attached: ${athleteData.name} × ${enrichment.brand_name} overview</div>`
     : '';
 
   return `<div style="${BASE};max-width:560px">
-${htmlParts.join('\n')}
-${signature}
+${bodyHtml}
+<div><br></div>
+${sigLines}
 ${attachNote}
 </div>`;
 }

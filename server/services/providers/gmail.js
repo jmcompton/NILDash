@@ -223,6 +223,14 @@ function parseAddressList(raw) {
   return raw.split(/,\s*/).map(a => a.trim()).filter(Boolean);
 }
 
+function encodeHeaderValue(value) {
+  const s = String(value || '');
+  if (/[^\x00-\x7F]/.test(s)) {
+    return `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
+  }
+  return s;
+}
+
 function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachments }) {
   const toStr = Array.isArray(to) ? to.join(', ') : (to || '');
   const ccStr = cc && cc.length ? `Cc: ${Array.isArray(cc) ? cc.join(', ') : cc}` : '';
@@ -234,7 +242,7 @@ function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachmen
       `From: ${from}`,
       `To: ${toStr}`,
       ...(ccStr ? [ccStr] : []),
-      `Subject: ${subject || ''}`,
+      `Subject: ${encodeHeaderValue(subject)}`,
       'MIME-Version: 1.0',
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
       '',
@@ -254,7 +262,7 @@ function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachmen
     `From: ${from}`,
     `To: ${toStr}`,
     ...(ccStr ? [ccStr] : []),
-    `Subject: ${subject || ''}`,
+    `Subject: ${encodeHeaderValue(subject)}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${outerB}"`,
     '',
