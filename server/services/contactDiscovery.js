@@ -69,6 +69,18 @@ async function discoverContacts(agentId, enrichmentRecord) {
     }
   }
 
+  // GUARANTEE a sendable address. If the top contact still has no email but we
+  // know the company's website domain, infer the standard general inbox so the
+  // outreach "To" field is never empty. Low confidence so the agent verifies it.
+  if (contacts.length && !contacts[0].email) {
+    const domain = domainFromWebsite(enrichmentRecord.website);
+    if (domain) {
+      contacts[0].email = `info@${domain}`;
+      contacts[0].source = 'inferred_domain';
+      contacts[0].confidence_score = Math.max(contacts[0].confidence_score || 0, 0.3);
+    }
+  }
+
   // Save and rank
   const saved = [];
   for (let i = 0; i < contacts.length; i++) {
@@ -163,7 +175,7 @@ STEP 1 - Search the web for this exact business. Find its official website and i
 STEP 2 - Find the best place to send a partnership pitch:
   - If it is a LOCAL or single-location business (a specific car dealership, gym, restaurant, studio, salon, or one franchise location): find the business's REAL public email from its website (often info@, sales@, contact@, or a marketing / general-manager address) and the General Manager or Marketing Manager by name if the site lists them.
   - If it is a NATIONAL or REGIONAL brand: find the partnerships, sponsorship, sports-marketing, or influencer-marketing contact. A real named person if you can find one, otherwise the real partnerships@ or marketing@ inbox.
-STEP 3 - Prefer a REAL email you actually find on the web over any guess. A real general business inbox (info@, sales@) is BETTER than a blank or an invented address. Only infer an email format if you found the company domain but no posted address, and lower the confidence when you do.
+STEP 3 - The top contact MUST have a usable email. Prefer a REAL email you actually find on the web. If you cannot find a posted email but you found the business's official website, infer its standard general inbox (info@theirdomain.com, or sales@theirdomain.com for a dealership) and lower the confidence. Only leave email null if you could not even determine the business's website domain.
 
 Do NOT target the CEO, owner, or founder of a large company. For a tiny local shop the owner may be the only contact, which is fine.
 
@@ -172,7 +184,7 @@ Return a JSON array of up to 4 contacts, best first:
   {
     "name": "Real person's name, or null if you only found a department or shared inbox",
     "title": "Role, e.g. General Manager, Marketing Manager, Brand Partnerships",
-    "email": "the REAL email you found, or a clearly-inferred one, or null",
+    "email": "a REAL email found on the web, OR an inferred general inbox (info@/sales@ their domain) if none is posted. null ONLY if you found no website domain at all",
     "phone": null,
     "linkedin": "https://linkedin.com/in/... or null",
     "contact_type": "athlete_relations|nil|partnership|sponsorship|sports_marketing|influencer|marketing_director|marketing|general",
@@ -182,7 +194,7 @@ Return a JSON array of up to 4 contacts, best first:
   }
 ]
 
-Always return at least one contact with the best emailable address you can actually find.`;
+Always return at least one contact, and the top contact's email must be filled whenever you found the business's website. Never leave the best contact's email null when you know their domain.`;
 
   let raw;
   try {
@@ -275,6 +287,15 @@ function validateUrl(v) {
   try {
     const url = new URL(s.startsWith('http') ? s : 'https://' + s);
     return url.hostname.includes('linkedin.com') ? url.href : null;
+  } catch { return null; }
+}
+
+function domainFromWebsite(url) {
+  if (!url) return null;
+  try {
+    const u = new URL(String(url).startsWith('http') ? url : 'https://' + url);
+    const host = u.hostname.replace(/^www\./, '');
+    return /\.[a-z]{2,}$/i.test(host) ? host : null;
   } catch { return null; }
 }
 
