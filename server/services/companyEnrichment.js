@@ -31,8 +31,10 @@ const CACHE_TTL_DAYS = 7;
  */
 async function enrich(agentId, brandName, hintData = {}) {
   // 1. Check cache
+  // For local businesses, ignore a stale record that predates web research
+  // (its brand_size won't be 'local'), so we re-research it once.
   const cached = await getCached(agentId, brandName);
-  if (cached) {
+  if (cached && !(hintData.isLocal && cached.brand_size !== 'local')) {
     logEvent(null, agentId, 'enrichment_cache_hit', { brandName });
     return cached;
   }
@@ -136,13 +138,15 @@ Return this exact JSON structure:
 Search the web for the specific business named below and return ONLY a valid JSON object (no markdown, no code blocks).
 Base every field on what you actually find. For general_email, return only a real contact email found on the business's official website or a reliable public listing — NEVER guess or fabricate one; use null if you cannot find a real one.`;
 
-  const localPrompt = `Use web search to research this specific LOCAL business for NIL partnership outreach. Find their real website, what they actually do, any community or local sports sponsorships, and the best real contact email on their site.
+  const localPrompt = `Use web search to research this SPECIFIC local business for NIL partnership outreach. It is a single local establishment (one dealership, gym, restaurant, store, or office), NOT a national chain — even if its name contains a national brand. Identify the city and state from the context below, then search for this exact business in that location.
 
 ${prompt}
 
-EXTRA FOR THIS LOCAL BUSINESS:
-- "description" must be specific to THIS business (not the category) and mention any real local, community, or sponsorship signals you find.
-- "general_email" must be the best REAL contact email found on their official website or contact page (general/info/sales inbox, or owner/manager). Only a real one you actually find; otherwise null.`;
+CRITICAL FOR THIS LOCAL BUSINESS:
+- Treat brand_size as "local".
+- "location": the real city and state where this specific business operates.
+- "description": 2-3 sentences specific to THIS business (what it sells, who runs it, any real community or local sports sponsorships you find) — not generic category talk.
+- "general_email": find the business's official website and contact/about page, and return the best PUBLIC contact email listed there (for example info@, sales@, contact@, or a manager/department inbox). Public business contact emails are safe to return. Only use null if the business genuinely has no email anywhere online.`;
 
   let raw;
   try {
@@ -154,22 +158,22 @@ EXTRA FOR THIS LOCAL BUSINESS:
     return buildFallback(brandName);
   }
 
-  return parseEnrichment(raw, brandName);
+  return parseEnrichment(raw, brandName, hintData.isLocal);
 }
 
-function parseEnrichment(raw, brandName) {
+function parseEnrichment(raw, brandName, isLocal) {
   try {
     // Strip markdown fences if present
     const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(clean);
-    return normalize(parsed, brandName);
+    return normalize(parsed, brandName, isLocal);
   } catch (e) {
     console.error('[companyEnrichment] JSON parse failed:', e.message);
     return buildFallback(brandName);
   }
 }
 
-function normalize(data, brandName) {
+function normalize(data, brandName, isLocal) {
   return {
     website:               sanitizeUrl(data.website),
     industry:              str(data.industry),
@@ -177,7 +181,7 @@ function normalize(data, brandName) {
     phone:                 str(data.phone),
     general_email:         sanitizeEmail(data.general_email),
     description:           str(data.description),
-    brand_size:            validateEnum(data.brand_size, ['local','regional','national','global'], 'regional'),
+    brand_size:            isLocal ? 'local' : validateEnum(data.brand_size, ['local','regional','national','global'], 'regional'),
     employee_count:        str(data.employee_count),
     annual_revenue:        str(data.annual_revenue),
     social_links:          sanitizeSocial(data.social_links),
