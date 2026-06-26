@@ -248,7 +248,7 @@ function renderRunResult(data) {
 
   // Parse outreach body for editing
   const currentSubject = outreach?.subject || `NIL Partnership — ${brand}`;
-  const currentBody    = (outreach?.body_html || '').replace(/<[^>]+>/g, '').trim();
+  const currentBody    = htmlToEditableText(outreach?.body_html || '');
   const outreachId     = outreach?.id;
 
   // Contact info
@@ -424,7 +424,7 @@ async function sendOutreach(outreachId) {
   try {
     // Save any edits first
     if (subject || bodyText) {
-      const bodyHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;color:#333"><p>${(bodyText || '').replace(/\n/g, '<br>')}</p></div>`;
+      const bodyHtml = editableTextToHtml(bodyText || '');
       await outreachAPI.patch('/logs/' + outreachId, { subject, body_html: bodyHtml });
     }
 
@@ -457,7 +457,7 @@ async function saveDraft(outreachId) {
   if (!subject && !bodyText) return;
 
   try {
-    const bodyHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;color:#333"><p>${(bodyText || '').replace(/\n/g, '<br>')}</p></div>`;
+    const bodyHtml = editableTextToHtml(bodyText || '');
     await outreachAPI.patch('/logs/' + outreachId, { subject, body_html: bodyHtml });
     if (status) { status.style.color = '#84CC16'; status.textContent = 'Edits saved ✓'; }
     showOutreachToast('Draft saved');
@@ -468,6 +468,36 @@ async function saveDraft(outreachId) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Convert server-rendered email HTML into clean editable plain text (keeps paragraph breaks)
+function htmlToEditableText(html) {
+  return (html || '')
+    .replace(/<div>\s*<br\s*\/?>\s*<\/div>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+}
+
+// Convert editable plain text back into Gmail-safe HTML with real paragraph spacing
+function editableTextToHtml(text) {
+  const FONT = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const lines = String(text || '').replace(/\r\n/g, '\n').split('\n');
+  const htmlLines = lines
+    .map(line => line.trim() === '' ? '<div><br></div>' : `<div>${esc(line)}</div>`)
+    .join('');
+  return `<div style="${FONT};font-size:15px;line-height:1.6;color:#222222;max-width:560px">${htmlLines}</div>`;
+}
 
 function showOutreachToast(msg, isError) {
   if (typeof showToast === 'function') { showToast(msg); return; }
