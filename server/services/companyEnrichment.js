@@ -15,7 +15,7 @@
 
 const crypto = require('crypto');
 const { pool } = require('../store');
-const { oneShot } = require('../ai');
+const { oneShot, oneShotWebSearch } = require('../ai');
 
 const CACHE_TTL_DAYS = 7;
 
@@ -132,9 +132,23 @@ Return this exact JSON structure:
   "partnership_fit_notes": "why this brand might be a good NIL partner"
 }`;
 
+  const localSystem = `You are a local-business research assistant with live web search for a NIL sports agency platform.
+Search the web for the specific business named below and return ONLY a valid JSON object (no markdown, no code blocks).
+Base every field on what you actually find. For general_email, return only a real contact email found on the business's official website or a reliable public listing — NEVER guess or fabricate one; use null if you cannot find a real one.`;
+
+  const localPrompt = `Use web search to research this specific LOCAL business for NIL partnership outreach. Find their real website, what they actually do, any community or local sports sponsorships, and the best real contact email on their site.
+
+${prompt}
+
+EXTRA FOR THIS LOCAL BUSINESS:
+- "description" must be specific to THIS business (not the category) and mention any real local, community, or sponsorship signals you find.
+- "general_email" must be the best REAL contact email found on their official website or contact page (general/info/sales inbox, or owner/manager). Only a real one you actually find; otherwise null.`;
+
   let raw;
   try {
-    raw = await oneShot(prompt, system, 2000);
+    raw = hintData.isLocal
+      ? await oneShotWebSearch(localPrompt, localSystem, 2500, 3, 'claude-sonnet-4-6')
+      : await oneShot(prompt, system, 2000);
   } catch (e) {
     console.error('[companyEnrichment] AI call failed:', e.message);
     return buildFallback(brandName);

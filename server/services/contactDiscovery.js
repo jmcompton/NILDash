@@ -54,6 +54,17 @@ async function discoverContacts(agentId, enrichmentRecord) {
   // Run AI discovery
   const contacts = await runDiscovery(enrichmentRecord);
 
+  // For a local business, the web-researched enrichment may have found the real
+  // best contact email. Prefer it over any role-inferred address so outreach lands
+  // in the right inbox.
+  if (enrichmentRecord.brand_size === 'local' && enrichmentRecord.general_email && contacts.length) {
+    contacts[0].email = enrichmentRecord.general_email;
+    contacts[0].source = 'web_research';
+    if (!contacts[0].confidence_score || contacts[0].confidence_score < 0.6) {
+      contacts[0].confidence_score = 0.6;
+    }
+  }
+
   // Save and rank
   const saved = [];
   for (let i = 0; i < contacts.length; i++) {
