@@ -31,10 +31,10 @@ const CACHE_TTL_DAYS = 7;
  */
 async function enrich(agentId, brandName, hintData = {}) {
   // 1. Check cache
-  // For local businesses, ignore a stale record that predates web research
-  // (its brand_size won't be 'local'), so we re-research it once.
+  // Only trust a cached record that actually resolved a location. Older records
+  // that failed (location null) are stale low-quality results, so re-research.
   const cached = await getCached(agentId, brandName);
-  if (cached && !(hintData.isLocal && cached.brand_size !== 'local')) {
+  if (cached && cached.location) {
     logEvent(null, agentId, 'enrichment_cache_hit', { brandName });
     return cached;
   }
@@ -134,28 +134,33 @@ Return this exact JSON structure:
   "partnership_fit_notes": "why this brand might be a good NIL partner"
 }`;
 
-  const localSystem = `You are a local-business research assistant with live web search for a NIL sports agency platform.
-Search the web for the specific business named below and return ONLY a valid JSON object (no markdown, no code blocks).
-Base every field on what you actually find. For general_email, return only a real contact email found on the business's official website or a reliable public listing — NEVER guess or fabricate one; use null if you cannot find a real one.`;
+  const researchSystem = `You are a brand research assistant with live web search for a NIL sports agency platform.
+Search the web for the specific business or brand named below and return ONLY a valid JSON object (no markdown, no code blocks). Base every field on what you actually find.
+- If the name refers to a single-location business (a specific car dealership, gym, restaurant, studio, salon, or one franchise location, e.g. "Tuscaloosa Toyota"), set brand_size to "local" and set location to that business's real city and state.
+- If it refers to a national chain, CPG, or major brand (e.g. Celsius, Crocs, Gatorade), set brand_size to "national" (or "global" if worldwide).
+For general_email, return only a REAL contact email found on the business's official website or a reliable public listing. NEVER guess or fabricate one; use null if you cannot find a real one.`;
 
-  const localPrompt = `Use web search to research this SPECIFIC local business for NIL partnership outreach. It is a single local establishment (one dealership, gym, restaurant, store, or office), NOT a national chain — even if its name contains a national brand. Identify the city and state from the context below, then search for this exact business in that location.
+  const researchPrompt = `Use web search to research this business or brand for NIL partnership outreach. Find their real website, what they actually do, their real city and state, any community or sports sponsorships, and the best real contact email on their site.
 
 ${prompt}
 
-CRITICAL FOR THIS LOCAL BUSINESS:
-- Treat brand_size as "local".
-- "location": the real city and state where this specific business operates.
-- "description": 2-3 sentences specific to THIS business (what it sells, who runs it, any real community or local sports sponsorships you find) — not generic category talk.
-- "general_email": find the business's official website and contact/about page, and return the best PUBLIC contact email listed there (for example info@, sales@, contact@, or a manager/department inbox). Public business contact emails are safe to return. Only use null if the business genuinely has no email anywhere online.`;
+CRITICAL:
+- "location" must be the real "City, State", resolved from the web. For a single-location business this is the city it operates in. Use null only if you truly cannot find it.
+- "brand_size": "local" for a single-location business or one franchise location, even if it carries a national brand name like Toyota or Hyundai; "national" or "global" for a chain or major brand.
+- "description" must be specific to THIS business, not the generic category.
+- "general_email": the best REAL contact email found on their official website (general/info/sales inbox, or owner/manager). Only a real one you actually find; otherwise null.`;
 
   let raw;
   try {
-    raw = hintData.isLocal
-      ? await oneShotWebSearch(localPrompt, localSystem, 2500, 3, 'claude-sonnet-4-6')
-      : await oneShot(prompt, system, 2000);
+    raw = await oneShotWebSearch(researchPrompt, researchSystem, 2500, 3, 'claude-sonnet-4-6');
   } catch (e) {
-    console.error('[companyEnrichment] AI call failed:', e.message);
-    return buildFallback(brandName);
+    console.error('[companyEnrichment] web search failed, falling back to model knowledge:', e.message);
+    try {
+      raw = await oneShot(prompt, system, 2000);
+    } catch (e2) {
+      console.error('[companyEnrichment] AI call failed:', e2.message);
+      return buildFallback(brandName);
+    }
   }
 
   return parseEnrichment(raw, brandName, hintData.isLocal);
@@ -163,8 +168,12 @@ CRITICAL FOR THIS LOCAL BUSINESS:
 
 function parseEnrichment(raw, brandName, isLocal) {
   try {
-    // Strip markdown fences if present
-    const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    // Strip markdown fences, then extract the JSON object. Web search responses
+    // often narrate before the JSON.
+    let clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const start = clean.indexOf('{');
+    const end = clean.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) clean = clean.slice(start, end + 1);
     const parsed = JSON.parse(clean);
     return normalize(parsed, brandName, isLocal);
   } catch (e) {
