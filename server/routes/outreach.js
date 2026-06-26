@@ -323,9 +323,8 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   const account = await emailStore.getEmailAccountWithTokens(emailAccountId);
   if (!account || account.user_id !== req.session.userId) throw new Error('Email account not found');
 
-  const { decrypt } = require('../services/crypto');
-  const accessToken  = account.access_token_enc  ? decrypt(account.access_token_enc)  : null;
-  const refreshToken = account.refresh_token_enc ? decrypt(account.refresh_token_enc) : null;
+  const accessToken  = account.accessToken  || null;
+  const refreshToken = account.refreshToken || null;
 
   // ── Load deck PDF as attachment if available ──────────────────────────────
   let attachments = [];
