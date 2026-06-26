@@ -215,60 +215,48 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult) {
  * sign-off line and replaces the AI signature with a proper block.
  */
 function renderProfessionalEmail(rawBody, agentName, agentEmail, deck, athleteData, enrichment) {
-  const BASE = 'font-family:Georgia,"Times New Roman",serif;font-size:14px;line-height:1.75;color:#1a1a1a';
-  const PARA = 'margin:0 0 18px 0';
-  const MUTED = 'color:#555;font-size:13px';
+  // Clean, modern sales-email styling
+  const FONT  = "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
+  const BASE  = `${FONT};font-size:15px;line-height:1.6;color:#222222`;
+  const PARA  = 'margin:0 0 16px 0';
+  const MUTED = 'color:#666666;font-size:13px;line-height:1.5';
 
-  // Normalise and split into paragraphs
-  const paragraphs = rawBody
-    .replace(/\r\n/g, '\n')
-    .split(/\n{2,}/)
-    .map(p => p.trim())
-    .filter(Boolean);
+  // Normalise line endings and trim
+  const body = (rawBody || '').replace(/\r\n/g, '\n').trim();
 
-  const htmlParts = [];
-  let signoffFound = false;
-
-  for (const para of paragraphs) {
-    if (signoffFound) break; // drop AI-generated name lines after "Best,"
-
-    const isSignoff = /^(Best regards|Kind regards|Warm regards|Best|Regards|Sincerely|Thanks|Cheers)\s*,/i.test(para.trim());
-    if (isSignoff) {
-      signoffFound = true;
-      htmlParts.push(`<p style="${PARA}">Best,</p>`);
-      break;
-    }
-
-    // Opening salutation — render in normal weight (Dear X,)
-    const isGreeting = htmlParts.length === 0 && /^(Dear|Hi|Hello)\s/i.test(para);
-    if (isGreeting) {
-      htmlParts.push(`<p style="${PARA}">${para}</p>`);
-      continue;
-    }
-
-    // Body paragraph — replace single newlines with spaces so they flow
-    htmlParts.push(`<p style="${PARA}">${para.replace(/\n/g, ' ')}</p>`);
+  // Split into paragraphs. Prefer blank-line separation; if the model returned
+  // a single block separated only by single newlines, fall back to those so we
+  // never render a tightly-stacked wall of text.
+  let paragraphs = body.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+  if (paragraphs.length <= 1 && body.includes('\n')) {
+    paragraphs = body.split(/\n+/).map(p => p.trim()).filter(Boolean);
   }
 
-  // If no sign-off was found in the AI output, add one
-  if (!signoffFound) htmlParts.push(`<p style="${PARA}">Best,</p>`);
+  const htmlParts = [];
+  for (const para of paragraphs) {
+    // Stop at the model's sign-off; we render our own closing + signature below.
+    if (/^(Best regards|Kind regards|Warm regards|Best|Regards|Sincerely|Thanks|Thank you|Cheers)\s*[,.]?\s*$/i.test(para)) break;
+    const text = para.replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    if (text) htmlParts.push(`<p style="${PARA}">${text}</p>`);
+  }
 
-  // Professional signature block
-  const sig = [
-    `<p style="margin:6px 0 0 0;font-weight:700">${agentName || 'NIL Agent'}</p>`,
-    `<p style="margin:2px 0;${MUTED}">NIL Partnerships</p>`,
-    `<p style="margin:2px 0;${MUTED}">NILDash</p>`,
-    agentEmail ? `<p style="margin:2px 0"><a href="mailto:${agentEmail}" style="color:#BA0C2F;text-decoration:none">${agentEmail}</a></p>` : '',
+  // Closing + signature (agent's real name + email only — no hardcoded company)
+  const signature = [
+    `<p style="margin:20px 0 0 0">Best,</p>`,
+    `<p style="margin:14px 0 0 0;font-weight:600;color:#111111">${agentName || 'NIL Agent'}</p>`,
+    agentEmail
+      ? `<p style="margin:3px 0 0 0;${MUTED}"><a href="mailto:${agentEmail}" style="color:#666666;text-decoration:none">${agentEmail}</a></p>`
+      : '',
   ].filter(Boolean).join('\n');
 
-  // Attachment note (plain, below signature)
+  // Subtle attachment note
   const attachNote = deck?.file_path
-    ? `<p style="margin:24px 0 0 0;${MUTED};border-top:1px solid #e0e0e0;padding-top:12px">Pitch deck attached: ${athleteData.name} × ${enrichment.brand_name}</p>`
+    ? `<p style="margin:22px 0 0 0;${MUTED};border-top:1px solid #eeeeee;padding-top:12px">Attached: ${athleteData.name} × ${enrichment.brand_name} overview</p>`
     : '';
 
-  return `<div style="${BASE};max-width:600px;padding:0">
+  return `<div style="${BASE};max-width:560px">
 ${htmlParts.join('\n')}
-${sig}
+${signature}
 ${attachNote}
 </div>`;
 }
