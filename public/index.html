@@ -5160,6 +5160,8 @@ function _dsRenderAll() {
 
     var html = data.map(function(d, idx){
       var gi = window._dealScanResults.length;
+      // Local-lane cards must carry isLocal so AI Outreach triggers the local web search.
+      if (lane === 'local' && d.resultType !== 'national') d.isLocal = true;
       window._dealScanResults.push(d);
       return _dsCardHtml(d, gi, lane, idx === 0);
     }).join('');
