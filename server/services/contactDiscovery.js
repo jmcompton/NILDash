@@ -19,7 +19,7 @@
 
 const crypto = require('crypto');
 const { pool } = require('../store');
-const { oneShot } = require('../ai');
+const { oneShot, oneShotWebSearch } = require('../ai');
 
 // Contact type priority for ranking
 const PRIORITY_MAP = {
@@ -44,11 +44,15 @@ const PRIORITY_MAP = {
  * Returns array of ranked contact records (saved to DB).
  */
 async function discoverContacts(agentId, enrichmentRecord) {
-  // Check if we already have contacts for this enrichment
+  // Only trust cached contacts if the best one has a real email. A cached
+  // "no email found" result is stale and useless, so clear it and re-research.
   const existing = await getByEnrichmentId(enrichmentRecord.id);
-  if (existing.length > 0) {
+  if (existing.length > 0 && existing.some(c => c.email)) {
     logEvent(null, agentId, 'contact_discovery_cache_hit', { enrichmentId: enrichmentRecord.id });
     return existing;
+  }
+  if (existing.length > 0) {
+    await pool.query('DELETE FROM brand_contacts WHERE enrichment_id=$1', [enrichmentRecord.id]).catch(() => {});
   }
 
   // Run AI discovery
@@ -142,86 +146,68 @@ async function getById(id) {
 
 async function runDiscovery(enrichmentRecord) {
   const brand = enrichmentRecord.brand_name;
-  const industry = enrichmentRecord.industry || 'consumer brand';
-  const size = enrichmentRecord.brand_size || 'regional';
+  const industry = enrichmentRecord.industry || '';
   const description = enrichmentRecord.description || '';
   const website = enrichmentRecord.website || '';
-  const socialLinks = enrichmentRecord.social_links
-    ? (typeof enrichmentRecord.social_links === 'string'
-        ? enrichmentRecord.social_links
-        : JSON.stringify(enrichmentRecord.social_links))
-    : '';
 
-  const system = `You are an elite sports marketing intelligence agent with deep knowledge of brand marketing teams.
-Your job is to identify REAL, NAMED individuals who handle NIL deals and athlete sponsorships at companies.
-Return ONLY a valid JSON array. No markdown, no explanation, no preamble.
+  const system = `You are a contact-research specialist. You use web search to find the REAL, current best contact for sending a college athlete NIL / sponsorship partnership pitch to a specific business. Return ONLY a valid JSON array. No markdown, no preamble, no commentary after the array.`;
 
-RULES:
-- Always try to return a real person's name and title. Use your knowledge of the company's marketing leadership.
-- For well-known brands (Nike, Gatorade, Red Bull, national retail chains, major CPG brands), you likely know who runs their sports marketing or partnerships team — use that knowledge.
-- For email: infer the corporate format if you know it (e.g. first@company.com, first.last@company.com). Set confidence low if inferred.
-- For LinkedIn: only include a URL if you are confident it is accurate (https://linkedin.com/in/firstname-lastname-XXXXXX format).
-- Never fabricate phone numbers — always null.
-- Sort contacts by relevance: NIL/athlete-relations contacts first, then broader partnerships, then general marketing.
-- NEVER return the CEO, founder, co-founder, President, or owner as the outreach contact, unless the brand is a small local business with no marketing or partnerships staff. Cold-pitching an NIL micro-deal to an executive gets ignored. Always prefer the person who runs partnerships, sponsorships, sports marketing, or influencer/creator marketing.
-- NATIONAL or REGIONAL brands (e.g. Celsius, Crocs, Gatorade): name the real partnerships, sponsorship, or marketing person if you know them. If you genuinely cannot, return 'Brand Partnerships Team' with a partnerships@company.com style email and confidence around 0.4.
-- LOCAL or single-location businesses (a specific car dealership, gym, restaurant, studio, salon, or one franchise location): the right contact is the General Manager, Marketing Manager, or for a very small shop the Owner. Return that ROLE (a real name if you know it, otherwise name null is fine) with confidence around 0.5, and outreach_notes telling the agent to call or visit the business and ask for that person by role. NEVER return a vague 'Brand Partnerships Team' for a local business — give the concrete role to ask for.`;
+  const prompt = `Find the best real contact to email an NIL / sponsorship partnership proposal at this business:
 
-  const prompt = `I need to send a college athlete NIL partnership proposal to someone at "${brand}".
+BUSINESS: "${brand}"
+${website ? `Website: ${website}` : ''}
+${industry ? `Industry: ${industry}` : ''}
+${description ? `Context: ${description}` : ''}
 
-Company profile:
-- Industry: ${industry}
-- Size: ${size}
-- Website: ${website}
-- Description: ${description}
-${socialLinks ? `- Social/links: ${socialLinks}` : ''}
+STEP 1 - Search the web for this exact business. Find its official website and its contact / about / team page.
+STEP 2 - Find the best place to send a partnership pitch:
+  - If it is a LOCAL or single-location business (a specific car dealership, gym, restaurant, studio, salon, or one franchise location): find the business's REAL public email from its website (often info@, sales@, contact@, or a marketing / general-manager address) and the General Manager or Marketing Manager by name if the site lists them.
+  - If it is a NATIONAL or REGIONAL brand: find the partnerships, sponsorship, sports-marketing, or influencer-marketing contact. A real named person if you can find one, otherwise the real partnerships@ or marketing@ inbox.
+STEP 3 - Prefer a REAL email you actually find on the web over any guess. A real general business inbox (info@, sales@) is BETTER than a blank or an invented address. Only infer an email format if you found the company domain but no posted address, and lower the confidence when you do.
 
-FIRST, decide what kind of business "${brand}" is: a national/regional brand, or a single local business (a specific dealership, gym, restaurant, studio, or one franchise location like 'Mercedes-Benz of Tuscaloosa'). Judge by the name and description, not just the size label. Then use the matching strategy from the rules. For a local business, the General Manager or Marketing Manager is the right person even if you do not know their name.
+Do NOT target the CEO, owner, or founder of a large company. For a tiny local shop the owner may be the only contact, which is fine.
 
-YOUR TASK: Identify the REAL person at "${brand}" who would actually receive an athlete NIL partnership proposal:
-1. NIL / athlete relations / college partnerships lead (HIGHEST PRIORITY)
-2. Brand partnerships or sponsorship manager
-3. Sports marketing or influencer/creator marketing manager
-4. Marketing manager or brand manager (not the CMO unless it is a small company)
-Do NOT target the CEO, founder, co-founder, President, or owner. They do not handle inbound NIL micro-deals.
-
-For EACH person, think:
-- What is their actual name? (LinkedIn, press releases, company website "About" page, news coverage of sponsorship announcements)
-- What is their exact title?
-- What email format does ${brand} use? (firstname@, f.lastname@, firstname.lastname@?)
-- Do they have a public LinkedIn profile?
-
-Return a JSON array of up to 5 contacts:
+Return a JSON array of up to 4 contacts, best first:
 [
   {
-    "name": "First Last (REAL person's name, or null only if truly unknown)",
-    "title": "Exact job title",
-    "email": "inferred or known email address, or null",
+    "name": "Real person's name, or null if you only found a department or shared inbox",
+    "title": "Role, e.g. General Manager, Marketing Manager, Brand Partnerships",
+    "email": "the REAL email you found, or a clearly-inferred one, or null",
     "phone": null,
-    "linkedin": "https://linkedin.com/in/profile or null",
-    "contact_type": "athlete_relations" | "nil" | "partnership" | "sponsorship" | "sports_marketing" | "influencer" | "marketing_director" | "marketing" | "pr" | "general",
-    "confidence_score": 0.0 to 1.0 (0.8+ = known from public record, 0.5 = inferred from role/company, 0.2 = speculative),
-    "source": "public_record" | "company_website" | "linkedin" | "ai_inference",
-    "outreach_notes": "1-2 sentences: why this person handles NIL deals at ${brand} and the best angle to approach them"
+    "linkedin": "https://linkedin.com/in/... or null",
+    "contact_type": "athlete_relations|nil|partnership|sponsorship|sports_marketing|influencer|marketing_director|marketing|general",
+    "confidence_score": 0.0 to 1.0 (0.85 = real email found on their own site, 0.6 = real shared inbox, 0.4 = inferred format, 0.2 = guess),
+    "source": "company_website|public_record|linkedin|web_search|ai_inference",
+    "outreach_notes": "1-2 sentences: who this is, the best angle, and where you found the email"
   }
 ]
 
-IMPORTANT: For national/regional brands, name the real partnerships or marketing person if known, otherwise return the Brand Partnerships Team with a partnerships@ email. For local businesses, always return the General Manager and Marketing Manager roles with an approach to call or visit — never a vague placeholder. Always return at least 2 useful contacts, and never the CEO or owner of a large company.`;
+Always return at least one contact with the best emailable address you can actually find.`;
 
   let raw;
   try {
-    raw = await oneShot(prompt, system, 2500);
+    raw = await oneShotWebSearch(prompt, system, 3000, 4, 'claude-sonnet-4-6');
   } catch (e) {
-    console.error('[contactDiscovery] AI call failed:', e.message);
-    return buildFallbackContacts(brand);
+    console.error('[contactDiscovery] web search failed, falling back to model knowledge:', e.message);
+    try {
+      raw = await oneShot(prompt, system, 2500);
+    } catch (e2) {
+      console.error('[contactDiscovery] AI call failed:', e2.message);
+      return buildFallbackContacts(brand);
+    }
   }
 
-  return parseContacts(raw, brand);
+  const contacts = parseContacts(raw, brand);
+  return contacts.length ? contacts : buildFallbackContacts(brand);
 }
 
 function parseContacts(raw, brandName) {
   try {
-    const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    let clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    // Web search responses often narrate before the JSON; extract the array.
+    const start = clean.indexOf('[');
+    const end = clean.lastIndexOf(']');
+    if (start !== -1 && end !== -1 && end > start) clean = clean.slice(start, end + 1);
     const parsed = JSON.parse(clean);
     if (!Array.isArray(parsed)) throw new Error('Not an array');
 

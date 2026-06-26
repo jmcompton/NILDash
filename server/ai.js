@@ -1199,6 +1199,7 @@ module.exports = {
   streamResponse,
   oneShot,
   oneShotWithSearch,
+  oneShotWebSearch,
   calculateRate,
   calculateRateLive,
   getDealRecommendations,
