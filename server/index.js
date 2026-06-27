@@ -252,8 +252,10 @@ function requireAuth(req, res, next) {
 function agentHasAccess(user) {
   if (!user) return false;
   if (user.role === 'admin') return true;
-  if (['beta', 'comp', 'founding_comp'].includes(user.plan)) return true;
   if (user.subscription_status === 'active') return true;
+  // Only brand-new self-signup agents (plan 'free') are gated. Every existing
+  // or comp account keeps access, so your own logins and demos never break.
+  if (user.plan !== 'free') return true;
   return false;
 }
 
