@@ -251,8 +251,13 @@ app.post('/api/agent/create-checkout', requireAuth, async (req, res) => {
 
     res.json({ url: checkoutSession.url });
   } catch (e) {
-    console.error('[agent-checkout] failed:', e.message);
-    res.status(500).json({ error: 'Could not start checkout. ' + e.message });
+    console.error('[agent-checkout] failed:', e.type || '', e.code || '', e.message, e.raw && e.raw.message ? '| raw: ' + e.raw.message : '');
+    res.status(500).json({
+      error: 'Could not start checkout. ' + e.message,
+      stripe_type: e.type || null,
+      stripe_code: e.code || null,
+      stripe_detail: (e.raw && e.raw.message) || e.detail || null
+    });
   }
 });
 
