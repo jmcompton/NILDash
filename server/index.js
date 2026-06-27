@@ -4825,7 +4825,7 @@ app.get('/api/athlete/deal-scan/cache', verifyAthleteToken, async (req, res) => 
 });
 
 // POST /api/agent/deal-scan — agent-side three-lane deal scan for a client athlete
-app.post('/api/agent/deal-scan', requireAuth, aiLimiter, async (req, res) => {
+app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
   try {
     const { athleteId, lane, exclude_brands } = req.body;
     const loaded = await loadDealScanAthlete(athleteId);
@@ -8041,7 +8041,7 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res
 });
 
 // POST /api/agent/generate-bio/:athleteId — agent generates AI bio for an athlete
-app.post('/api/agent/generate-bio/:athleteId', requireAuth, aiLimiter, async (req, res) => {
+app.post('/api/agent/generate-bio/:athleteId', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
   try {
     const { athleteId } = req.params;
     const athR = await store.pool.query(

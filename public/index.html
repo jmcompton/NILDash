@@ -4157,7 +4157,7 @@ async function startAgentSubscribe() {
   const btn = document.getElementById('agentSubscribeBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'Opening checkout...'; }
   try {
-    const r = await fetch(`${API_BASE}/api/agent/create-checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const r = await fetch(`${API_BASE}/api/agent/create-checkout`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
     const data = await r.json();
     if (data.url) { window.location.href = data.url; return; }
     alert(data.error || 'Could not start checkout. Please try again.');
@@ -4168,6 +4168,7 @@ async function startAgentSubscribe() {
 }
 
 function showSubscribeModal() {
+  if (window.__subSnoozeUntil && Date.now() < window.__subSnoozeUntil) return;
   if (document.getElementById('subUnlockOverlay')) return;
   const ov = document.createElement('div');
   ov.id = 'subUnlockOverlay';
@@ -4179,7 +4180,7 @@ function showSubscribeModal() {
     + '<div style="font-size:30px;font-weight:800;color:#fff;margin-bottom:2px">$99<span style="font-size:15px;font-weight:500;color:rgba(255,255,255,0.5)">/month</span></div>'
     + '<div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:22px">Founding rate, locked in for as long as you stay</div>'
     + '<button onclick="startAgentSubscribe()" style="width:100%;padding:13px;background:#84cc16;border:none;border-radius:10px;color:#0a0a0a;font-weight:700;font-size:15px;cursor:pointer;margin-bottom:10px">Subscribe now</button>'
-    + '<button onclick="document.getElementById(\'subUnlockOverlay\').remove()" style="width:100%;padding:11px;background:transparent;border:1px solid rgba(255,255,255,0.15);border-radius:10px;color:rgba(255,255,255,0.6);font-size:13px;cursor:pointer">Maybe later</button>'
+    + '<button onclick="window.__subSnoozeUntil = Date.now() + 60000; document.getElementById(\'subUnlockOverlay\').remove()" style="width:100%;padding:11px;background:transparent;border:1px solid rgba(255,255,255,0.15);border-radius:10px;color:rgba(255,255,255,0.6);font-size:13px;cursor:pointer">Maybe later</button>'
     + '</div>';
   document.body.appendChild(ov);
 }
