@@ -218,8 +218,8 @@ app.use('/api/reports', requireAgentSubscription);
 // ── Agent subscription checkout ──────────────────────────────
 app.post('/api/agent/create-checkout', requireAuth, async (req, res) => {
   try {
-    const stripeKey = process.env.STRIPE_SECRET_KEY || '';
-    const agentPrice = process.env.STRIPE_AGENT_PRICE_ID || '';
+    const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim();
+    const agentPrice = (process.env.STRIPE_AGENT_PRICE_ID || '').trim();
     if (!stripeKey || !agentPrice) {
       return res.status(400).json({ error: 'Stripe is not configured. Set STRIPE_SECRET_KEY and STRIPE_AGENT_PRICE_ID.' });
     }
