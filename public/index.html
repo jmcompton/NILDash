@@ -1073,6 +1073,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button onclick="toggleTheme()" id="theme-toggle-btn" style="width:100%;padding:10px 16px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;gap:8px;transition:all 0.15s">
         <span id="theme-icon"></span><span id="theme-label">Light Mode</span>
       </button>
+      <button id="agentSubscribeBtn" onclick="startAgentSubscribe()" style="display:none;width:100%;padding:10px 16px;background:var(--accent);border:none;border-radius:var(--r-sm);color:#0a0a0a;font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer;margin-bottom:8px;align-items:center;justify-content:center;gap:8px">Subscribe — $99/mo</button>
       <button class="logout-btn" onclick="doLogout()">Sign Out</button>
     </div>
   </aside>
@@ -4152,6 +4153,20 @@ async function doSignup() {
   finally { btn.disabled = false; btn.textContent = 'Create Account →'; }
 }
 
+async function startAgentSubscribe() {
+  const btn = document.getElementById('agentSubscribeBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Opening checkout...'; }
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/create-checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const data = await r.json();
+    if (data.url) { window.location.href = data.url; return; }
+    alert(data.error || 'Could not start checkout. Please try again.');
+  } catch (e) {
+    alert('Could not start checkout. Please try again.');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Subscribe — $99/mo'; }
+}
+
 async function doLogout() {
   await fetch(`${API_BASE}/api/auth/logout`, { method:'POST' });
   currentUser = null; athletes = []; selectedAthleteId = null;
@@ -4164,6 +4179,14 @@ async function bootApp() {
   document.getElementById('authScreen').classList.add('hidden');
   document.getElementById('appScreen').classList.add('visible');
   document.getElementById('userName').textContent = currentUser.name;
+  try {
+    const subBtn = document.getElementById('agentSubscribeBtn');
+    if (subBtn) {
+      const active = currentUser.subscription_status === 'active';
+      const isAdmin = currentUser.role === 'admin';
+      subBtn.style.display = (!active && !isAdmin) ? 'flex' : 'none';
+    }
+  } catch (e) {}
   // Store agent info for pitch deck contact modal
   try { sessionStorage.setItem('nilAgentInfo', JSON.stringify({name: currentUser.name, email: currentUser.email})); } catch(e){}
   document.getElementById('userRole').textContent = currentUser.role;

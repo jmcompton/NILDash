@@ -131,6 +131,19 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
         console.error('[stripe-webhook] DB update failed:', e.message);
       }
     }
+
+    const agentUserId = session.metadata && session.metadata.user_id;
+    if (agentUserId) {
+      try {
+        await store.pool.query(
+          `UPDATE users SET stripe_subscription_id = $1, subscription_status = 'active' WHERE id = $2`,
+          [session.subscription || null, agentUserId]
+        );
+        console.log('[stripe-webhook] Activated agent user', agentUserId, 'subscription', session.subscription);
+      } catch (e) {
+        console.error('[stripe-webhook] agent DB update failed:', e.message);
+      }
+    }
   }
 
   if (event.type === 'customer.subscription.deleted' || event.type === 'customer.subscription.paused') {
@@ -140,6 +153,10 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
         `UPDATE athletes SET subscription_status = 'inactive' WHERE stripe_subscription_id = $1`,
         [sub.id]
       );
+      await store.pool.query(
+        `UPDATE users SET subscription_status = 'inactive' WHERE stripe_subscription_id = $1`,
+        [sub.id]
+      );
       console.log('[stripe-webhook] Deactivated subscription', sub.id);
     } catch (e) {
       console.error('[stripe-webhook] DB deactivation failed:', e.message);
@@ -147,6 +164,69 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
   }
 
   res.json({ received: true });
+});
+
+// ── Agent subscription checkout ──────────────────────────────
+app.post('/api/agent/create-checkout', requireAuth, async (req, res) => {
+  try {
+    const stripeKey = process.env.STRIPE_SECRET_KEY || '';
+    const agentPrice = process.env.STRIPE_AGENT_PRICE_ID || '';
+    if (!stripeKey || !agentPrice) {
+      return res.status(400).json({ error: 'Stripe is not configured. Set STRIPE_SECRET_KEY and STRIPE_AGENT_PRICE_ID.' });
+    }
+    const stripe = require('stripe')(stripeKey);
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    const user = await store.getUser(req.session.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    let customerId = user.stripe_customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        name: user.name || '',
+        metadata: { user_id: user.id },
+      });
+      customerId = customer.id;
+      await store.pool.query('UPDATE users SET stripe_customer_id = $1 WHERE id = $2', [customerId, user.id]);
+    }
+
+    const checkoutSession = await stripe.checkout.sessions.create({
+      customer: customerId,
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [{ price: agentPrice, quantity: 1 }],
+      success_url: `${appUrl}/api/agent/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${appUrl}/?subscribe=cancelled`,
+      metadata: { user_id: user.id },
+    });
+
+    res.json({ url: checkoutSession.url });
+  } catch (e) {
+    console.error('[agent-checkout] failed:', e.message);
+    res.status(500).json({ error: 'Could not start checkout. ' + e.message });
+  }
+});
+
+app.get('/api/agent/stripe-complete', requireAuth, async (req, res) => {
+  try {
+    const stripeKey = process.env.STRIPE_SECRET_KEY || '';
+    const sessionId = req.query.session_id;
+    if (stripeKey && sessionId) {
+      const stripe = require('stripe')(stripeKey);
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (session && session.metadata && session.metadata.user_id) {
+        await store.pool.query(
+          `UPDATE users SET subscription_status = 'active',
+             stripe_subscription_id = COALESCE(stripe_subscription_id, $1)
+           WHERE id = $2`,
+          [session.subscription || null, session.metadata.user_id]
+        );
+      }
+    }
+  } catch (e) {
+    console.error('[agent-stripe-complete] failed:', e.message);
+  }
+  res.redirect('/?subscribed=1');
 });
 
 app.use(express.json({ limit: '50kb' }));

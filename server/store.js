@@ -26,6 +26,9 @@ async function init() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_tier TEXT DEFAULT 'basic';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS gcal_refresh_token TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'inactive';
     CREATE TABLE IF NOT EXISTS athletes (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
