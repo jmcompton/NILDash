@@ -246,6 +246,36 @@ function requireAuth(req, res, next) {
   res.status(401).json({ error: 'Not authenticated' });
 }
 
+// ── Agent subscription gate ──────────────────────────────────
+// Comp/demo accounts (admin role, or beta/comp plan) always have access.
+// Everyone else must have an active subscription to use token-spending tools.
+function agentHasAccess(user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (['beta', 'comp', 'founding_comp'].includes(user.plan)) return true;
+  if (user.subscription_status === 'active') return true;
+  return false;
+}
+
+async function requireAgentSubscription(req, res, next) {
+  try {
+    if (!req.session || !req.session.userId) return next(); // requireAuth handles auth
+    const user = await store.getUser(req.session.userId);
+    if (!user) return next();
+    if (agentHasAccess(user)) return next();
+    return res.status(402).json({ error: 'subscription_required', message: 'Subscribe to unlock your NILDash tools.' });
+  } catch (e) {
+    console.error('[requireAgentSubscription] error:', e.message);
+    return next(); // fail open on unexpected error so the app never hard-breaks
+  }
+}
+
+// Gate every token-spending agent tool. These paths are agent-only (session auth).
+app.use('/api/ai', requireAgentSubscription);
+app.use('/api/deal-close', requireAgentSubscription);
+app.use('/api/intelligence', requireAgentSubscription);
+app.use('/api/reports', requireAgentSubscription);
+
 // ── Health ─────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   const hasKey = !!(process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.includes('YOUR_KEY'));
@@ -268,6 +298,10 @@ app.post('/api/auth/signup', async (req, res) => {
     id, name, email, password: hash, role,
     createdAt: new Date().toISOString(),
   });
+
+  if (role === 'agent') {
+    await store.pool.query("UPDATE users SET plan = 'free' WHERE id = $1", [id]).catch(() => {});
+  }
 
   req.session.userId = id;
   req.session.role   = role;
@@ -338,6 +372,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     athleteId: user.athlete_id || null,
     agentId: user.agent_id || null,
     plan: user.plan || 'basic', planTier: user.plan_tier || 'basic',
+    subscription_status: user.subscription_status || 'inactive',
   });
 
 // ── Admin seed + university link endpoint ─────────────────────────
@@ -2080,7 +2115,7 @@ async function requireAthleteOwner(req, res) {
 
 // ── POST /api/athletes/:id/contracts/extract ──────────────────────────────
 // Upload PDF/DOCX → AI extracts deliverables → atomic DB write → calendar events
-app.post('/api/athletes/:id/contracts/extract', requireAuth, aiLimiter, contractUpload.single('contract'), async (req, res) => {
+app.post('/api/athletes/:id/contracts/extract', requireAuth, requireAgentSubscription, aiLimiter, contractUpload.single('contract'), async (req, res) => {
   try {
     const athleteId = req.params.id;
     const athlete = await requireAthleteOwner(req, res);
@@ -2269,7 +2304,7 @@ app.get('/api/athletes/:id/calendar', requireAuth, async (req, res) => {
 
 // ── POST /api/athletes/:id/calendar/generate ──────────────────────────────
 // Regenerate calendar events from all deliverables (preserves manually_modified)
-app.post('/api/athletes/:id/calendar/generate', requireAuth, async (req, res) => {
+app.post('/api/athletes/:id/calendar/generate', requireAuth, requireAgentSubscription, async (req, res) => {
   const client = await store.pool.connect();
   try {
     const athlete = await requireAthleteOwner(req, res);
