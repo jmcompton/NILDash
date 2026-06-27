@@ -166,6 +166,55 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
   res.json({ received: true });
 });
 
+app.use(express.json({ limit: '50kb' }));
+app.use(express.static(path.join(__dirname, '..', 'public')));
+app.set('trust proxy', 1);
+app.use(session({
+  store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
+  secret: process.env.SESSION_SECRET || 'nildash-dev-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
+}));
+
+// ── Auth middleware ────────────────────────────────────────────
+function requireAuth(req, res, next) {
+  if (req.session && req.session.userId) return next();
+  res.status(401).json({ error: 'Not authenticated' });
+}
+
+// ── Agent subscription gate ──────────────────────────────────
+// Comp/demo accounts (admin role, or beta/comp plan) always have access.
+// Everyone else must have an active subscription to use token-spending tools.
+function agentHasAccess(user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (user.subscription_status === 'active') return true;
+  // Only brand-new self-signup agents (plan 'free') are gated. Every existing
+  // or comp account keeps access, so your own logins and demos never break.
+  if (user.plan !== 'free') return true;
+  return false;
+}
+
+async function requireAgentSubscription(req, res, next) {
+  try {
+    if (!req.session || !req.session.userId) return next(); // requireAuth handles auth
+    const user = await store.getUser(req.session.userId);
+    if (!user) return next();
+    if (agentHasAccess(user)) return next();
+    return res.status(402).json({ error: 'subscription_required', message: 'Subscribe to unlock your NILDash tools.' });
+  } catch (e) {
+    console.error('[requireAgentSubscription] error:', e.message);
+    return next(); // fail open on unexpected error so the app never hard-breaks
+  }
+}
+
+// Gate every token-spending agent tool. These paths are agent-only (session auth).
+app.use('/api/ai', requireAgentSubscription);
+app.use('/api/deal-close', requireAgentSubscription);
+app.use('/api/intelligence', requireAgentSubscription);
+app.use('/api/reports', requireAgentSubscription);
+
 // ── Agent subscription checkout ──────────────────────────────
 app.post('/api/agent/create-checkout', requireAuth, async (req, res) => {
   try {
@@ -228,55 +277,6 @@ app.get('/api/agent/stripe-complete', requireAuth, async (req, res) => {
   }
   res.redirect('/?subscribed=1');
 });
-
-app.use(express.json({ limit: '50kb' }));
-app.use(express.static(path.join(__dirname, '..', 'public')));
-app.set('trust proxy', 1);
-app.use(session({
-  store: process.env.DATABASE_URL ? new pgSession({ conString: process.env.DATABASE_URL, tableName: 'session', createTableIfMissing: true }) : undefined,
-  secret: process.env.SESSION_SECRET || 'nildash-dev-secret',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { secure: process.env.NODE_ENV !== 'development', httpOnly: true, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 },
-}));
-
-// ── Auth middleware ────────────────────────────────────────────
-function requireAuth(req, res, next) {
-  if (req.session && req.session.userId) return next();
-  res.status(401).json({ error: 'Not authenticated' });
-}
-
-// ── Agent subscription gate ──────────────────────────────────
-// Comp/demo accounts (admin role, or beta/comp plan) always have access.
-// Everyone else must have an active subscription to use token-spending tools.
-function agentHasAccess(user) {
-  if (!user) return false;
-  if (user.role === 'admin') return true;
-  if (user.subscription_status === 'active') return true;
-  // Only brand-new self-signup agents (plan 'free') are gated. Every existing
-  // or comp account keeps access, so your own logins and demos never break.
-  if (user.plan !== 'free') return true;
-  return false;
-}
-
-async function requireAgentSubscription(req, res, next) {
-  try {
-    if (!req.session || !req.session.userId) return next(); // requireAuth handles auth
-    const user = await store.getUser(req.session.userId);
-    if (!user) return next();
-    if (agentHasAccess(user)) return next();
-    return res.status(402).json({ error: 'subscription_required', message: 'Subscribe to unlock your NILDash tools.' });
-  } catch (e) {
-    console.error('[requireAgentSubscription] error:', e.message);
-    return next(); // fail open on unexpected error so the app never hard-breaks
-  }
-}
-
-// Gate every token-spending agent tool. These paths are agent-only (session auth).
-app.use('/api/ai', requireAgentSubscription);
-app.use('/api/deal-close', requireAgentSubscription);
-app.use('/api/intelligence', requireAgentSubscription);
-app.use('/api/reports', requireAgentSubscription);
 
 // ── Health ─────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
