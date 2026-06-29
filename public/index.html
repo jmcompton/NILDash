@@ -4218,7 +4218,8 @@ async function bootApp() {
     if (subBtn) {
       const active = currentUser.subscription_status === 'active';
       const isAdmin = currentUser.role === 'admin';
-      subBtn.style.display = (!active && !isAdmin) ? 'flex' : 'none';
+      const hasAccess = currentUser.agentAccess === true;
+      subBtn.style.display = (!active && !isAdmin && !hasAccess) ? 'flex' : 'none';
     }
   } catch (e) {}
   // Store agent info for pitch deck contact modal

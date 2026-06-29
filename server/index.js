@@ -186,8 +186,20 @@ function requireAuth(req, res, next) {
 // ── Agent subscription gate ──────────────────────────────────
 // Comp/demo accounts (admin role, or beta/comp plan) always have access.
 // Everyone else must have an active subscription to use token-spending tools.
+// Founder allowlist: these accounts always have full tool access regardless of plan.
+// Set FOUNDER_EMAILS on Railway (comma-separated) so the email stays out of this public repo.
+const FOUNDER_EMAILS = (process.env.FOUNDER_EMAILS || '')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
+
+function isFounderEmail(email) {
+  return !!email && FOUNDER_EMAILS.includes(email.trim().toLowerCase());
+}
+
 function agentHasAccess(user) {
   if (!user) return false;
+  if (isFounderEmail(user.email)) return true;   // founder allowlist (additive, never weakens the checks below)
   if (user.role === 'admin') return true;
   if (user.subscription_status === 'active') return true;
   // Only brand-new self-signup agents (plan 'free') are gated. Every existing
@@ -380,6 +392,8 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     agentId: user.agent_id || null,
     plan: user.plan || 'basic', planTier: user.plan_tier || 'basic',
     subscription_status: user.subscription_status || 'inactive',
+    agentAccess: agentHasAccess(user),
+    isFounder: isFounderEmail(user.email),
   });
 
 // ── Admin seed + university link endpoint ─────────────────────────
