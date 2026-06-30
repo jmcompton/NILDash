@@ -1040,13 +1040,17 @@ async function getUserByEmailWithPassword(email) {
   return r.rows[0] || null;
 }
 async function saveUser(id, data) {
+  // Never save an account nameless: fall back to the email's local-part.
+  const safeName = (data.name && String(data.name).trim())
+    || (data.email ? String(data.email).split('@')[0] : '')
+    || 'Agent';
   await pool.query(`
     INSERT INTO users (id, name, email, password, role, athlete_id, agent_id, updated_at)
     VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
     ON CONFLICT (id) DO UPDATE SET
       name=EXCLUDED.name, email=EXCLUDED.email, password=EXCLUDED.password,
       role=EXCLUDED.role, athlete_id=EXCLUDED.athlete_id, agent_id=EXCLUDED.agent_id, updated_at=NOW()
-  `, [id, data.name || '', data.email, data.password, data.role || 'agent', data.athleteId || null, data.agentId || null]);
+  `, [id, safeName, data.email, data.password, data.role || 'agent', data.athleteId || null, data.agentId || null]);
   return getUser(id);
 }
 async function getAllUsers() {

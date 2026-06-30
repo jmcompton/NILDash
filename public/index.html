@@ -1380,6 +1380,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <!--  HOME  -->
       <div id="view-home" class="view active">
 
+        <!-- ── Add-client CTA (prominent empty state / subtle add-more) ── -->
+        <div id="home-client-cta" style="margin-bottom:12px"></div>
+
         <!-- ── AI Brief Card (4 bullets) ── -->
         <div style="background:#0D1520;border-left:3px solid #84CC16;border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:12px">
           <div id="home-brief-bullets">
@@ -4430,11 +4433,14 @@ async function doSignup() {
   err.textContent = '';
   btn.disabled = true; btn.textContent = 'Creating account...';
   try {
+    const _email = document.getElementById('signupEmail').value.trim();
+    // Default name to the email's local-part when blank, so no account is nameless.
+    const _name = document.getElementById('signupName').value.trim() || _email.split('@')[0];
     const r = await fetch(`${API_BASE}/api/auth/signup`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        name: document.getElementById('signupName').value,
-        email: document.getElementById('signupEmail').value,
+        name: _name,
+        email: _email,
         password: document.getElementById('signupPassword').value,
         role: selectedRole,
       }),
@@ -4506,7 +4512,7 @@ async function bootApp() {
   var _mkt = document.getElementById('mktLanding'); if (_mkt) _mkt.classList.add('hidden');
   document.getElementById('authScreen').classList.add('hidden');
   document.getElementById('appScreen').classList.add('visible');
-  document.getElementById('userName').textContent = currentUser.name;
+  document.getElementById('userName').textContent = currentUser.name || (currentUser.email || '').split('@')[0] || 'Agent';
   try {
     const subBtn = document.getElementById('agentSubscribeBtn');
     if (subBtn) {
@@ -4519,7 +4525,13 @@ async function bootApp() {
   // Store agent info for pitch deck contact modal
   try { sessionStorage.setItem('nilAgentInfo', JSON.stringify({name: currentUser.name, email: currentUser.email})); } catch(e){}
   document.getElementById('userRole').textContent = currentUser.role;
-  document.getElementById('userAvatar').textContent = currentUser.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  (function(){
+    var _nm = (currentUser.name || '').trim();
+    var _initials = _nm
+      ? _nm.split(/\s+/).map(function(w){return w[0];}).join('').slice(0,2).toUpperCase()
+      : (((currentUser.email || '').trim()[0]) || '?').toUpperCase();
+    document.getElementById('userAvatar').textContent = _initials;
+  })();
   var _isUnivRole = (currentUser.role === 'university' || currentUser.role === 'university_admin');
   var _isAdmin    = (currentUser.role === 'admin');
   document.getElementById('sidebarRoleLabel').textContent = (_isAdmin || currentUser.role === 'agent') ? 'Agent Portal' : _isUnivRole ? 'University Portal' : 'Athlete Portal';
@@ -4652,6 +4664,7 @@ async function loadAthletes() {
     populateAthleteSelect();
     populatePitchClientDropdown();
     document.getElementById('kpi-clients').textContent = athletes.length;
+    renderHomeClientCta();
     setTimeout(renderRosterCompleteness, 200);
     setTimeout(updateNilRateKpi, 1000);
     if (athletes.length > 0 && !selectedAthleteId) {
@@ -4973,6 +4986,7 @@ async function addAthlete() {
     renderRoster(); populateAthleteSelect();
     selectAthlete(data.id);
     document.getElementById('kpi-clients').textContent = athletes.length;
+    renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
     ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes'].forEach(id => document.getElementById(id).value = '');
     showView('roster', document.querySelectorAll('.nav-item')[5]);
@@ -4981,7 +4995,32 @@ async function addAthlete() {
 }
 
 //  HOME PAGE
+// Home add-client CTA: prominent empty state when no clients, subtle link otherwise.
+// Persists on every Home visit (separate from the one-time onboarding overlay).
+function renderHomeClientCta() {
+  const el = document.getElementById('home-client-cta');
+  if (!el) return;
+  const count = (window.athletes || (typeof athletes !== 'undefined' ? athletes : []) || []).length;
+  const go = "showView('add-athlete', document.getElementById('addAthleteNavBtn'))";
+  if (count === 0) {
+    el.innerHTML =
+      '<div style="background:linear-gradient(135deg,#0D1520,#101b28);border:1px solid rgba(132,204,22,0.3);border-radius:10px;padding:22px 20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">'
+      + '<div style="min-width:0">'
+      +   '<div style="font-size:15px;font-weight:700;color:#F0EDE6;margin-bottom:4px">Add your first client</div>'
+      +   '<div style="font-size:12px;color:#9aa0aa;line-height:1.5">Add an athlete to start scanning deals, building media kits, and tracking your pipeline.</div>'
+      + '</div>'
+      + '<button onclick="' + go + '" style="background:#84CC16;color:#0a0a0a;border:none;border-radius:8px;padding:11px 20px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap">+ Add Client</button>'
+      + '</div>';
+  } else {
+    el.innerHTML =
+      '<div style="text-align:right">'
+      + '<a onclick="' + go + '" style="font-size:12px;color:#84CC16;cursor:pointer;text-decoration:none">+ Add more clients</a>'
+      + '</div>';
+  }
+}
+
 async function loadAgentHome() {
+  renderHomeClientCta();
   // Fire brief and data in parallel
   loadHomeBrief();
   try {
@@ -9565,7 +9604,8 @@ window.addEventListener('DOMContentLoaded', checkSession);
     async function checkOnboarding() {
       const key = 'nildash-onboarded-' + currentUser.id;
       if (!localStorage.getItem(key) && athletes.length === 0) {
-        document.getElementById('ob-name').textContent = currentUser.name.split(' ')[0];
+        const first = (currentUser.name || (currentUser.email||'').split('@')[0] || 'there').split(/\s+/)[0];
+        document.getElementById('ob-name').textContent = first;
         document.getElementById('onboardingOverlay').style.display = 'flex';
         obStep(1);
       }
