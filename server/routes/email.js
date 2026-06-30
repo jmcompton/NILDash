@@ -348,9 +348,18 @@ router.post('/send', async (req, res) => {
         { to, cc, subject, bodyHtml, threadId });
     }
 
-    // Save sent message locally
-    const crm = require('./crmAssociation');
-    const athleteEmailMap = await crm.buildAthleteEmailMap(req.session.userId);
+    // Save sent message locally.
+    // crmAssociation lives in ../services (the old './crmAssociation' path
+    // resolved to routes/ and crashed the send). Wrapped in try/catch with a
+    // safe stub so a missing module can never break sending.
+    let crm;
+    try {
+      crm = require('../services/crmAssociation');
+    } catch (e) {
+      console.warn('[email.send] crmAssociation unavailable, skipping athlete association:', e.message);
+      crm = { buildAthleteEmailMap: () => ({}) };
+    }
+    const athleteEmailMap = (await crm.buildAthleteEmailMap(req.session.userId)) || {};
     const allAddresses = [...(Array.isArray(to) ? to : [to]), ...(cc || [])];
     let athleteId = null;
     for (const addr of allAddresses) {
