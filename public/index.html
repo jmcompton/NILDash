@@ -5569,12 +5569,6 @@ function _dsCardHtml(d, i, lane, isTop) {
   var scoreColor = score >= 85 ? '#84CC16' : score >= 70 ? '#f59e0b' : 'var(--muted)';
   var cat = (d.category || '').toLowerCase();
   var catStyle = _dsCatColors[cat] || 'rgba(255,255,255,0.06);color:var(--muted)';
-  var rc = window._agentRateCard;
-  var lo = (rc && rc.dealValueLow)  || d.estimatedValueLow  || 0;
-  var hi = (rc && rc.dealValueHigh) || d.estimatedValueHigh || 0;
-  var valStr = (lo || hi)
-    ? ('Est. deal value: $' + (lo||hi).toLocaleString() + (hi && hi!==lo ? '–$' + hi.toLocaleString() : ''))
-    : '';
   var laneMeta = _dsLaneMeta[lane] || _dsLaneMeta.local;
   var laneChip = '<span class="ds-lane-chip" style="background:' + laneMeta.chip + '">' + esc(laneMeta.label) + '</span>';
 
@@ -5601,7 +5595,6 @@ function _dsCardHtml(d, i, lane, isTop) {
           (d.category ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
           (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:#84CC16;border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
         '</div>' +
-        (valStr ? '<div style="margin-bottom:8px"><span style="font-size:13px;font-weight:700;color:#84CC16">' + valStr + '</span> <span style="font-size:10px;color:var(--muted)">varies by deliverable</span></div>' : '') +
         (d.rationale ? '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:4px">' + esc(d.rationale) + '</div>' : '') +
         (d.campaign  ? '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px"><span style="color:var(--text);font-weight:600">Idea:</span> ' + esc(d.campaign) + '</div>' : '') +
         contactHtml +

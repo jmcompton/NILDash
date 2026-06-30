@@ -4852,7 +4852,9 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     const { athleteId, lane, exclude_brands } = req.body;
     const loaded = await loadDealScanAthlete(athleteId);
     if (!loaded) return res.status(404).json({ error: 'Athlete not found' });
-    if (loaded.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    const _ru = await store.getUser(req.session.userId);
+    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
+    if (loaded.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
     const validLane = ['local', 'social', 'topnil'].includes(lane) ? lane : 'local';
     const excludeBrands = Array.isArray(exclude_brands) ? exclude_brands : [];
     let recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
@@ -4885,7 +4887,9 @@ app.get('/api/agent/deal-scan/cache', requireAuth, async (req, res) => {
     const athleteId = req.query.athleteId;
     const athlete = await store.getAthlete(athleteId);
     if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-    if (athlete.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    const _ru = await store.getUser(req.session.userId);
+    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
+    if (athlete.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
     const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id = $1', [athleteId]);
     const cache = (r.rows[0] && r.rows[0].deal_scan_cache) || {};
     const rateCard = await _athleteRateCard(athleteId);
