@@ -205,6 +205,8 @@ function agentHasAccess(user) {
   // Only brand-new self-signup agents (plan 'free') are gated. Every existing
   // or comp account keeps access, so your own logins and demos never break.
   if (user.plan !== 'free') return true;
+  // 7-day free trial for new self-signup agents (no card needed)
+  if (user.trial_ends_at && new Date(user.trial_ends_at) > new Date()) return true;
   return false;
 }
 
@@ -319,7 +321,8 @@ app.post('/api/auth/signup', async (req, res) => {
   });
 
   if (role === 'agent') {
-    await store.pool.query("UPDATE users SET plan = 'free' WHERE id = $1", [id]).catch(() => {});
+    const trialEnds = new Date(Date.now() + 7 * 86400000).toISOString();
+    await store.pool.query("UPDATE users SET plan = 'free', trial_ends_at = $2 WHERE id = $1", [id, trialEnds]).catch(() => {});
   }
 
   req.session.userId = id;
