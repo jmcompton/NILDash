@@ -8,6 +8,12 @@
 
 'use strict';
 
+// Inbox reading/syncing needs the RESTRICTED gmail.readonly scope, which NILDash
+// no longer requests. Keep the "My Gmail" inbox (message list + Sync) hidden
+// behind this flag until a future restricted-scope verification. Sending still
+// works via gmail.send, and connecting Gmail still powers send + calendar.
+const INBOX_SYNC_ENABLED = false;
+
 // ── State ────────────────────────────────────────────────────────────────────
 const EmailState = {
   accounts:        [],
@@ -82,7 +88,7 @@ function renderEmailAccountsUI() {
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <span style="width:8px;height:8px;background:${statusColor};border-radius:50%;display:inline-block" title="${acc.status}"></span>
-          <button onclick="emailModule.triggerEmailSync('${acc.id}')" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer" title="Sync now">↻ Sync</button>
+          ${INBOX_SYNC_ENABLED ? `<button onclick="emailModule.triggerEmailSync('${acc.id}')" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--muted);cursor:pointer" title="Sync now">↻ Sync</button>` : ''}
           <button onclick="emailModule.disconnectEmailAccount('${acc.id}')" style="font-size:11px;padding:4px 10px;background:transparent;border:1px solid rgba(241,53,53,0.4);border-radius:var(--r-sm);color:#f87171;cursor:pointer">Disconnect</button>
         </div>
       </div>`;
@@ -90,6 +96,7 @@ function renderEmailAccountsUI() {
 }
 
 async function triggerEmailSync(accountId) {
+  if (!INBOX_SYNC_ENABLED) { emailToast('Inbox sync is coming soon'); return; }
   try {
     emailToast('Syncing email…');
     await emailAPI.post(`/accounts/${accountId}/sync`, {});
@@ -178,11 +185,21 @@ async function onImapEmailChange() {
 // ── Inbox ────────────────────────────────────────────────────────────────────
 
 async function loadEmailInbox() {
+  const el = document.getElementById('email-thread-list');
+  if (!INBOX_SYNC_ENABLED) {
+    // Inbox sync is disabled (restricted-scope). Show a short placeholder
+    // instead of the message list; do not call /threads.
+    if (el) el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:28px 20px;text-align:center;line-height:1.6">' +
+      '<div style="font-size:22px;margin-bottom:8px">📥</div>' +
+      '<div style="font-weight:600;color:var(--text)">Inbox sync coming soon</div>' +
+      '<div style="margin-top:6px">Reading your Gmail inbox is temporarily unavailable. Sending outreach from your connected account still works.</div>' +
+      '</div>';
+    return;
+  }
   try {
     EmailState.threads = await emailAPI.get('/threads?limit=50&offset=0');
     renderThreadList();
   } catch (e) {
-    const el = document.getElementById('email-thread-list');
     if (el) el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px">Could not load inbox.</div>';
   }
 }

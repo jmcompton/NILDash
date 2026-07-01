@@ -4157,14 +4157,18 @@ app.get('/api/agent/calendar/google/status', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/agent/calendar/google/connect — start OAuth for agent
+// GET /api/agent/calendar/google/connect — start OAuth for agent.
+// Reuses the SINGLE combined "Connect Google" flow: /api/email/oauth/gmail requests
+// gmail.send + calendar.events + userinfo.email and its callback stores the refresh
+// token as BOTH the email account and the agent's gcal_refresh_token. One consent
+// powers email + calendar. This also fixes the old redirect_uri mismatch (the
+// separate calendar flow used to request a full-calendar scope and point its
+// redirect at the gmail callback).
 app.get('/api/agent/calendar/google/connect', requireAuth, async (req, res) => {
   if (!gcal || !gcal.isAvailable()) {
     return res.status(501).json({ error: 'Google Calendar not configured.' });
   }
-  const state = _gcalEncodeState({ agentId: req.session.userId, type: 'agent' });
-  const url   = gcal.getAgentAuthUrl(state);
-  res.json({ url });
+  res.json({ url: '/api/email/oauth/gmail' });
 });
 
 // GET /api/agent/calendar/google/athletes — list this agent's athletes with their gcal status
@@ -4188,6 +4192,10 @@ app.get('/api/agent/calendar/google/athletes', requireAuth, async (req, res) => 
 app.post('/api/agent/calendar/google/subscribe/:athleteId', requireAuth, async (req, res) => {
   try {
     if (!gcal || !gcal.isAvailable()) return res.status(501).json({ error: 'Google Calendar not configured.' });
+    // SCOPE NOTE: subscribing uses calendarList (managing the user's calendar
+    // list), which requires the full 'calendar' scope. Disabled under the
+    // declared calendar.events scope — short-circuit before any Google call.
+    return res.status(501).json({ error: 'Calendar subscription requires broader Google permissions and is currently unavailable.' });
 
     // Verify athlete belongs to this agent
     const athRow = await store.pool.query(
@@ -4216,6 +4224,9 @@ app.post('/api/agent/calendar/google/subscribe/:athleteId', requireAuth, async (
 app.delete('/api/agent/calendar/google/subscribe/:athleteId', requireAuth, async (req, res) => {
   try {
     if (!gcal || !gcal.isAvailable()) return res.status(501).json({ error: 'Google Calendar not configured.' });
+    // SCOPE NOTE: unsubscribing uses calendarList (full 'calendar' scope).
+    // Disabled under calendar.events — short-circuit before any Google call.
+    return res.status(501).json({ error: 'Calendar subscription requires broader Google permissions and is currently unavailable.' });
 
     const athRow = await store.pool.query(
       'SELECT google_calendar_id FROM athletes WHERE id=$1 AND agent_id=$2',

@@ -13,12 +13,14 @@ try {
   google = null;
 }
 
+// Declared Google-verification scopes ONLY. gmail.send + calendar.events power
+// the combined "Connect Google" flow (send email + push calendar events); one
+// consent covers both. Do NOT add gmail.readonly / gmail.compose (RESTRICTED —
+// would force a CASA assessment) or userinfo.profile (unused; email is enough).
 const SCOPES = [
-  'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
-  'https://www.googleapis.com/auth/gmail.compose',
+  'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/userinfo.email',
-  'https://www.googleapis.com/auth/userinfo.profile',
 ];
 
 function isAvailable() {
@@ -146,10 +148,10 @@ async function sendEmail(accessToken, refreshToken, { to, cc, subject, bodyHtml,
   client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
   const gmail = google.gmail({ version: 'v1', auth: client });
 
-  const profile = await gmail.users.getProfile({ userId: 'me' });
-  const from = profile.data.emailAddress;
-
-  const mime = buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachments: attachments || [] });
+  // Do NOT call gmail.users.getProfile here — it requires gmail.readonly/modify,
+  // which we no longer request. On messages.send with userId:'me', Gmail sets the
+  // From header to the authenticated account automatically, so we omit it.
+  const mime = buildMimeMessage({ to, cc, subject, bodyHtml, threadId, attachments: attachments || [] });
   const encoded = Buffer.from(mime).toString('base64url');
 
   const res = await gmail.users.messages.send({
@@ -234,12 +236,14 @@ function encodeHeaderValue(value) {
 function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachments }) {
   const toStr = Array.isArray(to) ? to.join(', ') : (to || '');
   const ccStr = cc && cc.length ? `Cc: ${Array.isArray(cc) ? cc.join(', ') : cc}` : '';
+  // From is optional — Gmail sets it to the authenticated account on send.
+  const fromLines = from ? [`From: ${from}`] : [];
 
   if (!attachments || attachments.length === 0) {
     // Simple email — multipart/alternative (existing behaviour)
     const boundary = `nildash_${Date.now()}`;
     return [
-      `From: ${from}`,
+      ...fromLines,
       `To: ${toStr}`,
       ...(ccStr ? [ccStr] : []),
       `Subject: ${encodeHeaderValue(subject)}`,
@@ -259,7 +263,7 @@ function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachmen
   const innerB = `nildash_inner_${Date.now() + 1}`;
 
   const lines = [
-    `From: ${from}`,
+    ...fromLines,
     `To: ${toStr}`,
     ...(ccStr ? [ccStr] : []),
     `Subject: ${encodeHeaderValue(subject)}`,

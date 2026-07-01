@@ -12,6 +12,15 @@ const gmail       = require('./providers/gmail');
 const outlook     = require('./providers/outlook');
 const imap        = require('./providers/imap');
 
+// Inbox reading (gmail.users.messages.list/get) requires the RESTRICTED
+// gmail.readonly scope, which NILDash no longer requests (Google verification
+// declares only gmail.send / calendar.events / userinfo.email). Keep this OFF so
+// no background sync or on-connect sync attempts a Gmail read and throws an
+// insufficient-scope error after users reconnect with the narrower grant. Flip
+// back on only after a future restricted-scope verification (CASA); the code path
+// is preserved. Set env EMAIL_INBOX_SYNC=1 to force-enable in a dev/test project.
+const INBOX_SYNC_ENABLED = process.env.EMAIL_INBOX_SYNC === '1';
+
 // Active sync lock: accountId → true — prevents overlapping sync jobs
 const syncLocks = new Set();
 
@@ -40,6 +49,13 @@ async function syncAllAccounts() {
  */
 async function syncAccount(account) {
   if (syncLocks.has(account.id)) return; // already syncing
+  // Gmail inbox sync is disabled — reading messages needs the RESTRICTED
+  // gmail.readonly scope we no longer request. Skip Gmail accounts entirely so
+  // nothing throws an insufficient-scope error. (Send still works via gmail.send.)
+  if (account.provider === 'gmail' && !INBOX_SYNC_ENABLED) {
+    console.log('[emailSync] Gmail inbox sync disabled (INBOX_SYNC_ENABLED=false) — skipping', account.email_address);
+    return;
+  }
   syncLocks.add(account.id);
 
   const logId = await emailStore.logSyncStart(account.id, account.user_id);
@@ -215,4 +231,4 @@ function stopPoller() {
   if (pollerHandle) { clearInterval(pollerHandle); pollerHandle = null; }
 }
 
-module.exports = { syncAllAccounts, syncAccount, startPoller, stopPoller };
+module.exports = { syncAllAccounts, syncAccount, startPoller, stopPoller, INBOX_SYNC_ENABLED };

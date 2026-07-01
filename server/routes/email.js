@@ -130,6 +130,7 @@ router.get('/oauth/gmail/callback', async (req, res) => {
 
     const tokens = await gmail.exchangeCode(code);
     const accountId = 'ea_' + crypto.randomBytes(8).toString('hex');
+    const { pool } = require('../store');
 
     await emailStore.saveEmailAccount(
       accountId, userId, 'gmail',
@@ -137,8 +138,17 @@ router.get('/oauth/gmail/callback', async (req, res) => {
       tokens.accessToken, tokens.refreshToken, tokens.expiry
     );
 
-    // Kick off initial sync async
-    const { pool } = require('../store');
+    // COMBINED GOOGLE FLOW: this single consent requests gmail.send +
+    // calendar.events + userinfo.email, so the SAME refresh token also powers the
+    // agent's Google Calendar. Store it as the agent's gcal credential so
+    // /api/agent/calendar/google/* is connected from this one grant.
+    if (tokens.refreshToken) {
+      await pool.query('UPDATE users SET gcal_refresh_token=$1 WHERE id=$2', [tokens.refreshToken, userId])
+        .catch(e => console.error('[gmail callback] gcal token store failed:', e.message));
+    }
+
+    // Kick off initial sync async (Gmail read sync is currently disabled — this
+    // safely no-ops for gmail accounts; kept for when inbox sync is re-enabled).
     const r = await pool.query('SELECT * FROM email_accounts WHERE id=$1', [accountId]);
     if (r.rows[0]) emailSync.syncAccount(r.rows[0]).catch(() => {});
 

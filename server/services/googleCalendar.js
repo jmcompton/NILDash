@@ -19,15 +19,17 @@ try {
   google = null;
 }
 
-// Scopes needed to create/manage events and calendars
+// Declared Google-verification scopes ONLY. Full 'auth/calendar' was dropped:
+// it is broader than declared and lets code manage calendar lists/ACLs and
+// create calendars — none of which is allowed under calendar.events. Event
+// create/read/update on the user's own calendars works fine under calendar.events.
 const ATHLETE_SCOPES = [
-  'https://www.googleapis.com/auth/calendar',           // create calendars + events
-  'https://www.googleapis.com/auth/calendar.events',    // create/edit events
+  'https://www.googleapis.com/auth/calendar.events',    // create/edit events on the user's calendars
   'https://www.googleapis.com/auth/userinfo.email',     // confirm identity
 ];
 
 const AGENT_SCOPES = [
-  'https://www.googleapis.com/auth/calendar',           // subscribe to athlete calendars
+  'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 
@@ -118,18 +120,21 @@ function _getAuthClient(refreshToken) {
  * Returns the calendarId string.
  * Safe to call repeatedly — checks for existence before creating.
  */
-async function getOrCreateNilCalendar(refreshToken, athleteName) {
+// SCOPE NOTE (calendar.events): creating a dedicated "NIL — [Name]" calendar
+// uses calendars.insert + calendarList.list, which require the full 'calendar'
+// scope. Under the declared calendar.events scope we can only create/edit events
+// on the user's existing calendars, so events are written to 'primary'. The
+// dedicated-calendar feature is disabled until a future full-scope verification;
+// the original body is preserved below (commented) so it can be restored.
+async function getOrCreateNilCalendar(_refreshToken, _athleteName) {
+  return 'primary';
+  /* Requires full 'calendar' scope — disabled under calendar.events:
   const auth = _getAuthClient(refreshToken);
   const cal  = google.calendar({ version: 'v3', auth });
-
   const nilCalName = `NIL — ${athleteName}`;
-
-  // Check if it already exists
   const list = await cal.calendarList.list({ maxResults: 250 });
   const found = (list.data.items || []).find(c => c.summary === nilCalName);
   if (found) return found.id;
-
-  // Create it
   const created = await cal.calendars.insert({
     requestBody: {
       summary:     nilCalName,
@@ -139,6 +144,7 @@ async function getOrCreateNilCalendar(refreshToken, athleteName) {
   });
   console.log(`[gcal] created NIL calendar "${nilCalName}" id=${created.data.id}`);
   return created.data.id;
+  */
 }
 
 // ── Event creation ─────────────────────────────────────────────────────────
@@ -209,6 +215,10 @@ async function createCalendarEvent(refreshToken, calendarId, event) {
  * This adds the athlete's calendar to the agent's Google Calendar list.
  * athleteCalendarId — the athlete's google_calendar_id (from DB)
  */
+// SCOPE NOTE: calendarList.* requires the full 'calendar' scope, NOT available
+// under the declared calendar.events scope. Callers (agent subscribe routes)
+// short-circuit before invoking this, so it is not reachable at runtime until a
+// future full-scope verification. Kept for that eventual restoration.
 async function subscribeToCalendar(agentRefreshToken, athleteCalendarId) {
   const auth = _getAuthClient(agentRefreshToken);
   const cal  = google.calendar({ version: 'v3', auth });
