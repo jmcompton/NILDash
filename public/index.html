@@ -360,6 +360,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
     overflow-x:hidden;
     -webkit-overflow-scrolling:touch;
     will-change:transform;
+    /* Keep the logo and first nav items below the iOS notch when open */
+    padding-top:env(safe-area-inset-top, 0px);
   }
   .sidebar.open{
     transform:translateX(0) !important;
@@ -379,13 +381,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
   }
 
   /*  Main content: full width, space for top bar  */
-  .main{margin-left:0 !important;padding-top:56px !important;width:100% !important;max-width:100vw !important;overflow-x:hidden;position:relative;z-index:1}
+  .main{margin-left:0 !important;padding-top:calc(56px + env(safe-area-inset-top, 0px)) !important;width:100% !important;max-width:100vw !important;overflow-x:hidden;position:relative;z-index:1}
   .content{padding:12px 14px !important;width:100% !important;box-sizing:border-box !important}
   #appScreen.visible{display:block !important}
 
   /*  Top bar  */
   .topbar{display:none !important}
-  .mobile-topbar{display:flex !important}
+  /* Only render the app topbar when the app screen is active (body.app-active
+     is toggled by bootApp/showMarketingLanding). Logged out, the marketing
+     landing owns the whole viewport and no app chrome should exist under it. */
+  body.app-active .mobile-topbar{display:flex !important}
 
   /*  Typography  */
   .page-title{font-size:22px !important;line-height:1.2 !important}
@@ -445,12 +450,17 @@ tbody td{padding:11px 14px;vertical-align:middle}
   display:none;
   position:fixed;
   top:0;left:0;right:0;
-  height:56px;
+  /* iOS PWA (black-translucent + viewport-fit=cover) draws under the status
+     bar; pad by the top safe-area inset so the hamburger stays tappable.
+     env() is 0px everywhere else, so browsers and desktop are unaffected. */
+  height:calc(56px + env(safe-area-inset-top, 0px));
+  padding-top:env(safe-area-inset-top, 0px);
   background:var(--surface);
   border-bottom:1px solid var(--border);
   z-index:350;
   align-items:center;
-  padding:0 16px;
+  padding-left:16px;
+  padding-right:16px;
   gap:12px;
 }
 .mob-logo{
@@ -3975,6 +3985,7 @@ function showMarketingLanding() {
   var m = document.getElementById('mktLanding'); if (m) m.classList.remove('hidden');
   var a = document.getElementById('authScreen'); if (a) a.classList.add('hidden');
   var app = document.getElementById('appScreen'); if (app) app.classList.remove('visible');
+  document.body.classList.remove('app-active'); // hides the mobile topbar while logged out
 }
 
 // ── University Compliance Portal: Auth ───────────────────────────────────
@@ -4511,6 +4522,7 @@ async function bootApp() {
   var _mkt = document.getElementById('mktLanding'); if (_mkt) _mkt.classList.add('hidden');
   document.getElementById('authScreen').classList.add('hidden');
   document.getElementById('appScreen').classList.add('visible');
+  document.body.classList.add('app-active'); // shows the mobile topbar (gated in CSS)
   document.getElementById('userName').textContent = currentUser.name || (currentUser.email || '').split('@')[0] || 'Agent';
   try {
     const subBtn = document.getElementById('agentSubscribeBtn');

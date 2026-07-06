@@ -309,7 +309,8 @@ var NILCal = (function () {
     if (!drawer) {
       drawer = document.createElement('div');
       drawer.id = 'cal-drawer';
-      drawer.style.cssText = 'position:fixed;top:0;right:0;width:360px;max-width:95vw;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:500;overflow-y:auto;transition:transform 0.25s ease;transform:translateX(100%);padding:0';
+      // padding-top: keep the drawer header below the iOS notch in PWA mode (env() is 0 elsewhere)
+      drawer.style.cssText = 'position:fixed;top:0;right:0;width:360px;max-width:95vw;height:100vh;background:var(--surface);border-left:1px solid var(--border);z-index:500;overflow-y:auto;transition:transform 0.25s ease;transform:translateX(100%);padding:env(safe-area-inset-top, 0px) 0 0 0';
       document.body.appendChild(drawer);
     }
 
