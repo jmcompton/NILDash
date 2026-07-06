@@ -841,7 +841,7 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa,
-          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt } = req.body;
+          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
 
   // ── Seat limit check ─────────────────────────────────────────
@@ -896,6 +896,8 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     stats: stats || '',
     transferReason: transferReason || '',
     gpa: gpa || '',
+    // Hometown powers the Deal Scan second market ("hometown hero" angle).
+    hometown: (hometown ? String(hometown).trim() : ''),
     // Additive social/onboarding fields — default cleanly so the normal Add
     // Client flow (which does not send these) is unchanged.
     instagramHandle: (instagramHandle ? String(instagramHandle).trim().replace(/^@+/, '').toLowerCase() : ''),
@@ -5109,7 +5111,8 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     let recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
     // Keep Refresh full: if excluding shown brands leaves a thin lane, top up from a no-exclude
     // run, newest first, de-duped, up to TARGET so lanes don't shrink on repeated refreshes.
-    const TARGET = 6;
+    // Lane rebalance: Local is the primary lane (8-10), Social / Top NIL show 3-4.
+    const TARGET = validLane === 'local' ? 8 : 4;
     if (recommendations.length < TARGET && excludeBrands.length) {
       const fresh = await ai.getDealRecommendations(loaded.athleteObj, 'agent', [], validLane);
       const seen = new Set(recommendations.map(r => (r.brand || '').toLowerCase()));

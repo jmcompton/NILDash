@@ -497,6 +497,7 @@ function validateContactEmail(email, websiteUrl) {
 // never Nike.
 async function _scanBrandLane(athlete, lane, excludeBrands) {
   const MODEL_DEALSCAN = 'claude-sonnet-4-6';
+  const _laneT0 = Date.now();
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
@@ -604,16 +605,18 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
 ${laneCfg.scoreIntro}
 ${candidatesJson}
 
-Pick the 6 best for THIS athlete and score each 1-100 (vary the scores meaningfully). Each rationale is 1-2 sentences referencing this athlete's sport/tier and WHY this brand actually does deals at this follower level. For contactEmail: use the email given if present, otherwise info@/partnerships@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
+Pick the 3 or 4 best for THIS athlete and score each 1-100 (vary the scores meaningfully). Return AT MOST 4. Each rationale is 1-2 sentences referencing this athlete's sport/tier and WHY this brand actually does deals at this follower level. For contactEmail: use the email given if present, otherwise info@/partnerships@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
 [{"rank":1,"brand":"","tier":"${laneCfg.resultType}","category":"${laneCfg.categoryEnum}","dealType":"post|reel|ambassador|affiliate","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":false,"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
 
       const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a brand or an email domain — only use the brands and domains provided.', 1800, MODEL_DEALSCAN);
       const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
       const si = c.indexOf('['), ei = c.lastIndexOf(']');
       if (si === -1 || ei <= si) throw new Error('No array in scoring response');
-      const parsed = JSON.parse(c.substring(si, ei + 1));
+      let parsed = JSON.parse(c.substring(si, ei + 1));
       if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
       parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+      parsed = parsed.slice(0, 4); // lane rebalance: Social / Top NIL show 3-4, Local is primary
+      console.log(`[dealScan:${lane}] returning ${parsed.length} in ${Date.now() - _laneT0}ms`);
       const siteByName = new Map();
       for (const f of found) if (f.name) siteByName.set(f.name.toLowerCase().trim(), f.website);
       return parsed.map((d, i) => {
@@ -633,8 +636,8 @@ Pick the 6 best for THIS athlete and score each 1-100 (vary the scores meaningfu
         };
       });
     } catch (scoreErr) {
-      console.warn(`[dealScan:${lane}] scoring failed, returning ${found.length} candidates directly: ${scoreErr.message}`);
-      return found.slice(0, 6).map((f, i) => ({
+      console.warn(`[dealScan:${lane}] scoring failed, returning candidates directly: ${scoreErr.message}`);
+      return found.slice(0, 4).map((f, i) => ({
         rank: i + 1,
         brand: f.name,
         tier: laneCfg.resultType,
@@ -674,6 +677,7 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane) {
   // Deal Scan uses Sonnet (scoped to this function only) — faster than Opus,
   // strong enough for structured local-brand research.
   const MODEL_DEALSCAN = 'claude-sonnet-4-6';
+  const _t0 = Date.now();
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
@@ -684,15 +688,38 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane) {
   const locationKnown = loc.known !== false;
   const sport = athlete.sport || 'football';
 
+  // ── Hometown second market ─────────────────────────────────────────────────
+  // When the profile has a hometown that differs from the school market, the
+  // local lane searches BOTH markets and labels each result with its market.
+  // When hometown is absent, everything below degrades to the single-market
+  // behavior and no market labels are attached.
+  const hometown = String(athlete.hometown || '').trim();
+  const schoolMarket = `${city}, ${state}`;
+  const hasHometown = !!hometown && hometown.toLowerCase() !== schoolMarket.toLowerCase()
+    && hometown.split(',')[0].trim().toLowerCase() !== String(city).toLowerCase();
+  const hometownCity = hasHometown ? hometown.split(',')[0].trim() : '';
+  // Short school name for the market chip, e.g. "Samford University" -> "Samford"
+  const schoolShort = school
+    .replace(/^the\s+/i, '')
+    .replace(/^university\s+of\s+/i, '')
+    .replace(/\s+(university|college)$/i, '')
+    .trim() || school;
+  const marketLabelFor = (m) => (m === 'hometown' ? `Hometown - ${hometownCity}` : `Near ${schoolShort}`);
+
   const exclusionLine = excludeBrands && excludeBrands.length > 0
-    ? `\nEXCLUDE THESE BRANDS COMPLETELY — do not suggest them under any circumstances: ${excludeBrands.join(', ')}\nYou must return 6 DIFFERENT brands from this list.`
+    ? `\nEXCLUDE THESE BRANDS COMPLETELY — do not suggest them under any circumstances: ${excludeBrands.join(', ')}\nEvery business you return must be different from that list.`
     : '';
 
   // Deal-value range for this athlete's tier (nano/micro get small local deals)
   const valLow  = tier === 'macro' ? 2500 : tier === 'mid' ? 800 : tier === 'micro' ? 250 : 100;
   const valHigh = tier === 'macro' ? 15000 : tier === 'mid' ? 4000 : tier === 'micro' ? 1000 : 500;
 
-  // Sport-specific local category hints
+  // Local business taxonomy with a proven track record of NIL / local
+  // sponsorship deals. Every local search works across this list, weighted
+  // toward the athlete's sport.
+  const LOCAL_TAXONOMY = 'car dealerships; restaurants and food spots; gyms and training facilities; chiropractors and physical therapy; smoothie and supplement shops; boutiques and local retail; real estate agents; banks and credit unions; med spas and salons';
+
+  // Sport-specific local category hints (which taxonomy categories to weight)
   const sportCats = {
     baseball: 'batting cages, baseball/softball academies, sporting goods stores',
     softball: 'batting cages, softball academies, sporting goods stores',
@@ -701,64 +728,100 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane) {
     soccer: 'soccer clubs, sports medicine clinics, athletic apparel shops',
   };
   const catHint = sportCats[sport.toLowerCase()] || 'sports training facilities, sporting goods stores';
+  const interestLine = (athlete.notes || '').trim()
+    ? `\nATHLETE INTERESTS/NOTES (weight matching categories higher): ${String(athlete.notes).trim().slice(0, 200)}`
+    : '';
 
-  const prompt = `Name 6 REAL, well-known, established LOCAL businesses that genuinely operate in ${city}, ${state} and would realistically do an NIL deal with this college athlete. Use your own knowledge of this market — you do NOT have web search, so rely on what you actually know.
+  // Shared rules for both local paths: franchises count as LOCAL, and the
+  // rationale must carry a "why they'd say yes" angle.
+  const FRANCHISE_RULE = `LOCALLY-OWNED FRANCHISES COUNT AS LOCAL: the local Wingstop, a Chick-fil-A franchisee, an area State Farm agent, a dealership carrying a national marque. These are LOCAL results (mark "isFranchise": true) ONLY when they point at a specific local location or operator (e.g. "Wingstop on Lakeshore Pkwy", "Chick-fil-A Johns Creek franchisee"), never the corporate brand in general. Their angle: the owner or GM controls a local marketing budget and can say yes without corporate. The ban on big national brands with no confirmed NIL activity still applies to this lane.`;
+  const WHY_YES_RULE = `Every rationale must include a concrete "why they'd say yes" angle for THIS business and THIS athlete (foot traffic near campus, customer overlap with the sport's fans, owner's community ties, they already market locally). Rank by likelihood this specific business responds to this specific athlete, NOT by brand size.`;
 
-MARKET RESOLUTION: If the market below shows "Unknown City" or "Unknown State", infer the real city and state from the school name "${school}" (you know where major colleges are located) and use THAT market for every business you name.
+  const marketsLine = hasHometown
+    ? `MARKETS (search BOTH):\n1. School market: ${city}, ${state} (near ${school})\n2. Hometown market: ${hometown} — this athlete GREW UP here. Hometown picks get the hometown-hero angle: local recognition, community ties, "local kid makes good".`
+    : `MARKET: ${city}, ${state}`;
+  const marketFieldRule = hasHometown
+    ? `"market" is "school" for ${city} businesses and "hometown" for ${hometown} businesses. Aim for roughly 6 school-market and 3-4 hometown picks.`
+    : `"market" is always "school".`;
+
+  const prompt = `Name 8 to 10 REAL, well-known, established LOCAL businesses that would realistically do an NIL deal with this college athlete. Use your own knowledge of these markets — you do NOT have web search, so rely on what you actually know. If you are only confident about fewer businesses, return fewer. NEVER pad with invented ones.
+
+MARKET RESOLUTION: If the school market below shows "Unknown City" or "Unknown State", infer the real city and state from the school name "${school}" (you know where major colleges are located) and use THAT market.
 
 ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${school}
-MARKET: ${city}, ${state}
-SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Tier: ${tier}
+${marketsLine}
+SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Tier: ${tier}${interestLine}
 ${exclusionLine}
 
-THIS IS LOCAL-FIRST. A ${tier}-tier athlete will NOT land Nike or other national giants. They land deals with the local car dealership, the gym down the street, the regional Chick-fil-A / Raising Cane's / Zaxby's franchise owner, the supplement store. Realistic local deal value for this athlete: $${valLow}–$${valHigh} per post/campaign. Tune every pick to this athlete's sport (${sport}), position (${athlete.position||'N/A'}), and ${tier} follower tier.
+THIS IS LOCAL-FIRST. A ${tier}-tier athlete will NOT land Nike or other national giants. They land deals with the local car dealership, the gym down the street, the area franchise owner, the supplement store. Realistic local deal value: $${valLow}-$${valHigh} per post/campaign. Tune every pick to this athlete's sport (${sport}), position (${athlete.position||'N/A'}), and ${tier} follower tier.
 
-TARGET these high-probability local-NIL categories in ${city}, ${state}:
-- Local car dealerships (the #1 local NIL spender)
-- Gyms / fitness centers / CrossFit boxes
-- Popular restaurants near campus
-- Supplement / nutrition stores
-- Local franchise owners (Chick-fil-A, Raising Cane's, Zaxby's, Wingstop)
-- Local insurance agencies (State Farm / Allstate local agents)
-- Credit unions / community banks
-- Sports training facilities
-- Sport-specific for ${sport}: ${catHint}
+Work deliberately across this taxonomy of local business types with a proven NIL / local sponsorship track record, covering several categories rather than clustering in one:
+${LOCAL_TAXONOMY}
+Weight toward categories matching the athlete's sport: ${catHint}
+
+${FRANCHISE_RULE}
+
+${WHY_YES_RULE}
 
 RULES:
-- Name only real, well-known businesses you are confident actually exist in that specific market. Prefer established, recognizable local names over generic placeholders. NEVER invent a business.
+- Name only real, well-known businesses you are confident actually exist in that specific market. NEVER invent a business. Fewer real results beat padded fake ones.
+- Do NOT claim specific sponsorship history (little league, billboards, past NIL deals) unless you are genuinely confident it is true. Without that, ground the "why they'd say yes" angle in category norms and market fit instead.
 - contactEmail: only use the real business domain in info@/owner@/contact@ form if you are confident of the real domain; otherwise null. Never fabricate a domain.
 - contactName: null unless you genuinely know the owner/manager's real name.
-- rationale must reference THIS athlete's sport / school / market and the LOCAL angle.
+- ${marketFieldRule}
 
-Output ONLY a JSON array (no markdown, no preamble) of 6 objects sorted by fitScore descending. Score each 1–100 on likelihood of doing local NIL deals, sport relevance, community connection, and deal-size potential — vary the scores meaningfully:
+Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fitScore descending. Score each 1-100 on likelihood to respond to THIS athlete — vary the scores meaningfully:
 [{
   "rank": 1,
   "brand": "Exact Real Business Name",
   "tier": "local",
-  "category": "auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|local",
+  "category": "auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local",
   "dealType": "post|reel|ambassador|appearance",
   "campaign": "Specific 1-sentence campaign concept for this athlete",
-  "rationale": "2-3 sentences: why this brand fits THIS athlete — sport, school, local market, community angle",
+  "rationale": "2-3 sentences: why this business fits THIS athlete AND the why-they-would-say-yes angle",
   "estimatedValueLow": ${valLow},
   "estimatedValueHigh": ${valHigh},
   "contactApproach": "Best way to reach out (e.g. DM the owner, email the marketing manager, visit in person)",
   "timingNote": "Best time to reach out and why",
   "fitScore": 88,
   "isLocal": true,
+  "market": "school|hometown",
+  "isFranchise": false,
   "contactName": null,
   "contactTitle": "Owner | Marketing Director | Franchise Owner | etc",
   "contactEmail": null,
   "contactLinkedIn": null
 }]`;
 
-  // ── PRIMARY PATH: model-knowledge (no web search) ──────────────────────────
-  // The live web search is slow/flaky on Railway, so we generate from the model's
-  // own knowledge FIRST. It reliably names real, well-known local businesses and
-  // can infer the market from the school name even when getSchoolLocation fails.
-  // Web search is demoted to a fallback below.
-  try {
-    console.log(`[dealScan] model-knowledge primary — model=${MODEL_DEALSCAN} market=${city}, ${state} sport=${sport} locationKnown=${locationKnown}`);
-    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown. Every brand must be a real, well-known business that genuinely operates in the athlete\'s market. Never fabricate a business name or an email domain.', 3000, MODEL_DEALSCAN);
+  // Shared post-processing for both local paths: normalize the new fields,
+  // attach the market chip label (only in two-market mode so single-market
+  // behavior is unchanged), and never let a bad market value through.
+  const finalizeLocal = (d, i, source, site) => {
+    let market = d.market === 'hometown' ? 'hometown' : 'school';
+    if (!hasHometown) market = 'school';
+    return {
+      ...d,
+      rank: i + 1,
+      resultType: 'local',
+      lane: 'local',
+      isLocal: true,
+      source,
+      market,
+      marketLabel: hasHometown ? marketLabelFor(market) : null,
+      isFranchise: d.isFranchise === true,
+      contactEmail: validateContactEmail(d.contactEmail, site || d.website || null),
+      estimatedValueLow: d.estimatedValueLow || valLow,
+      estimatedValueHigh: d.estimatedValueHigh || valHigh,
+      suggestedRate: { low: rate.low, high: rate.high },
+    };
+  };
+
+  // Model-knowledge path (no web search). Reliable at naming real, well-known
+  // local businesses and can infer the market from the school name even when
+  // getSchoolLocation fails. Used as the fallback when web search is thin.
+  const runKnowledgePath = async () => {
+    console.log(`[dealScan] model-knowledge path — model=${MODEL_DEALSCAN} market=${schoolMarket}${hasHometown ? ` + hometown ${hometown}` : ''} sport=${sport} locationKnown=${locationKnown}`);
+    const raw = await oneShot(prompt, 'You are a JSON-only NIL deal research API. Output ONLY a valid JSON array starting with [ and ending with ]. No explanation, no markdown. Every brand must be a real, well-known business that genuinely operates in the athlete\'s market. Never fabricate a business name or an email domain.', 4000, MODEL_DEALSCAN);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
@@ -766,48 +829,54 @@ Output ONLY a JSON array (no markdown, no preamble) of 6 objects sorted by fitSc
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-    console.log(`[dealScan] model-knowledge produced ${parsed.length} local brand(s)`);
-    return parsed.map((d, i) => ({
-      ...d,
-      rank: i + 1,
-      resultType: 'local',
-      lane: 'local',
-      isLocal: true,
-      source: 'knowledge',
-      contactEmail: validateContactEmail(d.contactEmail, d.website || null),
-      estimatedValueLow: d.estimatedValueLow || valLow,
-      estimatedValueHigh: d.estimatedValueHigh || valHigh,
-      suggestedRate: { low: rate.low, high: rate.high },
-    }));
-  } catch (knowledgeErr) {
-    console.warn('[dealScan] model-knowledge path failed, trying web search:', knowledgeErr.message);
-  }
+    console.log(`[dealScan] model-knowledge produced ${parsed.length} local brand(s) in ${Date.now() - _t0}ms`);
+    return parsed.map((d, i) => finalizeLocal(d, i, 'knowledge', d.website || null));
+  };
 
-  // ── FALLBACK PATH: two-phase parallel web search + fast scoring ─────────────
-  // Only runs if model-knowledge threw or returned nothing. 3 lightweight web
-  // searches run IN PARALLEL (Promise.allSettled) to collect real business names
-  // + domains, then ONE fast no-search Sonnet call scores + enriches the JSON.
+  // ── PRIMARY PATH: category-driven parallel web search + one scoring call ────
+  // Deliberate searches across the local-NIL taxonomy (weighted by sport) in the
+  // school market, plus the hometown market when set. Searches run IN PARALLEL
+  // with hard per-search timeouts so wall-clock stays bounded, then ONE fast
+  // no-search Sonnet call scores, ranks by likelihood-to-respond, and writes the
+  // why-they-would-say-yes rationales citing any local-marketing evidence found.
   try {
-    console.log(`[dealScan] Using web search for brand discovery — model=${MODEL_DEALSCAN} market=${city}, ${state} sport=${sport}`);
+    console.log(`[dealScan] category web search primary — model=${MODEL_DEALSCAN} market=${schoolMarket}${hasHometown ? ` + hometown ${hometown}` : ''} sport=${sport}`);
 
     const searchSys = 'You find real local businesses via web search. Output ONLY a JSON array, no commentary, no markdown.';
-    const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email"} (email only if shown on their site, else null). Favor: ${cats}. ONLY a JSON array.`;
+    const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email","evidence","franchise"}. "evidence": one short line ONLY when the search shows the business already spends on local marketing (sponsors a high school or little league team, billboards, local ads, prior NIL activity), else null — never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. ONLY a JSON array.`;
 
-    const searches = [
-      withTimeout(oneShotWebSearch(mk(`${sport} NIL sponsors and local businesses in ${city}, ${state}`, 'car dealerships, gyms, restaurants'), searchSys, 700, 3, MODEL_DEALSCAN), 8000, ''),
-      withTimeout(oneShotWebSearch(mk(`local businesses near ${school} in ${city}, ${state} that sponsor college athletes`, 'restaurants, retail, fitness, services'), searchSys, 700, 3, MODEL_DEALSCAN), 8000, ''),
-      withTimeout(oneShotWebSearch(mk(`${city} ${state} ${sport} local brand ambassador and NIL deals`, catHint), searchSys, 700, 3, MODEL_DEALSCAN), 8000, ''),
+    // Two category bundles per the taxonomy for the school market, one combined
+    // sweep for the hometown market. All parallel; each hard-capped at 8s.
+    const schoolQ1 = mk(
+      `car dealerships, gyms and training facilities, restaurants, smoothie and supplement shops in ${city}, ${state} that sponsor local sports teams, run local ads, or have done NIL deals with ${school} athletes`,
+      `${catHint}, car dealerships, restaurants and food spots, smoothie and supplement shops`
+    );
+    const schoolQ2 = mk(
+      `chiropractors, physical therapy clinics, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons in ${city}, ${state} that advertise locally or sponsor high school and youth sports`,
+      'chiropractors and physical therapy, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons'
+    );
+    const searchDefs = [
+      { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ1, searchSys, 800, 3, MODEL_DEALSCAN), 8000, '') },
+      { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ2, searchSys, 800, 3, MODEL_DEALSCAN), 8000, '') },
     ];
-    const settled = await Promise.allSettled(searches);
+    if (hasHometown) {
+      searchDefs.push({
+        market: 'hometown',
+        p: withTimeout(oneShotWebSearch(mk(
+          `local businesses in ${hometown} across car dealerships, restaurants, gyms and training facilities, supplement shops, chiropractors, boutiques, real estate agents, banks, med spas that sponsor local youth sports or spend on local marketing`,
+          `${catHint}, plus the full local taxonomy in ${hometown}`
+        ), searchSys, 800, 3, MODEL_DEALSCAN), 8000, ''),
+      });
+    }
+    const settled = await Promise.allSettled(searchDefs.map((s) => s.p));
 
     const found = [];
     const seen = new Set();
-    for (const s of settled) {
-      if (s.status !== 'fulfilled' || !s.value) continue;
+    const collectLocal = (raw, market) => {
       try {
-        const t = s.value.replace(/```json/g, '').replace(/```/g, '').trim();
+        const t = (raw || '').replace(/```json/g, '').replace(/```/g, '').trim();
         const a = t.indexOf('['), b = t.lastIndexOf(']');
-        if (a === -1 || b <= a) continue;
+        if (a === -1 || b <= a) return;
         const arr = JSON.parse(t.substring(a, b + 1));
         for (const it of (Array.isArray(arr) ? arr : [])) {
           const nm = ((it && it.name) || '').trim();
@@ -815,13 +884,18 @@ Output ONLY a JSON array (no markdown, no preamble) of 6 objects sorted by fitSc
           const key = nm.toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
-          found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null });
+          found.push({
+            name: nm, website: it.website || null, category: it.category || null,
+            email: it.email || null, evidence: it.evidence || null,
+            franchise: it.franchise === true, market,
+          });
         }
       } catch (_) { /* skip unparseable search result */ }
-    }
-    console.log(`[dealScan] phase 1 parallel search found ${found.length} candidate businesses`);
+    };
+    settled.forEach((s, idx) => { if (s.status === 'fulfilled') collectLocal(s.value, searchDefs[idx].market); });
+    console.log(`[dealScan] phase 1 category search found ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _t0}ms`);
 
-    // One broadened retry before giving up on local results entirely.
+    // One broadened retry before falling back.
     if (found.length < 3) {
       console.warn(`[dealScan] only ${found.length} candidates — running one broadened retry search`);
       try {
@@ -829,48 +903,33 @@ Output ONLY a JSON array (no markdown, no preamble) of 6 objects sorted by fitSc
           mk(`popular local businesses, restaurants, gyms, car dealerships and shops in ${city}, ${state}`, 'any local business that advertises locally'),
           searchSys, 800, 4, MODEL_DEALSCAN
         ), 8000, '');
-        const t = (retryRaw || '').replace(/```json/g, '').replace(/```/g, '').trim();
-        const a = t.indexOf('['), b = t.lastIndexOf(']');
-        if (a !== -1 && b > a) {
-          const arr = JSON.parse(t.substring(a, b + 1));
-          for (const it of (Array.isArray(arr) ? arr : [])) {
-            const nm = ((it && it.name) || '').trim();
-            if (!nm) continue;
-            const key = nm.toLowerCase();
-            if (seen.has(key)) continue;
-            seen.add(key);
-            found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null });
-          }
-        }
+        collectLocal(retryRaw, 'school');
       } catch (_) { /* retry failed — fall through to the count check */ }
       console.log(`[dealScan] after retry: ${found.length} candidate businesses`);
     }
-    if (found.length < 3) {
-      const archetypes = getSeeds('local', tier) || [];
-      for (const a of archetypes) {
-        if (found.length >= 12) break;
-        const nm = `${a.name} (${city}, ${state})`;
-        const key = nm.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        found.push({ name: nm, website: null, category: a.category || 'local', email: null, _seed: true });
-      }
-      console.log(`[dealScan] local seed top-up → ${found.length} candidates`);
-    }
-    if (found.length === 0) throw new Error('No local candidates and no seeds available');
-    const localSeedNames = new Set(found.filter((f) => f._seed).map((f) => f.name.toLowerCase().trim()));
+    // Too thin to be a credible local scan — let the knowledge path try instead.
+    if (found.length < 3) throw new Error(`only ${found.length} web candidates`);
 
-    // Phase 2 — score + enrich the real businesses (no web search → fast)
-    const candidatesJson = JSON.stringify(found.slice(0, 16));
-    const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}, ${city}, ${state}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}
+    // Phase 2 — score + enrich the real businesses (no web search, fast).
+    // Target 8-10 results; capped by how many real candidates the search found.
+    const wantCount = Math.min(8, found.length);
+    const marketScoringLine = hasHometown
+      ? `Each candidate carries a "market" field: "school" (${city}, near ${school}) or "hometown" (${hometown} — the athlete GREW UP there; use the hometown-hero angle: local recognition, community ties, "local kid makes good"). Keep the market value from the input. Include hometown picks when they are strong — a balanced spread across both markets beats one-market clustering.`
+      : `Every candidate is in the school market ("market":"school").`;
+    const candidatesJson = JSON.stringify(found.slice(0, 20));
+    const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}, ${city}, ${state}${hasHometown ? `, hometown ${hometown}` : ''}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}
 
-These REAL local businesses were just found via web search:
+These REAL local businesses were just found via web search (with any local-marketing evidence the search surfaced):
 ${candidatesJson}
 
-Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfully — do not give everything the same number). Write a 2-3 sentence rationale for each that references this athlete's sport, school, and the ${city} market. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
-[{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
+${marketScoringLine}
 
-    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business or an email domain — only use the businesses and domains provided.', 1800, MODEL_DEALSCAN);
+${FRANCHISE_RULE}
+
+Pick the best ${wantCount} to 10 for this athlete (fewer if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
+[{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"market":"school|hometown","isFranchise":false,"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
+
+    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business, evidence, or an email domain — only use the businesses, evidence, and domains provided.', 2600, MODEL_DEALSCAN);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
@@ -878,28 +937,26 @@ Pick the 6 best for this athlete and score each 1-100 (vary the scores meaningfu
     const parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-    console.log(`[dealScan] phase 2 scored ${parsed.length} brand(s)`);
-    // Map real business name -> website domain so we can validate contact emails.
-    const siteByName = new Map();
-    for (const f of found) if (f.name) siteByName.set(f.name.toLowerCase().trim(), f.website);
+    console.log(`[dealScan] phase 2 scored ${parsed.length} brand(s) — local lane total ${Date.now() - _t0}ms`);
+    // Map business name -> website + market so finalize can validate emails and
+    // repair any market value the scorer dropped.
+    const metaByName = new Map();
+    for (const f of found) if (f.name) metaByName.set(f.name.toLowerCase().trim(), f);
     return parsed.map((d, i) => {
-      const nameKey = (d.brand || '').toLowerCase().trim();
-      const site = (d.brand && siteByName.get(nameKey)) || d.website || null;
-      const validEmail = validateContactEmail(d.contactEmail, site);
-      return {
-        ...d,
-        rank: i + 1,
-        resultType: 'local',
-        lane: 'local',
-        source: localSeedNames.has(nameKey) ? 'seed' : 'web',
-        contactEmail: validEmail, // null when not verifiable — never fabricated
-        estimatedValueLow: d.estimatedValueLow || valLow,
-        estimatedValueHigh: d.estimatedValueHigh || valHigh,
-        suggestedRate: { low: rate.low, high: rate.high },
-      };
+      const meta = metaByName.get((d.brand || '').toLowerCase().trim());
+      if (meta && d.market !== 'school' && d.market !== 'hometown') d.market = meta.market;
+      if (meta && d.isFranchise !== true && meta.franchise === true) d.isFranchise = true;
+      return finalizeLocal(d, i, 'web', meta ? meta.website : null);
     });
   } catch (webErr) {
-    console.warn('[dealScan] web-search path failed, using national fallback:', webErr.message);
+    console.warn('[dealScan] category web-search path failed, trying model knowledge:', webErr.message);
+  }
+
+  // ── FALLBACK: model knowledge (no web search) ───────────────────────────────
+  try {
+    return await runKnowledgePath();
+  } catch (knowledgeErr) {
+    console.warn('[dealScan] model-knowledge path failed, using national fallback:', knowledgeErr.message);
   }
 
   // ── LAST RESORT: national / sport brands (honestly labeled, NOT local) ─────

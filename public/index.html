@@ -753,7 +753,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .ucp-nav-item:hover { background: rgba(26,58,92,0.15); color: #94a3b8; }
 .ucp-nav-active { color: #e2e8f0 !important; background: rgba(26,58,92,0.3) !important; }
 /* ── Deal Scan three-lane layout ── */
-.ds-lanes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;align-items:start}
+/* Local is the primary lane: first and widest on desktop, first on mobile */
+.ds-lanes{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.ds-lane[data-lane="local"]{border-color:rgba(132,204,22,0.3)}
 .ds-lane{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column;min-width:0}
 .ds-lane-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .ds-lane-title{font-size:13px;font-weight:800;color:var(--text);letter-spacing:0.02em}
@@ -1555,7 +1557,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div id="ds-lanes" class="ds-lanes" style="display:none">
           <div class="ds-lane active" data-lane="local">
             <div class="ds-lane-head"><span class="ds-lane-title">Local</span><span class="ds-lane-count" id="ds-count-local">—</span></div>
-            <div class="ds-lane-sub">Businesses near your client's school</div>
+            <div class="ds-lane-sub">Businesses near your client's school, plus their hometown when set</div>
             <div class="ds-lane-body" id="scan-results-local"></div>
           </div>
           <div class="ds-lane" data-lane="social">
@@ -2753,6 +2755,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div><label class="form-label-sm">Position</label><input class="input-sm" id="a_pos" placeholder="e.g. PG, WR"></div>
           </div>
           <div class="form-group-sm"><label class="form-label-sm">School</label><input class="input-sm" id="a_school" placeholder="e.g. Duke University"></div>
+          <div class="form-group-sm">
+            <label class="form-label-sm">Hometown</label>
+            <input class="input-sm" id="a_hometown" placeholder="e.g. Johns Creek, GA">
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">Deal Scan also searches the hometown market when this is set.</div>
+          </div>
           <div class="form-group-sm"><label class="form-label-sm">School Tier</label>
             <select class="select-sm" id="a_tier">
               <optgroup label="Power 4 — D1">
@@ -3744,6 +3751,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <div style="margin-bottom:12px">
         <label class="form-label-sm">School</label>
         <input class="input-sm" id="ob-athlete-school" placeholder="e.g. Duke University">
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">Hometown</label>
+        <input class="input-sm" id="ob-athlete-hometown" placeholder="e.g. Johns Creek, GA">
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Optional. Deal Scan also finds brands in their hometown.</div>
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
@@ -5016,6 +5029,7 @@ async function editAthlete(id) {
   document.getElementById('a_tt').value = a.tiktok || '';
   document.getElementById('a_eng').value = a.engagement || '';
   const handleEl = document.getElementById('a_handle'); if (handleEl) handleEl.value = a.instagramHandle || '';
+  const hometownEl = document.getElementById('a_hometown'); if (hometownEl) hometownEl.value = a.hometown || '';
   _statFetchedSource = a.igStatsSource || null;  // preserve existing source unless re-fetched/edited
   renderStatSourceLabels(a);
   document.getElementById('a_notes').value = a.notes || '';
@@ -5056,6 +5070,7 @@ async function updateAthlete(id) {
     year: document.getElementById('a_year') ? document.getElementById('a_year').value : '',
     stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
     transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
+    hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
     instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
     igStatsSource: _statFetchedSource || 'manual',
   };
@@ -5100,6 +5115,7 @@ async function addAthlete() {
         stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
         transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
         gpa: document.getElementById('a_gpa') ? document.getElementById('a_gpa').value : '',
+        hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
         instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
         igStatsSource: _statFetchedSource || 'manual',
       }),
@@ -5118,7 +5134,7 @@ async function addAthlete() {
     document.getElementById('kpi-clients').textContent = athletes.length;
     renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
-    ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes','a_handle'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     _statFetchedSource = null;
     const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = '';
     const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = '';
@@ -5705,6 +5721,18 @@ function _dsCardHtml(d, i, lane, isTop) {
   var catStyle = _dsCatColors[cat] || 'rgba(255,255,255,0.06);color:var(--muted)';
   var laneMeta = _dsLaneMeta[lane] || _dsLaneMeta.local;
   var laneChip = '<span class="ds-lane-chip" style="background:' + laneMeta.chip + '">' + esc(laneMeta.label) + '</span>';
+  // Market chip (only present on two-market scans) and local-franchise chip.
+  // Older cached scans have neither field and render exactly as before.
+  var extraChips = '';
+  if (lane === 'local' && d.marketLabel) {
+    var mkStyle = d.market === 'hometown'
+      ? 'rgba(245,158,11,0.16);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)'
+      : 'rgba(96,165,250,0.14);color:#60a5fa;border:1px solid rgba(96,165,250,0.28)';
+    extraChips += '<span class="ds-lane-chip" style="background:' + mkStyle + '">' + esc(d.marketLabel) + '</span>';
+  }
+  if (lane === 'local' && d.isFranchise === true) {
+    extraChips += '<span class="ds-lane-chip" style="background:rgba(45,212,191,0.14);color:#2dd4bf;border:1px solid rgba(45,212,191,0.3)">Local franchise</span>';
+  }
 
   var contactHtml = '';
   if (d.contactName || d.contactTitle || d.contactEmail) {
@@ -5726,6 +5754,7 @@ function _dsCardHtml(d, i, lane, isTop) {
         '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">' +
           laneChip +
           '<span style="font-size:15px;font-weight:700;color:var(--text)">' + esc(brand) + '</span>' +
+          extraChips +
           (d.category ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
           (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:#84CC16;border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
         '</div>' +
@@ -6880,10 +6909,12 @@ function _applyLookupCandidate(data) {
           o.text.toLowerCase() === (data.sport||'').toLowerCase()) { s.value = o.value; break; }
     }
   }
+  // Hometown fills its own field now (it powers the Deal Scan second market),
+  // no longer dumped into notes. Editable like every other looked-up field.
+  if (data.hometown) { const h = document.getElementById('a_hometown'); if (h) h.value = data.hometown; }
   let notesVal = data.notes || '';
   if (data.previousSchool) notesVal = (notesVal ? notesVal + ' ' : '') + 'Transfer from ' + data.previousSchool + '.';
   if (notesVal) document.getElementById('a_notes').value = notesVal;
-  else if (data.hometown) document.getElementById('a_notes').value = data.hometown;
 }
 
 function _confidenceColor(conf) {
@@ -9567,6 +9598,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
     function _obApplyCandidate(data) {
       if (data.name)       document.getElementById('ob-athlete-name').value   = data.name;
       if (data.school)     document.getElementById('ob-athlete-school').value = data.school;
+      if (data.hometown)   document.getElementById('ob-athlete-hometown').value = data.hometown;
       if (data.position)   document.getElementById('ob-athlete-pos').value    = data.position;
       if (data.schoolTier) document.getElementById('ob-athlete-tier').value   = data.schoolTier;
       if (data.sport) {
@@ -9735,6 +9767,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
     function obUseSample() {
       document.getElementById('ob-athlete-name').value = 'Marcus Johnson';
       document.getElementById('ob-athlete-school').value = 'University of Alabama';
+      document.getElementById('ob-athlete-hometown').value = 'Johns Creek, GA';
       document.getElementById('ob-athlete-sport').value = 'football';
       document.getElementById('ob-athlete-pos').value = 'WR';
       document.getElementById('ob-athlete-tier').value = 'p4-top10';
@@ -9751,6 +9784,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
       obData = {
         name,
         school:     document.getElementById('ob-athlete-school').value.trim(),
+        hometown:   document.getElementById('ob-athlete-hometown').value.trim(),
         sport:      document.getElementById('ob-athlete-sport').value,
         position:   document.getElementById('ob-athlete-pos').value.trim(),
         schoolTier: document.getElementById('ob-athlete-tier').value || 'p4-mid',
@@ -9775,7 +9809,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
     }
 
     function obRenderReview() {
-      const meta = [obData.school, obData.sport, obData.position, obData.schoolTier].filter(Boolean).join(' · ');
+      const meta = [obData.school, obData.hometown ? 'Hometown: ' + obData.hometown : '', obData.sport, obData.position, obData.schoolTier].filter(Boolean).join(' · ');
       const folVal = (obData.followers === null || obData.followers === undefined) ? '' : obData.followers;
       const engVal = (obData.engagement === null || obData.engagement === undefined) ? '' : obData.engagement;
       const el = document.getElementById('ob-review-body');
@@ -9842,6 +9876,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
             sport: obData.sport || 'basketball',
             position: obData.position,
             school: obData.school,
+            hometown: obData.hometown || '',
             schoolTier: obData.schoolTier || 'p4-mid',
             instagram: followers,
             tiktok: obData.tiktok || 0,
