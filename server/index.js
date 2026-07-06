@@ -92,6 +92,18 @@ const apiLimiter = rateLimit({
   message: { error: 'Too many requests. Please slow down.' },
 });
 
+// Social stats fetch: each call spends an Anthropic web-search request, so keep
+// it tight — a few per minute per user.
+const statsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 6,
+  keyGenerator: (req) => req.session?.userId || req.ip,
+  validate: { keyGeneratorIpFallback: false },
+  message: { error: 'Too many stats lookups. Wait a minute and try again.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ── Stripe webhook — raw body MUST come before express.json() ─────────────
 // This endpoint uses express.raw() to preserve the raw body for Stripe signature verification.
 app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
@@ -828,7 +840,8 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
 
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
-  const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa } = req.body;
+  const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa,
+          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
 
   // ── Seat limit check ─────────────────────────────────────────
@@ -883,8 +896,15 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     stats: stats || '',
     transferReason: transferReason || '',
     gpa: gpa || '',
+    // Additive social/onboarding fields — default cleanly so the normal Add
+    // Client flow (which does not send these) is unchanged.
+    instagramHandle: (instagramHandle ? String(instagramHandle).trim().replace(/^@+/, '').toLowerCase() : ''),
+    brandRestrictions: Array.isArray(brandRestrictions) ? brandRestrictions : [],
+    igStatsSource: igStatsSource === 'web_estimate' ? 'web_estimate' : (igStatsSource === 'manual' ? 'manual' : null),
+    igStatsFetchedAt: igStatsFetchedAt || null,
     createdAt: new Date().toISOString(),
   });
+  checkOff(req.session.userId, 'add_athlete'); // Getting Started checklist
   res.status(201).json(athlete);
 });
 
@@ -1046,6 +1066,7 @@ app.post('/api/athletes/:id/deals', requireAuth, async (req, res) => {
       offeredValue: parseInt(offeredValue) || 0,
       createdAt: new Date().toISOString(),
     });
+    checkOff(req.session.userId, 'log_deal'); // Getting Started checklist
     res.status(201).json(deal);
   } catch(err) {
     console.error('Save deal error:', err.message);
@@ -1072,6 +1093,7 @@ app.post('/api/deals', requireAuth, async (req, res) => {
     status: stage === 'Closed' ? 'closed' : 'active',
     createdAt: new Date().toISOString()
   });
+  checkOff(req.session.userId, 'log_deal'); // Getting Started checklist
   res.json(deal);
 });
 
@@ -1110,6 +1132,219 @@ app.delete('/api/deals/:id', requireAuth, async (req, res) => {
   }
   await store.deleteDeal(req.params.id);
   res.json({ ok: true });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ONBOARDING STATE (Parts A / C / E) + INSTAGRAM STATS FETCH (Part B)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Fire-and-forget checklist writer used by action handlers throughout the app.
+// Never awaited on the request path — a checklist write must not slow or break
+// the underlying action.
+function checkOff(userId, item) {
+  if (!userId) return;
+  store.markChecklistItem(userId, item).catch(() => {});
+}
+
+// Wizard + checklist state for the current agent. Backfills historical activity
+// on first read so long-time users don't see an empty checklist. Always returns
+// a usable object — never blocks the dashboard.
+app.get('/api/onboarding', requireAuth, async (req, res) => {
+  const row = await store.getOnboarding(req.session.userId, { backfill: true });
+  const hasAthletes = await store.pool
+    .query(`SELECT 1 FROM athletes WHERE agent_id=$1 LIMIT 1`, [req.session.userId])
+    .then(r => r.rows.length > 0).catch(() => false);
+  res.json({
+    wizardStep: row ? row.wizard_step : 0,
+    wizardCompletedAt: row ? row.wizard_completed_at : null,
+    checklist: (row && row.checklist) || {},
+    checklistDismissed: row ? !!row.checklist_dismissed : false,
+    tooltipsSeen: (row && row.tooltips_seen) || {},
+    // Account-state signal so the client can decide whether to ever show the
+    // wizard, independent of any local flag.
+    hasAthletes,
+  });
+});
+
+// Log a wizard step transition. body: { step, action } action in
+// entered|completed|skipped. Also advances the persisted resume point.
+app.post('/api/onboarding/step', requireAuth, async (req, res) => {
+  const step = parseInt(req.body.step, 10);
+  const action = String(req.body.action || 'entered');
+  if (isNaN(step)) return res.status(400).json({ error: 'step required' });
+  const ok = ['entered', 'completed', 'skipped'].includes(action) ? action : 'entered';
+  await store.logWizardEvent(req.session.userId, step, ok);
+  res.json({ ok: true });
+});
+
+app.post('/api/onboarding/complete', requireAuth, async (req, res) => {
+  await store.completeWizard(req.session.userId);
+  res.json({ ok: true });
+});
+
+// Dismiss/undismiss the Getting Started checklist. Declared before the
+// ":item" route below so the literal "dismiss" path is not captured as an item.
+app.post('/api/onboarding/checklist/dismiss', requireAuth, async (req, res) => {
+  await store.dismissChecklist(req.session.userId, req.body.dismissed !== false);
+  res.json({ ok: true });
+});
+
+// Manually mark a checklist item (also invoked server-side by action handlers).
+app.post('/api/onboarding/checklist/:item', requireAuth, async (req, res) => {
+  if (!store.CHECKLIST_ITEMS.includes(req.params.item)) {
+    return res.status(400).json({ error: 'unknown item' });
+  }
+  await store.markChecklistItem(req.session.userId, req.params.item);
+  res.json({ ok: true });
+});
+
+app.post('/api/onboarding/tooltip/:tool', requireAuth, async (req, res) => {
+  await store.markTooltipSeen(req.session.userId, req.params.tool);
+  res.json({ ok: true });
+});
+
+// Internal analytics: wizard step drop-off. Admin/founder only.
+app.get('/api/onboarding/analytics', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  res.json(await store.getOnboardingAnalytics());
+});
+
+// ── Instagram handle stats fetch (Part B) ──────────────────────────────────
+// Handle in, followers + engagement rate out. Uses the Anthropic web search
+// tool. Hard rule in the prompt: never estimate or fabricate — unknown fields
+// come back null. :id may be a real athlete id (result is cached) or the literal
+// "new" for the pre-save wizard flow (handle read from the body).
+function normalizeHandle(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/^@+/, '')
+    .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+    .replace(/\/+$/, '')
+    .split(/[/?#]/)[0]
+    .trim()
+    .toLowerCase();
+}
+
+async function fetchInstagramStats(handle) {
+  const system = 'You are a precise research assistant that only reports numbers found on real, public web sources. You never estimate, guess, extrapolate, or fabricate a follower count or engagement rate. If you cannot find a real figure for the exact handle, you return null for that field. Output strict JSON only, no prose, no markdown.';
+  const prompt = [
+    `Find the public Instagram statistics for the exact handle "@${handle}".`,
+    '',
+    'Steps:',
+    `1. Search public stat sources for this exact handle: social stat trackers (e.g. socialblade, hypeauditor), influencer databases, NIL databases (e.g. On3), news articles, and college roster pages.`,
+    `2. Extract the follower count and engagement rate for the account whose handle string is exactly "${handle}". If several accounts appear, only use the one whose handle matches "${handle}" character for character. If none match exactly, treat it as not found.`,
+    '3. Return STRICT JSON only, in exactly this shape:',
+    '{',
+    '  "followers": 1069,',
+    '  "engagement_rate": 4.2,',
+    '  "source": "short description of where the numbers came from",',
+    '  "confidence": "high | medium | low",',
+    '  "found": true',
+    '}',
+    '',
+    'Hard rules:',
+    '- If the follower count cannot be found from a real source, set "followers" to null.',
+    '- If the engagement rate cannot be found from a real source, set "engagement_rate" to null.',
+    '- Set "found" to false if you could not confirm this exact account exists on a real source.',
+    '- Never estimate, never guess, never fabricate any number. A null is always better than an invented value.',
+    '- "engagement_rate" is a percentage number (e.g. 4.2 means 4.2 percent), not a fraction.',
+    '- Output only the JSON object. No explanation before or after.',
+  ].join('\n');
+
+  let raw = '';
+  try {
+    raw = await ai.oneShotWebSearch(prompt, system, 900, 4, ai.MODEL_STANDARD);
+  } catch (e) {
+    console.warn('[social-stats] web search failed:', e.message);
+    return { followers: null, engagement_rate: null, source: null, confidence: 'low', found: false };
+  }
+  // Extract the first JSON object from the model output.
+  let parsed = null;
+  try {
+    const cleaned = String(raw).replace(/```json/gi, '').replace(/```/g, '');
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) parsed = JSON.parse(match[0]);
+  } catch (e) {
+    console.warn('[social-stats] JSON parse failed:', e.message);
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    return { followers: null, engagement_rate: null, source: null, confidence: 'low', found: false };
+  }
+  // Coerce + guard: only accept real, finite, non-negative numbers.
+  const toNum = (v) => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[, %]/g, ''));
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const followers = toNum(parsed.followers);
+  let engagement = toNum(parsed.engagement_rate);
+  // Sanity clamp engagement to a believable percentage range; otherwise drop it
+  // rather than surface a garbage figure.
+  if (engagement !== null && (engagement > 100 || engagement < 0)) engagement = null;
+  const found = parsed.found === true && (followers !== null || engagement !== null);
+  return {
+    followers: followers === null ? null : Math.round(followers),
+    engagement_rate: engagement === null ? null : Math.round(engagement * 10) / 10,
+    source: found ? (parsed.source ? String(parsed.source).slice(0, 200) : 'Public web sources') : null,
+    confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
+    found,
+  };
+}
+
+app.post('/api/athletes/:id/fetch-social-stats', requireAuth, statsLimiter, async (req, res) => {
+  const handle = normalizeHandle(req.body.instagramHandle);
+  if (!handle) return res.status(400).json({ error: 'instagramHandle required' });
+
+  const id = req.params.id;
+  const isNew = id === 'new';
+
+  // For a real athlete, confirm ownership before spending an API call or caching.
+  let athlete = null;
+  if (!isNew) {
+    athlete = await store.getAthlete(id);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    const user = await store.getUser(req.session.userId);
+    if (athlete.agentId !== req.session.userId && (!user || user.email !== ADMIN_EMAIL)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+  }
+
+  const stats = await fetchInstagramStats(handle);
+  const fetchedAt = new Date().toISOString();
+
+  // Cache onto the athlete record (agent-managed profile lives in data JSONB).
+  // The handle always saves. Numbers, the web-estimate source label, and the
+  // fetched-at timestamp only update when a real value was actually found, so a
+  // failed lookup never relabels a manually entered number as web-estimated.
+  if (!isNew && athlete) {
+    try {
+      const merged = { ...athlete, agentId: athlete.agentId };
+      merged.instagramHandle = handle;
+      if (stats.found && (stats.followers !== null || stats.engagement_rate !== null)) {
+        if (stats.followers !== null) merged.instagram = stats.followers;
+        if (stats.engagement_rate !== null) merged.engagement = stats.engagement_rate;
+        merged.igStatsSource = 'web_estimate';
+        merged.igStatsFetchedAt = fetchedAt;
+      }
+      await store.saveAthlete(id, merged);
+    } catch (e) {
+      console.warn('[social-stats] cache write failed:', e.message);
+    }
+  }
+
+  res.json({
+    handle,
+    followers: stats.followers,
+    engagement_rate: stats.engagement_rate,
+    source: stats.source,
+    confidence: stats.confidence,
+    found: stats.found,
+    stats_source: 'web_estimate',
+    fetched_at: fetchedAt,
+  });
 });
 
 // ── AI endpoints ───────────────────────────────────────────────
@@ -1235,6 +1470,7 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
     dealTypeRates,
     estimateInputs,
   });
+  checkOff(req.session.userId, 'rate_calc'); // Getting Started checklist
 });
 
 // ── Deal Close Mode — analyze endpoint ────────────────────────
@@ -1489,6 +1725,7 @@ Return ONLY this JSON:
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Generation failed' });
+    checkOff(req.session.userId, 'ai_outreach'); // Getting Started checklist
     res.json(JSON.parse(match[0]));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2165,6 +2402,7 @@ app.post('/api/athletes/:id/contracts/extract', requireAuth, requireAgentSubscri
     }
 
     const statusCode = result.extractionStatus === 'completed' ? 200 : 202;
+    checkOff(req.session.userId, 'contract_scan'); // Getting Started checklist
     res.status(statusCode).json({ ok: true, ...result });
   } catch (e) {
     console.error('[contract extract]', e.message);
@@ -4888,6 +5126,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
       ).catch(e => console.error('[agent/deal-scan] cache persist:', e.message));
     }
     const rateCard = await _athleteRateCard(athleteId);
+    checkOff(req.session.userId, 'deal_scan'); // Getting Started checklist
     res.json({ opportunities: recommendations, lane: validLane, rateCard });
   } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
@@ -8070,6 +8309,7 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res
     }
 
     const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    checkOff(req.session.userId, 'media_kit'); // Getting Started checklist
     res.json({ ok: true, slug: mk.slug, shareUrl: `${appUrl}/media-kit/${mk.slug}` });
   } catch (e) {
     console.error('[agent/athlete-media-kit POST]', e.message);

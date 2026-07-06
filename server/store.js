@@ -282,6 +282,26 @@ async function init() {
     await pool.query(sql).catch(e => console.warn('[migration]', e.message));
   }
 
+  // ── User Onboarding (wizard state, Getting Started checklist, tooltips) ─────
+  // Backs Parts A/C/E of the onboarding overhaul. user_id is TEXT to match the
+  // users table PK (users.id TEXT). Additive and idempotent — safe on prod.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_onboarding (
+      user_id TEXT PRIMARY KEY,
+      wizard_step INTEGER DEFAULT 0,
+      wizard_completed_at TIMESTAMPTZ,
+      wizard_step_events JSONB DEFAULT '[]'::jsonb,
+      checklist JSONB DEFAULT '{}'::jsonb,
+      checklist_dismissed BOOLEAN DEFAULT FALSE,
+      checklist_backfilled BOOLEAN DEFAULT FALSE,
+      tooltips_seen JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] user_onboarding table ready'))
+    .catch(e => console.error('[init] user_onboarding:', e.message));
+  await pool.query(`ALTER TABLE user_onboarding ADD COLUMN IF NOT EXISTS checklist_backfilled BOOLEAN DEFAULT FALSE`).catch(() => {});
+
   // Enforce one account per email (case-insensitive). Partial index so
   // agent-managed athletes without an email are unaffected. If existing
   // duplicates block creation, log and continue (handled at signup too).
@@ -1190,6 +1210,158 @@ async function deleteDeal(id) {
   await pool.query('DELETE FROM deals WHERE id=$1', [id]);
 }
 
+// ── User Onboarding helpers (Parts A/C/E) ──────────────────────────────────
+// Every helper is defensively wrapped: the onboarding overhaul must never block
+// a user from reaching the dashboard, so a missing table or query error degrades
+// to a null/no-op instead of throwing into a route handler.
+const CHECKLIST_ITEMS = [
+  'add_athlete', 'deal_scan', 'media_kit', 'ai_outreach',
+  'contract_scan', 'rate_calc', 'log_deal',
+];
+
+async function getOnboarding(userId, { backfill = false } = {}) {
+  if (!userId) return null;
+  try {
+    let r = await pool.query('SELECT * FROM user_onboarding WHERE user_id=$1', [userId]);
+    let created = false;
+    if (!r.rows[0]) {
+      await pool.query(
+        'INSERT INTO user_onboarding (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING',
+        [userId]);
+      r = await pool.query('SELECT * FROM user_onboarding WHERE user_id=$1', [userId]);
+      created = true;
+    }
+    const row = r.rows[0] || null;
+    // Backfill checklist from historical activity the first time we ever see this
+    // user (row just created) or when explicitly asked and not yet backfilled.
+    if (row && backfill && (created || !row.checklist_backfilled)) {
+      await backfillChecklist(userId);
+      await pool.query('UPDATE user_onboarding SET checklist_backfilled=TRUE WHERE user_id=$1', [userId]).catch(() => {});
+      const r2 = await pool.query('SELECT * FROM user_onboarding WHERE user_id=$1', [userId]);
+      return r2.rows[0] || row;
+    }
+    return row;
+  } catch (e) {
+    console.error('getOnboarding error:', e.message);
+    return null;
+  }
+}
+
+async function logWizardEvent(userId, step, action) {
+  // action: 'entered' | 'completed' | 'skipped'
+  if (!userId) return;
+  try {
+    const evt = JSON.stringify({ step, action, at: new Date().toISOString() });
+    await pool.query(
+      `INSERT INTO user_onboarding (user_id, wizard_step, wizard_step_events)
+         VALUES ($1, $2, jsonb_build_array($3::jsonb))
+       ON CONFLICT (user_id) DO UPDATE SET
+         wizard_step = $2,
+         wizard_step_events = COALESCE(user_onboarding.wizard_step_events, '[]'::jsonb) || $3::jsonb,
+         updated_at = NOW()`,
+      [userId, step, evt]);
+  } catch (e) { console.error('logWizardEvent error:', e.message); }
+}
+
+async function completeWizard(userId) {
+  if (!userId) return;
+  try {
+    await pool.query(
+      `INSERT INTO user_onboarding (user_id, wizard_completed_at, wizard_step)
+         VALUES ($1, NOW(), 5)
+       ON CONFLICT (user_id) DO UPDATE SET
+         wizard_completed_at = COALESCE(user_onboarding.wizard_completed_at, NOW()),
+         updated_at = NOW()`,
+      [userId]);
+  } catch (e) { console.error('completeWizard error:', e.message); }
+}
+
+async function markChecklistItem(userId, item) {
+  if (!userId || !CHECKLIST_ITEMS.includes(item)) return;
+  try {
+    // Preserve the first-completion timestamp: only write when the key is absent.
+    await pool.query(
+      `INSERT INTO user_onboarding (user_id, checklist)
+         VALUES ($1, jsonb_build_object($2::text, to_jsonb(NOW()::text)))
+       ON CONFLICT (user_id) DO UPDATE SET
+         checklist = user_onboarding.checklist || jsonb_build_object($2::text, to_jsonb(NOW()::text)),
+         updated_at = NOW()
+       WHERE NOT (user_onboarding.checklist ? $2)`,
+      [userId, item]);
+  } catch (e) { console.error('markChecklistItem error:', e.message); }
+}
+
+async function dismissChecklist(userId, dismissed) {
+  if (!userId) return;
+  try {
+    await pool.query(
+      `INSERT INTO user_onboarding (user_id, checklist_dismissed) VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET checklist_dismissed = $2, updated_at = NOW()`,
+      [userId, !!dismissed]);
+  } catch (e) { console.error('dismissChecklist error:', e.message); }
+}
+
+async function markTooltipSeen(userId, tool) {
+  if (!userId || !tool) return;
+  try {
+    await pool.query(
+      `INSERT INTO user_onboarding (user_id, tooltips_seen)
+         VALUES ($1, jsonb_build_object($2::text, to_jsonb(NOW()::text)))
+       ON CONFLICT (user_id) DO UPDATE SET
+         tooltips_seen = COALESCE(user_onboarding.tooltips_seen, '{}'::jsonb) || jsonb_build_object($2::text, to_jsonb(NOW()::text)),
+         updated_at = NOW()`,
+      [userId, String(tool)]);
+  } catch (e) { console.error('markTooltipSeen error:', e.message); }
+}
+
+// Detect prior activity so long-time users don't see a mostly empty checklist.
+// Only checks things that are cheap and unambiguous to detect. rate_calc has no
+// persisted artifact, so it is intentionally not backfilled.
+async function backfillChecklist(userId) {
+  if (!userId) return;
+  const found = new Set();
+  const safe = async (sql) => {
+    try { const r = await pool.query(sql, [userId]); return r.rows.length > 0; }
+    catch { return false; }
+  };
+  try {
+    if (await safe(`SELECT 1 FROM athletes WHERE agent_id=$1 LIMIT 1`)) found.add('add_athlete');
+    if (await safe(`SELECT 1 FROM deals WHERE agent_id=$1 LIMIT 1`)) found.add('log_deal');
+    if (await safe(`SELECT 1 FROM athletes WHERE agent_id=$1 AND deal_scan_cache IS NOT NULL AND deal_scan_cache <> '{}'::jsonb LIMIT 1`)) found.add('deal_scan');
+    if (await safe(`SELECT 1 FROM media_kits mk JOIN athletes a ON a.id = mk.athlete_id WHERE a.agent_id=$1 LIMIT 1`)) found.add('media_kit');
+    if (await safe(`SELECT 1 FROM outreach_logs WHERE agent_id=$1 AND status='sent' LIMIT 1`)) found.add('ai_outreach');
+    if (await safe(`SELECT 1 FROM athlete_outreach WHERE agent_id=$1 LIMIT 1`)) found.add('ai_outreach');
+    if (await safe(`SELECT 1 FROM athlete_contracts WHERE agent_id=$1 LIMIT 1`)) found.add('contract_scan');
+    for (const item of found) await markChecklistItem(userId, item);
+  } catch (e) { console.error('backfillChecklist error:', e.message); }
+}
+
+// Aggregate wizard step drop-off for a lightweight internal analytics view.
+async function getOnboardingAnalytics() {
+  try {
+    const totals = await pool.query(`
+      SELECT
+        COUNT(*)::int AS total_users,
+        COUNT(wizard_completed_at)::int AS completed,
+        COUNT(*) FILTER (WHERE wizard_completed_at IS NULL AND wizard_step > 0)::int AS in_progress
+      FROM user_onboarding`);
+    // Per-step entered / completed / skipped counts from the event log.
+    const steps = await pool.query(`
+      SELECT
+        (e->>'step')::int AS step,
+        COUNT(*) FILTER (WHERE e->>'action'='entered')::int   AS entered,
+        COUNT(*) FILTER (WHERE e->>'action'='completed')::int AS completed,
+        COUNT(*) FILTER (WHERE e->>'action'='skipped')::int   AS skipped
+      FROM user_onboarding, jsonb_array_elements(wizard_step_events) AS e
+      GROUP BY (e->>'step')::int
+      ORDER BY step`);
+    return { totals: totals.rows[0] || {}, steps: steps.rows };
+  } catch (e) {
+    console.error('getOnboardingAnalytics error:', e.message);
+    return { totals: {}, steps: [] };
+  }
+}
+
 init().catch(console.error);
 
 module.exports = {
@@ -1197,5 +1369,8 @@ module.exports = {
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
   getDeal, getDealsByAthlete, getDealsByAgent, saveDeal, deleteDeal,
   saveComp, getComps, getCompStats,
+  getOnboarding, logWizardEvent, completeWizard, markChecklistItem,
+  dismissChecklist, markTooltipSeen, backfillChecklist, getOnboardingAnalytics,
+  CHECKLIST_ITEMS,
   pool
 };

@@ -2783,11 +2783,27 @@ tbody td{padding:11px 14px;vertical-align:middle}
               </optgroup>
             </select>
           </div>
-          <div class="form-row" style="margin-bottom:12px">
-            <div><label class="form-label-sm">Instagram Followers</label><input class="input-sm" id="a_ig" type="number" placeholder="45000"></div>
+          <div class="form-group-sm">
+            <label class="form-label-sm">Instagram Handle</label>
+            <div style="display:flex;gap:8px">
+              <input class="input-sm" id="a_handle" placeholder="amber.bretton" style="flex:1">
+              <button class="run-btn" onclick="fetchStatsForForm()" id="a-fetch-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">Fetch stats</button>
+            </div>
+            <div id="a-fetch-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+          </div>
+          <div class="form-row" style="margin-bottom:4px">
+            <div>
+              <label class="form-label-sm">Instagram Followers</label>
+              <input class="input-sm" id="a_ig" type="number" placeholder="45000" oninput="flagStatManual('ig')">
+              <div id="a-ig-src" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
+            </div>
             <div><label class="form-label-sm">TikTok Followers</label><input class="input-sm" id="a_tt" type="number" placeholder="120000"></div>
           </div>
-          <div class="form-group-sm"><label class="form-label-sm">Engagement Rate (%)</label><input class="input-sm" id="a_eng" type="number" step="0.1" placeholder="6.2"></div>
+          <div class="form-group-sm">
+            <label class="form-label-sm">Engagement Rate (%)</label>
+            <input class="input-sm" id="a_eng" type="number" step="0.1" placeholder="6.2" oninput="flagStatManual('eng')">
+            <div id="a-eng-src" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
+          </div>
           <div class="form-group-sm"><label class="form-label-sm">Notes</label><input class="input-sm" id="a_notes" placeholder="Draft year, brand restrictions, etc."></div>
           <div class="form-group-sm"><label class="form-label-sm">Year</label>
             <select class="select-sm" id="a_year">
@@ -3687,53 +3703,42 @@ tbody td{padding:11px 14px;vertical-align:middle}
 </div>
 
       <!-- ADD DEAL MODAL -->
-<!--  ONBOARDING  -->
-<div id="onboardingOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;align-items:center;justify-content:center;padding:20px">
-  <div style="background:var(--surface);border:1px solid var(--border2);border-radius:16px;width:100%;max-width:520px;overflow:hidden">
+<!--  ONBOARDING WIZARD (5 steps)  -->
+<div id="onboardingOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--surface);border:1px solid var(--border2);border-radius:16px;width:100%;max-width:540px;max-height:92vh;overflow-y:auto">
 
-    <!-- Step 1: Welcome -->
-    <div class="ob-step" id="ob-step-1" style="padding:40px">
-      <div style="font-family:var(--head);font-size:28px;font-weight:800;color:var(--accent);margin-bottom:4px">NILDash</div>
-      <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:28px">NIL Intelligence Platform</div>
-      <div style="font-family:var(--head);font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px">Welcome, <span id="ob-name"></span> </div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:28px;line-height:1.7">You're set up as a sports agent. NILDash gives you AI-powered tools to close more NIL deals, faster.</div>
-      <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:32px">
-        <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--surface2);border-radius:var(--r-sm)">
-          <span style="font-size:20px"></span>
-          <div><div style="font-size:12px;font-weight:700;color:var(--text)">Rate Calculator</div><div style="font-size:11px;color:var(--muted)">AI-calculated NIL rates anchored to real CPM data</div></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--surface2);border-radius:var(--r-sm)">
-          <span style="font-size:20px"></span>
-          <div><div style="font-size:12px;font-weight:700;color:var(--text)">Deal Scan</div><div style="font-size:11px;color:var(--muted)">AI finds real brands actively doing NIL deals</div></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:14px;padding:14px;background:var(--surface2);border-radius:var(--r-sm)">
-          <span style="font-size:20px"></span>
-          <div><div style="font-size:12px;font-weight:700;color:var(--text)">Contract Generator</div><div style="font-size:11px;color:var(--muted)">Generate professional NIL contracts in seconds</div></div>
-        </div>
-      </div>
-      <button onclick="obStep(2)" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:14px;border-radius:40px;border:none;cursor:pointer">Get Started →</button>
+    <!-- Progress bar -->
+    <div style="height:4px;background:var(--surface2)">
+      <div id="ob-progress" style="height:100%;width:20%;background:var(--accent);transition:width 0.3s"></div>
     </div>
 
-    <!-- Step 2: Add First Athlete -->
-    <div class="ob-step" id="ob-step-2" style="display:none;padding:32px;max-height:85vh;overflow-y:auto">
-      <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px">Step 1 of 3</div>
-      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Add your first client</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:20px">Add a real athlete or use our sample client to explore the platform.</div>
+    <!-- STEP 1: Add your first athlete -->
+    <div class="ob-step" id="ob-step-1" style="padding:28px 28px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 1 of 5</div>
+        <button onclick="obSkipStep(1)" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip for now</button>
+      </div>
+      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Add your first athlete</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:18px">Enter a real athlete. AI Lookup can fill the profile for you.</div>
 
-      <!-- AI Lookup -->
       <div class="form-group-sm" style="margin-bottom:12px">
-        <label class="form-label-sm">Full Name *</label>
+        <label class="form-label-sm">Full name</label>
         <div style="display:flex;gap:8px">
-          <input class="input-sm" id="ob-athlete-name" placeholder="e.g. Marcus Johnson" style="flex:1">
+          <input class="input-sm" id="ob-athlete-name" placeholder="e.g. Amber Bretton" style="flex:1">
           <button onclick="obLookupPlayer()" id="ob-lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px;background:var(--accent);color:#000;border:none;border-radius:var(--r-sm);font-family:var(--mono);cursor:pointer;font-weight:700">AI Lookup</button>
         </div>
         <div id="ob-lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
         <div id="ob-lookup-candidates" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden"></div>
       </div>
 
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">School</label>
+        <input class="input-sm" id="ob-athlete-school" placeholder="e.g. Duke University">
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
         <div>
-          <label class="form-label-sm">Sport *</label>
+          <label class="form-label-sm">Sport</label>
           <select class="select-sm" id="ob-athlete-sport">
             <option value="basketball">Basketball</option>
             <option value="football">Football</option>
@@ -3762,12 +3767,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
 
       <div style="margin-bottom:12px">
-        <label class="form-label-sm">School</label>
-        <input class="input-sm" id="ob-athlete-school" placeholder="e.g. Duke University">
-      </div>
-
-      <div style="margin-bottom:12px">
-        <label class="form-label-sm">School Tier</label>
+        <label class="form-label-sm">School tier</label>
         <select class="select-sm" id="ob-athlete-tier">
           <optgroup label="Power 4 — D1">
             <option value="p4-top10">P4 — Elite (Alabama, Ohio State, Duke)</option>
@@ -3808,84 +3808,83 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </select>
       </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-        <div>
-          <label class="form-label-sm">Instagram Followers</label>
-          <input class="input-sm" id="ob-athlete-ig" type="number" placeholder="45000">
+      <!-- Instagram handle + Fetch stats (Part B) -->
+      <div style="margin-bottom:8px">
+        <label class="form-label-sm">Instagram handle</label>
+        <div style="display:flex;gap:8px">
+          <input class="input-sm" id="ob-athlete-handle" placeholder="amber.bretton" style="flex:1">
+          <button onclick="obFetchStats()" id="ob-fetch-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:var(--r-sm);font-family:var(--mono);cursor:pointer;font-weight:700">Fetch stats</button>
         </div>
-        <div>
-          <label class="form-label-sm">TikTok Followers</label>
-          <input class="input-sm" id="ob-athlete-tt" type="number" placeholder="120000">
-        </div>
+        <div id="ob-fetch-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
       </div>
 
-      <div style="margin-bottom:12px">
-        <label class="form-label-sm">Engagement Rate (%)</label>
-        <input class="input-sm" id="ob-athlete-eng" type="number" step="0.1" placeholder="6.2">
-      </div>
-
-      <div style="margin-bottom:12px">
-        <label class="form-label-sm">Year</label>
-        <select class="select-sm" id="ob-athlete-year">
-          <option value="">Unknown</option>
-          <option value="Freshman">Freshman</option>
-          <option value="Sophomore">Sophomore</option>
-          <option value="Junior">Junior</option>
-          <option value="Senior">Senior</option>
-          <option value="Grad Transfer">Grad Transfer</option>
-        </select>
-      </div>
-
-      <div style="margin-bottom:12px">
-        <label class="form-label-sm">Key Stats</label>
-        <input class="input-sm" id="ob-athlete-stats" placeholder="Auto-filled by AI Lookup, or enter manually">
-      </div>
-
-      <div style="margin-bottom:20px">
-        <label class="form-label-sm">Notes</label>
-        <input class="input-sm" id="ob-athlete-notes" placeholder="Draft year, brand restrictions, etc.">
-      </div>
-
-      <div style="display:flex;gap:10px">
-        <button onclick="obAddSample()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer">Use Sample</button>
-        <button onclick="obAddAthlete()" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Save Client →</button>
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button onclick="obUseSample()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer">Use sample</button>
+        <button onclick="obToReview()" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Review profile →</button>
       </div>
     </div>
 
-    <!-- Step 3: Add First Deal -->
-    <div class="ob-step" id="ob-step-3" style="display:none;padding:40px">
-      <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:8px">Step 2 of 3</div>
-      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:8px">Add your first deal</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:24px">Track every deal in your pipeline and see your commission in real time.</div>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
-        <input class="input-sm" id="ob-deal-brand" placeholder="Brand name (e.g. Nike, Red Bull)" style="padding:12px 14px">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <input class="input-sm" id="ob-deal-value" placeholder="Deal value ($)" type="number" style="padding:12px 14px">
-          <select class="select-sm" id="ob-deal-stage" style="padding:12px 14px">
-            <option>Prospecting</option>
-            <option>Outreach Sent</option>
-            <option>Negotiating</option>
-            <option>Closing</option>
-          </select>
-        </div>
+    <!-- STEP 2: Review and save -->
+    <div class="ob-step" id="ob-step-2" style="display:none;padding:28px 28px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 2 of 5</div>
+        <button onclick="obSkipStep(2)" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip for now</button>
       </div>
-      <div style="display:flex;gap:10px">
-        <button onclick="obSkipDeal()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer">Skip for now</button>
-        <button onclick="obAddDeal()" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Add Deal →</button>
+      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Review and save</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Check the profile, then save. You can edit anything later.</div>
+
+      <div id="ob-review-body"></div>
+
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button onclick="obStep(1)" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer">Back</button>
+        <button onclick="obSaveAthlete()" id="ob-save-btn" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Save athlete →</button>
       </div>
     </div>
 
-    <!-- Step 4: Done -->
-    <div class="ob-step" id="ob-step-4" style="display:none;padding:40px;text-align:center">
-      <div style="font-size:48px;margin-bottom:16px"></div>
-      <div style="font-family:var(--head);font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px">You're all set!</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:28px;line-height:1.7">NILDash is ready. Start with the Rate Calculator to see what your athlete is worth, or run a Deal Scan to find the best brand opportunities.</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:28px;text-align:left">
-        <div id="ob-check-1" style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)"><span style="color:var(--accent);font-weight:700"></span> Account created</div>
-        <div id="ob-check-2" style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)"><span style="color:var(--accent);font-weight:700"></span> First client added</div>
-        <div id="ob-check-3" style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)"><span id="ob-deal-check-icon"></span> First deal added</div>
+    <!-- STEP 3: Run first Deal Scan -->
+    <div class="ob-step" id="ob-step-3" style="display:none;padding:28px 28px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 3 of 5</div>
+        <button onclick="obSkipStep(3)" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip for now</button>
       </div>
-      <button onclick="obFinish()" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:14px;border-radius:40px;border:none;cursor:pointer">Enter NILDash →</button>
+      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Run your first Deal Scan</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Deal Scan finds brands worth pitching: local businesses, social-first brands, and top NIL spenders.</div>
+
+      <button onclick="obRunDealScan()" id="ob-scan-btn" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:13px;border-radius:40px;border:none;cursor:pointer;margin-bottom:14px">Scan for deals for <span id="ob-scan-name">your athlete</span></button>
+
+      <div id="ob-scan-results"></div>
+
+      <div style="display:flex;gap:10px;margin-top:16px">
+        <button onclick="obStep(4)" id="ob-scan-continue" style="flex:1;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--text);font-family:var(--head);font-size:13px;font-weight:700;padding:12px;cursor:pointer">Continue →</button>
+      </div>
+    </div>
+
+    <!-- STEP 4: Connect Gmail and Calendar -->
+    <div class="ob-step" id="ob-step-4" style="display:none;padding:28px 28px 24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 4 of 5</div>
+        <button onclick="obSkipStep(4)" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip for now</button>
+      </div>
+      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Connect Gmail and Calendar</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:18px">AI outreach sends from your own email and deal deliverables land on your calendar automatically.</div>
+
+      <div id="ob-connect-body" style="display:flex;flex-direction:column;gap:10px"></div>
+
+      <div style="display:flex;gap:10px;margin-top:18px">
+        <button onclick="obStep(5)" style="flex:1;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Continue →</button>
+      </div>
+    </div>
+
+    <!-- STEP 5: Done -->
+    <div class="ob-step" id="ob-step-5" style="display:none;padding:32px 28px;text-align:center">
+      <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:14px">Step 5 of 5</div>
+      <div style="font-family:var(--head);font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px">You're ready</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:22px;line-height:1.7">Here is what you just did.</div>
+      <div id="ob-done-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;text-align:left"></div>
+      <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:22px;text-align:left">
+        <div style="font-size:12px;color:var(--text);line-height:1.6">Your Getting Started checklist is on your dashboard. Work through it to learn every tool.</div>
+      </div>
+      <button onclick="obFinish()" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:14px;border-radius:40px;border:none;cursor:pointer">Go to dashboard</button>
     </div>
 
   </div>
@@ -4820,6 +4819,10 @@ async function renderRoster() {
         <div class="ac-stat"><span>${reach}</span> reach</div>
         <div class="ac-stat"><span>${a.engagement}%</span> eng</div>
       </div>
+      ${a.instagramHandle ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px">
+        <span style="font-size:10px;color:var(--muted)">@${escHtml(a.instagramHandle)}${a.igStatsSource==='web_estimate' && a.igStatsFetchedAt ? ' · Est. from web, ' + new Date(a.igStatsFetchedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : (a.igStatsSource==='manual' ? ' · Manual' : '')}</span>
+        <button onclick="event.stopPropagation();refreshAthleteStats('${a.id}', this)" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:10px;padding:3px 8px;cursor:pointer;white-space:nowrap;font-weight:600">Refresh stats</button>
+      </div>` : ''}
       <div style="margin-top:10px;margin-bottom:8px">
         <textarea
           onclick="event.stopPropagation()"
@@ -4881,7 +4884,113 @@ async function deleteAthlete(id) {
   }
 }
 
+// ── Instagram stats fetch for the Add/Edit Client form (Part B) ─────────────
+// Tracks whether the currently shown followers/engagement came from the web or
+// were manually entered, so we can label them and store the right source.
+let _statFetchedSource = null;
+
+function _statDateLabel() {
+  return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// Render the small source labels under the follower/engagement inputs based on
+// an athlete's saved source, or the last fetch/edit in this session.
+function renderStatSourceLabels(a) {
+  const src = (a && a.igStatsSource) || _statFetchedSource;
+  const when = a && a.igStatsFetchedAt ? new Date(a.igStatsFetchedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : _statDateLabel();
+  const label = src === 'web_estimate' ? 'Est. from web, ' + when : (src === 'manual' ? 'Manual' : '');
+  const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = label;
+  const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = label;
+}
+
+// Editing a fetched value flips its source to Manual.
+function flagStatManual() {
+  _statFetchedSource = 'manual';
+  const igSrc = document.getElementById('a-ig-src'); if (igSrc && igSrc.textContent) igSrc.textContent = 'Manual';
+  const engSrc = document.getElementById('a-eng-src'); if (engSrc && engSrc.textContent) engSrc.textContent = 'Manual';
+}
+
+// Fetch stats for the handle in the Add/Edit form. Never fabricates: if nothing
+// is found, followers default to 0 and engagement is left blank with helper text.
+async function fetchStatsForForm() {
+  const handleEl = document.getElementById('a_handle');
+  const handle = (handleEl ? handleEl.value : '').trim().replace(/^@+/, '');
+  const status = document.getElementById('a-fetch-status');
+  const btn = document.getElementById('a-fetch-btn');
+  if (!handle) { showToast('Enter an Instagram handle first'); return; }
+  btn.disabled = true; btn.style.opacity = '0.7'; const orig = btn.textContent; btn.textContent = 'Fetching...';
+  const rotating = ['Searching public stats', 'Checking stat trackers', 'Matching the handle'];
+  let ri = 0;
+  status.innerHTML = '<span style="color:var(--muted)">Searching public stats...</span>';
+  const rot = setInterval(() => { status.innerHTML = '<span style="color:var(--muted)">' + rotating[ri++ % rotating.length] + '...</span>'; }, 1500);
+  try {
+    const targetId = _editingAthleteId || 'new';
+    const r = await fetch(`${API_BASE}/api/athletes/${targetId}/fetch-social-stats`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instagramHandle: handle })
+    });
+    const data = await r.json();
+    clearInterval(rot);
+    if (data.found && (data.followers !== null || data.engagement_rate !== null)) {
+      if (data.followers !== null) document.getElementById('a_ig').value = data.followers;
+      else document.getElementById('a_ig').value = 0;
+      if (data.engagement_rate !== null) document.getElementById('a_eng').value = data.engagement_rate;
+      _statFetchedSource = 'web_estimate';
+      const when = _statDateLabel();
+      const igSrc = document.getElementById('a-ig-src');
+      const engSrc = document.getElementById('a-eng-src');
+      if (igSrc) igSrc.textContent = data.followers !== null ? ('Est. from web, ' + when) : 'No public count found. Enter it manually if you know it.';
+      if (engSrc) engSrc.textContent = data.engagement_rate !== null ? ('Est. from web, ' + when) : 'Typical range is 1 to 5 percent. Higher is better.';
+      const bits = [];
+      if (data.followers !== null) bits.push(Number(data.followers).toLocaleString() + ' followers');
+      if (data.engagement_rate !== null) bits.push(data.engagement_rate + '% engagement');
+      status.innerHTML = '<span style="color:var(--accent)">Found ' + bits.join(', ') + '</span>';
+    } else {
+      if (!document.getElementById('a_ig').value) document.getElementById('a_ig').value = 0;
+      const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = 'No public count found. Enter it manually if you know it.';
+      const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = 'Typical range is 1 to 5 percent. Higher is better.';
+      status.innerHTML = '<span style="color:var(--muted)">No public numbers found. Enter what you know.</span>';
+    }
+  } catch (e) {
+    clearInterval(rot);
+    status.innerHTML = '<span style="color:var(--muted)">Could not fetch stats right now. Enter numbers manually.</span>';
+  }
+  btn.disabled = false; btn.style.opacity = ''; btn.textContent = orig;
+}
+
+// Refresh stats for a saved athlete from My Roster: re-calls the endpoint,
+// updates the cache and the fetched date, then re-renders the roster.
+async function refreshAthleteStats(id, btn) {
+  const a = athletes.find(x => x.id === id);
+  if (!a || !a.instagramHandle) { showToast('No Instagram handle saved for this athlete'); return; }
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Refreshing...'; }
+  try {
+    const r = await fetch(`${API_BASE}/api/athletes/${id}/fetch-social-stats`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instagramHandle: a.instagramHandle })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'failed');
+    await loadAthletes();
+    if (data.found && (data.followers !== null || data.engagement_rate !== null)) {
+      const bits = [];
+      if (data.followers !== null) bits.push(Number(data.followers).toLocaleString() + ' followers');
+      if (data.engagement_rate !== null) bits.push(data.engagement_rate + '% engagement');
+      showToast('Updated: ' + bits.join(', '));
+    } else {
+      showToast('No public numbers found for @' + a.instagramHandle);
+    }
+  } catch (e) {
+    showToast('Could not refresh stats right now');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = orig; }
+}
+
+let _editingAthleteId = null;
+
 async function editAthlete(id) {
+  _editingAthleteId = id;
   const a = athletes.find(x => x.id === id);
   if (!a) return;
   // Switch to Add Client view and pre-fill
@@ -4894,6 +5003,9 @@ async function editAthlete(id) {
   document.getElementById('a_ig').value = a.instagram || '';
   document.getElementById('a_tt').value = a.tiktok || '';
   document.getElementById('a_eng').value = a.engagement || '';
+  const handleEl = document.getElementById('a_handle'); if (handleEl) handleEl.value = a.instagramHandle || '';
+  _statFetchedSource = a.igStatsSource || null;  // preserve existing source unless re-fetched/edited
+  renderStatSourceLabels(a);
   document.getElementById('a_notes').value = a.notes || '';
   const ppgEl = document.getElementById('a_ppg'); if (ppgEl) ppgEl.value = a.ppg || '';
   const rpgEl = document.getElementById('a_rpg'); if (rpgEl) rpgEl.value = a.rpg || '';
@@ -4932,6 +5044,8 @@ async function updateAthlete(id) {
     year: document.getElementById('a_year') ? document.getElementById('a_year').value : '',
     stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
     transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
+    instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
+    igStatsSource: _statFetchedSource || 'manual',
   };
   const r = await fetch(`${API_BASE}/api/athletes/${id}`, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
@@ -4942,11 +5056,13 @@ async function updateAthlete(id) {
   // Reset save button
   const btn = document.querySelector('[onclick*="updateAthlete"]');
   const btn2 = document.getElementById('saveAthleteBtn'); if (btn2) { btn2.textContent = 'Save Client →'; btn2.setAttribute('onclick', 'addAthlete()'); }
+  _editingAthleteId = null;
   showView('roster', document.querySelectorAll('.nav-item')[5]);
   showToast(name + ' updated!');
 }
 
 async function addAthlete() {
+  _editingAthleteId = null;
   const name = document.getElementById('a_name').value.trim();
   const err  = document.getElementById('addAthleteError');
   if (!name) { err.textContent = 'Name is required'; return; }
@@ -4972,6 +5088,8 @@ async function addAthlete() {
         stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
         transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
         gpa: document.getElementById('a_gpa') ? document.getElementById('a_gpa').value : '',
+        instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
+        igStatsSource: _statFetchedSource || 'manual',
       }),
     });
     const data = await r.json();
@@ -4988,7 +5106,11 @@ async function addAthlete() {
     document.getElementById('kpi-clients').textContent = athletes.length;
     renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
-    ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes'].forEach(id => document.getElementById(id).value = '');
+    ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes','a_handle'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    _statFetchedSource = null;
+    const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = '';
+    const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = '';
+    if (typeof NILOnboard !== 'undefined' && NILOnboard.refreshChecklist) NILOnboard.refreshChecklist();
     showView('roster', document.querySelectorAll('.nav-item')[5]);
   } catch(e) { err.textContent = 'Error: ' + e.message; }
   finally { if (btn) { btn.disabled = false; btn.textContent = btnLabel || 'Save Client →'; } }
@@ -9385,34 +9507,79 @@ Be word-for-word specific. This is for a real negotiation call.`;
 
 window.addEventListener('DOMContentLoaded', checkSession);
 
-    //  ONBOARDING 
-    let obAthleteId = null;
+    //  ONBOARDING WIZARD (5 steps)
+    let obAthleteId   = null;   // set once the athlete is saved (step 2)
+    let obData        = {};     // profile being built across steps 1-2
+    let obStats       = null;   // last fetched IG stats {followers, engagement_rate, source, ...}
+    let obPrefill     = {};     // extra fields carried from AI Lookup (tiktok, stats, year, engagement)
+    const OB_TOTAL    = 5;
+
+    // Log a wizard step transition server-side (fire-and-forget). Drop-off is
+    // measured from these events; a logging failure must never block the user.
+    function obLog(step, action) {
+      fetch(`${API_BASE}/api/onboarding/step`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ step, action })
+      }).catch(() => {});
+    }
 
     async function obStep(n) {
       document.querySelectorAll('.ob-step').forEach(s => s.style.display = 'none');
       const step = document.getElementById('ob-step-' + n);
       if (step) step.style.display = 'block';
+      const bar = document.getElementById('ob-progress');
+      if (bar) bar.style.width = Math.round((n / OB_TOTAL) * 100) + '%';
+      obLog(n, 'entered');
+      // Per-step setup
+      if (n === 2) obRenderReview();
+      if (n === 3) {
+        const nm = document.getElementById('ob-scan-name');
+        if (nm) nm.textContent = (obData.name || 'your athlete').split(/\s+/)[0];
+      }
+      if (n === 4) obRenderConnect();
+      if (n === 5) obRenderDone();
     }
 
-    // ── Onboarding athlete lookup — same multi-stage pipeline ──────────────
+    // Skip advances to the next step (or finishes on the last one) and never
+    // traps the user. Skipping is logged for drop-off analytics.
+    function obSkipStep(n) {
+      obLog(n, 'skipped');
+      if (n >= OB_TOTAL) { obFinish(); return; }
+      obStep(n + 1);
+    }
+
+    // ── Step 1: AI Lookup ──────────────────────────────────────────────────
     let _obLookupCandidates = [];
+    let _obRotateTimer = null;
 
     function _obApplyCandidate(data) {
-      if (data.name)      document.getElementById('ob-athlete-name').value     = data.name;
-      if (data.school)    document.getElementById('ob-athlete-school').value   = data.school;
-      if (data.position)  document.getElementById('ob-athlete-pos').value      = data.position;
-      if (data.year)      document.getElementById('ob-athlete-year').value     = data.year;
-      if (data.stats)     document.getElementById('ob-athlete-stats').value    = data.stats;
-      if (data.instagram) document.getElementById('ob-athlete-ig').value       = data.instagram;
-      if (data.tiktok)    document.getElementById('ob-athlete-tt').value       = data.tiktok;
-      if (data.engagement)document.getElementById('ob-athlete-eng').value      = data.engagement;
-      if (data.schoolTier)document.getElementById('ob-athlete-tier').value     = data.schoolTier;
+      if (data.name)       document.getElementById('ob-athlete-name').value   = data.name;
+      if (data.school)     document.getElementById('ob-athlete-school').value = data.school;
+      if (data.position)   document.getElementById('ob-athlete-pos').value    = data.position;
+      if (data.schoolTier) document.getElementById('ob-athlete-tier').value   = data.schoolTier;
       if (data.sport) {
         const s = document.getElementById('ob-athlete-sport');
         for (let o of s.options) {
           if (o.value.toLowerCase() === (data.sport||'').toLowerCase() ||
               o.text.toLowerCase()  === (data.sport||'').toLowerCase()) { s.value = o.value; break; }
         }
+      }
+      // Carry follower/engagement/stats forward into the review step. These are
+      // web-derived, so they are labeled as such and stay fully editable.
+      obPrefill = {
+        instagram:  parseInt(data.instagram)  || 0,
+        tiktok:     parseInt(data.tiktok)      || 0,
+        engagement: parseFloat(data.engagement) || 0,
+        stats:      data.stats || '',
+        year:       data.year || '',
+      };
+      if ((obPrefill.instagram || obPrefill.engagement) && !obStats) {
+        obStats = {
+          followers: obPrefill.instagram || null,
+          engagement_rate: obPrefill.engagement || null,
+          source: (data.sourceLabel || 'AI Lookup'),
+          found: true,
+        };
       }
     }
 
@@ -9423,8 +9590,8 @@ window.addEventListener('DOMContentLoaded', checkSession);
       document.getElementById('ob-lookup-candidates').style.display = 'none';
       const status = document.getElementById('ob-lookup-status');
       status.style.color = 'var(--accent)';
-      status.textContent = 'Loaded: ' + [c.school, c.position, c.year].filter(Boolean).join(' · ');
-      showToast('Player loaded — review before adding!');
+      status.textContent = 'Loaded: ' + [c.school, c.position].filter(Boolean).join(' · ');
+      showToast('Athlete loaded. Review before saving.');
     }
 
     function renderObCandidates(candidates) {
@@ -9455,7 +9622,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
                 '<span style="font-size:9px;color:' + color + ';font-weight:600">' + conf + '%</span>' +
                 (sourceDomain ? '<a href="' + (c.sourceUrl||'#') + '" target="_blank" rel="noopener" style="font-size:9px;color:var(--muted);text-decoration:underline;text-underline-offset:2px">Source: ' + sourceDomain + '</a>' : '') +
               '</div>' +
-              (isLowConf ? '<div style="font-size:10px;color:#f59e0b;margin-top:2px">⚠ Low confidence — verify before saving</div>' : '') +
+              (isLowConf ? '<div style="font-size:10px;color:#f59e0b;margin-top:2px">Low confidence, verify before saving</div>' : '') +
             '</div>' +
             '<button onclick="selectObCandidate(' + i + ')" style="flex-shrink:0;padding:5px 12px;background:' + (c.best?'var(--accent)':'var(--surface2)') + ';border:1px solid ' + (c.best?'var(--accent)':'var(--border)') + ';border-radius:5px;color:' + (c.best?'#000':'var(--text)') + ';font-size:11px;font-weight:700;cursor:pointer">Select</button>' +
           '</div>' +
@@ -9468,139 +9635,386 @@ window.addEventListener('DOMContentLoaded', checkSession);
 
     async function obLookupPlayer() {
       const name   = document.getElementById('ob-athlete-name').value.trim();
-      if (!name) { showToast('Enter athlete name first'); return; }
+      if (!name) { showToast('Enter the athlete name first'); return; }
       const school   = document.getElementById('ob-athlete-school')?.value?.trim() || '';
       const sport    = document.getElementById('ob-athlete-sport')?.value || '';
       const position = document.getElementById('ob-athlete-pos')?.value?.trim() || '';
-      const year     = document.getElementById('ob-athlete-year')?.value?.trim() || '';
       const btn    = document.getElementById('ob-lookup-btn');
       const status = document.getElementById('ob-lookup-status');
       const candEl = document.getElementById('ob-lookup-candidates');
 
-      btn.disabled = true; btn.style.opacity = '0.7'; btn.textContent = 'Searching...';
-      status.innerHTML = '<span style="color:var(--muted)">🔍 Searching live athlete databases' + (school ? ' for ' + school : '') + '...</span>';
+      // Rotating status text so a slow AI call feels intentional, not broken.
+      const rotating = ['Searching public stats', 'Reading roster pages', 'Building bio', 'Matching the handle', 'Almost there'];
+      let ri = 0;
+      if (_obRotateTimer) clearInterval(_obRotateTimer);
+      const setRotate = () => { status.innerHTML = '<span style="color:var(--muted)">' + rotating[ri % rotating.length] + '...</span>'; ri++; };
+      setRotate();
+      _obRotateTimer = setInterval(setRotate, 1800);
+
+      btn.disabled = true; btn.style.opacity = '0.7'; btn.textContent = 'Searching';
       candEl.style.display = 'none';
       _obLookupCandidates = [];
 
       try {
         const r = await fetch(`${API_BASE}/api/ai/player-lookup`, {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ name, school, sport, position, year })
+          body: JSON.stringify({ name, school, sport, position })
         });
         const data = await r.json();
+        clearInterval(_obRotateTimer); _obRotateTimer = null;
 
         if (!data.found || !data.candidates || !data.candidates.length) {
-          status.innerHTML = '<span style="color:var(--muted)">' + (data.message || 'No verified athlete found — fill in details manually.') + '</span>';
+          status.innerHTML = '<span style="color:var(--muted)">Lookup did not find enough. Fill in what you know, you can update anytime.</span>';
         } else if (data.autoSelect && data.candidates.length === 1) {
           const c = data.candidates[0];
           _obApplyCandidate(c);
           const conf         = c.confidence || 0;
-          const badgeStyle   = _confidenceBadgeStyle(conf);
-          const sourceDomain = _sourceDomain(c.sourceUrl);
-          const summary      = [c.school, c.position, c.year].filter(Boolean).join(' · ');
+          const summary      = [c.school, c.position].filter(Boolean).join(' · ');
           status.innerHTML =
-            '<span style="color:var(--accent)">✓ Loaded — review and save</span>' +
-            (summary ? ' · <span style="color:var(--muted)">' + summary + '</span>' : '') +
-            ' <span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;' + badgeStyle + '">' + _confidenceLabel(conf) + ' ' + conf + '%</span>' +
-            (sourceDomain ? '<br><span style="font-size:10px;color:var(--muted)">Data sourced from <a href="' + (c.sourceUrl||'#') + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">' + sourceDomain + '</a></span>' : '') +
-            (conf < 50 ? '<br><span style="font-size:10px;color:#f59e0b">⚠ Low confidence — verify all fields before saving</span>' : '');
-          showToast('Player loaded via ' + (c.sourceLabel||'web search') + ' — review before adding!');
+            '<span style="color:var(--accent)">Loaded, review and save</span>' +
+            (summary ? ' · <span style="color:var(--muted)">' + summary + '</span>' : '');
+          showToast('Athlete loaded. Review before saving.');
         } else {
-          status.innerHTML = '<span style="color:#f59e0b">' + data.candidates.length + ' candidate' + (data.candidates.length>1?'s':'') + ' found</span> — select below';
+          status.innerHTML = '<span style="color:#f59e0b">' + data.candidates.length + ' matches found</span>, select below';
           renderObCandidates(data.candidates);
         }
       } catch(e) {
-        status.innerHTML = '<span style="color:var(--muted)">Search unavailable — fill in details manually.</span>';
+        clearInterval(_obRotateTimer); _obRotateTimer = null;
+        status.innerHTML = '<span style="color:var(--muted)">Lookup did not find enough. Fill in what you know, you can update anytime.</span>';
         console.error('obLookupPlayer error:', e);
       }
       btn.disabled = false; btn.style.opacity = ''; btn.textContent = 'AI Lookup';
     }
 
-    async function obAddSample() {
+    // ── Step 1: Fetch Instagram stats (Part B) ──────────────────────────────
+    async function obFetchStats() {
+      const handle = (document.getElementById('ob-athlete-handle').value || '').trim().replace(/^@+/, '');
+      const status = document.getElementById('ob-fetch-status');
+      const btn    = document.getElementById('ob-fetch-btn');
+      if (!handle) { showToast('Enter an Instagram handle first'); return; }
+      btn.disabled = true; btn.style.opacity = '0.7'; btn.textContent = 'Fetching';
+      const rotating = ['Searching public stats', 'Checking stat trackers', 'Matching the handle'];
+      let ri = 0;
+      const rot = setInterval(() => { status.innerHTML = '<span style="color:var(--muted)">' + rotating[ri++ % rotating.length] + '...</span>'; }, 1500);
+      status.innerHTML = '<span style="color:var(--muted)">Searching public stats...</span>';
+      try {
+        const r = await fetch(`${API_BASE}/api/athletes/new/fetch-social-stats`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ instagramHandle: handle })
+        });
+        const data = await r.json();
+        clearInterval(rot);
+        obStats = data;
+        if (data.found && (data.followers !== null || data.engagement_rate !== null)) {
+          const bits = [];
+          if (data.followers !== null) bits.push(Number(data.followers).toLocaleString() + ' followers');
+          if (data.engagement_rate !== null) bits.push(data.engagement_rate + '% engagement');
+          status.innerHTML = '<span style="color:var(--accent)">Found ' + bits.join(', ') + '</span> · Est. from web';
+        } else {
+          status.innerHTML = '<span style="color:var(--muted)">No public numbers found. You can enter them on the next screen.</span>';
+        }
+      } catch(e) {
+        clearInterval(rot);
+        status.innerHTML = '<span style="color:var(--muted)">Could not fetch stats. You can enter numbers on the next screen.</span>';
+      }
+      btn.disabled = false; btn.style.opacity = ''; btn.textContent = 'Fetch stats';
+    }
+
+    function obUseSample() {
       document.getElementById('ob-athlete-name').value = 'Marcus Johnson';
       document.getElementById('ob-athlete-school').value = 'University of Alabama';
       document.getElementById('ob-athlete-sport').value = 'football';
       document.getElementById('ob-athlete-pos').value = 'WR';
       document.getElementById('ob-athlete-tier').value = 'p4-top10';
-      document.getElementById('ob-athlete-ig').value = '45000';
-      document.getElementById('ob-athlete-tt').value = '28000';
-      document.getElementById('ob-athlete-eng').value = '6.2';
-      document.getElementById('ob-athlete-year').value = 'Junior';
-      document.getElementById('ob-athlete-stats').value = '42 rec, 680 yds, 7 TD';
-      await obAddAthlete();
+      document.getElementById('ob-athlete-handle').value = 'marcusjohnson';
+      obPrefill = { instagram: 45000, tiktok: 28000, engagement: 6.2, stats: '42 rec, 680 yds, 7 TD', year: 'Junior' };
+      obStats = { followers: 45000, engagement_rate: 6.2, source: 'Sample data', found: true };
+      obToReview();
     }
 
-    async function obAddAthlete() {
+    // Gather step-1 inputs into obData and move to the review screen.
+    function obToReview() {
       const name = document.getElementById('ob-athlete-name').value.trim();
-      if (!name) { showToast('Please enter an athlete name'); return; }
+      if (!name) { showToast('Enter the athlete name to continue'); return; }
+      obData = {
+        name,
+        school:     document.getElementById('ob-athlete-school').value.trim(),
+        sport:      document.getElementById('ob-athlete-sport').value,
+        position:   document.getElementById('ob-athlete-pos').value.trim(),
+        schoolTier: document.getElementById('ob-athlete-tier').value || 'p4-mid',
+        instagramHandle: (document.getElementById('ob-athlete-handle').value || '').trim().replace(/^@+/, '').toLowerCase(),
+        tiktok:     obPrefill.tiktok || 0,
+        stats:      obPrefill.stats || '',
+        year:       obPrefill.year || '',
+        followers:  (obStats && obStats.followers !== null && obStats.followers !== undefined) ? obStats.followers : (obPrefill.instagram || 0),
+        engagement: (obStats && obStats.engagement_rate !== null && obStats.engagement_rate !== undefined) ? obStats.engagement_rate : (obPrefill.engagement || null),
+        followersSource:  (obStats && obStats.found && obStats.followers != null) ? 'web' : 'manual',
+        engagementSource: (obStats && obStats.found && obStats.engagement_rate != null) ? 'web' : 'manual',
+      };
+      obStep(2);
+    }
+
+    // ── Step 2: Review and save ─────────────────────────────────────────────
+    function obSrcLabel(kind) {
+      const today = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric' });
+      return kind === 'web'
+        ? '<span data-src-label style="font-size:10px;color:var(--muted)">Est. from web, ' + today + '</span>'
+        : '<span data-src-label style="font-size:10px;color:var(--muted)">Manual</span>';
+    }
+
+    function obRenderReview() {
+      const meta = [obData.school, obData.sport, obData.position, obData.schoolTier].filter(Boolean).join(' · ');
+      const folVal = (obData.followers === null || obData.followers === undefined) ? '' : obData.followers;
+      const engVal = (obData.engagement === null || obData.engagement === undefined) ? '' : obData.engagement;
+      const el = document.getElementById('ob-review-body');
+      el.innerHTML =
+        '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:14px;margin-bottom:14px">' +
+          '<div style="font-family:var(--head);font-size:16px;font-weight:700;color:var(--text)">' + escHtml(obData.name) + '</div>' +
+          (meta ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + escHtml(meta) + '</div>' : '') +
+          (obData.instagramHandle ? '<div style="font-size:11px;color:var(--muted);margin-top:4px">@' + escHtml(obData.instagramHandle) + '</div>' : '') +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">' +
+          '<div>' +
+            '<label class="form-label-sm">Instagram followers</label>' +
+            '<input class="input-sm" id="ob-rev-followers" type="number" value="' + folVal + '" oninput="obEditStat(\'followers\')">' +
+            '<div id="ob-rev-followers-src" style="margin-top:3px">' + obSrcLabel(obData.followersSource) + '</div>' +
+            '<div id="ob-rev-followers-help" style="font-size:10px;color:var(--muted);margin-top:2px;' + (folVal === '' || folVal === 0 ? '' : 'display:none') + '">No public count found. Enter it manually if you know it.</div>' +
+          '</div>' +
+          '<div>' +
+            '<label class="form-label-sm">Engagement rate (%)</label>' +
+            '<input class="input-sm" id="ob-rev-engagement" type="number" step="0.1" value="' + engVal + '" oninput="obEditStat(\'engagement\')">' +
+            '<div id="ob-rev-engagement-src" style="margin-top:3px">' + obSrcLabel(obData.engagementSource) + '</div>' +
+            '<div id="ob-rev-engagement-help" style="font-size:10px;color:var(--muted);margin-top:2px;' + (engVal === '' ? '' : 'display:none') + '">Typical range is 1 to 5 percent. Higher is better.</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="border-top:1px solid var(--border);padding-top:12px">' +
+          '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px">Brand restrictions</div>' +
+          '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Categories this athlete will not work with. Uncheck any that are fine.</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:14px">' +
+            ['alcohol','tobacco','gambling'].map(c =>
+              '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer">' +
+                '<input type="checkbox" class="ob-restrict" value="' + c + '" checked style="accent-color:var(--accent);width:15px;height:15px"> ' +
+                c.charAt(0).toUpperCase() + c.slice(1) +
+              '</label>'
+            ).join('') +
+          '</div>' +
+        '</div>';
+    }
+
+    // Editing a fetched value flips its label to Manual (Part B requirement).
+    function obEditStat(kind) {
+      obData[kind === 'followers' ? 'followersSource' : 'engagementSource'] = 'manual';
+      const srcEl = document.getElementById('ob-rev-' + kind + '-src');
+      if (srcEl) srcEl.innerHTML = obSrcLabel('manual');
+      const helpEl = document.getElementById('ob-rev-' + kind + '-help');
+      if (helpEl) helpEl.style.display = 'none';
+    }
+
+    async function obSaveAthlete() {
+      const name = obData.name;
+      if (!name) { showToast('Enter the athlete name'); obStep(1); return; }
+      const folRaw = document.getElementById('ob-rev-followers').value;
+      const engRaw = document.getElementById('ob-rev-engagement').value;
+      const followers  = folRaw === '' ? 0 : (parseInt(folRaw) || 0);
+      const engagement = engRaw === '' ? null : (parseFloat(engRaw) || null);
+      const restrictions = Array.from(document.querySelectorAll('.ob-restrict:checked')).map(c => c.value);
+      // Source is manual if the agent edited it; web otherwise (when found).
+      const igSource = (obData.followersSource === 'web' || obData.engagementSource === 'web') ? 'web_estimate' : 'manual';
+      const btn = document.getElementById('ob-save-btn');
+      btn.disabled = true; btn.textContent = 'Saving';
       try {
         const r = await fetch(`${API_BASE}/api/athletes`, {
           method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
             name,
-            sport: document.getElementById('ob-athlete-sport').value,
-            position: document.getElementById('ob-athlete-pos').value,
-            school: document.getElementById('ob-athlete-school').value,
-            schoolTier: document.getElementById('ob-athlete-tier').value || 'p4-mid',
-            instagram: parseInt(document.getElementById('ob-athlete-ig').value) || 0,
-            tiktok: parseInt(document.getElementById('ob-athlete-tt').value) || 0,
-            engagement: parseFloat(document.getElementById('ob-athlete-eng').value) || 3.0,
-            year: document.getElementById('ob-athlete-year').value,
-            stats: document.getElementById('ob-athlete-stats').value,
-            notes: document.getElementById('ob-athlete-notes').value,
+            sport: obData.sport || 'basketball',
+            position: obData.position,
+            school: obData.school,
+            schoolTier: obData.schoolTier || 'p4-mid',
+            instagram: followers,
+            tiktok: obData.tiktok || 0,
+            engagement: engagement === null ? 3.0 : engagement,
+            year: obData.year || '',
+            stats: obData.stats || '',
+            instagramHandle: obData.instagramHandle || '',
+            brandRestrictions: restrictions,
+            igStatsSource: igSource,
+            igStatsFetchedAt: (obStats && obStats.fetched_at) ? obStats.fetched_at : null,
           })
         });
         const data = await r.json();
-        if (!r.ok) { showToast('Error: ' + data.error); return; }
+        if (!r.ok) { showToast('Error: ' + (data.error || 'could not save')); btn.disabled = false; btn.textContent = 'Save athlete →'; return; }
         obAthleteId = data.id;
         await loadAthletes();
-        selectedAthleteId = data.id;
-        document.getElementById('activeAthlete').value = data.id;
+        if (typeof selectedAthleteId !== 'undefined') selectedAthleteId = data.id;
+        const sel = document.getElementById('activeAthlete');
+        if (sel) { try { sel.value = data.id; } catch(_){} }
+        obLog(2, 'completed');
+        btn.disabled = false; btn.textContent = 'Save athlete →';
         obStep(3);
-      } catch(e) { showToast('Error: ' + e.message); }
+      } catch(e) {
+        showToast('Error: ' + e.message);
+        btn.disabled = false; btn.textContent = 'Save athlete →';
+      }
     }
 
-    async function obAddDeal() {
-      const brand = document.getElementById('ob-deal-brand').value.trim();
-      if (!brand || !obAthleteId) { obSkipDeal(); return; }
+    // ── Step 3: Deal Scan ───────────────────────────────────────────────────
+    let obDidScan = false;
+    async function obRunDealScan() {
+      if (!obAthleteId) { showToast('Save the athlete first'); obStep(2); return; }
+      const btn = document.getElementById('ob-scan-btn');
+      const out = document.getElementById('ob-scan-results');
+      btn.disabled = true; btn.style.opacity = '0.7';
+      out.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);font-size:12px">Scanning for brands worth pitching...</div>';
       try {
-        await fetch(`${API_BASE}/api/athletes/${obAthleteId}/deals`, {
+        const r = await fetch(`${API_BASE}/api/agent/deal-scan`, {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            brand,
-            value: parseInt(document.getElementById('ob-deal-value').value) || 0,
-            stage: document.getElementById('ob-deal-stage').value,
-          })
+          body: JSON.stringify({ athleteId: obAthleteId, lane: 'local' })
         });
-        document.getElementById('ob-deal-check-icon').textContent = '';
-        document.getElementById('ob-deal-check-icon').style.color = 'var(--accent)';
-        document.getElementById('ob-deal-check-icon').style.fontWeight = '700';
-      } catch(e) {}
-      obStep(4);
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'scan failed');
+        const opps = data.opportunities || [];
+        obDidScan = true;
+        if (!opps.length) {
+          out.innerHTML = '<div style="text-align:center;padding:18px;color:var(--muted);font-size:12px">No brands surfaced this time. You can run a full Deal Scan from the dashboard anytime.</div>';
+        } else {
+          out.innerHTML =
+            '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">' + opps.length + ' brand' + (opps.length>1?'s':'') + ' worth pitching</div>' +
+            opps.slice(0, 5).map(o => {
+              const val = (o.estimatedValueLow && o.estimatedValueHigh)
+                ? '$' + Number(o.estimatedValueLow).toLocaleString() + ' to $' + Number(o.estimatedValueHigh).toLocaleString() : '';
+              return '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:11px 13px;margin-bottom:8px">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+                  '<span style="font-size:13px;font-weight:700;color:var(--text)">' + escHtml(o.brand || 'Brand') + '</span>' +
+                  (o.fitScore ? '<span style="font-size:10px;font-weight:700;color:var(--accent)">Fit ' + o.fitScore + '</span>' : '') +
+                '</div>' +
+                (o.category ? '<div style="font-size:10px;color:var(--muted);margin-top:1px">' + escHtml(o.category) + (val ? ' · ' + val : '') + '</div>' : (val ? '<div style="font-size:10px;color:var(--muted);margin-top:1px">' + val + '</div>' : '')) +
+                (o.campaign ? '<div style="font-size:11px;color:var(--text);margin-top:5px;line-height:1.5">' + escHtml(o.campaign) + '</div>' : '') +
+              '</div>';
+            }).join('') +
+            '<div style="font-size:10px;color:var(--muted);text-align:center;margin-top:2px">Full results, including social brands and top NIL spenders, are on the Deal Scan tab.</div>';
+        }
+        obLog(3, 'completed');
+      } catch(e) {
+        out.innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);font-size:12px">Deal Scan had trouble just now. No problem, you can run it from the dashboard. Continue below.</div>';
+      }
+      btn.disabled = false; btn.style.opacity = '';
+      const cont = document.getElementById('ob-scan-continue');
+      if (cont) cont.style.flex = '2';
     }
 
-    async function obSkipDeal() {
-      document.getElementById('ob-deal-check-icon').textContent = '–';
-      obStep(4);
+    // ── Step 4: Connect Gmail and Calendar ──────────────────────────────────
+    async function obRenderConnect() {
+      const body = document.getElementById('ob-connect-body');
+      body.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:8px 0">Checking connections...</div>';
+      let gmailConnected = false, calAvailable = true, calConnected = false;
+      try {
+        const g = await fetch(`${API_BASE}/api/email/accounts`).then(r => r.ok ? r.json() : []).catch(() => []);
+        const list = Array.isArray(g) ? g : (g.accounts || []);
+        gmailConnected = list.some(a => (a.provider === 'gmail') || /gmail|google/i.test(a.provider || ''));
+      } catch(_) {}
+      try {
+        const c = await fetch(`${API_BASE}/api/agent/calendar/google/status`).then(r => r.json());
+        calAvailable = c.available !== false; calConnected = !!c.connected;
+      } catch(_) {}
+
+      const row = (title, sub, connected, action, actionLabel) =>
+        '<div style="display:flex;align-items:center;gap:12px;background:var(--surface2);border-radius:var(--r-sm);padding:12px 14px">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-size:13px;font-weight:700;color:var(--text)">' + title + '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + sub + '</div>' +
+          '</div>' +
+          (connected
+            ? '<span style="font-size:12px;font-weight:700;color:#22c55e;white-space:nowrap">Connected</span>'
+            : '<button onclick="' + action + '" style="background:var(--accent);border:none;color:#000;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:12px;font-weight:700;white-space:nowrap">' + actionLabel + '</button>') +
+        '</div>';
+
+      body.innerHTML =
+        row('Gmail', 'AI outreach sends from your own inbox', gmailConnected, "obConnectGmail()", 'Connect') +
+        (calAvailable
+          ? row('Google Calendar', 'Deal deliverables land on your calendar', calConnected, "obConnectCalendar()", 'Connect')
+          : '<div style="font-size:11px;color:var(--muted);padding:4px 2px">Calendar sync is not enabled on this server yet.</div>');
+    }
+
+    function obConnectGmail() {
+      // OAuth redirects away. The wizard resumes at step 4 on return because
+      // progress is persisted server-side.
+      try {
+        if (typeof emailModule !== 'undefined' && emailModule.connectGmail) { emailModule.connectGmail(); }
+        else { window.location.href = '/api/email/oauth/gmail'; }
+      } catch(_) { window.location.href = '/api/email/oauth/gmail'; }
+    }
+    function obConnectCalendar() {
+      if (typeof connectAgentGCal === 'function') connectAgentGCal();
+    }
+
+    // ── Step 5: Done ────────────────────────────────────────────────────────
+    function obRenderDone() {
+      const items = [
+        { done: true, label: (obData.name ? obData.name + ' added to your roster' : 'Athlete added') },
+        { done: obDidScan, label: obDidScan ? 'First Deal Scan run' : 'Deal Scan ready to run' },
+      ];
+      document.getElementById('ob-done-list').innerHTML = items.map(it =>
+        '<div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text)">' +
+          '<span style="width:18px;height:18px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;' +
+            (it.done ? 'background:var(--accent);color:#000' : 'background:var(--surface2);color:var(--muted)') + '">' + (it.done ? '✓' : '·') + '</span>' +
+          it.label +
+        '</div>'
+      ).join('');
     }
 
     async function obFinish() {
+      if (_obRotateTimer) { clearInterval(_obRotateTimer); _obRotateTimer = null; }
       document.getElementById('onboardingOverlay').style.display = 'none';
-      localStorage.setItem('nildash-onboarded-' + currentUser.id, '1');
-      await loadAthletes();
-      await loadKPIs();
-      await loadPipeline();
-      showView('rate', document.querySelector('.nav-item'));
-      showToast('Welcome to NILDash! ');
+      try { localStorage.setItem('nildash-onboarded-' + currentUser.id, '1'); } catch(_) {}
+      await fetch(`${API_BASE}/api/onboarding/complete`, { method:'POST' }).catch(() => {});
+      obLog(5, 'completed');
+      try {
+        await loadAthletes();
+        await loadKPIs();
+        if (typeof loadPipeline === 'function') await loadPipeline();
+      } catch(_) {}
+      const homeBtn = document.getElementById('homeNavBtn');
+      showView('home', homeBtn);
+      if (typeof loadAgentHome === 'function') loadAgentHome();
+      if (typeof NILOnboard !== 'undefined' && NILOnboard.refreshChecklist) NILOnboard.refreshChecklist();
+      showToast('You are all set. Welcome to NILDash.');
     }
 
+    // Guard on ACCOUNT STATE, not just a local flag, so existing users with
+    // athletes never see the wizard after this deploy, while a user mid-flow
+    // resumes at the right step even after saving their first athlete.
     async function checkOnboarding() {
-      const key = 'nildash-onboarded-' + currentUser.id;
-      if (!localStorage.getItem(key) && athletes.length === 0) {
-        const first = (currentUser.name || (currentUser.email||'').split('@')[0] || 'there').split(/\s+/)[0];
-        document.getElementById('ob-name').textContent = first;
-        document.getElementById('onboardingOverlay').style.display = 'flex';
-        obStep(1);
+      try {
+        let state = null;
+        try { state = await fetch(`${API_BASE}/api/onboarding`).then(r => r.ok ? r.json() : null); } catch(_) {}
+
+        if (state) {
+          // Finished the wizard once → never show again.
+          if (state.wizardCompletedAt) return;
+          // Mid-flow (started but not finished) → resume, even if an athlete was
+          // already saved in an earlier step.
+          if (state.wizardStep >= 1) {
+            document.getElementById('onboardingOverlay').style.display = 'flex';
+            obStep(Math.min(state.wizardStep, OB_TOTAL));
+            return;
+          }
+          // Never started. Only brand-new accounts (no athletes) see it.
+          if (state.hasAthletes) return;
+          document.getElementById('onboardingOverlay').style.display = 'flex';
+          obStep(1);
+          return;
+        }
+
+        // Server/table unavailable — degrade to the safe local heuristic so a
+        // one-deploy-old DB never traps a user or spams the wizard.
+        const localDone = (function(){ try { return localStorage.getItem('nildash-onboarded-' + currentUser.id); } catch(_) { return null; } })();
+        if (!localDone && (!athletes || athletes.length === 0)) {
+          document.getElementById('onboardingOverlay').style.display = 'flex';
+          obStep(1);
+        }
+      } catch(e) {
+        console.warn('checkOnboarding error:', e.message);
       }
     }
 
@@ -9846,6 +10260,7 @@ function exportCommissionCSV() {
 <script src="/nil-extras.js"></script>
 <script src="/email.js"></script>
 <script src="/outreach-engine.js"></script>
+<script src="/onboarding.js"></script>
 
 <!-- ── Athlete Emails Module ──────────────────────────────────────────────── -->
 <script>
@@ -12885,6 +13300,9 @@ if (typeof _origShowView === 'function') {
     _origShowView.apply(this, arguments);
     if (id === 'outreach') setTimeout(loadUnifiedOutreach, 100);
     if (id === 'marketing') setTimeout(amkPopulateAthleteSelector, 100);
+    // Onboarding: teaching empty states, first-visit tooltips, help icons,
+    // and the Getting Started checklist (Parts C/D/E). Never breaks navigation.
+    try { if (typeof NILOnboard !== 'undefined' && NILOnboard.onView) NILOnboard.onView(id); } catch(e) {}
   };
 }
 

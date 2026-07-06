@@ -10,7 +10,7 @@
 
 const express      = require('express');
 const router       = express.Router();
-const { pool }     = require('../store');
+const { pool, markChecklistItem } = require('../store');
 const orchestrator = require('../services/workflowOrchestrator');
 const enrichmentSvc = require('../services/companyEnrichment');
 const contactSvc   = require('../services/contactDiscovery');
@@ -273,6 +273,9 @@ router.post('/logs/:id/send', async (req, res) => {
       `INSERT INTO workflow_events (run_id, agent_id, event_type, payload) VALUES (NULL,$1,$2,$3)`,
       [req.session.userId, 'email_sent', JSON.stringify({ outreachId: log.id, brand: log.brand_name, to: toEmail })]
     ).catch(() => {});
+
+    // Getting Started checklist: first AI outreach email sent
+    markChecklistItem(req.session.userId, 'ai_outreach').catch(() => {});
 
     res.json({ ok: true, message: 'Email sent successfully' });
   } catch (e) {
