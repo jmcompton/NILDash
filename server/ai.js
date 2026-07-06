@@ -324,6 +324,10 @@ const SCHOOL_LOCATIONS = {
   'UConn': { city: 'Storrs', state: 'Connecticut' },
   'Yale University': { city: 'New Haven', state: 'Connecticut' },
   'University of Alabama': { city: 'Tuscaloosa', state: 'Alabama' },
+  'Samford University': { city: 'Homewood', state: 'Alabama' },
+  'Samford': { city: 'Homewood', state: 'Alabama' },
+  'UAB': { city: 'Birmingham', state: 'Alabama' },
+  'University of Alabama at Birmingham': { city: 'Birmingham', state: 'Alabama' },
   'Auburn University': { city: 'Auburn', state: 'Alabama' },
   'University of Georgia': { city: 'Athens', state: 'Georgia' },
   'Georgia Tech': { city: 'Atlanta', state: 'Georgia' },
@@ -424,15 +428,19 @@ async function getSchoolLocation(school) {
   const cacheKey = school.trim().toLowerCase();
   if (_schoolLocationCache.has(cacheKey)) return _schoolLocationCache.get(cacheKey);
 
-  // Web-search geocode for schools not in the map.
+  // Web-search geocode for schools not in the map. Hard-capped at 6s: this runs
+  // serially BEFORE the Deal Scan search phase, and an uncapped geocode was a
+  // silent double-digit-seconds tax on every scan for an unmapped school.
   try {
-    const raw = await oneShotWebSearch(
+    const _tGeo = Date.now();
+    const raw = await withTimeout(oneShotWebSearch(
       `What U.S. city and state is "${school}" located in? Use web search to confirm. Return ONLY JSON: {"city":"","state":""}`,
       'You are a geocoding API. Return ONLY a single JSON object with the school\'s real city and full state name. No prose.',
       300,
-      2,
+      1,
       MODEL_FAST
-    );
+    ), 6000, '');
+    console.log(`[getSchoolLocation] web geocode for "${school}" took ${Date.now() - _tGeo}ms`);
     const m = raw && raw.match(/\{[\s\S]*\}/);
     if (m) {
       const parsed = JSON.parse(m[0]);
@@ -847,6 +855,9 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
 
     // Two category bundles per the taxonomy for the school market, one combined
     // sweep for the hometown market. All parallel; each hard-capped at 8s.
+    // max_uses is 2 per call so each search call reliably finishes inside the
+    // cap (3 internal searches often blew past 8s and timed out to '', which is
+    // how live hometown results went missing).
     const schoolQ1 = mk(
       `car dealerships, gyms and training facilities, restaurants, smoothie and supplement shops in ${city}, ${state} that sponsor local sports teams, run local ads, or have done NIL deals with ${school} athletes`,
       `${catHint}, car dealerships, restaurants and food spots, smoothie and supplement shops`
@@ -856,8 +867,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       'chiropractors and physical therapy, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons'
     );
     const searchDefs = [
-      { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ1, searchSys, 800, 3, MODEL_DEALSCAN), 8000, '') },
-      { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ2, searchSys, 800, 3, MODEL_DEALSCAN), 8000, '') },
+      { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ1, searchSys, 800, 2, MODEL_DEALSCAN), 8000, '') },
+      { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ2, searchSys, 800, 2, MODEL_DEALSCAN), 8000, '') },
     ];
     if (hasHometown) {
       searchDefs.push({
@@ -865,9 +876,10 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         p: withTimeout(oneShotWebSearch(mk(
           `local businesses in ${hometown} across car dealerships, restaurants, gyms and training facilities, supplement shops, chiropractors, boutiques, real estate agents, banks, med spas that sponsor local youth sports or spend on local marketing`,
           `${catHint}, plus the full local taxonomy in ${hometown}`
-        ), searchSys, 800, 3, MODEL_DEALSCAN), 8000, ''),
+        ), searchSys, 800, 2, MODEL_DEALSCAN), 8000, ''),
       });
     }
+    const _tSearch = Date.now();
     const settled = await Promise.allSettled(searchDefs.map((s) => s.p));
 
     const found = [];
@@ -893,7 +905,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       } catch (_) { /* skip unparseable search result */ }
     };
     settled.forEach((s, idx) => { if (s.status === 'fulfilled') collectLocal(s.value, searchDefs[idx].market); });
-    console.log(`[dealScan] phase 1 category search found ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _t0}ms`);
+    console.log(`[dealScan] phase 1 category search found ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _tSearch}ms (elapsed ${Date.now() - _t0}ms)`);
 
     // One broadened retry before falling back.
     if (found.length < 3) {
@@ -911,12 +923,30 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     if (found.length < 3) throw new Error(`only ${found.length} web candidates`);
 
     // Phase 2 — score + enrich the real businesses (no web search, fast).
-    // Target 8-10 results; capped by how many real candidates the search found.
+    // Target 8 results (latency: shorter output than the old "8 to 10" +
+    // 2-3 sentence rationales); capped by how many real candidates exist.
+    const hometownFound = found.filter((f) => f.market === 'hometown');
+    if (hasHometown && hometownFound.length === 0) {
+      console.warn(`[dealScan] hometown search found 0 viable candidates for "${hometown}" — local lane will be school-market only`);
+    }
+    // Reserve 2-3 slots for hometown whenever its search found anything viable,
+    // so school results cannot crowd them out.
+    const reserveHometown = hasHometown ? Math.min(3, hometownFound.length) : 0;
     const wantCount = Math.min(8, found.length);
     const marketScoringLine = hasHometown
-      ? `Each candidate carries a "market" field: "school" (${city}, near ${school}) or "hometown" (${hometown} — the athlete GREW UP there; use the hometown-hero angle: local recognition, community ties, "local kid makes good"). Keep the market value from the input. Include hometown picks when they are strong — a balanced spread across both markets beats one-market clustering.`
+      ? `Each candidate carries a "market" field: "school" (${city}, near ${school}) or "hometown" (${hometown} — the athlete GREW UP there; use the hometown-hero angle: local recognition, community ties, "local kid makes good"). Keep the market value from the input.${reserveHometown ? ` HARD REQUIREMENT: include AT LEAST ${reserveHometown} hometown-market pick(s). Those slots are reserved for hometown even if school candidates score higher.` : ''}`
       : `Every candidate is in the school market ("market":"school").`;
-    const candidatesJson = JSON.stringify(found.slice(0, 20));
+    // Compact candidate payload (drop null/false fields) to cut scoring latency.
+    const compactFound = found.slice(0, 16).map((f) => {
+      const o = { name: f.name, market: f.market };
+      if (f.website) o.website = f.website;
+      if (f.category) o.category = f.category;
+      if (f.email) o.email = f.email;
+      if (f.evidence) o.evidence = f.evidence;
+      if (f.franchise) o.franchise = true;
+      return o;
+    });
+    const candidatesJson = JSON.stringify(compactFound);
     const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}, ${city}, ${state}${hasHometown ? `, hometown ${hometown}` : ''}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}
 
 These REAL local businesses were just found via web search (with any local-marketing evidence the search surfaced):
@@ -926,27 +956,68 @@ ${marketScoringLine}
 
 ${FRANCHISE_RULE}
 
-Pick the best ${wantCount} to 10 for this athlete (fewer if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
+Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} Rationale is 1-2 tight sentences. When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
 [{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"market":"school|hometown","isFranchise":false,"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
 
-    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business, evidence, or an email domain — only use the businesses, evidence, and domains provided.', 2600, MODEL_DEALSCAN);
+    const _tScore = Date.now();
+    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business, evidence, or an email domain — only use the businesses, evidence, and domains provided.', 1900, MODEL_DEALSCAN);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');
     if (si === -1 || ei <= si) throw new Error('No array in scoring response');
-    const parsed = JSON.parse(c.substring(si, ei + 1));
+    let parsed = JSON.parse(c.substring(si, ei + 1));
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-    parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-    console.log(`[dealScan] phase 2 scored ${parsed.length} brand(s) — local lane total ${Date.now() - _t0}ms`);
-    // Map business name -> website + market so finalize can validate emails and
-    // repair any market value the scorer dropped.
+    // Map business name -> full candidate so finalize can validate emails and
+    // repair any market/franchise value the scorer dropped.
     const metaByName = new Map();
     for (const f of found) if (f.name) metaByName.set(f.name.toLowerCase().trim(), f);
-    return parsed.map((d, i) => {
+    for (const d of parsed) {
       const meta = metaByName.get((d.brand || '').toLowerCase().trim());
       if (meta && d.market !== 'school' && d.market !== 'hometown') d.market = meta.market;
       if (meta && d.isFranchise !== true && meta.franchise === true) d.isFranchise = true;
-      return finalizeLocal(d, i, 'web', meta ? meta.website : null);
+    }
+
+    // ── Guaranteed hometown slots (deterministic backstop) ────────────────────
+    // If the scorer still under-delivered on hometown picks, splice in the top
+    // unused hometown candidates with a template hometown-hero rationale (citing
+    // real evidence when the search found some, never inventing any), trimming
+    // the lowest-scored school picks to keep the lane at 8-10.
+    if (reserveHometown > 0) {
+      const inParsed = new Set(parsed.map((d) => (d.brand || '').toLowerCase().trim()));
+      let haveHometown = parsed.filter((d) => d.market === 'hometown').length;
+      if (haveHometown < Math.min(2, reserveHometown)) {
+        console.warn(`[dealScan] scorer returned ${haveHometown} hometown pick(s) — enforcing ${reserveHometown} reserved slot(s)`);
+      }
+      const spares = hometownFound.filter((f) => !inParsed.has(f.name.toLowerCase().trim()));
+      while (haveHometown < reserveHometown && spares.length) {
+        const f = spares.shift();
+        parsed.push({
+          brand: f.name, tier: 'local', category: f.category || 'local', dealType: 'post',
+          campaign: `Hometown feature with ${f.name} for ${athlete.name}`,
+          rationale: (f.evidence ? `${f.evidence}. ` : '') +
+            `${athlete.name} grew up in ${hometownCity}, and a hometown athlete is an easy yes for a local business marketing to the community that knows them.`,
+          estimatedValueLow: valLow, estimatedValueHigh: valHigh,
+          contactApproach: 'Reach out to the owner or manager directly and lead with the hometown connection.',
+          timingNote: '', fitScore: 74 - (reserveHometown - spares.length),
+          isLocal: true, market: 'hometown', isFranchise: f.franchise === true,
+          contactName: null, contactTitle: 'Owner', contactEmail: f.email || null, contactLinkedIn: null,
+          website: f.website || null,
+        });
+        haveHometown++;
+      }
+      // Trim lowest-scored school picks to stay within 10 results.
+      if (parsed.length > 10) {
+        const school = parsed.filter((d) => d.market !== 'hometown').sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+        const home = parsed.filter((d) => d.market === 'hometown');
+        parsed = school.slice(0, 10 - home.length).concat(home);
+      }
+    }
+
+    parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+    console.log(`[dealScan] phase 2 scored ${parsed.length} brand(s) (${parsed.filter((d) => d.market === 'hometown').length} hometown) in ${Date.now() - _tScore}ms — local lane total ${Date.now() - _t0}ms`);
+    return parsed.map((d, i) => {
+      const meta = metaByName.get((d.brand || '').toLowerCase().trim());
+      return finalizeLocal(d, i, 'web', meta ? meta.website : (d.website || null));
     });
   } catch (webErr) {
     console.warn('[dealScan] category web-search path failed, trying model knowledge:', webErr.message);

@@ -5034,7 +5034,8 @@ async function loadDealScanAthlete(athleteId) {
             a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
             a.data->>'schoolTier' as school_tier, a.data->>'instagram' as ig,
             a.data->>'tiktok' as tt, a.data->>'position' as position, a.data->>'year' as year,
-            a.data->>'engagement' as engagement, a.data->>'stats' as stats
+            a.data->>'engagement' as engagement, a.data->>'stats' as stats,
+            a.data->>'hometown' as hometown, a.data->>'notes' as notes
      FROM athletes a WHERE a.id = $1`,
     [athleteId]
   );
@@ -5054,6 +5055,11 @@ async function loadDealScanAthlete(athleteId) {
     tiktok: dsTt,
     engagement: parseFloat(ath.engagement) || 0,
     stats: ath.stats || '',
+    // hometown drives the Deal Scan second market; notes drive category
+    // weighting. Omitting them here is what silently disabled hometown
+    // results in production.
+    hometown: ath.hometown || '',
+    notes: ath.notes || '',
   };
   return { agentId: ath.agent_id, athleteObj };
 }
@@ -5066,9 +5072,12 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     const athleteObj = loaded.athleteObj;
 
     const excludeBrands = req.body.exclude_brands || [];
-    // Lane: 'local' (default), 'social', or 'topnil'. The frontend fires all
-    // three in parallel and renders each column as it returns.
-    const lane = ['local', 'social', 'topnil'].includes(req.body.lane) ? req.body.lane : 'local';
+    // Lane: 'local' (default when omitted), 'social', or 'topnil'. An
+    // unrecognized value is a 400, never a silent full local run.
+    if (req.body.lane !== undefined && req.body.lane !== null && !['local', 'social', 'topnil'].includes(req.body.lane)) {
+      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, social, topnil.' });
+    }
+    const lane = req.body.lane || 'local';
     console.log(`[athlete/deal-scan] athlete=${req.athlete.id} lane=${lane} name=${athleteObj.name} sport=${athleteObj.sport} school=${athleteObj.school}`);
     const recommendations = await ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands, lane);
     await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_scan', `Ran deal scan (${lane})`, {});
@@ -5106,7 +5115,13 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     const _ru = await store.getUser(req.session.userId);
     const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
     if (loaded.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
-    const validLane = ['local', 'social', 'topnil'].includes(lane) ? lane : 'local';
+    // Lane must be one of the known set. A missing lane defaults to 'local' for
+    // backward compatibility; a PRESENT but unrecognized value is a 400 so a bad
+    // client cannot silently burn a full local pipeline run.
+    if (lane !== undefined && lane !== null && !['local', 'social', 'topnil'].includes(lane)) {
+      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, social, topnil.' });
+    }
+    const validLane = lane || 'local';
     const excludeBrands = Array.isArray(exclude_brands) ? exclude_brands : [];
     let recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
     // Keep Refresh full: if excluding shown brands leaves a thin lane, top up from a no-exclude
