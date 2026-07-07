@@ -561,6 +561,47 @@ function deriveMatchedTags(d, meta, athleteTagSubs) {
   return [...out];
 }
 
+// Tolerant JSON-array extraction. Salvages every complete object from
+// truncated model output (max_tokens cutoffs leave the array unterminated,
+// which used to make the whole search look "parsed-but-empty") instead of
+// discarding the response. Candidate objects are flat, so brace matching is
+// safe.
+function extractJsonArrayItems(raw) {
+  const t = String(raw || '').replace(/```json/g, '').replace(/```/g, '').trim();
+  const a = t.indexOf('[');
+  if (a === -1) return { items: [], salvaged: false };
+  const body = t.slice(a);
+  const b = body.lastIndexOf(']');
+  if (b > 0) {
+    try {
+      const arr = JSON.parse(body.slice(0, b + 1));
+      if (Array.isArray(arr)) return { items: arr, salvaged: false };
+    } catch (_) { /* fall through to per-object salvage */ }
+  }
+  const items = [];
+  const re = /\{[^{}]*\}/g;
+  let m;
+  while ((m = re.exec(body))) {
+    try { items.push(JSON.parse(m[0])); } catch (_) { /* skip incomplete object */ }
+  }
+  return { items, salvaged: true };
+}
+
+// Instrumented, capped search call. Resolves with {status, raw, ms} so the
+// caller can log EXACTLY why a search produced nothing (timeout vs error vs
+// parsed-but-empty) — reasons are never swallowed.
+function timedSearch(p, capMs) {
+  const t0 = Date.now();
+  const tagged = Promise.resolve(p).then(
+    (r) => ({ status: 'ok', raw: r || '', ms: Date.now() - t0 }),
+    (e) => ({ status: 'error', err: (e && e.message) || String(e), raw: '', ms: Date.now() - t0 })
+  );
+  return Promise.race([
+    tagged,
+    new Promise((res) => setTimeout(() => res({ status: 'timeout', raw: '', ms: capMs }), capMs)),
+  ]);
+}
+
 // ─── Deal Scan: SOCIAL + TOP NIL SPENDER lanes ───────────────────────────────
 // Shared two-phase (parallel web search → fast scoring) brand-discovery helper
 // for the two non-local lanes. Unlike the LOCAL lane, these are NOT tied to the
@@ -645,20 +686,16 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
     const found = [];
     const seen = new Set();
     const collect = (raw) => {
-      try {
-        const t = (raw || '').replace(/```json/g, '').replace(/```/g, '').trim();
-        const a = t.indexOf('['), b = t.lastIndexOf(']');
-        if (a === -1 || b <= a) return;
-        const arr = JSON.parse(t.substring(a, b + 1));
-        for (const it of (Array.isArray(arr) ? arr : [])) {
-          const nm = ((it && it.name) || '').trim();
-          if (!nm) continue;
-          const key = nm.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null, evidence: it.evidence || null });
-        }
-      } catch (_) { /* skip unparseable */ }
+      // Salvage-tolerant: truncated arrays still yield their complete objects.
+      const { items } = extractJsonArrayItems(raw);
+      for (const it of items) {
+        const nm = ((it && it.name) || '').trim();
+        if (!nm) continue;
+        const key = nm.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null, evidence: it.evidence || null });
+      }
     };
     for (const s of settled) if (s.status === 'fulfilled') collect(s.value);
     console.log(`[dealScan:${lane}] phase 1 found ${found.length} candidates in ${Date.now() - _laneT0}ms`);
@@ -964,7 +1001,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     console.log(`[dealScan] category web search primary — model=${MODEL_DEALSCAN} market=${schoolMarket}${hasHometown ? ` + hometown ${hometown}` : ''} sport=${sport}`);
 
     const searchSys = 'You find real local businesses via web search. Output ONLY a JSON array, no commentary, no markdown.';
-    const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email","evidence","franchise"}. For EVERY business, actively look for marketing-activity signals: sponsors a high school, youth, or college team; runs local ads or billboards; has done NIL or athlete partnerships before; runs an active promotional social media presence. "evidence": one short line describing ONLY what the search actually shows (e.g. "Sponsors Homewood High athletics"), null when nothing found — never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. ONLY a JSON array.`;
+    const mk = (q, cats) => `Use web search: ${q}. Return up to 6 REAL businesses you actually find, each as {"name","website","category","email","evidence","franchise"}. For EVERY business, actively look for marketing-activity signals: sponsors a high school, youth, or college team; runs local ads or billboards; has done NIL or athlete partnerships before; runs an active promotional social media presence. "evidence": under 12 words describing ONLY what the search actually shows (e.g. "Sponsors Homewood High athletics"), null when nothing found — never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. Output ONLY the JSON array, no commentary before it.`;
 
     // Athlete interest tags: tagged categories lead the search emphasis on a
     // cache miss, at SUB-TAG specificity ("smoothies, supplements, gyms"), and
@@ -986,10 +1023,15 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       store.getMarketCache(schoolCacheKey),
       hometownCacheKey ? store.getMarketCache(hometownCacheKey) : Promise.resolve(null),
     ]);
+    // A thin cached pool (from a partially successful search day) is used AND
+    // topped up with a live search, then rewritten, so partial pools speed up
+    // the next scan without freezing a bad day for the whole TTL.
+    const schoolThin = !!(schoolCached && schoolCached.candidates.length < 5);
+    const hometownThin = !!(hometownCached && hometownCached.candidates.length < 2);
     const _ageH = (cc) => Math.round((Date.now() - new Date(cc.fetchedAt).getTime()) / 3600000);
     console.log(
-      `[dealScan] market cache ${schoolCached ? `HIT ${schoolCacheKey} (${schoolCached.candidates.length} candidates, age ${_ageH(schoolCached)}h)` : `MISS ${schoolCacheKey}`}` +
-      (hometownCacheKey ? ` | ${hometownCached ? `HIT ${hometownCacheKey} (${hometownCached.candidates.length} candidates, age ${_ageH(hometownCached)}h)` : `MISS ${hometownCacheKey}`}` : '')
+      `[dealScan] market cache ${schoolCached ? `HIT ${schoolCacheKey} (${schoolCached.candidates.length} candidates, age ${_ageH(schoolCached)}h${schoolThin ? ', thin - topping up' : ''})` : `MISS ${schoolCacheKey}`}` +
+      (hometownCacheKey ? ` | ${hometownCached ? `HIT ${hometownCacheKey} (${hometownCached.candidates.length} candidates, age ${_ageH(hometownCached)}h${hometownThin ? ', thin - topping up' : ''})` : `MISS ${hometownCacheKey}`}` : '')
     );
 
     const found = [];
@@ -1006,84 +1048,91 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         franchise: it.franchise === true, market,
       });
     };
-    const collectLocal = (raw, market) => {
-      try {
-        const t = (raw || '').replace(/```json/g, '').replace(/```/g, '').trim();
-        const a = t.indexOf('['), b = t.lastIndexOf(']');
-        if (a === -1 || b <= a) return;
-        const arr = JSON.parse(t.substring(a, b + 1));
-        for (const it of (Array.isArray(arr) ? arr : [])) addCandidate(it, market);
-      } catch (_) { /* skip unparseable search result */ }
-    };
-
     // Serve cached markets straight into the pool (market re-tagged from the
     // cache bucket, never trusted from the stored blob).
     if (schoolCached) for (const cnd of schoolCached.candidates) addCandidate(cnd, 'school');
     if (hometownCached) for (const cnd of hometownCached.candidates) addCandidate(cnd, 'hometown');
 
-    // Live searches ONLY for cache misses. Two full-taxonomy category bundles
-    // for the school market, one combined sweep for the hometown market. All
-    // parallel; each hard-capped at 20s with max 2 internal web searches.
-    // The old 8s cap was below real production search latency, so every search
-    // timed out to empty and every scan fell through to the slow, tagless,
-    // cacheless knowledge path — the root cause of the 73s no-cache no-tags
-    // scans. Wall-clock stays ~one search since they run in parallel.
-    const SEARCH_CAP_MS = 20000;
+    // Live searches for cache misses (and thin cached pools, topped up).
+    // The old two big category bundles asked one call for 8 businesses x 6
+    // fields; the JSON regularly blew past max_tokens and truncated, which
+    // parsed as empty — so EVERY production scan "found 0" and fell to the
+    // knowledge path. Now: smaller single-purpose searches that finish
+    // reliably, a 30s cap (parallel, so wall-clock stays about one search),
+    // per-call outcome logging, and truncation salvage in the parser.
+    const LOCAL_SEARCH_CAP_MS = 30000;
     const searchDefs = [];
-    if (!schoolCached) {
-      const schoolQ1 = mk(
-        `car dealerships, gyms and training facilities, restaurants, smoothie and supplement shops in ${city}, ${state} that sponsor local sports teams, run local ads, or have done NIL deals with ${school} athletes${tagEmphasisQ}`,
-        `${catHint}, car dealerships, restaurants and food spots, smoothie and supplement shops`
-      );
-      const schoolQ2 = mk(
-        `chiropractors, physical therapy clinics, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons in ${city}, ${state} that advertise locally or sponsor high school and youth sports`,
-        'chiropractors and physical therapy, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons'
-      );
+    if (!schoolCached || schoolThin) {
       searchDefs.push(
-        { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ1, searchSys, 800, 2, MODEL_DEALSCAN), SEARCH_CAP_MS, '') },
-        { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ2, searchSys, 800, 2, MODEL_DEALSCAN), SEARCH_CAP_MS, '') },
+        { label: 'school-auto-gym', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `car dealerships, gyms and training facilities in ${city}, ${state} that sponsor local sports teams or run local ads${tagEmphasisQ}`,
+          `${catHint}, car dealerships, gyms and training facilities`), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'school-food-nutrition', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `restaurants, food spots, smoothie and supplement shops in ${city}, ${state} that sponsor school sports or advertise locally${tagEmphasisQ}`,
+          'restaurants and food spots, smoothie and supplement shops'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'school-services', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `chiropractors, physical therapy, boutiques, real estate agents, banks, credit unions, med spas in ${city}, ${state} that advertise locally or sponsor high school and youth sports`,
+          'chiropractors and physical therapy, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
-    if (hasHometown && !hometownCached) {
-      searchDefs.push({
-        market: 'hometown',
-        p: withTimeout(oneShotWebSearch(mk(
-          `local businesses in ${hometown} across car dealerships, restaurants, gyms and training facilities, supplement shops, chiropractors, boutiques, real estate agents, banks, med spas that sponsor local youth sports or spend on local marketing${tagEmphasisQ}`,
-          `${catHint}, plus the full local taxonomy in ${hometown}`
-        ), searchSys, 800, 2, MODEL_DEALSCAN), SEARCH_CAP_MS, ''),
-      });
+    if (hasHometown && (!hometownCached || hometownThin)) {
+      searchDefs.push(
+        { label: 'hometown-core', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
+          `car dealerships, gyms, restaurants, smoothie and supplement shops in ${hometown} that sponsor local youth sports or spend on local marketing${tagEmphasisQ}`,
+          `${catHint}, car dealerships, restaurants, smoothie and supplement shops in ${hometown}`), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'hometown-services', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
+          `chiropractors, boutiques, real estate agents, banks, med spas in ${hometown} that advertise locally or sponsor youth sports`,
+          'chiropractors, boutiques and local retail, real estate agents, banks, med spas'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+      );
     }
 
     if (searchDefs.length) {
       const _tSearch = Date.now();
-      const settled = await Promise.allSettled(searchDefs.map((s) => s.p));
-      settled.forEach((s, idx) => { if (s.status === 'fulfilled') collectLocal(s.value, searchDefs[idx].market); });
+      const outcomes = await Promise.all(searchDefs.map((s) => s.p));
+      outcomes.forEach((o, idx) => {
+        const def = searchDefs[idx];
+        let detail = '';
+        if (o.status === 'ok') {
+          const before = found.length;
+          const { items, salvaged } = extractJsonArrayItems(o.raw);
+          for (const it of items) addCandidate(it, def.market);
+          detail = items.length
+            ? ` — ${items.length} parsed${salvaged ? ' (SALVAGED from truncated output)' : ''}, ${found.length - before} new`
+            : ` — parsed-but-empty (raw ${o.raw.length} chars)`;
+        } else if (o.status === 'error') {
+          detail = ` — ${o.err}`;
+        }
+        console.log(`[dealScan] search ${def.label}: ${o.status.toUpperCase()} in ${o.ms}ms${detail}`);
+      });
       console.log(`[dealScan] phase 1 live search found ${found.length} candidates total (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _tSearch}ms (elapsed ${Date.now() - _t0}ms)`);
 
       // One broadened retry before falling back.
       if (found.length < 3) {
         console.warn(`[dealScan] only ${found.length} candidates — running one broadened retry search`);
-        try {
-          const retryRaw = await withTimeout(oneShotWebSearch(
-            mk(`popular local businesses, restaurants, gyms, car dealerships and shops in ${city}, ${state}`, 'any local business that advertises locally'),
-            searchSys, 800, 3, MODEL_DEALSCAN
-          ), SEARCH_CAP_MS, '');
-          collectLocal(retryRaw, 'school');
-        } catch (_) { /* retry failed — fall through to the count check */ }
-        console.log(`[dealScan] after retry: ${found.length} candidate businesses`);
+        const retryOut = await timedSearch(oneShotWebSearch(
+          mk(`popular local businesses, restaurants, gyms, car dealerships and shops in ${city}, ${state}`, 'any local business that advertises locally'),
+          searchSys, 900, 3, MODEL_DEALSCAN
+        ), LOCAL_SEARCH_CAP_MS);
+        if (retryOut.status === 'ok') {
+          const { items } = extractJsonArrayItems(retryOut.raw);
+          for (const it of items) addCandidate(it, 'school');
+        }
+        console.log(`[dealScan] retry: ${retryOut.status.toUpperCase()} in ${retryOut.ms}ms — now ${found.length} candidate businesses`);
       }
 
-      // Write fresh results through to the market cache (never cache thin or
-      // empty pools, so one bad search day cannot poison the TTL window).
-      // setMarketCache logs WRITE ok / WRITE FAILED loudly; skips log here.
-      if (!schoolCached) {
-        const freshSchool = found.filter((f) => f.market === 'school');
-        if (freshSchool.length >= 3) store.setMarketCache(schoolCacheKey, freshSchool);
-        else console.warn(`[dealScan] market cache write SKIPPED ${schoolCacheKey}: only ${freshSchool.length} school candidates (need 3)`);
+      // Write through to the market cache whenever ANY candidates exist for a
+      // searched market. Partial pools are fine (a partially successful day
+      // still speeds up the next scan); empty pools are never cached. Thin
+      // cached pools that were topped up get rewritten with the merged pool.
+      // setMarketCache logs WRITE ok / WRITE FAILED loudly.
+      if (!schoolCached || schoolThin) {
+        const poolSchool = found.filter((f) => f.market === 'school');
+        if (poolSchool.length >= 1) store.setMarketCache(schoolCacheKey, poolSchool);
+        else console.warn(`[dealScan] market cache write SKIPPED ${schoolCacheKey}: 0 school candidates`);
       }
-      if (hometownCacheKey && !hometownCached) {
-        const freshHome = found.filter((f) => f.market === 'hometown');
-        if (freshHome.length >= 1) store.setMarketCache(hometownCacheKey, freshHome);
+      if (hometownCacheKey && (!hometownCached || hometownThin)) {
+        const poolHome = found.filter((f) => f.market === 'hometown');
+        if (poolHome.length >= 1) store.setMarketCache(hometownCacheKey, poolHome);
         else console.warn(`[dealScan] market cache write SKIPPED ${hometownCacheKey}: 0 hometown candidates`);
       }
     } else {
@@ -1229,6 +1278,8 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
       category: i===0?'equipment':i===1?'nutrition':'apparel',
       dealType: i<2?'ambassador':'reel',
       rationale: `Strong fit for ${sport} athletes — established brand with college NIL programs.`,
+      matchedTags: deriveMatchedTags({ brand: b, category: i===0?'equipment':i===1?'nutrition':'apparel' }, null, athleteTagSubs),
+      evidence: null, activelyMarketing: false,
       fitScore: 75-i*3, isLocal: false,
       estimatedValueLow: valLow, estimatedValueHigh: valHigh,
       suggestedRate: { low: rate.low, high: rate.high },
@@ -1514,5 +1565,7 @@ module.exports = {
   generateFollowUp,
   buildSystemPrompt,
   generateAthleteBrandKit,
-  generateOutreach
+  generateOutreach,
+  deriveMatchedTags,
+  validTagSubs
 };

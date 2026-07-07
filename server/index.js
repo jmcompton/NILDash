@@ -5235,8 +5235,8 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
 // GET /api/athlete/deal-scan/cache — hydrate the last persisted scan + rate card
 app.get('/api/athlete/deal-scan/cache', verifyAthleteToken, async (req, res) => {
   try {
-    const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id = $1', [req.athlete.id]);
-    const cache = (r.rows[0] && r.rows[0].deal_scan_cache) || {};
+    const r = await store.pool.query('SELECT deal_scan_cache, data->\'tags\' as tags FROM athletes WHERE id = $1', [req.athlete.id]);
+    const cache = rederiveScanCacheTags((r.rows[0] && r.rows[0].deal_scan_cache) || {}, (r.rows[0] && r.rows[0].tags) || []);
     const rateCard = await _athleteRateCard(req.athlete.id);
     res.json({ cache, rateCard });
   } catch (e) { console.error('[athlete/deal-scan/cache]', e.message); res.status(500).json({ error: e.message }); }
@@ -5285,6 +5285,24 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
   } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// Re-derive matchedTags on saved scan results at response-assembly time, so
+// historical scans (from any code version) and tag edits after a scan still
+// show correct chips. Purely additive: derivation is grounded in the result's
+// own strings and the athlete's REAL tags; with no tags it yields [].
+function rederiveScanCacheTags(cache, athleteTags) {
+  try {
+    const subs = ai.validTagSubs(athleteTags);
+    for (const laneKey of Object.keys(cache || {})) {
+      const opps = cache[laneKey] && cache[laneKey].opportunities;
+      if (!Array.isArray(opps)) continue;
+      for (const o of opps) {
+        o.matchedTags = ai.deriveMatchedTags(o, { evidence: o.evidence || null }, subs);
+      }
+    }
+  } catch (e) { console.warn('[deal-scan/cache] tag rederive failed:', e.message); }
+  return cache;
+}
+
 // GET /api/agent/deal-scan/cache — hydrate last persisted scan for a client athlete
 app.get('/api/agent/deal-scan/cache', requireAuth, async (req, res) => {
   try {
@@ -5295,7 +5313,7 @@ app.get('/api/agent/deal-scan/cache', requireAuth, async (req, res) => {
     const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
     if (athlete.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
     const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id = $1', [athleteId]);
-    const cache = (r.rows[0] && r.rows[0].deal_scan_cache) || {};
+    const cache = rederiveScanCacheTags((r.rows[0] && r.rows[0].deal_scan_cache) || {}, athlete.tags);
     const rateCard = await _athleteRateCard(athleteId);
     res.json({ cache, rateCard });
   } catch (e) { console.error('[agent/deal-scan/cache]', e.message); res.status(500).json({ error: e.message }); }
