@@ -5215,7 +5215,14 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     }
     const lane = req.body.lane || 'local';
     console.log(`[athlete/deal-scan] athlete=${req.athlete.id} lane=${lane} name=${athleteObj.name} sport=${athleteObj.sport} school=${athleteObj.school}`);
-    const recommendations = await ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands, lane);
+    let recommendations = await ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands, lane);
+    // Unconditional matchedTags derivation at the route boundary (same as the
+    // agent route): every lane, every source, right before persist/response.
+    const _tagSubs = ai.validTagSubs(athleteObj.tags);
+    recommendations = (recommendations || []).map((o) => ({
+      ...o,
+      matchedTags: ai.deriveMatchedTags(o, { evidence: o.evidence || null }, _tagSubs),
+    }));
     await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_scan', `Ran deal scan (${lane})`, {});
     console.log(`[athlete/deal-scan] lane=${lane} found=${recommendations.length}`);
     // Persist this lane's results so re-entering Deal Scan / reloading re-hydrates
@@ -5273,6 +5280,15 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
         if (key && !seen.has(key)) { seen.add(key); recommendations.push(f); }
       }
     }
+    // Unconditional matchedTags derivation at the route boundary, applied to
+    // the final array for EVERY lane and EVERY source (web, knowledge,
+    // fallback). This is the single spot every scan response passes through,
+    // so a lane path that forgets derivation can no longer ship empty tags.
+    const _tagSubs = ai.validTagSubs(loaded.athleteObj.tags);
+    recommendations = (recommendations || []).map((o) => ({
+      ...o,
+      matchedTags: ai.deriveMatchedTags(o, { evidence: o.evidence || null }, _tagSubs),
+    }));
     if (recommendations.length) {
       await store.pool.query(
         `UPDATE athletes SET deal_scan_cache = COALESCE(deal_scan_cache, '{}'::jsonb) || $1::jsonb WHERE id = $2`,

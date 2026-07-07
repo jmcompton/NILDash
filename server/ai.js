@@ -1156,8 +1156,22 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const marketScoringLine = hasHometown
       ? `Each candidate carries a "market" field: "school" (${city}, near ${school}) or "hometown" (${hometown} — the athlete GREW UP there; use the hometown-hero angle: local recognition, community ties, "local kid makes good"). Keep the market value from the input.${reserveHometown ? ` HARD REQUIREMENT: include AT LEAST ${reserveHometown} hometown-market pick(s). Those slots are reserved for hometown even if school candidates score higher.` : ''}`
       : `Every candidate is in the school market ("market":"school").`;
-    // Compact candidate payload (drop null/false fields) to cut scoring latency.
-    const compactFound = found.slice(0, 16).map((f) => {
+    // Map business name -> full candidate (email validation, market/franchise
+    // repair, and evidence pass-through in finalize).
+    const metaByName = new Map();
+    for (const f of found) if (f.name) metaByName.set(f.name.toLowerCase().trim(), f);
+
+    // Cap the candidates SENT to scoring at 14 (thin-cache top-ups can merge
+    // pools past 20, and scoring 24 candidates blew the output token budget:
+    // the truncated JSON crashed phase 2 and used to discard phase 1 entirely).
+    // Priority keeps the guarantees intact: tag matches first, then marketing
+    // evidence, then hometown reserve, then the rest.
+    const _candPriority = (f) => {
+      const tagHits = deriveMatchedTags({ brand: f.name, category: f.category }, f, athleteTagSubs).length;
+      return (tagHits ? 4 + tagHits : 0) + (f.evidence ? 2 : 0) + (f.market === 'hometown' ? 3 : 0);
+    };
+    const scoreCandidates = [...found].sort((a, b) => _candPriority(b) - _candPriority(a)).slice(0, 14);
+    const compactOf = (list) => JSON.stringify(list.map((f) => {
       const o = { name: f.name, market: f.market };
       if (f.website) o.website = f.website;
       if (f.category) o.category = f.category;
@@ -1165,40 +1179,80 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       if (f.evidence) o.evidence = f.evidence;
       if (f.franchise) o.franchise = true;
       return o;
-    });
-    const candidatesJson = JSON.stringify(compactFound);
+    }));
     const tagScoringLine = athleteTagSubs.length
       ? `\nATHLETE INTEREST TAGS: ${describeTags(athlete.tags).join(', ')}. BOOST candidates matching these tags. For each result set "matchedTags" to the matching tag names, chosen ONLY from this exact list: ${athleteTagSubs.join(', ')}. Use [] when none match.`
       : '';
     const wantsLine = productWants
       ? `\nProducts they already use and would take as compensation: ${productWants}. Treat businesses fitting these products as strong matches.`
       : '';
-    const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}, ${city}, ${state}${hasHometown ? `, hometown ${hometown}` : ''}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}${tagScoringLine}${wantsLine}
+    const buildScorePrompt = (candList) => `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}, ${city}, ${state}${hasHometown ? `, hometown ${hometown}` : ''}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}${tagScoringLine}${wantsLine}
 
 These REAL local businesses were just found via web search (with any local-marketing evidence the search surfaced):
-${candidatesJson}
+${compactOf(candList)}
 
 ${marketScoringLine}
 
 ${FRANCHISE_RULE}
 
-Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} Candidates with real marketing-activity "evidence" (team sponsorships, local ads, prior NIL or athlete partnerships, active promo social) get a STRONG ranking boost: they are proven local marketers, so the outreach makes sense. Rationale is 1-2 tight sentences. When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
+Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} Candidates with real marketing-activity "evidence" (team sponsorships, local ads, prior NIL or athlete partnerships, active promo social) get a STRONG ranking boost: they are proven local marketers, so the outreach makes sense. Rationale is 1-2 tight sentences MAXIMUM. Compact JSON only: no prose fields beyond the template, no commentary before or after the array. When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
 [{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"market":"school|hometown","isFranchise":false,"matchedTags":[],"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
 
-    // Scoring runs on Haiku: it ranks already-found candidates and writes short
-    // rationales, which the fast model handles well at a fraction of the latency.
+    // ── Phase 2 scoring: NARROW error boundary with layered recovery ──────────
+    // A scoring failure must never discard phase 1's good candidates. Recovery
+    // ladder: tolerant salvage of truncated output -> one retry with a reduced
+    // candidate set -> deterministic assembly straight from the candidates.
+    // The knowledge path is reserved for phase 1 itself producing nothing.
+    const scoreSys = 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business, evidence, or an email domain — only use the businesses, evidence, and domains provided.';
+    const runScore = async (candList) => {
+      const raw = await oneShot(buildScorePrompt(candList), scoreSys, 3500, MODEL_FAST);
+      const { items, salvaged } = extractJsonArrayItems(raw);
+      return { items: items.filter((x) => x && x.brand), salvaged, rawLen: String(raw || '').length };
+    };
     const _tScore = Date.now();
-    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business, evidence, or an email domain — only use the businesses, evidence, and domains provided.', 1900, MODEL_FAST);
-    const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const si = c.indexOf('[');
-    const ei = c.lastIndexOf(']');
-    if (si === -1 || ei <= si) throw new Error('No array in scoring response');
-    let parsed = JSON.parse(c.substring(si, ei + 1));
-    if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-    // Map business name -> full candidate so finalize can validate emails and
-    // repair any market/franchise value the scorer dropped.
-    const metaByName = new Map();
-    for (const f of found) if (f.name) metaByName.set(f.name.toLowerCase().trim(), f);
+    let parsed = [];
+    let scoringOutcome = '';
+    try {
+      const r1 = await runScore(scoreCandidates);
+      if (r1.items.length >= Math.min(4, wantCount)) {
+        parsed = r1.items;
+        scoringOutcome = r1.salvaged ? `SALVAGED (raw ${r1.rawLen} chars)` : 'OK';
+      } else {
+        console.warn(`[dealScan] scoring thin: ${r1.items.length} item(s) from raw ${r1.rawLen} chars — retrying once with reduced candidate set`);
+        const r2 = await runScore(scoreCandidates.slice(0, 8));
+        const best = r2.items.length >= r1.items.length ? r2 : r1;
+        if (best.items.length) {
+          parsed = best.items;
+          scoringOutcome = `RETRIED (${best.items.length} items, raw ${best.rawLen} chars)`;
+        }
+      }
+    } catch (scoreErr) {
+      console.warn(`[dealScan] scoring call failed: ${scoreErr.message}`);
+    }
+    if (!parsed.length) {
+      // FINAL FALLBACK: deterministic assembly from the real phase-1 candidates.
+      // Ranked by tag matches, then evidence, then category-sport fit; template
+      // rationales use only the candidate's own fields. No model, no invention.
+      scoringOutcome = 'FELL-BACK to deterministic assembly';
+      const _sportFit = (f) => (f.category && catHint.toLowerCase().includes(String(f.category).toLowerCase()) ? 1 : 0);
+      const ranked = [...found].sort((a, b) => (_candPriority(b) + _sportFit(b)) - (_candPriority(a) + _sportFit(a)));
+      const homePicks = ranked.filter((f) => f.market === 'hometown').slice(0, Math.max(reserveHometown, hasHometown ? 2 : 0));
+      const schoolPicks = ranked.filter((f) => f.market !== 'hometown').slice(0, Math.max(3, wantCount - homePicks.length));
+      parsed = schoolPicks.concat(homePicks).map((f, i) => ({
+        brand: f.name, tier: 'local', category: f.category || 'local', dealType: 'post',
+        campaign: `Local partnership with ${f.name} for ${athlete.name}`,
+        rationale: (f.evidence ? `${f.evidence}. ` : '') + (f.market === 'hometown'
+          ? `${athlete.name} grew up in ${hometownCity}, and a hometown athlete is an easy yes for a business marketing to the community that knows them.`
+          : `Local ${f.category || 'business'} in the ${city} market with natural customer overlap for a ${sport} athlete at ${school}.`),
+        estimatedValueLow: valLow, estimatedValueHigh: valHigh,
+        contactApproach: 'Reach out to the owner or manager directly.',
+        timingNote: '', fitScore: 84 - i * 3, isLocal: true, market: f.market,
+        isFranchise: f.franchise === true, matchedTags: [],
+        contactName: null, contactTitle: 'Owner', contactEmail: f.email || null, contactLinkedIn: null,
+        website: f.website || null,
+      }));
+    }
+    console.log(`[dealScan] scoring ${scoringOutcome} in ${Date.now() - _tScore}ms (${parsed.length} results from ${scoreCandidates.length} candidates sent)`);
     for (const d of parsed) {
       const meta = metaByName.get((d.brand || '').toLowerCase().trim());
       if (meta && d.market !== 'school' && d.market !== 'hometown') d.market = meta.market;
