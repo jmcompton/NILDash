@@ -513,25 +513,42 @@ const TAG_TAXONOMY = {
   community: { label: 'Community',                subs: ['local events', 'nonprofits', 'youth sports'] },
 };
 
-// Validate raw tag strings against the taxonomy and return display descriptors
-// like "supplements (Fitness)". Unknown tags are dropped, never trusted.
+// Resolve one raw tag string to a taxonomy {industry, sub} pair, or null.
+// Accepts BOTH formats: the qualified "fitness:supplements" the picker saves
+// AND bare sub-tags like "supplements" (production athletes exist with bare
+// tags, and the old strict parser silently dropped every one of them, which
+// zeroed out validTagSubs and made all downstream derivation a no-op).
+// Unknown tags are still dropped, never trusted.
+function resolveTag(t) {
+  const s = String(t || '').trim();
+  if (!s) return null;
+  const idx = s.indexOf(':');
+  if (idx > 0) {
+    const ind = s.slice(0, idx), sub = s.slice(idx + 1);
+    if (TAG_TAXONOMY[ind] && TAG_TAXONOMY[ind].subs.includes(sub)) return { ind, sub };
+    return null;
+  }
+  const bare = s.toLowerCase();
+  for (const ind of Object.keys(TAG_TAXONOMY)) {
+    if (TAG_TAXONOMY[ind].subs.includes(bare)) return { ind, sub: bare };
+  }
+  return null;
+}
+
+// Display descriptors like "supplements (Fitness)" for prompts.
 function describeTags(tags) {
   const out = [];
   for (const t of (Array.isArray(tags) ? tags : [])) {
-    const idx = String(t).indexOf(':');
-    if (idx < 1) continue;
-    const ind = String(t).slice(0, idx), sub = String(t).slice(idx + 1);
-    if (TAG_TAXONOMY[ind] && TAG_TAXONOMY[ind].subs.includes(sub)) out.push(`${sub} (${TAG_TAXONOMY[ind].label})`);
+    const r = resolveTag(t);
+    if (r) out.push(`${r.sub} (${TAG_TAXONOMY[r.ind].label})`);
   }
   return out;
 }
 function validTagSubs(tags) {
   const out = [];
   for (const t of (Array.isArray(tags) ? tags : [])) {
-    const idx = String(t).indexOf(':');
-    if (idx < 1) continue;
-    const ind = String(t).slice(0, idx), sub = String(t).slice(idx + 1);
-    if (TAG_TAXONOMY[ind] && TAG_TAXONOMY[ind].subs.includes(sub)) out.push(sub);
+    const r = resolveTag(t);
+    if (r) out.push(r.sub);
   }
   return [...new Set(out)];
 }

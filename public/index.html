@@ -4977,10 +4977,17 @@ function nilTagFromSub(sub) {
   return null;
 }
 function renderTagPicker(containerId, selected) {
-  if (selected) _tagSel[containerId] = new Set(selected.filter(function(t){
-    var i = t.indexOf(':'); if (i < 1) return false;
-    var ind = t.slice(0, i); return NIL_TAGS[ind] && NIL_TAGS[ind].subs.indexOf(t.slice(i + 1)) !== -1;
-  }));
+  // Accept qualified ("fitness:supplements") AND bare ("supplements") stored
+  // tags; bare ones are qualified via the taxonomy so editing an athlete with
+  // bare tags pre-selects them instead of silently wiping them on re-save.
+  if (selected) _tagSel[containerId] = new Set(selected.map(function(t){
+    var i = t.indexOf(':');
+    if (i > 0) {
+      var ind = t.slice(0, i);
+      return (NIL_TAGS[ind] && NIL_TAGS[ind].subs.indexOf(t.slice(i + 1)) !== -1) ? t : null;
+    }
+    return nilTagFromSub(String(t).toLowerCase());
+  }).filter(Boolean));
   if (!_tagSel[containerId]) _tagSel[containerId] = new Set();
   var el = document.getElementById(containerId);
   if (!el) return;

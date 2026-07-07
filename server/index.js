@@ -5194,8 +5194,16 @@ async function loadDealScanAthlete(athleteId) {
     hometown: ath.hometown || '',
     notes: ath.notes || '',
     // Interest tags + product wants drive search emphasis and scoring boosts.
-    tags: Array.isArray(ath.tags) ? ath.tags : [],
-    productWants: ath.product_wants || '',
+    // Defensive read: the dedicated jsonb projection first, then the full data
+    // blob (also selected above), then a JSON-string unwrap, so tags reach the
+    // scan no matter how this row's shape or the driver's parsing behaves.
+    tags: (() => {
+      let t = ath.tags;
+      if (!Array.isArray(t) && ath.data && Array.isArray(ath.data.tags)) t = ath.data.tags;
+      if (typeof t === 'string') { try { t = JSON.parse(t); } catch (_) { t = []; } }
+      return Array.isArray(t) ? t.filter((x) => typeof x === 'string') : [];
+    })(),
+    productWants: ath.product_wants || (ath.data && typeof ath.data.productWants === 'string' ? ath.data.productWants : '') || '',
   };
   return { agentId: ath.agent_id, athleteObj };
 }
@@ -5219,10 +5227,12 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     // Unconditional matchedTags derivation at the route boundary (same as the
     // agent route): every lane, every source, right before persist/response.
     const _tagSubs = ai.validTagSubs(athleteObj.tags);
+    console.log(`[dealScan] derivation input lane=${lane} (athlete portal): athleteTags=${JSON.stringify(athleteObj.tags)} -> validSubs=${JSON.stringify(_tagSubs)}`);
     recommendations = (recommendations || []).map((o) => ({
       ...o,
       matchedTags: ai.deriveMatchedTags(o, { evidence: o.evidence || null }, _tagSubs),
     }));
+    console.log(`[dealScan] derivation: ${_tagSubs.length} athlete tags -> ${recommendations.filter((o) => o.matchedTags.length).length} results tagged (${recommendations.reduce((n, o) => n + o.matchedTags.length, 0)} chips total)`);
     await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_scan', `Ran deal scan (${lane})`, {});
     console.log(`[athlete/deal-scan] lane=${lane} found=${recommendations.length}`);
     // Persist this lane's results so re-entering Deal Scan / reloading re-hydrates
@@ -5285,10 +5295,18 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // fallback). This is the single spot every scan response passes through,
     // so a lane path that forgets derivation can no longer ship empty tags.
     const _tagSubs = ai.validTagSubs(loaded.athleteObj.tags);
+    // Instrumentation: log the ACTUAL derivation inputs (tag values, not
+    // truthiness, plus the first candidate's strings) so one production scan
+    // proves where empty chips come from.
+    const _first = (recommendations || [])[0] || {};
+    console.log(`[dealScan] derivation input lane=${validLane}: athleteTags=${JSON.stringify(loaded.athleteObj.tags)} -> validSubs=${JSON.stringify(_tagSubs)} | first candidate name="${_first.brand || ''}" category="${_first.category || ''}" evidence="${String(_first.evidence || '').slice(0, 60)}"`);
     recommendations = (recommendations || []).map((o) => ({
       ...o,
       matchedTags: ai.deriveMatchedTags(o, { evidence: o.evidence || null }, _tagSubs),
     }));
+    const _taggedN = recommendations.filter((o) => o.matchedTags.length).length;
+    const _chipsN = recommendations.reduce((n, o) => n + o.matchedTags.length, 0);
+    console.log(`[dealScan] derivation: ${_tagSubs.length} athlete tags -> ${_taggedN} results tagged (${_chipsN} chips total)`);
     if (recommendations.length) {
       await store.pool.query(
         `UPDATE athletes SET deal_scan_cache = COALESCE(deal_scan_cache, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
