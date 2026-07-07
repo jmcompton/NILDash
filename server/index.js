@@ -905,7 +905,7 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     // Client flow (which does not send these) is unchanged.
     instagramHandle: (instagramHandle ? String(instagramHandle).trim().replace(/^@+/, '').toLowerCase() : ''),
     brandRestrictions: Array.isArray(brandRestrictions) ? brandRestrictions : [],
-    igStatsSource: igStatsSource === 'web_estimate' ? 'web_estimate' : (igStatsSource === 'manual' ? 'manual' : null),
+    igStatsSource: ['web_estimate', 'manual', 'instagram_page'].includes(igStatsSource) ? igStatsSource : null,
     igStatsFetchedAt: igStatsFetchedAt || null,
     createdAt: new Date().toISOString(),
   });
@@ -1233,15 +1233,96 @@ function normalizeHandle(raw) {
     .toLowerCase();
 }
 
-async function fetchInstagramStats(handle) {
+// Parse abbreviated counts from Instagram metadata: "1,069", "12.4K", "1.2M".
+function parseIgCount(numStr, suffix) {
+  const n = parseFloat(String(numStr).replace(/,/g, ''));
+  if (!Number.isFinite(n) || n < 0) return null;
+  const s = (suffix || '').toLowerCase();
+  return Math.round(s === 'm' ? n * 1e6 : s === 'k' ? n * 1e3 : n);
+}
+
+// ── LANE 1: Instagram profile page metadata ─────────────────────────────────
+// Instagram serves link-preview metadata (og:description) for public profiles
+// without login: "X Followers, Y Following, Z Posts". Exact for ANY account
+// size, unlike stat sites that only index big accounts. One attempt plus at
+// most one retry on a fast network failure; hard 4s timeout per attempt so the
+// lane resolves in under 5 seconds either way. Base URL is env-overridable for
+// testing (IG_META_BASE_URL).
+const IG_META_BASE = process.env.IG_META_BASE_URL || 'https://www.instagram.com';
+const IG_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+async function fetchInstagramPageMeta(handle) {
+  const t0 = Date.now();
+  const attempt = async () => {
+    const resp = await fetch(`${IG_META_BASE}/${encodeURIComponent(handle)}/`, {
+      headers: { 'User-Agent': IG_UA, 'Accept': 'text/html,application/xhtml+xml' },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(4000),
+    });
+    // Login wall / redirect to login = miss, not an error.
+    if (resp.url && /\/accounts\/login/i.test(resp.url)) return { miss: 'login-wall' };
+    if (!resp.ok) return { miss: `http-${resp.status}` };
+    const html = (await resp.text()).slice(0, 400000);
+    if (/\/accounts\/login/i.test(html.slice(0, 2000)) && !/Followers/i.test(html)) return { miss: 'login-page' };
+    // og:description or plain description meta, attribute order tolerant.
+    const metas = html.match(/<meta[^>]+content="[^"]*Followers[^"]*"[^>]*>/gi) || [];
+    let desc = null;
+    for (const tag of metas) {
+      if (/property="og:description"|name="description"/i.test(tag)) {
+        const cm = tag.match(/content="([^"]+)"/i);
+        if (cm) { desc = cm[1]; break; }
+      }
+    }
+    if (!desc && metas.length) { const cm = metas[0].match(/content="([^"]+)"/i); if (cm) desc = cm[1]; }
+    if (!desc) return { miss: 'no-meta' };
+    // "1,069 Followers, 344 Following, 32 Posts" (also 12.4K / 1.2M forms)
+    const fm = desc.match(/([\d.,]+)\s*([KkMm])?\s+Followers?/);
+    if (!fm) return { miss: 'no-follower-pattern' };
+    const followers = parseIgCount(fm[1], fm[2]);
+    if (followers === null) return { miss: 'unparseable-count' };
+    const pm = desc.match(/([\d.,]+)\s*([KkMm])?\s+Posts?/);
+    const posts = pm ? parseIgCount(pm[1], pm[2]) : null;
+    return { followers, posts };
+  };
+
+  try {
+    let r;
+    try {
+      r = await attempt();
+    } catch (e1) {
+      // One retry, only when the first attempt failed fast (connection reset
+      // etc.), never after a full timeout — the lane stays under 5s total.
+      if (Date.now() - t0 < 1500) r = await attempt();
+      else throw e1;
+    }
+    if (r.miss) {
+      console.log(`[social-stats] lane1 instagram_page MISS (${r.miss}) for @${handle} in ${Date.now() - t0}ms`);
+      return null;
+    }
+    console.log(`[social-stats] lane1 instagram_page HIT for @${handle}: ${r.followers} followers${r.posts !== null ? `, ${r.posts} posts` : ''} in ${Date.now() - t0}ms`);
+    return r;
+  } catch (e) {
+    console.log(`[social-stats] lane1 instagram_page failed (${e.name === 'TimeoutError' ? 'timeout' : e.message}) for @${handle} in ${Date.now() - t0}ms`);
+    return null;
+  }
+}
+
+// ── LANE 2: AI web search, profile-snippet-first ────────────────────────────
+// Fallback when the direct page fetch misses. The prompt now targets the
+// indexed Instagram profile result FIRST (its snippet carries the same
+// "X Followers" metadata, so it works for small accounts), then stat sites and
+// articles. Strict JSON, nulls when nothing real is found. Capped at ~15s.
+async function fetchInstagramStatsViaSearch(handle) {
+  const t0 = Date.now();
   const system = 'You are a precise research assistant that only reports numbers found on real, public web sources. You never estimate, guess, extrapolate, or fabricate a follower count or engagement rate. If you cannot find a real figure for the exact handle, you return null for that field. Output strict JSON only, no prose, no markdown.';
   const prompt = [
     `Find the public Instagram statistics for the exact handle "@${handle}".`,
     '',
-    'Steps:',
-    `1. Search public stat sources for this exact handle: social stat trackers (e.g. socialblade, hypeauditor), influencer databases, NIL databases (e.g. On3), news articles, and college roster pages.`,
-    `2. Extract the follower count and engagement rate for the account whose handle string is exactly "${handle}". If several accounts appear, only use the one whose handle matches "${handle}" character for character. If none match exactly, treat it as not found.`,
-    '3. Return STRICT JSON only, in exactly this shape:',
+    'Search strategy, in this order:',
+    `1. FIRST search for the profile page itself: query "${handle}" together with instagram.com. The indexed Instagram result snippet shows "X Followers, Y Following, Z Posts" for the account. Extract the follower count from that snippet. This works for accounts of any size.`,
+    `2. Only if step 1 finds nothing, search public stat sources: social stat trackers (e.g. socialblade, hypeauditor), influencer databases, NIL databases (e.g. On3), news articles, and college roster pages.`,
+    `3. Only use numbers for the account whose handle string is exactly "${handle}". If several accounts appear, match the handle character for character. If none match exactly, treat it as not found.`,
+    '4. Return STRICT JSON only, in exactly this shape:',
     '{',
     '  "followers": 1069,',
     '  "engagement_rate": 4.2,',
@@ -1252,33 +1333,37 @@ async function fetchInstagramStats(handle) {
     '',
     'Hard rules:',
     '- If the follower count cannot be found from a real source, set "followers" to null.',
-    '- If the engagement rate cannot be found from a real source, set "engagement_rate" to null.',
+    '- If the engagement rate cannot be found from a real source, set "engagement_rate" to null. Exact engagement rates are usually NOT public for small accounts; null is the correct answer then.',
     '- Set "found" to false if you could not confirm this exact account exists on a real source.',
     '- Never estimate, never guess, never fabricate any number. A null is always better than an invented value.',
     '- "engagement_rate" is a percentage number (e.g. 4.2 means 4.2 percent), not a fraction.',
     '- Output only the JSON object. No explanation before or after.',
   ].join('\n');
 
+  const empty = { followers: null, engagement_rate: null, source: null, confidence: 'low', found: false };
   let raw = '';
   try {
-    raw = await ai.oneShotWebSearch(prompt, system, 900, 4, ai.MODEL_STANDARD);
+    raw = await Promise.race([
+      ai.oneShotWebSearch(prompt, system, 900, 4, ai.MODEL_STANDARD),
+      new Promise((resolve) => setTimeout(() => resolve(''), 15000)),
+    ]);
   } catch (e) {
-    console.warn('[social-stats] web search failed:', e.message);
-    return { followers: null, engagement_rate: null, source: null, confidence: 'low', found: false };
+    console.warn(`[social-stats] lane2 web search failed for @${handle}:`, e.message);
+    return empty;
   }
-  // Extract the first JSON object from the model output.
+  if (!raw) {
+    console.log(`[social-stats] lane2 web_search timed out for @${handle} in ${Date.now() - t0}ms`);
+    return empty;
+  }
   let parsed = null;
   try {
     const cleaned = String(raw).replace(/```json/gi, '').replace(/```/g, '');
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) parsed = JSON.parse(match[0]);
   } catch (e) {
-    console.warn('[social-stats] JSON parse failed:', e.message);
+    console.warn('[social-stats] lane2 JSON parse failed:', e.message);
   }
-  if (!parsed || typeof parsed !== 'object') {
-    return { followers: null, engagement_rate: null, source: null, confidence: 'low', found: false };
-  }
-  // Coerce + guard: only accept real, finite, non-negative numbers.
+  if (!parsed || typeof parsed !== 'object') return empty;
   const toNum = (v) => {
     if (v === null || v === undefined || v === '') return null;
     const n = typeof v === 'number' ? v : parseFloat(String(v).replace(/[, %]/g, ''));
@@ -1286,10 +1371,9 @@ async function fetchInstagramStats(handle) {
   };
   const followers = toNum(parsed.followers);
   let engagement = toNum(parsed.engagement_rate);
-  // Sanity clamp engagement to a believable percentage range; otherwise drop it
-  // rather than surface a garbage figure.
   if (engagement !== null && (engagement > 100 || engagement < 0)) engagement = null;
   const found = parsed.found === true && (followers !== null || engagement !== null);
+  console.log(`[social-stats] lane2 web_search ${found ? 'HIT' : 'MISS'} for @${handle} in ${Date.now() - t0}ms`);
   return {
     followers: followers === null ? null : Math.round(followers),
     engagement_rate: engagement === null ? null : Math.round(engagement * 10) / 10,
@@ -1297,6 +1381,16 @@ async function fetchInstagramStats(handle) {
     confidence: ['high', 'medium', 'low'].includes(parsed.confidence) ? parsed.confidence : 'low',
     found,
   };
+}
+
+// ── LANE 3: honest engagement suggestion by follower tier ───────────────────
+// Exact ER is not public for small accounts. This is a SUGGESTION shown as
+// helper text in the UI, never data, never saved as a value.
+function engagementSuggestion(followers) {
+  if (!Number.isFinite(followers)) return 'No published rate found. Typical range is 1 to 5 percent.';
+  if (followers < 10000) return 'No published rate found. Accounts this size typically run 4 to 8 percent.';
+  if (followers <= 100000) return 'No published rate found. Accounts this size typically run 2 to 5 percent.';
+  return 'No published rate found. Accounts this size typically run 1 to 3 percent.';
 }
 
 app.post('/api/athletes/:id/fetch-social-stats', requireAuth, statsLimiter, async (req, res) => {
@@ -1317,23 +1411,51 @@ app.post('/api/athletes/:id/fetch-social-stats', requireAuth, statsLimiter, asyn
     }
   }
 
-  const stats = await fetchInstagramStats(handle);
+  // ── Layered pipeline ────────────────────────────────────────────────────
+  // Lane 1: direct Instagram page metadata (exact, any account size, <5s).
+  // Lane 2: AI web search targeting the profile snippet first (<15s).
+  // Followers from lane 1 always win. Total budget ~20s worst case.
+  const _t0 = Date.now();
+  const page = await fetchInstagramPageMeta(handle);
+
+  let followers = null, followersSource = null;
+  let engagement = null, engagementSource = null;
+  let posts = null, sourceText = null, confidence = 'low';
+
+  if (page && page.followers !== null) {
+    followers = page.followers;
+    followersSource = 'instagram_page';
+    posts = page.posts;
+    sourceText = 'Instagram profile page metadata';
+    confidence = 'high';
+  } else {
+    const search = await fetchInstagramStatsViaSearch(handle);
+    if (search.followers !== null) { followers = search.followers; followersSource = 'web_search'; }
+    if (search.engagement_rate !== null) { engagement = search.engagement_rate; engagementSource = 'web_search'; }
+    sourceText = search.source;
+    confidence = search.confidence;
+  }
+  const found = followers !== null || engagement !== null;
   const fetchedAt = new Date().toISOString();
+  console.log(`[social-stats] @${handle} resolved via ${followersSource || 'none'} (followers=${followers === null ? 'null' : followers}, er=${engagement === null ? 'null' : engagement}) in ${Date.now() - _t0}ms`);
 
   // Cache onto the athlete record (agent-managed profile lives in data JSONB).
-  // The handle always saves. Numbers, the web-estimate source label, and the
-  // fetched-at timestamp only update when a real value was actually found, so a
-  // failed lookup never relabels a manually entered number as web-estimated.
+  // The handle always saves. Numbers, the source label, and the fetched-at
+  // timestamp only update when a real value was actually found, so a failed
+  // lookup never relabels a manually entered number.
   if (!isNew && athlete) {
     try {
       const merged = { ...athlete, agentId: athlete.agentId };
       merged.instagramHandle = handle;
-      if (stats.found && (stats.followers !== null || stats.engagement_rate !== null)) {
-        if (stats.followers !== null) merged.instagram = stats.followers;
-        if (stats.engagement_rate !== null) merged.engagement = stats.engagement_rate;
-        merged.igStatsSource = 'web_estimate';
+      if (found) {
+        if (followers !== null) merged.instagram = followers;
+        if (engagement !== null) merged.engagement = engagement;
+        merged.igStatsSource = followersSource === 'instagram_page' ? 'instagram_page' : 'web_estimate';
         merged.igStatsFetchedAt = fetchedAt;
       }
+      // Posts count is exact page data; keep it whenever lane 1 saw it (useful
+      // once Instagram OAuth lands).
+      if (posts !== null) merged.igPosts = posts;
       await store.saveAthlete(id, merged);
     } catch (e) {
       console.warn('[social-stats] cache write failed:', e.message);
@@ -1342,12 +1464,18 @@ app.post('/api/athletes/:id/fetch-social-stats', requireAuth, statsLimiter, asyn
 
   res.json({
     handle,
-    followers: stats.followers,
-    engagement_rate: stats.engagement_rate,
-    source: stats.source,
-    confidence: stats.confidence,
-    found: stats.found,
-    stats_source: 'web_estimate',
+    followers,
+    engagement_rate: engagement,
+    posts,
+    followers_source: followersSource,
+    engagement_source: engagementSource,
+    // Suggestion only, shown as helper text in the UI, never saved as a value.
+    engagement_suggestion: engagement === null ? engagementSuggestion(followers === null ? NaN : followers) : null,
+    source: sourceText,
+    confidence,
+    found,
+    // Legacy field kept for compatibility with older clients.
+    stats_source: followersSource === 'instagram_page' ? 'instagram_page' : 'web_estimate',
     fetched_at: fetchedAt,
   });
 });

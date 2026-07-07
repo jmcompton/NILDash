@@ -4865,7 +4865,7 @@ async function renderRoster() {
         <div class="ac-stat"><span>${a.engagement}%</span> eng</div>
       </div>
       ${a.instagramHandle ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px">
-        <span style="font-size:10px;color:var(--muted)">@${escHtml(a.instagramHandle)}${a.igStatsSource==='web_estimate' && a.igStatsFetchedAt ? ' · Est. from web, ' + new Date(a.igStatsFetchedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : (a.igStatsSource==='manual' ? ' · Manual' : '')}</span>
+        <span style="font-size:10px;color:var(--muted)">@${escHtml(a.instagramHandle)}${(a.igStatsSource==='instagram_page'||a.igStatsSource==='web_estimate') && a.igStatsFetchedAt ? ' · ' + statSourceLabel(a.igStatsSource, new Date(a.igStatsFetchedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'})) : (a.igStatsSource==='manual' ? ' · Manual' : '')}</span>
         <button onclick="event.stopPropagation();refreshAthleteStats('${a.id}', this)" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--accent);font-size:10px;padding:3px 8px;cursor:pointer;white-space:nowrap;font-weight:600">Refresh stats</button>
       </div>` : ''}
       <div style="margin-top:10px;margin-bottom:8px">
@@ -5009,12 +5009,20 @@ function _statDateLabel() {
   return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+// Human label for a stats source value.
+function statSourceLabel(src, when) {
+  if (src === 'instagram_page') return 'From Instagram, ' + when;
+  if (src === 'web_estimate' || src === 'web_search') return 'Est. from web, ' + when;
+  if (src === 'manual') return 'Manual';
+  return '';
+}
+
 // Render the small source labels under the follower/engagement inputs based on
 // an athlete's saved source, or the last fetch/edit in this session.
 function renderStatSourceLabels(a) {
   const src = (a && a.igStatsSource) || _statFetchedSource;
   const when = a && a.igStatsFetchedAt ? new Date(a.igStatsFetchedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : _statDateLabel();
-  const label = src === 'web_estimate' ? 'Est. from web, ' + when : (src === 'manual' ? 'Manual' : '');
+  const label = statSourceLabel(src, when);
   const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = label;
   const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = label;
 }
@@ -5051,20 +5059,22 @@ async function fetchStatsForForm() {
       if (data.followers !== null) document.getElementById('a_ig').value = data.followers;
       else document.getElementById('a_ig').value = 0;
       if (data.engagement_rate !== null) document.getElementById('a_eng').value = data.engagement_rate;
-      _statFetchedSource = 'web_estimate';
+      // Per-field source: exact page metadata beats web estimates.
+      _statFetchedSource = data.followers_source === 'instagram_page' ? 'instagram_page' : 'web_estimate';
       const when = _statDateLabel();
       const igSrc = document.getElementById('a-ig-src');
       const engSrc = document.getElementById('a-eng-src');
-      if (igSrc) igSrc.textContent = data.followers !== null ? ('Est. from web, ' + when) : 'No public count found. Enter it manually if you know it.';
-      if (engSrc) engSrc.textContent = data.engagement_rate !== null ? ('Est. from web, ' + when) : 'Typical range is 1 to 5 percent. Higher is better.';
+      if (igSrc) igSrc.textContent = data.followers !== null ? statSourceLabel(data.followers_source, when) : 'No public count found. Enter it manually if you know it.';
+      if (engSrc) engSrc.textContent = data.engagement_rate !== null ? statSourceLabel(data.engagement_source, when)
+        : (data.engagement_suggestion || 'No published rate found. Typical range is 1 to 5 percent.');
       const bits = [];
-      if (data.followers !== null) bits.push(Number(data.followers).toLocaleString() + ' followers');
+      if (data.followers !== null) bits.push(Number(data.followers).toLocaleString() + ' followers' + (data.followers_source === 'instagram_page' ? ' (from Instagram)' : ''));
       if (data.engagement_rate !== null) bits.push(data.engagement_rate + '% engagement');
       status.innerHTML = '<span style="color:var(--accent)">Found ' + bits.join(', ') + '</span>';
     } else {
       if (!document.getElementById('a_ig').value) document.getElementById('a_ig').value = 0;
       const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = 'No public count found. Enter it manually if you know it.';
-      const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = 'Typical range is 1 to 5 percent. Higher is better.';
+      const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = data.engagement_suggestion || 'No published rate found. Typical range is 1 to 5 percent.';
       status.innerHTML = '<span style="color:var(--muted)">No public numbers found. Enter what you know.</span>';
     }
   } catch (e) {
@@ -9895,7 +9905,8 @@ window.addEventListener('DOMContentLoaded', checkSession);
           const bits = [];
           if (data.followers !== null) bits.push(Number(data.followers).toLocaleString() + ' followers');
           if (data.engagement_rate !== null) bits.push(data.engagement_rate + '% engagement');
-          status.innerHTML = '<span style="color:var(--accent)">Found ' + bits.join(', ') + '</span> · Est. from web';
+          const srcNote = data.followers_source === 'instagram_page' ? 'From Instagram' : 'Est. from web';
+          status.innerHTML = '<span style="color:var(--accent)">Found ' + bits.join(', ') + '</span> · ' + srcNote;
         } else {
           status.innerHTML = '<span style="color:var(--muted)">No public numbers found. You can enter them on the next screen.</span>';
         }
@@ -9938,7 +9949,8 @@ window.addEventListener('DOMContentLoaded', checkSession);
         year:       obPrefill.year || '',
         followers:  (obStats && obStats.followers !== null && obStats.followers !== undefined) ? obStats.followers : (obPrefill.instagram || 0),
         engagement: (obStats && obStats.engagement_rate !== null && obStats.engagement_rate !== undefined) ? obStats.engagement_rate : (obPrefill.engagement || null),
-        followersSource:  (obStats && obStats.found && obStats.followers != null) ? 'web' : 'manual',
+        followersSource:  (obStats && obStats.found && obStats.followers != null)
+          ? (obStats.followers_source === 'instagram_page' ? 'instagram' : 'web') : 'manual',
         engagementSource: (obStats && obStats.found && obStats.engagement_rate != null) ? 'web' : 'manual',
       };
       obStep(2);
@@ -9947,9 +9959,10 @@ window.addEventListener('DOMContentLoaded', checkSession);
     // ── Step 2: Review and save ─────────────────────────────────────────────
     function obSrcLabel(kind) {
       const today = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric' });
-      return kind === 'web'
-        ? '<span data-src-label style="font-size:10px;color:var(--muted)">Est. from web, ' + today + '</span>'
-        : '<span data-src-label style="font-size:10px;color:var(--muted)">Manual</span>';
+      const text = kind === 'instagram' ? 'From Instagram, ' + today
+        : kind === 'web' ? 'Est. from web, ' + today
+        : 'Manual';
+      return '<span data-src-label style="font-size:10px;color:var(--muted)">' + text + '</span>';
     }
 
     function obRenderReview() {
@@ -9974,7 +9987,8 @@ window.addEventListener('DOMContentLoaded', checkSession);
             '<label class="form-label-sm">Engagement rate (%)</label>' +
             '<input class="input-sm" id="ob-rev-engagement" type="number" step="0.1" value="' + engVal + '" oninput="obEditStat(\'engagement\')">' +
             '<div id="ob-rev-engagement-src" style="margin-top:3px">' + obSrcLabel(obData.engagementSource) + '</div>' +
-            '<div id="ob-rev-engagement-help" style="font-size:10px;color:var(--muted);margin-top:2px;' + (engVal === '' ? '' : 'display:none') + '">Typical range is 1 to 5 percent. Higher is better.</div>' +
+            '<div id="ob-rev-engagement-help" style="font-size:10px;color:var(--muted);margin-top:2px;' + (engVal === '' ? '' : 'display:none') + '">' +
+              escHtml((obStats && obStats.engagement_suggestion) || 'No published rate found. Typical range is 1 to 5 percent.') + '</div>' +
           '</div>' +
         '</div>' +
         '<div style="border-top:1px solid var(--border);padding-top:12px">' +
@@ -10008,8 +10022,10 @@ window.addEventListener('DOMContentLoaded', checkSession);
       const followers  = folRaw === '' ? 0 : (parseInt(folRaw) || 0);
       const engagement = engRaw === '' ? null : (parseFloat(engRaw) || null);
       const restrictions = Array.from(document.querySelectorAll('.ob-restrict:checked')).map(c => c.value);
-      // Source is manual if the agent edited it; web otherwise (when found).
-      const igSource = (obData.followersSource === 'web' || obData.engagementSource === 'web') ? 'web_estimate' : 'manual';
+      // Source is manual if the agent edited it; otherwise the fetch source
+      // (exact Instagram page metadata beats web estimates).
+      const igSource = obData.followersSource === 'instagram' ? 'instagram_page'
+        : (obData.followersSource === 'web' || obData.engagementSource === 'web') ? 'web_estimate' : 'manual';
       const btn = document.getElementById('ob-save-btn');
       btn.disabled = true; btn.textContent = 'Saving';
       try {
