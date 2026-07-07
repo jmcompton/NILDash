@@ -841,7 +841,7 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa,
-          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown } = req.body;
+          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
 
   // ── Seat limit check ─────────────────────────────────────────
@@ -898,6 +898,9 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     gpa: gpa || '',
     // Hometown powers the Deal Scan second market ("hometown hero" angle).
     hometown: (hometown ? String(hometown).trim() : ''),
+    // Interest tags ("industry:sub" strings) and product wants feed Deal Scan.
+    tags: Array.isArray(tags) ? tags.filter(t => typeof t === 'string').slice(0, 40) : [],
+    productWants: (productWants ? String(productWants).trim().slice(0, 300) : ''),
     // Additive social/onboarding fields — default cleanly so the normal Add
     // Client flow (which does not send these) is unchanged.
     instagramHandle: (instagramHandle ? String(instagramHandle).trim().replace(/^@+/, '').toLowerCase() : ''),
@@ -4255,6 +4258,7 @@ app.get('/auth/google/calendar/callback', async (req, res) => {
         [refreshToken, agentId]
       );
       console.log(`[gcal] agent ${agentId} connected Google Calendar`);
+      checkOff(agentId, 'connect_google'); // Getting Started checklist
       return res.redirect('/#calendar?gcal=connected');
     }
 
@@ -5035,7 +5039,8 @@ async function loadDealScanAthlete(athleteId) {
             a.data->>'schoolTier' as school_tier, a.data->>'instagram' as ig,
             a.data->>'tiktok' as tt, a.data->>'position' as position, a.data->>'year' as year,
             a.data->>'engagement' as engagement, a.data->>'stats' as stats,
-            a.data->>'hometown' as hometown, a.data->>'notes' as notes
+            a.data->>'hometown' as hometown, a.data->>'notes' as notes,
+            a.data->'tags' as tags, a.data->>'productWants' as product_wants
      FROM athletes a WHERE a.id = $1`,
     [athleteId]
   );
@@ -5060,6 +5065,9 @@ async function loadDealScanAthlete(athleteId) {
     // results in production.
     hometown: ath.hometown || '',
     notes: ath.notes || '',
+    // Interest tags + product wants drive search emphasis and scoring boosts.
+    tags: Array.isArray(ath.tags) ? ath.tags : [],
+    productWants: ath.product_wants || '',
   };
   return { agentId: ath.agent_id, athleteObj };
 }

@@ -294,6 +294,7 @@ After searching, return ONLY a valid JSON object — no markdown, no explanation
       "schoolTier": "p4-top10/p4-mid/mid-mid/etc or null",
       "stats": "career stats string or null",
       "notes": "awards, transfer history, recruiting rank or null",
+      "interest_tags": ["only when their bio/socials clearly show an interest, choose from exactly: supplements, creatine, protein, apparel, gyms, coffee, pizza, smoothies, energy drinks, snacks, restaurants, skincare, haircare, makeup, fragrance, streetwear, sneakers, accessories, dealerships, detailing, tires, chiropractic, physical therapy, mental health, recovery, gaming, apps, hunting, fishing, camping, banks, credit unions, insurance, local events, nonprofits, youth sports. Empty array when unsure, never guess"],
       "previousSchool": "transfer source school or null",
       "source": "full URL of the page you found this on",
       "sourceLabel": "ESPN or 247Sports or On3 or Rivals or School Site"
@@ -350,6 +351,7 @@ function flattenCandidate(c) {
     engagement: c.engagement || 0,
     schoolTier: c.schoolTier || null,
     notes: c.notes || null, previousSchool: c.previousSchool || null,
+    interestTags: c.interestTags || [],
     confidence: c.confidence, source: c.source, sourceLabel: c.sourceLabel,
   };
 }
@@ -421,6 +423,7 @@ async function resolveAthlete(ai, { name, school, sport, position, year }) {
         engagement:    a.engagement   || 0,
         schoolTier:    a.schoolTier   || inferSchoolTier(a.school || normSchool),
         notes:         a.notes        || null,
+        interestTags:  Array.isArray(a.interest_tags) ? a.interest_tags.filter(t => typeof t === 'string').slice(0, 10) : [],
         previousSchool: a.previousSchool || null,
         sourceUrl:     a.source       || null,
         source:        'web-search',

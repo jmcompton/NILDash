@@ -152,6 +152,9 @@ router.get('/oauth/gmail/callback', async (req, res) => {
     const r = await pool.query('SELECT * FROM email_accounts WHERE id=$1', [accountId]);
     if (r.rows[0]) emailSync.syncAccount(r.rows[0]).catch(() => {});
 
+    // Getting Started checklist: Gmail/Calendar connected
+    require('../store').markChecklistItem(userId, 'connect_google').catch(() => {});
+
     res.redirect('/#settings?emailConnected=gmail');
   } catch (e) {
     console.error('[gmail callback]', e.message);

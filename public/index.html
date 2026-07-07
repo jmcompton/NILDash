@@ -2760,6 +2760,15 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <input class="input-sm" id="a_hometown" placeholder="e.g. Johns Creek, GA">
             <div style="font-size:10px;color:var(--muted);margin-top:2px">Deal Scan also searches the hometown market when this is set.</div>
           </div>
+          <div class="form-group-sm">
+            <label class="form-label-sm">Interests</label>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Tap an industry, then pick what fits. Deal Scan favors these.</div>
+            <div id="a_tags"></div>
+          </div>
+          <div class="form-group-sm">
+            <label class="form-label-sm">Products they already use and would take as compensation</label>
+            <input class="input-sm" id="a_productwants" placeholder="e.g. Ghost energy, Lululemon, local smoothie spot">
+          </div>
           <div class="form-group-sm"><label class="form-label-sm">School Tier</label>
             <select class="select-sm" id="a_tier">
               <optgroup label="Power 4 — D1">
@@ -3757,6 +3766,17 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <label class="form-label-sm">Hometown</label>
         <input class="input-sm" id="ob-athlete-hometown" placeholder="e.g. Johns Creek, GA">
         <div style="font-size:10px;color:var(--muted);margin-top:2px">Optional. Deal Scan also finds brands in their hometown.</div>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">Interests</label>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Tap an industry, then pick what fits. Deal Scan favors these.</div>
+        <div id="ob-tags"></div>
+      </div>
+
+      <div style="margin-bottom:8px">
+        <label class="form-label-sm">Products they already use and would take as compensation</label>
+        <input class="input-sm" id="ob-athlete-productwants" placeholder="e.g. Ghost energy, Lululemon, local smoothie spot">
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
@@ -4909,6 +4929,77 @@ async function deleteAthlete(id) {
   }
 }
 
+// ── Athlete interest tags: taxonomy + reusable chip picker ───────────────────
+// Kept in sync with TAG_TAXONOMY in server/ai.js. Tags are stored on the
+// athlete as "industry:sub" strings and feed Deal Scan search emphasis and
+// scoring boosts.
+var NIL_TAGS = {
+  fitness:   { label: 'Fitness',                  subs: ['supplements','creatine','protein','apparel','gyms'] },
+  foodbev:   { label: 'Food and Beverage',        subs: ['coffee','pizza','smoothies','energy drinks','snacks','restaurants'] },
+  beauty:    { label: 'Beauty and Personal Care', subs: ['skincare','haircare','makeup','fragrance'] },
+  fashion:   { label: 'Fashion',                  subs: ['streetwear','sneakers','accessories'] },
+  auto:      { label: 'Auto',                     subs: ['dealerships','detailing','tires'] },
+  wellness:  { label: 'Health and Wellness',      subs: ['chiropractic','physical therapy','mental health','recovery'] },
+  tech:      { label: 'Tech and Gaming',          subs: ['gaming','apps','accessories'] },
+  outdoors:  { label: 'Outdoors',                 subs: ['hunting','fishing','camping'] },
+  finance:   { label: 'Finance',                  subs: ['banks','credit unions','insurance'] },
+  community: { label: 'Community',                subs: ['local events','nonprofits','youth sports'] },
+};
+var _tagSel  = {};  // containerId -> Set of "industry:sub"
+var _tagOpen = {};  // containerId -> expanded industry key or null
+
+function nilTagFromSub(sub) {
+  // Map a bare sub-tag (e.g. from AI Lookup) to its qualified form. First
+  // industry containing the sub wins for the rare duplicated names.
+  for (var k in NIL_TAGS) { if (NIL_TAGS[k].subs.indexOf(sub) !== -1) return k + ':' + sub; }
+  return null;
+}
+function renderTagPicker(containerId, selected) {
+  if (selected) _tagSel[containerId] = new Set(selected.filter(function(t){
+    var i = t.indexOf(':'); if (i < 1) return false;
+    var ind = t.slice(0, i); return NIL_TAGS[ind] && NIL_TAGS[ind].subs.indexOf(t.slice(i + 1)) !== -1;
+  }));
+  if (!_tagSel[containerId]) _tagSel[containerId] = new Set();
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  var sel = _tagSel[containerId];
+  var open = _tagOpen[containerId] || null;
+  var html = '<div style="display:flex;flex-wrap:wrap;gap:6px">';
+  Object.keys(NIL_TAGS).forEach(function(ind){
+    var t = NIL_TAGS[ind];
+    var count = t.subs.filter(function(s){ return sel.has(ind + ':' + s); }).length;
+    var active = count > 0 || open === ind;
+    html += '<button type="button" onclick="tagPickerToggleInd(\'' + containerId + '\',\'' + ind + '\')" ' +
+      'style="padding:5px 11px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ' +
+      (active ? 'rgba(132,204,22,0.5);background:rgba(132,204,22,0.12);color:var(--accent)' : 'var(--border);background:var(--surface2);color:var(--muted)') + '">' +
+      t.label + (count ? ' (' + count + ')' : '') + '</button>';
+  });
+  html += '</div>';
+  if (open && NIL_TAGS[open]) {
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding:8px 10px;background:var(--surface2);border-radius:8px">';
+    NIL_TAGS[open].subs.forEach(function(s){
+      var key = open + ':' + s;
+      var on = sel.has(key);
+      html += '<button type="button" onclick="tagPickerToggleSub(\'' + containerId + '\',\'' + open + '\',\'' + s.replace(/'/g, "\\'") + '\')" ' +
+        'style="padding:4px 10px;border-radius:16px;font-size:11px;cursor:pointer;border:1px solid ' +
+        (on ? 'var(--accent);background:var(--accent);color:#000;font-weight:700' : 'var(--border);background:transparent;color:var(--text)') + '">' + s + '</button>';
+    });
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+function tagPickerToggleInd(cid, ind) {
+  _tagOpen[cid] = _tagOpen[cid] === ind ? null : ind;
+  renderTagPicker(cid);
+}
+function tagPickerToggleSub(cid, ind, sub) {
+  var key = ind + ':' + sub;
+  var sel = _tagSel[cid] || (_tagSel[cid] = new Set());
+  if (sel.has(key)) sel.delete(key); else sel.add(key);
+  renderTagPicker(cid);
+}
+function tagPickerValue(cid) { return Array.from(_tagSel[cid] || []); }
+
 // ── Instagram stats fetch for the Add/Edit Client form (Part B) ─────────────
 // Tracks whether the currently shown followers/engagement came from the web or
 // were manually entered, so we can label them and store the right source.
@@ -5030,6 +5121,8 @@ async function editAthlete(id) {
   document.getElementById('a_eng').value = a.engagement || '';
   const handleEl = document.getElementById('a_handle'); if (handleEl) handleEl.value = a.instagramHandle || '';
   const hometownEl = document.getElementById('a_hometown'); if (hometownEl) hometownEl.value = a.hometown || '';
+  renderTagPicker('a_tags', Array.isArray(a.tags) ? a.tags : []);
+  const pwEl = document.getElementById('a_productwants'); if (pwEl) pwEl.value = a.productWants || '';
   _statFetchedSource = a.igStatsSource || null;  // preserve existing source unless re-fetched/edited
   renderStatSourceLabels(a);
   document.getElementById('a_notes').value = a.notes || '';
@@ -5071,6 +5164,8 @@ async function updateAthlete(id) {
     stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
     transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
     hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
+    tags: tagPickerValue('a_tags'),
+    productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
     instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
     igStatsSource: _statFetchedSource || 'manual',
   };
@@ -5116,6 +5211,8 @@ async function addAthlete() {
         transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
         gpa: document.getElementById('a_gpa') ? document.getElementById('a_gpa').value : '',
         hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
+        tags: tagPickerValue('a_tags'),
+        productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
         instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
         igStatsSource: _statFetchedSource || 'manual',
       }),
@@ -5134,7 +5231,8 @@ async function addAthlete() {
     document.getElementById('kpi-clients').textContent = athletes.length;
     renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
-    ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    renderTagPicker('a_tags', []);
     _statFetchedSource = null;
     const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = '';
     const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = '';
@@ -5390,6 +5488,7 @@ async function showView(id, btn) {
   if (id === 'team-match') tmPreFillFromAthlete();
   if (id === 'deals') { if (selectedAthleteId) loadDealScanCache(); }
   if (id === 'pdf-scan') loadPdfScanAthletes();
+  if (id === 'add-athlete') { const tp = document.getElementById('a_tags'); if (tp && !tp.innerHTML) renderTagPicker('a_tags', []); }
 }
 async function prefillContract() {
   if (!selectedAthleteId) return;
@@ -5482,7 +5581,34 @@ var _dsCatColors = {
 };
 
 function _dsHasAnyData() { return DS_LANES.some(function(l){ return _dsLaneData[l] !== null; }); }
-function _dsLaneLoadingHtml() { return '<div class="ds-lane-loading"><span class="ds-lane-spin"></span> Searching…</div>'; }
+// Rotating scan status text so a long scan reads as active work, not a stall.
+var _dsRotateTimer = null;
+function _dsRotateMessages() {
+  var ath = athletes && athletes.find(function(a){ return a.id === selectedAthleteId; });
+  var first = ath && ath.name ? String(ath.name).split(/\s+/)[0] : 'your athlete';
+  var msgs = [
+    'Searching ' + _dsMarketLabel() + ' businesses',
+    'Checking local franchises',
+    'Scoring matches for ' + first,
+  ];
+  if (ath && ath.hometown) msgs.splice(1, 0, 'Searching ' + String(ath.hometown).split(',')[0].trim() + ' businesses');
+  return msgs;
+}
+function _dsStartRotation() {
+  _dsStopRotation();
+  var msgs = _dsRotateMessages();
+  var i = 0;
+  var tick = function(){
+    document.querySelectorAll('.ds-rotate-txt').forEach(function(el){ el.textContent = msgs[i % msgs.length]; });
+    i++;
+  };
+  tick();
+  _dsRotateTimer = setInterval(tick, 2200);
+}
+function _dsStopRotation() { if (_dsRotateTimer) { clearInterval(_dsRotateTimer); _dsRotateTimer = null; } }
+function _dsLaneLoadingHtml() {
+  return '<div class="ds-lane-loading"><span class="ds-lane-spin"></span> <span class="ds-rotate-txt">Searching ' + escHtml(_dsMarketLabel()) + ' businesses</span></div>';
+}
 
 function switchLane(lane) {
   document.querySelectorAll('#ds-lane-tabs .ds-lane-tab').forEach(function(t){
@@ -5618,6 +5744,7 @@ async function _dsRunScan(isRefresh) {
 
   DS_LANES.forEach(function(l){ _dsLaneBusy[l] = true; _dsLaneNote[l] = ''; });
   _dsRenderAll();
+  _dsStartRotation();
 
   var prog = startDealScanProgress();
 
@@ -5659,6 +5786,7 @@ async function _dsRunScan(isRefresh) {
     var card = document.getElementById('ds-progress');
     if (card) card.style.display = 'none';
   } finally {
+    _dsStopRotation();
     DS_LANES.forEach(function(l){ _dsLaneBusy[l] = false; });
     _dsRenderAll();
     if (btn)  { btn.disabled  = false; btn.textContent  = 'Scan Deals with AI'; }
@@ -5732,6 +5860,10 @@ function _dsCardHtml(d, i, lane, isTop) {
   }
   if (lane === 'local' && d.isFranchise === true) {
     extraChips += '<span class="ds-lane-chip" style="background:rgba(45,212,191,0.14);color:#2dd4bf;border:1px solid rgba(45,212,191,0.3)">Local franchise</span>';
+  }
+  // Interest-tag matches (e.g. "Matches: supplements, gyms")
+  if (Array.isArray(d.matchedTags) && d.matchedTags.length) {
+    extraChips += '<span class="ds-lane-chip" style="background:rgba(200,241,53,0.12);color:#C8F135;border:1px solid rgba(200,241,53,0.3)">Matches: ' + esc(d.matchedTags.slice(0, 4).join(', ')) + '</span>';
   }
 
   var contactHtml = '';
@@ -6912,6 +7044,11 @@ function _applyLookupCandidate(data) {
   // Hometown fills its own field now (it powers the Deal Scan second market),
   // no longer dumped into notes. Editable like every other looked-up field.
   if (data.hometown) { const h = document.getElementById('a_hometown'); if (h) h.value = data.hometown; }
+  // Pre-select any interest tags the lookup found in the bio (fully editable).
+  if (Array.isArray(data.interestTags) && data.interestTags.length) {
+    const qualified = data.interestTags.map(nilTagFromSub).filter(Boolean);
+    if (qualified.length) renderTagPicker('a_tags', qualified);
+  }
   let notesVal = data.notes || '';
   if (data.previousSchool) notesVal = (notesVal ? notesVal + ' ' : '') + 'Transfer from ' + data.previousSchool + '.';
   if (notesVal) document.getElementById('a_notes').value = notesVal;
@@ -9574,6 +9711,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
       if (bar) bar.style.width = Math.round((n / OB_TOTAL) * 100) + '%';
       obLog(n, 'entered');
       // Per-step setup
+      if (n === 1) { const tp = document.getElementById('ob-tags'); if (tp && !tp.innerHTML) renderTagPicker('ob-tags', []); }
       if (n === 2) obRenderReview();
       if (n === 3) {
         const nm = document.getElementById('ob-scan-name');
@@ -9601,6 +9739,10 @@ window.addEventListener('DOMContentLoaded', checkSession);
       if (data.hometown)   document.getElementById('ob-athlete-hometown').value = data.hometown;
       if (data.position)   document.getElementById('ob-athlete-pos').value    = data.position;
       if (data.schoolTier) document.getElementById('ob-athlete-tier').value   = data.schoolTier;
+      if (Array.isArray(data.interestTags) && data.interestTags.length) {
+        const q = data.interestTags.map(nilTagFromSub).filter(Boolean);
+        if (q.length) renderTagPicker('ob-tags', q);
+      }
       if (data.sport) {
         const s = document.getElementById('ob-athlete-sport');
         for (let o of s.options) {
@@ -9785,6 +9927,8 @@ window.addEventListener('DOMContentLoaded', checkSession);
         name,
         school:     document.getElementById('ob-athlete-school').value.trim(),
         hometown:   document.getElementById('ob-athlete-hometown').value.trim(),
+        tags:       tagPickerValue('ob-tags'),
+        productWants: (document.getElementById('ob-athlete-productwants') ? document.getElementById('ob-athlete-productwants').value : '').trim(),
         sport:      document.getElementById('ob-athlete-sport').value,
         position:   document.getElementById('ob-athlete-pos').value.trim(),
         schoolTier: document.getElementById('ob-athlete-tier').value || 'p4-mid',
@@ -9877,6 +10021,8 @@ window.addEventListener('DOMContentLoaded', checkSession);
             position: obData.position,
             school: obData.school,
             hometown: obData.hometown || '',
+            tags: obData.tags || [],
+            productWants: obData.productWants || '',
             schoolTier: obData.schoolTier || 'p4-mid',
             instagram: followers,
             tiktok: obData.tiktok || 0,

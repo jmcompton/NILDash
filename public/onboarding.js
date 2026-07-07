@@ -292,6 +292,7 @@
     { key: 'contract_scan', label: 'Scan a contract PDF',                 view: 'pdf-scan' },
     { key: 'rate_calc',     label: 'Calculate a rate with Rate Calculator', view: 'rate' },
     { key: 'log_deal',      label: 'Log your first deal',                 view: 'pipeline' },
+    { key: 'connect_google', label: 'Connect Gmail and Calendar',         view: 'settings' },
   ];
 
   function deepLink(item) {
@@ -315,9 +316,16 @@
   function renderChecklist() {
     var home = document.getElementById('view-home');
     if (!home || !isAgent()) return;
-    var host = document.getElementById('nil-getting-started');
 
     getState().then(function (st) {
+      // Idempotent render: resolve the host INSIDE the async callback (querying
+      // it before the await let two concurrent boot-time calls both see "no
+      // card" and both insert one), and defensively remove any duplicates that
+      // an older client already created. Existing card updates in place.
+      var hosts = document.querySelectorAll('#nil-getting-started, [id="nil-getting-started"]');
+      var host = hosts[0] || null;
+      for (var di = 1; di < hosts.length; di++) hosts[di].remove();
+
       var checklist = (st && st.checklist) || {};
       if (st && st.checklistDismissed) { if (host) host.remove(); return; }
 
@@ -345,7 +353,7 @@
           '<div style="background:#0D1520;border:1px solid rgba(132,204,22,0.35);border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px">' +
             '<div>' +
               '<div style="font-size:13px;font-weight:700;color:var(--accent)">You know the whole platform</div>' +
-              '<div style="font-size:11px;color:#9CA3AF;margin-top:2px">All 7 tools done. This card hides itself from here on.</div>' +
+              '<div style="font-size:11px;color:#9CA3AF;margin-top:2px">Everything done. This card hides itself from here on.</div>' +
             '</div>' +
             '<button onclick="NILOnboard.hideChecklist()" style="background:transparent;border:1px solid #1e2a3a;color:#9CA3AF;border-radius:6px;padding:6px 12px;font-size:11px;cursor:pointer">Hide</button>' +
           '</div>';

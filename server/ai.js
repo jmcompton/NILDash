@@ -496,6 +496,46 @@ function validateContactEmail(email, websiteUrl) {
   return email.trim();
 }
 
+// ── Athlete interest tags: fixed taxonomy (kept in sync with the frontend
+// picker in index.html). Tags are stored on the athlete as "industry:sub"
+// strings, e.g. "fitness:supplements". They weight Deal Scan search emphasis
+// and scoring boosts.
+const TAG_TAXONOMY = {
+  fitness:   { label: 'Fitness',                  subs: ['supplements', 'creatine', 'protein', 'apparel', 'gyms'] },
+  foodbev:   { label: 'Food and Beverage',        subs: ['coffee', 'pizza', 'smoothies', 'energy drinks', 'snacks', 'restaurants'] },
+  beauty:    { label: 'Beauty and Personal Care', subs: ['skincare', 'haircare', 'makeup', 'fragrance'] },
+  fashion:   { label: 'Fashion',                  subs: ['streetwear', 'sneakers', 'accessories'] },
+  auto:      { label: 'Auto',                     subs: ['dealerships', 'detailing', 'tires'] },
+  wellness:  { label: 'Health and Wellness',      subs: ['chiropractic', 'physical therapy', 'mental health', 'recovery'] },
+  tech:      { label: 'Tech and Gaming',          subs: ['gaming', 'apps', 'accessories'] },
+  outdoors:  { label: 'Outdoors',                 subs: ['hunting', 'fishing', 'camping'] },
+  finance:   { label: 'Finance',                  subs: ['banks', 'credit unions', 'insurance'] },
+  community: { label: 'Community',                subs: ['local events', 'nonprofits', 'youth sports'] },
+};
+
+// Validate raw tag strings against the taxonomy and return display descriptors
+// like "supplements (Fitness)". Unknown tags are dropped, never trusted.
+function describeTags(tags) {
+  const out = [];
+  for (const t of (Array.isArray(tags) ? tags : [])) {
+    const idx = String(t).indexOf(':');
+    if (idx < 1) continue;
+    const ind = String(t).slice(0, idx), sub = String(t).slice(idx + 1);
+    if (TAG_TAXONOMY[ind] && TAG_TAXONOMY[ind].subs.includes(sub)) out.push(`${sub} (${TAG_TAXONOMY[ind].label})`);
+  }
+  return out;
+}
+function validTagSubs(tags) {
+  const out = [];
+  for (const t of (Array.isArray(tags) ? tags : [])) {
+    const idx = String(t).indexOf(':');
+    if (idx < 1) continue;
+    const ind = String(t).slice(0, idx), sub = String(t).slice(idx + 1);
+    if (TAG_TAXONOMY[ind] && TAG_TAXONOMY[ind].subs.includes(sub)) out.push(sub);
+  }
+  return [...new Set(out)];
+}
+
 // ─── Deal Scan: SOCIAL + TOP NIL SPENDER lanes ───────────────────────────────
 // Shared two-phase (parallel web search → fast scoring) brand-discovery helper
 // for the two non-local lanes. Unlike the LOCAL lane, these are NOT tied to the
@@ -801,12 +841,21 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
   "contactLinkedIn": null
 }]`;
 
+  // Athlete interest tags + product wants (validated against the taxonomy).
+  const athleteTagSubs = validTagSubs(athlete.tags);
+  const productWants = String(athlete.productWants || '').trim().slice(0, 300);
+
   // Shared post-processing for both local paths: normalize the new fields,
   // attach the market chip label (only in two-market mode so single-market
   // behavior is unchanged), and never let a bad market value through.
+  // matchedTags is filtered to the athlete's REAL tags so the model can never
+  // surface a tag the athlete does not have.
   const finalizeLocal = (d, i, source, site) => {
     let market = d.market === 'hometown' ? 'hometown' : 'school';
     if (!hasHometown) market = 'school';
+    d.matchedTags = Array.isArray(d.matchedTags)
+      ? d.matchedTags.map((t) => String(t)).filter((t) => athleteTagSubs.includes(t))
+      : [];
     return {
       ...d,
       rank: i + 1,
@@ -853,72 +902,120 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const searchSys = 'You find real local businesses via web search. Output ONLY a JSON array, no commentary, no markdown.';
     const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email","evidence","franchise"}. "evidence": one short line ONLY when the search shows the business already spends on local marketing (sponsors a high school or little league team, billboards, local ads, prior NIL activity), else null — never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. ONLY a JSON array.`;
 
-    // Two category bundles per the taxonomy for the school market, one combined
-    // sweep for the hometown market. All parallel; each hard-capped at 8s.
-    // max_uses is 2 per call so each search call reliably finishes inside the
-    // cap (3 internal searches often blew past 8s and timed out to '', which is
-    // how live hometown results went missing).
-    const schoolQ1 = mk(
-      `car dealerships, gyms and training facilities, restaurants, smoothie and supplement shops in ${city}, ${state} that sponsor local sports teams, run local ads, or have done NIL deals with ${school} athletes`,
-      `${catHint}, car dealerships, restaurants and food spots, smoothie and supplement shops`
+    // Athlete interest tags: tagged industries lead the search emphasis on a
+    // cache miss and get a scoring boost below. The two school bundles always
+    // sweep the FULL taxonomy, so every tagged industry is searched whether the
+    // pool is fresh or cached.
+    const tagDescs = describeTags(athlete.tags);
+    const tagEmphasisQ = tagDescs.length ? ` Prioritize businesses in these industries the athlete is tagged for: ${tagDescs.join(', ')}.` : '';
+
+    // ── Market-level candidate cache ─────────────────────────────────────────
+    // Phase-1 pools are per-market and stable for days, so they are cached in
+    // Postgres (TTL 5 days). Live searches run ONLY for cache misses and write
+    // through. Phase-2 scoring below always runs fresh per athlete.
+    const normMarket = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const schoolCacheKey = `${normMarket(schoolMarket)}:local`;
+    const hometownCacheKey = hasHometown ? `${normMarket(hometown)}:local` : null;
+    const [schoolCached, hometownCached] = await Promise.all([
+      store.getMarketCache(schoolCacheKey),
+      hometownCacheKey ? store.getMarketCache(hometownCacheKey) : Promise.resolve(null),
+    ]);
+    const _ageH = (cc) => Math.round((Date.now() - new Date(cc.fetchedAt).getTime()) / 3600000);
+    console.log(
+      `[dealScan] market cache ${schoolCached ? `HIT ${schoolCacheKey} (${schoolCached.candidates.length} candidates, age ${_ageH(schoolCached)}h)` : `MISS ${schoolCacheKey}`}` +
+      (hometownCacheKey ? ` | ${hometownCached ? `HIT ${hometownCacheKey} (${hometownCached.candidates.length} candidates, age ${_ageH(hometownCached)}h)` : `MISS ${hometownCacheKey}`}` : '')
     );
-    const schoolQ2 = mk(
-      `chiropractors, physical therapy clinics, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons in ${city}, ${state} that advertise locally or sponsor high school and youth sports`,
-      'chiropractors and physical therapy, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons'
-    );
-    const searchDefs = [
-      { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ1, searchSys, 800, 2, MODEL_DEALSCAN), 8000, '') },
-      { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ2, searchSys, 800, 2, MODEL_DEALSCAN), 8000, '') },
-    ];
-    if (hasHometown) {
-      searchDefs.push({
-        market: 'hometown',
-        p: withTimeout(oneShotWebSearch(mk(
-          `local businesses in ${hometown} across car dealerships, restaurants, gyms and training facilities, supplement shops, chiropractors, boutiques, real estate agents, banks, med spas that sponsor local youth sports or spend on local marketing`,
-          `${catHint}, plus the full local taxonomy in ${hometown}`
-        ), searchSys, 800, 2, MODEL_DEALSCAN), 8000, ''),
-      });
-    }
-    const _tSearch = Date.now();
-    const settled = await Promise.allSettled(searchDefs.map((s) => s.p));
 
     const found = [];
     const seen = new Set();
+    const addCandidate = (it, market) => {
+      const nm = ((it && it.name) || '').trim();
+      if (!nm) return;
+      const key = nm.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      found.push({
+        name: nm, website: it.website || null, category: it.category || null,
+        email: it.email || null, evidence: it.evidence || null,
+        franchise: it.franchise === true, market,
+      });
+    };
     const collectLocal = (raw, market) => {
       try {
         const t = (raw || '').replace(/```json/g, '').replace(/```/g, '').trim();
         const a = t.indexOf('['), b = t.lastIndexOf(']');
         if (a === -1 || b <= a) return;
         const arr = JSON.parse(t.substring(a, b + 1));
-        for (const it of (Array.isArray(arr) ? arr : [])) {
-          const nm = ((it && it.name) || '').trim();
-          if (!nm) continue;
-          const key = nm.toLowerCase();
-          if (seen.has(key)) continue;
-          seen.add(key);
-          found.push({
-            name: nm, website: it.website || null, category: it.category || null,
-            email: it.email || null, evidence: it.evidence || null,
-            franchise: it.franchise === true, market,
-          });
-        }
+        for (const it of (Array.isArray(arr) ? arr : [])) addCandidate(it, market);
       } catch (_) { /* skip unparseable search result */ }
     };
-    settled.forEach((s, idx) => { if (s.status === 'fulfilled') collectLocal(s.value, searchDefs[idx].market); });
-    console.log(`[dealScan] phase 1 category search found ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _tSearch}ms (elapsed ${Date.now() - _t0}ms)`);
 
-    // One broadened retry before falling back.
-    if (found.length < 3) {
-      console.warn(`[dealScan] only ${found.length} candidates — running one broadened retry search`);
-      try {
-        const retryRaw = await withTimeout(oneShotWebSearch(
-          mk(`popular local businesses, restaurants, gyms, car dealerships and shops in ${city}, ${state}`, 'any local business that advertises locally'),
-          searchSys, 800, 4, MODEL_DEALSCAN
-        ), 8000, '');
-        collectLocal(retryRaw, 'school');
-      } catch (_) { /* retry failed — fall through to the count check */ }
-      console.log(`[dealScan] after retry: ${found.length} candidate businesses`);
+    // Serve cached markets straight into the pool (market re-tagged from the
+    // cache bucket, never trusted from the stored blob).
+    if (schoolCached) for (const cnd of schoolCached.candidates) addCandidate(cnd, 'school');
+    if (hometownCached) for (const cnd of hometownCached.candidates) addCandidate(cnd, 'hometown');
+
+    // Live searches ONLY for cache misses. Two full-taxonomy category bundles
+    // for the school market, one combined sweep for the hometown market. All
+    // parallel; each hard-capped at 8s with max 2 internal web searches.
+    const searchDefs = [];
+    if (!schoolCached) {
+      const schoolQ1 = mk(
+        `car dealerships, gyms and training facilities, restaurants, smoothie and supplement shops in ${city}, ${state} that sponsor local sports teams, run local ads, or have done NIL deals with ${school} athletes${tagEmphasisQ}`,
+        `${catHint}, car dealerships, restaurants and food spots, smoothie and supplement shops`
+      );
+      const schoolQ2 = mk(
+        `chiropractors, physical therapy clinics, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons in ${city}, ${state} that advertise locally or sponsor high school and youth sports`,
+        'chiropractors and physical therapy, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons'
+      );
+      searchDefs.push(
+        { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ1, searchSys, 800, 2, MODEL_DEALSCAN), 8000, '') },
+        { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ2, searchSys, 800, 2, MODEL_DEALSCAN), 8000, '') },
+      );
     }
+    if (hasHometown && !hometownCached) {
+      searchDefs.push({
+        market: 'hometown',
+        p: withTimeout(oneShotWebSearch(mk(
+          `local businesses in ${hometown} across car dealerships, restaurants, gyms and training facilities, supplement shops, chiropractors, boutiques, real estate agents, banks, med spas that sponsor local youth sports or spend on local marketing${tagEmphasisQ}`,
+          `${catHint}, plus the full local taxonomy in ${hometown}`
+        ), searchSys, 800, 2, MODEL_DEALSCAN), 8000, ''),
+      });
+    }
+
+    if (searchDefs.length) {
+      const _tSearch = Date.now();
+      const settled = await Promise.allSettled(searchDefs.map((s) => s.p));
+      settled.forEach((s, idx) => { if (s.status === 'fulfilled') collectLocal(s.value, searchDefs[idx].market); });
+      console.log(`[dealScan] phase 1 live search found ${found.length} candidates total (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _tSearch}ms (elapsed ${Date.now() - _t0}ms)`);
+
+      // One broadened retry before falling back.
+      if (found.length < 3) {
+        console.warn(`[dealScan] only ${found.length} candidates — running one broadened retry search`);
+        try {
+          const retryRaw = await withTimeout(oneShotWebSearch(
+            mk(`popular local businesses, restaurants, gyms, car dealerships and shops in ${city}, ${state}`, 'any local business that advertises locally'),
+            searchSys, 800, 4, MODEL_DEALSCAN
+          ), 8000, '');
+          collectLocal(retryRaw, 'school');
+        } catch (_) { /* retry failed — fall through to the count check */ }
+        console.log(`[dealScan] after retry: ${found.length} candidate businesses`);
+      }
+
+      // Write fresh results through to the market cache (never cache thin or
+      // empty pools, so one bad search day cannot poison the TTL window).
+      if (!schoolCached) {
+        const freshSchool = found.filter((f) => f.market === 'school');
+        if (freshSchool.length >= 3) store.setMarketCache(schoolCacheKey, freshSchool);
+      }
+      if (hometownCacheKey && !hometownCached) {
+        const freshHome = found.filter((f) => f.market === 'hometown');
+        if (freshHome.length >= 1) store.setMarketCache(hometownCacheKey, freshHome);
+      }
+    } else {
+      console.log(`[dealScan] phase 1 served entirely from market cache: ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _t0}ms`);
+    }
+
     // Too thin to be a credible local scan — let the knowledge path try instead.
     if (found.length < 3) throw new Error(`only ${found.length} web candidates`);
 
@@ -947,7 +1044,13 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       return o;
     });
     const candidatesJson = JSON.stringify(compactFound);
-    const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}, ${city}, ${state}${hasHometown ? `, hometown ${hometown}` : ''}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}
+    const tagScoringLine = athleteTagSubs.length
+      ? `\nATHLETE INTEREST TAGS: ${describeTags(athlete.tags).join(', ')}. BOOST candidates matching these tags. For each result set "matchedTags" to the matching tag names, chosen ONLY from this exact list: ${athleteTagSubs.join(', ')}. Use [] when none match.`
+      : '';
+    const wantsLine = productWants
+      ? `\nProducts they already use and would take as compensation: ${productWants}. Treat businesses fitting these products as strong matches.`
+      : '';
+    const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}, ${city}, ${state}${hasHometown ? `, hometown ${hometown}` : ''}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier, realistic local deal ~$${valLow}-$${valHigh}).${exclusionLine}${tagScoringLine}${wantsLine}
 
 These REAL local businesses were just found via web search (with any local-marketing evidence the search surfaced):
 ${candidatesJson}
@@ -957,10 +1060,12 @@ ${marketScoringLine}
 ${FRANCHISE_RULE}
 
 Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} Rationale is 1-2 tight sentences. When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
-[{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"market":"school|hometown","isFranchise":false,"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
+[{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"market":"school|hometown","isFranchise":false,"matchedTags":[],"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
 
+    // Scoring runs on Haiku: it ranks already-found candidates and writes short
+    // rationales, which the fast model handles well at a fraction of the latency.
     const _tScore = Date.now();
-    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business, evidence, or an email domain — only use the businesses, evidence, and domains provided.', 1900, MODEL_DEALSCAN);
+    const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business, evidence, or an email domain — only use the businesses, evidence, and domains provided.', 1900, MODEL_FAST);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const si = c.indexOf('[');
     const ei = c.lastIndexOf(']');

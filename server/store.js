@@ -302,6 +302,20 @@ async function init() {
     .catch(e => console.error('[init] user_onboarding:', e.message));
   await pool.query(`ALTER TABLE user_onboarding ADD COLUMN IF NOT EXISTS checklist_backfilled BOOLEAN DEFAULT FALSE`).catch(() => {});
 
+  // ── Deal Scan market candidate cache ────────────────────────────────────────
+  // Phase-1 category searches discover businesses in a MARKET; markets are
+  // shared across athletes and stable across days, so the candidate pools are
+  // cached here (key: normalized market + lane, e.g. "homewood-alabama:local").
+  // Phase-2 scoring always runs fresh per athlete. Idempotent and additive.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deal_scan_market_cache (
+      cache_key TEXT PRIMARY KEY,
+      candidates JSONB NOT NULL DEFAULT '[]'::jsonb,
+      fetched_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] deal_scan_market_cache table ready'))
+    .catch(e => console.error('[init] deal_scan_market_cache:', e.message));
+
   // Enforce one account per email (case-insensitive). Partial index so
   // agent-managed athletes without an email are unaffected. If existing
   // duplicates block creation, log and continue (handled at signup too).
@@ -1216,7 +1230,7 @@ async function deleteDeal(id) {
 // to a null/no-op instead of throwing into a route handler.
 const CHECKLIST_ITEMS = [
   'add_athlete', 'deal_scan', 'media_kit', 'ai_outreach',
-  'contract_scan', 'rate_calc', 'log_deal',
+  'contract_scan', 'rate_calc', 'log_deal', 'connect_google',
 ];
 
 async function getOnboarding(userId, { backfill = false } = {}) {
@@ -1332,8 +1346,43 @@ async function backfillChecklist(userId) {
     if (await safe(`SELECT 1 FROM outreach_logs WHERE agent_id=$1 AND status='sent' LIMIT 1`)) found.add('ai_outreach');
     if (await safe(`SELECT 1 FROM athlete_outreach WHERE agent_id=$1 LIMIT 1`)) found.add('ai_outreach');
     if (await safe(`SELECT 1 FROM athlete_contracts WHERE agent_id=$1 LIMIT 1`)) found.add('contract_scan');
+    if (await safe(`SELECT 1 FROM email_accounts WHERE user_id=$1 LIMIT 1`)) found.add('connect_google');
+    if (await safe(`SELECT 1 FROM users WHERE id=$1 AND gcal_refresh_token IS NOT NULL LIMIT 1`)) found.add('connect_google');
     for (const item of found) await markChecklistItem(userId, item);
   } catch (e) { console.error('backfillChecklist error:', e.message); }
+}
+
+// ── Deal Scan market cache helpers ──────────────────────────────────────────
+// Both are defensively wrapped: a cache failure must degrade to a live search,
+// never break a scan.
+async function getMarketCache(cacheKey, ttlDays = 5) {
+  if (!cacheKey) return null;
+  try {
+    const r = await pool.query(
+      `SELECT candidates, fetched_at FROM deal_scan_market_cache
+        WHERE cache_key = $1 AND fetched_at > NOW() - ($2 || ' days')::interval`,
+      [cacheKey, String(ttlDays)]);
+    if (!r.rows[0]) return null;
+    const candidates = r.rows[0].candidates;
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+    return { candidates, fetchedAt: r.rows[0].fetched_at };
+  } catch (e) {
+    console.warn('getMarketCache error:', e.message);
+    return null;
+  }
+}
+
+async function setMarketCache(cacheKey, candidates) {
+  if (!cacheKey || !Array.isArray(candidates) || candidates.length === 0) return;
+  try {
+    await pool.query(
+      `INSERT INTO deal_scan_market_cache (cache_key, candidates, fetched_at)
+         VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (cache_key) DO UPDATE SET candidates = $2::jsonb, fetched_at = NOW()`,
+      [cacheKey, JSON.stringify(candidates)]);
+  } catch (e) {
+    console.warn('setMarketCache error:', e.message);
+  }
 }
 
 // Aggregate wizard step drop-off for a lightweight internal analytics view.
@@ -1372,5 +1421,6 @@ module.exports = {
   getOnboarding, logWizardEvent, completeWizard, markChecklistItem,
   dismissChecklist, markTooltipSeen, backfillChecklist, getOnboardingAnalytics,
   CHECKLIST_ITEMS,
+  getMarketCache, setMarketCache,
   pool
 };
