@@ -141,30 +141,52 @@ load();
 </script>
 <script>
 // Load users
+// 'free' is the actual default plan for new signups. It must be in the plan
+// list: with it missing, a free user's dropdown displayed the first option
+// ('beta'), which both looked like an auto-granted beta and made it impossible
+// to change a free user TO beta (selecting the shown value fires no change).
+var PLANS = ['free','beta','trial','starter','pro','suspended'];
+var _usersById = {};
+
+function planColorFor(plan) {
+  return plan === 'free' ? '#64748b'
+    : plan === 'beta' ? '#4ade80'
+    : plan === 'trial' ? '#f59e0b'
+    : plan === 'starter' ? '#60a5fa'
+    : plan === 'pro' ? '#a78bfa'
+    : '#6b7280';
+}
+
+function userRowHtml(u) {
+  const plan = u.plan || 'free';
+  const trialDays = u.trial_ends_at ? Math.ceil((new Date(u.trial_ends_at) - new Date()) / 86400000) : null;
+  const planColor = planColorFor(plan);
+  return '<tr id="urow-' + u.id + '" style="border-bottom:1px solid rgba(255,255,255,0.06)">' +
+    '<td style="padding:10px 12px;font-size:12px;color:#f0ede6">' + (u.name||'—') + '</td>' +
+    '<td style="padding:10px 12px;font-size:12px;color:rgba(240,237,230,0.5)">' + u.email + '</td>' +
+    '<td style="padding:10px 12px">' +
+      '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + planColor + '20;color:' + planColor + ';font-weight:700;text-transform:uppercase">' + plan + '</span>' +
+      (trialDays !== null ? '<span style="font-size:10px;color:rgba(240,237,230,0.4);margin-left:6px">' + trialDays + 'd left</span>' : '') +
+    '</td>' +
+    '<td style="padding:10px 12px">' +
+      '<select onchange="setPlan(\'' + u.id + '\', this.value)" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;font-size:11px;padding:4px 8px">' +
+        PLANS.map(p => '<option value="' + p + '"' + (plan===p?' selected':'') + '>' + p + '</option>').join('') +
+      '</select>' +
+      (trialDays !== null ? '<span style="font-size:10px;color:rgba(240,237,230,0.4);margin-left:6px">' + trialDays + 'd left</span>' : '') +
+    '</td>' +
+    '<td style="padding:10px 12px;font-size:11px;color:rgba(240,237,230,0.4)">' + new Date(u.created_at).toLocaleDateString() + '</td>' +
+  '</tr>';
+}
+
 async function loadUsers() {
   const r = await fetch('/api/admin/users');
   if (!r.ok) return;
   const users = await r.json();
   const el = document.getElementById('users-table');
   if (!el) return;
-  el.innerHTML = users.map(u => {
-    const trialDays = u.trial_ends_at ? Math.ceil((new Date(u.trial_ends_at) - new Date()) / 86400000) : null;
-    const planColor = u.plan === 'beta' ? '#4ade80' : u.plan === 'trial' ? '#f59e0b' : u.plan === 'starter' ? '#60a5fa' : u.plan === 'pro' ? '#a78bfa' : '#6b7280';
-    return '<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">' +
-      '<td style="padding:10px 12px;font-size:12px;color:#f0ede6">' + (u.name||'—') + '</td>' +
-      '<td style="padding:10px 12px;font-size:12px;color:rgba(240,237,230,0.5)">' + u.email + '</td>' +
-      '<td style="padding:10px 12px">' +
-        '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + planColor + '20;color:' + planColor + ';font-weight:700;text-transform:uppercase">' + (u.plan||'beta') + '</span>' +
-        (trialDays !== null ? '<span style="font-size:10px;color:rgba(240,237,230,0.4);margin-left:6px">' + trialDays + 'd left</span>' : '') +
-      '</td>' +
-      '<td style="padding:10px 12px">' +
-        '<select onchange="setPlan(\'' + u.id + '\', this.value)" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;font-size:11px;padding:4px 8px">' +
-          ['beta','trial','starter','pro','suspended'].map(p => '<option value="' + p + '"' + (u.plan===p?' selected':'') + '>' + p + '</option>').join('') +
-        '</select>' +
-      '</td>' +
-      '<td style="padding:10px 12px;font-size:11px;color:rgba(240,237,230,0.4)">' + new Date(u.created_at).toLocaleDateString() + '</td>' +
-    '</tr>';
-  }).join('');
+  _usersById = {};
+  users.forEach(u => { _usersById[u.id] = u; });
+  el.innerHTML = users.map(userRowHtml).join('');
 }
 
 async function setPlan(userId, plan) {
@@ -176,25 +198,19 @@ async function setPlan(userId, plan) {
   const data = await r.json();
   if (data.ok) {
     showToast('Plan updated to ' + plan);
-    setTimeout(loadUsers, 500);
-
-async function runIngestion() {
-  if (!confirm('Run NIL deal comp ingestion now? This will search the web for recent disclosed deals and may take a few minutes.')) return;
-  const btn = document.querySelector('button[onclick="runIngestion()"]');
-  btn.textContent = 'Running...'; btn.disabled = true;
-  try {
-    const r = await fetch('/api/admin/run-ingestion', { method: 'POST' });
-    const data = await r.json();
-    if (data.ok) {
-      showToast('Ingestion job started — check server logs for results');
+    // Update the row in place. Exception: setting 'trial' may change
+    // trial_ends_at server-side, so reload to pick up the fresh date.
+    const u = _usersById[userId];
+    const row = document.getElementById('urow-' + userId);
+    if (u && row && plan !== 'trial') {
+      u.plan = plan;
+      row.outerHTML = userRowHtml(u);
     } else {
-      showToast('Error: ' + (data.error || 'Unknown error'));
+      setTimeout(loadUsers, 500);
     }
-  } catch(e) {
-    showToast('Connection error');
-  }
-  setTimeout(() => { btn.textContent = 'Run Deal Comp Ingestion'; btn.disabled = false; }, 3000);
-}
+  } else {
+    showToast('Error: ' + (data.error || 'plan update failed'));
+    setTimeout(loadUsers, 500); // restore the dropdown to the real value
   }
 }
 
