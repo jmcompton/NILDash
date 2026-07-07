@@ -536,6 +536,31 @@ function validTagSubs(tags) {
   return [...new Set(out)];
 }
 
+// Robust matched-tag derivation. Two grounded sources, both mapped back to the
+// athlete's EXACT tag strings so a tag they do not have can never appear:
+// 1. The model's matchedTags output, matched case-insensitively (Haiku likes
+//    to capitalize, which a strict === filter silently dropped in production).
+// 2. Word-boundary containment of the tag (singular or plural) in the
+//    candidate's own real strings (name, category, evidence, rationale), so an
+//    obvious match like Smoothie King vs "smoothies" always lands even when
+//    the model forgets to emit it.
+function deriveMatchedTags(d, meta, athleteTagSubs) {
+  if (!athleteTagSubs || !athleteTagSubs.length) return [];
+  const out = new Set();
+  const canon = new Map(athleteTagSubs.map((s) => [s.toLowerCase(), s]));
+  for (const t of (Array.isArray(d.matchedTags) ? d.matchedTags : [])) {
+    const hit = canon.get(String(t).toLowerCase().trim());
+    if (hit) out.add(hit);
+  }
+  const hay = [d.brand, d.category, d.rationale, meta && meta.name, meta && meta.category, meta && meta.evidence]
+    .filter(Boolean).join(' ').toLowerCase();
+  for (const sub of athleteTagSubs) {
+    const stem = sub.toLowerCase().replace(/s$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp('\\b' + stem + '(s|es)?\\b').test(hay)) out.add(sub);
+  }
+  return [...out];
+}
+
 // ─── Deal Scan: SOCIAL + TOP NIL SPENDER lanes ───────────────────────────────
 // Shared two-phase (parallel web search → fast scoring) brand-discovery helper
 // for the two non-local lanes. Unlike the LOCAL lane, these are NOT tied to the
@@ -553,6 +578,12 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
   const school = athlete.school || 'their school';
   const valLow  = tier === 'macro' ? 2500 : tier === 'mid' ? 800 : tier === 'micro' ? 250 : 100;
   const valHigh = tier === 'macro' ? 15000 : tier === 'mid' ? 4000 : tier === 'micro' ? 1000 : 500;
+  // Interest tags weight the search queries and scoring; region grounds the
+  // "did deals with athletes near here" evidence search. Mapped schools resolve
+  // instantly; unmapped ones are capped at 6s inside getSchoolLocation.
+  const athleteTagSubs = validTagSubs(athlete.tags);
+  const _loc = await getSchoolLocation(athlete.school || '');
+  const stateCtx = _loc && _loc.known !== false ? _loc.state : '';
 
   const exclusionLine = excludeBrands && excludeBrands.length > 0
     ? `\nEXCLUDE THESE BRANDS COMPLETELY — do not suggest them: ${excludeBrands.join(', ')}`
@@ -569,14 +600,20 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
         label: 'Social',
         resultType: 'social',
         categoryEnum: 'supplements|apparel|energydrink|app|accessories|beauty|nutrition|fitness|dtc',
+        // Reworked for what converts for agents of smaller athletes: open or
+        // application-based ambassador and micro-influencer programs, plus
+        // brands with evidence of NIL deals at mid-major or regional schools.
+        // A tagged industry always gets its own search (third query).
         queries: [
-          `DTC and online brands with creator/influencer ambassador programs that partner with ${tier}-tier college athletes (~${reach.toLocaleString()} followers) — supplements, apparel, energy drinks, apps, accessories 2025`,
-          `direct-to-consumer brands actively recruiting nano and micro college athlete creators on Instagram and TikTok ${new Date().getFullYear()}`,
-          `${sport} micro-influencer brand ambassador programs supplements apparel accessories open to small creators`,
+          `brands with OPEN or application-based ambassador and micro-influencer programs in ${new Date().getFullYear()} that accept small creators and college athletes around ${reach.toLocaleString()} followers - supplements, apparel, energy drinks, snacks, apps, accessories`,
+          `brands with reported NIL deals with college athletes at mid-major${stateCtx ? ` or ${stateCtx}` : ''} schools - everyday athletes, not the biggest stars ${new Date().getFullYear()}`,
+          athleteTagSubs.length
+            ? `${athleteTagSubs.join(', ')} brands with ambassador, affiliate, or micro-influencer programs open to small creators and student athletes`
+            : `${sport} micro-influencer brand ambassador programs supplements apparel accessories open to small creators`,
         ],
-        retryQuery: `online DTC brands running affiliate or ambassador programs for small Instagram and TikTok creators`,
-        scoreIntro: `These REAL DTC / social-media brands were just found via web search. They run creator/ambassador programs.`,
-        favor: 'DTC supplements, apparel, energy drinks, fitness apps, accessories that work with small creators',
+        retryQuery: `brands running open application ambassador or affiliate programs for small Instagram and TikTok creators and student athletes`,
+        scoreIntro: `These REAL brands were just found via web search. Each carries "evidence" of how they work with small creators or athletes when the search found it.`,
+        favor: 'brands with open or application-based ambassador and micro-influencer programs, or reported NIL deals with mid-major and regional athletes',
       }
     : {
         label: 'Top NIL',
@@ -593,12 +630,16 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
       };
 
   const searchSys = 'You find real brands via web search. Output ONLY a JSON array, no commentary, no markdown.';
-  const mk = (q) => `Use web search: ${q}. Return up to 8 REAL brands you actually find, each as {"name","website","category","email"} (email only if shown on their site, else null). Favor: ${laneCfg.favor}. ONLY a JSON array.`;
+  const mk = (q) => `Use web search: ${q}. Return up to 8 REAL brands you actually find, each as {"name","website","category","email","evidence"}. "evidence": one short line ONLY when the search shows how the brand works with small creators or athletes (an open ambassador or micro-influencer program by name, application link, reported NIL deals with mid-major or regional athletes), else null - never invent evidence. "email" only if shown on their site, else null. Favor: ${laneCfg.favor}. ONLY a JSON array.`;
 
+  // 15s per-search cap: production web-search calls regularly exceeded the old
+  // 8s cap and timed out to empty. Searches run in parallel so wall-clock stays
+  // ~one search.
+  const BRAND_SEARCH_CAP_MS = 15000;
   try {
-    console.log(`[dealScan:${lane}] web search brand discovery — model=${MODEL_DEALSCAN} sport=${sport} tier=${tier}`);
+    console.log(`[dealScan:${lane}] web search brand discovery — model=${MODEL_DEALSCAN} sport=${sport} tier=${tier}${stateCtx ? ` state=${stateCtx}` : ''}${athleteTagSubs.length ? ` tags=${athleteTagSubs.join('/')}` : ''}`);
     const settled = await Promise.allSettled(
-      laneCfg.queries.map((q) => withTimeout(oneShotWebSearch(mk(q), searchSys, 700, 3, MODEL_DEALSCAN), 8000, ''))
+      laneCfg.queries.map((q) => withTimeout(oneShotWebSearch(mk(q), searchSys, 700, 2, MODEL_DEALSCAN), BRAND_SEARCH_CAP_MS, ''))
     );
 
     const found = [];
@@ -615,16 +656,16 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
           const key = nm.toLowerCase();
           if (seen.has(key)) continue;
           seen.add(key);
-          found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null });
+          found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null, evidence: it.evidence || null });
         }
       } catch (_) { /* skip unparseable */ }
     };
     for (const s of settled) if (s.status === 'fulfilled') collect(s.value);
-    console.log(`[dealScan:${lane}] phase 1 found ${found.length} candidates`);
+    console.log(`[dealScan:${lane}] phase 1 found ${found.length} candidates in ${Date.now() - _laneT0}ms`);
 
     if (found.length < 6) {
       try {
-        const retry = await withTimeout(oneShotWebSearch(mk(laneCfg.retryQuery), searchSys, 800, 4, MODEL_DEALSCAN), 8000, '');
+        const retry = await withTimeout(oneShotWebSearch(mk(laneCfg.retryQuery), searchSys, 800, 3, MODEL_DEALSCAN), BRAND_SEARCH_CAP_MS, '');
         collect(retry);
       } catch (_) {}
       console.log(`[dealScan:${lane}] after retry: ${found.length} candidates`);
@@ -653,10 +694,12 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
 ${laneCfg.scoreIntro}
 ${candidatesJson}
 
-Pick the 3 or 4 best for THIS athlete and score each 1-100 (vary the scores meaningfully). Return AT MOST 4. Each rationale is 1-2 sentences referencing this athlete's sport/tier and WHY this brand actually does deals at this follower level. For contactEmail: use the email given if present, otherwise info@/partnerships@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
-[{"rank":1,"brand":"","tier":"${laneCfg.resultType}","category":"${laneCfg.categoryEnum}","dealType":"post|reel|ambassador|affiliate","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":false,"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
+${athleteTagSubs.length ? `ATHLETE INTEREST TAGS: ${athleteTagSubs.join(', ')}. BOOST brands matching these tags. For each result set "matchedTags" to the matching tag names, chosen ONLY from that exact list; [] when none match.\n` : ''}Pick the 3 or 4 best for THIS athlete and score each 1-100 (vary the scores meaningfully). Return AT MOST 4. Each rationale is a FIT LINE: 1-2 sentences on why this brand works for an athlete THIS size, citing the candidate's "evidence" when present (e.g. "runs a student-athlete ambassador program", "did deals with Conference USA athletes"). Never invent evidence that is not in the input. Candidates with real evidence get a strong ranking boost. For contactEmail: use the email given if present, otherwise info@/partnerships@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
+[{"rank":1,"brand":"","tier":"${laneCfg.resultType}","category":"${laneCfg.categoryEnum}","dealType":"post|reel|ambassador|affiliate","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":false,"matchedTags":[],"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
 
-      const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a brand or an email domain — only use the brands and domains provided.', 1800, MODEL_DEALSCAN);
+      // Scoring on Haiku, same as the local lane: ranking found candidates and
+      // writing short fit lines is fast-model work.
+      const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a brand, evidence, or an email domain — only use the brands, evidence, and domains provided.', 1800, MODEL_FAST);
       const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
       const si = c.indexOf('['), ei = c.lastIndexOf(']');
       if (si === -1 || ei <= si) throw new Error('No array in scoring response');
@@ -665,11 +708,13 @@ Pick the 3 or 4 best for THIS athlete and score each 1-100 (vary the scores mean
       parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
       parsed = parsed.slice(0, 4); // lane rebalance: Social / Top NIL show 3-4, Local is primary
       console.log(`[dealScan:${lane}] returning ${parsed.length} in ${Date.now() - _laneT0}ms`);
-      const siteByName = new Map();
-      for (const f of found) if (f.name) siteByName.set(f.name.toLowerCase().trim(), f.website);
+      const metaByName = new Map();
+      for (const f of found) if (f.name) metaByName.set(f.name.toLowerCase().trim(), f);
       return parsed.map((d, i) => {
         const nameKey = (d.brand || '').toLowerCase().trim();
-        const site = (d.brand && siteByName.get(nameKey)) || d.website || null;
+        const meta = metaByName.get(nameKey) || null;
+        const site = (meta && meta.website) || d.website || null;
+        const evidence = meta && meta.evidence ? String(meta.evidence).slice(0, 180) : null;
         return {
           ...d,
           rank: i + 1,
@@ -677,6 +722,9 @@ Pick the 3 or 4 best for THIS athlete and score each 1-100 (vary the scores mean
           lane,
           isLocal: false,
           source: seedNames.has(nameKey) ? 'seed' : 'web',
+          matchedTags: deriveMatchedTags(d, meta, athleteTagSubs),
+          evidence,
+          activelyMarketing: !!evidence,
           contactEmail: validateContactEmail(d.contactEmail, site),
           estimatedValueLow: d.estimatedValueLow || valLow,
           estimatedValueHigh: d.estimatedValueHigh || valHigh,
@@ -692,13 +740,16 @@ Pick the 3 or 4 best for THIS athlete and score each 1-100 (vary the scores mean
         category: f.category || laneCfg.resultType,
         dealType: 'ambassador',
         campaign: '',
-        rationale: `${f.name} runs creator/ambassador programs that fit ${tier}-tier ${sport} athletes at this follower level.`,
+        rationale: (f.evidence ? `${f.evidence}. ` : '') + `${f.name} runs creator/ambassador programs that fit ${tier}-tier ${sport} athletes at this follower level.`,
         contactApproach: 'Apply through their ambassador or affiliate page, or email their partnerships team.',
         timingNote: '',
         fitScore: 82 - i * 4,
         isLocal: false,
         resultType: laneCfg.resultType,
         lane,
+        matchedTags: deriveMatchedTags({ brand: f.name, category: f.category }, f, athleteTagSubs),
+        evidence: f.evidence ? String(f.evidence).slice(0, 180) : null,
+        activelyMarketing: !!f.evidence,
         source: f._seed ? 'seed' : 'web',
         contactEmail: validateContactEmail(f.email, f.website),
         estimatedValueLow: valLow,
@@ -785,6 +836,19 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane) {
   const FRANCHISE_RULE = `LOCALLY-OWNED FRANCHISES COUNT AS LOCAL: the local Wingstop, a Chick-fil-A franchisee, an area State Farm agent, a dealership carrying a national marque. These are LOCAL results (mark "isFranchise": true) ONLY when they point at a specific local location or operator (e.g. "Wingstop on Lakeshore Pkwy", "Chick-fil-A Johns Creek franchisee"), never the corporate brand in general. Their angle: the owner or GM controls a local marketing budget and can say yes without corporate. The ban on big national brands with no confirmed NIL activity still applies to this lane.`;
   const WHY_YES_RULE = `Every rationale must include a concrete "why they'd say yes" angle for THIS business and THIS athlete (foot traffic near campus, customer overlap with the sport's fans, owner's community ties, they already market locally). Rank by likelihood this specific business responds to this specific athlete, NOT by brand size.`;
 
+  // Athlete interest tags + product wants (validated against the taxonomy).
+  // Computed BEFORE the knowledge prompt so BOTH local paths carry them — the
+  // fallback path shipping without tags is exactly how production scans lost
+  // matchedTags whenever web search was thin.
+  const athleteTagSubs = validTagSubs(athlete.tags);
+  const productWants = String(athlete.productWants || '').trim().slice(0, 300);
+  const tagContextLine = athleteTagSubs.length
+    ? `\nATHLETE INTEREST TAGS: ${describeTags(athlete.tags).join(', ')}. BOOST businesses matching these tags. For each result set "matchedTags" to the matching tag names, chosen ONLY from this exact list: ${athleteTagSubs.join(', ')}. Use [] when none match.`
+    : '';
+  const wantsContextLine = productWants
+    ? `\nProducts they already use and would take as compensation: ${productWants}. Treat businesses fitting these products as strong matches.`
+    : '';
+
   const marketsLine = hasHometown
     ? `MARKETS (search BOTH):\n1. School market: ${city}, ${state} (near ${school})\n2. Hometown market: ${hometown} — this athlete GREW UP here. Hometown picks get the hometown-hero angle: local recognition, community ties, "local kid makes good".`
     : `MARKET: ${city}, ${state}`;
@@ -798,7 +862,7 @@ MARKET RESOLUTION: If the school market below shows "Unknown City" or "Unknown S
 
 ATHLETE: ${athlete.name} | ${sport} | ${athlete.position||'N/A'} | ${school}
 ${marketsLine}
-SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Tier: ${tier}${interestLine}
+SOCIAL: ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok | Tier: ${tier}${interestLine}${tagContextLine}${wantsContextLine}
 ${exclusionLine}
 
 THIS IS LOCAL-FIRST. A ${tier}-tier athlete will NOT land Nike or other national giants. They land deals with the local car dealership, the gym down the street, the area franchise owner, the supplement store. Realistic local deal value: $${valLow}-$${valHigh} per post/campaign. Tune every pick to this athlete's sport (${sport}), position (${athlete.position||'N/A'}), and ${tier} follower tier.
@@ -835,27 +899,24 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
   "isLocal": true,
   "market": "school|hometown",
   "isFranchise": false,
+  "matchedTags": [],
   "contactName": null,
   "contactTitle": "Owner | Marketing Director | Franchise Owner | etc",
   "contactEmail": null,
   "contactLinkedIn": null
 }]`;
 
-  // Athlete interest tags + product wants (validated against the taxonomy).
-  const athleteTagSubs = validTagSubs(athlete.tags);
-  const productWants = String(athlete.productWants || '').trim().slice(0, 300);
-
   // Shared post-processing for both local paths: normalize the new fields,
   // attach the market chip label (only in two-market mode so single-market
   // behavior is unchanged), and never let a bad market value through.
-  // matchedTags is filtered to the athlete's REAL tags so the model can never
-  // surface a tag the athlete does not have.
-  const finalizeLocal = (d, i, source, site) => {
+  // matchedTags is derived case-insensitively and grounded in the candidate's
+  // own strings; evidence comes ONLY from what the search actually found (the
+  // candidate meta), never from model prose, so the knowledge path can never
+  // invent marketing-activity claims.
+  const finalizeLocal = (d, i, source, site, meta) => {
     let market = d.market === 'hometown' ? 'hometown' : 'school';
     if (!hasHometown) market = 'school';
-    d.matchedTags = Array.isArray(d.matchedTags)
-      ? d.matchedTags.map((t) => String(t)).filter((t) => athleteTagSubs.includes(t))
-      : [];
+    const evidence = meta && meta.evidence ? String(meta.evidence).slice(0, 180) : null;
     return {
       ...d,
       rank: i + 1,
@@ -866,6 +927,9 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       market,
       marketLabel: hasHometown ? marketLabelFor(market) : null,
       isFranchise: d.isFranchise === true,
+      matchedTags: deriveMatchedTags(d, meta, athleteTagSubs),
+      evidence,
+      activelyMarketing: !!evidence,
       contactEmail: validateContactEmail(d.contactEmail, site || d.website || null),
       estimatedValueLow: d.estimatedValueLow || valLow,
       estimatedValueHigh: d.estimatedValueHigh || valHigh,
@@ -887,7 +951,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
     console.log(`[dealScan] model-knowledge produced ${parsed.length} local brand(s) in ${Date.now() - _t0}ms`);
-    return parsed.map((d, i) => finalizeLocal(d, i, 'knowledge', d.website || null));
+    return parsed.map((d, i) => finalizeLocal(d, i, 'knowledge', d.website || null, null));
   };
 
   // ── PRIMARY PATH: category-driven parallel web search + one scoring call ────
@@ -900,14 +964,16 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     console.log(`[dealScan] category web search primary — model=${MODEL_DEALSCAN} market=${schoolMarket}${hasHometown ? ` + hometown ${hometown}` : ''} sport=${sport}`);
 
     const searchSys = 'You find real local businesses via web search. Output ONLY a JSON array, no commentary, no markdown.';
-    const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email","evidence","franchise"}. "evidence": one short line ONLY when the search shows the business already spends on local marketing (sponsors a high school or little league team, billboards, local ads, prior NIL activity), else null — never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. ONLY a JSON array.`;
+    const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email","evidence","franchise"}. For EVERY business, actively look for marketing-activity signals: sponsors a high school, youth, or college team; runs local ads or billboards; has done NIL or athlete partnerships before; runs an active promotional social media presence. "evidence": one short line describing ONLY what the search actually shows (e.g. "Sponsors Homewood High athletics"), null when nothing found — never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. ONLY a JSON array.`;
 
-    // Athlete interest tags: tagged industries lead the search emphasis on a
-    // cache miss and get a scoring boost below. The two school bundles always
-    // sweep the FULL taxonomy, so every tagged industry is searched whether the
-    // pool is fresh or cached.
-    const tagDescs = describeTags(athlete.tags);
-    const tagEmphasisQ = tagDescs.length ? ` Prioritize businesses in these industries the athlete is tagged for: ${tagDescs.join(', ')}.` : '';
+    // Athlete interest tags: tagged categories lead the search emphasis on a
+    // cache miss, at SUB-TAG specificity ("smoothies, supplements, gyms"), and
+    // get a scoring boost below. The two school bundles always sweep the FULL
+    // taxonomy, so every tagged industry is searched whether the pool is fresh
+    // or cached.
+    const tagEmphasisQ = athleteTagSubs.length
+      ? ` PRIORITIZE businesses in these categories the athlete is tagged for: ${athleteTagSubs.join(', ')}.`
+      : '';
 
     // ── Market-level candidate cache ─────────────────────────────────────────
     // Phase-1 pools are per-market and stable for days, so they are cached in
@@ -957,7 +1023,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
 
     // Live searches ONLY for cache misses. Two full-taxonomy category bundles
     // for the school market, one combined sweep for the hometown market. All
-    // parallel; each hard-capped at 8s with max 2 internal web searches.
+    // parallel; each hard-capped at 20s with max 2 internal web searches.
+    // The old 8s cap was below real production search latency, so every search
+    // timed out to empty and every scan fell through to the slow, tagless,
+    // cacheless knowledge path — the root cause of the 73s no-cache no-tags
+    // scans. Wall-clock stays ~one search since they run in parallel.
+    const SEARCH_CAP_MS = 20000;
     const searchDefs = [];
     if (!schoolCached) {
       const schoolQ1 = mk(
@@ -969,8 +1040,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         'chiropractors and physical therapy, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons'
       );
       searchDefs.push(
-        { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ1, searchSys, 800, 2, MODEL_DEALSCAN), 8000, '') },
-        { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ2, searchSys, 800, 2, MODEL_DEALSCAN), 8000, '') },
+        { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ1, searchSys, 800, 2, MODEL_DEALSCAN), SEARCH_CAP_MS, '') },
+        { market: 'school', p: withTimeout(oneShotWebSearch(schoolQ2, searchSys, 800, 2, MODEL_DEALSCAN), SEARCH_CAP_MS, '') },
       );
     }
     if (hasHometown && !hometownCached) {
@@ -979,7 +1050,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         p: withTimeout(oneShotWebSearch(mk(
           `local businesses in ${hometown} across car dealerships, restaurants, gyms and training facilities, supplement shops, chiropractors, boutiques, real estate agents, banks, med spas that sponsor local youth sports or spend on local marketing${tagEmphasisQ}`,
           `${catHint}, plus the full local taxonomy in ${hometown}`
-        ), searchSys, 800, 2, MODEL_DEALSCAN), 8000, ''),
+        ), searchSys, 800, 2, MODEL_DEALSCAN), SEARCH_CAP_MS, ''),
       });
     }
 
@@ -995,8 +1066,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         try {
           const retryRaw = await withTimeout(oneShotWebSearch(
             mk(`popular local businesses, restaurants, gyms, car dealerships and shops in ${city}, ${state}`, 'any local business that advertises locally'),
-            searchSys, 800, 4, MODEL_DEALSCAN
-          ), 8000, '');
+            searchSys, 800, 3, MODEL_DEALSCAN
+          ), SEARCH_CAP_MS, '');
           collectLocal(retryRaw, 'school');
         } catch (_) { /* retry failed — fall through to the count check */ }
         console.log(`[dealScan] after retry: ${found.length} candidate businesses`);
@@ -1004,13 +1075,16 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
 
       // Write fresh results through to the market cache (never cache thin or
       // empty pools, so one bad search day cannot poison the TTL window).
+      // setMarketCache logs WRITE ok / WRITE FAILED loudly; skips log here.
       if (!schoolCached) {
         const freshSchool = found.filter((f) => f.market === 'school');
         if (freshSchool.length >= 3) store.setMarketCache(schoolCacheKey, freshSchool);
+        else console.warn(`[dealScan] market cache write SKIPPED ${schoolCacheKey}: only ${freshSchool.length} school candidates (need 3)`);
       }
       if (hometownCacheKey && !hometownCached) {
         const freshHome = found.filter((f) => f.market === 'hometown');
         if (freshHome.length >= 1) store.setMarketCache(hometownCacheKey, freshHome);
+        else console.warn(`[dealScan] market cache write SKIPPED ${hometownCacheKey}: 0 hometown candidates`);
       }
     } else {
       console.log(`[dealScan] phase 1 served entirely from market cache: ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _t0}ms`);
@@ -1059,7 +1133,7 @@ ${marketScoringLine}
 
 ${FRANCHISE_RULE}
 
-Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} Rationale is 1-2 tight sentences. When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
+Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} Candidates with real marketing-activity "evidence" (team sponsorships, local ads, prior NIL or athlete partnerships, active promo social) get a STRONG ranking boost: they are proven local marketers, so the outreach makes sense. Rationale is 1-2 tight sentences. When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
 [{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"market":"school|hometown","isFranchise":false,"matchedTags":[],"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
 
     // Scoring runs on Haiku: it ranks already-found candidates and writes short
@@ -1121,8 +1195,8 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
     console.log(`[dealScan] phase 2 scored ${parsed.length} brand(s) (${parsed.filter((d) => d.market === 'hometown').length} hometown) in ${Date.now() - _tScore}ms — local lane total ${Date.now() - _t0}ms`);
     return parsed.map((d, i) => {
-      const meta = metaByName.get((d.brand || '').toLowerCase().trim());
-      return finalizeLocal(d, i, 'web', meta ? meta.website : (d.website || null));
+      const meta = metaByName.get((d.brand || '').toLowerCase().trim()) || null;
+      return finalizeLocal(d, i, 'web', meta ? meta.website : (d.website || null), meta);
     });
   } catch (webErr) {
     console.warn('[dealScan] category web-search path failed, trying model knowledge:', webErr.message);

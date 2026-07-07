@@ -5923,6 +5923,7 @@ function _dsCardHtml(d, i, lane, isTop) {
           (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:#84CC16;border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
         '</div>' +
         (d.rationale ? '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:4px">' + esc(d.rationale) + '</div>' : '') +
+        (lane === 'local' && d.evidence ? '<div style="display:flex;align-items:flex-start;gap:7px;margin-top:6px"><span class="ds-lane-chip" style="background:rgba(132,204,22,0.14);color:#84CC16;border:1px solid rgba(132,204,22,0.35);flex-shrink:0;white-space:nowrap">Actively marketing</span><span style="font-size:11px;color:var(--muted);line-height:1.5">' + esc(d.evidence) + '</span></div>' : '') +
         (d.campaign  ? '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px"><span style="color:var(--text);font-weight:600">Idea:</span> ' + esc(d.campaign) + '</div>' : '') +
         contactHtml +
       '</div>' +

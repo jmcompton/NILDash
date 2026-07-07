@@ -1373,15 +1373,19 @@ async function getMarketCache(cacheKey, ttlDays = 5) {
 }
 
 async function setMarketCache(cacheKey, candidates) {
-  if (!cacheKey || !Array.isArray(candidates) || candidates.length === 0) return;
+  if (!cacheKey || !Array.isArray(candidates) || candidates.length === 0) return false;
   try {
     await pool.query(
       `INSERT INTO deal_scan_market_cache (cache_key, candidates, fetched_at)
          VALUES ($1, $2::jsonb, NOW())
        ON CONFLICT (cache_key) DO UPDATE SET candidates = $2::jsonb, fetched_at = NOW()`,
       [cacheKey, JSON.stringify(candidates)]);
+    // Loud on purpose: a silent write failure is how "cache never hits" hides.
+    console.log(`[dealScan] market cache WRITE ok ${cacheKey} (${candidates.length} candidates)`);
+    return true;
   } catch (e) {
-    console.warn('setMarketCache error:', e.message);
+    console.error(`[dealScan] market cache WRITE FAILED ${cacheKey}:`, e.message);
+    return false;
   }
 }
 
