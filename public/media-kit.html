@@ -260,32 +260,47 @@ body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:
   <div class="modal">
     <div id="contact-form-wrap">
       <div class="modal-title">Let's Work Together</div>
-      <div class="modal-sub" id="modal-sub">Tell <span id="modal-athlete-name">this athlete</span>'s team about your brand partnership idea.</div>
+      <div class="modal-sub" id="modal-sub">Tell us a little about the partnership you have in mind for <span id="modal-athlete-name">this athlete</span>.</div>
       <div class="form-group">
-        <label class="form-label">Your Name *</label>
-        <input class="form-input" id="contact-name" placeholder="Jane Smith" autocomplete="name">
+        <label class="form-label">Brand Name *</label>
+        <input class="form-input" id="contact-company" placeholder="Nike, Zaxby's, Celsius">
       </div>
       <div class="form-group">
-        <label class="form-label">Company / Brand</label>
-        <input class="form-input" id="contact-company" placeholder="Nike, Zaxby's, Celsius…">
+        <label class="form-label">Your Name</label>
+        <input class="form-input" id="contact-name" placeholder="Jane Smith" autocomplete="name">
       </div>
       <div class="form-group">
         <label class="form-label">Your Email *</label>
         <input class="form-input" id="contact-email" type="email" placeholder="partnerships@yourbrand.com" autocomplete="email">
       </div>
       <div class="form-group">
-        <label class="form-label">Message *</label>
-        <textarea class="form-textarea" id="contact-message" placeholder="Tell us about your brand and what kind of partnership you have in mind…" rows="4"></textarea>
+        <label class="form-label">Budget Range</label>
+        <select class="form-input" id="contact-budget">
+          <option>Not sure</option>
+          <option>Under $500</option>
+          <option>$500-1,000</option>
+          <option>$1,000-5,000</option>
+          <option>$5,000+</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">What are you interested in?</label>
+        <textarea class="form-textarea" id="contact-message" placeholder="A few posts, an appearance, an ambassador run. Whatever you are thinking." rows="3"></textarea>
+      </div>
+      <!-- Honeypot: hidden from humans, bots fill it and get silently dropped -->
+      <div style="position:absolute;left:-9999px;top:-9999px" aria-hidden="true">
+        <label>Website</label>
+        <input id="contact-website" tabindex="-1" autocomplete="off">
       </div>
       <div class="modal-actions">
         <button class="btn-cancel" onclick="closeContactModal()">Cancel</button>
-        <button class="btn-send" id="contact-send-btn" onclick="sendContactMessage()">Send Message</button>
+        <button class="btn-send" id="contact-send-btn" onclick="sendContactMessage()">Send Inquiry</button>
       </div>
     </div>
     <div id="contact-success-wrap" class="contact-success" style="display:none">
       <div class="contact-success-icon">✅</div>
-      <div class="contact-success-title">Message Sent!</div>
-      <div class="contact-success-sub">Your message has been sent! We'll be in touch soon.</div>
+      <div class="contact-success-title">Got it.</div>
+      <div class="contact-success-sub" id="contact-success-sub">The team will get back to you within a day.</div>
       <button class="btn-cancel" onclick="closeContactModal()" style="margin-top:20px;border-color:#e2e8f0">Close</button>
     </div>
   </div>
@@ -439,17 +454,36 @@ function render(data) {
     statsEl.style.display = 'none';
   }
 
-  // ── Bio ───────────────────────────────────────────────────────────────────
+  // ── Bio (with per-brand variant personalization) ──────────────────────────
   var bioSection = document.getElementById('mk-bio-section');
-  if (data.bio) {
-    document.getElementById('mk-bio-text').textContent = data.bio;
+  var variant = data.variant || null;
+  if (data.bio || (variant && variant.opener)) {
+    var bioHtml = '';
+    if (variant && variant.opener) {
+      bioHtml += '<div style="font-weight:600;color:' + (isNilTheme ? '#F0EDE6' : '#0f172a') + ';margin-bottom:' + (data.bio ? '10px' : '0') + '">' + esc(variant.opener) + '</div>';
+    }
+    if (data.bio) bioHtml += '<div>' + esc(data.bio) + '</div>';
+    if (variant && variant.matchedTags && variant.matchedTags.length) {
+      bioHtml += '<div style="margin-top:12px;font-size:12px;color:' + (isNilTheme ? '#84CC16' : '#4d7c0f') + ';font-weight:600">Why ' + esc((data.athlete_name || 'this athlete').split(' ')[0]) + ' fits ' + esc(variant.brand) + ': ' + esc(variant.matchedTags.join(', ')) + '</div>';
+    }
+    document.getElementById('mk-bio-text').innerHTML = bioHtml;
     bioSection.style.display = 'block';
   } else {
     bioSection.style.display = 'none';
   }
 
-  // ── Rate Card ─────────────────────────────────────────────────────────────
-  var rates = data.rateCards || [];
+  // ── Rate Card (variant reorders to lead with the most relevant deliverable) ─
+  var rates = (data.rateCards || []).slice();
+  if (variant && Array.isArray(variant.rateLead) && variant.rateLead.length && rates.length) {
+    var leadIdx = function(r) {
+      var st = String(r.service_type || '').toLowerCase();
+      for (var i = 0; i < variant.rateLead.length; i++) {
+        if (st.indexOf(variant.rateLead[i]) !== -1) return i;
+      }
+      return 99;
+    };
+    rates.sort(function(a, b) { return leadIdx(a) - leadIdx(b); });
+  }
   if (rates.length) {
     document.getElementById('mk-rates-section').style.display = 'block';
     document.getElementById('mk-rate-tbody').innerHTML = rates.map(function(r, i) {
@@ -509,10 +543,12 @@ async function sendContactMessage() {
   var name    = document.getElementById('contact-name').value.trim();
   var company = document.getElementById('contact-company').value.trim();
   var email   = document.getElementById('contact-email').value.trim();
+  var budget  = document.getElementById('contact-budget').value;
   var message = document.getElementById('contact-message').value.trim();
+  var website = document.getElementById('contact-website').value; // honeypot
 
-  if (!name || !email || !message) {
-    showToast('Please fill in your name, email, and message.');
+  if (!company || !email) {
+    showToast('Please fill in your brand name and email.');
     return;
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -522,22 +558,26 @@ async function sendContactMessage() {
 
   var btn = document.getElementById('contact-send-btn');
   btn.disabled = true;
-  btn.textContent = 'Sending…';
+  btn.textContent = 'Sending...';
 
   try {
     var r = await fetch('/api/media-kit/contact', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: currentSlug, sender_name: name, sender_company: company, sender_email: email, message: message })
+      body: JSON.stringify({ slug: currentSlug, brand_name: company, contact_name: name, email: email, budget: budget, interest: message, website: website })
     });
     var data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || 'Send failed');
+    // Confirmation: "Got it. [Agent first name] will get back to you within a day."
+    var agentFirst = (kitData && kitData.agent_first_name) ? kitData.agent_first_name : '';
+    var subEl = document.getElementById('contact-success-sub');
+    if (subEl) subEl.textContent = (agentFirst ? agentFirst : 'The team') + ' will get back to you within a day.';
     document.getElementById('contact-form-wrap').style.display = 'none';
     document.getElementById('contact-success-wrap').style.display = 'block';
   } catch(e) {
     showToast('Something went wrong. Please try again.');
     btn.disabled = false;
-    btn.textContent = 'Send Message';
+    btn.textContent = 'Send Inquiry';
   }
 }
 
@@ -565,7 +605,10 @@ function showToast(msg) {
 }
 
 // ── Fetch & render ──────────────────────────────────────────────────────────
-fetch('/api/media-kit/' + slug)
+// Forward the per-brand variant param (?for=<brandSlug>) so the API returns
+// the personalization and records the variant on the view row.
+var _forParam = new URLSearchParams(window.location.search).get('for');
+fetch('/api/media-kit/' + slug + (_forParam ? '?for=' + encodeURIComponent(_forParam) : ''))
   .then(function(r) {
     if (!r.ok) throw new Error('not found');
     return r.json();

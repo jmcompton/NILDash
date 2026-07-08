@@ -322,6 +322,33 @@ async function init() {
   // the builder UI, not here.
   await pool.query(`ALTER TABLE media_kits ADD COLUMN IF NOT EXISTS theme TEXT`).catch(() => {});
 
+  // Per-brand kit variants: {brandSlug: {brand, category, opener, matchedTags,
+  // rateLead, createdAt}}. Stored beside the kit so the base kit is never
+  // modified; the public page personalizes when ?for=<brandSlug> matches.
+  await pool.query(`ALTER TABLE media_kits ADD COLUMN IF NOT EXISTS variants JSONB DEFAULT '{}'::jsonb`).catch(() => {});
+
+  // ── Media kit view tracking ────────────────────────────────────────────────
+  // One row per unique public view. session_hash is sha256(salt+ip+ua): the
+  // raw IP is never stored and the public page sets no cookies. Repeat views
+  // by the same hash within 30 minutes are not re-recorded, and views from the
+  // kit's own logged-in agent are skipped at the endpoint.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS media_kit_views (
+      id SERIAL PRIMARY KEY,
+      kit_slug TEXT NOT NULL,
+      athlete_id TEXT,
+      agent_id TEXT,
+      variant TEXT,
+      variant_brand TEXT,
+      session_hash TEXT NOT NULL,
+      viewed_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] media_kit_views table ready'))
+    .catch(e => console.error('[init] media_kit_views:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_mkv_slug ON media_kit_views(kit_slug, viewed_at)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_mkv_agent ON media_kit_views(agent_id, viewed_at)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_mkv_hash ON media_kit_views(session_hash, kit_slug, viewed_at)`).catch(() => {});
+
   // Enforce one account per email (case-insensitive). Partial index so
   // agent-managed athletes without an email are unaffected. If existing
   // duplicates block creation, log and continue (handled at signup too).

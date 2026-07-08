@@ -1,7 +1,9 @@
 // NILDash Pipeline — drag and drop kanban
 (function() {
-  var STAGES = ['Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
+  // Inbound: inquiries from public media kits land here, first column
+  var STAGES = ['Inbound','Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
   var STAGE_COLORS = {
+    'Inbound': '#84CC16',
     'Prospecting': '#6b7280',
     'Outreach Sent': '#60a5fa',
     'Negotiating': '#C8F135',
@@ -13,7 +15,7 @@
   window.NILPipeline = {
     render: function(allDeals, board) {
       if (!board) return;
-      board.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:12px;align-items:stretch';
+      board.style.cssText = 'display:grid;grid-template-columns:repeat(6,1fr);gap:12px;align-items:stretch';
 
       board.innerHTML = STAGES.map(function(stage) {
         var stageDeals = allDeals.filter(function(d) { return d.stage === stage; });

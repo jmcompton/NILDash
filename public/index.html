@@ -3121,6 +3121,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
                   <button onclick="mkCopyLink()" class="btn btn-primary btn-sm" style="white-space:nowrap;font-size:11px">Copy</button>
                   <button onclick="mkOpenPublicPage()" class="btn btn-ghost btn-sm" style="white-space:nowrap;font-size:11px">Open ↗</button>
                 </div>
+                <div id="mk-view-stats" style="display:none;margin-top:10px;font-size:11px;color:var(--muted)"></div>
               </div>
 
             </div><!-- /left column -->
@@ -3973,7 +3974,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="form-group-sm"><label class="form-label-sm">Deal Value ($)</label><input class="input-sm" id="d_value" type="number" placeholder="10000"></div>
     <div class="form-group-sm"><label class="form-label-sm">Stage</label>
       <select class="select-sm" id="d_stage">
-        <option>Prospecting</option><option>Outreach Sent</option>
+        <option>Inbound</option>
+        <option selected>Prospecting</option><option>Outreach Sent</option>
         <option>Negotiating</option><option>Closing</option><option>Closed</option>
       </select>
     </div>
@@ -5318,6 +5320,7 @@ async function loadAgentHome() {
   renderHomeClientCta();
   // Fire brief and data in parallel
   loadHomeBrief();
+  loadHomeNotices(); // kit views today + inbound inquiries
   try {
     const data = await fetch(`${API_BASE}/api/agent/home-data`).then(r => r.json());
     document.getElementById('hs-pipeline').textContent = data.pipeline  || '$0';
@@ -5952,6 +5955,7 @@ function _dsCardHtml(d, i, lane, isTop) {
       '<button onclick="prefillOutreach(\'' + brandSafe + '\')" style="flex:1;min-width:110px;padding:9px;background:var(--accent);color:#0A0E1A;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Write Outreach</button>' +
       '<button onclick="addDealToPipeline(\'' + brandSafe + '\',\'' + esc(d.dealType||'ig-post') + '\',\'' + campaignSafe + '\')" style="padding:9px 12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">+ Pipeline</button>' +
       '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="padding:9px 12px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">⚡ AI Outreach</button>' +
+      '<button onclick="sendKitForBrand(' + i + ', this)" style="padding:9px 12px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.35);color:#60a5fa;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">Send kit</button>' +
     '</div>' +
   '</div>';
 }
@@ -13876,6 +13880,96 @@ function mkShowShareLink(slug) {
   mkState.slug = slug;
 }
 
+// Short relative time: "just now", "12m ago", "3h ago", "2d ago"
+function mkFmtAgo(ts) {
+  if (!ts) return '';
+  var s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+// "N views · last viewed X ago" on the kit card, with per-brand variant counts
+function mkRenderViewStats(vs) {
+  var el = document.getElementById('mk-view-stats');
+  if (!el) return;
+  if (!vs || !vs.total) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  var html = '<span style="color:var(--text);font-weight:700">' + vs.total + ' view' + (vs.total === 1 ? '' : 's') + '</span>' +
+    (vs.lastViewedAt ? ' · last viewed ' + escHtml(mkFmtAgo(vs.lastViewedAt)) : '');
+  if (vs.variants && vs.variants.length) {
+    html += '<div style="margin-top:4px">' + vs.variants.map(function(v) {
+      return '<span style="display:inline-block;margin:2px 6px 0 0;padding:2px 8px;border-radius:10px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.25);color:var(--accent);font-size:10px;font-weight:600">' +
+        escHtml(v.variant_brand) + ' variant: ' + v.count + '</span>';
+    }).join('') + '</div>';
+  }
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+
+// ── Deal Scan "Send kit": per-brand personalized media kit variant ──────────
+async function sendKitForBrand(i, btn) {
+  var d = (window._dealScanResults || [])[i];
+  if (!d) return;
+  if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  var ath = (window.athletes || []).find(function(a){ return String(a.id) === String(selectedAthleteId); }) || {};
+  var first = (ath.name || 'this athlete').split(/\s+/)[0];
+  var orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Building...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/agent/media-kit/' + selectedAthleteId + '/variant', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brand: d.brand, category: d.category || '', lane: d.lane || '', matchedTags: d.matchedTags || [] })
+    });
+    var data = await r.json();
+    if (r.status === 404 && data.code === 'NO_KIT') {
+      showToast('Build ' + first + '\'s kit first');
+      showView('marketing', document.querySelector('.nav-item[onclick*=marketing]'));
+      var sel = document.getElementById('amk-athlete-select');
+      if (sel) { sel.value = String(selectedAthleteId); amkLoadForAthlete(String(selectedAthleteId)); }
+      return;
+    }
+    if (!r.ok || data.error) throw new Error(data.error || 'failed');
+    var url = data.url && data.url.indexOf('http') === 0 ? data.url : (window.location.origin + '/media-kit/' + mkState.slug + '?for=' + data.brandSlug);
+    // Prefer the local origin so the copied link works in every environment
+    var localUrl = url.replace(/^https?:\/\/[^/]+/, window.location.origin);
+    if (navigator.clipboard) { try { await navigator.clipboard.writeText(localUrl); } catch(_) {} }
+    showToast('Kit for ' + d.brand + ' ready. Link copied.');
+    if (btn) { btn.textContent = 'Kit ready'; btn.disabled = false; return; }
+  } catch (e) {
+    showToast('Could not build the kit variant right now');
+  }
+  if (btn) { btn.disabled = false; btn.textContent = orig; }
+}
+
+// ── Home notices: kit views today + inbound inquiries (read-time feed) ──────
+async function loadHomeNotices() {
+  try {
+    var r = await fetch(API_BASE + '/api/agent/home-notices');
+    if (!r.ok) return;
+    var data = await r.json();
+    var notices = (data && data.notices) || [];
+    var host = document.getElementById('home-notices');
+    if (!notices.length) { if (host) host.remove(); return; }
+    if (!host) {
+      var anchor = document.getElementById('home-client-cta');
+      if (!anchor) return;
+      host = document.createElement('div');
+      host.id = 'home-notices';
+      anchor.parentNode.insertBefore(host, anchor.nextSibling);
+    }
+    host.innerHTML = '<div style="background:#0D1520;border:1px solid rgba(132,204,22,0.25);border-radius:8px;padding:10px 14px;margin-bottom:12px">' +
+      notices.map(function(n) {
+        var icon = n.type === 'inbound' ? '&#9993;' : '&#128065;';
+        return '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12px;color:var(--text)">' +
+          '<span style="flex-shrink:0">' + icon + '</span>' +
+          '<span style="flex:1">' + escHtml(n.text) + (n.detail ? ' <span style="color:var(--muted)">(' + escHtml(n.detail) + ')</span>' : '') + '</span>' +
+          '<span style="color:var(--muted);font-size:10px;white-space:nowrap">' + escHtml(mkFmtAgo(n.at)) + '</span>' +
+        '</div>';
+      }).join('') + '</div>';
+  } catch (e) { /* notices are best-effort */ }
+}
+
 async function mkCopyLink() {
   if (!mkState.slug) { await mkSave(); if (!mkState.slug) { showToast('Save media kit first'); return; } }
   var url = window.location.origin + '/media-kit/' + mkState.slug;
@@ -14082,8 +14176,10 @@ async function amkLoadForAthlete(athleteId) {
       mkState.rates = (data.rateCards || []).map(function(rc){ return { service_type: rc.service_type, price: rc.price, notes: rc.notes||'' }; });
       mkRenderRateRows();
       if (mk.slug) mkShowShareLink(mk.slug);
+      mkRenderViewStats(data.viewStats);
     } else {
       mkRenderRateRows();
+      mkRenderViewStats(null);
     }
     mkUpdatePreview();
   } catch(e) {

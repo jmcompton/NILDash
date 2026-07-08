@@ -1859,7 +1859,15 @@ Return ONLY this JSON:
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) return res.status(500).json({ error: 'Generation failed' });
     checkOff(req.session.userId, 'ai_outreach'); // Getting Started checklist
-    res.json(JSON.parse(match[0]));
+    const parsedOut = JSON.parse(match[0]);
+    // Attach the brand-personalized media kit link automatically when one exists
+    const kitUrl = await findKitVariantUrl(athleteId, brand);
+    if (kitUrl) {
+      const firstName = (athlete.name || '').split(/\s+/)[0] || 'the athlete';
+      if (parsedOut.email) parsedOut.email += `\n\nP.S. Here is ${firstName}'s media kit, put together for ${brand}: ${kitUrl}`;
+      parsedOut.kitUrl = kitUrl;
+    }
+    res.json(parsedOut);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -8378,19 +8386,58 @@ Under 200 characters total.`;
   }
 });
 
+// ── Media kit view tracking helpers ─────────────────────────────────────────
+// Privacy: only a salted hash of IP + user agent is ever stored, never the raw
+// IP, and the public page sets no cookies. Repeat views from the same hash
+// within 30 minutes count once. Views from the kit's own logged-in agent are
+// not recorded at all.
+function mkSessionHash(req) {
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || '';
+  const ua = req.headers['user-agent'] || '';
+  const salt = process.env.SESSION_SECRET || 'nildash-mkv';
+  return require('crypto').createHash('sha256').update(salt + '|' + ip + '|' + ua).digest('hex');
+}
+
+async function recordKitView(req, mk, variantSlug, variantBrand) {
+  try {
+    if (req.session && req.session.userId && req.session.userId === mk.agent_id) return; // agent's own view
+    const hash = mkSessionHash(req);
+    const dup = await store.pool.query(
+      `SELECT 1 FROM media_kit_views
+        WHERE kit_slug = $1 AND session_hash = $2 AND viewed_at > NOW() - INTERVAL '30 minutes'
+        LIMIT 1`,
+      [mk.slug, hash]
+    );
+    if (dup.rows.length) return;
+    await store.pool.query(
+      `INSERT INTO media_kit_views (kit_slug, athlete_id, agent_id, variant, variant_brand, session_hash)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [mk.slug, mk.athlete_id, mk.agent_id || null, variantSlug || null, variantBrand || null, hash]
+    );
+  } catch (e) {
+    console.warn('[media-kit views] record failed:', e.message);
+  }
+}
+
 // GET /api/media-kit/:slug — public data endpoint (no auth)
 app.get('/api/media-kit/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
-    const mkR = await store.pool.query('SELECT * FROM media_kits WHERE slug = $1', [slug]);
+    const mkR = await store.pool.query(
+      `SELECT mk.*, a.agent_id FROM media_kits mk
+        LEFT JOIN athletes a ON a.id = mk.athlete_id
+       WHERE mk.slug = $1`, [slug]);
     if (!mkR.rows.length) return res.status(404).json({ error: 'Media kit not found' });
     const mk = mkR.rows[0];
 
-    // Get athlete name/sport/school/position
+    // Get athlete name/sport/school/position + agent first name (for the
+    // inquiry confirmation copy)
     const athR = await store.pool.query(
       `SELECT a.data->>'name' as name, a.data->>'sport' as sport,
-              a.data->>'school' as school, a.data->>'position' as position
-       FROM athletes a WHERE a.id = $1`,
+              a.data->>'school' as school, a.data->>'position' as position,
+              u.name as agent_name
+       FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
+       WHERE a.id = $1`,
       [mk.athlete_id]
     );
     const ath = athR.rows[0] || {};
@@ -8399,13 +8446,26 @@ app.get('/api/media-kit/:slug', async (req, res) => {
       'SELECT * FROM media_kit_rate_cards WHERE media_kit_id = $1 ORDER BY id',
       [mk.id]
     );
+
+    // Per-brand variant (?for=<brandSlug>): personalization only, the base kit
+    // record is never modified. Unknown slugs fall back to the base kit.
+    const forSlug = String(req.query.for || '').trim().toLowerCase();
+    const variants = (mk.variants && typeof mk.variants === 'object') ? mk.variants : {};
+    const variant = forSlug && variants[forSlug] ? { ...variants[forSlug], slug: forSlug } : null;
+
+    // Record the view; failures never break the page
+    recordKitView(req, mk, variant ? forSlug : null, variant ? variant.brand : null);
+
+    const { variants: _v, ...mkPublic } = mk;
     res.json({
-      ...mk,
+      ...mkPublic,
       athlete_name: ath.name || '',
       sport: ath.sport || '',
       school: ath.school || '',
       position: ath.position || '',
+      agent_first_name: (ath.agent_name || '').split(/\s+/)[0] || '',
       rateCards: rcR.rows,
+      variant,
     });
   } catch (e) {
     console.error('[api/media-kit/:slug]', e.message);
@@ -8447,11 +8507,74 @@ app.get('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res)
     if (!mkR.rows.length) return res.json({ mediaKit: null, rateCards: [], athlete: athR.rows[0].data || {} });
     const mk = mkR.rows[0];
     const rcR = await store.pool.query('SELECT * FROM media_kit_rate_cards WHERE media_kit_id=$1 ORDER BY id', [mk.id]);
-    res.json({ mediaKit: mk, rateCards: rcR.rows, athlete: athR.rows[0].data || {} });
+
+    // View stats for the kit card: total, last viewed, per-brand-variant counts
+    let viewStats = null;
+    if (mk.slug) {
+      try {
+        const vs = await store.pool.query(
+          `SELECT COUNT(*)::int AS total, MAX(viewed_at) AS last_viewed_at
+             FROM media_kit_views WHERE kit_slug = $1`, [mk.slug]);
+        const vv = await store.pool.query(
+          `SELECT variant_brand, COUNT(*)::int AS count
+             FROM media_kit_views WHERE kit_slug = $1 AND variant_brand IS NOT NULL
+            GROUP BY variant_brand ORDER BY count DESC LIMIT 8`, [mk.slug]);
+        viewStats = {
+          total: vs.rows[0] ? vs.rows[0].total : 0,
+          lastViewedAt: vs.rows[0] ? vs.rows[0].last_viewed_at : null,
+          variants: vv.rows,
+        };
+      } catch (e) { /* views table may be one deploy behind; card just omits stats */ }
+    }
+    res.json({ mediaKit: mk, rateCards: rcR.rows, athlete: athR.rows[0].data || {}, viewStats });
   } catch (e) {
     console.error('[agent/athlete-media-kit GET]', e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// GET /api/agent/home-notices — read-time home feed: kits first viewed today
+// and inbound inquiries from the last 48 hours. No stored notification state.
+app.get('/api/agent/home-notices', requireAuth, async (req, res) => {
+  const notices = [];
+  try {
+    const kv = await store.pool.query(
+      `SELECT v.kit_slug, a.data->>'name' AS athlete_name,
+              COUNT(*)::int AS views_today, MAX(v.viewed_at) AS last_viewed_at
+         FROM media_kit_views v
+         JOIN athletes a ON a.id = v.athlete_id
+        WHERE v.agent_id = $1 AND v.viewed_at >= date_trunc('day', NOW())
+        GROUP BY v.kit_slug, a.data->>'name'
+        ORDER BY MAX(v.viewed_at) DESC LIMIT 6`,
+      [req.session.userId]);
+    for (const r of kv.rows) {
+      notices.push({
+        type: 'kit_view',
+        text: `${r.athlete_name || 'An athlete'}'s media kit was viewed today`,
+        detail: r.views_today > 1 ? `${r.views_today} views today` : null,
+        at: r.last_viewed_at,
+      });
+    }
+  } catch (e) { /* table may be one deploy behind */ }
+  try {
+    const inb = await store.pool.query(
+      `SELECT d.data->>'brand' AS brand, a.data->>'name' AS athlete_name, d.created_at
+         FROM deals d LEFT JOIN athletes a ON a.id = d.athlete_id
+        WHERE d.agent_id = $1 AND d.data->>'stage' = 'Inbound'
+          AND d.created_at >= NOW() - INTERVAL '48 hours'
+        ORDER BY d.created_at DESC LIMIT 6`,
+      [req.session.userId]);
+    for (const r of inb.rows) {
+      notices.push({
+        type: 'inbound',
+        text: `New inbound inquiry for ${r.athlete_name || 'your athlete'} from ${r.brand || 'a brand'}`,
+        detail: null,
+        at: r.created_at,
+      });
+    }
+  } catch (e) { /* ignore */ }
+  notices.sort((a, b) => new Date(b.at) - new Date(a.at));
+  res.json({ notices: notices.slice(0, 8) });
 });
 
 // POST /api/agent/athlete-media-kit/:athleteId — agent saves an athlete's media kit
@@ -8531,6 +8654,119 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res
   }
 });
 
+// ── Per-brand media kit variants (Deal Scan "Send kit") ─────────────────────
+// Generates a brand-personalized variant of an existing kit: an AI opening
+// line for the About section (Haiku, profile facts only, never fabricated),
+// the matched interest tags, and a rate-card lead order for the brand's
+// category. Stored in media_kits.variants JSONB so the base kit is untouched.
+const VARIANT_SOCIAL_CATS = ['supplements','apparel','energydrink','app','accessories','beauty','nutrition','fitness','dtc','social','topnil','tech','snacks'];
+function variantRateLead(category, lane) {
+  const cat = String(category || '').toLowerCase();
+  if (lane === 'social' || lane === 'topnil' || VARIANT_SOCIAL_CATS.includes(cat)) {
+    return ['reel', 'tiktok', 'story', 'post']; // social-first brand leads with IG Reel
+  }
+  return ['post', 'appearance', 'story', 'reel']; // local business leads with IG Post + appearance
+}
+
+app.post('/api/agent/media-kit/:athleteId/variant', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    const { athleteId } = req.params;
+    const brand = String(req.body.brand || '').trim();
+    if (!brand) return res.status(400).json({ error: 'brand required' });
+    const category = String(req.body.category || '').trim();
+    const lane = String(req.body.lane || '').trim();
+
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    const user = await store.getUser(req.session.userId);
+    if (athlete.agentId !== req.session.userId && (!user || user.email !== ADMIN_EMAIL)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const mkR = await store.pool.query('SELECT * FROM media_kits WHERE athlete_id=$1', [athleteId]);
+    const mk = mkR.rows[0];
+    if (!mk || !mk.slug) {
+      return res.status(404).json({ error: 'No media kit yet', code: 'NO_KIT' });
+    }
+
+    const brandSlug = brand.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'brand';
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    const url = `${appUrl}/media-kit/${mk.slug}?for=${brandSlug}`;
+
+    // Idempotent: an existing variant for this brand is reused, not regenerated.
+    const variants = (mk.variants && typeof mk.variants === 'object') ? mk.variants : {};
+    if (variants[brandSlug]) {
+      return res.json({ ok: true, brandSlug, url, variant: variants[brandSlug], reused: true });
+    }
+
+    // Matched tags: only tags actually on the athlete's profile — no inventing.
+    const athleteTags = Array.isArray(athlete.tags) ? athlete.tags.map(t => String(t).toLowerCase()) : [];
+    const requestTags = Array.isArray(req.body.matchedTags) ? req.body.matchedTags.map(t => String(t).toLowerCase()) : [];
+    const matchedTags = requestTags.filter(t => athleteTags.includes(t)).slice(0, 5);
+
+    // AI opening line (Haiku: cheap and fast). Facts only, from the profile.
+    const name = athlete.name || 'This athlete';
+    const first = name.split(/\s+/)[0];
+    const productWants = String(athlete.productWants || '').trim().slice(0, 200);
+    let opener = '';
+    try {
+      const prompt = `Write ONE opening sentence (max 170 characters) for ${name}'s NIL media kit, personalized for the brand "${brand}"${category ? ` (${category})` : ''}.
+
+FACTS you may use (nothing else, never invent stats or claims):
+- ${name}, ${athlete.sport || 'college'} athlete at ${athlete.school || 'their school'}
+${matchedTags.length ? `- Interests that match this brand: ${matchedTags.join(', ')}` : ''}
+${productWants ? `- Products they already use: ${productWants}` : ''}
+${mk.bio ? `- Bio excerpt: ${String(mk.bio).slice(0, 200)}` : ''}
+
+Rules: plain, direct, human language. No em dashes. No exclamation marks. No invented numbers. Speak to why this athlete fits ${brand}'s space. Output ONLY the sentence, no quotes.`;
+      opener = (await ai.oneShot(prompt, 'You write one plain, factual sentence. Output only the sentence. Never use em dashes. Never invent facts.', 120, ai.MODEL_FAST) || '').trim();
+      opener = opener.replace(/^["']|["']$/g, '').replace(/—|–/g, ',').slice(0, 220);
+    } catch (e) {
+      console.warn('[media-kit variant] opener AI failed, using template:', e.message);
+    }
+    if (!opener) {
+      // Template fallback: profile facts only, no fabrication
+      opener = `${first} is a ${athlete.sport || 'college'} athlete at ${athlete.school || 'their school'} with an audience that lines up naturally with ${brand}.`;
+    }
+
+    const variant = {
+      brand,
+      category: category || null,
+      opener,
+      matchedTags,
+      rateLead: variantRateLead(category, lane),
+      createdAt: new Date().toISOString(),
+    };
+    await store.pool.query(
+      `UPDATE media_kits
+          SET variants = COALESCE(variants, '{}'::jsonb) || jsonb_build_object($1::text, $2::jsonb)
+        WHERE athlete_id = $3`,
+      [brandSlug, JSON.stringify(variant), athleteId]
+    );
+    console.log(`[media-kit variant] created ${mk.slug}?for=${brandSlug} for agent=${req.session.userId}`);
+    res.json({ ok: true, brandSlug, url, variant });
+  } catch (e) {
+    console.error('[media-kit variant]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Look up an existing brand variant URL for (athleteId, brand). Used to attach
+// kit links to AI outreach emails automatically.
+async function findKitVariantUrl(athleteId, brand) {
+  try {
+    if (!athleteId || !brand) return null;
+    const mkR = await store.pool.query('SELECT slug, variants FROM media_kits WHERE athlete_id=$1', [athleteId]);
+    const mk = mkR.rows[0];
+    if (!mk || !mk.slug) return null;
+    const brandSlug = String(brand).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+    const variants = (mk.variants && typeof mk.variants === 'object') ? mk.variants : {};
+    if (!variants[brandSlug]) return null;
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    return `${appUrl}/media-kit/${mk.slug}?for=${brandSlug}`;
+  } catch (e) { return null; }
+}
+
 // POST /api/agent/generate-bio/:athleteId — agent generates AI bio for an athlete
 app.post('/api/agent/generate-bio/:athleteId', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
   try {
@@ -8557,15 +8793,61 @@ app.get('/media-kit/:slug', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'media-kit.html'));
 });
 
-// POST /api/media-kit/contact — brand contacts athlete via public media kit (no auth needed)
+// ── Inquiry spam protection: 3 submissions per hour per session hash per kit.
+// In-memory is fine for the single-instance deploy; restarts just reset the
+// window. The honeypot check happens in the route below.
+const _inquiryHits = new Map(); // key: hash|slug -> [timestamps]
+function inquiryRateLimited(hash, slug) {
+  const key = hash + '|' + slug;
+  const now = Date.now();
+  const hits = (_inquiryHits.get(key) || []).filter((t) => now - t < 3600000);
+  if (hits.length >= 3) { _inquiryHits.set(key, hits); return true; }
+  hits.push(now);
+  _inquiryHits.set(key, hits);
+  if (_inquiryHits.size > 5000) { // prune oldest entries on the rare huge map
+    for (const k of _inquiryHits.keys()) { _inquiryHits.delete(k); if (_inquiryHits.size <= 2500) break; }
+  }
+  return false;
+}
+
+// Budget dropdown value -> deal value midpoint
+const INQUIRY_BUDGET_MIDPOINTS = {
+  'Under $500': 250,
+  '$500-1,000': 750,
+  '$1,000-5,000': 3000,
+  '$5,000+': 7500,
+  'Not sure': 0,
+};
+
+// POST /api/media-kit/contact — brand inquiry from the public media kit
+// (no auth). Creates an Inbound deal in the agent's Pipeline and emails the
+// agent. Backward compatible with the old field names.
 app.post('/api/media-kit/contact', async (req, res) => {
   try {
-    const { slug, sender_name, sender_company, sender_email, message } = req.body;
-    if (!slug || !sender_name || !sender_email || !message)
-      return res.status(400).json({ error: 'All fields required' });
+    const { slug, message, budget, website } = req.body;
+    // New field names with old-name fallbacks so nothing in flight breaks
+    const brandName    = (req.body.brand_name || req.body.sender_company || '').trim();
+    const contactName  = (req.body.contact_name || req.body.sender_name || '').trim();
+    const senderEmail  = (req.body.email || req.body.sender_email || '').trim();
+    const interestText = (req.body.interest || message || '').trim();
+
+    // Honeypot: bots fill the hidden "website" field. Pretend success, drop it.
+    if (website && String(website).trim()) return res.json({ ok: true });
+
+    if (!slug || !brandName || !senderEmail)
+      return res.status(400).json({ error: 'Brand name and email are required' });
+
+    // Rate limit: 3 submissions per hour per session hash per kit
+    const hash = mkSessionHash(req);
+    if (inquiryRateLimited(hash, slug)) {
+      return res.status(429).json({ error: 'Too many submissions. Try again later.' });
+    }
 
     // Look up the media kit + athlete + agent
-    const mkR = await store.pool.query('SELECT * FROM media_kits WHERE slug = $1', [slug]);
+    const mkR = await store.pool.query(
+      `SELECT mk.*, a.agent_id FROM media_kits mk
+        LEFT JOIN athletes a ON a.id = mk.athlete_id
+       WHERE mk.slug = $1`, [slug]);
     if (!mkR.rows.length) return res.status(404).json({ error: 'Media kit not found' });
     const mk = mkR.rows[0];
 
@@ -8578,6 +8860,44 @@ app.post('/api/media-kit/contact', async (req, res) => {
     );
     const ath = athR.rows[0] || {};
     const toEmail = ath.agent_email || ath.email || process.env.ADMIN_EMAIL || 'hello@mynildash.com';
+
+    // ── Create the Inbound deal in the agent's Pipeline ──────────────────────
+    if (mk.agent_id) {
+      try {
+        const budgetLabel = INQUIRY_BUDGET_MIDPOINTS.hasOwnProperty(budget) ? budget : 'Not sure';
+        const noteLines = [
+          'Inbound inquiry from the public media kit.',
+          contactName ? `Contact: ${contactName}` : null,
+          `Email: ${senderEmail}`,
+          `Budget: ${budgetLabel}`,
+          interestText ? `Interested in: ${interestText}` : null,
+        ].filter(Boolean);
+        const dealId = 'deal-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+        await store.saveDeal(dealId, {
+          id: dealId,
+          athleteId: mk.athlete_id,
+          agentId: mk.agent_id,
+          brand: brandName,
+          campaign: 'Media kit inquiry',
+          stage: 'Inbound',
+          value: INQUIRY_BUDGET_MIDPOINTS[budgetLabel] || 0,
+          notes: noteLines.join('\n'),
+          source: 'media_kit_inquiry',
+          contactName: contactName || null,
+          contactEmail: senderEmail,
+          createdAt: new Date().toISOString(),
+        });
+        console.log(`[media-kit contact] Inbound deal created for agent=${mk.agent_id} brand=${brandName}`);
+      } catch (dealErr) {
+        console.error('[media-kit contact] deal create failed:', dealErr.message);
+      }
+    }
+
+    // Keep old email variable names for the notification below
+    const sender_name = contactName || brandName;
+    const sender_company = brandName;
+    const sender_email = senderEmail;
+    const messageForEmail = [interestText || '(no details provided)', budget ? `Budget: ${budget}` : null].filter(Boolean).join('\n');
 
     const emailBody = `
 <div style="font-family:'DM Sans',sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#fff">
@@ -8595,7 +8915,7 @@ app.post('/api/media-kit/contact', async (req, res) => {
     </table>
     <div style="background:#f1f5f9;border-left:4px solid #84CC16;padding:14px 18px;border-radius:4px;margin-bottom:24px">
       <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Message</div>
-      <p style="margin:0;font-size:14px;color:#334155;line-height:1.6">${message.replace(/\n/g,'<br>')}</p>
+      <p style="margin:0;font-size:14px;color:#334155;line-height:1.6">${messageForEmail.replace(/\n/g,'<br>')}</p>
     </div>
     <a href="mailto:${sender_email}?subject=Re: NIL Partnership — ${ath.name || ''}&body=Hi ${sender_name}," style="display:inline-block;background:#84CC16;color:#0A0E1A;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none">Reply to ${sender_name}</a>
   </div>

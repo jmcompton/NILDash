@@ -173,6 +173,23 @@ router.post('/pitch', async (req, res) => {
     const agentEmail = agentRow.rows[0]?.email || null;
 
     const pitch = await pitchSvc.generatePitch({ athlete, enrichment, matchScore, contact, dealScanData: {}, agentName, agentEmail });
+
+    // Attach the brand-personalized media kit link automatically when one exists
+    try {
+      const mkR = await pool.query('SELECT slug, variants FROM media_kits WHERE athlete_id=$1', [athleteId]);
+      const mk = mkR.rows[0];
+      const brandSlug = String(enrichment.brand_name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+      if (mk && mk.slug && mk.variants && mk.variants[brandSlug]) {
+        const appUrl = process.env.APP_URL || 'https://mynildash.com';
+        const kitUrl = `${appUrl}/media-kit/${mk.slug}?for=${brandSlug}`;
+        const athleteFirst = String(athlete.data && athlete.data.name || '').split(/\s+/)[0] || 'the athlete';
+        const psLine = `<p>P.S. Here is ${athleteFirst}'s media kit, put together for ${enrichment.brand_name}: <a href="${kitUrl}">${kitUrl}</a></p>`;
+        if (pitch && typeof pitch.body_html === 'string') pitch.body_html += psLine;
+        else if (pitch && typeof pitch.body === 'string') pitch.body += `\n\nP.S. Here is ${athleteFirst}'s media kit, put together for ${enrichment.brand_name}: ${kitUrl}`;
+        if (pitch) pitch.kitUrl = kitUrl;
+      }
+    } catch (kitErr) { /* attach is best-effort, never blocks the pitch */ }
+
     res.json(pitch);
   } catch (e) {
     console.error('[outreach/pitch]', e.message);
