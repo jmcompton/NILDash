@@ -8351,7 +8351,7 @@ async function initAgentGCalStatus() {
       statusText.textContent = '✓ Your Google Calendar Connected';
       statusText.style.color = '#22c55e';
       statusSub.textContent  = 'Subscribe to your athletes\' NIL deliverable calendars below';
-      actions.innerHTML = '';
+      actions.innerHTML = '<button onclick="disconnectAgentGoogle()" style="background:transparent;border:1px solid var(--border);color:var(--muted);border-radius:6px;padding:7px 14px;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit">Disconnect Google</button>';
       athleteDiv.style.display = 'block';
       _loadAgentGCalAthletes(athleteDiv);
     } else {
@@ -8471,6 +8471,24 @@ async function connectAgentGCal() {
     }
   } catch(e) {
     showToast('Connection error', 'error');
+  }
+}
+
+// Clears the stored Google connection (Gmail + Calendar) for this agent, then
+// flips the card back to the not-connected state. The next Connect click runs
+// the full OAuth consent flow again (prompt=consent).
+async function disconnectAgentGoogle() {
+  if (!confirm('Disconnect your Google account? This removes the Gmail and Calendar connection. You can reconnect any time.')) return;
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/google/disconnect`, { method: 'POST' });
+    const data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'Disconnect failed');
+    showToast('Google disconnected', 'success');
+    // Re-render the calendar card (now not-connected) and refresh any status widgets.
+    if (typeof initAgentGCalStatus === 'function') initAgentGCalStatus();
+    if (typeof emailModule !== 'undefined' && emailModule.refresh) { try { emailModule.refresh(); } catch(_) {} }
+  } catch(e) {
+    showToast('Could not disconnect Google: ' + e.message, 'error');
   }
 }
 

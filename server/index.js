@@ -4560,6 +4560,45 @@ app.get('/api/agent/calendar/google/connect', requireAuth, async (req, res) => {
   res.json({ url: '/api/email/oauth/gmail' });
 });
 
+// POST /api/agent/google/disconnect - clear this agent's stored Google connection
+// (Gmail + Calendar). Removes any connected Gmail/Google email accounts and nulls
+// the agent's Google Calendar refresh token, so the status endpoints report
+// not-connected and the UI flips back to the Connect state. The next Connect runs
+// the full consent flow again: the OAuth URL builder always sends prompt=consent
+// with access_type=offline, so Google re-shows the account chooser and consent
+// screen with all scopes rather than silently re-authorizing.
+app.post('/api/agent/google/disconnect', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const emailStore = require('./services/emailStore');
+
+    // Remove connected Gmail/Google email accounts (deleteEmailAccount also cleans
+    // up the account's drafts, threads, emails and sync logs).
+    let removedAccounts = 0;
+    try {
+      const accounts = await emailStore.getEmailAccountsByUser(userId);
+      for (const acc of accounts) {
+        const provider = String(acc.provider || '');
+        if (provider === 'gmail' || /google|gmail/i.test(provider)) {
+          await emailStore.deleteEmailAccount(acc.id, userId);
+          removedAccounts++;
+        }
+      }
+    } catch (e) {
+      console.warn('[google/disconnect] email account cleanup failed:', e.message);
+    }
+
+    // Clear the agent's Google Calendar refresh token.
+    await store.pool.query('UPDATE users SET gcal_refresh_token=NULL WHERE id=$1', [userId]);
+
+    console.log(`[google] agent ${userId} disconnected Google (removed ${removedAccounts} email account(s), cleared calendar token)`);
+    res.json({ ok: true, removedAccounts });
+  } catch (e) {
+    console.error('[agent/google/disconnect]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/agent/calendar/google/athletes — list this agent's athletes with their gcal status
 app.get('/api/agent/calendar/google/athletes', requireAuth, async (req, res) => {
   try {
