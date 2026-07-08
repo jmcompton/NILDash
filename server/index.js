@@ -3044,6 +3044,27 @@ app.delete('/api/admin/athlete/:id', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Admin: seed (or reset) the demo account ──────────────────
+// Runs the idempotent demo seeder against this deployment so the marketing demo
+// can be re-shot anytime. Everything it writes is fictional and scoped to the
+// demo agent only. Admin/founder gated. See server/scripts/seedDemo.js.
+app.post('/api/admin/seed-demo', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email) && user.role !== 'admin')) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const { seedDemo } = require('./scripts/seedDemo');
+    const result = await seedDemo(store.pool);
+    const appUrl = process.env.APP_URL || 'https://mynildash.com';
+    console.log(`[admin/seed-demo] demo account seeded by ${user.email}`);
+    res.json({ ok: true, ...result, mediaKitUrl: appUrl + result.mediaKitUrl, averyKitUrl: appUrl + result.averyKitUrl });
+  } catch (e) {
+    console.error('[admin/seed-demo]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Admin cleanup ────────────────────────────────────────────
 app.post('/api/admin/cleanup-duplicates', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);

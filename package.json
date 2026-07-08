@@ -5,7 +5,8 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "nodemon server/index.js"
+    "dev": "nodemon server/index.js",
+    "seed:demo": "node server/scripts/seed-demo.js"
   },
   "engines": {
     "node": ">=18.0.0"
