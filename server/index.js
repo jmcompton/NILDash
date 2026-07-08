@@ -8379,7 +8379,7 @@ Under 200 characters total.`;
 
     const bio = await ai.oneShot(prompt, system, 200, 'claude-sonnet-4-6');
     console.log('[generate-bio] success — bio length:', (bio||'').length, '— preview:', (bio||'').substring(0, 60));
-    res.json({ bio: (bio || '').trim().slice(0, 300) });
+    res.json({ bio: (bio || '').trim().slice(0, 500) });
   } catch (e) {
     console.error('[generate-bio] error:', e.message);
     res.status(500).json({ error: 'Bio generation failed' });
