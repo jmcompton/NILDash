@@ -308,7 +308,27 @@ function fmtFollowers(n){
   if (n >= 1000)    return (n/1000).toFixed(n>=100000?0:1).replace(/\.0$/,'') + 'K';
   return String(n);
 }
-function fmtCurrency(n){ return '$' + Number(n||0).toLocaleString('en-US'); }
+function fmtCurrency(n){
+  var num = Number(n);
+  if (!isFinite(num)) num = Number(String(n||'').replace(/[^0-9.]/g, '')) || 0;
+  return '$' + num.toLocaleString('en-US');
+}
+
+// Normalize the rate cards into a clean [{label, price, notes}] list. Tolerates
+// any shape the API might hand us (array, JSON string, alternate field names) and
+// drops rows with no label or no price so a stray record can never blank the list.
+function normalizeRates(raw){
+  if (typeof raw === 'string'){ try { raw = JSON.parse(raw); } catch (e) { raw = []; } }
+  if (!Array.isArray(raw)) return [];
+  return raw.map(function(r){
+    r = r || {};
+    var label = r.service_type || r.label || r.service || r.name || '';
+    var priceRaw = (r.price != null) ? r.price : (r.amount != null ? r.amount : r.rate);
+    var price = Number(priceRaw);
+    if (!isFinite(price)) price = Number(String(priceRaw||'').replace(/[^0-9.]/g, ''));
+    return { label: String(label).trim(), price: isFinite(price) ? price : 0, notes: r.notes || r.note || '' };
+  }).filter(function(r){ return r.label && r.price > 0; });
+}
 
 // Real handle or null: drops empties and the literal "demo" placeholder.
 function realHandle(h){
@@ -347,6 +367,7 @@ function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
 
 function render(data){
   kitData = data;
+  try {
   var card = document.getElementById('mk-card');
   var isNilTheme = data.theme === 'nildash';
 
@@ -446,24 +467,27 @@ function render(data){
   }
 
   // ── Rate card (variant reorders to lead with the most relevant deliverable) ─
-  var rates = (data.rateCards || []).slice();
+  var rates = normalizeRates(data.rateCards);
   if (variant && Array.isArray(variant.rateLead) && variant.rateLead.length && rates.length){
     var leadIdx = function(r){
-      var st = String(r.service_type||'').toLowerCase();
+      var st = String(r.label||'').toLowerCase();
       for (var i=0;i<variant.rateLead.length;i++){ if (st.indexOf(variant.rateLead[i])!==-1) return i; }
       return 99;
     };
     rates.sort(function(a,b){ return leadIdx(a) - leadIdx(b); });
   }
+  var ratesSection = document.getElementById('mk-rates-section');
   if (rates.length){
-    document.getElementById('mk-rates-section').style.display = 'block';
+    ratesSection.style.display = 'block';
     document.getElementById('mk-rates-list').innerHTML = rates.map(function(r){
       return '<div class="mk-rate">' +
-        '<div><div class="mk-rate-name">' + esc(r.service_type) + '</div>' +
+        '<div><div class="mk-rate-name">' + esc(r.label) + '</div>' +
           (r.notes ? '<div class="mk-rate-note">' + esc(r.notes) + '</div>' : '') + '</div>' +
         '<div class="mk-rate-price">' + fmtCurrency(r.price) + '</div>' +
       '</div>';
     }).join('');
+  } else {
+    ratesSection.style.display = 'none';
   }
 
   // ── Footer credit (theme-aware) ───────────────────────────────────────────
@@ -471,6 +495,12 @@ function render(data){
   if (isNilTheme){
     var powered = document.querySelector('.mk-powered');
     if (powered) powered.innerHTML = 'Made with <a href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a>';
+  }
+
+  } catch (err) {
+    // A bad field should never strand the reader on a spinner or a half-page.
+    // Log it and still reveal whatever rendered.
+    if (window.console && console.error) console.error('media kit render error', err);
   }
 
   document.getElementById('state-loading').style.display = 'none';
