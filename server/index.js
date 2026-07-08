@@ -8225,8 +8225,11 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
       tiktok_handle, tiktok_followers,
       twitter_handle, twitter_followers,
       bio, primary_color, secondary_color, rateCards,
-      headshot_data, action_shot_data
+      headshot_data, action_shot_data, theme
     } = req.body;
+    // Theme is optional: only 'school'|'nildash' are stored; anything else (or
+    // absent) leaves the saved theme untouched via COALESCE in the upsert.
+    const themeUpdate = (theme === 'school' || theme === 'nildash') ? theme : null;
 
     // Fetch athlete name for slug generation
     const athR = await store.pool.query(
@@ -8246,8 +8249,8 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
       `INSERT INTO media_kits
          (athlete_id, instagram_handle, instagram_followers, instagram_engagement,
           tiktok_handle, tiktok_followers, twitter_handle, twitter_followers,
-          bio, primary_color, secondary_color, headshot_url, action_shot_data, slug, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+          bio, primary_color, secondary_color, headshot_url, action_shot_data, slug, theme, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
        ON CONFLICT (athlete_id) DO UPDATE SET
          instagram_handle = EXCLUDED.instagram_handle,
          instagram_followers = EXCLUDED.instagram_followers,
@@ -8262,6 +8265,7 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
          headshot_url = CASE WHEN EXCLUDED.headshot_url IS NOT NULL THEN EXCLUDED.headshot_url ELSE media_kits.headshot_url END,
          action_shot_data = CASE WHEN EXCLUDED.action_shot_data IS NOT NULL THEN EXCLUDED.action_shot_data ELSE media_kits.action_shot_data END,
          slug = COALESCE(media_kits.slug, EXCLUDED.slug),
+         theme = COALESCE(EXCLUDED.theme, media_kits.theme),
          updated_at = NOW()
        RETURNING *`,
       [req.athlete.id, instagram_handle||null, instagram_followers||null, instagram_engagement||null,
@@ -8269,7 +8273,7 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
        bio||null, primary_color||null, secondary_color||null,
        headshotUpdate !== undefined ? headshotUpdate : null,
        actionUpdate   !== undefined ? actionUpdate   : null,
-       baseSlug]
+       baseSlug, themeUpdate]
     );
     const mk = mkR.rows[0];
 
@@ -8466,18 +8470,21 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res
       instagram_handle, instagram_followers, instagram_engagement,
       tiktok_handle, tiktok_followers, twitter_handle, twitter_followers,
       bio, primary_color, secondary_color, rateCards,
-      headshot_data, action_shot_data
+      headshot_data, action_shot_data, theme
     } = req.body;
 
     const headshotUpdate = headshot_data !== undefined ? headshot_data || null : undefined;
     const actionUpdate   = action_shot_data !== undefined ? action_shot_data || null : undefined;
+    // Theme is optional: only 'school'|'nildash' are stored; anything else (or
+    // absent) leaves the saved theme untouched via COALESCE below.
+    const themeUpdate = (theme === 'school' || theme === 'nildash') ? theme : null;
 
     const mkR = await store.pool.query(
       `INSERT INTO media_kits
          (athlete_id, instagram_handle, instagram_followers, instagram_engagement,
           tiktok_handle, tiktok_followers, twitter_handle, twitter_followers,
-          bio, primary_color, secondary_color, headshot_url, action_shot_data, slug, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+          bio, primary_color, secondary_color, headshot_url, action_shot_data, slug, theme, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
        ON CONFLICT (athlete_id) DO UPDATE SET
          instagram_handle = EXCLUDED.instagram_handle,
          instagram_followers = EXCLUDED.instagram_followers,
@@ -8492,6 +8499,7 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res
          headshot_url = CASE WHEN EXCLUDED.headshot_url IS NOT NULL THEN EXCLUDED.headshot_url ELSE media_kits.headshot_url END,
          action_shot_data = CASE WHEN EXCLUDED.action_shot_data IS NOT NULL THEN EXCLUDED.action_shot_data ELSE media_kits.action_shot_data END,
          slug = COALESCE(media_kits.slug, EXCLUDED.slug),
+         theme = COALESCE(EXCLUDED.theme, media_kits.theme),
          updated_at = NOW()
        RETURNING *`,
       [athleteId, instagram_handle||null, instagram_followers||null, instagram_engagement||null,
@@ -8499,7 +8507,7 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res
        bio||null, primary_color||null, secondary_color||null,
        headshotUpdate !== undefined ? headshotUpdate : null,
        actionUpdate   !== undefined ? actionUpdate   : null,
-       baseSlug]
+       baseSlug, themeUpdate]
     );
     const mk = mkR.rows[0];
 

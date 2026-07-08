@@ -316,6 +316,12 @@ async function init() {
   `).then(() => console.log('[init] deal_scan_market_cache table ready'))
     .catch(e => console.error('[init] deal_scan_market_cache:', e.message));
 
+  // Media kit theme: 'school' (auto school colors, the original look) or
+  // 'nildash' (dark + lime brand). NULL on existing rows = school behavior, so
+  // saved kits are unchanged by this deploy. New kits default to 'nildash' in
+  // the builder UI, not here.
+  await pool.query(`ALTER TABLE media_kits ADD COLUMN IF NOT EXISTS theme TEXT`).catch(() => {});
+
   // Enforce one account per email (case-insensitive). Partial index so
   // agent-managed athletes without an email are unaffected. If existing
   // duplicates block creation, log and continue (handled at signup too).

@@ -3034,13 +3034,21 @@ tbody td{padding:11px 14px;vertical-align:middle}
                 </div>
               </div>
 
-              <!-- School Colors -->
+              <!-- Kit Theme -->
               <div class="card">
-                <div class="card-title" style="margin-bottom:12px">School Colors <span style="color:var(--accent);font-size:9px;font-weight:600;margin-left:6px">AUTO-DETECTED</span></div>
+                <div class="card-title" style="margin-bottom:12px">Kit Theme</div>
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                  <button type="button" id="mk-theme-school" onclick="mkSetTheme('school')" style="flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">School colors</button>
+                  <button type="button" id="mk-theme-nildash" onclick="mkSetTheme('nildash')" style="flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">NILDash brand</button>
+                </div>
+                <div id="mk-color-pickers">
+                <div class="card-title" style="margin-bottom:12px;font-size:11px">School Colors <span style="color:var(--accent);font-size:9px;font-weight:600;margin-left:6px">AUTO-DETECTED</span></div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
                   <div><label class="form-label">Primary</label><div style="display:flex;align-items:center;gap:8px"><input type="color" id="mk-color-primary" value="#1a1a2e" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px;flex-shrink:0"><input type="text" id="mk-color-primary-hex" class="form-input" value="#1a1a2e" oninput="mkSyncColorFromHex('primary',this.value)" style="flex:1;font-size:12px"></div></div>
                   <div><label class="form-label">Secondary</label><div style="display:flex;align-items:center;gap:8px"><input type="color" id="mk-color-secondary" value="#84CC16" oninput="mkUpdatePreview()" style="width:36px;height:32px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:none;padding:2px;flex-shrink:0"><input type="text" id="mk-color-secondary-hex" class="form-input" value="#84CC16" oninput="mkSyncColorFromHex('secondary',this.value)" style="flex:1;font-size:12px"></div></div>
                 </div>
+                </div>
+                <div id="mk-theme-note" style="display:none;font-size:10px;color:var(--muted);margin-top:4px">NILDash brand uses the dark theme with lime accents. School colors are ignored while this is on.</div>
               </div>
 
               <!-- Social Media Stats -->
@@ -13616,7 +13624,27 @@ var MK_SERVICES = [
   'Podcast Appearance','Personal Appearance','Autograph Signing','Custom'
 ];
 
-var mkState = { rates: [], slug: null, headshotData: null, actionShotData: null };
+// theme: 'school' (auto school colors, original look) or 'nildash' (dark +
+// lime brand). New kits default to nildash; saved kits load their own value.
+var mkState = { rates: [], slug: null, headshotData: null, actionShotData: null, theme: 'nildash' };
+
+function mkSetTheme(t) {
+  mkState.theme = (t === 'school') ? 'school' : 'nildash';
+  mkApplyThemeUI();
+  mkUpdatePreview();
+}
+
+function mkApplyThemeUI() {
+  var isNil = mkState.theme === 'nildash';
+  var on  = 'flex:1;padding:9px 8px;border-radius:8px;border:1px solid rgba(132,204,22,0.45);background:rgba(132,204,22,0.12);color:#84CC16;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit';
+  var off = 'flex:1;padding:9px 8px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit';
+  var bS = document.getElementById('mk-theme-school');  if (bS) bS.style.cssText = isNil ? off : on;
+  var bN = document.getElementById('mk-theme-nildash'); if (bN) bN.style.cssText = isNil ? on : off;
+  var pick = document.getElementById('mk-color-pickers');
+  if (pick) { pick.style.opacity = isNil ? '0.35' : '1'; pick.style.pointerEvents = isNil ? 'none' : ''; }
+  var note = document.getElementById('mk-theme-note');
+  if (note) note.style.display = isNil ? 'block' : 'none';
+}
 var amkCurrentAthleteId = null;
 var amkCurrentAthleteEmail = '';
 
@@ -13689,6 +13717,19 @@ function mkUpdatePreview() {
 
   var colors = mkGetColors();
   var primary = colors.primary, secondary = colors.secondary;
+  // Theme palette: 'school' keeps the original light card driven by the school
+  // color pickers; 'nildash' is the app's dark look with lime accents.
+  var mkTheme = (mkState.theme === 'nildash') ? 'nildash' : 'school';
+  if (mkTheme === 'nildash') { primary = '#84CC16'; secondary = '#84CC16'; }
+  var pal = mkTheme === 'nildash' ? {
+    cardBg: '#0D1520', heading: '#F0EDE6', body: '#cbd5e1', muted: '#64748B',
+    border: 'rgba(255,255,255,0.09)', statBg: '#111827', rowBase: '#0D1520',
+    rowAlt: '#111827', faint: '#334155', ttIcon: '#e2e8f0', ttLabel: '#e2e8f0',
+  } : {
+    cardBg: '#fff', heading: '#0f172a', body: '#334155', muted: '#94a3b8',
+    border: '#f0f4f8', statBg: '#fafbfc', rowBase: '#fff',
+    rowAlt: '#f8fafc', faint: '#cbd5e1', ttIcon: '#333', ttLabel: '#333',
+  };
   var priText = mkIsLight(primary) ? '#1a1a2e' : '#ffffff';
 
   var initials = (name || 'N A').split(' ').slice(0,2).map(function(w){ return (w[0]||'').toUpperCase(); }).join('') || 'NA';
@@ -13704,25 +13745,25 @@ function mkUpdatePreview() {
   var actionShot = mkState.actionShotData || null;
 
   var igSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#E1306C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.2" fill="#E1306C" stroke="none"/></svg>';
-  var ttSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>';
+  var ttSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="' + pal.ttIcon + '" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>';
   var twSvg = '<svg width="13" height="13" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
 
   function mkPlatformBox(icon, platform, followers, handle, color, engagement) {
     var esc2 = function(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
-    return '<div style="flex:1;padding:14px 10px;border-right:1px solid #f0f4f8;text-align:center;min-width:0">' +
+    return '<div style="flex:1;padding:14px 10px;border-right:1px solid ' + pal.border + ';text-align:center;min-width:0">' +
       '<div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:5px">' + icon + '<span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:' + color + '">' + platform + '</span></div>' +
-      '<div style="font-size:20px;font-weight:800;color:#0f172a;line-height:1">' + (followers > 0 ? mkFmtFollowers(followers) : '<span style="color:#cbd5e1">—</span>') + '</div>' +
-      (handle ? '<div style="font-size:10px;color:#94a3b8;margin-top:3px">@' + esc2(handle.replace(/^@/,'')) + '</div>' : '<div style="font-size:10px;color:#e2e8f0;margin-top:3px">—</div>') +
+      '<div style="font-size:20px;font-weight:800;color:' + pal.heading + ';line-height:1">' + (followers > 0 ? mkFmtFollowers(followers) : '<span style="color:' + pal.faint + '">—</span>') + '</div>' +
+      (handle ? '<div style="font-size:10px;color:' + pal.muted + ';margin-top:3px">@' + esc2(handle.replace(/^@/,'')) + '</div>' : '<div style="font-size:10px;color:' + pal.faint + ';margin-top:3px">—</div>') +
       (engagement ? '<div style="font-size:9px;font-weight:700;color:#84CC16;margin-top:3px">' + esc2(engagement) + ' eng.</div>' : '') +
     '</div>';
   }
 
   var statsBoxes = [];
   if (ig.followers > 0 || ig.handle) statsBoxes.push(mkPlatformBox(igSvg,'Instagram',ig.followers,ig.handle,'#E1306C',ig.engagement));
-  if (tt.followers > 0 || tt.handle) statsBoxes.push(mkPlatformBox(ttSvg,'TikTok',tt.followers,tt.handle,'#333',''));
+  if (tt.followers > 0 || tt.handle) statsBoxes.push(mkPlatformBox(ttSvg,'TikTok',tt.followers,tt.handle,pal.ttLabel,''));
   if (tw.followers > 0 || tw.handle) statsBoxes.push(mkPlatformBox(twSvg,'Twitter/X',tw.followers,tw.handle,'#1DA1F2',''));
   if (!statsBoxes.length) {
-    statsBoxes = [mkPlatformBox(igSvg,'Instagram',0,'','#E1306C',''), mkPlatformBox(ttSvg,'TikTok',0,'','#333',''), mkPlatformBox(twSvg,'Twitter/X',0,'','#1DA1F2','')];
+    statsBoxes = [mkPlatformBox(igSvg,'Instagram',0,'','#E1306C',''), mkPlatformBox(ttSvg,'TikTok',0,'',pal.ttLabel,''), mkPlatformBox(twSvg,'Twitter/X',0,'','#1DA1F2','')];
   }
 
   var visibleRates = mkState.rates.filter(function(r){ return r.service_type && r.price; });
@@ -13731,17 +13772,23 @@ function mkUpdatePreview() {
   if (visibleRates.length > 0) {
     rateRowsHtml = '<table style="width:100%;border-collapse:collapse">' +
       visibleRates.map(function(r, i) {
-        return '<tr style="background:' + (i%2===0?'#fff':'#f8fafc') + '">' +
-          '<td style="padding:10px 16px;font-size:13px;color:#1e293b;border-bottom:1px solid #f1f5f9"><div style="font-weight:600">' + esc3(r.service_type) + '</div>' + (r.notes ? '<div style="font-size:11px;color:#94a3b8;margin-top:2px">' + esc3(r.notes) + '</div>' : '') + '</td>' +
-          '<td style="padding:10px 16px;font-size:14px;font-weight:700;text-align:right;border-bottom:1px solid #f1f5f9;color:' + primary + '">$' + parseInt(r.price||0).toLocaleString() + '</td>' +
+        return '<tr style="background:' + (i%2===0?pal.rowBase:pal.rowAlt) + '">' +
+          '<td style="padding:10px 16px;font-size:13px;color:' + pal.heading + ';border-bottom:1px solid ' + pal.border + '"><div style="font-weight:600">' + esc3(r.service_type) + '</div>' + (r.notes ? '<div style="font-size:11px;color:' + pal.muted + ';margin-top:2px">' + esc3(r.notes) + '</div>' : '') + '</td>' +
+          '<td style="padding:10px 16px;font-size:14px;font-weight:700;text-align:right;border-bottom:1px solid ' + pal.border + ';color:' + primary + '">$' + parseInt(r.price||0).toLocaleString() + '</td>' +
         '</tr>';
       }).join('') + '</table>';
   }
 
-  var bannerBg = actionShot ? 'url(' + actionShot + ') center/cover' : 'linear-gradient(135deg,' + primary + ' 0%,#0f172a 100%)';
-  var html = '<div style="font-family:\'DM Sans\',sans-serif;background:#fff">';
+  var bannerBg = actionShot
+    ? 'url(' + actionShot + ') center/cover'
+    : (mkTheme === 'nildash' ? 'linear-gradient(135deg,#111827 0%,#0A0E1A 100%)' : 'linear-gradient(135deg,' + primary + ' 0%,#0f172a 100%)');
+  var html = '<div style="font-family:\'DM Sans\',sans-serif;background:' + pal.cardBg + '">';
   html += '<div style="position:relative;height:180px;background:' + bannerBg + ';overflow:visible">';
   if (actionShot) html += '<div style="position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,0.55) 0%,rgba(0,0,0,0.1) 100%)"></div>';
+  // Contrast scrim behind the name block: transparent at the top fading to
+  // roughly 65 percent black at the text baseline, so the white name stays
+  // readable over any action shot, including a pure-white one.
+  html += '<div style="position:absolute;left:0;right:0;bottom:0;height:96px;background:linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,0.65) 100%)"></div>';
   html += '<div style="position:absolute;bottom:-36px;left:20px;z-index:2">';
   if (headshot) {
     html += '<img src="' + headshot + '" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid #fff;display:block;box-shadow:0 2px 12px rgba(0,0,0,0.25)">';
@@ -13749,20 +13796,23 @@ function mkUpdatePreview() {
     html += '<div style="width:72px;height:72px;border-radius:50%;background:' + primary + ';border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;color:' + priText + ';box-shadow:0 2px 12px rgba(0,0,0,0.25)">' + esc3(initials) + '</div>';
   }
   html += '</div>';
-  html += '<div style="position:absolute;bottom:-20px;left:108px;right:16px;"><div style="font-size:22px;font-weight:800;color:#0f172a;line-height:1.1">' + esc3(displayName) + '</div><div style="font-size:12px;color:#64748b;margin-top:3px">' + esc3(metaLine) + '</div></div>';
+  html += '<div style="position:absolute;bottom:12px;left:108px;right:16px;z-index:2"><div style="font-size:22px;font-weight:800;color:#fff;line-height:1.1;text-shadow:0 1px 4px rgba(0,0,0,0.55)">' + esc3(displayName) + '</div><div style="font-size:12px;color:rgba(255,255,255,0.88);margin-top:3px;text-shadow:0 1px 3px rgba(0,0,0,0.5)">' + esc3(metaLine) + '</div></div>';
   html += '</div>';
-  html += '<div style="height:4px;background:' + primary + ';margin-top:0"></div><div style="height:30px;background:#fff"></div>';
-  html += '<div style="display:flex;border-top:1px solid #f0f4f8;border-bottom:1px solid #f0f4f8;background:#fafbfc">' + statsBoxes.join('') + '</div>';
+  html += '<div style="height:4px;background:' + primary + ';margin-top:0"></div><div style="height:34px;background:' + pal.cardBg + '"></div>';
+  html += '<div style="display:flex;border-top:1px solid ' + pal.border + ';border-bottom:1px solid ' + pal.border + ';background:' + pal.statBg + '">' + statsBoxes.join('') + '</div>';
   if (bio) {
-    html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>ABOUT</div><div style="font-size:13px;color:#334155;line-height:1.7">' + esc3(bio) + '</div></div>';
+    html += '<div style="padding:18px 20px;border-bottom:1px solid ' + pal.border + '"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:' + pal.muted + ';margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>ABOUT</div><div style="font-size:13px;color:' + pal.body + ';line-height:1.7">' + esc3(bio) + '</div></div>';
   }
-  html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>RATE CARD</div>';
-  if (visibleRates.length > 0) { html += rateRowsHtml; } else { html += '<div style="font-size:13px;color:#cbd5e1;font-style:italic">Rate card coming soon</div>'; }
+  html += '<div style="padding:18px 20px;border-bottom:1px solid ' + pal.border + '"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:' + pal.muted + ';margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>RATE CARD</div>';
+  if (visibleRates.length > 0) { html += rateRowsHtml; } else { html += '<div style="font-size:13px;color:' + pal.faint + ';font-style:italic">Rate card coming soon</div>'; }
   html += '</div>';
-  html += '<div style="padding:18px 20px;border-bottom:1px solid #f0f4f8"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>WORK WITH ME</div>';
-  if (amkCurrentAthleteEmail) html += '<div style="font-size:12px;color:#64748b;margin-bottom:10px">' + esc3(amkCurrentAthleteEmail) + '</div>';
+  html += '<div style="padding:18px 20px;border-bottom:1px solid ' + pal.border + '"><div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:' + pal.muted + ';margin-bottom:10px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:3px;height:12px;background:' + primary + ';border-radius:2px;flex-shrink:0"></span>WORK WITH ME</div>';
+  if (amkCurrentAthleteEmail) html += '<div style="font-size:12px;color:' + pal.muted + ';margin-bottom:10px">' + esc3(amkCurrentAthleteEmail) + '</div>';
   html += '<div style="display:inline-block;background:' + primary + ';color:' + priText + ';padding:10px 20px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer">Contact This Athlete</div></div>';
-  html += '<div style="height:4px;background:' + secondary + '"></div><div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between;background:#fff"><div style="font-size:10px;color:#94a3b8">Powered by <strong style="color:#64748b">NILDash</strong></div><div style="font-size:10px;color:#cbd5e1">© ' + new Date().getFullYear() + '</div></div></div>';
+  var footBrand = mkTheme === 'nildash'
+    ? 'Made with <strong style="color:#84CC16">NILDash</strong>'
+    : 'Powered by <strong style="color:#64748b">NILDash</strong>';
+  html += '<div style="height:4px;background:' + secondary + '"></div><div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between;background:' + pal.cardBg + '"><div style="font-size:10px;color:' + pal.muted + '">' + footBrand + '</div><div style="font-size:10px;color:' + pal.faint + '">© ' + new Date().getFullYear() + '</div></div></div>';
 
   var prev = document.getElementById('mk-preview');
   if (prev) prev.innerHTML = html;
@@ -13892,6 +13942,7 @@ async function mkSave() {
       bio: (document.getElementById('mk-bio') || {}).value || '',
       primary_color: colors.primary,
       secondary_color: colors.secondary,
+      theme: mkState.theme === 'nildash' ? 'nildash' : 'school',
       rateCards: cleanRates,
       headshot_data: mkState.headshotData !== null ? (mkState.headshotData || '') : undefined,
       action_shot_data: mkState.actionShotData !== null ? (mkState.actionShotData || '') : undefined
@@ -13950,8 +14001,10 @@ async function amkLoadForAthlete(athleteId) {
   if (builder) builder.style.display = '';
   if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">Loading…</span>';
 
-  // Reset state
-  mkState = { rates: [], slug: null, headshotData: null, actionShotData: null };
+  // Reset state. New kits default to the NILDash brand theme; a saved kit's
+  // theme is applied after loading below.
+  mkState = { rates: [], slug: null, headshotData: null, actionShotData: null, theme: 'nildash' };
+  mkApplyThemeUI();
   amkCurrentAthleteEmail = '';
 
   // Pre-fill from athletes array
@@ -13994,6 +14047,10 @@ async function amkLoadForAthlete(athleteId) {
     if (data.mediaKit) {
       var mk = data.mediaKit;
       mkState.slug = mk.slug || null;
+      // Existing kits keep whatever they have: a NULL theme means the kit
+      // predates the toggle and stays on the school-colors look.
+      mkState.theme = (mk.theme === 'nildash') ? 'nildash' : 'school';
+      mkApplyThemeUI();
       var igHEl = document.getElementById('mk-ig-handle'); if (mk.instagram_handle && igHEl) igHEl.value = mk.instagram_handle;
       var igFEl = document.getElementById('mk-ig-followers'); if (mk.instagram_followers && igFEl) igFEl.value = mk.instagram_followers;
       var igEEl = document.getElementById('mk-ig-engagement'); if (mk.instagram_engagement && igEEl) igEEl.value = mk.instagram_engagement;

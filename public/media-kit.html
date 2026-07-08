@@ -36,10 +36,15 @@ body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:
 .mk-headshot-initials{width:80px;height:80px;border-radius:50%;border:3px solid #fff;display:block;object-fit:cover;box-shadow:0 2px 16px rgba(0,0,0,0.25)}
 .mk-headshot-initials{display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:#fff}
 
-/* ── Name row (below banner) ── */
-.mk-name-row{padding:12px 24px 16px 120px;border-bottom:1px solid #f0f4f8}
-.mk-name{font-size:26px;font-weight:800;color:#0f172a;line-height:1.1;letter-spacing:-0.01em}
-.mk-meta{font-size:13px;color:#64748b;margin-top:4px;font-weight:500}
+/* ── Name block (over the banner, on a contrast scrim) ── */
+/* Scrim: transparent at the top fading to roughly 65 percent black at the
+   text baseline, so the white name stays readable over any action shot,
+   including a pure-white one. */
+.mk-banner-scrim{position:absolute;left:0;right:0;bottom:0;height:100px;background:linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,0.65) 100%)}
+.mk-banner-name{position:absolute;left:124px;right:20px;bottom:14px;z-index:2}
+.mk-name{font-size:26px;font-weight:800;color:#fff;line-height:1.1;letter-spacing:-0.01em;text-shadow:0 1px 4px rgba(0,0,0,0.55)}
+.mk-meta{font-size:13px;color:rgba(255,255,255,0.88);margin-top:4px;font-weight:500;text-shadow:0 1px 3px rgba(0,0,0,0.5)}
+.mk-headshot-spacer{height:48px;background:#fff}
 
 /* ── Color bar ── */
 .mk-color-bar{height:4px}
@@ -118,12 +123,33 @@ body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:
 .toast{position:fixed;bottom:24px;right:24px;background:#1a1a2e;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;opacity:0;transition:opacity 0.25s;pointer-events:none;z-index:9999;max-width:280px}
 .toast.show{opacity:1}
 
-/* ── Print ── */
+/* ── NILDash brand theme (dark + lime). Applied via JS when the saved kit's
+   theme is 'nildash'. Kits without a theme keep the original light look. ── */
+.theme-nildash{background:#0D1520}
+.theme-nildash .mk-headshot-spacer{background:#0D1520}
+.theme-nildash .mk-stats{background:#111827;border-bottom-color:rgba(255,255,255,0.09)}
+.theme-nildash .mk-stat-box{border-right-color:rgba(255,255,255,0.09)}
+.theme-nildash .mk-stat-handle{color:#64748B}
+.theme-nildash .mk-section{border-bottom-color:rgba(255,255,255,0.09)}
+.theme-nildash .mk-section-label{color:#64748B}
+.theme-nildash .mk-bio-text{color:#cbd5e1}
+.theme-nildash .mk-rate-table td{border-bottom-color:rgba(255,255,255,0.09)}
+.theme-nildash .mk-rate-service{color:#e2e8f0}
+.theme-nildash .mk-rate-notes{color:#64748B}
+.theme-nildash .mk-footer{background:#0D1520}
+.theme-nildash .mk-powered{color:#64748B}
+.theme-nildash .mk-powered a{color:#84CC16}
+.theme-nildash .mk-year{color:#334155}
+.theme-nildash #mk-contact-email{color:#64748B!important}
+
+/* ── Print (also the PDF export path: /media-kit/:slug?print=1) ── */
 @media print {
   .topbar,.topbar-actions,.print-hide,.modal-overlay{display:none!important}
   body{background:#fff}
   .page-wrap{margin:0;padding:0;max-width:100%}
   .mk-card{box-shadow:none;border-radius:0}
+  /* Keep the scrim, banner image, and dark theme colors in the printed PDF */
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   @page{size:letter portrait;margin:0.5in}
 }
 </style>
@@ -164,21 +190,22 @@ body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:
 <div class="page-wrap" id="mk-content" style="display:none">
   <div class="mk-card" id="mk-card">
 
-    <!-- Banner + Headshot -->
+    <!-- Banner + Headshot + Name (scrim keeps the name readable over any photo) -->
     <div class="mk-banner" id="mk-banner">
       <div class="mk-banner-overlay" id="mk-banner-overlay"></div>
+      <div class="mk-banner-scrim"></div>
+      <div class="mk-banner-name">
+        <div class="mk-name" id="mk-name"></div>
+        <div class="mk-meta" id="mk-meta"></div>
+      </div>
       <div class="mk-headshot" id="mk-headshot-wrap"></div>
     </div>
 
     <!-- Color accent bar (4px) -->
     <div class="mk-color-bar" id="mk-color-bar-top"></div>
 
-    <!-- Spacing for headshot overflow + Name row -->
-    <div style="height:28px;background:#fff"></div>
-    <div class="mk-name-row">
-      <div class="mk-name" id="mk-name"></div>
-      <div class="mk-meta" id="mk-meta"></div>
-    </div>
+    <!-- Spacing for headshot overflow -->
+    <div class="mk-headshot-spacer"></div>
 
     <!-- Stats Row -->
     <div class="mk-stats" id="mk-stats"></div>
@@ -316,6 +343,14 @@ function render(data) {
   kitData = data;
   var primary   = data.primary_color   || '#1a1a2e';
   var secondary = data.secondary_color || '#84CC16';
+  // NILDash brand theme: dark card with lime accents. Kits saved without a
+  // theme (all pre-existing kits) keep the school-colors look unchanged.
+  var isNilTheme = data.theme === 'nildash';
+  if (isNilTheme) {
+    primary = '#84CC16';
+    secondary = '#84CC16';
+    document.getElementById('mk-card').classList.add('theme-nildash');
+  }
   var priText   = isLight(primary)   ? '#1a1a2e' : '#ffffff';
   var name      = data.athlete_name  || 'Athlete';
   var metaParts = [data.position, data.sport, data.school].filter(Boolean);
@@ -331,8 +366,11 @@ function render(data) {
     banner.style.backgroundSize = 'cover';
     banner.style.backgroundPosition = 'center';
   } else {
-    // Gradient fallback using primary color
-    banner.style.background = 'linear-gradient(135deg,' + primary + ' 0%,' + adjustColor(primary,-30) + ' 60%,#0f172a 100%)';
+    // Gradient fallback: dark brand gradient on the NILDash theme, school
+    // primary gradient otherwise
+    banner.style.background = isNilTheme
+      ? 'linear-gradient(135deg,#111827 0%,#0A0E1A 100%)'
+      : 'linear-gradient(135deg,' + primary + ' 0%,' + adjustColor(primary,-30) + ' 60%,#0f172a 100%)';
     document.getElementById('mk-banner-overlay').style.display = 'none';
   }
 
@@ -377,7 +415,7 @@ function render(data) {
     var ttCount = fmtFollowers(data.tiktok_followers);
     statBoxes.push(
       '<div class="mk-stat-box">' +
-        '<div class="mk-stat-platform">' + ICONS.tiktok + ' <span style="color:#333">TikTok</span></div>' +
+        '<div class="mk-stat-platform">' + ICONS.tiktok + ' <span style="color:' + (isNilTheme ? '#e2e8f0' : '#333') + '">TikTok</span></div>' +
         (ttCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + esc(ttCount) + '</div>' : '<div class="mk-stat-count" style="color:#e2e8f0">—</div>') +
         (data.tiktok_handle ? '<div class="mk-stat-handle">@' + esc(data.tiktok_handle.replace(/^@/,'')) + '</div>' : '') +
       '</div>'
@@ -415,7 +453,7 @@ function render(data) {
   if (rates.length) {
     document.getElementById('mk-rates-section').style.display = 'block';
     document.getElementById('mk-rate-tbody').innerHTML = rates.map(function(r, i) {
-      var rowBg = i % 2 === 1 ? '#f8fafc' : '#fff';
+      var rowBg = isNilTheme ? (i % 2 === 1 ? '#111827' : '#0D1520') : (i % 2 === 1 ? '#f8fafc' : '#fff');
       return '<tr style="background:' + rowBg + '">' +
         '<td>' +
           '<div class="mk-rate-service">' + esc(r.service_type) + '</div>' +
@@ -433,6 +471,11 @@ function render(data) {
 
   // ── Footer ────────────────────────────────────────────────────────────────
   document.getElementById('mk-year').textContent = '© ' + new Date().getFullYear();
+  if (isNilTheme) {
+    // Brand-themed kits carry the NILDash credit line
+    var powered = document.querySelector('.mk-powered');
+    if (powered) powered.innerHTML = 'Made with <a href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a>';
+  }
 
   // ── Show content ─────────────────────────────────────────────────────────
   document.getElementById('state-loading').style.display = 'none';
