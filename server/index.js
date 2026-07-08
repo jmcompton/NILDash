@@ -178,6 +178,15 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
   res.json({ received: true });
 });
 
+// Media kit saves carry base64 headshot + action-shot images, which blow past
+// the default 50kb body limit (that was the root cause of images never
+// persisting). Parse those routes with a larger limit BEFORE the global 50kb
+// parser so it populates req.body and the global parser then skips them.
+// Images are downscaled client-side, so real payloads stay well under this.
+const mkImageJson = express.json({ limit: '12mb' });
+app.use('/api/agent/athlete-media-kit', mkImageJson);
+app.use('/api/athlete/media-kit/save', mkImageJson);
+
 app.use(express.json({ limit: '50kb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.set('trust proxy', 1);

@@ -3,168 +3,168 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NIL Media Kit — NILDash</title>
+<title>NIL Media Kit - NILDash</title>
 <link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:#1a1a2e}
+body{font-family:'DM Sans',sans-serif;background:#EEF1F6;min-height:100vh;color:#0E1726;-webkit-font-smoothing:antialiased}
 
-/* ── Topbar ── */
+/* ── Platform topbar (print-hidden) ── */
 .topbar{background:#0A0E1A;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,0.07);position:sticky;top:0;z-index:50}
-.topbar-logo{display:flex;align-items:center;gap:10px}
 .topbar-logo-text{font-size:17px;font-weight:800;color:#fff;letter-spacing:-0.01em}
 .topbar-logo-text span{color:#84CC16}
 .topbar-actions{display:flex;gap:10px;align-items:center}
-.btn-topbar{padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;border:1.5px solid;display:flex;align-items:center;gap:6px;text-decoration:none}
-.btn-ghost-white{background:transparent;border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.75)}
+.btn-topbar{padding:8px 15px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s;border:1.5px solid;display:flex;align-items:center;gap:6px;text-decoration:none}
+.btn-ghost-white{background:transparent;border-color:rgba(255,255,255,0.2);color:rgba(255,255,255,0.78)}
 .btn-ghost-white:hover{border-color:#84CC16;color:#84CC16}
 .btn-accent{background:#84CC16;border-color:#84CC16;color:#0A0E1A}
 .btn-accent:hover{background:#96e020;border-color:#96e020}
 
-/* ── Layout ── */
-.page-wrap{max-width:780px;margin:0 auto;padding:32px 16px 80px}
+/* ── Page + card ── */
+.page-wrap{max-width:820px;margin:0 auto;padding:36px 18px 90px}
+.mk-card{
+  --bg:#ffffff; --raised:#F7F9FC; --line:#E7ECF3; --text:#0E1726; --body:#3A4657;
+  --muted:#64748B; --accent:#84CC16; --accent-soft:rgba(132,204,22,0.12); --accent-contrast:#0A0E1A;
+  background:var(--bg);border-radius:22px;overflow:hidden;
+  box-shadow:0 30px 70px -30px rgba(15,23,42,0.45),0 2px 8px rgba(15,23,42,0.06);
+}
+.theme-nildash{
+  --bg:#0C1119; --raised:#141C29; --line:rgba(255,255,255,0.09); --text:#F2F0EA; --body:#C7D0DE;
+  --muted:#93A0B4; --accent:#84CC16; --accent-soft:rgba(132,204,22,0.14); --accent-contrast:#0A0E1A;
+  box-shadow:0 30px 80px -30px rgba(0,0,0,0.7),0 0 0 1px rgba(255,255,255,0.05);
+}
 
-/* ── Media Kit Card ── */
-.mk-card{background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.12),0 2px 8px rgba(0,0,0,0.06)}
+/* ── Hero ── */
+.mk-hero{position:relative;min-height:clamp(300px,46vw,404px);background:#0A0E1A;background-size:cover;background-position:center 22%;overflow:hidden}
+.mk-hero-scrim{position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,0.10) 0%,rgba(0,0,0,0) 34%,rgba(0,0,0,0.28) 62%,rgba(0,0,0,0.74) 100%)}
+.mk-hero-mono{position:absolute;right:-2%;top:-14%;font-family:'Anton',sans-serif;font-size:clamp(220px,44vw,400px);line-height:1;color:rgba(255,255,255,0.06);pointer-events:none;user-select:none;letter-spacing:-0.02em}
+.mk-hero-flag{position:absolute;top:22px;left:24px;z-index:3;display:flex;align-items:center;gap:8px;font-size:10.5px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.82)}
+.mk-hero-flag i{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px rgba(132,204,22,0.22)}
+.mk-hero-content{position:absolute;left:0;right:0;bottom:0;z-index:3;display:flex;align-items:flex-end;gap:16px;padding:0 26px 26px}
+.mk-avatar{width:78px;height:78px;border-radius:50%;flex-shrink:0;object-fit:cover;background:#0A0E1A;
+  border:3px solid #fff;box-shadow:0 6px 20px rgba(0,0,0,0.4),0 0 0 5px rgba(132,204,22,0.28)}
+.mk-avatar-fallback{display:flex;align-items:center;justify-content:center;font-family:'Anton',sans-serif;font-size:30px;color:#fff}
+.mk-hero-text{min-width:0;flex:1;padding-bottom:2px}
+.mk-eyebrow-hero{font-size:11px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:rgba(255,255,255,0.86);margin-bottom:7px;text-shadow:0 1px 3px rgba(0,0,0,0.5)}
+.mk-name{font-family:'Anton',sans-serif;font-weight:400;color:#fff;line-height:0.94;letter-spacing:0.01em;
+  font-size:clamp(32px,7.4vw,54px);text-shadow:0 2px 10px rgba(0,0,0,0.55);word-break:break-word}
 
-/* ── Header: Banner + Headshot ── */
-.mk-banner{position:relative;height:200px;background-size:cover;background-position:center;overflow:visible}
-.mk-banner-overlay{position:absolute;inset:0;background:linear-gradient(to right,rgba(0,0,0,0.5) 0%,rgba(0,0,0,0.1) 100%)}
-.mk-headshot{position:absolute;bottom:-40px;left:24px;z-index:2}
-.mk-headshot img,
-.mk-headshot-initials{width:80px;height:80px;border-radius:50%;border:3px solid #fff;display:block;object-fit:cover;box-shadow:0 2px 16px rgba(0,0,0,0.25)}
-.mk-headshot-initials{display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:#fff}
-
-/* ── Name block (over the banner, on a contrast scrim) ── */
-/* Scrim: transparent at the top fading to roughly 65 percent black at the
-   text baseline, so the white name stays readable over any action shot,
-   including a pure-white one. */
-.mk-banner-scrim{position:absolute;left:0;right:0;bottom:0;height:100px;background:linear-gradient(to bottom,rgba(0,0,0,0) 0%,rgba(0,0,0,0.65) 100%)}
-.mk-banner-name{position:absolute;left:124px;right:20px;bottom:14px;z-index:2}
-.mk-name{font-size:26px;font-weight:800;color:#fff;line-height:1.1;letter-spacing:-0.01em;text-shadow:0 1px 4px rgba(0,0,0,0.55)}
-.mk-meta{font-size:13px;color:rgba(255,255,255,0.88);margin-top:4px;font-weight:500;text-shadow:0 1px 3px rgba(0,0,0,0.5)}
-.mk-headshot-spacer{height:48px;background:#fff}
-
-/* ── Color bar ── */
-.mk-color-bar{height:4px}
+/* ── Section scaffolding ── */
+.mk-section{padding:30px 28px}
+.mk-section + .mk-section{border-top:1px solid var(--line)}
+.mk-eyebrow{font-size:11px;font-weight:700;letter-spacing:0.17em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:11px;margin-bottom:18px}
+.mk-eyebrow::before{content:'';width:22px;height:2px;border-radius:2px;background:var(--accent);flex-shrink:0}
 
 /* ── Stats ── */
-.mk-stats{display:flex;border-bottom:1px solid #f0f4f8;background:#fafbfc}
-.mk-stat-box{flex:1;padding:16px 10px;text-align:center;border-right:1px solid #f0f4f8}
-.mk-stat-box:last-child{border-right:none}
-.mk-stat-platform{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:6px;display:flex;align-items:center;justify-content:center;gap:5px}
-.mk-stat-count{font-size:24px;font-weight:800;color:#0f172a;line-height:1;font-variant-numeric:tabular-nums}
-.mk-stat-handle{font-size:11px;color:#94a3b8;margin-top:4px}
-.mk-stat-eng{font-size:10px;font-weight:700;color:#84CC16;margin-top:3px}
+.mk-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.mk-stat{background:var(--raised);border:1px solid var(--line);border-radius:15px;padding:16px 16px 15px;position:relative;overflow:hidden}
+.mk-stat-net{display:flex;align-items:center;gap:7px;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);margin-bottom:11px}
+.mk-stat-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.mk-stat-num{font-size:27px;font-weight:800;color:var(--text);line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+.mk-stat-sub{font-size:12px;color:var(--muted);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mk-stat-eng{display:inline-block;margin-top:8px;font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:20px;padding:2px 9px}
+.mk-stat.reach{background:var(--accent-soft);border-color:transparent;box-shadow:inset 0 0 0 1px var(--accent)}
+.mk-stat.reach .mk-stat-num{color:var(--accent)}
+.mk-stat.reach .mk-stat-net{color:var(--accent)}
 
-/* ── Body sections ── */
-.mk-body{padding:0}
-.mk-section{padding:20px 24px;border-bottom:1px solid #f0f4f8}
-.mk-section:last-child{border-bottom:none}
-.mk-section-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#94a3b8;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.mk-section-label-bar{display:inline-block;width:3px;height:12px;border-radius:2px;flex-shrink:0}
-.mk-bio-text{font-size:14px;line-height:1.75;color:#334155}
+/* ── About ── */
+.mk-lead{font-size:16.5px;font-weight:600;line-height:1.55;color:var(--text)}
+.mk-lead + .mk-body-text{margin-top:12px}
+.mk-body-text{font-size:14.5px;line-height:1.82;color:var(--body)}
+.mk-fit{margin-top:16px;display:inline-flex;flex-wrap:wrap;gap:6px 8px;align-items:center;font-size:12px;font-weight:600;color:var(--accent)}
+.mk-fit-chip{background:var(--accent-soft);border-radius:20px;padding:3px 11px;font-weight:700;letter-spacing:0.01em}
 
-/* ── Rate Card ── */
-.mk-rate-table{width:100%;border-collapse:collapse}
-.mk-rate-table td{padding:11px 16px;font-size:13px;border-bottom:1px solid #f1f5f9}
-.mk-rate-table tr:last-child td{border-bottom:none}
-.mk-rate-table tr:nth-child(even) td{background:#f8fafc}
-.mk-rate-service{font-weight:600;color:#1e293b}
-.mk-rate-notes{font-size:11px;color:#94a3b8;margin-top:2px;font-weight:400}
-.mk-rate-price{font-weight:700;font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+/* ── Rate card ── */
+.mk-rate{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:15px 0;border-bottom:1px solid var(--line)}
+.mk-rate:last-child{border-bottom:none;padding-bottom:0}
+.mk-rate:first-child{padding-top:2px}
+.mk-rate-name{font-size:14.5px;font-weight:600;color:var(--text)}
+.mk-rate-note{font-size:12px;color:var(--muted);margin-top:2px;font-weight:400}
+.mk-rate-price{font-size:19px;font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;letter-spacing:-0.01em;white-space:nowrap}
 
-/* ── Contact CTA ── */
-.mk-contact-btn{display:inline-block;padding:12px 28px;border-radius:9px;font-size:13px;font-weight:700;cursor:pointer;border:none;font-family:'DM Sans',sans-serif;transition:all 0.15s;margin-top:8px}
+/* ── CTA ── */
+.mk-cta-line{font-size:14.5px;line-height:1.6;color:var(--body);margin-bottom:16px;max-width:38ch}
+.mk-cta-btn{display:inline-flex;align-items:center;gap:9px;background:var(--accent);color:var(--accent-contrast);border:none;border-radius:11px;padding:14px 26px;font-family:'DM Sans',sans-serif;font-size:14.5px;font-weight:800;letter-spacing:0.01em;cursor:pointer;transition:transform 0.12s,box-shadow 0.15s;box-shadow:0 8px 22px -8px var(--accent)}
+.mk-cta-btn:hover{transform:translateY(-1px);box-shadow:0 12px 26px -8px var(--accent)}
+.mk-cta-btn svg{stroke:var(--accent-contrast)}
 
 /* ── Footer ── */
-.mk-footer-bar{height:4px}
-.mk-footer{padding:12px 24px;display:flex;align-items:center;justify-content:space-between;background:#fff}
-.mk-powered{font-size:11px;color:#94a3b8}
-.mk-powered a{color:#64748b;font-weight:600;text-decoration:none}
-.mk-powered a:hover{color:#84CC16}
-.mk-year{font-size:11px;color:#cbd5e1}
+.mk-foot-rule{height:3px;background:var(--accent)}
+.mk-footer{padding:15px 28px;display:flex;align-items:center;justify-content:space-between;background:var(--bg)}
+.mk-powered{font-size:12px;color:var(--muted);font-weight:500}
+.mk-powered a{color:var(--accent);font-weight:700;text-decoration:none}
+.mk-powered a:hover{text-decoration:underline}
+.mk-year{font-size:11px;color:var(--muted);opacity:0.7}
 
-/* ── Contact Modal ── */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity 0.22s}
+/* ── Contact modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(6,9,15,0.6);z-index:200;display:none;align-items:center;justify-content:center;padding:16px;opacity:0;transition:opacity 0.22s;backdrop-filter:blur(3px)}
 .modal-overlay.open{opacity:1}
-.modal{background:#fff;border-radius:16px;padding:28px 24px;width:100%;max-width:460px;transform:translateY(20px);transition:transform 0.22s;box-shadow:0 20px 60px rgba(0,0,0,0.2)}
+.modal{background:#fff;border-radius:18px;padding:28px 24px;width:100%;max-width:460px;transform:translateY(18px);transition:transform 0.22s;box-shadow:0 24px 70px rgba(0,0,0,0.3);max-height:92vh;overflow-y:auto}
 .modal-overlay.open .modal{transform:translateY(0)}
-.modal-title{font-size:20px;font-weight:800;color:#0f172a;margin-bottom:4px}
-.modal-sub{font-size:13px;color:#64748b;margin-bottom:20px}
+.modal-title{font-family:'Anton',sans-serif;font-size:26px;font-weight:400;color:#0f172a;margin-bottom:4px;letter-spacing:0.01em}
+.modal-sub{font-size:13px;color:#64748b;margin-bottom:20px;line-height:1.5}
 .form-group{margin-bottom:13px}
 .form-label{display:block;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px}
-.form-input{width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;color:#1e293b;outline:none;transition:border-color 0.15s;background:#fff}
+.form-input{width:100%;padding:11px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;font-family:'DM Sans',sans-serif;color:#1e293b;outline:none;transition:border-color 0.15s;background:#fff}
 .form-input:focus{border-color:#84CC16}
-.form-textarea{width:100%;padding:10px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;color:#1e293b;outline:none;resize:vertical;min-height:90px;transition:border-color 0.15s}
+.form-textarea{width:100%;padding:11px 13px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;font-family:'DM Sans',sans-serif;color:#1e293b;outline:none;resize:vertical;min-height:80px;transition:border-color 0.15s}
 .form-textarea:focus{border-color:#84CC16}
 .modal-actions{display:flex;gap:10px;margin-top:18px}
-.btn-send{flex:1;padding:13px;background:#84CC16;color:#0A0E1A;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s}
+.btn-send{flex:1;padding:13px;background:#84CC16;color:#0A0E1A;border:none;border-radius:10px;font-size:14px;font-weight:800;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.15s}
 .btn-send:hover{background:#96e020}
 .btn-send:disabled{opacity:0.5;cursor:not-allowed}
-.btn-cancel{padding:13px 20px;background:transparent;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;color:#64748b;transition:all 0.15s}
+.btn-cancel{padding:13px 20px;background:transparent;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;color:#64748b;transition:all 0.15s}
 .btn-cancel:hover{border-color:#94a3b8}
-.contact-success{text-align:center;padding:20px 0}
-.contact-success-icon{font-size:44px;margin-bottom:12px}
-.contact-success-title{font-size:18px;font-weight:800;color:#0f172a;margin-bottom:6px}
-.contact-success-sub{font-size:13px;color:#64748b;line-height:1.55}
+.contact-success{text-align:center;padding:16px 0}
+.contact-success-icon{font-size:40px;margin-bottom:12px}
+.contact-success-title{font-family:'Anton',sans-serif;font-size:24px;font-weight:400;color:#0f172a;margin-bottom:6px}
+.contact-success-sub{font-size:14px;color:#64748b;line-height:1.55}
 
-/* ── Loading / Error ── */
+/* ── Loading / error / toast ── */
 .state-screen{display:flex;align-items:center;justify-content:center;min-height:60vh;flex-direction:column;gap:14px}
 .spinner{width:32px;height:32px;border:3px solid rgba(132,204,22,0.2);border-top-color:#84CC16;border-radius:50%;animation:spin 0.7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .state-text{font-size:13px;color:#64748b}
 .error-icon{font-size:44px}
-.error-title{font-size:20px;font-weight:800;color:#1a1a2e}
+.error-title{font-family:'Anton',sans-serif;font-size:26px;color:#1a1a2e}
 .error-sub{font-size:13px;color:#64748b}
-
-/* ── Toast ── */
-.toast{position:fixed;bottom:24px;right:24px;background:#1a1a2e;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;opacity:0;transition:opacity 0.25s;pointer-events:none;z-index:9999;max-width:280px}
+.toast{position:fixed;bottom:24px;right:24px;background:#0A0E1A;color:#fff;padding:11px 18px;border-radius:9px;font-size:13px;font-weight:600;opacity:0;transition:opacity 0.25s;pointer-events:none;z-index:9999;max-width:280px}
 .toast.show{opacity:1}
 
-/* ── NILDash brand theme (dark + lime). Applied via JS when the saved kit's
-   theme is 'nildash'. Kits without a theme keep the original light look. ── */
-.theme-nildash{background:#0D1520}
-.theme-nildash .mk-headshot-spacer{background:#0D1520}
-.theme-nildash .mk-stats{background:#111827;border-bottom-color:rgba(255,255,255,0.09)}
-.theme-nildash .mk-stat-box{border-right-color:rgba(255,255,255,0.09)}
-.theme-nildash .mk-stat-handle{color:#64748B}
-.theme-nildash .mk-section{border-bottom-color:rgba(255,255,255,0.09)}
-.theme-nildash .mk-section-label{color:#64748B}
-.theme-nildash .mk-bio-text{color:#cbd5e1}
-.theme-nildash .mk-rate-table td{border-bottom-color:rgba(255,255,255,0.09)}
-.theme-nildash .mk-rate-service{color:#e2e8f0}
-.theme-nildash .mk-rate-notes{color:#64748B}
-.theme-nildash .mk-footer{background:#0D1520}
-.theme-nildash .mk-powered{color:#64748B}
-.theme-nildash .mk-powered a{color:#84CC16}
-.theme-nildash .mk-year{color:#334155}
-.theme-nildash #mk-contact-email{color:#64748B!important}
+@media (max-width:480px){
+  .page-wrap{padding:0 0 60px}
+  .mk-card{border-radius:0}
+  .mk-section{padding:26px 20px}
+  .mk-hero-content{padding:0 20px 20px}
+  .mk-footer{padding:15px 20px}
+}
 
-/* ── Print (also the PDF export path: /media-kit/:slug?print=1) ── */
-@media print {
-  .topbar,.topbar-actions,.print-hide,.modal-overlay{display:none!important}
+/* ── Print / PDF (/media-kit/:slug?print=1) ── */
+@media print{
+  .topbar,.print-hide,.modal-overlay,.toast{display:none!important}
   body{background:#fff}
   .page-wrap{margin:0;padding:0;max-width:100%}
   .mk-card{box-shadow:none;border-radius:0}
-  /* Keep the scrim, banner image, and dark theme colors in the printed PDF */
+  .mk-hero{min-height:360px}
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-  @page{size:letter portrait;margin:0.5in}
+  @page{size:letter portrait;margin:0.45in}
 }
 </style>
 </head>
 <body>
 
-<!-- Topbar -->
+<!-- Platform topbar -->
 <div class="topbar print-hide">
-  <a href="https://mynildash.com" class="topbar-logo" style="text-decoration:none">
+  <a href="https://mynildash.com" style="text-decoration:none">
     <div class="topbar-logo-text">NIL<span>Dash</span></div>
   </a>
   <div class="topbar-actions">
     <button class="btn-topbar btn-ghost-white" onclick="copyLink()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-      Copy Link
+      Copy link
     </button>
     <button class="btn-topbar btn-accent" onclick="window.print()">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -176,105 +176,92 @@ body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:
 <!-- Loading -->
 <div id="state-loading" class="state-screen">
   <div class="spinner"></div>
-  <div class="state-text">Loading media kit…</div>
+  <div class="state-text">Loading media kit</div>
 </div>
 
 <!-- Error -->
 <div id="state-error" class="state-screen" style="display:none">
   <div class="error-icon">📋</div>
   <div class="error-title">Media kit not found</div>
-  <div class="error-sub">This link may be invalid or the athlete's media kit may have been removed.</div>
+  <div class="error-sub">This link may be invalid, or the media kit was removed.</div>
 </div>
 
-<!-- Main content -->
+<!-- Main -->
 <div class="page-wrap" id="mk-content" style="display:none">
   <div class="mk-card" id="mk-card">
 
-    <!-- Banner + Headshot + Name (scrim keeps the name readable over any photo) -->
-    <div class="mk-banner" id="mk-banner">
-      <div class="mk-banner-overlay" id="mk-banner-overlay"></div>
-      <div class="mk-banner-scrim"></div>
-      <div class="mk-banner-name">
-        <div class="mk-name" id="mk-name"></div>
-        <div class="mk-meta" id="mk-meta"></div>
+    <!-- Hero -->
+    <div class="mk-hero" id="mk-hero">
+      <div class="mk-hero-mono" id="mk-hero-mono" style="display:none"></div>
+      <div class="mk-hero-scrim"></div>
+      <div class="mk-hero-flag"><i></i> NIL Media Kit</div>
+      <div class="mk-hero-content">
+        <div id="mk-avatar-wrap"></div>
+        <div class="mk-hero-text">
+          <div class="mk-eyebrow-hero" id="mk-eyebrow"></div>
+          <div class="mk-name" id="mk-name"></div>
+        </div>
       </div>
-      <div class="mk-headshot" id="mk-headshot-wrap"></div>
     </div>
 
-    <!-- Color accent bar (4px) -->
-    <div class="mk-color-bar" id="mk-color-bar-top"></div>
+    <!-- Stats -->
+    <div class="mk-section" id="mk-stats-section">
+      <div class="mk-eyebrow">The Audience</div>
+      <div class="mk-stats" id="mk-stats"></div>
+    </div>
 
-    <!-- Spacing for headshot overflow -->
-    <div class="mk-headshot-spacer"></div>
+    <!-- About -->
+    <div class="mk-section" id="mk-about-section">
+      <div class="mk-eyebrow">About</div>
+      <div id="mk-about-body"></div>
+    </div>
 
-    <!-- Stats Row -->
-    <div class="mk-stats" id="mk-stats"></div>
+    <!-- Rates -->
+    <div class="mk-section" id="mk-rates-section" style="display:none">
+      <div class="mk-eyebrow">Partnership Rates</div>
+      <div id="mk-rates-list"></div>
+    </div>
 
-    <!-- Body -->
-    <div class="mk-body">
-
-      <!-- About -->
-      <div class="mk-section" id="mk-bio-section">
-        <div class="mk-section-label">
-          <span class="mk-section-label-bar" id="mk-bio-bar"></span>
-          ABOUT
-        </div>
-        <div class="mk-bio-text" id="mk-bio-text"></div>
-      </div>
-
-      <!-- Rate Card -->
-      <div class="mk-section" id="mk-rates-section" style="display:none">
-        <div class="mk-section-label">
-          <span class="mk-section-label-bar" id="mk-rate-bar"></span>
-          RATE CARD
-        </div>
-        <table class="mk-rate-table" id="mk-rate-table">
-          <tbody id="mk-rate-tbody"></tbody>
-        </table>
-      </div>
-
-      <!-- Work With Me -->
-      <div class="mk-section" id="mk-contact-section">
-        <div class="mk-section-label">
-          <span class="mk-section-label-bar" id="mk-contact-bar"></span>
-          WORK WITH ME
-        </div>
-        <div id="mk-contact-email" style="font-size:13px;color:#64748b;margin-bottom:12px"></div>
-        <button id="mk-contact-btn" class="mk-contact-btn" onclick="openContactModal()">Contact This Athlete</button>
-      </div>
-
-    </div><!-- /mk-body -->
+    <!-- CTA -->
+    <div class="mk-section" id="mk-cta-section">
+      <div class="mk-eyebrow">Work With Me</div>
+      <div class="mk-cta-line" id="mk-cta-line">Have a campaign in mind? Send the details and start a conversation.</div>
+      <button class="mk-cta-btn" id="mk-contact-btn" onclick="openContactModal()">
+        Contact this athlete
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </button>
+    </div>
 
     <!-- Footer -->
-    <div class="mk-footer-bar" id="mk-footer-bar"></div>
+    <div class="mk-foot-rule"></div>
     <div class="mk-footer">
       <div class="mk-powered">Powered by <a href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a></div>
       <div class="mk-year" id="mk-year"></div>
     </div>
 
-  </div><!-- /mk-card -->
-</div><!-- /page-wrap -->
+  </div>
+</div>
 
-<!-- Contact Modal -->
+<!-- Contact modal -->
 <div class="modal-overlay" id="contact-modal" onclick="if(event.target===this)closeContactModal()">
   <div class="modal">
     <div id="contact-form-wrap">
-      <div class="modal-title">Let's Work Together</div>
-      <div class="modal-sub" id="modal-sub">Tell us a little about the partnership you have in mind for <span id="modal-athlete-name">this athlete</span>.</div>
+      <div class="modal-title">Let's work together</div>
+      <div class="modal-sub">Tell us a little about the partnership you have in mind for <span id="modal-athlete-name">this athlete</span>.</div>
       <div class="form-group">
-        <label class="form-label">Brand Name *</label>
+        <label class="form-label">Brand name *</label>
         <input class="form-input" id="contact-company" placeholder="Nike, Zaxby's, Celsius">
       </div>
       <div class="form-group">
-        <label class="form-label">Your Name</label>
+        <label class="form-label">Your name</label>
         <input class="form-input" id="contact-name" placeholder="Jane Smith" autocomplete="name">
       </div>
       <div class="form-group">
-        <label class="form-label">Your Email *</label>
+        <label class="form-label">Your email *</label>
         <input class="form-input" id="contact-email" type="email" placeholder="partnerships@yourbrand.com" autocomplete="email">
       </div>
       <div class="form-group">
-        <label class="form-label">Budget Range</label>
+        <label class="form-label">Budget range</label>
         <select class="form-input" id="contact-budget">
           <option>Not sure</option>
           <option>Under $500</option>
@@ -287,14 +274,13 @@ body{font-family:'DM Sans',sans-serif;background:#f0f2f5;min-height:100vh;color:
         <label class="form-label">What are you interested in?</label>
         <textarea class="form-textarea" id="contact-message" placeholder="A few posts, an appearance, an ambassador run. Whatever you are thinking." rows="3"></textarea>
       </div>
-      <!-- Honeypot: hidden from humans, bots fill it and get silently dropped -->
       <div style="position:absolute;left:-9999px;top:-9999px" aria-hidden="true">
         <label>Website</label>
         <input id="contact-website" tabindex="-1" autocomplete="off">
       </div>
       <div class="modal-actions">
         <button class="btn-cancel" onclick="closeContactModal()">Cancel</button>
-        <button class="btn-send" id="contact-send-btn" onclick="sendContactMessage()">Send Inquiry</button>
+        <button class="btn-send" id="contact-send-btn" onclick="sendContactMessage()">Send inquiry</button>
       </div>
     </div>
     <div id="contact-success-wrap" class="contact-success" style="display:none">
@@ -313,216 +299,190 @@ var slug = window.location.pathname.replace(/^\/media-kit\//, '').replace(/\//g,
 var kitData = null;
 var currentSlug = slug;
 
-// ── Platform SVG Icons ──────────────────────────────────────────────────────
-var ICONS = {
-  instagram: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#E1306C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="5"/><circle cx="17.5" cy="6.5" r="1.2" fill="#E1306C" stroke="none"/></svg>',
-  tiktok:    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="2"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5"/></svg>',
-  twitter:   '<svg width="14" height="14" viewBox="0 0 24 24" fill="#1DA1F2"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.835L1.254 2.25H8.08l4.259 5.63L18.244 2.25zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
-};
+var DOTS = { instagram:'#E1306C', tiktok:'#25F4EE', twitter:'#1DA1F2' };
 
-function fmtFollowers(n) {
-  if (!n || n === 0) return null;
-  if (n >= 1000000) return (n/1000000).toFixed(1).replace(/\.0$/,'') + 'M';
-  if (n >= 1000)    return Math.round(n/1000) + 'K';
+function fmtFollowers(n){
+  n = Number(n) || 0;
+  if (n <= 0) return null;
+  if (n >= 1000000) return (n/1000000).toFixed(n>=10000000?0:1).replace(/\.0$/,'') + 'M';
+  if (n >= 1000)    return (n/1000).toFixed(n>=100000?0:1).replace(/\.0$/,'') + 'K';
   return String(n);
 }
+function fmtCurrency(n){ return '$' + Number(n||0).toLocaleString('en-US'); }
 
-function fmtCurrency(n) {
-  return '$' + Number(n).toLocaleString('en-US');
+// Real handle or null: drops empties and the literal "demo" placeholder.
+function realHandle(h){
+  var v = String(h||'').replace(/^@+/,'').trim();
+  if (!v) return null;
+  if (v.toLowerCase() === 'demo') return null;
+  return v;
 }
 
-function isLight(hex) {
-  try {
-    var c = hex.replace('#','');
-    if (c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
-    var r = parseInt(c.substr(0,2),16), g = parseInt(c.substr(2,2),16), b = parseInt(c.substr(4,2),16);
-    return (r*299 + g*587 + b*114) / 1000 > 155;
-  } catch(e) { return false; }
+function isLight(hex){
+  try{
+    var c = String(hex).replace('#','');
+    if (c.length===3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+    var r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);
+    return (r*299+g*587+b*114)/1000 > 155;
+  }catch(e){ return false; }
 }
-
-function adjustColor(hex, amount) {
-  try {
-    var num = parseInt(hex.replace('#',''), 16);
-    var r = Math.max(0, Math.min(255, (num >> 16) + amount));
-    var g = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amount));
-    var b = Math.max(0, Math.min(255, (num & 0x0000FF) + amount));
-    return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
-  } catch(e) { return hex; }
+function hexToRgba(hex, a){
+  try{
+    var c=String(hex).replace('#','');
+    if (c.length===3) c=c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+    var r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);
+    return 'rgba('+r+','+g+','+b+','+a+')';
+  }catch(e){ return 'rgba(132,204,22,'+a+')'; }
 }
-
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function adjustColor(hex, amount){
+  try{
+    var num=parseInt(String(hex).replace('#',''),16);
+    var r=Math.max(0,Math.min(255,(num>>16)+amount));
+    var g=Math.max(0,Math.min(255,((num>>8)&0xFF)+amount));
+    var b=Math.max(0,Math.min(255,(num&0xFF)+amount));
+    return '#'+((1<<24)|(r<<16)|(g<<8)|b).toString(16).slice(1);
+  }catch(e){ return hex; }
 }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-function render(data) {
+function render(data){
   kitData = data;
-  var primary   = data.primary_color   || '#1a1a2e';
-  var secondary = data.secondary_color || '#84CC16';
-  // NILDash brand theme: dark card with lime accents. Kits saved without a
-  // theme (all pre-existing kits) keep the school-colors look unchanged.
+  var card = document.getElementById('mk-card');
   var isNilTheme = data.theme === 'nildash';
-  if (isNilTheme) {
-    primary = '#84CC16';
-    secondary = '#84CC16';
-    document.getElementById('mk-card').classList.add('theme-nildash');
-  }
-  var priText   = isLight(primary)   ? '#1a1a2e' : '#ffffff';
-  var name      = data.athlete_name  || 'Athlete';
+
+  var name = data.athlete_name || 'Athlete';
+  var initials = name.split(/\s+/).map(function(w){ return w[0]||''; }).join('').slice(0,2).toUpperCase() || 'NA';
   var metaParts = [data.position, data.sport, data.school].filter(Boolean);
-  var initials  = name.split(' ').map(function(w){ return w[0]||''; }).join('').slice(0,2).toUpperCase() || 'NA';
 
-  // Page title
-  document.title = name + ' — NIL Media Kit';
-
-  // ── Banner ────────────────────────────────────────────────────────────────
-  var banner = document.getElementById('mk-banner');
-  if (data.action_shot_data && data.action_shot_data.startsWith('data:')) {
-    banner.style.backgroundImage = 'url(' + data.action_shot_data + ')';
-    banner.style.backgroundSize = 'cover';
-    banner.style.backgroundPosition = 'center';
+  // ── Theme + accent ────────────────────────────────────────────────────────
+  var accent;
+  if (isNilTheme){
+    card.classList.add('theme-nildash');
+    document.body.style.background = '#06090F';
+    accent = '#84CC16';
+    // vars already lime in .theme-nildash; set contrast explicitly
+    card.style.setProperty('--accent-contrast', '#0A0E1A');
   } else {
-    // Gradient fallback: dark brand gradient on the NILDash theme, school
-    // primary gradient otherwise
-    banner.style.background = isNilTheme
-      ? 'linear-gradient(135deg,#111827 0%,#0A0E1A 100%)'
-      : 'linear-gradient(135deg,' + primary + ' 0%,' + adjustColor(primary,-30) + ' 60%,#0f172a 100%)';
-    document.getElementById('mk-banner-overlay').style.display = 'none';
+    accent = data.primary_color || '#84CC16';
+    document.body.style.background = '#EEF1F6';
+    card.style.setProperty('--accent', accent);
+    card.style.setProperty('--accent-soft', hexToRgba(accent, 0.12));
+    card.style.setProperty('--accent-contrast', isLight(accent) ? '#0A0E1A' : '#ffffff');
+  }
+  document.title = name + ' - NIL Media Kit';
+
+  // ── Hero ──────────────────────────────────────────────────────────────────
+  var hero = document.getElementById('mk-hero');
+  var hasAction = data.action_shot_data && String(data.action_shot_data).startsWith('data:');
+  if (hasAction){
+    hero.style.backgroundImage = 'url(' + data.action_shot_data + ')';
+  } else {
+    // Tasteful branded gradient with a faint monogram, never empty black
+    hero.style.background = isNilTheme
+      ? 'radial-gradient(120% 100% at 80% 0%, #16233A 0%, #0A0E1A 60%, #06090F 100%)'
+      : 'linear-gradient(150deg,' + accent + ' 0%,' + adjustColor(accent,-46) + ' 58%,#0f172a 100%)';
+    var mono = document.getElementById('mk-hero-mono');
+    mono.textContent = initials;
+    mono.style.display = 'block';
   }
 
-  // ── Headshot ──────────────────────────────────────────────────────────────
-  var headshotWrap = document.getElementById('mk-headshot-wrap');
-  if (data.headshot_url && data.headshot_url.startsWith('data:')) {
-    headshotWrap.innerHTML = '<img src="' + data.headshot_url + '" style="width:80px;height:80px;border-radius:50%;border:3px solid #fff;display:block;object-fit:cover;box-shadow:0 2px 16px rgba(0,0,0,0.25)">';
+  // Avatar: headshot photo, initials fallback
+  var avatarWrap = document.getElementById('mk-avatar-wrap');
+  if (data.headshot_url && String(data.headshot_url).startsWith('data:')){
+    avatarWrap.innerHTML = '<img class="mk-avatar" src="' + data.headshot_url + '" alt="' + esc(name) + '">';
   } else {
-    headshotWrap.innerHTML = '<div style="width:80px;height:80px;border-radius:50%;background:' + primary + ';border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:' + priText + ';box-shadow:0 2px 16px rgba(0,0,0,0.25)">' + esc(initials) + '</div>';
+    avatarWrap.innerHTML = '<div class="mk-avatar mk-avatar-fallback" style="background:' + (isNilTheme ? '#16233A' : adjustColor(accent,-20)) + '">' + esc(initials) + '</div>';
   }
 
-  // ── Color bars ────────────────────────────────────────────────────────────
-  document.getElementById('mk-color-bar-top').style.background = primary;
-  document.getElementById('mk-footer-bar').style.background = secondary;
-
-  // ── Name + Meta ───────────────────────────────────────────────────────────
+  document.getElementById('mk-eyebrow').textContent = metaParts.join('  ·  ');
   document.getElementById('mk-name').textContent = name;
-  document.getElementById('mk-meta').textContent = metaParts.join(' · ');
 
-  // ── Section label bars ───────────────────────────────────────────────────
-  ['mk-bio-bar','mk-rate-bar','mk-contact-bar'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.style.background = primary;
+  // ── Stats: only networks with data, plus a combined-reach anchor ──────────
+  var nets = [
+    { key:'instagram', label:'Instagram', dot:DOTS.instagram, followers:Number(data.instagram_followers)||0, handle:realHandle(data.instagram_handle), eng:data.instagram_engagement },
+    { key:'tiktok',    label:'TikTok',    dot:DOTS.tiktok,    followers:Number(data.tiktok_followers)||0,    handle:realHandle(data.tiktok_handle) },
+    { key:'twitter',   label:'Twitter / X', dot:DOTS.twitter, followers:Number(data.twitter_followers)||0,  handle:realHandle(data.twitter_handle) }
+  ];
+  var shown = nets.filter(function(n){ return n.followers > 0 || n.handle; });
+  var reach = nets.reduce(function(s,n){ return s + n.followers; }, 0);
+
+  var tiles = shown.map(function(n){
+    var count = fmtFollowers(n.followers);
+    return '<div class="mk-stat">' +
+      '<div class="mk-stat-net"><span class="mk-stat-dot" style="background:' + n.dot + '"></span>' + esc(n.label) + '</div>' +
+      (count ? '<div class="mk-stat-num">' + esc(count) + '</div>' : '<div class="mk-stat-num" style="opacity:.35">--</div>') +
+      (n.handle ? '<div class="mk-stat-sub">@' + esc(n.handle) + '</div>' : '') +
+      (n.eng ? '<div class="mk-stat-eng">' + esc(n.eng) + ' engagement</div>' : '') +
+    '</div>';
   });
-
-  // ── Stats Row ─────────────────────────────────────────────────────────────
-  var statsEl = document.getElementById('mk-stats');
-  var statBoxes = [];
-
-  if (data.instagram_handle || data.instagram_followers) {
-    var igCount = fmtFollowers(data.instagram_followers);
-    statBoxes.push(
-      '<div class="mk-stat-box">' +
-        '<div class="mk-stat-platform">' + ICONS.instagram + ' <span style="color:#E1306C">Instagram</span></div>' +
-        (igCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + esc(igCount) + '</div>' : '<div class="mk-stat-count" style="color:#e2e8f0">—</div>') +
-        (data.instagram_handle ? '<div class="mk-stat-handle">@' + esc(data.instagram_handle.replace(/^@/,'')) + '</div>' : '') +
-        (data.instagram_engagement ? '<div class="mk-stat-eng">' + esc(data.instagram_engagement) + ' eng.</div>' : '') +
-      '</div>'
-    );
+  if (reach > 0){
+    tiles.push('<div class="mk-stat reach">' +
+      '<div class="mk-stat-net">Total Reach</div>' +
+      '<div class="mk-stat-num">' + esc(fmtFollowers(reach)) + '</div>' +
+      '<div class="mk-stat-sub" style="color:var(--accent);opacity:.85">Followers across platforms</div>' +
+    '</div>');
   }
-  if (data.tiktok_handle || data.tiktok_followers) {
-    var ttCount = fmtFollowers(data.tiktok_followers);
-    statBoxes.push(
-      '<div class="mk-stat-box">' +
-        '<div class="mk-stat-platform">' + ICONS.tiktok + ' <span style="color:' + (isNilTheme ? '#e2e8f0' : '#333') + '">TikTok</span></div>' +
-        (ttCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + esc(ttCount) + '</div>' : '<div class="mk-stat-count" style="color:#e2e8f0">—</div>') +
-        (data.tiktok_handle ? '<div class="mk-stat-handle">@' + esc(data.tiktok_handle.replace(/^@/,'')) + '</div>' : '') +
-      '</div>'
-    );
-  }
-  if (data.twitter_handle || data.twitter_followers) {
-    var twCount = fmtFollowers(data.twitter_followers);
-    statBoxes.push(
-      '<div class="mk-stat-box">' +
-        '<div class="mk-stat-platform">' + ICONS.twitter + ' <span style="color:#1DA1F2">Twitter / X</span></div>' +
-        (twCount ? '<div class="mk-stat-count" style="color:' + primary + '">' + esc(twCount) + '</div>' : '<div class="mk-stat-count" style="color:#e2e8f0">—</div>') +
-        (data.twitter_handle ? '<div class="mk-stat-handle">@' + esc(data.twitter_handle.replace(/^@/,'')) + '</div>' : '') +
-      '</div>'
-    );
-  }
-
-  if (statBoxes.length) {
-    statsEl.innerHTML = statBoxes.join('');
-    statsEl.style.display = 'flex';
+  if (tiles.length){
+    document.getElementById('mk-stats').innerHTML = tiles.join('');
   } else {
-    statsEl.style.display = 'none';
+    document.getElementById('mk-stats-section').style.display = 'none';
   }
 
-  // ── Bio (with per-brand variant personalization) ──────────────────────────
-  var bioSection = document.getElementById('mk-bio-section');
+  // ── About (with per-brand variant personalization) ────────────────────────
   var variant = data.variant || null;
-  if (data.bio || (variant && variant.opener)) {
-    var bioHtml = '';
-    if (variant && variant.opener) {
-      bioHtml += '<div style="font-weight:600;color:' + (isNilTheme ? '#F0EDE6' : '#0f172a') + ';margin-bottom:' + (data.bio ? '10px' : '0') + '">' + esc(variant.opener) + '</div>';
-    }
-    if (data.bio) bioHtml += '<div>' + esc(data.bio) + '</div>';
-    if (variant && variant.matchedTags && variant.matchedTags.length) {
-      bioHtml += '<div style="margin-top:12px;font-size:12px;color:' + (isNilTheme ? '#84CC16' : '#4d7c0f') + ';font-weight:600">Why ' + esc((data.athlete_name || 'this athlete').split(' ')[0]) + ' fits ' + esc(variant.brand) + ': ' + esc(variant.matchedTags.join(', ')) + '</div>';
-    }
-    document.getElementById('mk-bio-text').innerHTML = bioHtml;
-    bioSection.style.display = 'block';
+  var aboutBody = document.getElementById('mk-about-body');
+  var aboutHtml = '';
+  if (variant && variant.opener) aboutHtml += '<div class="mk-lead">' + esc(variant.opener) + '</div>';
+  if (data.bio) aboutHtml += '<div class="mk-body-text">' + esc(data.bio) + '</div>';
+  if (variant && variant.matchedTags && variant.matchedTags.length){
+    var who = (name.split(/\s+/)[0]) || 'This athlete';
+    aboutHtml += '<div class="mk-fit">Why ' + esc(who) + ' fits ' + esc(variant.brand) + ': ' +
+      variant.matchedTags.map(function(t){ return '<span class="mk-fit-chip">' + esc(t) + '</span>'; }).join('') + '</div>';
+  }
+  if (aboutHtml){
+    aboutBody.innerHTML = aboutHtml;
   } else {
-    bioSection.style.display = 'none';
+    document.getElementById('mk-about-section').style.display = 'none';
   }
 
-  // ── Rate Card (variant reorders to lead with the most relevant deliverable) ─
+  // ── Rate card (variant reorders to lead with the most relevant deliverable) ─
   var rates = (data.rateCards || []).slice();
-  if (variant && Array.isArray(variant.rateLead) && variant.rateLead.length && rates.length) {
-    var leadIdx = function(r) {
-      var st = String(r.service_type || '').toLowerCase();
-      for (var i = 0; i < variant.rateLead.length; i++) {
-        if (st.indexOf(variant.rateLead[i]) !== -1) return i;
-      }
+  if (variant && Array.isArray(variant.rateLead) && variant.rateLead.length && rates.length){
+    var leadIdx = function(r){
+      var st = String(r.service_type||'').toLowerCase();
+      for (var i=0;i<variant.rateLead.length;i++){ if (st.indexOf(variant.rateLead[i])!==-1) return i; }
       return 99;
     };
-    rates.sort(function(a, b) { return leadIdx(a) - leadIdx(b); });
+    rates.sort(function(a,b){ return leadIdx(a) - leadIdx(b); });
   }
-  if (rates.length) {
+  if (rates.length){
     document.getElementById('mk-rates-section').style.display = 'block';
-    document.getElementById('mk-rate-tbody').innerHTML = rates.map(function(r, i) {
-      var rowBg = isNilTheme ? (i % 2 === 1 ? '#111827' : '#0D1520') : (i % 2 === 1 ? '#f8fafc' : '#fff');
-      return '<tr style="background:' + rowBg + '">' +
-        '<td>' +
-          '<div class="mk-rate-service">' + esc(r.service_type) + '</div>' +
-          (r.notes ? '<div class="mk-rate-notes">' + esc(r.notes) + '</div>' : '') +
-        '</td>' +
-        '<td class="mk-rate-price" style="color:' + primary + '">' + fmtCurrency(r.price) + '</td>' +
-      '</tr>';
+    document.getElementById('mk-rates-list').innerHTML = rates.map(function(r){
+      return '<div class="mk-rate">' +
+        '<div><div class="mk-rate-name">' + esc(r.service_type) + '</div>' +
+          (r.notes ? '<div class="mk-rate-note">' + esc(r.notes) + '</div>' : '') + '</div>' +
+        '<div class="mk-rate-price">' + fmtCurrency(r.price) + '</div>' +
+      '</div>';
     }).join('');
   }
 
-  // ── Contact Section ───────────────────────────────────────────────────────
-  var contactBtn = document.getElementById('mk-contact-btn');
-  contactBtn.style.background = primary;
-  contactBtn.style.color = priText;
-
-  // ── Footer ────────────────────────────────────────────────────────────────
+  // ── Footer credit (theme-aware) ───────────────────────────────────────────
   document.getElementById('mk-year').textContent = '© ' + new Date().getFullYear();
-  if (isNilTheme) {
-    // Brand-themed kits carry the NILDash credit line
+  if (isNilTheme){
     var powered = document.querySelector('.mk-powered');
     if (powered) powered.innerHTML = 'Made with <a href="https://mynildash.com" target="_blank" rel="noopener">NILDash</a>';
   }
 
-  // ── Show content ─────────────────────────────────────────────────────────
   document.getElementById('state-loading').style.display = 'none';
   document.getElementById('mk-content').style.display = 'block';
 
-  // Auto-print if ?print=1
-  if (window.location.search.includes('print=1')) {
-    setTimeout(function(){ window.print(); }, 900);
+  if (window.location.search.indexOf('print=1') !== -1){
+    setTimeout(function(){ window.print(); }, 1000);
   }
 }
 
-// ── Contact Modal ──────────────────────────────────────────────────────────
-function openContactModal() {
+// ── Contact modal ───────────────────────────────────────────────────────────
+function openContactModal(){
   var athleteName = (kitData && kitData.athlete_name) ? kitData.athlete_name : 'this athlete';
   document.getElementById('modal-athlete-name').textContent = athleteName;
   document.getElementById('contact-form-wrap').style.display = 'block';
@@ -530,16 +490,14 @@ function openContactModal() {
   var modal = document.getElementById('contact-modal');
   modal.style.display = 'flex';
   setTimeout(function(){ modal.classList.add('open'); }, 10);
-  document.getElementById('contact-name').focus();
+  var f = document.getElementById('contact-company'); if (f) f.focus();
 }
-
-function closeContactModal() {
+function closeContactModal(){
   var modal = document.getElementById('contact-modal');
   modal.classList.remove('open');
   setTimeout(function(){ modal.style.display = 'none'; }, 240);
 }
-
-async function sendContactMessage() {
+async function sendContactMessage(){
   var name    = document.getElementById('contact-name').value.trim();
   var company = document.getElementById('contact-company').value.trim();
   var email   = document.getElementById('contact-email').value.trim();
@@ -547,77 +505,50 @@ async function sendContactMessage() {
   var message = document.getElementById('contact-message').value.trim();
   var website = document.getElementById('contact-website').value; // honeypot
 
-  if (!company || !email) {
-    showToast('Please fill in your brand name and email.');
-    return;
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    showToast('Please enter a valid email address.');
-    return;
-  }
+  if (!company || !email){ showToast('Please add your brand name and email.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ showToast('Please enter a valid email address.'); return; }
 
   var btn = document.getElementById('contact-send-btn');
-  btn.disabled = true;
-  btn.textContent = 'Sending...';
-
-  try {
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try{
     var r = await fetch('/api/media-kit/contact', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ slug: currentSlug, brand_name: company, contact_name: name, email: email, budget: budget, interest: message, website: website })
     });
     var data = await r.json();
     if (!r.ok || data.error) throw new Error(data.error || 'Send failed');
-    // Confirmation: "Got it. [Agent first name] will get back to you within a day."
     var agentFirst = (kitData && kitData.agent_first_name) ? kitData.agent_first_name : '';
     var subEl = document.getElementById('contact-success-sub');
     if (subEl) subEl.textContent = (agentFirst ? agentFirst : 'The team') + ' will get back to you within a day.';
     document.getElementById('contact-form-wrap').style.display = 'none';
     document.getElementById('contact-success-wrap').style.display = 'block';
-  } catch(e) {
+  }catch(e){
     showToast('Something went wrong. Please try again.');
-    btn.disabled = false;
-    btn.textContent = 'Send Inquiry';
+    btn.disabled = false; btn.textContent = 'Send inquiry';
   }
 }
 
-function copyLink() {
+function copyLink(){
   var url = window.location.href.split('?')[0];
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(url).then(function(){ showToast('Link copied! ✓'); });
-  } else {
-    var el = document.createElement('textarea');
-    el.value = url;
-    document.body.appendChild(el);
-    el.select();
-    document.execCommand('copy');
-    document.body.removeChild(el);
-    showToast('Link copied! ✓');
+  if (navigator.clipboard){ navigator.clipboard.writeText(url).then(function(){ showToast('Link copied'); }); }
+  else {
+    var el = document.createElement('textarea'); el.value = url; document.body.appendChild(el);
+    el.select(); document.execCommand('copy'); document.body.removeChild(el); showToast('Link copied');
   }
 }
-
-function showToast(msg) {
+function showToast(msg){
   var t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(t._t);
-  t._t = setTimeout(function(){ t.classList.remove('show'); }, 2800);
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._t); t._t = setTimeout(function(){ t.classList.remove('show'); }, 2600);
 }
 
-// ── Fetch & render ──────────────────────────────────────────────────────────
-// Forward the per-brand variant param (?for=<brandSlug>) so the API returns
-// the personalization and records the variant on the view row.
+// ── Fetch + render. Forward ?for=<brandSlug> so the API returns the variant
+// personalization and records the brand on the view row. ──────────────────────
 var _forParam = new URLSearchParams(window.location.search).get('for');
 fetch('/api/media-kit/' + slug + (_forParam ? '?for=' + encodeURIComponent(_forParam) : ''))
-  .then(function(r) {
-    if (!r.ok) throw new Error('not found');
-    return r.json();
-  })
-  .then(function(data) {
-    if (data.error) throw new Error(data.error);
-    render(data);
-  })
-  .catch(function(e) {
+  .then(function(r){ if (!r.ok) throw new Error('not found'); return r.json(); })
+  .then(function(data){ if (data.error) throw new Error(data.error); render(data); })
+  .catch(function(e){
     document.getElementById('state-loading').style.display = 'none';
     document.getElementById('state-error').style.display = 'flex';
     console.error('[media-kit]', e);

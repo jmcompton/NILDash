@@ -5860,26 +5860,61 @@ function mkIsLight(hex) {
 }
 
 // ── Photo upload handlers ─────────────────────────────────────────────────
-function mkHandlePhoto(type, input) {
+// Downscale uploads before storing base64 so the media kit save payload stays
+// small and photos actually persist. Falls back to the raw data URL on error.
+function mkDownscaleImage(file, opts) {
+  opts = opts || {};
+  var maxW = opts.maxW || 1600, maxH = opts.maxH || 1600;
+  var square = !!opts.square, quality = opts.quality || 0.85;
+  return new Promise(function (resolve) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var dataUrl = e.target.result;
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var sw = img.naturalWidth, sh = img.naturalHeight;
+          var canvas = document.createElement('canvas');
+          var ctx = canvas.getContext('2d');
+          if (square) {
+            var side = Math.min(maxW, Math.min(sw, sh) > 640 ? 640 : Math.min(sw, sh));
+            canvas.width = side; canvas.height = side;
+            var s = Math.min(sw, sh);
+            ctx.drawImage(img, (sw - s) / 2, (sh - s) / 2, s, s, 0, 0, side, side);
+          } else {
+            var scale = Math.min(1, maxW / sw, maxH / sh);
+            canvas.width = Math.round(sw * scale);
+            canvas.height = Math.round(sh * scale);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          }
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch (err) { resolve(dataUrl); }
+      };
+      img.onerror = function () { resolve(dataUrl); };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function mkHandlePhoto(type, input) {
   var file = input.files && input.files[0];
   if (!file) return;
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    var dataUrl = e.target.result;
-    if (type === 'headshot') {
-      mkState.headshotData = dataUrl;
-      document.getElementById('mk-headshot-img').src = dataUrl;
-      document.getElementById('mk-headshot-preview').style.display = 'block';
-      document.getElementById('mk-headshot-placeholder').style.display = 'none';
-    } else {
-      mkState.actionShotData = dataUrl;
-      document.getElementById('mk-action-img').src = dataUrl;
-      document.getElementById('mk-action-preview').style.display = 'block';
-      document.getElementById('mk-action-placeholder').style.display = 'none';
-    }
-    mkUpdatePreview();
-  };
-  reader.readAsDataURL(file);
+  var dataUrl = await mkDownscaleImage(file, type === 'headshot'
+    ? { square: true, maxW: 640, quality: 0.88 }
+    : { maxW: 1600, maxH: 1600, quality: 0.82 });
+  if (type === 'headshot') {
+    mkState.headshotData = dataUrl;
+    document.getElementById('mk-headshot-img').src = dataUrl;
+    document.getElementById('mk-headshot-preview').style.display = 'block';
+    document.getElementById('mk-headshot-placeholder').style.display = 'none';
+  } else {
+    mkState.actionShotData = dataUrl;
+    document.getElementById('mk-action-img').src = dataUrl;
+    document.getElementById('mk-action-preview').style.display = 'block';
+    document.getElementById('mk-action-placeholder').style.display = 'none';
+  }
+  mkUpdatePreview();
 }
 
 function mkClearPhoto(type, evt) {
