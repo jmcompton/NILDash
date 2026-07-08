@@ -8241,7 +8241,7 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
       instagram_handle, instagram_followers, instagram_engagement,
       tiktok_handle, tiktok_followers,
       twitter_handle, twitter_followers,
-      bio, primary_color, secondary_color, rateCards,
+      bio, primary_color, secondary_color,
       headshot_data, action_shot_data, theme
     } = req.body;
     // Theme is optional: only 'school'|'nildash' are stored; anything else (or
@@ -8294,16 +8294,14 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
     );
     const mk = mkR.rows[0];
 
-    // Replace rate cards
+    // Replace rate cards (accept rateCards | rates | rate_cards, normalized)
+    const cleanRates = normalizeRateCardsPayload(req.body);
     await store.pool.query('DELETE FROM media_kit_rate_cards WHERE media_kit_id = $1', [mk.id]);
-    if (Array.isArray(rateCards) && rateCards.length) {
-      for (const rc of rateCards) {
-        if (!rc.service_type || !rc.price) continue;
-        await store.pool.query(
-          'INSERT INTO media_kit_rate_cards (media_kit_id, service_type, price, notes) VALUES ($1,$2,$3,$4)',
-          [mk.id, rc.service_type, parseInt(rc.price)||0, rc.notes||'']
-        );
-      }
+    for (const rc of cleanRates) {
+      await store.pool.query(
+        'INSERT INTO media_kit_rate_cards (media_kit_id, service_type, price, notes) VALUES ($1,$2,$3,$4)',
+        [mk.id, rc.service_type, rc.price, rc.notes]
+      );
     }
 
     const appUrl = process.env.APP_URL || 'https://mynildash.com';
@@ -8426,6 +8424,27 @@ async function recordKitView(req, mk, variantSlug, variantBrand) {
   } catch (e) {
     console.warn('[media-kit views] record failed:', e.message);
   }
+}
+
+// Normalize rate cards from a save payload into clean {service_type, price, notes}
+// rows. Reads from whichever key the client sent (rateCards, rates, rate_cards),
+// tolerates alternate field names and a JSON-string payload, coerces messy
+// prices, and drops rows with no service label or no positive price. Keeping the
+// tolerance on the SAVE side means a stray key never silently drops the rates.
+function normalizeRateCardsPayload(body) {
+  let raw = (body && (body.rateCards != null ? body.rateCards
+    : body.rates != null ? body.rates
+    : body.rate_cards)) || [];
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (e) { raw = []; } }
+  if (!Array.isArray(raw)) return [];
+  return raw.map((rc) => {
+    rc = rc || {};
+    const service_type = String(rc.service_type || rc.label || rc.service || rc.name || '').trim();
+    let price = Number(rc.price != null ? rc.price : (rc.amount != null ? rc.amount : rc.rate));
+    if (!Number.isFinite(price)) price = Number(String(rc.price != null ? rc.price : (rc.amount != null ? rc.amount : rc.rate) || '').replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(price)) price = 0;
+    return { service_type, price: Math.round(price), notes: rc.notes || rc.note || '' };
+  }).filter((rc) => rc.service_type && rc.price > 0);
 }
 
 // GET /api/media-kit/:slug — public data endpoint (no auth)
@@ -8601,7 +8620,7 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res
     const {
       instagram_handle, instagram_followers, instagram_engagement,
       tiktok_handle, tiktok_followers, twitter_handle, twitter_followers,
-      bio, primary_color, secondary_color, rateCards,
+      bio, primary_color, secondary_color,
       headshot_data, action_shot_data, theme
     } = req.body;
 
@@ -8643,15 +8662,14 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res
     );
     const mk = mkR.rows[0];
 
+    // Replace rate cards (accept rateCards | rates | rate_cards, normalized)
+    const cleanRates = normalizeRateCardsPayload(req.body);
     await store.pool.query('DELETE FROM media_kit_rate_cards WHERE media_kit_id=$1', [mk.id]);
-    if (Array.isArray(rateCards) && rateCards.length) {
-      for (const rc of rateCards) {
-        if (!rc.service_type || !rc.price) continue;
-        await store.pool.query(
-          'INSERT INTO media_kit_rate_cards (media_kit_id, service_type, price, notes) VALUES ($1,$2,$3,$4)',
-          [mk.id, rc.service_type, parseInt(rc.price)||0, rc.notes||'']
-        );
-      }
+    for (const rc of cleanRates) {
+      await store.pool.query(
+        'INSERT INTO media_kit_rate_cards (media_kit_id, service_type, price, notes) VALUES ($1,$2,$3,$4)',
+        [mk.id, rc.service_type, rc.price, rc.notes]
+      );
     }
 
     const appUrl = process.env.APP_URL || 'https://mynildash.com';
