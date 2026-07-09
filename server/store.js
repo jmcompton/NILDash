@@ -282,6 +282,26 @@ async function init() {
     await pool.query(sql).catch(e => console.warn('[migration]', e.message));
   }
 
+  // ── Deal Scan brand-evidence cache ─────────────────────────────────────────
+  // Athlete-independent evidence for the SOCIAL (ambassador-program) and TOP NIL
+  // (disclosed-deal precedent) lanes. Keyed by (brand_key, lane) so the same
+  // program/deal facts are shared across every athlete and re-used for ~7 days
+  // instead of paying a fresh web search per scan. The qualification VERDICT is
+  // NOT stored here — it is derived per-athlete at scan time from this evidence
+  // plus the athlete's own follower counts, so a stale verdict can never leak.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS brand_evidence_cache (
+      brand_key TEXT NOT NULL,
+      lane TEXT NOT NULL,
+      brand TEXT,
+      website TEXT,
+      evidence JSONB DEFAULT '{}'::jsonb,
+      outcome TEXT,
+      refreshed_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (brand_key, lane)
+    );
+  `).catch(e => console.error('brand_evidence_cache init error:', e.message));
+
   // ── User Onboarding (wizard state, Getting Started checklist, tooltips) ─────
   // Backs Parts A/C/E of the onboarding overhaul. user_id is TEXT to match the
   // users table PK (users.id TEXT). Additive and idempotent — safe on prod.
@@ -1448,13 +1468,79 @@ async function getOnboardingAnalytics() {
   }
 }
 
+// ── Disclosed-deal comps for a single brand (TOP NIL lane precedent) ──────────
+// Most recent deal_comps rows whose brand matches `brand` (case-insensitive,
+// loose contains so "Raising Cane's" hits "Raising Canes NIL"). A disclosed deal
+// is precedent even when the dollar amount was never published, so deal_value is
+// not required. Never throws; returns [] on any error.
+async function getCompsByBrand(brand, limit = 3) {
+  const b = String(brand || '').trim();
+  if (!b) return [];
+  try {
+    const r = await pool.query(`
+      SELECT brand, athlete_name, sport, position, followers, deal_type, deal_value, source, created_at
+        FROM deal_comps
+       WHERE brand IS NOT NULL AND brand <> ''
+         AND (LOWER(brand) = LOWER($1) OR brand ILIKE $2 OR $1 ILIKE ('%' || brand || '%'))
+       ORDER BY created_at DESC
+       LIMIT $3
+    `, [b, '%' + b + '%', limit]);
+    return r.rows;
+  } catch (e) {
+    return [];
+  }
+}
+
+// ── Brand-evidence cache (SOCIAL + TOP NIL lanes) ─────────────────────────────
+// Fresh row (refreshed within `maxAgeDays`, default 7) or null. Negative results
+// (outcome NO_EVIDENCE) are cached too, so a brand with no findable program is
+// not re-searched on every scan for a week.
+async function getBrandEvidence(brandKey, lane, maxAgeDays = 7) {
+  const key = String(brandKey || '').trim().toLowerCase();
+  if (!key || !lane) return null;
+  try {
+    const r = await pool.query(
+      `SELECT brand, website, evidence, outcome, refreshed_at
+         FROM brand_evidence_cache
+        WHERE brand_key = $1 AND lane = $2
+          AND refreshed_at > NOW() - ($3 || ' days')::interval
+        LIMIT 1`,
+      [key, lane, String(maxAgeDays)]
+    );
+    return r.rows[0] || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function saveBrandEvidence(brandKey, lane, brand, website, evidence, outcome) {
+  const key = String(brandKey || '').trim().toLowerCase();
+  if (!key || !lane) return;
+  try {
+    await pool.query(
+      `INSERT INTO brand_evidence_cache (brand_key, lane, brand, website, evidence, outcome, refreshed_at)
+       VALUES ($1,$2,$3,$4,$5::jsonb,$6, NOW())
+       ON CONFLICT (brand_key, lane) DO UPDATE
+         SET brand = EXCLUDED.brand,
+             website = EXCLUDED.website,
+             evidence = EXCLUDED.evidence,
+             outcome = EXCLUDED.outcome,
+             refreshed_at = NOW()`,
+      [key, lane, brand || null, website || null, JSON.stringify(evidence || {}), outcome || null]
+    );
+  } catch (e) {
+    console.error('[saveBrandEvidence]', e.message);
+  }
+}
+
 init().catch(console.error);
 
 module.exports = {
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers,
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
   getDeal, getDealsByAthlete, getDealsByAgent, saveDeal, deleteDeal,
-  saveComp, getComps, getCompStats,
+  saveComp, getComps, getCompStats, getCompsByBrand,
+  getBrandEvidence, saveBrandEvidence,
   getOnboarding, logWizardEvent, completeWizard, markChecklistItem,
   dismissChecklist, markTooltipSeen, backfillChecklist, getOnboardingAnalytics,
   CHECKLIST_ITEMS,

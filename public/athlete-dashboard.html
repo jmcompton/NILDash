@@ -2919,6 +2919,59 @@ function _dsRenderAll() {
   if (emptyEl) emptyEl.style.display = anyData ? 'none' : '';
 }
 
+// Compact follower formatter for evidence lines: 18400 -> "18.4K".
+function _dsFmtK(n){ n=Number(n)||0; if(n>=1000000) return (n/1000000).toFixed(n%1000000===0?0:1).replace(/\.0$/,'')+'M'; if(n>=1000) return (n/1000).toFixed(n%1000===0?0:1).replace(/\.0$/,'')+'K'; return String(Math.round(n)); }
+
+// Render the evidence block for the SOCIAL (ambassador program) and TOP NIL
+// (disclosed deal precedent) lanes. Returns '' when a card carries no structured
+// evidence.
+function _dsEvidenceHtml(d) {
+  var ev = d.evidence;
+  if (!ev || (ev.kind !== 'program' && ev.kind !== 'deals')) return '';
+  var out = '';
+  if (ev.kind === 'program') {
+    var chip;
+    if (ev.status === 'open') chip = '<span class="ds-lane-chip" style="background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.3)">Program open</span>';
+    else if (ev.status === 'closed') chip = '<span class="ds-lane-chip" style="background:rgba(239,68,68,0.14);color:#f87171;border:1px solid rgba(239,68,68,0.3)">Program closed</span>';
+    else chip = '<span class="ds-lane-chip" style="background:rgba(245,158,11,0.14);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)">Status unclear</span>';
+    out += '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">' + chip + '</div>';
+    var v = ev.verdict || {};
+    var vColor = v.status === 'qualifies' ? '#84CC16' : v.status === 'below' ? '#f87171' : 'var(--muted)';
+    if (v.text) out += '<div style="margin-top:8px;font-size:12px;font-weight:600;color:' + vColor + '">' + esc(v.text) + '</div>';
+    if (ev.requirements) out += '<div style="margin-top:6px;font-size:11px;color:var(--muted);line-height:1.5"><span style="color:var(--text);font-weight:600">Requirements:</span> ' + esc(ev.requirements) + '</div>';
+    if (ev.responseTime) out += '<div style="margin-top:4px;font-size:11px;color:var(--muted)"><span style="color:var(--text);font-weight:600">Response:</span> ' + esc(ev.responseTime) + '</div>';
+    var links = '';
+    if (ev.applyUrl) links += '<a href="' + esc(ev.applyUrl) + '" target="_blank" rel="noopener" style="font-size:11px;font-weight:700;color:#0A0E1A;background:#84CC16;padding:6px 12px;border-radius:7px;text-decoration:none">Apply</a>';
+    if (ev.sourceUrl && ev.sourceUrl !== ev.applyUrl) links += '<a href="' + esc(ev.sourceUrl) + '" target="_blank" rel="noopener" style="font-size:11px;color:var(--muted);text-decoration:underline;align-self:center">Program page</a>';
+    if (links) out += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">' + links + '</div>';
+    return out;
+  }
+  // deals
+  var v2 = ev.verdict || {};
+  var v2Color = (v2.status === 'in-range' || v2.status === 'above') ? '#84CC16' : v2.status === 'below' ? '#f87171' : 'var(--muted)';
+  if (v2.text) out += '<div style="margin-top:8px;font-size:12px;font-weight:600;color:' + v2Color + '">' + esc(v2.text) + '</div>';
+  var deals = ev.deals || [];
+  if (deals.length) {
+    out += '<div style="margin-top:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:5px">Recent disclosed deals</div>';
+    out += deals.slice(0,3).map(function(dl){
+      var meta = [];
+      if (dl.sport) meta.push(esc(dl.sport));
+      var ft = dl.followerTier || (dl.followers ? _dsFmtK(dl.followers) : '');
+      if (ft) meta.push(esc(ft));
+      if (dl.dealType) meta.push(esc(dl.dealType));
+      if (dl.date) meta.push(esc(dl.date));
+      var srcTag = dl.source === 'comp'
+        ? '<span style="font-size:9px;color:var(--muted)">from disclosed deal data</span>'
+        : (dl.sourceUrl ? '<a href="' + esc(dl.sourceUrl) + '" target="_blank" rel="noopener" style="font-size:9px;color:#60a5fa;text-decoration:underline">source</a>' : '');
+      return '<div style="font-size:11px;color:var(--text);line-height:1.5;margin-bottom:5px;padding-left:8px;border-left:2px solid var(--border)">' +
+        '<span style="font-weight:600">' + esc(dl.athlete || 'Athlete') + '</span>' +
+        (meta.length ? ' <span style="color:var(--muted)">' + meta.join(', ') + '</span>' : '') +
+        (srcTag ? ' ' + srcTag : '') + '</div>';
+    }).join('');
+  }
+  return out;
+}
+
 function _dsCardHtml(d, i, lane, isTop) {
   var brand = d.brand || d.brand_name || 'Brand';
   var score = d.fitScore || 80;
@@ -2959,6 +3012,7 @@ function _dsCardHtml(d, i, lane, isTop) {
         '</div>' +
         (valStr ? '<div style="margin-bottom:8px"><span style="font-size:13px;font-weight:700;color:#84CC16">' + valStr + '</span> <span style="font-size:10px;color:var(--muted)">varies by deliverable</span></div>' : '') +
         (d.rationale ? '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:4px">' + esc(d.rationale) + '</div>' : '') +
+        _dsEvidenceHtml(d) +
         (d.campaign ? '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px"><span style="color:var(--text);font-weight:600">Idea:</span> ' + esc(d.campaign) + '</div>' : '') +
         contactHtml +
       '</div>' +

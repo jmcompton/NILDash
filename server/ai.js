@@ -619,13 +619,381 @@ function timedSearch(p, capMs) {
   ]);
 }
 
+// ─── Deal Scan evidence helpers (SOCIAL + TOP NIL lanes) ─────────────────────
+// These make the two non-local lanes evidence-backed: every claim on a card
+// traces to a real source (a brand program page, a disclosed-deal record, or a
+// labeled web result), and a brand with no verifiable evidence never renders a
+// hollow card. Structured evidence is cached per brand for ~7 days; the
+// qualification verdict is derived per-athlete at scan time (never cached).
+
+// Follower count as an agent reads it: 18400 -> "18.4K", 5000 -> "5K".
+function _fmtFollowers(n) {
+  n = Number(n) || 0;
+  if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1).replace(/\.0$/, '') + 'M';
+  if (n >= 1000)    return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1).replace(/\.0$/, '') + 'K';
+  return String(Math.round(n));
+}
+
+// Trim a model string and reject "empty" sentinels so a null never renders as
+// the literal text "null" / "N/A" on a card.
+function _cleanStr(s) {
+  if (s === null || s === undefined) return null;
+  const t = stripEmDashes(String(s)).trim();
+  if (!t) return null;
+  const low = t.toLowerCase();
+  if (low === 'null' || low === 'n/a' || low === 'none' || low === 'unknown') return null;
+  return t;
+}
+
+// Accept a URL only when it is a well-formed http(s) link (bare domains get an
+// https:// prefix). Guards against a hallucinated "apply page" that is really a
+// sentence. Returns the normalized URL or null.
+function _safeUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  let u = url.trim();
+  if (!u || u.toLowerCase() === 'null') return null;
+  if (!/^https?:\/\//i.test(u)) {
+    if (/^[a-z0-9.-]+\.[a-z]{2,}(?:[\/?#].*)?$/i.test(u)) u = 'https://' + u.replace(/^\/+/, '');
+    else return null;
+  }
+  try {
+    const parsed = new URL(u);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (!parsed.hostname || parsed.hostname.indexOf('.') === -1) return null;
+    return parsed.toString();
+  } catch { return null; }
+}
+
+// The athlete's strongest single-platform following. Ambassador minimums and
+// disclosed-deal follower tiers are almost always per platform, so comparing
+// against the larger platform is the honest, most favorable reading: below it
+// means below everywhere.
+function _primaryFollowers(athlete) {
+  const ig = athlete.instagram || 0;
+  const tt = athlete.tiktok || 0;
+  const count = Math.max(ig, tt);
+  return { count, platform: count === 0 ? null : (ig >= tt ? 'Instagram' : 'TikTok') };
+}
+
+function _firstName(athlete) {
+  const n = String((athlete && athlete.name) || '').trim();
+  return n ? n.split(/\s+/)[0] : 'This athlete';
+}
+
+// Honest qualify/not-qualify verdict for SOCIAL. Derived per-athlete at scan
+// time (never cached) so a stale follower count cannot leak a bad verdict.
+function _socialVerdict(followerMinimum, athlete) {
+  const { count } = _primaryFollowers(athlete);
+  if (!followerMinimum || followerMinimum <= 0) {
+    return { qualifies: null, status: 'no-minimum', text: 'No stated minimum' };
+  }
+  if (!count) {
+    return { qualifies: null, status: 'unknown', text: `Minimum ${_fmtFollowers(followerMinimum)}, add follower counts to check` };
+  }
+  if (count >= followerMinimum) {
+    return { qualifies: true, status: 'qualifies', text: `${_firstName(athlete)} qualifies (${_fmtFollowers(count)}, minimum ${_fmtFollowers(followerMinimum)})` };
+  }
+  return { qualifies: false, status: 'below', text: `Below their stated minimum (needs ${_fmtFollowers(followerMinimum)})` };
+}
+
+// Honest TOP NIL verdict against the OBSERVED follower range of the brand's
+// disclosed signings. Null range -> honest "cannot compare", never a guess.
+function _topnilVerdict(min, max, athlete) {
+  const { count } = _primaryFollowers(athlete);
+  if (!min || !max || !count) {
+    return { qualifies: null, status: 'unknown', text: 'Not enough follower data to compare' };
+  }
+  if (count < min) {
+    return { qualifies: false, status: 'below', text: `Below their typical range (they sign ${_fmtFollowers(min)}+)` };
+  }
+  if (count > max) {
+    return { qualifies: true, status: 'above', text: `Above their typical range (${_fmtFollowers(min)} to ${_fmtFollowers(max)}), a strong target` };
+  }
+  return { qualifies: true, status: 'in-range', text: `In their typical range (${_fmtFollowers(min)} to ${_fmtFollowers(max)})` };
+}
+
+// Derive an HONEST "typical athlete profile" from real disclosed deals. A
+// follower range is only produced when at least two deals carry real numbers;
+// with fewer, the range is omitted rather than invented.
+function _deriveTypicalProfile(deals) {
+  const nums = deals.map(d => d.followers).filter(n => typeof n === 'number' && n > 0);
+  const sportCounts = {};
+  for (const d of deals) {
+    const s = _cleanStr(d.sport);
+    if (s) sportCounts[s.toLowerCase()] = (sportCounts[s.toLowerCase()] || 0) + 1;
+  }
+  const topSports = Object.keys(sportCounts).sort((a, b) => sportCounts[b] - sportCounts[a]).slice(0, 2);
+
+  let rangePart = null, min = null, max = null;
+  if (nums.length >= 2) {
+    min = Math.min(...nums); max = Math.max(...nums);
+    rangePart = min === max ? `${_fmtFollowers(min)} followers` : `${_fmtFollowers(min)} to ${_fmtFollowers(max)} followers`;
+  } else if (nums.length === 1) {
+    rangePart = `around ${_fmtFollowers(nums[0])} followers`; // one point is not a range
+  }
+
+  const bits = [];
+  if (rangePart) bits.push(rangePart);
+  if (topSports.length) bits.push('mostly ' + topSports.join(' and '));
+  const typicalProfile = bits.length ? ('Recent signings: ' + bits.join(', ')) : null;
+  return { typicalProfile, min, max };
+}
+
+// Gather (and cache ~7 days) a SOCIAL brand's ambassador/creator program
+// evidence. Returns { evidence, outcome, cached }. outcome is one of
+// OK | SALVAGED | NO_EVIDENCE | TIMEOUT | ERROR. A card is only worth showing
+// with a real apply URL, so brands without one resolve to NO_EVIDENCE.
+async function _fetchSocialProgramEvidence(brand, website) {
+  const cached = await store.getBrandEvidence(brand, 'social');
+  if (cached) return { evidence: cached.evidence || {}, outcome: cached.outcome || 'NO_EVIDENCE', cached: true };
+
+  const domain = _domainFromUrl(website);
+  const sys = 'You research brand ambassador programs using web search. Report ONLY facts stated on the brand\'s own website. Never invent a program, a URL, or a follower minimum. Output ONLY one JSON object.';
+  const prompt = `Find the official athlete, ambassador, creator, or affiliate program run by the brand "${brand}"${domain ? ` (website ${domain})` : ''}. Use web search. Use ONLY what is actually stated on ${brand}'s own pages.
+Return ONLY this JSON object:
+{"hasProgram":true|false,"programName":string|null,"status":"open"|"closed"|"unclear","applyUrl":string|null,"followerMinimum":number|null,"requirements":string|null,"offer":string|null,"responseTime":string|null,"sourceUrl":string|null}
+Rules:
+- hasProgram=false when you cannot find a real, brand-run program page. Do not force one.
+- applyUrl must be the actual application or signup page for the program, not the homepage or a blog post. null if you cannot find the real apply page.
+- status "open" only if the page shows applications are currently accepted, "closed" if it says closed or waitlisted, otherwise "unclear".
+- followerMinimum: a single number ONLY if the brand explicitly states a minimum follower or subscriber count, else null. Never guess.
+- requirements: a short line of stated eligibility (for example "public account, US based, 18+"), null if none stated.
+- offer: what the program gives (free product, commission percentage, paid posts, affiliate code), null if not stated.
+- responseTime: only if stated, else null.
+- sourceUrl: the brand page where you found this, null if none.`;
+
+  let raw = '';
+  try {
+    raw = await withTimeout(oneShotWebSearch(prompt, sys, 700, 3, 'claude-sonnet-4-6'), 12000, '');
+  } catch (e) {
+    return { evidence: {}, outcome: 'ERROR', cached: false, skipCache: true };
+  }
+  if (!raw) return { evidence: {}, outcome: 'TIMEOUT', cached: false, skipCache: true };
+
+  let parsed = null;
+  try {
+    const t = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const a = t.indexOf('{'), b = t.lastIndexOf('}');
+    if (a !== -1 && b > a) parsed = JSON.parse(t.substring(a, b + 1));
+  } catch (_) { parsed = null; }
+
+  const applyUrl = parsed ? _safeUrl(parsed.applyUrl) : null;
+  if (!parsed || parsed.hasProgram !== true || !applyUrl) {
+    await store.saveBrandEvidence(brand, 'social', brand, website, {}, 'NO_EVIDENCE');
+    return { evidence: {}, outcome: 'NO_EVIDENCE', cached: false };
+  }
+
+  const status = ['open', 'closed', 'unclear'].includes(parsed.status) ? parsed.status : 'unclear';
+  const followerMinimum = (typeof parsed.followerMinimum === 'number' && parsed.followerMinimum > 0)
+    ? Math.round(parsed.followerMinimum) : null;
+  const evidence = {
+    kind: 'program',
+    programName: _cleanStr(parsed.programName),
+    status,
+    applyUrl,
+    followerMinimum,
+    requirements: _cleanStr(parsed.requirements),
+    offer: _cleanStr(parsed.offer),
+    responseTime: _cleanStr(parsed.responseTime),
+    sourceUrl: _safeUrl(parsed.sourceUrl) || applyUrl,
+  };
+  const outcome = status === 'open' ? 'OK' : 'SALVAGED';
+  await store.saveBrandEvidence(brand, 'social', brand, website, evidence, outcome);
+  return { evidence, outcome, cached: false };
+}
+
+// Gather (and cache ~7 days) a TOP NIL brand's disclosed-deal precedent. Prefers
+// our own disclosed-deal table (fast, no web); falls back to a labeled web
+// search only when the table has nothing for the brand.
+async function _fetchTopNilEvidence(brand, website, sport) {
+  const cached = await store.getBrandEvidence(brand, 'topnil');
+  if (cached) return { evidence: cached.evidence || {}, outcome: cached.outcome || 'NO_EVIDENCE', cached: true };
+
+  let deals = [];
+  let source = null;
+
+  try {
+    const rows = await store.getCompsByBrand(brand, 3);
+    if (rows && rows.length) {
+      source = 'comp';
+      deals = rows.map(r => ({
+        athlete: _cleanStr(r.athlete_name),
+        sport: _cleanStr(r.sport),
+        followers: (typeof r.followers === 'number' ? r.followers : parseInt(r.followers, 10)) || null,
+        dealType: _cleanStr(r.deal_type),
+        date: r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : null,
+        sourceUrl: _safeUrl(r.source),
+        source: 'comp',
+      })).filter(d => d.athlete);
+    }
+  } catch (_) { /* comp table unavailable -> web fallback */ }
+
+  if (!deals.length) {
+    const sys = 'You research disclosed NIL and brand deals using web search. Report ONLY deals you can actually find with a real reporting source. Never invent an athlete, a deal, or a follower number. Output ONLY a JSON array.';
+    const prompt = `Find up to 3 recent (last ~2 years) publicly disclosed NIL or brand-ambassador deals that the brand "${brand}" has done with college athletes${sport ? `, favoring ${sport} when available` : ''}. Use web search.
+Return ONLY a JSON array: [{"athlete":string,"sport":string|null,"followerTier":string|null,"dealType":string|null,"date":string|null,"sourceUrl":string}]
+Rules: include a deal ONLY if you can point to a real reporting source (sourceUrl is required). followerTier is an approximate description like "~25K" ONLY if it was reported, else null. Return [] if you cannot find real disclosed deals. Never fabricate.`;
+    let raw = '';
+    try {
+      raw = await withTimeout(oneShotWebSearch(prompt, sys, 700, 3, 'claude-sonnet-4-6'), 12000, '');
+    } catch (e) {
+      return { evidence: {}, outcome: 'ERROR', cached: false, skipCache: true };
+    }
+    if (!raw) return { evidence: {}, outcome: 'TIMEOUT', cached: false, skipCache: true };
+    try {
+      const t = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+      const a = t.indexOf('['), b = t.lastIndexOf(']');
+      if (a !== -1 && b > a) {
+        const arr = JSON.parse(t.substring(a, b + 1));
+        for (const it of (Array.isArray(arr) ? arr : [])) {
+          const src = _safeUrl(it && it.sourceUrl);
+          const ath = _cleanStr(it && it.athlete);
+          if (!src || !ath) continue; // unverifiable without a source and an athlete
+          deals.push({
+            athlete: ath,
+            sport: _cleanStr(it.sport),
+            followers: null,
+            followerTier: _cleanStr(it.followerTier),
+            dealType: _cleanStr(it.dealType),
+            date: _cleanStr(it.date),
+            sourceUrl: src,
+            source: 'web',
+          });
+          if (deals.length >= 3) break;
+        }
+      }
+    } catch (_) { /* unparseable -> treated as no deals below */ }
+    if (deals.length) source = 'web';
+  }
+
+  if (!deals.length) {
+    const evidence = { kind: 'deals', deals: [], typicalProfile: null, profileSource: null, min: null, max: null };
+    await store.saveBrandEvidence(brand, 'topnil', brand, website, evidence, 'NO_EVIDENCE');
+    return { evidence, outcome: 'NO_EVIDENCE', cached: false };
+  }
+
+  const { typicalProfile, min, max } = _deriveTypicalProfile(deals);
+  const evidence = { kind: 'deals', deals, typicalProfile, profileSource: source, min, max };
+  const outcome = source === 'comp' ? 'OK' : 'SALVAGED';
+  await store.saveBrandEvidence(brand, 'topnil', brand, website, evidence, outcome);
+  return { evidence, outcome, cached: false };
+}
+
+// Build a SOCIAL card from a brand's program evidence + this athlete's verdict.
+// Every social card already has a real program; fitScore rewards an OPEN program
+// the athlete actually qualifies for over an unclear one they cannot. Structured
+// fields are also surfaced at top level (programStatus, applyUrl, followerMinimum,
+// verdict) so any consumer can read them without reaching into `evidence`.
+function _buildSocialCard(f, evidence, verdict, ctx) {
+  const { rate, valLow, valHigh } = ctx;
+  let score = 55;
+  if (evidence.status === 'open') score += 25;
+  else if (evidence.status === 'closed') score -= 12;
+  else score += 8; // unclear
+  if (verdict.status === 'qualifies') score += 15;
+  else if (verdict.status === 'no-minimum') score += 8;
+  else if (verdict.status === 'below') score -= 14;
+  else score += 3; // unknown (missing follower counts)
+  if (evidence.offer) score += 4;
+  if (evidence.responseTime) score += 3;
+  if (evidence.requirements) score += 2;
+  score = Math.max(20, Math.min(99, Math.round(score)));
+
+  const parts = [evidence.programName ? `Runs the ${evidence.programName}` : 'Runs a creator ambassador program'];
+  if (evidence.offer) parts.push(evidence.offer);
+  const rationale = stripEmDashes(parts.join('. ').replace(/\.+$/, '') + '.');
+
+  return {
+    brand: f.name,
+    tier: 'social',
+    category: f.category || 'dtc',
+    dealType: /affiliate/i.test(evidence.offer || '') ? 'affiliate' : 'ambassador',
+    campaign: '',
+    rationale,
+    contactApproach: `Apply through their ${evidence.programName || 'ambassador'} page.`,
+    timingNote: evidence.responseTime ? `Typical response: ${evidence.responseTime}` : '',
+    fitScore: score,
+    isLocal: false,
+    resultType: 'social',
+    lane: 'social',
+    source: f._seed ? 'seed' : 'web',
+    evidence: { ...evidence, verdict },
+    // Flat, greppable fields for any consumer / the production verification:
+    programStatus: evidence.status,
+    applyUrl: evidence.applyUrl,
+    followerMinimum: evidence.followerMinimum,
+    sourceUrl: evidence.sourceUrl,
+    verdict,
+    activelyMarketing: true,
+    contactEmail: validateContactEmail(f.email, f.website || null),
+    contactName: null,
+    contactTitle: 'Partnerships / Creator Team',
+    contactLinkedIn: null,
+    estimatedValueLow: valLow,
+    estimatedValueHigh: valHigh,
+    suggestedRate: { low: rate.low, high: rate.high },
+  };
+}
+
+// Build a TOP NIL card from disclosed-deal precedent + this athlete's verdict.
+// Comp-table precedent outranks web-found deals, which outrank no verifiable
+// deals at all.
+function _buildTopNilCard(f, evidence, verdict, outcome, ctx) {
+  const { rate, valLow, valHigh } = ctx;
+  const deals = (evidence && evidence.deals) || [];
+  const hasDeals = deals.length > 0;
+  let score;
+  if (!hasDeals) {
+    score = 30; // kept but ranked last: no verifiable precedent
+  } else {
+    score = 45;
+    score += evidence.profileSource === 'comp' ? 30 : 16;
+    score += Math.min(deals.length, 3) * 3;
+    if (verdict.status === 'in-range' || verdict.status === 'above') score += 12;
+    else if (verdict.status === 'below') score -= 8;
+    else score += 2;
+  }
+  score = Math.max(20, Math.min(99, Math.round(score)));
+
+  const rationale = hasDeals
+    ? stripEmDashes((evidence.typicalProfile || `${deals.length} recent disclosed deal${deals.length > 1 ? 's' : ''} on record`).replace(/\.+$/, '') + '.')
+    : 'No recent disclosed deals found for this brand.';
+
+  return {
+    brand: f.name,
+    tier: 'topnil',
+    category: f.category || 'nil',
+    dealType: 'ambassador',
+    campaign: '',
+    rationale,
+    contactApproach: 'Reach their NIL or partnerships team.',
+    timingNote: '',
+    fitScore: score,
+    isLocal: false,
+    resultType: 'topnil',
+    lane: 'topnil',
+    source: f._seed ? 'seed' : (evidence && evidence.profileSource) || 'web',
+    evidence: { ...(evidence || {}), verdict },
+    // Flat, greppable fields:
+    disclosedDeals: deals,
+    typicalProfile: (evidence && evidence.typicalProfile) || null,
+    verdict,
+    activelyMarketing: hasDeals,
+    contactEmail: validateContactEmail(f.email, f.website || null),
+    contactName: null,
+    contactTitle: 'NIL / Partnerships Team',
+    contactLinkedIn: null,
+    estimatedValueLow: valLow,
+    estimatedValueHigh: valHigh,
+    suggestedRate: { low: rate.low, high: rate.high },
+  };
+}
+
 // ─── Deal Scan: SOCIAL + TOP NIL SPENDER lanes ───────────────────────────────
-// Shared two-phase (parallel web search → fast scoring) brand-discovery helper
-// for the two non-local lanes. Unlike the LOCAL lane, these are NOT tied to the
-// athlete's city — they surface DTC/online brands (SOCIAL) and currently
-// NIL-active brands (TOP NIL) that realistically do deals at THIS athlete's
-// follower tier. A 2,000-follower athlete should see micro/nano-friendly brands,
-// never Nike.
+// Two phases: (1) discover real candidate brands via web search (with salvage +
+// seed top-up), then (2) gather STRUCTURED, sourced evidence per brand (an
+// ambassador program for SOCIAL, disclosed-deal precedent for TOP NIL), drop
+// hollow brands, and rank evidence-first. Not tied to the athlete's city.
 async function _scanBrandLane(athlete, lane, excludeBrands) {
   const MODEL_DEALSCAN = 'claude-sonnet-4-6';
   const _laneT0 = Date.now();
@@ -741,76 +1109,76 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
     if (found.length === 0) return [];
     const seedNames = new Set(found.filter((f) => f._seed).map((f) => f.name.toLowerCase().trim()));
 
-    try {
-      const candidatesJson = JSON.stringify(found.slice(0, 16));
-      const scorePrompt = `Athlete: ${athlete.name}, ${sport}${athlete.position ? ` (${athlete.position})` : ''} at ${school}. ${(athlete.instagram||0).toLocaleString()} IG + ${(athlete.tiktok||0).toLocaleString()} TikTok (${tier} tier). ${tierGuidance} Realistic deal value ~$${valLow}-$${valHigh}.${exclusionLine}
+    // ── Phase 2: STRUCTURED EVIDENCE ──────────────────────────────────────────
+    // What makes these lanes trustworthy instead of generic. For each candidate
+    // gather real, sourced evidence (an ambassador program page for SOCIAL, a
+    // disclosed-deal record for TOP NIL). Cache-first, so a warm scan does zero
+    // web calls. Fetchers run in parallel with their own per-brand timeouts.
+    // SOCIAL drops any brand with no findable program; TOP NIL keeps no-deal
+    // brands but ranks them last and labels them honestly.
+    const ctx2 = { rate, valLow, valHigh, sport };
+    const investigate = found.slice(0, 8);
+    const evResults = await Promise.allSettled(investigate.map(async (f) => {
+      const res = lane === 'social'
+        ? await _fetchSocialProgramEvidence(f.name, f.website)
+        : await _fetchTopNilEvidence(f.name, f.website, sport);
+      return { f, ...res };
+    }));
 
-${laneCfg.scoreIntro}
-${candidatesJson}
+    const finishCard = (f, card, athleteTagSubs) => {
+      // Preserve main's consumers: interest-tag chips + source labeling.
+      card.matchedTags = deriveMatchedTags(
+        { brand: card.brand, category: card.category, rationale: card.rationale }, f, athleteTagSubs
+      );
+      card.source = (f._seed || seedNames.has((f.name || '').toLowerCase().trim())) ? 'seed' : 'web';
+      return card;
+    };
 
-${athleteTagSubs.length ? `ATHLETE INTEREST TAGS: ${athleteTagSubs.join(', ')}. BOOST brands matching these tags. For each result set "matchedTags" to the matching tag names, chosen ONLY from that exact list; [] when none match.\n` : ''}Pick the 3 or 4 best for THIS athlete and score each 1-100 (vary the scores meaningfully). Return AT MOST 4. Each rationale is a FIT LINE: 1-2 sentences on why this brand works for an athlete THIS size, citing the candidate's "evidence" when present (e.g. "runs a student-athlete ambassador program", "did deals with Conference USA athletes"). Never invent evidence that is not in the input. Candidates with real evidence get a strong ranking boost. For contactEmail: use the email given if present, otherwise info@/partnerships@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
-[{"rank":1,"brand":"","tier":"${laneCfg.resultType}","category":"${laneCfg.categoryEnum}","dealType":"post|reel|ambassador|affiliate","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":false,"matchedTags":[],"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
-
-      // Scoring on Haiku, same as the local lane: ranking found candidates and
-      // writing short fit lines is fast-model work.
-      const raw = await oneShot(scorePrompt, 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a brand, evidence, or an email domain — only use the brands, evidence, and domains provided.', 1800, MODEL_FAST);
-      const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-      const si = c.indexOf('['), ei = c.lastIndexOf(']');
-      if (si === -1 || ei <= si) throw new Error('No array in scoring response');
-      let parsed = JSON.parse(c.substring(si, ei + 1));
-      if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
-      parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-      parsed = parsed.slice(0, 4); // lane rebalance: Social / Top NIL show 3-4, Local is primary
-      console.log(`[dealScan:${lane}] returning ${parsed.length} in ${Date.now() - _laneT0}ms`);
-      const metaByName = new Map();
-      for (const f of found) if (f.name) metaByName.set(f.name.toLowerCase().trim(), f);
-      return parsed.map((d, i) => {
-        const nameKey = (d.brand || '').toLowerCase().trim();
-        const meta = metaByName.get(nameKey) || null;
-        const site = (meta && meta.website) || d.website || null;
-        const evidence = meta && meta.evidence ? String(meta.evidence).slice(0, 180) : null;
-        return {
-          ...d,
-          rank: i + 1,
-          resultType: laneCfg.resultType,
-          lane,
-          isLocal: false,
-          source: seedNames.has(nameKey) ? 'seed' : 'web',
-          matchedTags: deriveMatchedTags(d, meta, athleteTagSubs),
-          evidence,
-          activelyMarketing: !!evidence,
-          contactEmail: validateContactEmail(d.contactEmail, site),
-          estimatedValueLow: d.estimatedValueLow || valLow,
-          estimatedValueHigh: d.estimatedValueHigh || valHigh,
-          suggestedRate: { low: rate.low, high: rate.high },
-        };
-      });
-    } catch (scoreErr) {
-      console.warn(`[dealScan:${lane}] scoring failed, returning candidates directly: ${scoreErr.message}`);
-      return found.slice(0, 4).map((f, i) => ({
-        rank: i + 1,
-        brand: f.name,
-        tier: laneCfg.resultType,
-        category: f.category || laneCfg.resultType,
-        dealType: 'ambassador',
-        campaign: '',
-        rationale: (f.evidence ? `${f.evidence}. ` : '') + `${f.name} runs creator/ambassador programs that fit ${tier}-tier ${sport} athletes at this follower level.`,
-        contactApproach: 'Apply through their ambassador or affiliate page, or email their partnerships team.',
-        timingNote: '',
-        fitScore: 82 - i * 4,
-        isLocal: false,
-        resultType: laneCfg.resultType,
-        lane,
-        matchedTags: deriveMatchedTags({ brand: f.name, category: f.category }, f, athleteTagSubs),
-        evidence: f.evidence ? String(f.evidence).slice(0, 180) : null,
-        activelyMarketing: !!f.evidence,
-        source: f._seed ? 'seed' : 'web',
-        contactEmail: validateContactEmail(f.email, f.website),
-        estimatedValueLow: valLow,
-        estimatedValueHigh: valHigh,
-        suggestedRate: { low: rate.low, high: rate.high },
-      }));
+    const cards = [];
+    for (const r of evResults) {
+      if (r.status !== 'fulfilled' || !r.value) continue;
+      const { f, evidence, outcome, cached } = r.value;
+      // Per-brand outcome log at the REAL call site, so one production scan tells
+      // the truth about whether this code path ran.
+      console.log(`[dealScan] ${lane} brand=${f.name} evidence=${outcome}${cached ? ' cache' : ''}`);
+      if (lane === 'social') {
+        if (!evidence || evidence.kind !== 'program') continue; // no program -> no hollow card
+        const verdict = _socialVerdict(evidence.followerMinimum, athlete);
+        cards.push(finishCard(f, _buildSocialCard(f, evidence, verdict, ctx2), athleteTagSubs));
+      } else {
+        const verdict = _topnilVerdict(evidence && evidence.min, evidence && evidence.max, athlete);
+        cards.push(finishCard(f, _buildTopNilCard(f, evidence || { kind: 'deals', deals: [] }, verdict, outcome, ctx2), athleteTagSubs));
+      }
     }
+
+    // SOCIAL resilience: if discovery surfaced brands that all lacked a program,
+    // fall back to the curated seed brands, which reliably run creator programs.
+    if (lane === 'social' && cards.length === 0) {
+      const excl = (excludeBrands || []).map((b) => (b || '').toLowerCase());
+      const seeds = (getSeeds('social', tier) || [])
+        .filter((s) => !excl.includes((s.name || '').toLowerCase()))
+        .slice(0, 6);
+      const seedRes = await Promise.allSettled(seeds.map(async (s) => {
+        const res = await _fetchSocialProgramEvidence(s.name, s.website);
+        return { f: { ...s, _seed: true }, ...res };
+      }));
+      for (const r of seedRes) {
+        if (r.status !== 'fulfilled' || !r.value) continue;
+        const { f, evidence, outcome, cached } = r.value;
+        console.log(`[dealScan] social brand=${f.name} evidence=${outcome}${cached ? ' cache' : ''} seed`);
+        if (!evidence || evidence.kind !== 'program') continue;
+        const verdict = _socialVerdict(evidence.followerMinimum, athlete);
+        cards.push(finishCard(f, _buildSocialCard(f, evidence, verdict, ctx2), athleteTagSubs));
+      }
+    }
+
+    // Evidence-first ranking: fitScore already encodes evidence strength +
+    // qualification, so an open program with a matching minimum (or real
+    // comp-data precedent) outranks a famous brand with nothing verifiable.
+    cards.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+    const out = cards.slice(0, 4).map((c, i) => ({ ...c, rank: i + 1 }));
+    console.log(`[dealScan:${lane}] returning ${out.length}/${cards.length} evidence-backed in ${Date.now() - _laneT0}ms`);
+    return out;
   } catch (err) {
     console.warn(`[dealScan:${lane}] failed: ${err.message}`);
     return [];
@@ -1638,5 +2006,11 @@ module.exports = {
   generateAthleteBrandKit,
   generateOutreach,
   deriveMatchedTags,
-  validTagSubs
+  validTagSubs,
+  // Internal evidence helpers exposed for unit tests only.
+  _test: {
+    _fmtFollowers, _cleanStr, _safeUrl, _primaryFollowers,
+    _socialVerdict, _topnilVerdict, _deriveTypicalProfile,
+    _buildSocialCard, _buildTopNilCard,
+  },
 };
