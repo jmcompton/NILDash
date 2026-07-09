@@ -2451,6 +2451,10 @@ app.get('/api/dashboard/followups', requireAuth, async (req, res) => {
             label: `${deal.brand || 'Deal'} — ${stage}`,
             detail: `No update in ${daysSince} days`,
             urgency: daysSince >= 14 ? 'high' : 'medium',
+            // Carried so the dashboard can deep-link "Draft follow-up" straight
+            // into Outreach with the right athlete + brand preselected.
+            athleteId: deal.athleteId || null,
+            brand: deal.brand || null,
           });
         }
       }
@@ -9090,6 +9094,148 @@ app.get('/api/agent/home-data', requireAuth, async (req, res) => {
   } catch (e) {
     console.error('[agent/home-data]', e.message);
     res.json({ pipeline: '$0', dealCount: 0, clientCount: 0, nilEarned: '$0', weekDeliverables: [] });
+  }
+});
+
+// Turn a date string into a plain-language day phrase for action copy:
+// today / tomorrow / weekday name (within a week) / "Mar 5".
+function _todayDayPhrase(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(String(dateStr).slice(0, 10) + 'T00:00:00');
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.round((d - today) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  if (days < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+// GET /api/agent/today — the prioritized "what needs me today" action list for
+// the home dashboard. Sources, highest urgency first: overdue/today deliverables
+// (red), deals gone stale 30+ days (red), hot signals like kit views and inbound
+// inquiries (green), and deliverables due this week (amber). At most 5 rows.
+app.get('/api/agent/today', requireAuth, async (req, res) => {
+  const agentId = req.session.userId;
+  try {
+    const notDone = `COALESCE(ace.status,'') NOT IN ('completed','done','complete')`;
+    const [dueR, weekR, viewsR, inbR, deals, nextR, movingR] = await Promise.all([
+      // RED: deliverables due today or overdue (pending), grouped by athlete + brand
+      store.pool.query(
+        `SELECT ace.athlete_id, a.data->>'name' AS athlete_name, ace.brand,
+                COUNT(*) AS n,
+                SUM(CASE WHEN ace.event_date < CURRENT_DATE THEN 1 ELSE 0 END) AS overdue_n
+           FROM athlete_calendar_events ace JOIN athletes a ON ace.athlete_id = a.id
+          WHERE ace.agent_id = $1 AND ace.event_date <= CURRENT_DATE AND ${notDone}
+          GROUP BY ace.athlete_id, a.data->>'name', ace.brand
+          ORDER BY overdue_n DESC, n DESC`, [agentId]),
+      // AMBER: deliverables due in the next 7 days (after today), grouped
+      store.pool.query(
+        `SELECT ace.athlete_id, a.data->>'name' AS athlete_name, ace.brand,
+                COUNT(*) AS n, MIN(ace.event_date)::text AS earliest
+           FROM athlete_calendar_events ace JOIN athletes a ON ace.athlete_id = a.id
+          WHERE ace.agent_id = $1 AND ace.event_date > CURRENT_DATE
+            AND ace.event_date <= CURRENT_DATE + INTERVAL '7 days' AND ${notDone}
+          GROUP BY ace.athlete_id, a.data->>'name', ace.brand
+          ORDER BY earliest ASC`, [agentId]),
+      // GREEN: media kit views in the last 48 hours, grouped by athlete
+      store.pool.query(
+        `SELECT v.athlete_id, a.data->>'name' AS athlete_name,
+                COUNT(*) AS n, MAX(v.variant_brand) AS brand
+           FROM media_kit_views v JOIN athletes a ON v.athlete_id = a.id
+          WHERE v.agent_id = $1 AND v.viewed_at > NOW() - INTERVAL '48 hours'
+          GROUP BY v.athlete_id, a.data->>'name'
+          ORDER BY n DESC`, [agentId]),
+      // GREEN: inbound inquiries from the public media kit in the last 7 days
+      store.pool.query(
+        `SELECT d.athlete_id, a.data->>'name' AS athlete_name,
+                d.data->>'brand' AS brand, d.data->>'createdAt' AS created_at
+           FROM deals d JOIN athletes a ON d.athlete_id = a.id
+          WHERE d.agent_id = $1 AND d.data->>'source' = 'media_kit_inquiry'
+            AND COALESCE(NULLIF(d.data->>'createdAt',''),'1970-01-01')::timestamptz > NOW() - INTERVAL '7 days'
+          ORDER BY created_at DESC`, [agentId]),
+      store.getDealsByAgent(agentId),
+      store.pool.query(
+        `SELECT MIN(ace.event_date)::text AS d FROM athlete_calendar_events ace
+          WHERE ace.agent_id = $1 AND ace.event_date >= CURRENT_DATE AND ${notDone}`, [agentId]),
+      store.pool.query(
+        `SELECT COUNT(*) AS n FROM deals WHERE agent_id=$1 AND data->>'stage' NOT IN ('Closed','Lost')`, [agentId]),
+    ]);
+
+    const first = (name) => (String(name || 'A client').trim().split(/\s+/)[0] || 'A client');
+    const raw = [];
+
+    // RED, overdue or due today (priority 0)
+    for (const r of dueR.rows) {
+      const n = parseInt(r.n) || 0; if (!n) continue;
+      const overdue = parseInt(r.overdue_n) > 0;
+      const noun = n === 1 ? 'deliverable' : 'deliverables';
+      raw.push({
+        urgency: 'red', priority: 0, kind: 'deliverable_due',
+        text: `${n} ${noun} ${overdue ? 'overdue' : 'due today'} for ${r.athlete_name || 'a client'}${r.brand ? ` (${r.brand})` : ''}`,
+        action: { label: 'View calendar', view: 'calendar' },
+      });
+    }
+
+    // RED, deals gone stale 30+ days (priority 1)
+    const now = Date.now();
+    const staleStages = ['Prospecting', 'Outreach', 'Negotiating', 'Sent', 'Inbound'];
+    const staleRows = [];
+    for (const d of (deals || [])) {
+      const stage = d.stage || d.status || '';
+      if (!staleStages.includes(stage)) continue;
+      const upd = d.updatedAt || d.createdAt || d.created_at;
+      if (!upd || !d.brand) continue;
+      const days = Math.floor((now - new Date(upd).getTime()) / 86400000);
+      if (days >= 30) staleRows.push({ d, days });
+    }
+    staleRows.sort((a, b) => b.days - a.days);
+    for (const { d, days } of staleRows) {
+      raw.push({
+        urgency: 'red', priority: 1, kind: 'stale_deal',
+        text: `${d.brand} has not heard from you in ${days} days`,
+        action: { label: 'Draft follow-up', view: 'outreach', params: { athleteId: d.athleteId, brand: d.brand } },
+      });
+    }
+
+    // GREEN, inbound inquiries (priority 2 — highest-value warm signal)
+    for (const r of inbR.rows) {
+      raw.push({
+        urgency: 'green', priority: 2, kind: 'inquiry',
+        text: `${r.brand || 'A brand'} asked about ${first(r.athlete_name)}`,
+        action: { label: 'Follow up now', view: 'outreach', params: { athleteId: r.athlete_id, brand: r.brand || '' } },
+      });
+    }
+
+    // GREEN, media kit views (priority 3)
+    for (const r of viewsR.rows) {
+      const n = parseInt(r.n) || 0; if (!n) continue;
+      raw.push({
+        urgency: 'green', priority: 3, kind: 'kit_view',
+        text: `${first(r.athlete_name)}'s media kit was viewed ${n} ${n === 1 ? 'time' : 'times'} in the last 2 days`,
+        action: { label: 'Follow up now', view: 'outreach', params: { athleteId: r.athlete_id, brand: r.brand || '' } },
+      });
+    }
+
+    // AMBER, due this week (priority 4)
+    for (const r of weekR.rows) {
+      const n = parseInt(r.n) || 0; if (!n) continue;
+      const noun = n === 1 ? 'deliverable' : 'deliverables';
+      raw.push({
+        urgency: 'amber', priority: 4, kind: 'deliverables_week',
+        text: `${n} ${noun} due ${_todayDayPhrase(r.earliest)} for ${r.athlete_name || 'a client'}${r.brand ? ` (${r.brand})` : ''}`,
+        action: { label: 'View calendar', view: 'calendar' },
+      });
+    }
+
+    raw.sort((a, b) => a.priority - b.priority);
+    const actions = raw.slice(0, 5);
+
+    const movingDeals = parseInt(movingR.rows[0]?.n || 0);
+    const nextDate = nextR.rows[0]?.d || null;
+    res.json({ actions, summary: { movingDeals, nextDeadline: nextDate ? _todayDayPhrase(nextDate) : null } });
+  } catch (e) {
+    console.error('[agent/today]', e.message);
+    res.json({ actions: [], summary: { movingDeals: 0, nextDeadline: null } });
   }
 });
 

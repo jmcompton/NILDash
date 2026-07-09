@@ -340,12 +340,18 @@
       if (!host) {
         host = document.createElement('div');
         host.id = 'nil-getting-started';
-        host.style.cssText = 'margin-bottom:12px';
-        home.insertBefore(host, home.firstChild);
+        host.style.cssText = 'margin-top:12px';
+        // Mount at the bottom of the dashboard (below the calendar strip), not
+        // the top — the Today block owns the top now.
+        var anchor = document.getElementById('home-checklist-anchor');
+        if (anchor) anchor.appendChild(host); else home.appendChild(host);
       }
 
-      var collapsed = false;
-      try { collapsed = localStorage.getItem(collapsedKey()) === '1'; } catch (e) {}
+      // Collapse to a thin line once the agent is underway (3+ done), unless they
+      // set an explicit preference. New users (fewer than 3 done) see it expanded.
+      var pref = null;
+      try { pref = localStorage.getItem(collapsedKey()); } catch (e) {}
+      var collapsed = pref === '1' ? true : (pref === '0' ? false : (done >= 3));
 
       if (done >= total) {
         try { localStorage.setItem(doneSeenKey(), '1'); } catch (e) {}
@@ -356,6 +362,18 @@
               '<div style="font-size:11px;color:#9CA3AF;margin-top:2px">Everything done. This card hides itself from here on.</div>' +
             '</div>' +
             '<button onclick="NILOnboard.hideChecklist()" style="background:transparent;border:1px solid #1e2a3a;color:#9CA3AF;border-radius:6px;padding:6px 12px;font-size:11px;cursor:pointer">Hide</button>' +
+          '</div>';
+        return;
+      }
+
+      // Collapsed: a single thin line, "Getting started · N of 7 · Show".
+      if (collapsed) {
+        host.innerHTML =
+          '<div style="background:#0D1520;border:1px solid #1e2a3a;border-radius:10px;padding:11px 16px;display:flex;align-items:center;gap:10px">' +
+            '<span style="font-size:12px;font-weight:700;color:var(--text)">Getting started</span>' +
+            '<span style="font-size:11px;color:#9CA3AF">' + done + ' of ' + total + '</span>' +
+            '<div style="flex:1"></div>' +
+            '<button onclick="NILOnboard.setChecklistCollapsed(false)" style="background:transparent;border:none;color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;padding:2px 6px">Show</button>' +
           '</div>';
         return;
       }
@@ -386,7 +404,7 @@
                 '<div style="height:100%;width:' + pct + '%;background:var(--accent);border-radius:3px;transition:width 0.3s"></div>' +
               '</div>' +
             '</div>' +
-            '<button onclick="NILOnboard.toggleChecklist()" style="background:transparent;border:none;color:#9CA3AF;font-size:16px;cursor:pointer;line-height:1;padding:2px 6px" title="Collapse">' + (collapsed ? '▾' : '▴') + '</button>' +
+            '<button onclick="NILOnboard.setChecklistCollapsed(true)" style="background:transparent;border:none;color:#9CA3AF;font-size:16px;cursor:pointer;line-height:1;padding:2px 6px" title="Collapse">▴</button>' +
           '</div>' +
           '<div id="nil-gs-body" style="padding:0 8px 8px;' + (collapsed ? 'display:none' : '') + '">' + rows +
             '<div style="text-align:center;padding:6px 0 4px">' +
@@ -397,15 +415,16 @@
     });
   }
 
+  // Persist the collapsed/expanded preference and re-render (thin line <-> full).
+  function setChecklistCollapsed(v) {
+    try { localStorage.setItem(collapsedKey(), v ? '1' : '0'); } catch (e) {}
+    renderChecklist();
+  }
+  // Back-compat shim: older markup called toggleChecklist().
   function toggleChecklist() {
-    var body = document.getElementById('nil-gs-body');
-    if (!body) return;
-    var nowCollapsed = body.style.display !== 'none';
-    body.style.display = nowCollapsed ? 'none' : '';
-    try { localStorage.setItem(collapsedKey(), nowCollapsed ? '1' : '0'); } catch (e) {}
-    var host = document.getElementById('nil-getting-started');
-    var btn = host && host.querySelector('button[title="Collapse"]');
-    if (btn) btn.textContent = nowCollapsed ? '▾' : '▴';
+    var pref = '0';
+    try { pref = localStorage.getItem(collapsedKey()) || '0'; } catch (e) {}
+    setChecklistCollapsed(pref !== '1');
   }
 
   function hideChecklist() {
@@ -470,6 +489,7 @@
     dismissTooltip: dismissTooltip,
     deepLink: function (idx) { deepLink(CHECK[idx]); },
     toggleChecklist: toggleChecklist,
+    setChecklistCollapsed: setChecklistCollapsed,
     hideChecklist: hideChecklist,
     refreshChecklist: refreshChecklist,
     renderChecklist: renderChecklist,

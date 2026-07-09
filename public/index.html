@@ -1391,28 +1391,25 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <!--  HOME  -->
       <div id="view-home" class="view active">
 
-        <!-- ── Add-client CTA (prominent empty state / subtle add-more) ── -->
+        <!-- ── Add-client CTA (prominent empty state only; nothing when you have clients) ── -->
         <div id="home-client-cta" style="margin-bottom:12px"></div>
 
-        <!-- ── AI Brief Card (4 bullets) ── -->
-        <div style="background:#0D1520;border-left:3px solid #84CC16;border-radius:0 8px 8px 0;padding:12px 14px;margin-bottom:12px">
-          <div id="home-brief-bullets">
-            <div style="display:flex;flex-direction:column;gap:7px" id="home-brief-skeleton">
-              <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:50%;background:rgba(239,68,68,0.25);flex-shrink:0;animation:brief-pulse 1.4s ease-in-out infinite"></div><div style="height:11px;border-radius:4px;background:rgba(255,255,255,0.07);flex:1;animation:brief-pulse 1.4s ease-in-out infinite"></div></div>
-              <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:50%;background:rgba(245,158,11,0.25);flex-shrink:0;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.1s"></div><div style="height:11px;border-radius:4px;background:rgba(255,255,255,0.07);width:88%;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.1s"></div></div>
-              <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:50%;background:rgba(132,204,22,0.25);flex-shrink:0;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.2s"></div><div style="height:11px;border-radius:4px;background:rgba(255,255,255,0.07);width:72%;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.2s"></div></div>
-              <div style="display:flex;align-items:center;gap:8px"><div style="width:12px;height:12px;border-radius:50%;background:rgba(132,204,22,0.25);flex-shrink:0;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.3s"></div><div style="height:11px;border-radius:4px;background:rgba(255,255,255,0.07);width:60%;animation:brief-pulse 1.4s ease-in-out infinite;animation-delay:0.3s"></div></div>
+        <!-- ══ TODAY action block — the centerpiece: what needs you today ══ -->
+        <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:12px;padding:16px 18px 14px;margin-bottom:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="display:flex;align-items:baseline;gap:10px;min-width:0">
+              <span style="font-family:var(--head);font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#F0EDE6">Today</span>
+              <span id="home-today-sub" style="font-size:11px;color:#6B7280">What needs you</span>
             </div>
+            <button onclick="loadAgentHome()" title="Refresh" style="background:transparent;border:none;color:#4B5563;font-size:14px;cursor:pointer;padding:2px 6px;line-height:1">↻</button>
           </div>
-          <div id="home-brief-footer" style="display:none;font-size:9px;color:#4B5563;margin-top:8px;align-items:center;gap:4px">
-            <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><circle cx="5" cy="5" r="4" stroke="#4B5563" stroke-width="1.5"/><path d="M5 3v2.5l1.5 1" stroke="#4B5563" stroke-width="1.2" stroke-linecap="round"/></svg>
-            AI brief · Updated just now
+          <div id="home-today-list">
+            <div style="font-size:11px;color:#4B5563;padding:8px 2px">Loading…</div>
           </div>
         </div>
-        <style>@keyframes brief-pulse{0%,100%{opacity:.4}50%{opacity:.8}}</style>
 
-        <!-- ── Stats Row ── -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+        <!-- ── KPI cards ── -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px" id="home-kpis">
           <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:14px 16px">
             <div style="font-size:9px;color:#4B5563;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Pipeline Value</div>
             <div id="hs-pipeline" style="font-size:20px;font-weight:500;color:#84CC16">—</div>
@@ -1431,38 +1428,30 @@ tbody td{padding:11px 14px;vertical-align:middle}
           </div>
         </div>
 
-        <!-- ── Two-column: Deliverables this week + Follow-ups ── -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;min-width:0;overflow:hidden">
-            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Deliverables This Week</div>
-            <div id="home-week-delivs" style="display:flex;flex-direction:column;gap:0">
-              <div style="font-size:11px;color:#4B5563">Loading…</div>
-            </div>
-          </div>
+        <!-- ── Two-column: Follow-ups (left) + Deliverables This Week (right) ── -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px" id="home-two-col">
           <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;min-width:0;overflow:hidden">
             <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Follow-Ups Needed</div>
             <div id="home-followups-list" style="display:flex;flex-direction:column;gap:0">
               <div style="font-size:11px;color:#4B5563">Loading…</div>
             </div>
           </div>
-        </div>
-
-        <!-- ── Bottom row: Mini calendar (2/3) + Quick Actions (1/3) ── -->
-        <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px">
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px">
-            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:12px">This Week</div>
-            <div id="home-mini-cal"></div>
-          </div>
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px">
-            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Quick Actions</div>
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <button onclick="showView('rate',document.querySelector('.nav-item[onclick*=rate]'))" style="width:100%;text-align:left;padding:9px 12px;background:#111827;border:.5px solid #1e2a3a;border-radius:6px;color:#9CA3AF;font-size:11px;cursor:pointer;font-family:var(--head);display:flex;align-items:center;gap:8px"><i class="ti ti-calculator" style="color:#84CC16;font-size:13px"></i>Calculate Rate</button>
-              <button onclick="showView('deals',document.querySelector('.nav-item[onclick*=deals]'))" style="width:100%;text-align:left;padding:9px 12px;background:#111827;border:.5px solid #1e2a3a;border-radius:6px;color:#9CA3AF;font-size:11px;cursor:pointer;font-family:var(--head);display:flex;align-items:center;gap:8px"><i class="ti ti-search" style="color:#84CC16;font-size:13px"></i>Scan for Deals</button>
-              <button onclick="showView('outreach',document.querySelector('.nav-item[onclick*=outreach]'))" style="width:100%;text-align:left;padding:9px 12px;background:#111827;border:.5px solid #1e2a3a;border-radius:6px;color:#9CA3AF;font-size:11px;cursor:pointer;font-family:var(--head);display:flex;align-items:center;gap:8px"><i class="ti ti-send" style="color:#84CC16;font-size:13px"></i>Send Outreach</button>
-              <button onclick="showView('pipeline',document.querySelector('.nav-item[onclick*=pipeline]'))" style="width:100%;text-align:left;padding:9px 12px;background:#111827;border:.5px solid #1e2a3a;border-radius:6px;color:#9CA3AF;font-size:11px;cursor:pointer;font-family:var(--head);display:flex;align-items:center;gap:8px"><i class="ti ti-layout-kanban" style="color:#84CC16;font-size:13px"></i>View Pipeline</button>
+          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;min-width:0;overflow:hidden">
+            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Deliverables This Week</div>
+            <div id="home-week-delivs" style="display:flex;flex-direction:column;gap:0">
+              <div style="font-size:11px;color:#4B5563">Loading…</div>
             </div>
           </div>
         </div>
+
+        <!-- ── This Week calendar strip ── -->
+        <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;margin-bottom:12px">
+          <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:12px">This Week</div>
+          <div id="home-mini-cal"></div>
+        </div>
+
+        <!-- ── Getting Started checklist mounts here (bottom, collapsed once underway) ── -->
+        <div id="home-checklist-anchor"></div>
       </div>
 
       <!--  COMMAND  -->
@@ -5308,18 +5297,14 @@ function renderHomeClientCta() {
       + '<button onclick="' + go + '" style="background:#84CC16;color:#0a0a0a;border:none;border-radius:8px;padding:11px 20px;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap">+ Add Client</button>'
       + '</div>';
   } else {
-    el.innerHTML =
-      '<div style="text-align:right">'
-      + '<a onclick="' + go + '" style="font-size:12px;color:#84CC16;cursor:pointer;text-decoration:none">+ Add more clients</a>'
-      + '</div>';
+    // Adding clients lives in Roster / the left nav; nothing stranded on the dashboard.
+    el.innerHTML = '';
   }
 }
 
 async function loadAgentHome() {
   renderHomeClientCta();
-  // Fire brief and data in parallel
-  loadHomeBrief();
-  loadHomeNotices(); // kit views today + inbound inquiries
+  loadTodayBlock(); // the centerpiece: what needs you today
   try {
     const data = await fetch(`${API_BASE}/api/agent/home-data`).then(r => r.json());
     document.getElementById('hs-pipeline').textContent = data.pipeline  || '$0';
@@ -5334,6 +5319,96 @@ async function loadAgentHome() {
     renderHomeMiniCal([]);
   }
   loadHomeFollowUps();
+}
+
+// ── TODAY action block ──────────────────────────────────────────────────────
+var _todayUrgency = {
+  red:   { color:'#EF4444', tint:'rgba(239,68,68,0.09)',  ring:'rgba(239,68,68,0.22)',  btnBg:'rgba(239,68,68,0.12)', btnBorder:'rgba(239,68,68,0.4)' },
+  amber: { color:'#F59E0B', tint:'rgba(245,158,11,0.09)', ring:'rgba(245,158,11,0.22)', btnBg:'rgba(245,158,11,0.12)', btnBorder:'rgba(245,158,11,0.4)' },
+  green: { color:'#84CC16', tint:'rgba(132,204,22,0.10)', ring:'rgba(132,204,22,0.22)', btnBg:'rgba(132,204,22,0.14)', btnBorder:'rgba(132,204,22,0.45)' },
+};
+async function loadTodayBlock() {
+  const el = document.getElementById('home-today-list');
+  if (!el) return;
+  try {
+    const data = await fetch(`${API_BASE}/api/agent/today`).then(r => r.json());
+    window._todayActions = data.actions || [];
+    renderTodayBlock(data);
+  } catch(e) {
+    window._todayActions = [];
+    el.innerHTML = '<div style="font-size:11px;color:#4B5563;padding:6px 2px">Unable to load right now.</div>';
+  }
+}
+function renderTodayBlock(data) {
+  const el = document.getElementById('home-today-list');
+  const sub = document.getElementById('home-today-sub');
+  if (!el) return;
+  const actions = (data && data.actions) || [];
+  if (!actions.length) {
+    // Positive summary, never a sad empty box.
+    const s = (data && data.summary) || {};
+    const moving = s.movingDeals || 0;
+    const dealsLine = moving > 0
+      ? (moving + (moving === 1 ? ' deal is moving.' : ' deals are moving.'))
+      : 'No active deals yet.';
+    const nextLine = s.nextDeadline ? (' Next deadline is ' + s.nextDeadline + '.') : '';
+    if (sub) sub.textContent = 'All caught up';
+    el.innerHTML =
+      '<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:10px;background:rgba(132,204,22,0.08);border:.5px solid rgba(132,204,22,0.25)">' +
+        '<span style="width:22px;height:22px;border-radius:50%;background:rgba(132,204,22,0.16);color:#84CC16;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px">✓</span>' +
+        '<span style="font-size:13px;color:#E5E7EB;line-height:1.5">You are all caught up. ' + escHtml(dealsLine + nextLine) + '</span>' +
+      '</div>';
+    return;
+  }
+  if (sub) sub.textContent = actions.length + (actions.length === 1 ? ' thing needs you' : ' things need you');
+  el.innerHTML = actions.map(function(a, i){
+    var u = _todayUrgency[a.urgency] || _todayUrgency.amber;
+    var label = (a.action && a.action.label) || 'Open';
+    return '<div style="display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:10px;background:' + u.tint + ';border-left:3px solid ' + u.color + ';margin-bottom:8px">' +
+      '<span style="width:10px;height:10px;border-radius:50%;background:' + u.color + ';flex-shrink:0;box-shadow:0 0 0 4px ' + u.ring + '"></span>' +
+      '<span style="flex:1;min-width:0;font-size:12.5px;color:#E5E7EB;line-height:1.4">' + escHtml(a.text || '') + '</span>' +
+      '<button onclick="todayAction(' + i + ')" style="flex-shrink:0;padding:7px 13px;background:' + u.btnBg + ';border:1px solid ' + u.btnBorder + ';color:' + u.color + ';border-radius:7px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:var(--head)">' + escHtml(label) + '</button>' +
+    '</div>';
+  }).join('');
+}
+function todayAction(i) {
+  var a = (window._todayActions || [])[i];
+  if (a && a.action) deepLink(a.action.view, a.action.params || {});
+}
+
+// ── Deep-linking: open a tab with an entity preselected ─────────────────────
+function deepLink(view, params) {
+  params = params || {};
+  if (params.athleteId) {
+    try {
+      selectedAthleteId = params.athleteId;
+      var sel = document.getElementById('activeAthlete');
+      if (sel) sel.value = String(params.athleteId);
+    } catch(e) {}
+  }
+  if (view === 'outreach') {
+    // The AI outreach composer lives in the Media Kit view's Outreach tab.
+    if (typeof openOutreachModal === 'function') openOutreachModal(params.athleteId || selectedAthleteId);
+    else showView('marketing', document.getElementById('marketingNavBtn'));
+    if (params.brand) setTimeout(function(){ var b = document.getElementById('or-brand') || document.getElementById('orBrand'); if (b) b.value = params.brand; }, 280);
+    return;
+  }
+  if (view === 'calendar') { showView('calendar', document.querySelector('.nav-item[onclick*=calendar]')); return; }
+  if (view === 'pipeline') {
+    showView('pipeline', document.querySelector('.nav-item[onclick*=pipeline]'));
+    if (params.dealId) setTimeout(function(){ _highlightPipelineDeal(params.dealId); }, 500);
+    return;
+  }
+  showView(view, document.querySelector('.nav-item[onclick*=' + view + ']'));
+}
+function _highlightPipelineDeal(dealId) {
+  var card = document.querySelector('[data-deal-id="' + dealId + '"]');
+  if (!card) return;
+  card.scrollIntoView({ behavior:'smooth', block:'center' });
+  var prev = card.style.boxShadow;
+  card.style.transition = 'box-shadow .3s';
+  card.style.boxShadow = '0 0 0 2px #84CC16';
+  setTimeout(function(){ card.style.boxShadow = prev || ''; }, 2200);
 }
 
 async function loadHomeBrief() {
@@ -5386,22 +5461,50 @@ function renderHomeWeekDelivs(delivs) {
     return;
   }
   const today = new Date().toISOString().split('T')[0];
-  el.innerHTML = delivs.slice(0, 6).map(d => {
-    const dateStr = d.event_date ? String(d.event_date).split('T')[0] : null;
-    const days    = dateStr ? Math.round((new Date(dateStr + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000) : 0;
-    const dotColor   = days < 0 ? '#EF4444' : days <= 1 ? '#F59E0B' : '#84CC16';
-    const tagBg      = days < 0 ? '#1a0a0a' : days <= 1 ? '#1a1a0a' : '#0a1a0a';
-    const tagColor   = days < 0 ? '#EF4444' : days <= 1 ? '#F59E0B' : '#84CC16';
-    const tagText    = days < 0 ? 'Overdue' : days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : dateStr;
-    return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid #1e2a3a">
-      <div style="width:7px;height:7px;border-radius:50%;background:${dotColor};flex-shrink:0"></div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:11px;color:#E5E7EB;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(d.title||'—')}</div>
-        <div style="font-size:10px;color:#4B5563;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(d.athlete_name||'')}${d.brand ? ' · '+escHtml(d.brand) : ''}</div>
-      </div>
-      <div style="font-size:9px;padding:2px 6px;border-radius:99px;background:${tagBg};color:${tagColor};white-space:nowrap;flex-shrink:0">${tagText}</div>
-    </div>`;
+  // Dedupe: group identical rows by athlete + brand so five identical Instagram
+  // Story rows collapse into one "Amber Bretton · Revive, 5 due tomorrow" row
+  // with an expand affordance.
+  const groups = [];
+  const byKey = {};
+  delivs.forEach(d => {
+    const key = (d.athlete_name || '') + '||' + (d.brand || '');
+    if (!byKey[key]) { byKey[key] = { athlete: d.athlete_name || '—', brand: d.brand || '', items: [] }; groups.push(byKey[key]); }
+    byKey[key].items.push(d);
+  });
+  const dow = ds => { try { return new Date(ds + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long' }); } catch(e) { return ds; } };
+  el.innerHTML = groups.slice(0, 6).map((g, gi) => {
+    const dates = g.items.map(d => d.event_date ? String(d.event_date).split('T')[0] : null).filter(Boolean).sort();
+    const earliest = dates[0] || today;
+    const days = Math.round((new Date(earliest + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+    const dotColor = days < 0 ? '#EF4444' : days <= 1 ? '#F59E0B' : '#84CC16';
+    const when = days < 0 ? 'overdue' : days === 0 ? 'today' : days === 1 ? 'tomorrow' : dow(earliest);
+    const n = g.items.length;
+    const noun = n === 1 ? 'deliverable' : 'deliverables';
+    const gid = 'wk-grp-' + gi;
+    const expandable = n > 1;
+    const sub = g.items.map(it => {
+      const ds = it.event_date ? String(it.event_date).split('T')[0] : '';
+      return '<div style="font-size:10px;color:#6B7280;padding:2px 0 2px 15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(it.title || '—') + (ds ? ' <span style="color:#4B5563">· ' + ds + '</span>' : '') + '</div>';
+    }).join('');
+    return '<div style="border-bottom:.5px solid #1e2a3a">' +
+      '<div ' + (expandable ? 'onclick="_wkToggle(\'' + gid + '\')" ' : '') + 'style="display:flex;align-items:center;gap:8px;padding:6px 0;' + (expandable ? 'cursor:pointer' : '') + '">' +
+        '<div style="width:7px;height:7px;border-radius:50%;background:' + dotColor + ';flex-shrink:0"></div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:11px;color:#E5E7EB;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(g.athlete) + (g.brand ? ' <span style="color:#6B7280">· ' + escHtml(g.brand) + '</span>' : '') + '</div>' +
+          '<div style="font-size:10px;color:#6B7280">' + n + ' ' + noun + ' due ' + when + '</div>' +
+        '</div>' +
+        (expandable ? '<span id="' + gid + '-caret" style="font-size:11px;color:#4B5563;flex-shrink:0">▾</span>' : '') +
+      '</div>' +
+      (expandable ? '<div id="' + gid + '" style="display:none;padding-bottom:5px">' + sub + '</div>' : '') +
+    '</div>';
   }).join('');
+}
+function _wkToggle(id) {
+  var b = document.getElementById(id); var c = document.getElementById(id + '-caret');
+  if (!b) return;
+  var open = b.style.display !== 'none';
+  b.style.display = open ? 'none' : 'block';
+  if (c) c.textContent = open ? '▾' : '▴';
 }
 
 function renderHomeMiniCal(delivs) {
@@ -5464,17 +5567,25 @@ async function loadHomeFollowUps() {
       return;
     }
     const urgencyColor = { high:'#EF4444', medium:'#F59E0B', low:'rgba(255,255,255,0.2)' };
-    el.innerHTML = items.slice(0, 6).map(f => `
-      <div style="display:flex;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:.5px solid #1e2a3a">
-        <div style="width:7px;height:7px;border-radius:50%;background:${urgencyColor[f.urgency]||'#4B5563'};flex-shrink:0;margin-top:3px"></div>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:11px;color:#E5E7EB;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(f.label||'')}</div>
-          <div style="font-size:10px;color:#4B5563">${escHtml(f.detail||'')}</div>
-        </div>
-      </div>`).join('');
+    window._homeFollowups = items;
+    el.innerHTML = items.slice(0, 6).map((f, i) => {
+      const canDraft = f.type === 'deal' && f.athleteId;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:.5px solid #1e2a3a">' +
+        '<div style="width:7px;height:7px;border-radius:50%;background:' + (urgencyColor[f.urgency]||'#4B5563') + ';flex-shrink:0"></div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:11px;color:#E5E7EB;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(f.label||'') + '</div>' +
+          '<div style="font-size:10px;color:#6B7280">' + escHtml(f.detail||'') + '</div>' +
+        '</div>' +
+        (canDraft ? '<button onclick="homeFollowupDraft(' + i + ')" style="flex-shrink:0;padding:5px 10px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.35);color:#84CC16;border-radius:6px;font-size:10.5px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:var(--head)">Draft follow-up</button>' : '') +
+      '</div>';
+    }).join('');
   } catch(e) {
     el.innerHTML = '<div style="font-size:11px;color:#4B5563">Unable to load.</div>';
   }
+}
+function homeFollowupDraft(i) {
+  var f = (window._homeFollowups || [])[i];
+  if (f) deepLink('outreach', { athleteId: f.athleteId, brand: f.brand || '' });
 }
 
 //  KPIS
