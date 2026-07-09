@@ -300,7 +300,14 @@ async function init() {
       refreshed_at TIMESTAMPTZ DEFAULT NOW(),
       PRIMARY KEY (brand_key, lane)
     );
-  `).catch(e => console.error('brand_evidence_cache init error:', e.message));
+  `).then(() => console.log('[startup] brand_evidence_cache: ensured'))
+    .catch(e => console.error('[startup] brand_evidence_cache init FAILED:', e.message));
+  // Explicit existence probe so a production boot log states plainly whether the
+  // table is really there (to_regclass is null when it is not).
+  try {
+    const _probe = await pool.query(`SELECT to_regclass('brand_evidence_cache') AS t`);
+    console.log(`[startup] brand_evidence_cache exists=${_probe.rows[0] && _probe.rows[0].t ? 'yes' : 'NO'}`);
+  } catch (e) { console.error('[startup] brand_evidence_cache probe error:', e.message); }
 
   // ── User Onboarding (wizard state, Getting Started checklist, tooltips) ─────
   // Backs Parts A/C/E of the onboarding overhaul. user_id is TEXT to match the
@@ -1507,8 +1514,16 @@ async function getBrandEvidence(brandKey, lane, maxAgeDays = 7) {
         LIMIT 1`,
       [key, lane, String(maxAgeDays)]
     );
-    return r.rows[0] || null;
+    const row = r.rows[0] || null;
+    if (row) {
+      const ageH = row.refreshed_at ? ((Date.now() - new Date(row.refreshed_at).getTime()) / 3.6e6).toFixed(1) : '?';
+      console.log(`[dealScan] evidence cache HIT brand=${key} lane=${lane} age=${ageH}h`);
+    } else {
+      console.log(`[dealScan] evidence cache MISS brand=${key} lane=${lane}`);
+    }
+    return row;
   } catch (e) {
+    console.error(`[dealScan] evidence cache ERROR brand=${key} lane=${lane} ${e.message}`);
     return null;
   }
 }
@@ -1528,8 +1543,9 @@ async function saveBrandEvidence(brandKey, lane, brand, website, evidence, outco
              refreshed_at = NOW()`,
       [key, lane, brand || null, website || null, JSON.stringify(evidence || {}), outcome || null]
     );
+    console.log(`[dealScan] evidence cache WRITE ok brand=${key} lane=${lane} outcome=${outcome || 'null'}`);
   } catch (e) {
-    console.error('[saveBrandEvidence]', e.message);
+    console.error(`[dealScan] evidence cache WRITE FAILED brand=${key} lane=${lane} ${e.message}`);
   }
 }
 

@@ -631,6 +631,10 @@ function timedSearch(p, capMs) {
 // pool in a couple of batches. Warm-cache lookups are instant and unaffected.
 const EVIDENCE_CONCURRENCY = 8;
 
+// One-time flag so a production scan logs the exact social search query once
+// (for diagnosis) without repeating the full prompt on every brand.
+let _loggedSocialQuery = false;
+
 // Run fn over items with bounded concurrency, preserving index order. A throwing
 // item resolves to null (never rejects the whole batch).
 async function _mapLimit(items, limit, fn) {
@@ -785,12 +789,22 @@ Rules:
 - responseTime: only if stated, else null.
 - sourceUrl: the brand page where you found this, null if none.`;
 
+  if (!_loggedSocialQuery) {
+    _loggedSocialQuery = true;
+    console.log(`[dealScan] social SEARCH QUERY sample brand=${brand} sys=${JSON.stringify(sys)} prompt=${JSON.stringify(prompt)}`);
+  }
+
   let raw = '';
+  const _wt0 = Date.now();
   try {
     raw = await withTimeout(oneShotWebSearch(prompt, sys, 700, 3, 'claude-sonnet-4-6'), 9000, '');
   } catch (e) {
+    console.log(`[dealScan] social search brand=${brand} searchMs=${Date.now() - _wt0} result=ERROR ${e.message}`);
     return { evidence: {}, outcome: 'ERROR', cached: false, skipCache: true };
   }
+  // Raw head + length + search time, so a failing brand's actual model output is
+  // visible in the logs (rawLen=0 means the 9s cap fired = TIMEOUT).
+  console.log(`[dealScan] social search brand=${brand} searchMs=${Date.now() - _wt0} rawLen=${(raw || '').length} rawHead=${JSON.stringify((raw || '').slice(0, 300))}`);
   if (!raw) return { evidence: {}, outcome: 'TIMEOUT', cached: false, skipCache: true };
 
   let parsed = null;
@@ -1200,12 +1214,20 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
     // SOCIAL drops any brand with no findable program; TOP NIL keeps no-deal
     // brands but ranks them last and labels them honestly.
     const ctx2 = { rate, valLow, valHigh, sport };
+    // Discovery (phase 1) is a web search that is NOT cached; time it separately
+    // from the evidence phase so a repeat scan's cost is attributable.
+    const _discoveryMs = Date.now() - _laneT0;
+    const _effConcurrency = Math.max(1, Math.min(EVIDENCE_CONCURRENCY, investigate.length));
+    const _evT0 = Date.now();
     const evResults = await _mapLimit(investigate, EVIDENCE_CONCURRENCY, async (f) => {
+      const _bt0 = Date.now();
       const res = lane === 'social'
         ? await _fetchSocialProgramEvidence(f.name, f.website)
         : await _fetchTopNilEvidence(f.name, f.website, sport);
-      return { f, ...res };
+      return { f, ...res, ms: Date.now() - _bt0 };
     });
+    const _evidenceMs = Date.now() - _evT0;
+    console.log(`[dealScan:${lane}] phases discovery=${_discoveryMs}ms evidence=${_evidenceMs}ms concurrency=${_effConcurrency} candidates=${investigate.length}`);
 
     const finishCard = (f, card) => {
       // Preserve main's consumers: interest-tag chips + source labeling.
@@ -1217,12 +1239,15 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
     };
 
     const cards = [];
+    const _tally = { OK: 0, SALVAGED: 0, NO_EVIDENCE: 0, TIMEOUT: 0, ERROR: 0, cache: 0 };
     for (const r of evResults) {
       if (!r) continue;
-      const { f, evidence, outcome, cached } = r;
-      // Per-brand outcome log at the REAL call site, so one production scan tells
-      // the truth about whether this code path ran.
-      console.log(`[dealScan] ${lane} brand=${f.name} evidence=${outcome}${cached ? ' cache' : ''}`);
+      const { f, evidence, outcome, cached, ms } = r;
+      if (_tally[outcome] !== undefined) _tally[outcome]++;
+      if (cached) _tally.cache++;
+      // Per-brand outcome + wall time at the REAL call site, so one production
+      // scan tells the truth about whether this code path ran and how slow it is.
+      console.log(`[dealScan] ${lane} brand=${f.name} evidence=${outcome} ${ms || 0}ms${cached ? ' cache' : ''}`);
       if (lane === 'social') {
         if (!evidence || evidence.kind !== 'program') continue; // no program -> no hollow card
         const verdict = _socialVerdict(evidence.followerMinimum, athlete);
@@ -1232,6 +1257,7 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
         cards.push(finishCard(f, _buildTopNilCard(f, evidence || { kind: 'deals', deals: [] }, verdict, outcome, ctx2)));
       }
     }
+    console.log(`[dealScan:${lane}] evidence tally ${JSON.stringify(_tally)}`);
 
     // Evidence-first ranking: fitScore already encodes evidence strength +
     // qualification, so an open program with a matching minimum (or real
