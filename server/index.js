@@ -5356,8 +5356,8 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     let recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
     // Keep Refresh full: if excluding shown brands leaves a thin lane, top up from a no-exclude
     // run, newest first, de-duped, up to TARGET so lanes don't shrink on repeated refreshes.
-    // Lane rebalance: Local is the primary lane (8-10), Social / Top NIL show 3-4.
-    const TARGET = validLane === 'local' ? 8 : 4;
+    // Lane targets: Local is primary (8-10), Social shows up to 6, Top NIL up to 4.
+    const TARGET = validLane === 'local' ? 8 : validLane === 'social' ? 6 : 4;
     if (recommendations.length < TARGET && excludeBrands.length) {
       const fresh = await ai.getDealRecommendations(loaded.athleteObj, 'agent', [], validLane);
       const seen = new Set(recommendations.map(r => (r.brand || '').toLowerCase()));
