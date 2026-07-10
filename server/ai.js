@@ -1134,7 +1134,7 @@ const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'si
 // Bump when the contacts pipeline changes shape (widened sources, locality fix,
 // ...). A cached row stamped with an older version is treated as a miss so the
 // current search runs once per brand instead of serving stale pre-change data.
-const _CONTACTS_CACHE_VERSION = 2;
+const _CONTACTS_CACHE_VERSION = 3;
 
 // Test seam (see _searchContactSource). Production leaves this null.
 let _contactSearchImpl = null;
@@ -1178,13 +1178,20 @@ function _labelTitle(source, title) {
   if (!t) return t;
   // Collapse to a single clean qualifier. The model sometimes hands back a title
   // that already carries one or more parentheticals ("Owner (operator, per news
-  // report)"), and blindly appending a source tag stacked them
-  // ("... (state filing)"). Strip ALL parentheticals down to the core role, then
-  // add ONE provenance qualifier for the source that surfaced this contact.
+  // report)"), and appending a source tag stacked them ("... (state filing)").
+  // Strip ALL parentheticals down to the core role, then add exactly ONE
+  // provenance qualifier. Honest source hints already in the title win (so a
+  // legacy stacked title collapses deterministically to what the text actually
+  // says, e.g. "per news"), otherwise fall back to the source that surfaced it.
   const core = t.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim() || t;
-  if (source === 'registry') return `${core} (state filing)`;
-  if (source === 'news') return `${core} (per news)`;
-  return core; // facebook / maps / chamber / site: the stated role stands alone
+  const newsHint = /news|press/i.test(t);
+  const filingHint = /filing|registered agent|secretary of state|registry/i.test(t);
+  let qual = '';
+  if (newsHint) qual = '(per news)';
+  else if (filingHint) qual = '(state filing)';
+  else if (source === 'news') qual = '(per news)';
+  else if (source === 'registry') qual = '(state filing)';
+  return qual ? `${core} ${qual}` : core; // facebook / maps / chamber / site: plain role
 }
 
 // One targeted, single-source web search. Tags every contact with its source and
@@ -1527,6 +1534,10 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // topnil) have no market and no locality requirement.
   const localityRequired = !!(ctx && (ctx.market === 'school' || ctx.market === 'hometown'));
   const res = await _fetchBrandContacts(brand, website, false, locationHint, { localityRequired });
+  // Collapse titles at READ time as well, so already-cached rows written before
+  // the title fix (stacked "... (per news report) (state filing)") also serve a
+  // single clean qualifier, without waiting for a re-search.
+  res.contacts = (res.contacts || []).map((c) => ({ ...c, title: _labelTitle(c.source, c.title) }));
   const withEmail = res.contacts.filter((c) => c.email).length;
   const withPhone = res.contacts.filter((c) => c.phone).length + (res.businessPhone ? 1 : 0);
   const found = res.contacts.length + (res.businessPhone ? 1 : 0) + (res.genericInbox ? 1 : 0);

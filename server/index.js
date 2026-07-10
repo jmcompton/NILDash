@@ -9854,6 +9854,13 @@ Return only 4 plain sentences, one per line, nothing else.`;
   }
 });
 
+// Unknown /api routes must return a JSON 404, not fall through to the SPA
+// catch-all below (which serves index.html with a 200 and masks a removed
+// endpoint, e.g. the deleted /api/admin/websearch-check diagnostic).
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
