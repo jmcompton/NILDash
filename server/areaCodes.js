@@ -75,6 +75,17 @@ const STATE_NAME_TO_ABBR = {
 };
 const _ABBRS = new Set(Object.values(STATE_NAME_TO_ABBR));
 
+// Reverse lookup: 2-letter abbreviation -> Title Case full name (for search copy
+// like "Alabama Secretary of State"). null for unknown / non-state codes.
+const _ABBR_TO_NAME = {};
+for (const [name, abbr] of Object.entries(STATE_NAME_TO_ABBR)) {
+  _ABBR_TO_NAME[abbr] = name.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+function stateName(abbr) {
+  if (!abbr) return null;
+  return _ABBR_TO_NAME[String(abbr).trim().toUpperCase()] || null;
+}
+
 // Normalize a state string (full name or 2-letter) to a 2-letter abbreviation, or
 // null if unrecognized.
 function normalizeState(s) {
@@ -93,4 +104,4 @@ function areaCodeState(phone) {
   return AREA_CODE_STATE[digits.slice(0, 3)] || null;
 }
 
-module.exports = { AREA_CODE_STATE, normalizeState, areaCodeState };
+module.exports = { AREA_CODE_STATE, normalizeState, areaCodeState, stateName };

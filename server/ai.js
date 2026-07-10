@@ -5,7 +5,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal } = require('./benchmarks');
 const store = require('./store');
 const { getSeeds } = require('./dealScanSeeds');
-const { normalizeState, areaCodeState } = require('./areaCodes');
+const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
 
 // Strip em/en dashes from AI-generated natural-language text. The model leans on
 // em dashes heavily; replace them (and surrounding spaces) with a comma so output
@@ -1069,13 +1069,19 @@ function _normalizePhone(p) {
 // for larger brands.
 function _contactAuthorityRank(title) {
   const t = String(title || '').toLowerCase();
+  // Registered agent is often a lawyer or filing service, not a decision maker:
+  // keep it but rank it LAST. Check first so "registered agent" is never caught
+  // by a looser rule below.
+  if (/registered agent/.test(t)) return 9;
   if (/\bowner\b|founder|proprietor|principal|\bceo\b|president/.test(t)) return 0;
   if (/franchis/.test(t)) return 1;
-  if (/general manager|\bgm\b|managing director|\bmanaging\b/.test(t)) return 2;
-  if (/(marketing|brand|partnership|sponsorship)[^.]*(director|vp|vice president|head|chief|lead)|\bcmo\b|director of marketing/.test(t)) return 3;
-  if (/marketing manager|partnerships? (manager|lead|coordinator)|brand manager/.test(t)) return 4;
-  if (/manager|coordinator|specialist/.test(t)) return 5;
-  return 6;
+  // Officers and LLC members named in a state filing rank just under owner.
+  if (/\bofficer\b|\bmember\b|managing member|\bpartner\b|\bdirector\b(?!.*marketing)|\btreasurer\b|\bsecretary\b|incorporator/.test(t)) return 2;
+  if (/general manager|\bgm\b|managing director|\bmanaging\b/.test(t)) return 3;
+  if (/(marketing|brand|partnership|sponsorship)[^.]*(director|vp|vice president|head|chief|lead)|\bcmo\b|director of marketing/.test(t)) return 4;
+  if (/marketing manager|partnerships? (manager|lead|coordinator)|brand manager/.test(t)) return 5;
+  if (/manager|coordinator|specialist/.test(t)) return 6;
+  return 7;
 }
 
 // Resolve a contact's email. TODAY: return ONLY an email literally published for
@@ -1116,69 +1122,129 @@ function _phoneLocalityOk(phone, reportedState, regionState) {
   return { ok: false, reason: 'unconfirmed' }; // cannot confirm -> do not show
 }
 
-// One named-contact web search. Returns { contacts, inbox, phone, status }.
-async function _searchNamedContacts(brand, loc, domain) {
-  const sys = 'You find real, named people to contact at a business using web search. Report ONLY people and details actually published on a real page. Never invent a name, title, email, or phone. Never guess an email from a pattern. Output ONLY one JSON object.';
-  const prompt = `Find the real people an agent should contact at the business "${brand}"${loc ? ` located in ${loc}` : ''}${domain ? ` (website ${domain})` : ''}. Use web search across the business's own site (team, about, contact pages), franchise directories, chamber of commerce listings, local news, and press releases.
-Return 2 to 4 NAMED contacts ranked by decision authority: owner, franchisee, general manager first for a local business; marketing director, marketing manager, partnerships lead first for a larger brand.
-Return ONLY this JSON object:
-{"contacts":[{"name":"","title":"","email":null,"phone":null,"linkedinUrl":null,"sourceUrl":"","confidence":"high|medium"}],"genericInbox":null,"businessPhone":null}
+// The public sources we mine for a named contact, in rough priority order. A
+// small local business rarely has a "Meet the Team" page, but its owner's name
+// is published across several of these. Each is searched in PARALLEL so total
+// per-brand wall time stays close to a single search.
+const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'site'];
+
+// Test seam (see _searchContactSource). Production leaves this null.
+let _contactSearchImpl = null;
+
+// Shared JSON contract + rules appended to every source prompt.
+const _CONTACT_JSON_TAIL = `Return ONLY this JSON object:
+{"contacts":[{"name":"","title":"","email":null,"phone":null,"sourceUrl":"","confidence":"high|medium"}],"businessEmail":null,"businessPhone":null,"city":null,"state":null}
 Rules:
-- name and title are REQUIRED for every contact. Skip anyone whose real name you cannot find.
-- email ONLY if it is literally published on a page for THAT person. NEVER guess or infer an email from a pattern like firstname@domain. Use null when no published personal email exists.
-- phone: a published business or direct line if available, else null.
-- linkedinUrl: only if you actually find their profile.
-- sourceUrl is REQUIRED: the exact page where you found this person.
-- confidence "high" if from the business's own website, "medium" if from a directory or news source.
-- genericInbox: the business's generic inbox (info@, contact@) ONLY if published, else null.
-- businessPhone: the business's main published phone, else null.
-Return {"contacts":[]} if you cannot find real named people. Never fabricate a contact to fill the list.`;
-  let raw = '', status = 'ran';
-  try { raw = await withTimeout(oneShotWebSearch(prompt, sys, 900, 3, 'claude-sonnet-4-6'), 13000, ''); }
-  catch (e) { status = 'error'; }
-  if (status === 'ran' && !raw) status = 'timeout';
-  const contacts = []; let inbox = null, phone = null;
-  if (raw) {
-    let parsed = null;
-    try { const t = raw.replace(/```json/g, '').replace(/```/g, '').trim(); const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a !== -1 && b > a) parsed = JSON.parse(t.substring(a, b + 1)); } catch (_) {}
-    if (parsed && Array.isArray(parsed.contacts)) {
-      for (const c of parsed.contacts) {
-        const name = _cleanStr(c && c.name), title = _cleanStr(c && c.title), sourceUrl = _safeUrl(c && c.sourceUrl);
-        if (!name || !title || !sourceUrl) continue;
-        const { email, emailSource } = await resolveEmail(name, domain, c && c.email);
-        contacts.push({ name, title, email, emailSource, phone: _normalizePhone(c && c.phone), linkedinUrl: _safeUrl(c && c.linkedinUrl), sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium' });
-        if (contacts.length >= 4) break;
-      }
-    }
-    const gi = _validEmail(parsed && parsed.genericInbox);
-    inbox = gi && _isGenericInbox(gi) ? gi : null;
-    phone = _normalizePhone(parsed && parsed.businessPhone);
+- name and title are REQUIRED for every contact. Skip anyone whose real name you cannot find on a real page.
+- title MUST match what the source literally says. NEVER upgrade a title. A registered agent is not an owner. A manager is not an owner.
+- email ONLY if it is literally published on the page FOR THAT person. NEVER guess or infer an email from a pattern like firstname@domain. Use null otherwise.
+- businessEmail: a published email for the BUSINESS itself (not tied to a named person), else null.
+- phone / businessPhone: only a real published number, else null.
+- sourceUrl is REQUIRED for every contact: the exact page where the name appears.
+- confidence "high" from an official government or business-owned page, "medium" from a directory, social page, or news article.
+Return {"contacts":[]} if you find no real named person on a real page. NEVER fabricate anyone to fill the list.`;
+
+function _sourceLead(source, brand, loc, domain, regionState) {
+  const stateFull = stateName(regionState);
+  const where = loc ? ` in ${loc}` : '';
+  switch (source) {
+    case 'registry':
+      return `Search the ${stateFull || 'relevant state'} Secretary of State / business entity registry for the LLC or corporation record of "${brand}"${where}. Try queries like "${brand} ${stateFull || ''} Secretary of State business search" or the state's official business entity search. Extract the officers, members, managers, and the registered agent NAMED in the filing. Label each title EXACTLY as the filing does and add the provenance, e.g. "Registered Agent (state filing)", "Member (state filing)", "Officer (state filing)". Do NOT call a registered agent the owner.`;
+    case 'facebook':
+      return `Search Facebook for the official page of "${brand}"${where} (query "${brand} ${loc || ''} facebook"). From the page's About / contact section, extract any published email as businessEmail (unless the page names the specific person it belongs to), and any person the page names as owner, manager, or contact, with the title exactly as stated.`;
+    case 'maps':
+      return `Find the Google Business Profile, Google Maps, or Yelp listing for "${brand}"${where}. Extract the published phone as businessPhone, the city and state of the listing, and any published email or named contact shown. Confirm this is the ${loc || 'correct'} location, not a same-name business elsewhere.`;
+    case 'news':
+      return `Search local news and press for the owner or founder of "${brand}"${where} (queries "${brand} ${loc || ''} owner", "${brand} founder"). Local articles often write a sentence like "owner Gary Lewis said". Extract the person's name, the title exactly as the article states it plus provenance e.g. "Owner (local news)", and the article URL as sourceUrl.`;
+    case 'chamber':
+      return `Search the local Chamber of Commerce and reputable local business directories for "${brand}"${where}. Extract any principal contact the listing names, with the stated title, and the directory URL as sourceUrl.`;
+    case 'site':
+    default:
+      return `Search the business's OWN website for "${brand}"${where}${domain ? ` (${domain})` : ''}: its team, about, staff, and contact pages. Extract named people with the titles the site states, and any published email or phone.`;
   }
-  return { contacts, inbox, phone, status };
 }
 
-// One business-phone web search. Also returns the published city/state so the
-// locality of the number can be confirmed. Returns { phone, state, inbox, status }.
-async function _searchBusinessPhone(brand, loc, domain) {
-  const sys = "You find a business's published phone number and location using web search. Report ONLY a real published number. Never invent one. Output ONLY one JSON object.";
-  const prompt = `Find the main published business phone number for "${brand}"${loc ? ` in ${loc}` : ''}${domain ? ` (website ${domain})` : ''}. Use web search: their website, Google Business profile, Yelp, or a local directory. Make sure the listing is the ${loc || 'correct'} location, not a same-name business elsewhere.
-Return ONLY JSON: {"phone": string|null, "city": string|null, "state": string|null, "genericInbox": string|null}. Use only a real published number, and the city/state of THAT listing. null for anything you genuinely cannot find. Never invent.`;
+// Ensure an honest provenance label is present for filings and news, matching the
+// spec examples ("Registered Agent (state filing)", "Owner (local news)"). Never
+// changes the role itself, only appends where the source is known.
+function _labelTitle(source, title) {
+  const t = _cleanStr(title);
+  if (!t) return t;
+  if (source === 'registry' && !/filing|registry|secretary of state/i.test(t)) return `${t} (state filing)`;
+  if (source === 'news' && !/\(/.test(t)) return `${t} (local news)`;
+  return t;
+}
+
+// One targeted, single-source web search. Tags every contact with its source and
+// resolves emails (published-only). Returns { source, contacts, inbox,
+// businessPhone, state, status, ms }.
+async function _searchContactSource(source, brand, loc, domain, regionState) {
+  const t0 = Date.now();
+  const sys = 'You find real, named people and published contact details for a specific local business using web search. Report ONLY facts actually published on a real page. Never invent a name, title, email, or phone. Never guess an email from a pattern. Output ONLY one JSON object.';
+  const prompt = `${_sourceLead(source, brand, loc, domain, regionState)}\n${_CONTACT_JSON_TAIL}`;
   let raw = '', status = 'ran';
-  try { raw = await withTimeout(oneShotWebSearch(prompt, sys, 350, 3, 'claude-sonnet-4-6'), 11000, ''); }
+  // Test seam: _contactSearchImpl lets offline tests feed a per-source raw string
+  // without hitting the network. Null in production (uses oneShotWebSearch).
+  const searchFn = _contactSearchImpl || oneShotWebSearch;
+  try { raw = await withTimeout(searchFn(prompt, sys, 700, 2, 'claude-sonnet-4-6', source), 12000, ''); }
   catch (e) { status = 'error'; }
   if (status === 'ran' && !raw) status = 'timeout';
-  let phone = null, state = null, inbox = null;
+  const contacts = []; let inbox = null, businessPhone = null, state = null;
   if (raw) {
-    let pp = null;
-    try { const t = raw.replace(/```json/g, '').replace(/```/g, '').trim(); const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a !== -1 && b > a) pp = JSON.parse(t.substring(a, b + 1)); } catch (_) {}
-    if (pp) {
-      phone = _normalizePhone(pp.phone);
-      state = _cleanStr(pp.state);
-      const g = _validEmail(pp.genericInbox);
-      inbox = g && _isGenericInbox(g) ? g : null;
+    let parsed = null;
+    try { const tx = raw.replace(/```json/g, '').replace(/```/g, '').trim(); const a = tx.indexOf('{'), b = tx.lastIndexOf('}'); if (a !== -1 && b > a) parsed = JSON.parse(tx.substring(a, b + 1)); } catch (_) {}
+    if (parsed) {
+      if (Array.isArray(parsed.contacts)) {
+        for (const c of parsed.contacts) {
+          const name = _cleanStr(c && c.name);
+          const title = _labelTitle(source, c && c.title);
+          const sourceUrl = _safeUrl(c && c.sourceUrl);
+          if (!name || !title || !sourceUrl) continue; // a contact requires name + title + source
+          const rawEmail = c && c.email;
+          const { email, emailSource } = await resolveEmail(name, domain, rawEmail);
+          // A generic email the model attached to a person is not personal; keep it
+          // as the business inbox instead of dropping it.
+          if (!email && _isGenericInbox(rawEmail) && !inbox) inbox = _validEmail(rawEmail);
+          contacts.push({ name, title, email, emailSource, phone: _normalizePhone(c && c.phone), sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium', source });
+        }
+      }
+      // Business-level email: a published address not tied to a named person.
+      const be = _validEmail(parsed.businessEmail);
+      if (!inbox && be) inbox = be;
+      businessPhone = _normalizePhone(parsed.businessPhone);
+      state = _cleanStr(parsed.state) || null;
     }
   }
-  return { phone, state, inbox, status };
+  return { source, contacts, inbox, businessPhone, state, status, ms: Date.now() - t0 };
+}
+
+// Merge contacts found across sources. Dedupe by person; when the same person
+// appears from several sources keep the STRONGEST honestly-stated title (never an
+// upgrade, just the most senior real one) with its own sourceUrl, and fill in a
+// missing email or phone from another source that published one for them.
+function _mergeNameKey(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim();
+}
+function _mergeContacts(all) {
+  const byKey = new Map();
+  for (const c of all) {
+    const key = _mergeNameKey(c.name);
+    if (!key) continue;
+    const ex = byKey.get(key);
+    if (!ex) { byKey.set(key, { ...c }); continue; }
+    if (_contactAuthorityRank(c.title) < _contactAuthorityRank(ex.title)) {
+      const merged = { ...c };
+      merged.email = c.email || ex.email;
+      merged.emailSource = merged.email === (c.email) ? c.emailSource : ex.emailSource;
+      merged.phone = c.phone || ex.phone;
+      byKey.set(key, merged);
+    } else {
+      ex.email = ex.email || c.email;
+      if (!ex.emailSource && c.email) ex.emailSource = c.emailSource;
+      ex.phone = ex.phone || c.phone;
+    }
+  }
+  return [...byKey.values()];
 }
 
 async function _fetchBrandContacts(brand, website, force = false, locationHint = '') {
@@ -1196,41 +1262,61 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   const domain = _domainFromUrl(website);
   const regionState = normalizeState((loc.split(',').pop() || '').trim());
 
-  // Run BOTH searches in parallel — the phone lookup no longer waits on the named
-  // search, so per-brand time is one search, not two.
-  const [namedRes, phoneRes] = await Promise.all([
-    _searchNamedContacts(brand, loc, domain),
-    _searchBusinessPhone(brand, loc, domain),
-  ]);
+  // Mine every public source in PARALLEL. Each source is capped and timed
+  // independently, so total per-brand wall time stays close to one search even
+  // though we now consult six places instead of one.
+  const results = await Promise.all(
+    _CONTACT_SOURCES.map((src) => _searchContactSource(src, brand, loc, domain, regionState))
+  );
+  for (const r of results) {
+    console.log(`[dealScan] contacts brand=${brand} source=${r.source} found=${r.contacts.length} ms=${r.ms}`);
+  }
+  const bySource = {};
+  for (const r of results) bySource[r.source] = r;
 
-  const named = namedRes.contacts.slice();
-  named.sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title));
-  // Drop a named contact's phone if its area code disconfirms the region (keep the
-  // person; a wrong number attached to them is worse than none).
+  // Merge named contacts across sources, then locality-check every phone.
+  let named = _mergeContacts(results.flatMap((r) => r.contacts));
   for (const c of named) {
     if (c.phone && !_phoneLocalityOk(c.phone, null, regionState).ok) c.phone = null;
   }
+  // Rank: owner/founder, then officer/member, GM, marketing, registered agent
+  // last. Prefer a high-confidence source on ties.
+  named.sort((a, b) =>
+    (_contactAuthorityRank(a.title) - _contactAuthorityRank(b.title)) ||
+    ((a.confidence === 'high' ? 0 : 1) - (b.confidence === 'high' ? 0 : 1))
+  );
+  named = named.slice(0, 4);
 
-  let genericInbox = namedRes.inbox || phoneRes.inbox || null;
-  let businessPhone = phoneRes.phone || namedRes.phone || null;
-  let phoneUnconfirmed = false;
-  if (businessPhone) {
-    const chk = _phoneLocalityOk(businessPhone, phoneRes.state, regionState);
-    if (!chk.ok) {
-      console.log(`[dealScan] contacts brand=${brand} phone rejected (${chk.reason}) region=${regionState || 'n/a'}`);
-      businessPhone = null;
-      phoneUnconfirmed = true;
-    }
+  // Business inbox: first published business-level email from any source.
+  let genericInbox = null;
+  for (const src of _CONTACT_SOURCES) { if (bySource[src] && bySource[src].inbox) { genericInbox = bySource[src].inbox; break; } }
+
+  // Business phone: gather every published number (maps first, it carries a
+  // confirmed city/state), then take the first that passes the locality check.
+  const phoneCandidates = [];
+  if (bySource.maps && bySource.maps.businessPhone) phoneCandidates.push({ phone: bySource.maps.businessPhone, state: bySource.maps.state });
+  for (const r of results) { if (r.businessPhone) phoneCandidates.push({ phone: r.businessPhone, state: r.state || null }); }
+  let businessPhone = null, phoneUnconfirmed = false;
+  for (const pc of phoneCandidates) {
+    const chk = _phoneLocalityOk(pc.phone, pc.state, regionState);
+    if (chk.ok) { businessPhone = pc.phone; break; }
+  }
+  if (!businessPhone && phoneCandidates.length) {
+    phoneUnconfirmed = true;
+    console.log(`[dealScan] contacts brand=${brand} phone rejected region=${regionState || 'n/a'}`);
   }
 
+  const anyTimeout = results.some((r) => r.status === 'timeout');
+  const anyError = results.some((r) => r.status === 'error');
+
   const evidence = { kind: 'contacts', contacts: named, genericInbox, businessPhone, phoneUnconfirmed };
-  // Cache whenever we have a usable affordance OR a definitive empty (both
-  // searches ran and found nothing). Never cache a pure transient failure.
+  // Cache whenever we have a usable affordance OR a definitive empty (all sources
+  // ran and found nothing). Never cache a pure transient failure.
   let outcome;
   if (named.length) outcome = 'OK';
   else if (businessPhone || genericInbox) outcome = 'FALLBACK';
-  else if (namedRes.status === 'timeout' || phoneRes.status === 'timeout') outcome = 'TIMEOUT';
-  else if (namedRes.status === 'error' || phoneRes.status === 'error') outcome = 'ERROR';
+  else if (anyTimeout) outcome = 'TIMEOUT';
+  else if (anyError) outcome = 'ERROR';
   else outcome = 'NONE';
   const hasAffordance = named.length || businessPhone || genericInbox;
   if (hasAffordance || outcome === 'NONE') {
@@ -2383,5 +2469,8 @@ module.exports = {
     _buildSocialCard, _buildTopNilCard,
     _isGenericInbox, _validEmail, _normalizePhone, _contactAuthorityRank,
     resolveEmail, _fetchBrandContacts, _contactApproach, getBrandContacts, _phoneLocalityOk,
+    _labelTitle, _mergeContacts, _mergeNameKey, _sourceLead, _CONTACT_SOURCES,
+    _searchContactSource,
+    _setContactSearchImpl: (fn) => { _contactSearchImpl = fn; },
   },
 };
