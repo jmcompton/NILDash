@@ -282,6 +282,45 @@ async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
   return stripEmDashes(text);
 }
 
+// Diagnostic helper: classify the content blocks of a web-search response so we
+// can tell whether the model actually invoked web search or just answered from
+// training. `server_tool_use` (the model calling web_search) and
+// `web_search_tool_result` (the returned results) are the tells.
+function _webSearchBlocks(content) {
+  const blocks = Array.isArray(content) ? content : [];
+  const blockTypes = blocks.map((b) => b && b.type);
+  const text = blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');
+  const usedWebSearch = blockTypes.some((t) => t === 'server_tool_use' || t === 'web_search_tool_result');
+  return { blockTypes, text, usedWebSearch };
+}
+
+// Diagnostic ONLY (admin self-test). Makes ONE live call with the EXACT
+// web_search_20250305 tool config, model, and token cap the contact search uses
+// (_searchContactSource -> oneShotWebSearch). It THROWS on API error so the
+// caller can surface the real exception instead of the search path's silent
+// swallow. This does not touch the search feature.
+async function webSearchSelfTest(query) {
+  const client = getClient();
+  const model = 'claude-sonnet-4-6'; // same model _searchContactSource passes
+  const msg = await client.messages.create({
+    model,
+    max_tokens: 700, // same cap
+    system: 'You are a precise research assistant. Use web search to answer.',
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }], // same tool block
+    messages: [{ role: 'user', content: query || 'Fox Bros Bar-B-Q Atlanta owner' }],
+  });
+  const { blockTypes, text, usedWebSearch } = _webSearchBlocks(msg.content);
+  return {
+    model,
+    usedWebSearch,
+    stopReason: msg.stop_reason || null,
+    blockTypes,
+    rawLen: text.length,
+    sample: text.slice(0, 300),
+    usage: msg.usage || null,
+  };
+}
+
 async function oneShotWithSearch(prompt, systemPrompt) {
   // Skip web search attempt - use high-quality oneShot with rich context instead
   // (web_search tool was causing timeouts on Railway - oneShot with good prompts is more reliable)
@@ -2571,6 +2610,7 @@ module.exports = {
   validTagSubs,
   prewarmDealEvidence,
   getBrandContacts,
+  webSearchSelfTest,
   // Internal evidence helpers exposed for unit tests only.
   _test: {
     _fmtFollowers, _cleanStr, _safeUrl, _primaryFollowers,
@@ -2578,7 +2618,7 @@ module.exports = {
     _buildSocialCard, _buildTopNilCard,
     _isGenericInbox, _validEmail, _normalizePhone, _contactAuthorityRank,
     resolveEmail, _fetchBrandContacts, _contactApproach, getBrandContacts, _phoneLocalityOk,
-    _labelTitle, _mergeContacts, _mergeNameKey, _sourceLead, _CONTACT_SOURCES,
+    _labelTitle, _mergeContacts, _mergeNameKey, _sourceLead, _CONTACT_SOURCES, _webSearchBlocks,
     _searchContactSource,
     _setContactSearchImpl: (fn) => { _contactSearchImpl = fn; },
   },

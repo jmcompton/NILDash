@@ -3128,6 +3128,30 @@ app.get('/api/admin/users', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Diagnostic ONLY (admin). Fires one live web_search call with the exact tool
+// config the contact search uses, and does NOT swallow errors, so we can tell
+// definitively: web search throws (config/enablement), returns without searching
+// (model answered from training), or works fine (then the contact prompt is the
+// problem). Remove once the contacts issue is resolved.
+app.get('/api/admin/websearch-check', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const query = (req.query.q && String(req.query.q)) || 'Fox Bros Bar-B-Q Atlanta owner';
+    const r = await ai.webSearchSelfTest(query);
+    res.json({ ok: true, query, ...r });
+  } catch (e) {
+    // Surface the REAL exception, not a swallowed empty.
+    res.json({
+      ok: false,
+      error: e && e.message ? e.message : String(e),
+      type: (e && (e.type || e.name)) || null,
+      status: (e && e.status) || null,
+      detail: (e && e.error && (e.error.error ? e.error.error.message : e.error.message)) || (e && e.raw && e.raw.message) || null,
+    });
+  }
+});
+
 // ── Admin force delete ───────────────────────────────────────
 app.delete('/api/admin/athlete/:id', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
