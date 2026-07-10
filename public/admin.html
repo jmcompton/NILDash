@@ -172,21 +172,43 @@ function userRowHtml(u) {
   const plan = u.plan || 'free';
   const trialDays = u.trial_ends_at ? Math.ceil((new Date(u.trial_ends_at) - new Date()) / 86400000) : null;
   const planColor = planColorFor(plan);
+  const sub = u.subscription_status || 'inactive';
+  const subColor = (sub === 'active' || sub === 'trialing') ? '#4ade80' : (sub === 'past_due' ? '#f59e0b' : '#6b7280');
+  const comped = u.comped === true;
   return '<tr id="urow-' + u.id + '" style="border-bottom:1px solid rgba(255,255,255,0.06)">' +
     '<td style="padding:10px 12px;font-size:12px;color:#f0ede6">' + (u.name||'—') + '</td>' +
     '<td style="padding:10px 12px;font-size:12px;color:rgba(240,237,230,0.5)">' + u.email + '</td>' +
     '<td style="padding:10px 12px">' +
       '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + planColor + '20;color:' + planColor + ';font-weight:700;text-transform:uppercase">' + plan + '</span>' +
       (trialDays !== null ? '<span style="font-size:10px;color:rgba(240,237,230,0.4);margin-left:6px">' + trialDays + 'd left</span>' : '') +
+      '<br><span style="font-size:9px;color:' + subColor + ';text-transform:uppercase;letter-spacing:0.05em">' + sub + '</span>' +
+      (comped ? '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:#a78bfa20;color:#a78bfa;font-weight:700;margin-left:6px;text-transform:uppercase">Comped</span>' : '') +
     '</td>' +
     '<td style="padding:10px 12px">' +
       '<select onchange="setPlan(\'' + u.id + '\', this.value)" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;font-size:11px;padding:4px 8px">' +
         PLANS.map(p => '<option value="' + p + '"' + (plan===p?' selected':'') + '>' + p + '</option>').join('') +
       '</select>' +
-      (trialDays !== null ? '<span style="font-size:10px;color:rgba(240,237,230,0.4);margin-left:6px">' + trialDays + 'd left</span>' : '') +
+      '<button onclick="setComp(\'' + u.id + '\', ' + (comped ? 'false' : 'true') + ')" style="margin-left:8px;background:' + (comped ? '#a78bfa30' : '#1a1a18') + ';border:1px solid ' + (comped ? '#a78bfa' : 'rgba(255,255,255,0.1)') + ';border-radius:4px;color:' + (comped ? '#a78bfa' : '#f0ede6') + ';font-size:11px;padding:4px 8px;cursor:pointer">' + (comped ? 'Un-comp' : 'Comp') + '</button>' +
     '</td>' +
     '<td style="padding:10px 12px;font-size:11px;color:rgba(240,237,230,0.4)">' + new Date(u.created_at).toLocaleDateString() + '</td>' +
   '</tr>';
+}
+
+async function setComp(userId, comped) {
+  const r = await fetch('/api/admin/set-comp', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ userId, comped })
+  });
+  const data = await r.json();
+  if (data.ok) {
+    showToast(comped ? 'User comped (free access, no card)' : 'Comp removed');
+    const u = _usersById[userId];
+    const row = document.getElementById('urow-' + userId);
+    if (u && row) { u.comped = comped; row.outerHTML = userRowHtml(u); }
+  } else {
+    showToast('Error: ' + (data.error || 'comp update failed'));
+  }
 }
 
 async function loadUsers() {

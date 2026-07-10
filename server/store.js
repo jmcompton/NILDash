@@ -30,6 +30,13 @@ async function init() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'inactive';
+    -- Admin-only comp flag: full access with no card and no charge. Never set by
+    -- signup; only an admin (or the one-time comp seed) can turn this on.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS comped BOOLEAN DEFAULT FALSE;
+    -- New agents must not silently get free-forever access. The old 'beta' default
+    -- was the leak (agentHasAccess used to exempt any non-'free' plan). New rows
+    -- default to 'none'; access now comes from a Stripe trial/subscription or comp.
+    ALTER TABLE users ALTER COLUMN plan SET DEFAULT 'none';
     CREATE TABLE IF NOT EXISTS athletes (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -605,6 +612,23 @@ async function init() {
     }
   } catch (e) {
     console.error('[init] contacts cache purge skipped:', e.message);
+  }
+
+  // One-time comp seed for chosen partners: full access, no card, no charge,
+  // until an admin removes it. Guarded by app_flags so a later manual un-comp is
+  // not undone on the next boot.
+  try {
+    const flag = await pool.query(`SELECT 1 FROM app_flags WHERE key = 'comp_seed_partners_v1'`);
+    if (!flag.rows.length) {
+      const r = await pool.query(
+        `UPDATE users SET comped = TRUE
+           WHERE LOWER(email) IN ('pliablemarketing@gmail.com','rexyfisher@gmail.com')`
+      );
+      await pool.query(`INSERT INTO app_flags (key) VALUES ('comp_seed_partners_v1') ON CONFLICT DO NOTHING`).catch(() => {});
+      console.log(`[init] comp seed: ${r.rowCount || 0} partner account(s) comped (Greg Glynn, Rex Kaplan)`);
+    }
+  } catch (e) {
+    console.error('[init] comp seed skipped:', e.message);
   }
 
   // ── Email Integration Tables (additive — never modifies existing tables) ──

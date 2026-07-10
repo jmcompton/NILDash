@@ -4510,6 +4510,9 @@ async function doSignup() {
     });
     const data = await r.json();
     if (!r.ok) { err.textContent = data.error; return; }
+    // Agent signup returns a Stripe Checkout URL: send them there to enter a card
+    // and start their trial. Access is withheld until the subscription exists.
+    if (data.checkoutUrl) { window.location.href = data.checkoutUrl; return; }
     currentUser = data;
     bootApp();
   } catch(e) { err.textContent = 'Connection error.'; }

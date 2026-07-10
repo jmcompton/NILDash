@@ -148,31 +148,56 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
     const agentUserId = session.metadata && session.metadata.user_id;
     if (agentUserId) {
       try {
+        // Agent signups start in a trial, so land as 'trialing'. The
+        // customer.subscription.* events below keep the status in sync afterward
+        // (trialing -> active -> past_due -> canceled).
         await store.pool.query(
-          `UPDATE users SET stripe_subscription_id = $1, subscription_status = 'active' WHERE id = $2`,
+          `UPDATE users SET stripe_subscription_id = $1, subscription_status = 'trialing' WHERE id = $2`,
           [session.subscription || null, agentUserId]
         );
-        console.log('[stripe-webhook] Activated agent user', agentUserId, 'subscription', session.subscription);
+        console.log('[stripe-webhook] Agent trial started', agentUserId, 'subscription', session.subscription);
       } catch (e) {
         console.error('[stripe-webhook] agent DB update failed:', e.message);
       }
     }
   }
 
-  if (event.type === 'customer.subscription.deleted' || event.type === 'customer.subscription.paused') {
+  // Full subscription lifecycle for AGENT users, keyed by Stripe customer id so it
+  // works no matter which event links the subscription first. sub.status carries
+  // the real state: trialing, active, past_due, canceled, unpaid, incomplete.
+  // agentHasAccess grants only on trialing/active, so every other status blocks.
+  if (event.type === 'customer.subscription.created'
+      || event.type === 'customer.subscription.updated'
+      || event.type === 'customer.subscription.deleted') {
     const sub = event.data.object;
+    const status = event.type === 'customer.subscription.deleted' ? 'canceled' : (sub.status || 'canceled');
     try {
+      await store.pool.query(
+        `UPDATE users SET subscription_status = $1, stripe_subscription_id = COALESCE(stripe_subscription_id, $2)
+           WHERE stripe_customer_id = $3`,
+        [status, sub.id, sub.customer]
+      );
+      console.log('[stripe-webhook] user subscription', sub.id, '->', status);
+    } catch (e) {
+      console.error('[stripe-webhook] user subscription sync failed:', e.message);
+    }
+    // Preserve the existing athlete behavior: only a cancel/pause deactivates.
+    if (event.type === 'customer.subscription.deleted') {
       await store.pool.query(
         `UPDATE athletes SET subscription_status = 'inactive' WHERE stripe_subscription_id = $1`,
         [sub.id]
-      );
-      await store.pool.query(
-        `UPDATE users SET subscription_status = 'inactive' WHERE stripe_subscription_id = $1`,
-        [sub.id]
-      );
-      console.log('[stripe-webhook] Deactivated subscription', sub.id);
+      ).catch((e) => console.error('[stripe-webhook] athlete deactivation failed:', e.message));
+    }
+  }
+
+  if (event.type === 'customer.subscription.paused') {
+    const sub = event.data.object;
+    try {
+      await store.pool.query(`UPDATE athletes SET subscription_status = 'inactive' WHERE stripe_subscription_id = $1`, [sub.id]);
+      await store.pool.query(`UPDATE users SET subscription_status = 'paused' WHERE stripe_subscription_id = $1`, [sub.id]);
+      console.log('[stripe-webhook] Paused subscription', sub.id);
     } catch (e) {
-      console.error('[stripe-webhook] DB deactivation failed:', e.message);
+      console.error('[stripe-webhook] pause sync failed:', e.message);
     }
   }
 
@@ -221,13 +246,16 @@ function isFounderEmail(email) {
 
 function agentHasAccess(user) {
   if (!user) return false;
-  if (isFounderEmail(user.email)) return true;   // founder allowlist (additive, never weakens the checks below)
+  if (isFounderEmail(user.email)) return true;   // founder allowlist
   if (user.role === 'admin') return true;
-  if (user.subscription_status === 'active') return true;
-  // Only brand-new self-signup agents (plan 'free') are gated. Every existing
-  // or comp account keeps access, so your own logins and demos never break.
-  if (user.plan !== 'free') return true;
-  // 7-day free trial for new self-signup agents (no card needed)
+  if (user.comped === true) return true;          // admin comp path: free, no card
+  // Real Stripe subscription drives access. 'trialing' = inside the paid trial
+  // (card already captured, auto-charges at trial end); 'active' = paying.
+  if (user.subscription_status === 'trialing' || user.subscription_status === 'active') return true;
+  // Legacy grace ONLY: an existing local trial that has not yet lapsed keeps its
+  // owner from being cut off mid-stream. New signups no longer get a local trial
+  // (they get a Stripe trial subscription), so this cannot mint free access going
+  // forward. Past this date the user needs a card (subscription) or a comp.
   if (user.trial_ends_at && new Date(user.trial_ends_at) > new Date()) return true;
   return false;
 }
@@ -252,40 +280,58 @@ app.use('/api/intelligence', requireAgentSubscription);
 app.use('/api/reports', requireAgentSubscription);
 
 // ── Agent subscription checkout ──────────────────────────────
-app.post('/api/agent/create-checkout', requireAuth, async (req, res) => {
-  try {
-    const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim();
-    const agentPrice = (process.env.STRIPE_AGENT_PRICE_ID || '').trim();
-    if (!stripeKey || !agentPrice) {
-      return res.status(400).json({ error: 'Stripe is not configured. Set STRIPE_SECRET_KEY and STRIPE_AGENT_PRICE_ID.' });
-    }
-    const stripe = require('stripe')(stripeKey);
-    const appUrl = process.env.APP_URL || 'https://mynildash.com';
-    const user = await store.getUser(req.session.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+// $99/mo agent plan (price set in Stripe via STRIPE_AGENT_PRICE_ID so it can be
+// changed without a deploy) with a card-captured free trial. On day
+// AGENT_TRIAL_DAYS + 1 Stripe auto-charges the card on file. No manual re-subscribe.
+const AGENT_TRIAL_DAYS = parseInt(process.env.STRIPE_AGENT_TRIAL_DAYS, 10) || 7;
+function stripeConfigured() {
+  return !!((process.env.STRIPE_SECRET_KEY || '').trim() && (process.env.STRIPE_AGENT_PRICE_ID || '').trim());
+}
+// Create (or reuse) the agent's Stripe customer and open a trial subscription
+// Checkout session. Card is collected up front even though the trial is free, so
+// the auto-charge at trial end always has a payment method. Returns the URL.
+async function createAgentCheckoutSession(user) {
+  const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim();
+  const agentPrice = (process.env.STRIPE_AGENT_PRICE_ID || '').trim();
+  const stripe = require('stripe')(stripeKey);
+  const appUrl = process.env.APP_URL || 'https://mynildash.com';
 
-    let customerId = user.stripe_customer_id;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        name: user.name || '',
-        metadata: { user_id: user.id },
-      });
-      customerId = customer.id;
-      await store.pool.query('UPDATE users SET stripe_customer_id = $1 WHERE id = $2', [customerId, user.id]);
-    }
-
-    const checkoutSession = await stripe.checkout.sessions.create({
-      customer: customerId,
-      payment_method_types: ['card'],
-      mode: 'subscription',
-      line_items: [{ price: agentPrice, quantity: 1 }],
-      success_url: `${appUrl}/api/agent/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${appUrl}/?subscribe=cancelled`,
+  let customerId = user.stripe_customer_id;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: user.email,
+      name: user.name || '',
       metadata: { user_id: user.id },
     });
+    customerId = customer.id;
+    await store.pool.query('UPDATE users SET stripe_customer_id = $1 WHERE id = $2', [customerId, user.id]);
+  }
 
-    res.json({ url: checkoutSession.url });
+  const checkoutSession = await stripe.checkout.sessions.create({
+    customer: customerId,
+    payment_method_types: ['card'],
+    mode: 'subscription',
+    line_items: [{ price: agentPrice, quantity: 1 }],
+    // Card captured now; the subscription starts in a trial and auto-charges when
+    // it ends. payment_method_collection 'always' forces a card even for a $0 trial.
+    subscription_data: { trial_period_days: AGENT_TRIAL_DAYS },
+    payment_method_collection: 'always',
+    success_url: `${appUrl}/api/agent/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${appUrl}/?subscribe=cancelled`,
+    metadata: { user_id: user.id },
+  });
+  return checkoutSession.url;
+}
+
+app.post('/api/agent/create-checkout', requireAuth, async (req, res) => {
+  try {
+    if (!stripeConfigured()) {
+      return res.status(400).json({ error: 'Stripe is not configured. Set STRIPE_SECRET_KEY and STRIPE_AGENT_PRICE_ID.' });
+    }
+    const user = await store.getUser(req.session.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const url = await createAgentCheckoutSession(user);
+    res.json({ url });
   } catch (e) {
     console.error('[agent-checkout] failed:', e.type || '', e.code || '', e.message, e.raw && e.raw.message ? '| raw: ' + e.raw.message : '');
     res.status(500).json({
@@ -305,11 +351,21 @@ app.get('/api/agent/stripe-complete', requireAuth, async (req, res) => {
       const stripe = require('stripe')(stripeKey);
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       if (session && session.metadata && session.metadata.user_id) {
+        // Store the REAL subscription status (a trial signup lands as 'trialing',
+        // not 'active'). The webhook keeps it in sync afterward; this just grants
+        // access immediately on redirect back so the user is not briefly locked out.
+        let status = 'trialing';
+        try {
+          if (session.subscription) {
+            const sub = await stripe.subscriptions.retrieve(session.subscription);
+            if (sub && sub.status) status = sub.status;
+          }
+        } catch (_) { /* fall back to 'trialing' */ }
         await store.pool.query(
-          `UPDATE users SET subscription_status = 'active',
-             stripe_subscription_id = COALESCE(stripe_subscription_id, $1)
-           WHERE id = $2`,
-          [session.subscription || null, session.metadata.user_id]
+          `UPDATE users SET subscription_status = $1,
+             stripe_subscription_id = COALESCE(stripe_subscription_id, $2)
+           WHERE id = $3`,
+          [status, session.subscription || null, session.metadata.user_id]
         );
       }
     }
@@ -342,13 +398,32 @@ app.post('/api/auth/signup', async (req, res) => {
     createdAt: new Date().toISOString(),
   });
 
-  if (role === 'agent') {
-    const trialEnds = new Date(Date.now() + 7 * 86400000).toISOString();
-    await store.pool.query("UPDATE users SET plan = 'free', trial_ends_at = $2 WHERE id = $1", [id, trialEnds]).catch(() => {});
-  }
-
   req.session.userId = id;
   req.session.role   = role;
+
+  if (role === 'agent') {
+    // New agents no longer get a local "free for 7 days" flag (that never charged
+    // anyone). They must enter a card and start a real Stripe trial subscription
+    // that auto-charges when the trial ends. Access is withheld until that
+    // subscription exists (status trialing/active), enforced by agentHasAccess.
+    if (stripeConfigured()) {
+      try {
+        const checkoutUrl = await createAgentCheckoutSession(user);
+        return res.json({ id: user.id, name: user.name, email: user.email, role: user.role, checkoutUrl });
+      } catch (e) {
+        console.error('[signup] agent checkout failed:', e.message);
+        return res.status(500).json({ error: 'Account created but checkout could not start. Please sign in and subscribe. ' + e.message });
+      }
+    }
+    // DEV ONLY fallback (Stripe not configured): grant a local trial so local and
+    // preview environments still work. Production always has Stripe keys, so this
+    // path never runs there and cannot reintroduce the free-forever leak.
+    console.warn('[signup] Stripe not configured — issuing a local dev trial for agent', id);
+    const trialEnds = new Date(Date.now() + AGENT_TRIAL_DAYS * 86400000).toISOString();
+    await store.pool.query("UPDATE users SET trial_ends_at = $2 WHERE id = $1", [id, trialEnds]).catch(() => {});
+    return res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+  }
+
   res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
 });
 
@@ -3030,11 +3105,25 @@ app.post('/api/admin/set-plan', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// Admin-only comp toggle. A comped user gets full access with no card and no
+// charge until an admin removes it. This is the ONLY way to grant free access;
+// signup can never produce it.
+app.post('/api/admin/set-comp', async (req, res) => {
+  try {
+    const { userId, comped } = req.body;
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    await store.pool.query('UPDATE users SET comped = $1 WHERE id = $2', [comped === true, userId]);
+    res.json({ ok: true, userId, comped: comped === true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/admin/users', async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);
     if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
-    const r = await store.pool.query('SELECT id, name, email, plan, trial_ends_at, created_at FROM users ORDER BY created_at DESC');
+    const r = await store.pool.query('SELECT id, name, email, plan, comped, subscription_status, trial_ends_at, created_at FROM users ORDER BY created_at DESC');
     res.json(r.rows);
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
@@ -6632,7 +6721,7 @@ try {
 // Isolated route module — zero interference with existing routes above.
 try {
   const outreachRoutes = require('./routes/outreach');
-  app.use('/api/outreach', requireAuth, outreachRoutes);
+  app.use('/api/outreach', requireAuth, requireAgentSubscription, outreachRoutes);
 
   // Start follow-up automation poller (fire-and-forget)
   const followUpSvc = require('./services/followUpAutomation');
@@ -8806,7 +8895,7 @@ app.get('/api/agent/home-notices', requireAuth, async (req, res) => {
 });
 
 // POST /api/agent/athlete-media-kit/:athleteId — agent saves an athlete's media kit
-app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res) => {
+app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, requireAgentSubscription, async (req, res) => {
   try {
     const { athleteId } = req.params;
     const athR = await store.pool.query(
@@ -8895,7 +8984,7 @@ function variantRateLead(category, lane) {
   return ['post', 'appearance', 'story', 'reel']; // local business leads with IG Post + appearance
 }
 
-app.post('/api/agent/media-kit/:athleteId/variant', requireAuth, aiLimiter, async (req, res) => {
+app.post('/api/agent/media-kit/:athleteId/variant', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
   try {
     const { athleteId } = req.params;
     const brand = String(req.body.brand || '').trim();
