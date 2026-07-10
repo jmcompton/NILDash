@@ -19,7 +19,20 @@
 
 const crypto = require('crypto');
 const { pool } = require('../store');
-const { oneShot, oneShotWebSearch } = require('../ai');
+const { oneShot, oneShotWebSearch, getBrandContacts } = require('../ai');
+
+// A generic mailbox local-part must never be presented as a named person's
+// address (mirror of the shared rule in ai.js). Used to purge stale cache rows
+// written by the old inferred-info@ path.
+function _looksGeneric(email) {
+  return typeof email === 'string' && /^(info|contact|hello|hi|sales|support|admin|team|marketing|press|media|partnerships?|pr|office|general|inquiries|enquiries|service)@/i.test(email.trim());
+}
+function _contactTypeFromTitle(title) {
+  const t = String(title || '').toLowerCase();
+  if (/partnership|sponsor/.test(t)) return 'partnership';
+  if (/marketing/.test(t)) return 'marketing';
+  return 'general';
+}
 
 // Contact type priority for ranking
 const PRIORITY_MAP = {
@@ -44,10 +57,11 @@ const PRIORITY_MAP = {
  * Returns array of ranked contact records (saved to DB).
  */
 async function discoverContacts(agentId, enrichmentRecord) {
-  // Only trust cached contacts if the best one has a real email. A cached
-  // "no email found" result is stale and useless, so clear it and re-research.
   const existing = await getByEnrichmentId(enrichmentRecord.id);
-  if (existing.length > 0 && existing.some(c => c.email)) {
+  // Purge cache written by the OLD path that inferred info@ or attached a generic
+  // inbox to a named person; otherwise trust the cache.
+  const stale = existing.some((c) => c.source === 'inferred_domain' || (c.name && _looksGeneric(c.email)));
+  if (existing.length > 0 && !stale) {
     logEvent(null, agentId, 'contact_discovery_cache_hit', { enrichmentId: enrichmentRecord.id });
     return existing;
   }
@@ -55,38 +69,43 @@ async function discoverContacts(agentId, enrichmentRecord) {
     await pool.query('DELETE FROM brand_contacts WHERE enrichment_id=$1', [enrichmentRecord.id]).catch(() => {});
   }
 
-  // Run AI discovery
-  const contacts = await runDiscovery(enrichmentRecord);
-
-  // For a local business, the web-researched enrichment may have found the real
-  // best contact email. Prefer it over any role-inferred address so outreach lands
-  // in the right inbox.
-  if (enrichmentRecord.brand_size === 'local' && enrichmentRecord.general_email && contacts.length) {
-    contacts[0].email = enrichmentRecord.general_email;
-    contacts[0].source = 'web_research';
-    if (!contacts[0].confidence_score || contacts[0].confidence_score < 0.6) {
-      contacts[0].confidence_score = 0.6;
-    }
+  // ONE contact system. Use the SAME resolver Deal Scan uses: published personal
+  // emails only, generic inboxes never attached to a person, phones locality
+  // checked, nothing fabricated. No second implementation, no inferred info@.
+  let shared = { contacts: [], businessPhone: null, genericInbox: null };
+  try {
+    shared = await getBrandContacts(enrichmentRecord.brand_name, enrichmentRecord.website || null, enrichmentRecord.location || '', {});
+  } catch (e) {
+    console.error('[contactDiscovery] getBrandContacts failed:', e.message);
   }
 
-  // GUARANTEE a sendable address. If the top contact still has no email but we
-  // know the company's website domain, infer the standard general inbox so the
-  // outreach "To" field is never empty. Low confidence so the agent verifies it.
-  if (contacts.length && !contacts[0].email) {
-    const domain = domainFromWebsite(enrichmentRecord.website);
-    if (domain) {
-      contacts[0].email = `info@${domain}`;
-      contacts[0].source = 'inferred_domain';
-      contacts[0].confidence_score = Math.max(contacts[0].confidence_score || 0, 0.3);
-    }
+  // Build ranked rows: named people first (best when they carry a published
+  // email), then the business phone as a phone-only contact, then the generic
+  // inbox LAST and clearly labeled. A generic inbox is never given a person's name.
+  const rows = [];
+  let rank = 1;
+  for (const c of (shared.contacts || [])) {
+    rows.push({
+      name: c.name, title: c.title,
+      email: c.email || null,           // published personal email, or null; NEVER a generic inbox
+      phone: c.phone || null,
+      linkedin: c.linkedinUrl || null,
+      contact_type: _contactTypeFromTitle(c.title),
+      confidence_score: c.email ? 0.9 : (c.phone ? 0.6 : 0.5),
+      source: c.sourceUrl ? 'published' : 'shared',
+      priority: rank++,
+    });
+  }
+  if (shared.businessPhone && !rows.some((r) => r.phone)) {
+    rows.push({ name: null, title: 'Business line', email: null, phone: shared.businessPhone, linkedin: null, contact_type: 'general', confidence_score: 0.5, source: 'published', priority: 50 });
+  }
+  if (shared.genericInbox) {
+    rows.push({ name: null, title: 'Generic inbox (no named contact)', email: shared.genericInbox, phone: null, linkedin: null, contact_type: 'general', confidence_score: 0.2, source: 'published', priority: 99 });
   }
 
-  // Save and rank
   const saved = [];
-  for (let i = 0; i < contacts.length; i++) {
-    const contact = contacts[i];
+  for (const contact of rows) {
     const id = 'con_' + crypto.randomBytes(8).toString('hex');
-    const priority = PRIORITY_MAP[contact.contact_type] || 10;
     try {
       const r = await pool.query(
         `INSERT INTO brand_contacts (
@@ -98,9 +117,7 @@ async function discoverContacts(agentId, enrichmentRecord) {
           id, enrichmentRecord.id, agentId, enrichmentRecord.brand_name,
           contact.name, contact.title, contact.email, contact.phone,
           contact.linkedin, contact.contact_type,
-          contact.confidence_score || 0,
-          contact.source || 'ai_inference',
-          priority,
+          contact.confidence_score, contact.source, contact.priority,
         ]
       );
       saved.push(r.rows[0]);

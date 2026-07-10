@@ -251,11 +251,23 @@ function renderRunResult(data) {
   const currentBody    = htmlToEditableText(outreach?.body_html || '');
   const outreachId     = outreach?.id;
 
-  // Contact info
-  const contactName  = contact?.name  || 'Partnerships Team';
-  const contactTitle = contact?.title || 'Brand Partnerships';
-  const contactEmail = contact?.email || null;
+  // Contact info — one shared truth with Deal Scan. A named person is only
+  // greeted/emailed by name when they carry a published PERSONAL email; a
+  // generic inbox is never attached to a person and never auto-prefilled.
+  const rawEmail     = contact?.email || null;
+  const emailGeneric = _isGenericInboxFE(rawEmail);
+  const hasName      = !!(contact?.name && contact.name.trim());
+  const contactName  = hasName ? contact.name.trim() : (rawEmail && emailGeneric ? 'General inbox' : 'No named contact found');
+  const contactTitle = contact?.title || (hasName ? 'Contact' : 'No verified decision maker');
+  const contactPhone = contact?.phone || null;
+  // A "personal" email = a real named person's published address, not a generic inbox.
+  const personalEmail = (rawEmail && !emailGeneric && hasName) ? rawEmail : null;
   const confidence   = contact ? Math.round((contact.confidence_score || 0) * 100) : 0;
+  // Rule 5: only prefill To with a trustworthy personal email (confidence >= 60).
+  // A generic inbox or a low-confidence contact never auto-populates the recipient.
+  const prefillTo    = (personalEmail && confidence >= 60) ? personalEmail : '';
+  // Rule 6: when there is a phone and no personal email, calling is the primary move.
+  const phoneFirst   = !!(contactPhone && !prefillTo);
 
   // Deck
   const hasDeck   = !!(deck?.id);
@@ -280,7 +292,11 @@ function renderRunResult(data) {
         </div>
         <div style="font-size:13px;font-weight:600;color:var(--text,#fff)">${escHtml(contactName)}</div>
         <div style="font-size:11px;color:var(--muted,#888)">${escHtml(contactTitle)}</div>
-        ${contactEmail ? `<div style="font-size:11px;color:var(--accent,#84CC16);margin-top:2px">${escHtml(contactEmail)}</div>` : ''}
+        ${personalEmail ? `<div style="font-size:11px;color:var(--accent,#84CC16);margin-top:2px">${escHtml(personalEmail)}</div>` : ''}
+        ${contactPhone ? `<div style="font-size:11px;color:var(--text,#fff);margin-top:2px">📞 <a href="tel:${escHtml(contactPhone.replace(/[^0-9+]/g,''))}" style="color:var(--accent,#84CC16);text-decoration:none">${escHtml(contactPhone)}</a></div>` : ''}
+        ${(!personalEmail && emailGeneric && rawEmail) ? `<div style="font-size:11px;color:var(--muted,#888);margin-top:2px">${escHtml(rawEmail)} <span style="color:var(--muted,#555)">(general inbox, not a person)</span></div>` : ''}
+        ${phoneFirst ? `<div style="font-size:10px;color:var(--muted,#888);margin-top:6px;line-height:1.4">No published personal email. Call ${hasName ? escHtml(contactName.split(' ')[0]) : 'this business'} first, then send the draft below to whoever they point you to.</div>`
+          : (!personalEmail && !contactPhone) ? `<div style="font-size:10px;color:var(--muted,#888);margin-top:6px;line-height:1.4">No verified email or phone found. Use the draft below once you confirm a recipient.</div>` : ''}
         <div style="font-size:10px;color:var(--muted,#555);margin-top:4px">Confidence: ${confidence}%</div>
       </div>
       ${enrichment ? `
@@ -347,21 +363,31 @@ function renderRunResult(data) {
         </div>
         <div style="flex:1;min-width:180px">
           <label style="font-size:10px;color:var(--muted,#888);text-transform:uppercase">To (Contact Email)</label>
-          <input id="outreach-to-email" value="${escHtml(contactEmail || '')}"
-                 placeholder="contact@brand.com"
+          <input id="outreach-to-email" value="${escHtml(prefillTo)}"
+                 placeholder="${prefillTo ? '' : 'Add a verified recipient before sending'}"
                  style="width:100%;margin-top:4px;padding:8px 10px;background:var(--surface,#111);
                         border:1px solid var(--border,#333);border-radius:6px;
                         color:var(--text,#fff);font-size:12px;outline:none;box-sizing:border-box">
+          ${!prefillTo ? `<div style="font-size:10px;color:var(--muted,#888);margin-top:4px;line-height:1.4">${phoneFirst ? 'Left blank on purpose. There is no published personal email, so call first and add the address they give you.' : 'Left blank on purpose. No verified personal email was found. Add one before sending.'}</div>` : ''}
         </div>
       </div>
     </div>
 
     <!-- Actions -->
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      ${phoneFirst ? `
+      <a href="tel:${escHtml(contactPhone.replace(/[^0-9+]/g,''))}"
+         style="padding:10px 24px;background:var(--accent,#84CC16);border:none;border-radius:8px;
+                color:#000;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;
+                text-decoration:none;display:inline-block">
+        📞 Call ${hasName ? escHtml(contactName.split(' ')[0]) : 'the business'} at ${escHtml(contactPhone)}
+      </a>` : ''}
       <button id="outreach-send-btn" onclick="window.outreachEngine.sendOutreach('${outreachId}')"
-              style="padding:10px 24px;background:var(--accent,#84CC16);border:none;border-radius:8px;
-                     color:#000;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0">
-        Send Email →
+              style="padding:10px 24px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;
+                     ${phoneFirst
+                       ? 'background:transparent;border:1px solid var(--border,#333);color:var(--text,#fff)'
+                       : 'background:var(--accent,#84CC16);border:none;color:#000'}">
+        ${phoneFirst ? 'Send Email Draft' : 'Send Email →'}
       </button>
       <button onclick="window.outreachEngine.saveDraft('${outreachId}')"
               style="padding:10px 18px;background:transparent;border:1px solid var(--border,#333);
@@ -506,6 +532,13 @@ function showOutreachToast(msg, isError) {
 
 function escHtml(str) {
   return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Mirror of the shared generic-inbox rule in server/ai.js. A generic mailbox
+// (info@, contact@, sales@, partnerships@, ...) is never a named person's
+// address, so it must never be greeted by name or auto-prefilled as the recipient.
+function _isGenericInboxFE(email) {
+  return typeof email === 'string' && /^(info|contact|hello|hi|sales|support|admin|team|marketing|press|media|partnerships?|pr|office|general|inquiries|enquiries|service)@/i.test(email.trim());
 }
 
 // ── Export ────────────────────────────────────────────────────────────────────

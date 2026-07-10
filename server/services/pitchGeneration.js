@@ -88,7 +88,9 @@ Return ONLY a valid JSON object. No markdown code blocks, no explanation.`;
   const campaignIdeas = safeParseArray(matchScore?.campaign_ideas);
   const partnershipOpps = safeParseArray(matchScore?.partnership_opportunities);
   const contactTitle = contact?.title || 'Brand Partnerships Team';
-  const contactName = contact?.name ? contact.name.split(' ')[0] : null;
+  // Only greet by name when we have a personal email for that named person.
+  // A named contact with only a generic inbox (or no email) must NOT open "Michael,".
+  const contactName = (contact?.name && contact?.email) ? contact.name.split(' ')[0] : null;
 
   // ── Email body instruction — v2 vs legacy ─────────────────────
   const emailBodyInstruction = FEATURE_EMAIL_V2
