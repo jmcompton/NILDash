@@ -5487,6 +5487,37 @@ async function _loadAthleteObjForAI(athleteId) {
   };
 }
 
+// Bounded-concurrency map so a batch of brands does not fire dozens of web
+// searches at once.
+async function _contactsMapLimit(items, limit, fn) {
+  const out = new Array(items.length).fill(null);
+  let i = 0;
+  const worker = async () => { while (true) { const j = i++; if (j >= items.length) return; try { out[j] = await fn(items[j], j); } catch (e) { out[j] = null; } } };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, worker));
+  return out;
+}
+
+// Lazy per-brand contacts for Deal Scan cards. The scan returns cards fast; the
+// UI then asks for the real named people + business phone here (cache-first, so
+// warm brands come back instantly). Batched per lane to keep it to one request.
+async function _brandContactsBatch(req, res) {
+  try {
+    const brands = Array.isArray(req.body && req.body.brands) ? req.body.brands.slice(0, 12) : [];
+    if (!brands.length) return res.json({ results: [] });
+    const results = await _contactsMapLimit(brands, 6, async (b) => {
+      const ctx = { market: b.market || null, isFranchise: b.isFranchise === true, contactApproach: b.approach || null };
+      const out = await ai.getBrandContacts(String(b.brand || ''), b.website || null, b.region || '', ctx);
+      return { brand: b.brand, ...out };
+    });
+    res.json({ results: results.map((r) => r || { contacts: [], genericInbox: null, businessPhone: null, approach: null }) });
+  } catch (e) {
+    console.error('[brand-contacts]', e.message);
+    res.json({ results: [] });
+  }
+}
+app.post('/api/agent/brand-contacts', requireAuth, requireAgentSubscription, aiLimiter, _brandContactsBatch);
+app.post('/api/athlete/brand-contacts', verifyAthleteToken, aiLimiter, _brandContactsBatch);
+
 // POST /api/athlete/deal-pitch — generate a personalized pitch for a brand (preview)
 app.post('/api/athlete/deal-pitch', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {

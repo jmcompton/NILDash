@@ -2917,10 +2917,50 @@ function _dsRenderAll() {
   // Page-level empty state: only when NO lane has ever returned (truly new).
   var emptyEl = document.getElementById('scan-results-empty');
   if (emptyEl) emptyEl.style.display = anyData ? 'none' : '';
+
+  if (anyData) _dsLoadContacts(); // fill contact slots after cards are on screen
 }
 
 // Compact follower formatter for evidence lines: 18400 -> "18.4K".
 function _dsFmtK(n){ n=Number(n)||0; if(n>=1000000) return (n/1000000).toFixed(n%1000000===0?0:1).replace(/\.0$/,'')+'M'; if(n>=1000) return (n/1000).toFixed(n%1000===0?0:1).replace(/\.0$/,'')+'K'; return String(Math.round(n)); }
+
+// Initial contents of a card's contacts slot: the loaded block, or "Finding contact".
+function _dsContactSlotInner(d) {
+  var loaded = d._contactsLoaded || (Array.isArray(d.contacts) && d.contacts.length) || d.businessPhone || d.genericInbox;
+  if (loaded) {
+    var html = _dsContactsHtml(d);
+    if (!html && d.contactApproach) html = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div style="font-size:11px;color:var(--muted);line-height:1.5"><span style="color:var(--text);font-weight:600">Approach:</span> ' + esc(d.contactApproach) + '</div></div>';
+    return html || '';
+  }
+  return '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);display:flex;align-items:center;gap:7px"><span class="ds-lane-spin" style="width:11px;height:11px;flex-shrink:0"></span> Finding contact…</div>';
+}
+
+// Lazily fetch contacts for rendered cards and fill each slot.
+async function _dsLoadContacts() {
+  var cards = window._athleteDealScanResults || [];
+  var pending = [];
+  cards.forEach(function(d, i){ if (d && d.brand && !d._contactsLoaded && !d._contactsLoading) pending.push({ d: d, i: i }); });
+  if (!pending.length) return;
+  pending.forEach(function(p){ p.d._contactsLoading = true; });
+  var payload = { brands: pending.map(function(p){ return { brand: p.d.brand, website: p.d.website || null, region: p.d.region || '', market: p.d.market || null, isFranchise: p.d.isFranchise === true, approach: p.d.contactApproach || null }; }) };
+  try {
+    var r = await fetch('/api/athlete/brand-contacts', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + athleteToken }, body: JSON.stringify(payload) });
+    var data = await r.json();
+    var results = (data && data.results) || [];
+    pending.forEach(function(p, k){
+      var res = results[k] || {};
+      p.d.contacts = res.contacts || [];
+      p.d.genericInbox = res.genericInbox || null;
+      p.d.businessPhone = res.businessPhone || null;
+      if (res.approach) p.d.contactApproach = res.approach;
+      p.d._contactsLoaded = true; p.d._contactsLoading = false;
+      var slot = document.getElementById('dsc-' + p.i);
+      if (slot) slot.innerHTML = _dsContactSlotInner(p.d);
+    });
+  } catch(e) {
+    pending.forEach(function(p){ p.d._contactsLoading = false; });
+  }
+}
 
 // Render the contacts block: real named people first (most senior), then a
 // clearly-labeled generic inbox or an honest phone fallback. Returns '' when the
@@ -3034,10 +3074,8 @@ function _dsCardHtml(d, i, lane, isTop) {
   var laneMeta = _dsLaneMeta[lane] || _dsLaneMeta.local;
   var laneChip = '<span class="ds-lane-chip" style="background:' + laneMeta.chip + '">' + esc(laneMeta.label) + '</span>';
 
-  var contactHtml = _dsContactsHtml(d);
-  if (!contactHtml && d.contactApproach) {
-    contactHtml = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div style="font-size:11px;color:var(--muted);line-height:1.5"><span style="color:var(--text);font-weight:600">Approach:</span> ' + esc(d.contactApproach) + '</div></div>';
-  }
+  // Contacts load lazily after the card renders (keeps the scan fast).
+  var contactHtml = '<div id="dsc-' + i + '">' + _dsContactSlotInner(d) + '</div>';
 
   return '<div style="background:var(--surface2);border:1px solid ' + (isTop ? 'rgba(132,204,22,0.3)' : 'var(--border)') + ';border-radius:12px;padding:15px 16px">' +
     '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">' +
