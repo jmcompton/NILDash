@@ -591,6 +591,22 @@ async function init() {
     console.error('[init] pipeline->deals migration skipped:', e.message);
   }
 
+  // One-time purge of the contacts evidence cache. Rows written before the
+  // widened-source + locality fixes have no version tag and would otherwise serve
+  // stale "named:0, wrong-state phone" results for up to 30 days. Deleting them
+  // forces every brand to re-run the widened search fresh on the next scan.
+  // Guarded by app_flags so it runs exactly once.
+  try {
+    const flag = await pool.query(`SELECT 1 FROM app_flags WHERE key = 'contacts_cache_purge_v2'`);
+    if (!flag.rows.length) {
+      const del = await pool.query(`DELETE FROM brand_evidence_cache WHERE lane = 'contacts'`);
+      await pool.query(`INSERT INTO app_flags (key) VALUES ('contacts_cache_purge_v2') ON CONFLICT DO NOTHING`).catch(() => {});
+      console.log(`[init] contacts cache purge (v2): ${del.rowCount || 0} stale row(s) deleted`);
+    }
+  } catch (e) {
+    console.error('[init] contacts cache purge skipped:', e.message);
+  }
+
   // ── Email Integration Tables (additive — never modifies existing tables) ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_accounts (

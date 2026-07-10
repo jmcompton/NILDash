@@ -9,7 +9,13 @@
 // or brand data.
 //
 // SAFETY
-//  - Everything seeded is fictional. No real athletes, no real brand names.
+//  - Athletes, media kits, pipeline deals and contracts are fully fictional.
+//  - ONE exception, on purpose: the Deal Scan demo cache uses a handful of REAL
+//    local businesses in the demo athletes' Georgia markets (Marietta / Atlanta).
+//    Contact discovery (state registry, local news, Facebook, Google) can only
+//    find a named owner for a business that actually exists, so a fictional brand
+//    would always show an empty contact. The real names are discovered LIVE at
+//    view time; no contact data is hard-coded here.
 //  - All writes are scoped to the demo agent's id. Re-running deletes this
 //    account's prior demo data and recreates it, so the state is always the same
 //    clean baseline. No other account is ever touched.
@@ -308,6 +314,44 @@ async function seedDemo(pool) {
       );
     }
 
+    // ── 8. Deal Scan demo cache — REAL local businesses ───────────────────────
+    // So a screen-share of Deal Scan shows real named contacts. Contact fields
+    // are null ON PURPOSE: the lazy per-brand contact search (state registry,
+    // local news, Facebook, Google Maps) fills the real owner/manager at view
+    // time. Every business here is real and in Jordan's Marietta/Atlanta market,
+    // each region carries a state so the phone locality check runs, and none is
+    // fictional (a fake brand correctly returns no registry/news contact). The
+    // cache hydrates on the GET /deal-scan/cache path, so the cards appear the
+    // moment the demo opens Jordan without spending an API call.
+    const mkCard = (rank, brand, category, region, isFranchise, fitScore, campaign, rationale, matched) => ({
+      rank, brand, tier: 'local', lane: 'local', resultType: 'local', isLocal: true,
+      category, dealType: 'post', campaign, rationale,
+      estimatedValueLow: 250, estimatedValueHigh: 1000,
+      fitScore, market: 'hometown', marketLabel: 'Hometown - Marietta',
+      region, isFranchise, website: null,
+      contactName: null, contactTitle: null, contactEmail: null, contactApproach: null,
+      matchedTags: matched || [], activelyMarketing: true, evidence: null,
+      suggestedRate: { low: 250, high: 1000 }, source: 'web',
+    });
+    const demoScanCards = [
+      mkCard(1, 'D1 Training', 'gym', 'Kennesaw, Georgia', true, 90,
+        'Athlete training ambassador', 'D1 Training runs sport-specific athlete programs and already works with local athletes, so a college guard is a natural ambassador fit.', ['gyms']),
+      mkCard(2, 'Fox Bros Bar-B-Q', 'restaurant', 'Atlanta, Georgia', false, 87,
+        'Game day content series', 'A well-known Atlanta restaurant with a large local following and a history of community sponsorships.', []),
+      mkCard(3, 'Marietta Diner', 'restaurant', 'Marietta, Georgia', false, 85,
+        'Hometown feature', 'An iconic Marietta spot the whole community knows, ideal for a hometown-hero content angle.', []),
+      mkCard(4, 'Ed Voyles Honda', 'auto', 'Marietta, Georgia', false, 83,
+        'Dealership appearance and posts', 'A Marietta dealership that runs steady local advertising and sponsors area sports, a common local NIL spender.', []),
+      mkCard(5, 'Smoothie King', 'nutrition', 'Marietta, Georgia', true, 81,
+        'Recovery smoothie feature', "Matches Jordan's interest in a local smoothie spot and supplements, with an easy on-camera product.", ['smoothies', 'supplements']),
+      mkCard(6, 'Stockyard Burgers & Bones', 'restaurant', 'Marietta, Georgia', false, 79,
+        'Marietta Square post', 'A Marietta Square restaurant with strong local ties for a community-driven post.', []),
+    ];
+    await client.query(
+      `UPDATE athletes SET deal_scan_cache = $1::jsonb WHERE id = $2`,
+      [JSON.stringify({ local: { opportunities: demoScanCards, ts: Date.now() } }), ATH.jordan]
+    );
+
     await client.query('COMMIT');
 
     return {
@@ -323,6 +367,7 @@ async function seedDemo(pool) {
         deals: deals.length,
         kitViews: views.length,
         deliverables: deliverables.length,
+        dealScanCards: demoScanCards.length,
       },
     };
   } catch (e) {

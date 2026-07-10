@@ -1131,6 +1131,11 @@ function _phoneLocalityOk(phone, reportedState, regionState) {
 // per-brand wall time stays close to a single search.
 const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'site'];
 
+// Bump when the contacts pipeline changes shape (widened sources, locality fix,
+// ...). A cached row stamped with an older version is treated as a miss so the
+// current search runs once per brand instead of serving stale pre-change data.
+const _CONTACTS_CACHE_VERSION = 2;
+
 // Test seam (see _searchContactSource). Production leaves this null.
 let _contactSearchImpl = null;
 
@@ -1250,20 +1255,43 @@ function _mergeContacts(all) {
   return [...byKey.values()];
 }
 
-async function _fetchBrandContacts(brand, website, force = false, locationHint = '') {
+async function _fetchBrandContacts(brand, website, force = false, locationHint = '', opts = {}) {
   const loc = _cleanStr(locationHint) || '';
   // Franchise contacts are location-specific (Planet Smoothie Marietta is not
   // Planet Smoothie Atlanta), so the cache key includes the region when known.
   const cacheKey = loc ? `${brand} | ${loc}` : brand;
+  const domain = _domainFromUrl(website);
+  const regionState = normalizeState((loc.split(',').pop() || '').trim());
+  const localityRequired = !!(opts && opts.localityRequired);
+  // Locality gate. With a known region, verify the phone against it. With NO
+  // resolvable region on a LOCAL card we cannot confirm the number is local, so
+  // we reject it (a wrong-state phone is worse than none). National-brand lanes
+  // (no locality requirement) still allow a region-less number.
+  const _localityCheck = (phone, reportedState) => {
+    if (regionState) return _phoneLocalityOk(phone, reportedState, regionState);
+    return localityRequired ? { ok: false, reason: 'no-region (local, unverifiable)' } : { ok: true, reason: 'no-region' };
+  };
+
   if (!force) {
     const cached = await store.getBrandEvidence(cacheKey, 'contacts', 30);
     if (cached) {
       const ev = cached.evidence || {};
-      return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, businessPhone: ev.businessPhone || null, phoneUnconfirmed: !!ev.phoneUnconfirmed, outcome: cached.outcome || 'NONE', cached: true };
+      // Fix 2: a row stamped with an older pipeline version (or none) is treated
+      // as a miss so the widened multi-source search re-runs once for this brand.
+      if (ev.v === _CONTACTS_CACHE_VERSION) {
+        let cphone = ev.businessPhone || null;
+        let cunconf = !!ev.phoneUnconfirmed;
+        // Fix 1: re-validate the cached phone against the CURRENT region. A stale
+        // wrong-state number (cached before the locality fix) must not survive.
+        if (cphone && !_localityCheck(cphone, null).ok) {
+          console.log(`[dealScan] contacts brand=${brand} cached phone rejected on read region=${regionState || 'n/a'}`);
+          cphone = null; cunconf = true;
+        }
+        return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
+      }
+      console.log(`[dealScan] contacts brand=${brand} cache version miss (had v=${ev.v || 'none'}), re-running widened search`);
     }
   }
-  const domain = _domainFromUrl(website);
-  const regionState = normalizeState((loc.split(',').pop() || '').trim());
 
   // Mine the public sources SEQUENTIALLY with early exit. This is the biggest
   // per-scan cost lever: contacts fan out across every brand, so running all six
@@ -1298,7 +1326,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   // Merge named contacts across sources, then locality-check every phone.
   let named = _mergeContacts(results.flatMap((r) => r.contacts));
   for (const c of named) {
-    if (c.phone && !_phoneLocalityOk(c.phone, null, regionState).ok) c.phone = null;
+    if (c.phone && !_localityCheck(c.phone, null).ok) c.phone = null;
   }
   // Rank: owner/founder, then officer/member, GM, marketing, registered agent
   // last. Prefer a high-confidence source on ties.
@@ -1319,7 +1347,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   for (const r of results) { if (r.businessPhone) phoneCandidates.push({ phone: r.businessPhone, state: r.state || null }); }
   let businessPhone = null, phoneUnconfirmed = false;
   for (const pc of phoneCandidates) {
-    const chk = _phoneLocalityOk(pc.phone, pc.state, regionState);
+    const chk = _localityCheck(pc.phone, pc.state);
     if (chk.ok) { businessPhone = pc.phone; break; }
   }
   if (!businessPhone && phoneCandidates.length) {
@@ -1330,7 +1358,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   const anyTimeout = results.some((r) => r.status === 'timeout');
   const anyError = results.some((r) => r.status === 'error');
 
-  const evidence = { kind: 'contacts', contacts: named, genericInbox, businessPhone, phoneUnconfirmed };
+  const evidence = { kind: 'contacts', v: _CONTACTS_CACHE_VERSION, contacts: named, genericInbox, businessPhone, phoneUnconfirmed };
   // Cache whenever we have a usable affordance OR a definitive empty (all sources
   // ran and found nothing). Never cache a pure transient failure.
   let outcome;
@@ -1355,7 +1383,11 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     console.log('[dealScan] contacts brand= found=0 named=0 withEmail=0 withPhone=0 source=SKIPPED');
     return { contacts: [], genericInbox: null, businessPhone: null, approach: null, mapsUrl: null };
   }
-  const res = await _fetchBrandContacts(brand, website, false, locationHint);
+  // Local-lane cards (school / hometown markets) require a locality check on any
+  // phone: a wrong-state number is worse than none. National-brand lanes (social,
+  // topnil) have no market and no locality requirement.
+  const localityRequired = !!(ctx && (ctx.market === 'school' || ctx.market === 'hometown'));
+  const res = await _fetchBrandContacts(brand, website, false, locationHint, { localityRequired });
   const withEmail = res.contacts.filter((c) => c.email).length;
   const withPhone = res.contacts.filter((c) => c.phone).length + (res.businessPhone ? 1 : 0);
   const found = res.contacts.length + (res.businessPhone ? 1 : 0) + (res.genericInbox ? 1 : 0);
@@ -1870,7 +1902,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       market,
       marketLabel: hasHometown ? marketLabelFor(market) : null,
       // Region for the lazy contacts lookup (franchise phone disambiguation).
-      region: market === 'hometown' && hometown ? hometown : `${city}, ${state}`,
+      // ALWAYS carry a state so the contact locality check can run. A hometown
+      // typed without a state falls back to the school's state rather than
+      // leaving the region stateless (which would disable the locality check).
+      region: market === 'hometown' && hometown
+        ? (normalizeState((hometown.split(',').pop() || '').trim()) ? hometown : `${hometown}, ${state}`)
+        : `${city}, ${state}`,
       isFranchise: d.isFranchise === true,
       matchedTags: deriveMatchedTags(d, meta, athleteTagSubs),
       evidence,
