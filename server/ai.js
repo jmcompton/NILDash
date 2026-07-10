@@ -1001,7 +1001,7 @@ function _buildTopNilCard(f, evidence, verdict, outcome, ctx) {
 
   const rationale = hasDeals
     ? stripEmDashes((evidence.typicalProfile || `${deals.length} recent disclosed deal${deals.length > 1 ? 's' : ''} on record`).replace(/\.+$/, '') + '.')
-    : 'No recent disclosed deals found for this brand.';
+    : _nationalContext(f.category);
 
   return {
     brand: f.name,
@@ -1028,6 +1028,72 @@ function _buildTopNilCard(f, evidence, verdict, outcome, ctx) {
     contactName: null,
     contactTitle: 'NIL / Partnerships Team',
     contactLinkedIn: null,
+    estimatedValueLow: valLow,
+    estimatedValueHigh: valHigh,
+    suggestedRate: { low: rate.low, high: rate.high },
+  };
+}
+
+// Honest one-line context for a national brand, by category. Never claims a
+// disclosed deal we do not have; describes what the brand is and that it works
+// with athletes at scale, so the card is useful context, not an apology.
+function _nationalContext(category) {
+  const map = {
+    supplements: 'National supplement brand that runs athlete ambassador and affiliate programs.',
+    nutrition: 'National nutrition brand that partners with college athletes.',
+    apparel: 'National apparel brand that works with college athletes at scale.',
+    energydrink: 'National energy drink brand active in college athlete marketing.',
+    accessories: 'National consumer brand with athlete ambassador programs.',
+    beauty: 'National beauty brand that partners with creators and athletes.',
+    tech: 'National tech brand that runs creator and athlete campaigns.',
+    app: 'National app that partners with student athletes and creators.',
+    finance: 'National brand that runs college athlete NIL programs.',
+    food: 'National food brand that works with college athletes.',
+    retail: 'National retail brand with athlete partnership programs.',
+  };
+  return map[String(category || '').toLowerCase()] || 'National brand that works with college athletes at scale.';
+}
+
+// A "National Brands to Know" card: general context plus any disclosed-deal data
+// we actually have. NEVER carries "no disclosed deals found" text. Contacts load
+// lazily like every other lane, so the card surfaces the named people we do find.
+function _buildNationalBrandCard(f, ctx, athlete, tagSubs, deals) {
+  const { rate, valLow, valHigh } = ctx;
+  const has = Array.isArray(deals) && deals.length > 0;
+  const tp = has ? _deriveTypicalProfile(deals) : null;
+  const matchedTags = deriveMatchedTags({ brand: f.name, category: f.category }, f, tagSubs || []);
+  let score = 62 + Math.min(matchedTags.length, 3) * 6; // 62..80 by tag alignment
+  if (has) score = Math.max(score, 78);                  // real disclosed deals rank stronger
+  score = Math.max(55, Math.min(88, Math.round(score)));
+  const rationale = has
+    ? stripEmDashes(((tp && tp.typicalProfile) || `${deals.length} disclosed deal${deals.length > 1 ? 's' : ''} with athletes on record`).replace(/\.+$/, '') + '.')
+    : _nationalContext(f.category);
+  return {
+    brand: f.name,
+    tier: 'topnil',
+    category: f.category || 'nil',
+    dealType: 'ambassador',
+    campaign: '',
+    rationale,
+    contactApproach: 'Reach their NIL or partnerships team.',
+    timingNote: '',
+    fitScore: score,
+    isLocal: false,
+    resultType: 'topnil',
+    lane: 'topnil',
+    source: f._seed ? 'seed' : 'comp',
+    evidence: has ? { kind: 'deals', deals, typicalProfile: tp && tp.typicalProfile, profileSource: 'comp' } : null,
+    disclosedDeals: has ? deals : [],
+    typicalProfile: has ? (tp && tp.typicalProfile) : null,
+    activelyMarketing: true,
+    website: f.website || null,
+    contactEmail: validateContactEmail(f.email, f.website || null),
+    contactName: null,
+    contactTitle: 'NIL / Partnerships Team',
+    contactLinkedIn: null,
+    region: null,
+    market: null,
+    matchedTags,
     estimatedValueLow: valLow,
     estimatedValueHigh: valHigh,
     suggestedRate: { low: rate.low, high: rate.high },
@@ -1661,13 +1727,17 @@ async function _topnilFromComps(athlete, excludeBrands) {
   const athleteTagSubs = validTagSubs(athlete.tags);
   const _excl = new Set((excludeBrands || []).map((b) => (b || '').toLowerCase().trim()));
 
-  let brands = [];
-  try { brands = await store.getTopNilComps(8, 3); } catch (_) { brands = []; }
-
   const cards = [];
-  for (const b of brands) {
+  const seen = new Set();
+
+  // 1) Brands with REAL disclosed deals from the comp database lead: richest
+  // context. Each still renders as a "brand to know" card, never as an apology.
+  let compBrands = [];
+  try { compBrands = await store.getTopNilComps(6, 3); } catch (_) { compBrands = []; }
+  for (const b of compBrands) {
     const name = String(b.brand || '').trim();
-    if (!name || _excl.has(name.toLowerCase())) continue;
+    const key = name.toLowerCase();
+    if (!name || _excl.has(key) || seen.has(key)) continue;
     const deals = (b.deals || []).map((r) => ({
       athlete: _cleanStr(r.athlete_name),
       sport: _cleanStr(r.sport),
@@ -1677,19 +1747,26 @@ async function _topnilFromComps(athlete, excludeBrands) {
       sourceUrl: _safeUrl(r.source),
       source: 'comp',
     })).filter((d) => d.athlete);
-    if (!deals.length) continue;
-    const { typicalProfile, min, max } = _deriveTypicalProfile(deals);
-    const evidence = { kind: 'deals', deals, typicalProfile, profileSource: 'comp', min, max };
-    const verdict = _topnilVerdict(min, max, athlete);
-    const f = { name, website: null, category: 'nil', email: null, evidence: null, _seed: false };
-    const card = _buildTopNilCard(f, evidence, verdict, 'OK', ctx2);
-    card.matchedTags = deriveMatchedTags({ brand: card.brand, category: card.category, rationale: card.rationale }, f, athleteTagSubs);
-    card.source = 'comp';
-    cards.push(card);
+    seen.add(key);
+    const f = { name, website: null, category: 'nil', email: null, _seed: false };
+    cards.push(_buildNationalBrandCard(f, ctx2, athlete, athleteTagSubs, deals));
   }
+
+  // 2) National seed brands as context cards: what the brand is + that it works
+  // with athletes at scale + the named contacts we find lazily. No web search,
+  // no disclosed-deal claim we do not have. Tag-weighted to the athlete.
+  for (const s of (getSeeds('topnil', tier, athleteTagSubs) || [])) {
+    const name = String(s.name || '').trim();
+    const key = name.toLowerCase();
+    if (!name || _excl.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    const f = { name, website: s.website || null, category: s.category || 'nil', email: s.email || null, _seed: true };
+    cards.push(_buildNationalBrandCard(f, ctx2, athlete, athleteTagSubs, []));
+  }
+
   cards.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-  const out = cards.slice(0, 4).map((c, i) => ({ ...c, rank: i + 1 }));
-  console.log(`[dealScan:topnil] comps-only: ${out.length} card(s) from deal_comps, 0 web searches, in ${Date.now() - _t0}ms`);
+  const out = cards.slice(0, 6).map((c, i) => ({ ...c, rank: i + 1 }));
+  console.log(`[dealScan:topnil] national brands to know: ${out.length} card(s) (${compBrands.length} with disclosed deals), 0 web searches, in ${Date.now() - _t0}ms`);
   return out;
 }
 
