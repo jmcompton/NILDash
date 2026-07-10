@@ -5915,7 +5915,11 @@ async function _dsRunScan(isRefresh) {
     return fetch('/api/agent/deal-scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ athleteId: selectedAthleteId, lane: lane, exclude_brands: exclude })
+      // Refresh MUST bypass the 6h scan cache. Send refresh:true so the backend
+      // re-runs even when exclude_brands is empty (e.g. results were hydrated
+      // from cache and not tracked in _dealScanResults). Without this the refresh
+      // silently returned the cached cards and looked like a dead button.
+      body: JSON.stringify({ athleteId: selectedAthleteId, lane: lane, exclude_brands: exclude, refresh: isRefresh })
     })
       .then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
       .then(function(res){

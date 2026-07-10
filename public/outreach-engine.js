@@ -21,6 +21,7 @@ const OutreachEngineState = {
   pollInterval:   null,
   currentRunData: null,
   currentDealResult: null,
+  athleteId:      null,
 };
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -75,6 +76,7 @@ async function generateOutreach(athleteId, dealResultJson) {
   }
 
   OutreachEngineState.currentDealResult = dealResult;
+  OutreachEngineState.athleteId = athleteId;
   showOutreachModal();
   setModalState('loading', dealResult.brand);
 
@@ -345,6 +347,13 @@ function renderRunResult(data) {
                          resize:vertical;line-height:1.6;box-sizing:border-box;font-family:Arial,sans-serif"
         >${escHtml(currentBody)}</textarea>
       </div>
+      <div id="outreach-mk-row" style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button id="outreach-mk-btn" type="button" disabled
+                style="padding:7px 14px;background:transparent;border:1px solid var(--border,#333);border-radius:6px;color:var(--muted,#888);font-size:12px;cursor:not-allowed;opacity:0.6">
+          Attach media kit
+        </button>
+        <span id="outreach-mk-hint" style="font-size:10px;color:var(--muted,#888)">Checking for a saved media kit…</span>
+      </div>
     </div>
 
     <!-- Send controls -->
@@ -412,6 +421,87 @@ function renderRunResult(data) {
 
   // Load email accounts into the dropdown
   loadEmailAccountsIntoDropdown();
+  // Set up the "Attach media kit" button for this athlete + brand.
+  loadMediaKitAttach(OutreachEngineState.athleteId || (run && run.athlete_id) || null, brand);
+}
+
+// ── Attach media kit ────────────────────────────────────────────────────────────
+// Attaches the athlete's pre-built media kit share link to the email body. Prefers
+// the public share URL (a live, tracked link that fires kit-view tracking when the
+// brand opens it) and a per-brand variant link when one exists. Disabled with a
+// build shortcut when the athlete has no saved kit. Toggle on/off; never forced.
+function _mkBrandSlug(brand) {
+  return String(brand || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+}
+function _mkDisable(btn, hint, tooltip, hintHtml) {
+  if (!btn) return;
+  btn.disabled = true; btn.style.cursor = 'not-allowed'; btn.style.opacity = '0.5';
+  btn.title = tooltip || '';
+  if (hint && hintHtml != null) hint.innerHTML = hintHtml;
+}
+async function loadMediaKitAttach(athleteId, brand) {
+  const btn = document.getElementById('outreach-mk-btn');
+  const hint = document.getElementById('outreach-mk-hint');
+  if (!btn) return;
+  if (!athleteId) { _mkDisable(btn, hint, 'No athlete linked to this outreach.', 'No athlete linked to this outreach.'); return; }
+  let mk = null;
+  try {
+    const r = await fetch('/api/agent/athlete-media-kit/' + encodeURIComponent(athleteId));
+    if (r.ok) { const d = await r.json(); mk = d && d.mediaKit; }
+  } catch (e) { /* fall through to the disabled state */ }
+
+  if (!mk || !mk.slug) {
+    _mkDisable(btn, hint, 'Build a media kit for this athlete first',
+      'No media kit yet. <a href="#" id="outreach-mk-build" style="color:var(--accent,#84CC16);text-decoration:underline">Build one</a>');
+    const build = document.getElementById('outreach-mk-build');
+    if (build) build.onclick = function (e) {
+      e.preventDefault();
+      if (window.outreachEngine) window.outreachEngine.close();
+      if (typeof window.showView === 'function') window.showView('marketing');
+    };
+    return;
+  }
+
+  // Public share URL, preferring a per-brand variant when one exists.
+  const origin = window.location.origin;
+  let variants = mk.variants;
+  if (typeof variants === 'string') { try { variants = JSON.parse(variants); } catch (_) { variants = null; } }
+  const brandSlug = _mkBrandSlug(brand);
+  let url = origin + '/media-kit/' + mk.slug;
+  let label = 'Attach media kit';
+  if (brandSlug && variants && variants[brandSlug]) {
+    url = origin + '/media-kit/' + mk.slug + '?for=' + encodeURIComponent(brandSlug);
+    label = 'Attach media kit for ' + brand;
+  }
+  btn.disabled = false; btn.style.cursor = 'pointer'; btn.style.opacity = '1'; btn.title = '';
+  btn.dataset.url = url; btn.dataset.label = label; btn.dataset.attached = '0';
+  btn.textContent = label;
+  if (hint) hint.textContent = 'Live tracked link, so you see when the brand opens it.';
+  btn.onclick = function () { toggleMediaKitAttach(btn, hint); };
+}
+function toggleMediaKitAttach(btn, hint) {
+  const ta = document.getElementById('outreach-body-input');
+  if (!ta || !btn.dataset.url) return;
+  const line = 'Media kit: ' + btn.dataset.url;
+  const attached = btn.dataset.attached === '1';
+  if (!attached) {
+    ta.value = ta.value.replace(/\s+$/, '') + '\n\n' + line + '\n';
+    btn.dataset.attached = '1';
+    btn.textContent = 'Remove media kit';
+    btn.style.background = 'rgba(132,204,22,0.12)';
+    btn.style.borderColor = 'var(--accent,#84CC16)';
+    btn.style.color = 'var(--accent,#84CC16)';
+    if (hint) hint.textContent = 'Media kit link added to the email.';
+  } else {
+    ta.value = ta.value.split('\n').filter(function (l) { return l.trim() !== line; }).join('\n')
+      .replace(/\n{3,}/g, '\n\n').replace(/\s+$/, '') + '\n';
+    btn.dataset.attached = '0';
+    btn.textContent = btn.dataset.label || 'Attach media kit';
+    btn.style.background = 'transparent';
+    btn.style.borderColor = 'var(--border,#333)';
+    btn.style.color = 'var(--muted,#888)';
+    if (hint) hint.textContent = 'Live tracked link, so you see when the brand opens it.';
+  }
 }
 
 async function loadEmailAccountsIntoDropdown() {
