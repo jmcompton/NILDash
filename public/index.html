@@ -6012,11 +6012,17 @@ function _dsFmtK(n){ n=Number(n)||0; if(n>=1000000) return (n/1000000).toFixed(n
 // Initial contents of a card's contacts slot: the loaded block once contacts
 // have arrived, otherwise a "Finding contact" line.
 function _dsContactSlotInner(d) {
-  var loaded = d._contactsLoaded || (Array.isArray(d.contacts) && d.contacts.length) || d.businessPhone || d.genericInbox;
+  var loaded = d._contactsLoaded || (Array.isArray(d.contacts) && d.contacts.length) || d.businessPhone || d.genericInbox || d.mapsUrl;
   if (loaded) {
     var html = _dsContactsHtml(d);
-    if (!html && d.contactApproach) html = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div style="font-size:11px;color:var(--muted);line-height:1.5"><span style="color:var(--text);font-weight:600">Approach:</span> ' + esc(d.contactApproach) + '</div></div>';
-    return html || '';
+    if (!html) {
+      // Guarantee an affordance: the approach line plus a Google Maps search link.
+      var inner = '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:6px">CONTACT</div>';
+      if (d.contactApproach) inner += '<div style="font-size:11px;color:var(--muted);line-height:1.5">' + esc(d.contactApproach) + '</div>';
+      if (d.mapsUrl) inner += '<a href="' + esc(d.mapsUrl) + '" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:11px;font-weight:700;color:#60a5fa;text-decoration:none">Search on Google Maps</a>';
+      html = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' + inner + '</div>';
+    }
+    return html;
   }
   return '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);display:flex;align-items:center;gap:7px"><span class="ds-lane-spin" style="width:11px;height:11px;flex-shrink:0"></span> Finding contact…</div>';
 }
@@ -6040,6 +6046,7 @@ async function _dsLoadContacts() {
       p.d.contacts = res.contacts || [];
       p.d.genericInbox = res.genericInbox || null;
       p.d.businessPhone = res.businessPhone || null;
+      p.d.mapsUrl = res.mapsUrl || null;
       if (res.approach) p.d.contactApproach = res.approach;
       p.d._contactsLoaded = true; p.d._contactsLoading = false;
       var slot = document.getElementById('dsc-' + p.i);

@@ -5,6 +5,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal } = require('./benchmarks');
 const store = require('./store');
 const { getSeeds } = require('./dealScanSeeds');
+const { normalizeState, areaCodeState } = require('./areaCodes');
 
 // Strip em/en dashes from AI-generated natural-language text. The model leans on
 // em dashes heavily; replace them (and surrounding spaces) with a comma so output
@@ -1098,26 +1099,27 @@ async function resolveEmail(name, domain, publishedEmail) {
 // outcome, cached }. Every contact carries name + title + sourceUrl (a contact
 // without a name is not a contact) and an email ONLY if it was literally
 // published. Never fabricates to fill the list.
-async function _fetchBrandContacts(brand, website, force = false, locationHint = '') {
-  const loc = _cleanStr(locationHint) || '';
-  // Franchise contacts are location-specific (Planet Smoothie Marietta is not
-  // Planet Smoothie Atlanta), so the cache key includes the region when known.
-  const cacheKey = loc ? `${brand} | ${loc}` : brand;
-  if (!force) {
-    const cached = await store.getBrandEvidence(cacheKey, 'contacts', 30);
-    if (cached) {
-      const ev = cached.evidence || {};
-      return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, businessPhone: ev.businessPhone || null, outcome: cached.outcome || 'NONE', cached: true };
-    }
-  }
-  const domain = _domainFromUrl(website);
+// Confirm a phone plausibly belongs to the card's market. A wrong-location number
+// is worse than no number, so we only KEEP a phone we can positively tie to the
+// region: the model-reported state matches, OR the area code is in the region's
+// state. A cross-state area code (e.g. 307 Wyoming for a Georgia card) or a
+// toll-free / unknown code with no confirming state is rejected. When there is no
+// region to check against (national brands), the phone is allowed.
+function _phoneLocalityOk(phone, reportedState, regionState) {
+  if (!regionState) return { ok: true, reason: 'no-region' };
+  const rs = reportedState ? normalizeState(reportedState) : null;
+  const acs = areaCodeState(phone); // state abbr, 'TF' (toll-free), or null
+  if (rs && rs !== regionState) return { ok: false, reason: `reported ${rs}` };
+  if (acs && acs !== 'TF' && acs !== regionState) return { ok: false, reason: `area code ${acs}` };
+  if (rs === regionState) return { ok: true, reason: 'state match' };
+  if (acs === regionState) return { ok: true, reason: 'area code match' };
+  return { ok: false, reason: 'unconfirmed' }; // cannot confirm -> do not show
+}
 
-  // ── Search 1: named contacts (may find people; may time out or come up empty) ─
-  const named = [];
-  let namedInbox = null, namedPhone = null, namedStatus = 'ran';
-  {
-    const sys = 'You find real, named people to contact at a business using web search. Report ONLY people and details actually published on a real page. Never invent a name, title, email, or phone. Never guess an email from a pattern. Output ONLY one JSON object.';
-    const prompt = `Find the real people an agent should contact at the business "${brand}"${loc ? ` located in ${loc}` : ''}${domain ? ` (website ${domain})` : ''}. Use web search across the business's own site (team, about, contact pages), franchise directories, chamber of commerce listings, local news, and press releases.
+// One named-contact web search. Returns { contacts, inbox, phone, status }.
+async function _searchNamedContacts(brand, loc, domain) {
+  const sys = 'You find real, named people to contact at a business using web search. Report ONLY people and details actually published on a real page. Never invent a name, title, email, or phone. Never guess an email from a pattern. Output ONLY one JSON object.';
+  const prompt = `Find the real people an agent should contact at the business "${brand}"${loc ? ` located in ${loc}` : ''}${domain ? ` (website ${domain})` : ''}. Use web search across the business's own site (team, about, contact pages), franchise directories, chamber of commerce listings, local news, and press releases.
 Return 2 to 4 NAMED contacts ranked by decision authority: owner, franchisee, general manager first for a local business; marketing director, marketing manager, partnerships lead first for a larger brand.
 Return ONLY this JSON object:
 {"contacts":[{"name":"","title":"","email":null,"phone":null,"linkedinUrl":null,"sourceUrl":"","confidence":"high|medium"}],"genericInbox":null,"businessPhone":null}
@@ -1131,93 +1133,137 @@ Rules:
 - genericInbox: the business's generic inbox (info@, contact@) ONLY if published, else null.
 - businessPhone: the business's main published phone, else null.
 Return {"contacts":[]} if you cannot find real named people. Never fabricate a contact to fill the list.`;
-    let raw = '';
-    try { raw = await withTimeout(oneShotWebSearch(prompt, sys, 900, 3, 'claude-sonnet-4-6'), 11000, ''); }
-    catch (e) { namedStatus = 'error'; }
-    if (namedStatus === 'ran' && !raw) namedStatus = 'timeout';
-    if (raw) {
-      let parsed = null;
-      try { const t = raw.replace(/```json/g, '').replace(/```/g, '').trim(); const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a !== -1 && b > a) parsed = JSON.parse(t.substring(a, b + 1)); } catch (_) {}
-      if (parsed && Array.isArray(parsed.contacts)) {
-        for (const c of parsed.contacts) {
-          const name = _cleanStr(c && c.name), title = _cleanStr(c && c.title), sourceUrl = _safeUrl(c && c.sourceUrl);
-          if (!name || !title || !sourceUrl) continue; // a real contact needs all three
-          const { email, emailSource } = await resolveEmail(name, domain, c && c.email);
-          named.push({ name, title, email, emailSource, phone: _normalizePhone(c && c.phone), linkedinUrl: _safeUrl(c && c.linkedinUrl), sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium' });
-          if (named.length >= 4) break;
-        }
+  let raw = '', status = 'ran';
+  try { raw = await withTimeout(oneShotWebSearch(prompt, sys, 900, 3, 'claude-sonnet-4-6'), 13000, ''); }
+  catch (e) { status = 'error'; }
+  if (status === 'ran' && !raw) status = 'timeout';
+  const contacts = []; let inbox = null, phone = null;
+  if (raw) {
+    let parsed = null;
+    try { const t = raw.replace(/```json/g, '').replace(/```/g, '').trim(); const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a !== -1 && b > a) parsed = JSON.parse(t.substring(a, b + 1)); } catch (_) {}
+    if (parsed && Array.isArray(parsed.contacts)) {
+      for (const c of parsed.contacts) {
+        const name = _cleanStr(c && c.name), title = _cleanStr(c && c.title), sourceUrl = _safeUrl(c && c.sourceUrl);
+        if (!name || !title || !sourceUrl) continue;
+        const { email, emailSource } = await resolveEmail(name, domain, c && c.email);
+        contacts.push({ name, title, email, emailSource, phone: _normalizePhone(c && c.phone), linkedinUrl: _safeUrl(c && c.linkedinUrl), sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium' });
+        if (contacts.length >= 4) break;
       }
-      const gi = _validEmail(parsed && parsed.genericInbox);
-      namedInbox = gi && _isGenericInbox(gi) ? gi : null;
-      namedPhone = _normalizePhone(parsed && parsed.businessPhone);
+    }
+    const gi = _validEmail(parsed && parsed.genericInbox);
+    inbox = gi && _isGenericInbox(gi) ? gi : null;
+    phone = _normalizePhone(parsed && parsed.businessPhone);
+  }
+  return { contacts, inbox, phone, status };
+}
+
+// One business-phone web search. Also returns the published city/state so the
+// locality of the number can be confirmed. Returns { phone, state, inbox, status }.
+async function _searchBusinessPhone(brand, loc, domain) {
+  const sys = "You find a business's published phone number and location using web search. Report ONLY a real published number. Never invent one. Output ONLY one JSON object.";
+  const prompt = `Find the main published business phone number for "${brand}"${loc ? ` in ${loc}` : ''}${domain ? ` (website ${domain})` : ''}. Use web search: their website, Google Business profile, Yelp, or a local directory. Make sure the listing is the ${loc || 'correct'} location, not a same-name business elsewhere.
+Return ONLY JSON: {"phone": string|null, "city": string|null, "state": string|null, "genericInbox": string|null}. Use only a real published number, and the city/state of THAT listing. null for anything you genuinely cannot find. Never invent.`;
+  let raw = '', status = 'ran';
+  try { raw = await withTimeout(oneShotWebSearch(prompt, sys, 350, 3, 'claude-sonnet-4-6'), 11000, ''); }
+  catch (e) { status = 'error'; }
+  if (status === 'ran' && !raw) status = 'timeout';
+  let phone = null, state = null, inbox = null;
+  if (raw) {
+    let pp = null;
+    try { const t = raw.replace(/```json/g, '').replace(/```/g, '').trim(); const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a !== -1 && b > a) pp = JSON.parse(t.substring(a, b + 1)); } catch (_) {}
+    if (pp) {
+      phone = _normalizePhone(pp.phone);
+      state = _cleanStr(pp.state);
+      const g = _validEmail(pp.genericInbox);
+      inbox = g && _isGenericInbox(g) ? g : null;
     }
   }
+  return { phone, state, inbox, status };
+}
+
+async function _fetchBrandContacts(brand, website, force = false, locationHint = '') {
+  const loc = _cleanStr(locationHint) || '';
+  // Franchise contacts are location-specific (Planet Smoothie Marietta is not
+  // Planet Smoothie Atlanta), so the cache key includes the region when known.
+  const cacheKey = loc ? `${brand} | ${loc}` : brand;
+  if (!force) {
+    const cached = await store.getBrandEvidence(cacheKey, 'contacts', 30);
+    if (cached) {
+      const ev = cached.evidence || {};
+      return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, businessPhone: ev.businessPhone || null, phoneUnconfirmed: !!ev.phoneUnconfirmed, outcome: cached.outcome || 'NONE', cached: true };
+    }
+  }
+  const domain = _domainFromUrl(website);
+  const regionState = normalizeState((loc.split(',').pop() || '').trim());
+
+  // Run BOTH searches in parallel — the phone lookup no longer waits on the named
+  // search, so per-brand time is one search, not two.
+  const [namedRes, phoneRes] = await Promise.all([
+    _searchNamedContacts(brand, loc, domain),
+    _searchBusinessPhone(brand, loc, domain),
+  ]);
+
+  const named = namedRes.contacts.slice();
   named.sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title));
+  // Drop a named contact's phone if its area code disconfirms the region (keep the
+  // person; a wrong number attached to them is worse than none).
+  for (const c of named) {
+    if (c.phone && !_phoneLocalityOk(c.phone, null, regionState).ok) c.phone = null;
+  }
 
-  // ── Search 2: business phone — a SEPARATE, ALWAYS-RUN step that does not depend
-  // on finding a named person. A local business phone is nearly always published,
-  // so the honest fallback ("call and ask for the owner") can always fire. ──
-  let businessPhone = namedPhone;
-  let genericInbox = namedInbox;
-  let phoneStatus = 'skipped';
-  if (!businessPhone) {
-    phoneStatus = 'ran';
-    const psys = "You find a business's published phone number using web search. Report ONLY a real published number. Never invent one. Output ONLY one JSON object.";
-    const pprompt = `Find the main published business phone number for "${brand}"${loc ? ` in ${loc}` : ''}${domain ? ` (website ${domain})` : ''}. Use web search: their website, Google Business profile, Yelp, or a local directory. Return ONLY JSON: {"phone": string|null, "genericInbox": string|null}. Use only a real published number and inbox. null if you genuinely cannot find one. Never invent.`;
-    let praw = '';
-    try { praw = await withTimeout(oneShotWebSearch(pprompt, psys, 300, 2, 'claude-sonnet-4-6'), 8000, ''); }
-    catch (e) { phoneStatus = 'error'; }
-    if (phoneStatus === 'ran' && !praw) phoneStatus = 'timeout';
-    if (praw) {
-      let pp = null;
-      try { const t = praw.replace(/```json/g, '').replace(/```/g, '').trim(); const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a !== -1 && b > a) pp = JSON.parse(t.substring(a, b + 1)); } catch (_) {}
-      if (pp) {
-        businessPhone = _normalizePhone(pp.phone) || businessPhone;
-        if (!genericInbox) { const g = _validEmail(pp.genericInbox); genericInbox = g && _isGenericInbox(g) ? g : null; }
-      }
+  let genericInbox = namedRes.inbox || phoneRes.inbox || null;
+  let businessPhone = phoneRes.phone || namedRes.phone || null;
+  let phoneUnconfirmed = false;
+  if (businessPhone) {
+    const chk = _phoneLocalityOk(businessPhone, phoneRes.state, regionState);
+    if (!chk.ok) {
+      console.log(`[dealScan] contacts brand=${brand} phone rejected (${chk.reason}) region=${regionState || 'n/a'}`);
+      businessPhone = null;
+      phoneUnconfirmed = true;
     }
   }
 
-  const evidence = { kind: 'contacts', contacts: named, genericInbox, businessPhone };
-  // Outcome. Cache whenever we have a usable affordance OR a definitive empty
-  // (both searches ran and found nothing). Do NOT cache a pure transient failure
-  // so a later scan retries.
+  const evidence = { kind: 'contacts', contacts: named, genericInbox, businessPhone, phoneUnconfirmed };
+  // Cache whenever we have a usable affordance OR a definitive empty (both
+  // searches ran and found nothing). Never cache a pure transient failure.
   let outcome;
   if (named.length) outcome = 'OK';
   else if (businessPhone || genericInbox) outcome = 'FALLBACK';
-  else if (namedStatus === 'timeout' || phoneStatus === 'timeout') outcome = 'TIMEOUT';
-  else if (namedStatus === 'error' || phoneStatus === 'error') outcome = 'ERROR';
+  else if (namedRes.status === 'timeout' || phoneRes.status === 'timeout') outcome = 'TIMEOUT';
+  else if (namedRes.status === 'error' || phoneRes.status === 'error') outcome = 'ERROR';
   else outcome = 'NONE';
   const hasAffordance = named.length || businessPhone || genericInbox;
   if (hasAffordance || outcome === 'NONE') {
     await store.saveBrandEvidence(cacheKey, 'contacts', brand, website, evidence, outcome);
   }
-  return { contacts: named, genericInbox, businessPhone, outcome, cached: false };
+  return { contacts: named, genericInbox, businessPhone, phoneUnconfirmed, outcome, cached: false };
 }
 
 // Public wrapper used by the lazy per-brand contacts endpoint. Fetches (cache
 // first), logs the specced per-brand line, and returns the contacts plus a ready
-// "Approach" line that references the real person or the honest phone fallback.
+// "Approach" line and — when there is no person or phone — a Google Maps search
+// URL, so a card is NEVER left with zero contact affordance.
 async function getBrandContacts(brand, website, locationHint, ctx) {
   if (!brand || !String(brand).trim()) {
     console.log('[dealScan] contacts brand= found=0 named=0 withEmail=0 withPhone=0 source=SKIPPED');
-    return { contacts: [], genericInbox: null, businessPhone: null, approach: null };
+    return { contacts: [], genericInbox: null, businessPhone: null, approach: null, mapsUrl: null };
   }
   const res = await _fetchBrandContacts(brand, website, false, locationHint);
   const withEmail = res.contacts.filter((c) => c.email).length;
   const withPhone = res.contacts.filter((c) => c.phone).length + (res.businessPhone ? 1 : 0);
   const found = res.contacts.length + (res.businessPhone ? 1 : 0) + (res.genericInbox ? 1 : 0);
-  const source = res.cached ? 'cache'
-    : res.outcome === 'TIMEOUT' ? 'TIMEOUT'
-    : res.outcome === 'ERROR' ? 'ERROR'
-    : 'web';
+  const source = res.cached ? 'cache' : res.outcome === 'TIMEOUT' ? 'TIMEOUT' : res.outcome === 'ERROR' ? 'ERROR' : 'web';
   console.log(`[dealScan] contacts brand=${brand} found=${found} named=${res.contacts.length} withEmail=${withEmail} withPhone=${withPhone} source=${source}`);
+  const loc = _cleanStr(locationHint) || '';
+  const mapsUrl = (!res.contacts.length && !res.businessPhone)
+    ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(brand + (loc ? ' ' + loc : ''))
+    : null;
   const approach = _contactApproach(ctx || {}, res.contacts[0] || null, res);
-  return { contacts: res.contacts, genericInbox: res.genericInbox, businessPhone: res.businessPhone, approach };
+  return { contacts: res.contacts, genericInbox: res.genericInbox, businessPhone: res.businessPhone, approach, mapsUrl };
 }
 
-// Build the "Approach" guidance line, referencing the real person when we have
-// one. Honest phone fallback when no named contact was found.
+// Build the "Approach" line. References the real person, else the honest phone
+// fallback, else a guaranteed last-resort maps affordance — so it is never null.
 function _contactApproach(card, top, res) {
   if (top) {
     const first = String(top.name).trim().split(/\s+/)[0];
@@ -1232,8 +1278,11 @@ function _contactApproach(card, top, res) {
   if (res && res.businessPhone) {
     return `No named contact found. Call ${res.businessPhone} and ask for the owner or marketing manager.`;
   }
-  // No people and no phone: keep whatever the lane already set (e.g. an apply page).
-  return card.contactApproach || null;
+  // No person and no confirmed phone: always give a next action.
+  if (res && res.phoneUnconfirmed) {
+    return 'A phone was found but could not be confirmed as this location, so it is not shown. Search for this business on Google Maps.';
+  }
+  return 'No contact found. Search for this location on Google Maps.';
 }
 
 
@@ -2333,6 +2382,6 @@ module.exports = {
     _socialVerdict, _topnilVerdict, _deriveTypicalProfile,
     _buildSocialCard, _buildTopNilCard,
     _isGenericInbox, _validEmail, _normalizePhone, _contactAuthorityRank,
-    resolveEmail, _fetchBrandContacts, _contactApproach, getBrandContacts,
+    resolveEmail, _fetchBrandContacts, _contactApproach, getBrandContacts, _phoneLocalityOk,
   },
 };
