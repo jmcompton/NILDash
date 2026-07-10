@@ -282,45 +282,6 @@ async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
   return stripEmDashes(text);
 }
 
-// Diagnostic helper: classify the content blocks of a web-search response so we
-// can tell whether the model actually invoked web search or just answered from
-// training. `server_tool_use` (the model calling web_search) and
-// `web_search_tool_result` (the returned results) are the tells.
-function _webSearchBlocks(content) {
-  const blocks = Array.isArray(content) ? content : [];
-  const blockTypes = blocks.map((b) => b && b.type);
-  const text = blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');
-  const usedWebSearch = blockTypes.some((t) => t === 'server_tool_use' || t === 'web_search_tool_result');
-  return { blockTypes, text, usedWebSearch };
-}
-
-// Diagnostic ONLY (admin self-test). Makes ONE live call with the EXACT
-// web_search_20250305 tool config, model, and token cap the contact search uses
-// (_searchContactSource -> oneShotWebSearch). It THROWS on API error so the
-// caller can surface the real exception instead of the search path's silent
-// swallow. This does not touch the search feature.
-async function webSearchSelfTest(query) {
-  const client = getClient();
-  const model = 'claude-sonnet-4-6'; // same model _searchContactSource passes
-  const msg = await client.messages.create({
-    model,
-    max_tokens: 700, // same cap
-    system: 'You are a precise research assistant. Use web search to answer.',
-    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }], // same tool block
-    messages: [{ role: 'user', content: query || 'Fox Bros Bar-B-Q Atlanta owner' }],
-  });
-  const { blockTypes, text, usedWebSearch } = _webSearchBlocks(msg.content);
-  return {
-    model,
-    usedWebSearch,
-    stopReason: msg.stop_reason || null,
-    blockTypes,
-    rawLen: text.length,
-    sample: text.slice(0, 300),
-    usage: msg.usage || null,
-  };
-}
-
 async function oneShotWithSearch(prompt, systemPrompt) {
   // Skip web search attempt - use high-quality oneShot with rich context instead
   // (web_search tool was causing timeouts on Railway - oneShot with good prompts is more reliable)
@@ -1179,17 +1140,15 @@ const _CONTACTS_CACHE_VERSION = 2;
 let _contactSearchImpl = null;
 
 // Shared JSON contract + rules appended to every source prompt.
-const _CONTACT_JSON_TAIL = `Return ONLY this JSON object:
-{"contacts":[{"name":"","title":"","email":null,"phone":null,"sourceUrl":"","confidence":"high|medium"}],"businessEmail":null,"businessPhone":null,"city":null,"state":null}
+const _CONTACT_JSON_TAIL = `After you finish searching, respond with ONLY a single JSON object and NOTHING else: no prose, no explanation, no citation text, no markdown code fences. If your web search surfaced any named people, you MUST extract EVERY one of them into the contacts array. Do not answer in sentences.
+{"contacts":[{"name":"Full Name","title":"their role","email":null,"phone":null,"sourceUrl":null,"confidence":"high|medium"}],"businessEmail":null,"businessPhone":null,"city":null,"state":null}
 Rules:
-- name and title are REQUIRED for every contact. Skip anyone whose real name you cannot find on a real page.
-- title MUST match what the source literally says. NEVER upgrade a title. A registered agent is not an owner. A manager is not an owner.
-- email ONLY if it is literally published on the page FOR THAT person. NEVER guess or infer an email from a pattern like firstname@domain. Use null otherwise.
-- businessEmail: a published email for the BUSINESS itself (not tied to a named person), else null.
-- phone / businessPhone: only a real published number, else null.
-- sourceUrl is REQUIRED for every contact: the exact page where the name appears.
+- name is REQUIRED for every contact and must be a real person's name your search actually found. title is their role as the source states it (or a short honest descriptor); a registered agent is not an owner, a manager is not an owner, never upgrade a title.
+- email ONLY if literally published for THAT person; never guess from a pattern; else null. phone ONLY if a real published number; else null.
+- sourceUrl: the page you found them on if you have it, else null. A missing URL is fine; still include the person.
+- businessEmail: a published business inbox (not a person), else null. businessPhone: the business main published line, else null.
 - confidence "high" from an official government or business-owned page, "medium" from a directory, social page, or news article.
-Return {"contacts":[]} if you find no real named person on a real page. NEVER fabricate anyone to fill the list.`;
+- NEVER invent a name, title, email, phone, or URL. Return {"contacts":[]} only if your search genuinely found no named person.`;
 
 function _sourceLead(source, brand, loc, domain, regionState) {
   const stateFull = stateName(regionState);
@@ -1224,45 +1183,178 @@ function _labelTitle(source, title) {
 
 // One targeted, single-source web search. Tags every contact with its source and
 // resolves emails (published-only). Returns { source, contacts, inbox,
-// businessPhone, state, status, ms }.
-async function _searchContactSource(source, brand, loc, domain, regionState) {
-  const t0 = Date.now();
-  const sys = 'You find real, named people and published contact details for a specific local business using web search. Report ONLY facts actually published on a real page. Never invent a name, title, email, or phone. Never guess an email from a pattern. Output ONLY one JSON object.';
-  const prompt = `${_sourceLead(source, brand, loc, domain, regionState)}\n${_CONTACT_JSON_TAIL}`;
-  let raw = '', status = 'ran';
-  // Test seam: _contactSearchImpl lets offline tests feed a per-source raw string
-  // without hitting the network. Null in production (uses oneShotWebSearch).
-  const searchFn = _contactSearchImpl || oneShotWebSearch;
-  try { raw = await withTimeout(searchFn(prompt, sys, 700, 2, 'claude-sonnet-4-6', source), 12000, ''); }
-  catch (e) { status = 'error'; }
-  if (status === 'ran' && !raw) status = 'timeout';
-  const contacts = []; let inbox = null, businessPhone = null, state = null;
-  if (raw) {
-    let parsed = null;
-    try { const tx = raw.replace(/```json/g, '').replace(/```/g, '').trim(); const a = tx.indexOf('{'), b = tx.lastIndexOf('}'); if (a !== -1 && b > a) parsed = JSON.parse(tx.substring(a, b + 1)); } catch (_) {}
-    if (parsed) {
-      if (Array.isArray(parsed.contacts)) {
-        for (const c of parsed.contacts) {
-          const name = _cleanStr(c && c.name);
-          const title = _labelTitle(source, c && c.title);
-          const sourceUrl = _safeUrl(c && c.sourceUrl);
-          if (!name || !title || !sourceUrl) continue; // a contact requires name + title + source
-          const rawEmail = c && c.email;
-          const { email, emailSource } = await resolveEmail(name, domain, rawEmail);
-          // A generic email the model attached to a person is not personal; keep it
-          // as the business inbox instead of dropping it.
-          if (!email && _isGenericInbox(rawEmail) && !inbox) inbox = _validEmail(rawEmail);
-          contacts.push({ name, title, email, emailSource, phone: _normalizePhone(c && c.phone), sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium', source });
-        }
-      }
-      // Business-level email: a published address not tied to a named person.
-      const be = _validEmail(parsed.businessEmail);
-      if (!inbox && be) inbox = be;
-      businessPhone = _normalizePhone(parsed.businessPhone);
-      state = _cleanStr(parsed.state) || null;
+// businessPhone, state, status, ms, rawLen, parsed, kept, dropReason }.
+
+// Collect real citation URLs from a web-search response's blocks, so an extracted
+// person gets a valid source link even when the model does not hand-write one.
+function _extractCitationUrls(blocks) {
+  const urls = [];
+  const push = (u) => { const s = _safeUrl(u); if (s && !urls.includes(s)) urls.push(s); };
+  for (const b of (blocks || [])) {
+    if (!b) continue;
+    if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) {
+      for (const it of b.content) if (it && it.url) push(it.url);
+    }
+    if (b.type === 'text' && Array.isArray(b.citations)) {
+      for (const c of b.citations) if (c && c.url) push(c.url);
     }
   }
-  return { source, contacts, inbox, businessPhone, state, status, ms: Date.now() - t0 };
+  return urls;
+}
+
+// One contact web-search call that returns BOTH the text and the citation URLs.
+// (oneShotWebSearch throws away everything but the text, so it cannot give us the
+// real source links.) Throws on API error so the caller can surface it.
+async function _contactWebSearchRaw(prompt, sys) {
+  const client = getClient();
+  scanMeter.bumpWeb();
+  const msg = await client.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 900,
+    system: sys,
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const blocks = Array.isArray(msg.content) ? msg.content : [];
+  const text = stripEmDashes(blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n'));
+  return { text, citations: _extractCitationUrls(blocks) };
+}
+
+// Pull the contacts payload out of a model response. Accepts a JSON object
+// ({contacts:[...], businessPhone, ...}) OR a bare JSON array of contacts, and
+// tolerates markdown fences / surrounding prose. Returns null when no JSON found.
+function _parseContactsPayload(text) {
+  if (!text) return null;
+  const t = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const tryParse = (s) => { try { return JSON.parse(s); } catch (_) { return null; } };
+  const oa = t.indexOf('{'), ob = t.lastIndexOf('}');
+  if (oa !== -1 && ob > oa) {
+    const obj = tryParse(t.substring(oa, ob + 1));
+    if (obj && Array.isArray(obj.contacts)) return { contacts: obj.contacts, businessEmail: obj.businessEmail || null, businessPhone: obj.businessPhone || null, state: obj.state || null };
+    if (obj && !Array.isArray(obj.contacts) && !Array.isArray(obj)) {
+      // Object without a contacts array: still salvage any business fields.
+      const aa2 = t.indexOf('['), ab2 = t.lastIndexOf(']');
+      if (aa2 !== -1 && ab2 > aa2) { const arr = tryParse(t.substring(aa2, ab2 + 1)); if (Array.isArray(arr)) return { contacts: arr, businessEmail: obj.businessEmail || null, businessPhone: obj.businessPhone || null, state: obj.state || null }; }
+      return { contacts: [], businessEmail: obj.businessEmail || null, businessPhone: obj.businessPhone || null, state: obj.state || null };
+    }
+  }
+  const aa = t.indexOf('['), ab = t.lastIndexOf(']');
+  if (aa !== -1 && ab > aa) { const arr = tryParse(t.substring(aa, ab + 1)); if (Array.isArray(arr)) return { contacts: arr, businessEmail: null, businessPhone: null, state: null }; }
+  return null;
+}
+
+// Split a name span that may join people with "and"/"&", handling a shared
+// surname: "Jonathan and Justin Fox" -> ["Jonathan Fox", "Justin Fox"].
+function _splitNames(span) {
+  const parts = String(span || '').split(/\s+(?:and|&)\s+/i).map((s) => s.trim()).filter(Boolean);
+  if (parts.length <= 1) return parts;
+  const lastToks = parts[parts.length - 1].split(/\s+/);
+  const surname = lastToks.length >= 2 ? lastToks[lastToks.length - 1] : null;
+  return parts.map((p) => {
+    const toks = p.split(/\s+/);
+    return (toks.length === 1 && surname) ? `${toks[0]} ${surname}` : p;
+  });
+}
+function _titleFromRole(role) {
+  const r = String(role || '').toLowerCase();
+  if (/co-?own/.test(r)) return 'Co-owner';
+  if (/found/.test(r)) return 'Founder';
+  if (/own|proprietor/.test(r)) return 'Owner'; // owner / owned by / owns
+  if (/president/.test(r)) return 'President';
+  if (/\bceo\b/.test(r)) return 'CEO';
+  if (/general manager/.test(r)) return 'General Manager';
+  if (/manager/.test(r)) return 'Manager';
+  return _cleanStr(role);
+}
+// Last-resort extraction when the model answered in prose despite the JSON
+// instruction. Pulls named people tied to an ownership/leadership role from the
+// real (web-searched) text. Conservative: requires a plausible full name.
+function _extractContactsFromProse(text) {
+  const out = []; const seen = new Set();
+  const plausible = (n) => /^[A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+){1,3}$/.test(n);
+  const add = (rawName, title) => {
+    let n = _cleanStr(rawName);
+    if (n) n = n.replace(/[.,;:]+$/, '').trim(); // strip a trailing sentence period, etc.
+    if (!n || !plausible(n)) return;
+    const k = n.toLowerCase();
+    if (seen.has(k)) return; seen.add(k);
+    out.push({ name: n, title: title || null, email: null, phone: null, sourceUrl: null });
+  };
+  // Role BEFORE the name (includes passive "owned by"): the people are what follows.
+  const ROLE_BEFORE = 'owner|owners|owned by|co-?owner|founder|founders|founded by|president|ceo|proprietor|general manager|manager';
+  // Role AFTER the name (active nouns only). Excludes passive "owned by" so
+  // "Fox Bros. Bar-B-Q is owned by ..." does not grab the BUSINESS as a person.
+  const ROLE_AFTER = 'owner|co-?owner|founder|co-?founder|president|ceo|proprietor|general manager|manager';
+  const roleThenName = new RegExp(`\\b(${ROLE_BEFORE})\\b[:,\\s]+([A-Z][a-zA-Z.'-]+(?:\\s+[A-Z][a-zA-Z.'-]+)*(?:\\s+(?:and|&)\\s+[A-Z][a-zA-Z.'-]+(?:\\s+[A-Z][a-zA-Z.'-]+)*)?)`, 'g');
+  let m;
+  while ((m = roleThenName.exec(text))) _splitNames(m[2]).forEach((nm) => add(nm, _titleFromRole(m[1])));
+  const nameThenRole = new RegExp(`\\b([A-Z][a-zA-Z.'-]+(?:\\s+[A-Z][a-zA-Z.'-]+){1,2}),?\\s+(?:is\\s+)?(?:the\\s+)?(${ROLE_AFTER})\\b`, 'g');
+  while ((m = nameThenRole.exec(text))) add(m[1], _titleFromRole(m[2]));
+  return out;
+}
+
+async function _searchContactSource(source, brand, loc, domain, regionState) {
+  const t0 = Date.now();
+  const sys = 'You research a specific local business with web search, then return ONLY structured JSON about the real people you found. Report ONLY facts published on a real page. Never invent a name, title, email, phone, or URL.';
+  const prompt = `${_sourceLead(source, brand, loc, domain, regionState)}\n${_CONTACT_JSON_TAIL}`;
+
+  // Get the raw text AND the web-search citation URLs. Do NOT swallow the error:
+  // if the call throws (auth, tool, rate limit), record it so the per-source log
+  // shows the real reason instead of a silent empty.
+  let text = '', citations = [], status = 'ran', errMsg = '';
+  try {
+    if (_contactSearchImpl) {
+      // Test seam: may return a raw string, or { text, citations }.
+      const out = await _contactSearchImpl(prompt, sys, 900, 2, 'claude-sonnet-4-6', source);
+      if (out && typeof out === 'object') { text = out.text || ''; citations = out.citations || []; }
+      else { text = out || ''; }
+    } else {
+      const r = await Promise.race([
+        _contactWebSearchRaw(prompt, sys),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout-15s')), 15000)),
+      ]);
+      text = r.text || ''; citations = r.citations || [];
+    }
+  } catch (e) { status = 'error'; errMsg = (e && e.message) || 'error'; }
+  if (status === 'ran' && !text) status = 'empty';
+
+  // Extract: JSON first (object or bare array), then a prose fallback so a
+  // natural-language answer ("owned by Jonathan and Justin Fox") is not lost.
+  const payload = _parseContactsPayload(text);
+  let rawContacts = payload && Array.isArray(payload.contacts) ? payload.contacts : [];
+  let usedProse = false;
+  if (!rawContacts.length && text && status !== 'error') {
+    const prose = _extractContactsFromProse(text);
+    if (prose.length) { rawContacts = prose; usedProse = true; }
+  }
+  const parsedN = rawContacts.length;
+
+  const contacts = []; let inbox = null, businessPhone = null, state = null;
+  let dropReason = '';
+  for (const c of rawContacts) {
+    const name = _cleanStr(c && c.name);
+    if (!name) { dropReason = dropReason || 'no-name'; continue; } // ONLY drop when there is no name
+    const title = _labelTitle(source, c && c.title) || null;      // title may be null; keep anyway
+    // sourceUrl: the model's if it is a clean URL, else the best web-search
+    // citation, else null. A messy or missing URL never drops a real person.
+    let sourceUrl = _safeUrl(c && c.sourceUrl);
+    if (!sourceUrl && citations.length) sourceUrl = citations[0];
+    const rawEmail = c && c.email;
+    const { email, emailSource } = await resolveEmail(name, domain, rawEmail);
+    if (!email && _isGenericInbox(rawEmail) && !inbox) inbox = _validEmail(rawEmail);
+    contacts.push({ name, title, email, emailSource, phone: _normalizePhone(c && c.phone), sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium', source });
+  }
+  const be = _validEmail(payload && payload.businessEmail);
+  if (!inbox && be) inbox = be;
+  businessPhone = _normalizePhone(payload && payload.businessPhone);
+  state = _cleanStr(payload && payload.state) || null;
+  if (!contacts.length && parsedN) dropReason = dropReason || 'validation';
+
+  return {
+    source, contacts, inbox, businessPhone, state, status,
+    ms: Date.now() - t0, rawLen: text.length, parsed: parsedN, kept: contacts.length,
+    dropReason: dropReason || (status === 'error' ? 'error:' + errMsg : ''), usedProse,
+  };
 }
 
 // Merge contacts found across sources. Dedupe by person; when the same person
@@ -1351,7 +1443,9 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
     }
     const r = await _searchContactSource(src, brand, loc, domain, regionState);
     results.push(r);
-    console.log(`[dealScan] contacts brand=${brand} source=${r.source} found=${r.contacts.length} ms=${r.ms}`);
+    // parsed = people extracted from the response; kept = survivors of validation.
+    // parsed>0 kept=0 means the extraction found people but validation dropped them.
+    console.log(`[dealScan] contacts brand=${brand} source=${r.source} rawLen=${r.rawLen} parsed=${r.parsed} kept=${r.kept}${r.dropReason ? ` dropReason=${r.dropReason}` : ''}${r.usedProse ? ' prose=1' : ''} status=${r.status} ms=${r.ms}`);
     const best = _mergeContacts(results.flatMap((x) => x.contacts))
       .sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title))[0];
     if (best && _contactAuthorityRank(best.title) < 9) {
@@ -2610,7 +2704,6 @@ module.exports = {
   validTagSubs,
   prewarmDealEvidence,
   getBrandContacts,
-  webSearchSelfTest,
   // Internal evidence helpers exposed for unit tests only.
   _test: {
     _fmtFollowers, _cleanStr, _safeUrl, _primaryFollowers,
@@ -2618,7 +2711,8 @@ module.exports = {
     _buildSocialCard, _buildTopNilCard,
     _isGenericInbox, _validEmail, _normalizePhone, _contactAuthorityRank,
     resolveEmail, _fetchBrandContacts, _contactApproach, getBrandContacts, _phoneLocalityOk,
-    _labelTitle, _mergeContacts, _mergeNameKey, _sourceLead, _CONTACT_SOURCES, _webSearchBlocks,
+    _labelTitle, _mergeContacts, _mergeNameKey, _sourceLead, _CONTACT_SOURCES,
+    _parseContactsPayload, _extractContactsFromProse, _extractCitationUrls, _splitNames,
     _searchContactSource,
     _setContactSearchImpl: (fn) => { _contactSearchImpl = fn; },
   },
