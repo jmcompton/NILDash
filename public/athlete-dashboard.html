@@ -2829,6 +2829,13 @@ async function _dsRunScan(isRefresh) {
         var opps = (res.ok && res.data && !res.data.error) ? (res.data.opportunities || []) : [];
         if (res.ok && res.data && res.data.rateCard) window._athleteRateCard = res.data.rateCard;
         _dsLaneBusy[lane] = false;
+        // Rate limit: show the clear message, keep any existing results.
+        if (res.data && res.data.error === 'rate_limited') {
+          _dsLaneNote[lane] = res.data.message || 'Deal Scan limit reached. Try again later.';
+          if (!(_dsLaneData[lane] && _dsLaneData[lane].length)) _dsLaneData[lane] = [];
+          _dsRenderAll();
+          return;
+        }
         if (!opps.length) {
           // Nothing new. Keep existing cards if we have them; only show the
           // genuine "No matches" empty state on a brand-new (never-scanned) lane.

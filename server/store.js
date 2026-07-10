@@ -1,5 +1,6 @@
 // server/store.js — PostgreSQL persistent storage
 const { Pool } = require('pg');
+const scanMeter = require('./scanMeter');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -1422,12 +1423,20 @@ async function getMarketCache(cacheKey, ttlDays = 5) {
       `SELECT candidates, fetched_at FROM deal_scan_market_cache
         WHERE cache_key = $1 AND fetched_at > NOW() - ($2 || ' days')::interval`,
       [cacheKey, String(ttlDays)]);
-    if (!r.rows[0]) return null;
-    const candidates = r.rows[0].candidates;
-    if (!Array.isArray(candidates) || candidates.length === 0) return null;
-    return { candidates, fetchedAt: r.rows[0].fetched_at };
+    const row = r.rows[0];
+    const candidates = row && row.candidates;
+    if (!row || !Array.isArray(candidates) || candidates.length === 0) {
+      scanMeter.bumpMiss();
+      console.log(`[cache] READ key=market:${cacheKey} -> MISS`);
+      return null;
+    }
+    const ageH = row.fetched_at ? ((Date.now() - new Date(row.fetched_at).getTime()) / 3.6e6).toFixed(1) : '?';
+    scanMeter.bumpHit();
+    console.log(`[cache] READ key=market:${cacheKey} -> HIT age=${ageH}h`);
+    return { candidates, fetchedAt: row.fetched_at };
   } catch (e) {
-    console.warn('getMarketCache error:', e.message);
+    scanMeter.bumpMiss();
+    console.warn(`[cache] READ key=market:${cacheKey} -> MISS (error ${e.message})`);
     return null;
   }
 }
@@ -1441,10 +1450,12 @@ async function setMarketCache(cacheKey, candidates) {
        ON CONFLICT (cache_key) DO UPDATE SET candidates = $2::jsonb, fetched_at = NOW()`,
       [cacheKey, JSON.stringify(candidates)]);
     // Loud on purpose: a silent write failure is how "cache never hits" hides.
-    console.log(`[dealScan] market cache WRITE ok ${cacheKey} (${candidates.length} candidates)`);
+    scanMeter.bumpWrite();
+    console.log(`[cache] WRITE key=market:${cacheKey} -> ok (${candidates.length} candidates)`);
     return true;
   } catch (e) {
-    console.error(`[dealScan] market cache WRITE FAILED ${cacheKey}:`, e.message);
+    scanMeter.bumpWriteFail();
+    console.error(`[cache] WRITE key=market:${cacheKey} -> FAILED ${e.message}`);
     return false;
   }
 }
@@ -1498,6 +1509,31 @@ async function getCompsByBrand(brand, limit = 3) {
   }
 }
 
+// Top NIL lane, served from deal_comps ONLY (zero web searches). Returns the
+// brands with disclosed deals on record, most recent first, each with up to
+// `dealsPerBrand` of its deals. Empty when deal_comps holds no brand rows, which
+// is the honest state today and correctly renders an empty lane.
+async function getTopNilComps(brandLimit = 8, dealsPerBrand = 3) {
+  try {
+    const bR = await pool.query(`
+      SELECT brand, COUNT(*)::int AS n, MAX(created_at) AS recent
+        FROM deal_comps
+       WHERE brand IS NOT NULL AND btrim(brand) <> ''
+       GROUP BY brand
+       ORDER BY recent DESC NULLS LAST, n DESC
+       LIMIT $1`, [brandLimit]);
+    const out = [];
+    for (const row of bR.rows) {
+      const deals = await getCompsByBrand(row.brand, dealsPerBrand);
+      if (deals.length) out.push({ brand: row.brand, count: row.n, deals });
+    }
+    return out;
+  } catch (e) {
+    console.warn('getTopNilComps error:', e.message);
+    return [];
+  }
+}
+
 // ── Brand-evidence cache (SOCIAL + TOP NIL lanes) ─────────────────────────────
 // Fresh row (refreshed within `maxAgeDays`, default 7) or null. Negative results
 // (outcome NO_EVIDENCE) are cached too, so a brand with no findable program is
@@ -1517,13 +1553,16 @@ async function getBrandEvidence(brandKey, lane, maxAgeDays = 7) {
     const row = r.rows[0] || null;
     if (row) {
       const ageH = row.refreshed_at ? ((Date.now() - new Date(row.refreshed_at).getTime()) / 3.6e6).toFixed(1) : '?';
-      console.log(`[dealScan] evidence cache HIT brand=${key} lane=${lane} age=${ageH}h`);
+      scanMeter.bumpHit();
+      console.log(`[cache] READ key=${lane}:${key} -> HIT age=${ageH}h`);
     } else {
-      console.log(`[dealScan] evidence cache MISS brand=${key} lane=${lane}`);
+      scanMeter.bumpMiss();
+      console.log(`[cache] READ key=${lane}:${key} -> MISS`);
     }
     return row;
   } catch (e) {
-    console.error(`[dealScan] evidence cache ERROR brand=${key} lane=${lane} ${e.message}`);
+    scanMeter.bumpMiss();
+    console.error(`[cache] READ key=${lane}:${key} -> MISS (error ${e.message})`);
     return null;
   }
 }
@@ -1543,9 +1582,11 @@ async function saveBrandEvidence(brandKey, lane, brand, website, evidence, outco
              refreshed_at = NOW()`,
       [key, lane, brand || null, website || null, JSON.stringify(evidence || {}), outcome || null]
     );
-    console.log(`[dealScan] evidence cache WRITE ok brand=${key} lane=${lane} outcome=${outcome || 'null'}`);
+    scanMeter.bumpWrite();
+    console.log(`[cache] WRITE key=${lane}:${key} -> ok (outcome=${outcome || 'null'})`);
   } catch (e) {
-    console.error(`[dealScan] evidence cache WRITE FAILED brand=${key} lane=${lane} ${e.message}`);
+    scanMeter.bumpWriteFail();
+    console.error(`[cache] WRITE key=${lane}:${key} -> FAILED ${e.message}`);
   }
 }
 
@@ -1556,7 +1597,7 @@ module.exports = {
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
   getDeal, getDealsByAthlete, getDealsByAgent, saveDeal, deleteDeal,
   saveComp, getComps, getCompStats, getCompsByBrand,
-  getBrandEvidence, saveBrandEvidence,
+  getBrandEvidence, saveBrandEvidence, getTopNilComps,
   getOnboarding, logWizardEvent, completeWizard, markChecklistItem,
   dismissChecklist, markTooltipSeen, backfillChecklist, getOnboardingAnalytics,
   CHECKLIST_ITEMS,

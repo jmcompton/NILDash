@@ -6,6 +6,7 @@ const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal } = require('./bench
 const store = require('./store');
 const { getSeeds } = require('./dealScanSeeds');
 const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
+const scanMeter = require('./scanMeter');
 
 // Strip em/en dashes from AI-generated natural-language text. The model leans on
 // em dashes heavily; replace them (and surrounding spaces) with a comma so output
@@ -231,6 +232,7 @@ const FEATURE_EMAIL_V2 = true;
 
 async function oneShot(prompt, system, maxTokens, model) {
   const ai = getClient();
+  scanMeter.bumpAi(); // count this billable AI call against the current scan
   const delays = [2000, 5000, 10000];
   const useModel = model || MODEL_STANDARD;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
@@ -264,6 +266,7 @@ async function oneShot(prompt, system, maxTokens, model) {
 // caller's error handling on timeout/failure.
 async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
   const ai = getClient();
+  scanMeter.bumpWeb(); // count this billable web-search call against the current scan
   const msg = await ai.messages.create({
     model: model || MODEL_STANDARD,
     max_tokens: maxTokens || 3000,
@@ -1262,14 +1265,32 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   const domain = _domainFromUrl(website);
   const regionState = normalizeState((loc.split(',').pop() || '').trim());
 
-  // Mine every public source in PARALLEL. Each source is capped and timed
-  // independently, so total per-brand wall time stays close to one search even
-  // though we now consult six places instead of one.
-  const results = await Promise.all(
-    _CONTACT_SOURCES.map((src) => _searchContactSource(src, brand, loc, domain, regionState))
-  );
-  for (const r of results) {
+  // Mine the public sources SEQUENTIALLY with early exit. This is the biggest
+  // per-scan cost lever: contacts fan out across every brand, so running all six
+  // searches for all ten brands was up to sixty web searches per scan. Instead we
+  // stop the moment we have a real decision-maker (owner / officer / GM /
+  // marketing — anything ranked above a bare registered agent) with a source.
+  // A registered-agent-only hit is a lawyer, not a decision maker, so it does NOT
+  // end the search; we keep going (and still keep the agent as a fallback). A
+  // total wall budget guards a pathological brand from running all six long
+  // searches back to back.
+  const CONTACT_WALL_BUDGET_MS = 22000;
+  const _cStart = Date.now();
+  const results = [];
+  for (const src of _CONTACT_SOURCES) {
+    if (results.length && Date.now() - _cStart > CONTACT_WALL_BUDGET_MS) {
+      console.log(`[dealScan] contacts brand=${brand} sequential stop: wall budget after ${results.length} source(s)`);
+      break;
+    }
+    const r = await _searchContactSource(src, brand, loc, domain, regionState);
+    results.push(r);
     console.log(`[dealScan] contacts brand=${brand} source=${r.source} found=${r.contacts.length} ms=${r.ms}`);
+    const best = _mergeContacts(results.flatMap((x) => x.contacts))
+      .sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title))[0];
+    if (best && _contactAuthorityRank(best.title) < 9) {
+      console.log(`[dealScan] contacts brand=${brand} early exit after ${results.length} source(s): ${best.title}`);
+      break;
+    }
   }
   const bySource = {};
   for (const r of results) bySource[r.source] = r;
@@ -1406,16 +1427,11 @@ async function prewarmDealEvidence(opts = {}) {
     await new Promise((res) => setTimeout(res, delayMs));
   }
 
+  // TOP NIL is served from deal_comps only now (no web searches at scan time), so
+  // there is nothing to pre-warm for it. Warming the old topnil evidence cache
+  // would run web searches for a cache the lane no longer reads — pure waste.
   const topnil = uniqBrands(TOPNIL_SEEDS);
-  console.log(`[prewarm] topnil: ${topnil.length} seed brands (force=${force})`);
-  for (const b of topnil) {
-    try {
-      const r = await _fetchTopNilEvidence(b.name, b.website, null, force);
-      bump('topnil', r.outcome);
-      console.log(`[prewarm] topnil brand=${b.name} evidence=${r.outcome}`);
-    } catch (e) { bump('topnil', 'ERROR'); console.warn(`[prewarm] topnil brand=${b.name} error=${e.message}`); }
-    await new Promise((res) => setTimeout(res, delayMs));
-  }
+  console.log('[prewarm] topnil: skipped (lane is served from deal_comps, no web searches)');
 
   // Warm per-brand contacts too (30-day cache), so a scan does not pay a contact
   // web search for common brands. Dedupe across both seed tables.
@@ -1444,6 +1460,57 @@ async function prewarmDealEvidence(opts = {}) {
 // tag-weighted seed floor), then (2) gather STRUCTURED, sourced evidence per
 // brand (an ambassador program for SOCIAL, disclosed-deal precedent for TOP NIL),
 // drop hollow brands, and rank evidence-first. Not tied to the athlete's city.
+// TOP NIL lane, served from deal_comps ONLY — zero web searches, zero AI calls.
+// The lane used to run 3-4 discovery web searches plus a per-brand disclosed-deal
+// search for every brand on every scan, and returned "No recent disclosed deals
+// found" every time because deal_comps has no consumer-brand rows yet. That was
+// pure cost for no value. Now the lane surfaces exactly what the comp database
+// actually knows: brands with real disclosed deals, built into the same card
+// shape. When deal_comps has nothing, the lane is honestly empty.
+async function _topnilFromComps(athlete, excludeBrands) {
+  const _t0 = Date.now();
+  const rate = calculateRate(athlete, 'ig-reel');
+  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
+  const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
+  const sport = athlete.sport || 'football';
+  const valLow  = tier === 'macro' ? 2500 : tier === 'mid' ? 800 : tier === 'micro' ? 250 : 100;
+  const valHigh = tier === 'macro' ? 15000 : tier === 'mid' ? 4000 : tier === 'micro' ? 1000 : 500;
+  const ctx2 = { rate, valLow, valHigh, sport };
+  const athleteTagSubs = validTagSubs(athlete.tags);
+  const _excl = new Set((excludeBrands || []).map((b) => (b || '').toLowerCase().trim()));
+
+  let brands = [];
+  try { brands = await store.getTopNilComps(8, 3); } catch (_) { brands = []; }
+
+  const cards = [];
+  for (const b of brands) {
+    const name = String(b.brand || '').trim();
+    if (!name || _excl.has(name.toLowerCase())) continue;
+    const deals = (b.deals || []).map((r) => ({
+      athlete: _cleanStr(r.athlete_name),
+      sport: _cleanStr(r.sport),
+      followers: (typeof r.followers === 'number' ? r.followers : parseInt(r.followers, 10)) || null,
+      dealType: _cleanStr(r.deal_type),
+      date: r.created_at ? new Date(r.created_at).toISOString().slice(0, 10) : null,
+      sourceUrl: _safeUrl(r.source),
+      source: 'comp',
+    })).filter((d) => d.athlete);
+    if (!deals.length) continue;
+    const { typicalProfile, min, max } = _deriveTypicalProfile(deals);
+    const evidence = { kind: 'deals', deals, typicalProfile, profileSource: 'comp', min, max };
+    const verdict = _topnilVerdict(min, max, athlete);
+    const f = { name, website: null, category: 'nil', email: null, evidence: null, _seed: false };
+    const card = _buildTopNilCard(f, evidence, verdict, 'OK', ctx2);
+    card.matchedTags = deriveMatchedTags({ brand: card.brand, category: card.category, rationale: card.rationale }, f, athleteTagSubs);
+    card.source = 'comp';
+    cards.push(card);
+  }
+  cards.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+  const out = cards.slice(0, 4).map((c, i) => ({ ...c, rank: i + 1 }));
+  console.log(`[dealScan:topnil] comps-only: ${out.length} card(s) from deal_comps, 0 web searches, in ${Date.now() - _t0}ms`);
+  return out;
+}
+
 async function _scanBrandLane(athlete, lane, excludeBrands) {
   const MODEL_DEALSCAN = 'claude-sonnet-4-6';
   const _laneT0 = Date.now();
@@ -1640,7 +1707,12 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane) {
   // shared brand-lane helper. Each lane runs independently so the frontend can
   // fire all three in parallel and render each column progressively.
   lane = lane || 'local';
-  if (lane === 'social' || lane === 'topnil') {
+  // TOP NIL is served from deal_comps only (no web/AI); SOCIAL uses the shared
+  // brand-lane helper. LOCAL falls through to the pipeline below.
+  if (lane === 'topnil') {
+    return _topnilFromComps(athlete, excludeBrands);
+  }
+  if (lane === 'social') {
     return _scanBrandLane(athlete, lane, excludeBrands);
   }
 

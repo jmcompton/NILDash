@@ -15,6 +15,7 @@ const store    = require('./store');
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ai       = require('./ai');
+const scanMeter = require('./scanMeter');
 const { requireUniversityMode } = require('./middleware/modeGuard');
 
 const app  = express();
@@ -5238,6 +5239,58 @@ Never give legal advice but help them understand what questions to ask.`;
   }
 });
 
+// ── Deal Scan cost controls ──────────────────────────────────────────────────
+// A repeat scan of the same athlete+lane within this window returns the SAVED
+// result with zero API calls. Agents re-open the same athlete constantly, so this
+// is the single biggest lever on API spend. Only an explicit Refresh bypasses it.
+const SCAN_CACHE_TTL_MS = (parseInt(process.env.DEAL_SCAN_CACHE_HOURS, 10) || 6) * 3600 * 1000;
+// Per-user backstop against a runaway loop draining the account. Configurable;
+// only FRESH (billable) scans count, cache hits are free.
+const SCAN_MAX_PER_HOUR = parseInt(process.env.DEAL_SCAN_MAX_PER_HOUR, 10) || 10;
+const SCAN_MAX_PER_DAY  = parseInt(process.env.DEAL_SCAN_MAX_PER_DAY, 10) || 40;
+const _scanHits = new Map(); // userKey -> [timestamps ms] of fresh scans (last 24h)
+
+function _scanRateCheck(userKey) {
+  const now = Date.now();
+  const arr = (_scanHits.get(userKey) || []).filter((t) => t > now - 86400e3);
+  const inHour = arr.filter((t) => t > now - 3600e3).length;
+  if (inHour >= SCAN_MAX_PER_HOUR) return { ok: false, scope: 'hour', limit: SCAN_MAX_PER_HOUR };
+  if (arr.length >= SCAN_MAX_PER_DAY) return { ok: false, scope: 'day', limit: SCAN_MAX_PER_DAY };
+  return { ok: true };
+}
+function _scanRateRecord(userKey) {
+  const now = Date.now();
+  const arr = (_scanHits.get(userKey) || []).filter((t) => t > now - 86400e3);
+  arr.push(now);
+  _scanHits.set(userKey, arr);
+}
+// A repeat scan is a Refresh (bypass cache) when the client explicitly asks, or
+// when it excludes already-shown brands (the Refresh button's top-up behavior).
+function _isScanRefresh(body) {
+  return !!(body && (body.refresh === true || (Array.isArray(body.exclude_brands) && body.exclude_brands.length > 0)));
+}
+async function _getFreshScanCache(athleteId, lane) {
+  try {
+    const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id=$1', [athleteId]);
+    const c = r.rows[0] && r.rows[0].deal_scan_cache;
+    const lanec = c && c[lane];
+    if (lanec && Array.isArray(lanec.opportunities) && lanec.opportunities.length
+        && typeof lanec.ts === 'number' && (Date.now() - lanec.ts) < SCAN_CACHE_TTL_MS) {
+      return lanec;
+    }
+  } catch (_) { /* fall through to a live scan */ }
+  return null;
+}
+function _logScanCost(lane, meter, totalMs, servedFromCache) {
+  const m = meter || { webSearches: 0, aiCalls: 0, cacheHits: 0, cacheMisses: 0 };
+  console.log(`[dealScan] COST lane=${lane} webSearches=${m.webSearches} aiCalls=${m.aiCalls} cacheHits=${m.cacheHits} cacheMisses=${m.cacheMisses} totalMs=${totalMs}${servedFromCache ? ' servedFromCache=1' : ''}`);
+}
+function _rateLimitedScanMessage(rl) {
+  const per = rl.scope === 'hour' ? 'hour' : 'day';
+  const when = rl.scope === 'hour' ? 'in a little while' : 'tomorrow';
+  return `You have reached the Deal Scan limit of ${rl.limit} scans per ${per}. Your saved results are still available. Open a recent scan, or run a new one ${when}.`;
+}
+
 // Shared helper: build the athleteObj shape ai.getDealRecommendations() expects.
 // Also returns agentId for ownership checks in the agent endpoint.
 async function loadDealScanAthlete(athleteId) {
@@ -5303,8 +5356,32 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
       return res.status(400).json({ error: 'Invalid lane. Must be one of: local, social, topnil.' });
     }
     const lane = req.body.lane || 'local';
+    const _scanT0 = Date.now();
     console.log(`[athlete/deal-scan] athlete=${req.athlete.id} lane=${lane} name=${athleteObj.name} sport=${athleteObj.sport} school=${athleteObj.school}`);
-    let recommendations = await ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands, lane);
+
+    // 6h result cache: a repeat scan within the window is free unless Refresh.
+    if (!_isScanRefresh(req.body)) {
+      const fresh = await _getFreshScanCache(req.athlete.id, lane);
+      if (fresh) {
+        const cache = rederiveScanCacheTags({ [lane]: fresh }, athleteObj.tags);
+        const rateCard = await _athleteRateCard(req.athlete.id);
+        _logScanCost(lane, null, Date.now() - _scanT0, true);
+        return res.json({ opportunities: cache[lane].opportunities, lane, rateCard, cached: true });
+      }
+    }
+    // Rate-limit the billable path (a runaway loop backstop). Cache hits above are free.
+    const _rlKey = 'athlete:' + req.athlete.id;
+    const rl = _scanRateCheck(_rlKey);
+    if (!rl.ok) {
+      _logScanCost(lane, null, Date.now() - _scanT0, false);
+      return res.status(429).json({ error: 'rate_limited', scope: rl.scope, limit: rl.limit, message: _rateLimitedScanMessage(rl) });
+    }
+    _scanRateRecord(_rlKey);
+
+    const { result: _recs, meter: _meter } = await scanMeter.run(
+      () => ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands, lane)
+    );
+    let recommendations = _recs;
     // Unconditional matchedTags derivation at the route boundary (same as the
     // agent route): every lane, every source, right before persist/response.
     const _tagSubs = ai.validTagSubs(athleteObj.tags);
@@ -5326,6 +5403,7 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
       ).catch(e => console.error('[athlete/deal-scan] cache persist:', e.message));
     }
     const rateCard = await _athleteRateCard(req.athlete.id);
+    _logScanCost(lane, _meter, Date.now() - _scanT0, false);
     res.json({ opportunities: recommendations, lane, rateCard });
   } catch (e) { console.error('[athlete/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
@@ -5357,20 +5435,46 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     }
     const validLane = lane || 'local';
     const excludeBrands = Array.isArray(exclude_brands) ? exclude_brands : [];
-    let recommendations = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
-    // Keep Refresh full: if excluding shown brands leaves a thin lane, top up from a no-exclude
-    // run, newest first, de-duped, up to TARGET so lanes don't shrink on repeated refreshes.
-    // Lane targets: Local is primary (8-10), Social shows up to 6, Top NIL up to 4.
-    const TARGET = validLane === 'local' ? 8 : validLane === 'social' ? 6 : 4;
-    if (recommendations.length < TARGET && excludeBrands.length) {
-      const fresh = await ai.getDealRecommendations(loaded.athleteObj, 'agent', [], validLane);
-      const seen = new Set(recommendations.map(r => (r.brand || '').toLowerCase()));
-      for (const f of (fresh || [])) {
-        if (recommendations.length >= TARGET) break;
-        const key = (f.brand || '').toLowerCase();
-        if (key && !seen.has(key)) { seen.add(key); recommendations.push(f); }
+    const _scanT0 = Date.now();
+
+    // 6h result cache: re-opening the same athlete+lane is free unless Refresh.
+    if (!_isScanRefresh(req.body)) {
+      const fresh = await _getFreshScanCache(athleteId, validLane);
+      if (fresh) {
+        const cache = rederiveScanCacheTags({ [validLane]: fresh }, loaded.athleteObj.tags);
+        const rateCard = await _athleteRateCard(athleteId);
+        _logScanCost(validLane, null, Date.now() - _scanT0, true);
+        return res.json({ opportunities: cache[validLane].opportunities, lane: validLane, rateCard, cached: true });
       }
     }
+    // Rate-limit the billable path (runaway-loop backstop). Cache hits are free.
+    const _rlKey = 'agent:' + req.session.userId;
+    const rl = _scanRateCheck(_rlKey);
+    if (!rl.ok) {
+      _logScanCost(validLane, null, Date.now() - _scanT0, false);
+      return res.status(429).json({ error: 'rate_limited', scope: rl.scope, limit: rl.limit, message: _rateLimitedScanMessage(rl) });
+    }
+    _scanRateRecord(_rlKey);
+
+    // Lane targets: Local is primary (8-10), Social shows up to 6, Top NIL up to 4.
+    const TARGET = validLane === 'local' ? 8 : validLane === 'social' ? 6 : 4;
+    const { result: recommendationsRaw, meter: _meter } = await scanMeter.run(async () => {
+      let recs = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
+      // Keep Refresh full: if excluding shown brands leaves a thin lane, top up
+      // from a no-exclude run, newest first, de-duped, so lanes don't shrink on
+      // repeated refreshes.
+      if (recs.length < TARGET && excludeBrands.length) {
+        const fresh = await ai.getDealRecommendations(loaded.athleteObj, 'agent', [], validLane);
+        const seen = new Set(recs.map((r) => (r.brand || '').toLowerCase()));
+        for (const f of (fresh || [])) {
+          if (recs.length >= TARGET) break;
+          const key = (f.brand || '').toLowerCase();
+          if (key && !seen.has(key)) { seen.add(key); recs.push(f); }
+        }
+      }
+      return recs;
+    });
+    let recommendations = recommendationsRaw;
     // Unconditional matchedTags derivation at the route boundary, applied to
     // the final array for EVERY lane and EVERY source (web, knowledge,
     // fallback). This is the single spot every scan response passes through,
@@ -5396,6 +5500,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     }
     const rateCard = await _athleteRateCard(athleteId);
     checkOff(req.session.userId, 'deal_scan'); // Getting Started checklist
+    _logScanCost(validLane, _meter, Date.now() - _scanT0, false);
     res.json({ opportunities: recommendations, lane: validLane, rateCard });
   } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
