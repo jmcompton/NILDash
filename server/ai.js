@@ -1176,9 +1176,15 @@ function _sourceLead(source, brand, loc, domain, regionState) {
 function _labelTitle(source, title) {
   const t = _cleanStr(title);
   if (!t) return t;
-  if (source === 'registry' && !/filing|registry|secretary of state/i.test(t)) return `${t} (state filing)`;
-  if (source === 'news' && !/\(/.test(t)) return `${t} (local news)`;
-  return t;
+  // Collapse to a single clean qualifier. The model sometimes hands back a title
+  // that already carries one or more parentheticals ("Owner (operator, per news
+  // report)"), and blindly appending a source tag stacked them
+  // ("... (state filing)"). Strip ALL parentheticals down to the core role, then
+  // add ONE provenance qualifier for the source that surfaced this contact.
+  const core = t.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim() || t;
+  if (source === 'registry') return `${core} (state filing)`;
+  if (source === 'news') return `${core} (per news)`;
+  return core; // facebook / maps / chamber / site: the stated role stands alone
 }
 
 // One targeted, single-source web search. Tags every contact with its source and
