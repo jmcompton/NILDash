@@ -6007,6 +6007,55 @@ function _dsFmtK(n){ n=Number(n)||0; if(n>=1000000) return (n/1000000).toFixed(n
 // Render the evidence block for the SOCIAL (ambassador program) and TOP NIL
 // (disclosed deal precedent) lanes. Every claim traces to a source: an Apply /
 // program link for social, a "from disclosed deal data" tag or a source link per
+// Render the contacts block: real named people first (most senior), then a
+// clearly-labeled generic inbox or an honest phone fallback. Returns '' when the
+// card carries no contact data at all (the caller then shows the Approach line
+// alone). info@ never appears as a primary contact; a made-up email never
+// appears at all (the server only sends published emails).
+function _dsContactsHtml(d) {
+  var contacts = Array.isArray(d.contacts) ? d.contacts.slice() : [];
+  // Back-compat for older cached cards that only carry the single-contact fields.
+  if (!contacts.length && d.contactName) {
+    contacts = [{ name: d.contactName, title: d.contactTitle, email: d.contactEmail || null, phone: null, linkedinUrl: d.contactLinkedIn || null, sourceUrl: null, emailSource: d.contactEmail ? 'published' : null }];
+  }
+  var phone = d.businessPhone || null;
+  var inbox = d.genericInbox || null;
+  if (!contacts.length && !phone && !inbox) return '';
+
+  var telHref = function(p){ return String(p || '').replace(/[^\d+]/g, ''); };
+  var out = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' +
+    '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px">CONTACTS</div>';
+
+  if (contacts.length) {
+    out += contacts.slice(0, 4).map(function(c){
+      var verified = c.emailSource === 'verified'
+        ? ' <span style="font-size:8px;font-weight:700;color:#84CC16;background:rgba(132,204,22,0.14);border:1px solid rgba(132,204,22,0.3);border-radius:4px;padding:0 5px">Verified</span>' : '';
+      var bits = [];
+      if (c.email) bits.push('<a href="mailto:' + esc(c.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(c.email) + '</a>' + verified);
+      if (c.phone) bits.push('<a href="tel:' + esc(telHref(c.phone)) + '" style="color:#60a5fa;text-decoration:none">' + esc(c.phone) + '</a>');
+      if (c.linkedinUrl) bits.push('<a href="' + esc(c.linkedinUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline">LinkedIn</a>');
+      if (c.sourceUrl) bits.push('<a href="' + esc(c.sourceUrl) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">source</a>');
+      var prefix = (!c.email && c.phone) ? '<span style="color:var(--muted)">Phone only:</span> ' : '';
+      return '<div style="margin-bottom:9px">' +
+        '<div style="font-size:12px;font-weight:600;color:var(--text)">' + esc(c.name || 'Contact') + (c.title ? '<span style="font-weight:400;color:var(--muted)">, ' + esc(c.title) + '</span>' : '') + '</div>' +
+        (bits.length ? '<div style="font-size:11px;color:var(--muted);margin-top:2px;line-height:1.6">' + prefix + bits.join(' <span style="color:var(--border)">·</span> ') + '</div>' : '') +
+      '</div>';
+    }).join('');
+  } else if (phone) {
+    out += '<div style="font-size:12px"><a href="tel:' + esc(telHref(phone)) + '" style="color:#60a5fa;text-decoration:none;font-weight:600">' + esc(phone) + '</a></div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5">No named contact found. Call and ask for the owner or marketing manager.</div>';
+  }
+
+  if (inbox) {
+    out += '<div style="margin-top:8px;font-size:10px;color:var(--muted)">Generic inbox, no named contact found: <a href="mailto:' + esc(inbox) + '" style="color:var(--muted);text-decoration:underline">' + esc(inbox) + '</a></div>';
+  }
+  if (d.contactApproach) {
+    out += '<div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5"><span style="color:var(--text);font-weight:600">Approach:</span> ' + esc(d.contactApproach) + '</div>';
+  }
+  out += '</div>';
+  return out;
+}
+
 // deal for top NIL. Returns '' when a card carries no structured evidence (the
 // local lane's string evidence is rendered separately and ignored here).
 function _dsEvidenceHtml(d) {
@@ -6081,15 +6130,9 @@ function _dsCardHtml(d, i, lane, isTop) {
     extraChips += '<span class="ds-lane-chip" style="background:rgba(200,241,53,0.12);color:#C8F135;border:1px solid rgba(200,241,53,0.3)">Matches: ' + esc(d.matchedTags.slice(0, 4).join(', ')) + '</span>';
   }
 
-  var contactHtml = '';
-  if (d.contactName || d.contactTitle || d.contactEmail) {
-    contactHtml += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' +
-      '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:6px">CONTACT</div>';
-    if (d.contactName) contactHtml += '<div style="font-size:12px;font-weight:600;color:var(--text)">' + esc(d.contactName) + (d.contactTitle ? ' <span style="font-weight:400;color:var(--muted)">— ' + esc(d.contactTitle) + '</span>' : '') + '</div>';
-    else if (d.contactTitle) contactHtml += '<div style="font-size:12px;color:var(--muted)">' + esc(d.contactTitle) + '</div>';
-    if (d.contactEmail) contactHtml += '<a href="mailto:' + esc(d.contactEmail) + '" style="font-size:12px;color:#84CC16;text-decoration:none;display:inline-block;margin-top:3px;word-break:break-all">' + esc(d.contactEmail) + '</a>';
-    if (d.contactApproach) contactHtml += '<div style="font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5"><span style="color:var(--text);font-weight:600">Approach:</span> ' + esc(d.contactApproach) + '</div>';
-    contactHtml += '</div>';
+  var contactHtml = _dsContactsHtml(d);
+  if (!contactHtml && d.contactApproach) {
+    contactHtml = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)"><div style="font-size:11px;color:var(--muted);line-height:1.5"><span style="color:var(--text);font-weight:600">Approach:</span> ' + esc(d.contactApproach) + '</div></div>';
   }
 
   var brandSafe = brand.replace(/\\/g,'\\\\').replace(/'/g,"\\'");

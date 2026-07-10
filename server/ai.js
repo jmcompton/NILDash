@@ -964,6 +964,7 @@ function _buildSocialCard(f, evidence, verdict, ctx) {
     sourceUrl: evidence.sourceUrl,
     verdict,
     activelyMarketing: true,
+    website: f.website || null,
     contactEmail: validateContactEmail(f.email, f.website || null),
     contactName: null,
     contactTitle: 'Partnerships / Creator Team',
@@ -1018,6 +1019,7 @@ function _buildTopNilCard(f, evidence, verdict, outcome, ctx) {
     typicalProfile: (evidence && evidence.typicalProfile) || null,
     verdict,
     activelyMarketing: hasDeals,
+    website: f.website || null,
     contactEmail: validateContactEmail(f.email, f.website || null),
     contactName: null,
     contactTitle: 'NIL / Partnerships Team',
@@ -1028,11 +1030,204 @@ function _buildTopNilCard(f, evidence, verdict, outcome, ctx) {
   };
 }
 
+// ─── Deal Scan: real named contacts per brand ───────────────────────────────
+// Replaces the old info@brand.com dead end. We web-search for the actual humans
+// an agent should reach, and NEVER fabricate a contact, email, phone, or title.
+// A made-up email is far worse than no email.
+
+// Generic mailbox local-parts that are never a named person. These may appear at
+// the bottom of a card, clearly labeled, but never as a primary contact.
+const _GENERIC_LOCALPARTS = new Set([
+  'info', 'contact', 'hello', 'hi', 'sales', 'support', 'admin', 'team',
+  'marketing', 'press', 'media', 'partnerships', 'partner', 'pr', 'careers',
+  'jobs', 'help', 'office', 'general', 'inquiries', 'enquiries', 'service',
+  'customerservice', 'ambassador', 'ambassadors', 'affiliate', 'affiliates',
+  'noreply', 'no-reply', 'orders', 'booking', 'reservations', 'wholesale',
+]);
+
+function _validEmail(email) {
+  if (!email || typeof email !== 'string') return null;
+  const e = email.trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
+}
+function _isGenericInbox(email) {
+  const e = _validEmail(email);
+  if (!e) return false;
+  return _GENERIC_LOCALPARTS.has(e.split('@')[0].toLowerCase());
+}
+// Keep the published phone formatting; reject anything that is not a plausible
+// phone number (10 to 15 digits).
+function _normalizePhone(p) {
+  if (!p || typeof p !== 'string') return null;
+  const digits = p.replace(/\D/g, '');
+  if (digits.length < 10 || digits.length > 15) return null;
+  return _cleanStr(p);
+}
+// Rank a title by decision-making authority (lower = more senior). Owner and
+// franchisee lead for local businesses; marketing/partnerships leadership leads
+// for larger brands.
+function _contactAuthorityRank(title) {
+  const t = String(title || '').toLowerCase();
+  if (/\bowner\b|founder|proprietor|principal|\bceo\b|president/.test(t)) return 0;
+  if (/franchis/.test(t)) return 1;
+  if (/general manager|\bgm\b|managing director|\bmanaging\b/.test(t)) return 2;
+  if (/(marketing|brand|partnership|sponsorship)[^.]*(director|vp|vice president|head|chief|lead)|\bcmo\b|director of marketing/.test(t)) return 3;
+  if (/marketing manager|partnerships? (manager|lead|coordinator)|brand manager/.test(t)) return 4;
+  if (/manager|coordinator|specialist/.test(t)) return 5;
+  return 6;
+}
+
+// Resolve a contact's email. TODAY: return ONLY an email literally published for
+// this person (and never a generic inbox). The name/domain arguments exist so a
+// verification provider (e.g. Hunter.io) can be dropped in here LATER, returning
+// { email, emailSource: 'verified' } — without a rewrite. NEVER guess an email
+// from a pattern like firstname@domain, not even labeled as a guess.
+async function resolveEmail(name, domain, publishedEmail) {
+  const em = _validEmail(publishedEmail);
+  if (em && !_isGenericInbox(em)) return { email: em, emailSource: 'published' };
+  // Future hook (intentionally inert now — no paid API is integrated):
+  //   if (!em && process.env.HUNTER_API_KEY) {
+  //     const v = await hunterFindEmail(name, domain);
+  //     if (v && v.verified) return { email: v.email, emailSource: 'verified' };
+  //   }
+  return { email: null, emailSource: null };
+}
+
+// Gather (and cache ~30 days — people change jobs slowly) the real named people
+// to contact at a brand. Returns { contacts, genericInbox, businessPhone,
+// outcome, cached }. Every contact carries name + title + sourceUrl (a contact
+// without a name is not a contact) and an email ONLY if it was literally
+// published. Never fabricates to fill the list.
+async function _fetchBrandContacts(brand, website, force = false) {
+  if (!force) {
+    const cached = await store.getBrandEvidence(brand, 'contacts', 30);
+    if (cached) {
+      const ev = cached.evidence || {};
+      return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, businessPhone: ev.businessPhone || null, outcome: cached.outcome || 'NONE', cached: true };
+    }
+  }
+  const domain = _domainFromUrl(website);
+  const sys = 'You find real, named people to contact at a business using web search. Report ONLY people and details actually published on a real page. Never invent a name, title, email, or phone. Never guess an email from a pattern. Output ONLY one JSON object.';
+  const prompt = `Find the real people an agent should contact at the business "${brand}"${domain ? ` (website ${domain})` : ''}. Use web search across the business's own site (team, about, contact pages), franchise directories, chamber of commerce listings, local news, and press releases.
+Return 2 to 4 NAMED contacts ranked by decision authority: owner, franchisee, general manager first for a local business; marketing director, marketing manager, partnerships lead first for a larger brand.
+Return ONLY this JSON object:
+{"contacts":[{"name":"","title":"","email":null,"phone":null,"linkedinUrl":null,"sourceUrl":"","confidence":"high|medium"}],"genericInbox":null,"businessPhone":null}
+Rules:
+- name and title are REQUIRED for every contact. Skip anyone whose real name you cannot find.
+- email ONLY if it is literally published on a page for THAT person. NEVER guess or infer an email from a pattern like firstname@domain. Use null when no published personal email exists.
+- phone: a published business or direct line if available, else null. A published phone is valuable, include it.
+- linkedinUrl: only if you actually find their profile.
+- sourceUrl is REQUIRED: the exact page where you found this person.
+- confidence "high" if from the business's own website, "medium" if from a directory or news source.
+- genericInbox: the business's generic inbox (info@, contact@) ONLY if published, else null.
+- businessPhone: the business's main published phone, else null.
+Return {"contacts":[]} if you cannot find real named people. Never fabricate a contact to fill the list.`;
+
+  let raw = '';
+  try {
+    raw = await withTimeout(oneShotWebSearch(prompt, sys, 900, 4, 'claude-sonnet-4-6'), 12000, '');
+  } catch (e) {
+    return { contacts: [], genericInbox: null, businessPhone: null, outcome: 'ERROR', cached: false, skipCache: true };
+  }
+  if (!raw) return { contacts: [], genericInbox: null, businessPhone: null, outcome: 'TIMEOUT', cached: false, skipCache: true };
+
+  let parsed = null;
+  try {
+    const t = raw.replace(/```json/g, '').replace(/```/g, '').trim();
+    const a = t.indexOf('{'), b = t.lastIndexOf('}');
+    if (a !== -1 && b > a) parsed = JSON.parse(t.substring(a, b + 1));
+  } catch (_) { parsed = null; }
+
+  const contacts = [];
+  if (parsed && Array.isArray(parsed.contacts)) {
+    for (const c of parsed.contacts) {
+      const name = _cleanStr(c && c.name);
+      const title = _cleanStr(c && c.title);
+      const sourceUrl = _safeUrl(c && c.sourceUrl);
+      if (!name || !title || !sourceUrl) continue; // a real contact needs all three
+      const { email, emailSource } = await resolveEmail(name, domain, c && c.email);
+      const phone = _normalizePhone(c && c.phone);
+      // A named contact with neither an email nor a phone nor LinkedIn is still
+      // useful (agent can call the business and ask for them by name), so keep it.
+      contacts.push({
+        name, title, email, emailSource, phone,
+        linkedinUrl: _safeUrl(c && c.linkedinUrl),
+        sourceUrl,
+        confidence: (c && c.confidence) === 'high' ? 'high' : 'medium',
+      });
+      if (contacts.length >= 4) break;
+    }
+  }
+  contacts.sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title));
+
+  const gi = _validEmail(parsed && parsed.genericInbox);
+  const genericInbox = gi && _isGenericInbox(gi) ? gi : null;
+  const businessPhone = _normalizePhone(parsed && parsed.businessPhone);
+
+  const evidence = { kind: 'contacts', contacts, genericInbox, businessPhone };
+  const outcome = contacts.length ? 'OK' : ((businessPhone || genericInbox) ? 'FALLBACK' : 'NONE');
+  await store.saveBrandEvidence(brand, 'contacts', brand, website, evidence, outcome);
+  return { contacts, genericInbox, businessPhone, outcome, cached: false };
+}
+
+// Build the "Approach" guidance line, referencing the real person when we have
+// one. Honest phone fallback when no named contact was found.
+function _contactApproach(card, top, res) {
+  if (top) {
+    const first = String(top.name).trim().split(/\s+/)[0];
+    let base;
+    if (top.email) base = `Email ${first} directly`;
+    else if (top.phone) base = `Call ${first} at ${top.phone}`;
+    else base = `Ask for ${first} by name`;
+    if (card.market === 'hometown') base += ', mention the hometown angle';
+    else if (card.isFranchise) base += ', ask about the local franchise budget';
+    return stripEmDashes(base + '.');
+  }
+  if (res && res.businessPhone) {
+    return `No named contact found. Call ${res.businessPhone} and ask for the owner or marketing manager.`;
+  }
+  // No people and no phone: keep whatever the lane already set (e.g. an apply page).
+  return card.contactApproach || null;
+}
+
+// Attach real contacts to a set of final cards. Cache-first, concurrency-capped.
+// Overwrites the legacy single-contact fields with the top named contact (never
+// a generic inbox), and logs a per-brand tally.
+async function _attachContacts(cards) {
+  if (!cards || !cards.length) return cards;
+  await _mapLimit(cards, EVIDENCE_CONCURRENCY, async (card) => {
+    try {
+      const site = card.website || (card.evidence && card.evidence.sourceUrl) || null;
+      const res = await _fetchBrandContacts(card.brand, site);
+      const contacts = res.contacts || [];
+      card.contacts = contacts;
+      card.genericInbox = res.genericInbox || null;
+      card.businessPhone = res.businessPhone || null;
+      const top = contacts[0] || null;
+      // Legacy single-contact fields, kept in sync for older consumers. Email is
+      // never a generic inbox (resolveEmail rejects those).
+      card.contactName = top ? top.name : null;
+      card.contactTitle = top ? top.title : (top ? null : card.contactTitle || null);
+      card.contactEmail = top ? top.email : null;
+      card.contactLinkedIn = top ? top.linkedinUrl : null;
+      card.contactApproach = _contactApproach(card, top, res);
+      const withEmail = contacts.filter((c) => c.email).length;
+      const withPhone = contacts.filter((c) => c.phone).length;
+      const found = contacts.length + (res.genericInbox ? 1 : 0);
+      console.log(`[dealScan] contacts brand=${card.brand} found=${found} named=${contacts.length} withEmail=${withEmail} withPhone=${withPhone} source=${res.cached ? 'cache' : 'web'}`);
+    } catch (e) {
+      card.contacts = card.contacts || [];
+    }
+  });
+  return cards;
+}
+
+
 // Pre-warm the brand-evidence cache for every seed brand so common brands are
 // always a cache hit at scan time (the dominant cold-scan cost). Meant to run on
 // a schedule, the same pattern as nilCompJob. force=true refreshes even fresh
-// rows so a weekly run keeps the cache from ever expiring. Rate-limited with a
-// small delay between brands. Returns a per-lane tally.
+// rows so a weekly run keeps the cache from ever expiring. Also warms per-brand
+// contacts. Rate-limited with a small delay between brands. Returns a tally.
 async function prewarmDealEvidence(opts = {}) {
   const { SOCIAL_SEEDS, TOPNIL_SEEDS } = require('./dealScanSeeds');
   const force = opts.force !== false; // default true for scheduled refresh
@@ -1070,6 +1265,24 @@ async function prewarmDealEvidence(opts = {}) {
       bump('topnil', r.outcome);
       console.log(`[prewarm] topnil brand=${b.name} evidence=${r.outcome}`);
     } catch (e) { bump('topnil', 'ERROR'); console.warn(`[prewarm] topnil brand=${b.name} error=${e.message}`); }
+    await new Promise((res) => setTimeout(res, delayMs));
+  }
+
+  // Warm per-brand contacts too (30-day cache), so a scan does not pay a contact
+  // web search for common brands. Dedupe across both seed tables.
+  tally.contacts = { OK: 0, FALLBACK: 0, NONE: 0, TIMEOUT: 0, ERROR: 0 };
+  const seenC = new Set();
+  const allBrands = [...social, ...topnil].filter((b) => {
+    const k = (b.name || '').toLowerCase().trim();
+    if (!k || seenC.has(k)) return false; seenC.add(k); return true;
+  });
+  console.log(`[prewarm] contacts: ${allBrands.length} seed brands (force=${force})`);
+  for (const b of allBrands) {
+    try {
+      const r = await _fetchBrandContacts(b.name, b.website, force);
+      if (tally.contacts[r.outcome] !== undefined) tally.contacts[r.outcome]++;
+      console.log(`[prewarm] contacts brand=${b.name} named=${(r.contacts || []).length} outcome=${r.outcome}`);
+    } catch (e) { tally.contacts.ERROR++; console.warn(`[prewarm] contacts brand=${b.name} error=${e.message}`); }
     await new Promise((res) => setTimeout(res, delayMs));
   }
 
@@ -1265,6 +1478,7 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
     cards.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
     const out = cards.slice(0, KEEP).map((c, i) => ({ ...c, rank: i + 1 }));
     console.log(`[dealScan:${lane}] returning ${out.length}/${cards.length} evidence-backed in ${Date.now() - _laneT0}ms`);
+    await _attachContacts(out); // real named people, cache-first
     return out;
   } catch (err) {
     console.warn(`[dealScan:${lane}] failed: ${err.message}`);
@@ -1439,6 +1653,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       matchedTags: deriveMatchedTags(d, meta, athleteTagSubs),
       evidence,
       activelyMarketing: !!evidence,
+      website: site || d.website || null,
       contactEmail: validateContactEmail(d.contactEmail, site || d.website || null),
       estimatedValueLow: d.estimatedValueLow || valLow,
       estimatedValueHigh: d.estimatedValueHigh || valHigh,
@@ -1460,7 +1675,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
     console.log(`[dealScan] model-knowledge produced ${parsed.length} local brand(s) in ${Date.now() - _t0}ms`);
-    return parsed.map((d, i) => finalizeLocal(d, i, 'knowledge', d.website || null, null));
+    return await _attachContacts(parsed.map((d, i) => finalizeLocal(d, i, 'knowledge', d.website || null, null)));
   };
 
   // ── PRIMARY PATH: category-driven parallel web search + one scoring call ────
@@ -1769,10 +1984,11 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
 
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
     console.log(`[dealScan] phase 2 scored ${parsed.length} brand(s) (${parsed.filter((d) => d.market === 'hometown').length} hometown) in ${Date.now() - _tScore}ms — local lane total ${Date.now() - _t0}ms`);
-    return parsed.map((d, i) => {
+    const localCards = parsed.map((d, i) => {
       const meta = metaByName.get((d.brand || '').toLowerCase().trim()) || null;
       return finalizeLocal(d, i, 'web', meta ? meta.website : (d.website || null), meta);
     });
+    return await _attachContacts(localCards); // real named people, cache-first
   } catch (webErr) {
     console.warn('[dealScan] category web-search path failed, trying model knowledge:', webErr.message);
   }
@@ -2100,5 +2316,7 @@ module.exports = {
     _fmtFollowers, _cleanStr, _safeUrl, _primaryFollowers,
     _socialVerdict, _topnilVerdict, _deriveTypicalProfile,
     _buildSocialCard, _buildTopNilCard,
+    _isGenericInbox, _validEmail, _normalizePhone, _contactAuthorityRank,
+    resolveEmail, _fetchBrandContacts, _attachContacts, _contactApproach,
   },
 };
