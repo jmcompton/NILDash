@@ -752,9 +752,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
 }
 .ucp-nav-item:hover { background: rgba(26,58,92,0.15); color: #94a3b8; }
 .ucp-nav-active { color: #e2e8f0 !important; background: rgba(26,58,92,0.3) !important; }
-/* ── Deal Scan three-lane layout ── */
+/* ── Deal Scan lane layout ── */
 /* Local is the primary lane: first and widest on desktop, first on mobile */
-.ds-lanes{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.ds-lanes{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:14px;align-items:start}
 .ds-lane[data-lane="local"]{border-color:rgba(132,204,22,0.3)}
 .ds-lane{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column;min-width:0}
 .ds-lane-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -937,10 +937,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="ftext">
       <span class="eyebrow">Deal Scan</span>
       <h3>Find the brands worth pitching.</h3>
-      <p>Pick a client and NILDash ranks real brand opportunities by fit, with a deal range and a tailored pitch idea for each one, across local businesses, social brands, and top NIL spenders.</p>
+      <p>Pick a client and NILDash ranks real brand opportunities by fit, with a deal range and a tailored pitch idea for each one, across local businesses and top NIL spenders.</p>
       <ul>
         <li><b>&#8594;</b> Ranked by fit score, not guesswork</li>
-        <li><b>&#8594;</b> Local, social, and national in one view</li>
+        <li><b>&#8594;</b> Local businesses and national brands in one view</li>
         <li><b>&#8594;</b> A ready pitch angle for every brand</li>
       </ul>
     </div>
@@ -1538,20 +1538,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <!-- Mobile lane switcher (segmented control; visible < 900px via CSS) -->
         <div id="ds-lane-tabs" class="ds-lane-tabs" style="display:none">
           <button class="ds-lane-tab active" data-lane="local" onclick="switchLane('local')">Local <span class="ds-tab-count" id="ds-tabcount-local">0</span></button>
-          <button class="ds-lane-tab" data-lane="social" onclick="switchLane('social')">Social <span class="ds-tab-count" id="ds-tabcount-social">0</span></button>
           <button class="ds-lane-tab" data-lane="topnil" onclick="switchLane('topnil')">National Brands <span class="ds-tab-count" id="ds-tabcount-topnil">0</span></button>
         </div>
-        <!-- Three-lane grid (desktop) / one active lane (mobile) -->
+        <!-- Lane grid (desktop) / one active lane (mobile) -->
         <div id="ds-lanes" class="ds-lanes" style="display:none">
           <div class="ds-lane active" data-lane="local">
             <div class="ds-lane-head"><span class="ds-lane-title">Local</span><span class="ds-lane-count" id="ds-count-local">—</span></div>
             <div class="ds-lane-sub">Businesses near your client's school, plus their hometown when set</div>
             <div class="ds-lane-body" id="scan-results-local"></div>
-          </div>
-          <div class="ds-lane" data-lane="social">
-            <div class="ds-lane-head"><span class="ds-lane-title">Social</span><span class="ds-lane-count" id="ds-count-social">—</span></div>
-            <div class="ds-lane-sub">Brands that work with creators their size</div>
-            <div class="ds-lane-body" id="scan-results-social"></div>
           </div>
           <div class="ds-lane" data-lane="topnil">
             <div class="ds-lane-head"><span class="ds-lane-title">National Brands to Know</span><span class="ds-lane-count" id="ds-count-topnil">—</span></div>
@@ -1559,7 +1553,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div class="ds-lane-body" id="scan-results-topnil"></div>
           </div>
         </div>
-        <div id="scan-results-empty" style="text-align:center;color:var(--muted);padding:24px;font-size:12px">Select a client and run a deal scan to see recommendations across Local, Social, and National Brands.</div>
+        <div id="scan-results-empty" style="text-align:center;color:var(--muted);padding:24px;font-size:12px">Select a client and run a deal scan to see recommendations across Local businesses and National Brands.</div>
       </div>
 
       <!--  RATE  -->
@@ -3910,7 +3904,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <button onclick="obSkipStep(3)" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip for now</button>
       </div>
       <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Run your first Deal Scan</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Deal Scan finds brands worth pitching: local businesses, social-first brands, and top NIL spenders.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Deal Scan finds brands worth pitching: local businesses and top NIL spenders.</div>
 
       <button onclick="obRunDealScan()" id="ob-scan-btn" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:13px;border-radius:40px;border:none;cursor:pointer;margin-bottom:14px">Scan for deals for <span id="ob-scan-name">your athlete</span></button>
 
@@ -4767,9 +4761,9 @@ async function clearAllResults() {
   if (cmdOut) { cmdOut.classList.remove('visible'); const ct = document.getElementById('commandText'); if (ct) ct.textContent = ''; }
 
   // Deal scan — reset per-client lane state so switching clients gets a clean slate
-  _dsLaneData = { local: null, social: null, topnil: null };
-  _dsLaneBusy = { local: false, social: false, topnil: false };
-  _dsLaneNote = { local: '', social: '', topnil: '' };
+  _dsLaneData = { local: null, topnil: null };
+  _dsLaneBusy = { local: false, topnil: false };
+  _dsLaneNote = { local: '', topnil: '' };
   window._dealScanResults = [];
   var _scanRanked = document.getElementById('scan-ranked-label');
   if (_scanRanked) _scanRanked.style.display = 'none';
@@ -4778,7 +4772,7 @@ async function clearAllResults() {
   var _dsLaneTabsEl = document.getElementById('ds-lane-tabs');
   if (_dsLaneTabsEl) _dsLaneTabsEl.style.display = 'none';
   var _dsEmptyEl = document.getElementById('scan-results-empty');
-  if (_dsEmptyEl) { _dsEmptyEl.style.display = ''; _dsEmptyEl.textContent = 'Select a client and run a deal scan to see recommendations across Local, Social, and National Brands.'; }
+  if (_dsEmptyEl) { _dsEmptyEl.style.display = ''; _dsEmptyEl.textContent = 'Select a client and run a deal scan to see recommendations across Local businesses and National Brands.'; }
   var _dsProgress = document.getElementById('ds-progress');
   if (_dsProgress) _dsProgress.style.display = 'none';
 
@@ -5713,20 +5707,19 @@ async function runCommand() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ── Deal Scan — three-lane engine (ported from athlete portal) ────
+// ── Deal Scan lane engine (ported from athlete portal) ────
 // esc alias so ported functions work without modification
 var esc = escHtml;
 
 // Per-lane scan state. null = never scanned; [] = scanned, genuinely empty.
-var _dsLaneData = { local: null, social: null, topnil: null };
-var _dsLaneNote = { local: '', social: '', topnil: '' };
-var _dsLaneBusy = { local: false, social: false, topnil: false };
+var _dsLaneData = { local: null, topnil: null };
+var _dsLaneNote = { local: '', topnil: '' };
+var _dsLaneBusy = { local: false, topnil: false };
 window._agentRateCard = null; // { rates:{deliverable:{low,high}}, dealValueLow, dealValueHigh }
 
-var DS_LANES = ['local', 'social', 'topnil'];
+var DS_LANES = ['local', 'topnil'];
 var _dsLaneMeta = {
   local:  { label: 'Local',       chip: 'rgba(132,204,22,0.18);color:#84CC16;border:1px solid rgba(132,204,22,0.3)' },
-  social: { label: 'Social',      chip: 'rgba(168,85,247,0.18);color:#c084fc;border:1px solid rgba(168,85,247,0.3)' },
   topnil: { label: 'National Brands',     chip: 'rgba(59,130,246,0.18);color:#60a5fa;border:1px solid rgba(59,130,246,0.3)' }
 };
 var _dsCatColors = {
@@ -5873,7 +5866,15 @@ async function loadDealScanCache() {
     var any = false;
     DS_LANES.forEach(function(lane){
       var c = cache[lane];
-      if (c && Array.isArray(c.opportunities)) { _dsLaneData[lane] = c.opportunities; if (c.opportunities.length) any = true; }
+      if (c && Array.isArray(c.opportunities)) {
+        _dsLaneData[lane] = c.opportunities;
+        if (c.opportunities.length) any = true;
+        // Restore the "seen the whole pool" banner if the last local scan
+        // exhausted it, so a re-open reflects the true state.
+        if (lane === 'local' && c.poolExhausted && c.opportunities.length) {
+          _dsLaneNote[lane] = _dsNoNewNote(lane, c.opportunities);
+        }
+      }
     });
     if (any) {
       document.getElementById('scan-ranked-label').style.display = 'block';
@@ -5935,19 +5936,30 @@ async function _dsRunScan(isRefresh) {
         }
         // Brands already shown, to tell "found new ones" from "same best matches".
         var oldBrands = (_dsLaneData[lane] || []).map(function(d){ return (d.brand || '').toLowerCase(); });
+        // Local paginates a real per-athlete pool 10 at a time; the SERVER is the
+        // authority on whether the whole pool has now been shown.
+        var exhausted = !!(res.data && res.data.poolExhausted);
         if (!opps.length) {
           if (_dsLaneData[lane] && _dsLaneData[lane].length) {
-            // Refresh found nothing beyond what is shown: honest, not an error.
+            // Refresh returned nothing new: keep the shown cards, show the honest
+            // banner. For local this only happens once the pool is exhausted.
             _dsLaneNote[lane] = isRefresh ? _dsNoNewNote(lane, _dsLaneData[lane]) : '';
           } else {
             _dsLaneData[lane] = [];
           }
         } else {
           var newOnes = opps.filter(function(d){ return oldBrands.indexOf((d.brand || '').toLowerCase()) === -1; });
+          // Refresh reveals the NEXT page: replace the shown cards with this page.
           _dsLaneData[lane] = opps;
-          // On a refresh that surfaced no NEW businesses, explain that these are
-          // simply the strongest real matches, so it does not read as a dead button.
-          _dsLaneNote[lane] = (isRefresh && oldBrands.length && !newOnes.length) ? _dsNoNewNote(lane, opps) : '';
+          if (lane === 'local') {
+            // Only banner when the server says every pooled business has been shown,
+            // never merely because the first 10 appeared.
+            _dsLaneNote[lane] = exhausted ? _dsNoNewNote(lane, opps) : '';
+          } else {
+            // Other lanes (National Brands) are a fixed set: banner when a refresh
+            // surfaced nothing new, so it does not read as a dead button.
+            _dsLaneNote[lane] = (isRefresh && oldBrands.length && !newOnes.length) ? _dsNoNewNote(lane, opps) : '';
+          }
         }
         _dsRenderAll();
       })
@@ -5986,17 +5998,12 @@ function _dsMarketOf(cards) {
 // Honest banner when a Refresh surfaced no NEW options: the scan worked, these
 // are simply the real best matches. Keeps Refresh from reading as a dead button.
 function _dsNoNewNote(lane, cards) {
-  if (lane === 'local') return 'These are the strongest matches in ' + _dsMarketOf(cards) + '. Refresh again later as new businesses appear.';
-  if (lane === 'social') return 'These are the open programs that fit right now. Refresh later as new ones open up.';
+  if (lane === 'local') return 'You have seen every strong local match in ' + _dsMarketOf(cards) + ' for this client. Refresh again later as new businesses appear.';
   return 'These are the national brands to know for this athlete right now.';
 }
 // Standing insight shown under a lane header when a thin result is actually
-// correct, not broken. Currently: social scarcity (few national programs exist
-// for athletes this size, so local is usually the better opportunity).
+// correct, not broken. Reserved for future lane-specific guidance.
 function _dsLaneInsight(lane, data) {
-  if (lane === 'social' && data && data.length >= 1 && data.length <= 2) {
-    return 'Few national brands run open programs for athletes this size. Local deals are usually the better opportunity.';
-  }
   return '';
 }
 

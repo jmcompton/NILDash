@@ -1960,6 +1960,18 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
   }
 }
 
+// Select the next page of UNSEEN candidates from a local market pool, ranked by
+// the caller's priority (then name, so pagination is deterministic and refreshes
+// walk the pool without repeats). Returns { page, unseenTotal, exhausted }.
+function _localNextPage(pool, excludeBrands, pageSize, priorityFn) {
+  const excl = new Set((excludeBrands || []).map((b) => String(b || '').toLowerCase().trim()).filter(Boolean));
+  const unseen = (pool || []).filter((f) => f && f.name && !excl.has(String(f.name).toLowerCase().trim()));
+  const pf = typeof priorityFn === 'function' ? priorityFn : () => 0;
+  unseen.sort((a, b) => (pf(b) - pf(a)) || String(a.name).localeCompare(String(b.name)));
+  const page = unseen.slice(0, pageSize);
+  return { page, unseenTotal: unseen.length, exhausted: unseen.length <= pageSize };
+}
+
 async function getDealRecommendations(athlete, role, excludeBrands, lane) {
   // Deal Scan now has THREE lanes. The original LOCAL lane lives below; the
   // SOCIAL (DTC/online brands) and TOP NIL SPENDERS lanes are handled by the
@@ -2226,6 +2238,21 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     if (schoolCached) for (const cnd of schoolCached.candidates) addCandidate(cnd, 'school');
     if (hometownCached) for (const cnd of hometownCached.candidates) addCandidate(cnd, 'hometown');
 
+    // ── Pagination + never-repeat ─────────────────────────────────────────────
+    // excludeBrands is the persisted shown-set for this athlete. Each scan/refresh
+    // returns the NEXT unseen businesses from the pool. When the CACHED pool has no
+    // unseen candidates left, "deepen" forces ONE fresh search (excluding the known
+    // brands) so a refresh keeps surfacing DIFFERENT businesses. A cached pool that
+    // still has unseen candidates never triggers a search: refresh paginates free.
+    const _excludeSet = new Set((excludeBrands || []).map((b) => String(b || '').toLowerCase().trim()).filter(Boolean));
+    const _unseenOf = (list) => list.filter((f) => f && f.name && !_excludeSet.has(String(f.name).toLowerCase().trim()));
+    const _cacheHadPool = !!(schoolCached || hometownCached);
+    const deepen = _cacheHadPool && !schoolThin && !hometownThin && _unseenOf(found).length === 0;
+    const _deepExcl = deepen
+      ? ' Do NOT list any of these businesses already suggested; find DIFFERENT real ones: ' + Array.from(new Set([...found.map((f) => f.name), ...(excludeBrands || [])])).filter(Boolean).slice(0, 40).join(', ') + '.'
+      : '';
+    if (deepen) console.log(`[dealScan] pool exhausted for this athlete (${found.length} shown): deepening with a fresh excluded search`);
+
     // Live searches for cache misses (and thin cached pools, topped up).
     // The old two big category bundles asked one call for 8 businesses x 6
     // fields; the JSON regularly blew past max_tokens and truncated, which
@@ -2234,27 +2261,36 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // reliably, a 30s cap (parallel, so wall-clock stays about one search),
     // per-call outcome logging, and truncation salvage in the parser.
     const LOCAL_SEARCH_CAP_MS = 30000;
+    // Wide geography for a deep pool: the school city PLUS the surrounding metro
+    // and nearby towns, not just the city proper.
+    const _geo = `in and around ${city}, ${state}, the surrounding metro area, and nearby towns`;
     const searchDefs = [];
-    if (!schoolCached || schoolThin) {
+    if (!schoolCached || schoolThin || deepen) {
       searchDefs.push(
         { label: 'school-auto-gym', market: 'school', p: timedSearch(oneShotWebSearch(mk(
-          `car dealerships, gyms and training facilities in ${city}, ${state} that sponsor local sports teams or run local ads${tagEmphasisQ}`,
+          `car dealerships, auto services, gyms, and fitness or training facilities ${_geo} that sponsor local sports teams or run local ads${tagEmphasisQ}${_deepExcl}`,
           `${catHint}, car dealerships, gyms and training facilities`), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-food-nutrition', market: 'school', p: timedSearch(oneShotWebSearch(mk(
-          `restaurants, food spots, smoothie and supplement shops in ${city}, ${state} that sponsor school sports or advertise locally${tagEmphasisQ}`,
-          'restaurants and food spots, smoothie and supplement shops'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
-        { label: 'school-services', market: 'school', p: timedSearch(oneShotWebSearch(mk(
-          `chiropractors, physical therapy, boutiques, real estate agents, banks, credit unions, med spas in ${city}, ${state} that advertise locally or sponsor high school and youth sports`,
-          'chiropractors and physical therapy, boutiques and local retail, real estate agents, banks and credit unions, med spas and salons'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          `restaurants, bars, coffee shops, food spots, smoothie and supplement shops ${_geo} that sponsor school sports or advertise locally${tagEmphasisQ}${_deepExcl}`,
+          'restaurants and food spots, coffee shops, smoothie and supplement shops'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'school-retail', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `apparel and clothing stores, sporting goods stores, boutiques, and local retail ${_geo} that advertise locally or sponsor teams${tagEmphasisQ}${_deepExcl}`,
+          'apparel and local retail, sporting goods stores, boutiques'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'school-wellness', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `chiropractors, physical therapy, med spas, dentists, optometrists, and health and wellness businesses ${_geo} that advertise locally or sponsor youth sports${_deepExcl}`,
+          'chiropractors and physical therapy, med spas and salons, health and wellness'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'school-services-ent', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `entertainment venues, golf and bowling, real estate agents, banks and credit unions, insurance agencies, and local professional services ${_geo} that advertise locally or sponsor local sports${_deepExcl}`,
+          'entertainment, real estate agents, banks and credit unions, local professional services'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
-    if (hasHometown && (!hometownCached || hometownThin)) {
+    if (hasHometown && (!hometownCached || hometownThin || deepen)) {
       searchDefs.push(
         { label: 'hometown-core', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
-          `car dealerships, gyms, restaurants, smoothie and supplement shops in ${hometown} that sponsor local youth sports or spend on local marketing${tagEmphasisQ}`,
+          `car dealerships, gyms, restaurants, coffee shops, apparel and retail, smoothie and supplement shops in and around ${hometown} that sponsor local youth sports or spend on local marketing${tagEmphasisQ}${_deepExcl}`,
           `${catHint}, car dealerships, restaurants, smoothie and supplement shops in ${hometown}`), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'hometown-services', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
-          `chiropractors, boutiques, real estate agents, banks, med spas in ${hometown} that advertise locally or sponsor youth sports`,
+          `chiropractors, med spas, boutiques, real estate agents, banks, insurance agencies, and entertainment venues in and around ${hometown} that advertise locally or sponsor youth sports${_deepExcl}`,
           'chiropractors, boutiques and local retail, real estate agents, banks, med spas'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
@@ -2298,12 +2334,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       // still speeds up the next scan); empty pools are never cached. Thin
       // cached pools that were topped up get rewritten with the merged pool.
       // setMarketCache logs WRITE ok / WRITE FAILED loudly.
-      if (!schoolCached || schoolThin) {
+      if (!schoolCached || schoolThin || deepen) {
         const poolSchool = found.filter((f) => f.market === 'school');
         if (poolSchool.length >= 1) store.setMarketCache(schoolCacheKey, poolSchool);
         else console.warn(`[dealScan] market cache write SKIPPED ${schoolCacheKey}: 0 school candidates`);
       }
-      if (hometownCacheKey && (!hometownCached || hometownThin)) {
+      if (hometownCacheKey && (!hometownCached || hometownThin || deepen)) {
         const poolHome = found.filter((f) => f.market === 'hometown');
         if (poolHome.length >= 1) store.setMarketCache(hometownCacheKey, poolHome);
         else console.warn(`[dealScan] market cache write SKIPPED ${hometownCacheKey}: 0 hometown candidates`);
@@ -2315,17 +2351,26 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // Too thin to be a credible local scan — let the knowledge path try instead.
     if (found.length < 3) throw new Error(`only ${found.length} web candidates`);
 
-    // Phase 2 — score + enrich the real businesses (no web search, fast).
-    // Target 8 results (latency: shorter output than the old "8 to 10" +
-    // 2-3 sentence rationales); capped by how many real candidates exist.
-    const hometownFound = found.filter((f) => f.market === 'hometown');
+    // ── Paginate: score only the NEXT page of UNSEEN businesses ────────────────
+    // A deep pool is built once; each scan/refresh shows the next 10 the agent has
+    // not seen for this athlete. When nothing unseen remains (even after deepening)
+    // return an empty page flagged exhausted so the UI shows the honest banner.
+    const PAGE = 10;
+    const unseenAll = _unseenOf(found);
+    if (unseenAll.length === 0) {
+      console.log('[dealScan] local pool fully exhausted for this athlete: 0 unseen');
+      const empty = []; empty._poolExhausted = true; empty._poolTotal = found.length; return empty;
+    }
+
+    // Phase 2: score + enrich the next page of real businesses (no web search).
+    const hometownFound = unseenAll.filter((f) => f.market === 'hometown');
     if (hasHometown && hometownFound.length === 0) {
       console.warn(`[dealScan] hometown search found 0 viable candidates for "${hometown}" — local lane will be school-market only`);
     }
     // Reserve 2-3 slots for hometown whenever its search found anything viable,
     // so school results cannot crowd them out.
     const reserveHometown = hasHometown ? Math.min(3, hometownFound.length) : 0;
-    const wantCount = Math.min(8, found.length);
+    const wantCount = Math.min(PAGE, unseenAll.length);
     const marketScoringLine = hasHometown
       ? `Each candidate carries a "market" field: "school" (${city}, near ${school}) or "hometown" (${hometown} — the athlete GREW UP there; use the hometown-hero angle: local recognition, community ties, "local kid makes good"). Keep the market value from the input.${reserveHometown ? ` HARD REQUIREMENT: include AT LEAST ${reserveHometown} hometown-market pick(s). Those slots are reserved for hometown even if school candidates score higher.` : ''}`
       : `Every candidate is in the school market ("market":"school").`;
@@ -2334,16 +2379,18 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const metaByName = new Map();
     for (const f of found) if (f.name) metaByName.set(f.name.toLowerCase().trim(), f);
 
-    // Cap the candidates SENT to scoring at 14 (thin-cache top-ups can merge
-    // pools past 20, and scoring 24 candidates blew the output token budget:
-    // the truncated JSON crashed phase 2 and used to discard phase 1 entirely).
-    // Priority keeps the guarantees intact: tag matches first, then marketing
-    // evidence, then hometown reserve, then the rest.
+    // Only the next PAGE (10) unseen candidates are sent to scoring: keeps the
+    // output token budget safe (scoring 24 candidates used to truncate the JSON
+    // and crash phase 2) AND is the pagination unit: refresh walks the pool 10
+    // at a time. Priority keeps the guarantees intact: tag matches first, then
+    // marketing evidence, then hometown reserve, then the rest.
     const _candPriority = (f) => {
       const tagHits = deriveMatchedTags({ brand: f.name, category: f.category }, f, athleteTagSubs).length;
       return (tagHits ? 4 + tagHits : 0) + (f.evidence ? 2 : 0) + (f.market === 'hometown' ? 3 : 0);
     };
-    const scoreCandidates = [...found].sort((a, b) => _candPriority(b) - _candPriority(a)).slice(0, 14);
+    // Score only this page of unseen candidates (was the whole pool), so refresh
+    // walks through the pool 10 at a time and never re-scores a shown business.
+    const scoreCandidates = _localNextPage(unseenAll, [], PAGE, _candPriority).page;
     const compactOf = (list) => JSON.stringify(list.map((f) => {
       const o = { name: f.name, market: f.market };
       if (f.website) o.website = f.website;
@@ -2408,7 +2455,7 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
       // rationales use only the candidate's own fields. No model, no invention.
       scoringOutcome = 'FELL-BACK to deterministic assembly';
       const _sportFit = (f) => (f.category && catHint.toLowerCase().includes(String(f.category).toLowerCase()) ? 1 : 0);
-      const ranked = [...found].sort((a, b) => (_candPriority(b) + _sportFit(b)) - (_candPriority(a) + _sportFit(a)));
+      const ranked = [...unseenAll].sort((a, b) => (_candPriority(b) + _sportFit(b)) - (_candPriority(a) + _sportFit(a)));
       const homePicks = ranked.filter((f) => f.market === 'hometown').slice(0, Math.max(reserveHometown, hasHometown ? 2 : 0));
       const schoolPicks = ranked.filter((f) => f.market !== 'hometown').slice(0, Math.max(3, wantCount - homePicks.length));
       parsed = schoolPicks.concat(homePicks).map((f, i) => ({
@@ -2474,6 +2521,8 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
       const meta = metaByName.get((d.brand || '').toLowerCase().trim()) || null;
       return finalizeLocal(d, i, 'web', meta ? meta.website : (d.website || null), meta);
     });
+    localCards._poolExhausted = (unseenAll.length <= PAGE);
+    localCards._poolTotal = found.length;
     return localCards; // contacts load lazily via /api/agent/brand-contacts (non-blocking)
   } catch (webErr) {
     console.warn('[dealScan] category web-search path failed, trying model knowledge:', webErr.message);
@@ -2807,7 +2856,7 @@ module.exports = {
     resolveEmail, _fetchBrandContacts, _contactApproach, getBrandContacts, _phoneLocalityOk,
     _labelTitle, _mergeContacts, _mergeNameKey, _sourceLead, _CONTACT_SOURCES,
     _parseContactsPayload, _extractContactsFromProse, _extractCitationUrls, _splitNames,
-    _searchContactSource,
+    _searchContactSource, _localNextPage,
     _setContactSearchImpl: (fn) => { _contactSearchImpl = fn; },
   },
 };

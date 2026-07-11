@@ -5370,6 +5370,18 @@ async function _getFreshScanCache(athleteId, lane) {
   } catch (_) { /* fall through to a live scan */ }
   return null;
 }
+// Persisted per-athlete "shown" set for a lane: the brands this athlete has
+// already been surfaced, stored in deal_scan_cache[lane].shown. It is merged
+// into excludeBrands so the local pool keeps advancing per athlete ACROSS
+// sessions (days/weeks), not just within one browser tab's exclude list.
+async function _loadShownBrands(athleteId, lane) {
+  try {
+    const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id=$1', [athleteId]);
+    const lanec = r.rows[0] && r.rows[0].deal_scan_cache && r.rows[0].deal_scan_cache[lane];
+    const shown = lanec && Array.isArray(lanec.shown) ? lanec.shown : [];
+    return shown.filter((x) => typeof x === 'string' && x.trim());
+  } catch (_) { return []; }
+}
 function _logScanCost(lane, meter, totalMs, servedFromCache) {
   const m = meter || { webSearches: 0, aiCalls: 0, cacheHits: 0, cacheMisses: 0 };
   console.log(`[dealScan] COST lane=${lane} webSearches=${m.webSearches} aiCalls=${m.aiCalls} cacheHits=${m.cacheHits} cacheMisses=${m.cacheMisses} totalMs=${totalMs}${servedFromCache ? ' servedFromCache=1' : ''}`);
@@ -5439,12 +5451,16 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     const athleteObj = loaded.athleteObj;
 
     const excludeBrands = req.body.exclude_brands || [];
-    // Lane: 'local' (default when omitted), 'social', or 'topnil'. An
-    // unrecognized value is a 400, never a silent full local run.
-    if (req.body.lane !== undefined && req.body.lane !== null && !['local', 'social', 'topnil'].includes(req.body.lane)) {
-      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, social, topnil.' });
+    // Lane: 'local' (default when omitted) or 'topnil'. An unrecognized value is
+    // a 400, never a silent full local run.
+    if (req.body.lane !== undefined && req.body.lane !== null && !['local', 'topnil'].includes(req.body.lane)) {
+      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, topnil.' });
     }
     const lane = req.body.lane || 'local';
+    // Local lane persists a per-athlete shown-set across sessions (see agent
+    // endpoint), merged into the client exclude list so the pool keeps advancing.
+    const persistedShown = lane === 'local' ? await _loadShownBrands(req.athlete.id, lane) : [];
+    const effectiveExclude = Array.from(new Set([...persistedShown, ...excludeBrands]));
     const _scanT0 = Date.now();
     console.log(`[athlete/deal-scan] athlete=${req.athlete.id} lane=${lane} name=${athleteObj.name} sport=${athleteObj.sport} school=${athleteObj.school}`);
 
@@ -5455,7 +5471,7 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
         const cache = rederiveScanCacheTags({ [lane]: fresh }, athleteObj.tags);
         const rateCard = await _athleteRateCard(req.athlete.id);
         _logScanCost(lane, null, Date.now() - _scanT0, true);
-        return res.json({ opportunities: cache[lane].opportunities, lane, rateCard, cached: true });
+        return res.json({ opportunities: cache[lane].opportunities, lane, rateCard, cached: true, poolExhausted: !!fresh.poolExhausted });
       }
     }
     // Rate-limit the billable path (a runaway loop backstop). Cache hits above are free.
@@ -5468,8 +5484,9 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     _scanRateRecord(_rlKey);
 
     const { result: _recs, meter: _meter } = await scanMeter.run(
-      () => ai.getDealRecommendations(athleteObj, 'athlete', excludeBrands, lane)
+      () => ai.getDealRecommendations(athleteObj, 'athlete', effectiveExclude, lane)
     );
+    const poolExhausted = !!(_recs && _recs._poolExhausted);
     let recommendations = _recs;
     // Unconditional matchedTags derivation at the route boundary (same as the
     // agent route): every lane, every source, right before persist/response.
@@ -5486,14 +5503,20 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     // the athlete's opportunities. NON-DESTRUCTIVE: only overwrite when we got
     // genuine results, so a transient empty refresh never wipes a good cache.
     if (recommendations.length) {
+      const lanePayload = { opportunities: recommendations, ts: Date.now() };
+      if (lane === 'local') {
+        const returned = recommendations.map((o) => o.brand).filter(Boolean);
+        lanePayload.shown = Array.from(new Set([...persistedShown, ...returned]));
+        lanePayload.poolExhausted = poolExhausted;
+      }
       await store.pool.query(
         `UPDATE athletes SET deal_scan_cache = COALESCE(deal_scan_cache, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
-        [JSON.stringify({ [lane]: { opportunities: recommendations, ts: Date.now() } }), req.athlete.id]
+        [JSON.stringify({ [lane]: lanePayload }), req.athlete.id]
       ).catch(e => console.error('[athlete/deal-scan] cache persist:', e.message));
     }
     const rateCard = await _athleteRateCard(req.athlete.id);
     _logScanCost(lane, _meter, Date.now() - _scanT0, false);
-    res.json({ opportunities: recommendations, lane, rateCard });
+    res.json({ opportunities: recommendations, lane, rateCard, poolExhausted });
   } catch (e) { console.error('[athlete/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -5519,11 +5542,16 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // Lane must be one of the known set. A missing lane defaults to 'local' for
     // backward compatibility; a PRESENT but unrecognized value is a 400 so a bad
     // client cannot silently burn a full local pipeline run.
-    if (lane !== undefined && lane !== null && !['local', 'social', 'topnil'].includes(lane)) {
-      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, social, topnil.' });
+    if (lane !== undefined && lane !== null && !['local', 'topnil'].includes(lane)) {
+      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, topnil.' });
     }
     const validLane = lane || 'local';
     const excludeBrands = Array.isArray(exclude_brands) ? exclude_brands : [];
+    // Local lane persists a per-athlete shown-set across sessions, so the pool
+    // keeps advancing over days/weeks. Merge it into what the client sent so a
+    // brand-new session (empty client exclude) still skips everything already seen.
+    const persistedShown = validLane === 'local' ? await _loadShownBrands(athleteId, validLane) : [];
+    const effectiveExclude = Array.from(new Set([...persistedShown, ...excludeBrands]));
     const _scanT0 = Date.now();
 
     // 6h result cache: re-opening the same athlete+lane is free unless Refresh.
@@ -5533,7 +5561,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
         const cache = rederiveScanCacheTags({ [validLane]: fresh }, loaded.athleteObj.tags);
         const rateCard = await _athleteRateCard(athleteId);
         _logScanCost(validLane, null, Date.now() - _scanT0, true);
-        return res.json({ opportunities: cache[validLane].opportunities, lane: validLane, rateCard, cached: true });
+        return res.json({ opportunities: cache[validLane].opportunities, lane: validLane, rateCard, cached: true, poolExhausted: !!fresh.poolExhausted });
       }
     }
     // Rate-limit the billable path (runaway-loop backstop). Cache hits are free.
@@ -5545,14 +5573,16 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     }
     _scanRateRecord(_rlKey);
 
-    // Lane targets: Local is primary (8-10), Social shows up to 6, Top NIL up to 4.
-    const TARGET = validLane === 'local' ? 8 : validLane === 'social' ? 6 : 4;
+    // Lane targets: Local is primary (up to 10 per page), Top NIL up to 4.
+    const TARGET = validLane === 'local' ? 8 : 4;
     const { result: recommendationsRaw, meter: _meter } = await scanMeter.run(async () => {
-      let recs = await ai.getDealRecommendations(loaded.athleteObj, 'agent', excludeBrands, validLane);
-      // Keep Refresh full: if excluding shown brands leaves a thin lane, top up
-      // from a no-exclude run, newest first, de-duped, so lanes don't shrink on
-      // repeated refreshes.
-      if (recs.length < TARGET && excludeBrands.length) {
+      let recs = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane);
+      // Non-local lanes keep the "top up a thin refresh from a no-exclude run"
+      // behavior so they don't shrink on repeated refreshes. Local must NOT top
+      // up this way: it paginates a persistent pool 10 at a time, and the
+      // never-repeat guarantee forbids re-showing an already-excluded business.
+      // Local depth is handled inside getDealRecommendations (deepen-on-exhaust).
+      if (validLane !== 'local' && recs.length < TARGET && excludeBrands.length) {
         const fresh = await ai.getDealRecommendations(loaded.athleteObj, 'agent', [], validLane);
         const seen = new Set(recs.map((r) => (r.brand || '').toLowerCase()));
         for (const f of (fresh || [])) {
@@ -5563,6 +5593,10 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
       }
       return recs;
     });
+    // _poolExhausted is set by the local lane when this page shows the last of
+    // the pooled businesses (or nothing new remains). Captured off the raw array
+    // BEFORE the .map() below, which would drop the array-level property.
+    const poolExhausted = !!(recommendationsRaw && recommendationsRaw._poolExhausted);
     let recommendations = recommendationsRaw;
     // Unconditional matchedTags derivation at the route boundary, applied to
     // the final array for EVERY lane and EVERY source (web, knowledge,
@@ -5582,15 +5616,25 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     const _chipsN = recommendations.reduce((n, o) => n + o.matchedTags.length, 0);
     console.log(`[dealScan] derivation: ${_tagSubs.length} athlete tags -> ${_taggedN} results tagged (${_chipsN} chips total)`);
     if (recommendations.length) {
+      // Local: advance the persisted shown-set with the brands just surfaced, so
+      // the next scan/refresh (even a later session) starts past these. Store
+      // poolExhausted too, so re-opening within the 6h cache window reflects the
+      // banner state. Other lanes persist opportunities only, as before.
+      const lanePayload = { opportunities: recommendations, ts: Date.now() };
+      if (validLane === 'local') {
+        const returned = recommendations.map((o) => o.brand).filter(Boolean);
+        lanePayload.shown = Array.from(new Set([...persistedShown, ...returned]));
+        lanePayload.poolExhausted = poolExhausted;
+      }
       await store.pool.query(
         `UPDATE athletes SET deal_scan_cache = COALESCE(deal_scan_cache, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
-        [JSON.stringify({ [validLane]: { opportunities: recommendations, ts: Date.now() } }), athleteId]
+        [JSON.stringify({ [validLane]: lanePayload }), athleteId]
       ).catch(e => console.error('[agent/deal-scan] cache persist:', e.message));
     }
     const rateCard = await _athleteRateCard(athleteId);
     checkOff(req.session.userId, 'deal_scan'); // Getting Started checklist
     _logScanCost(validLane, _meter, Date.now() - _scanT0, false);
-    res.json({ opportunities: recommendations, lane: validLane, rateCard });
+    res.json({ opportunities: recommendations, lane: validLane, rateCard, poolExhausted });
   } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 
