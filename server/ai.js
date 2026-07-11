@@ -1960,14 +1960,35 @@ async function _scanBrandLane(athlete, lane, excludeBrands) {
   }
 }
 
+// Canonical brand identity for the never-repeat exclude filter. A business shown
+// once must never come back, but its name arrives in inconsistent shapes across a
+// scan and a later refresh: "Planet Smoothie", "Planet Smoothie, Marietta",
+// "Planet Smoothie (Marietta)", "PLANET SMOOTHIE ". Reduce all of them to the
+// same key by dropping any market suffix after the first comma, dropping any
+// parenthetical, normalizing & to "and", and stripping case, spaces and
+// punctuation. So the persisted shown-set matches the pool candidate regardless
+// of how the model or the search phrased the name.
+function _brandKey(s) {
+  return String(s || '')
+    .toLowerCase()
+    .split(',')[0]              // drop ", Marietta" style market suffix
+    .replace(/\([^)]*\)/g, '')  // drop "(Marietta)" style parenthetical
+    .replace(/&/g, ' and ')     // "Ben & Jerry's" == "Ben and Jerry's"
+    .replace(/[^a-z0-9]+/g, ''); // strip case-insensitive punctuation + whitespace
+}
+
 // Select the next page of UNSEEN candidates from a local market pool, ranked by
 // the caller's priority (then name, so pagination is deterministic and refreshes
-// walk the pool without repeats). Returns { page, unseenTotal, exhausted }.
-function _localNextPage(pool, excludeBrands, pageSize, priorityFn) {
-  const excl = new Set((excludeBrands || []).map((b) => String(b || '').toLowerCase().trim()).filter(Boolean));
-  const unseen = (pool || []).filter((f) => f && f.name && !excl.has(String(f.name).toLowerCase().trim()));
+// walk the pool without repeats). Identity is compared by _brandKey, NOT by exact
+// string, so a suffix/case/whitespace variant of a shown brand is still excluded.
+// getName lets callers page items keyed on .name (web pool) or .brand (knowledge
+// path). Returns { page, unseenTotal, exhausted }.
+function _localNextPage(pool, excludeBrands, pageSize, priorityFn, getName) {
+  const nameOf = typeof getName === 'function' ? getName : (f) => f && f.name;
+  const excl = new Set((excludeBrands || []).map(_brandKey).filter(Boolean));
+  const unseen = (pool || []).filter((f) => { const n = nameOf(f); return n && !excl.has(_brandKey(n)); });
   const pf = typeof priorityFn === 'function' ? priorityFn : () => 0;
-  unseen.sort((a, b) => (pf(b) - pf(a)) || String(a.name).localeCompare(String(b.name)));
+  unseen.sort((a, b) => (pf(b) - pf(a)) || String(nameOf(a)).localeCompare(String(nameOf(b))));
   const page = unseen.slice(0, pageSize);
   return { page, unseenTotal: unseen.length, exhausted: unseen.length <= pageSize };
 }
@@ -2173,7 +2194,19 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Empty array');
     parsed.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
     console.log(`[dealScan] model-knowledge produced ${parsed.length} local brand(s) in ${Date.now() - _t0}ms`);
-    return parsed.map((d, i) => finalizeLocal(d, i, 'knowledge', d.website || null, null));
+    // HARD never-repeat + pagination for the fallback path too. The prompt asks
+    // the model to exclude shown brands, but that is SOFT: seeded/thin markets
+    // (the demo) make the model re-emit the same handful every refresh. Filter by
+    // _brandKey so a business shown once is dropped no matter how it is re-phrased,
+    // then page 10 at a time. When the filter empties the list, return an empty
+    // page flagged exhausted so the UI shows the honest banner instead of repeats.
+    const PAGE = 10;
+    const page = _localNextPage(parsed, excludeBrands, PAGE, (d) => (d.fitScore || 0), (d) => d.brand);
+    console.log(`[dealScan] local shownSet=${new Set((excludeBrands || []).map(_brandKey).filter(Boolean)).size} excluded=${parsed.length - page.unseenTotal} poolAfterExclude=${page.unseenTotal} returned=${page.page.length} poolTotal=${parsed.length} source=knowledge`);
+    const cards = page.page.map((d, i) => finalizeLocal(d, i, 'knowledge', d.website || null, null));
+    cards._poolExhausted = page.exhausted;
+    cards._poolTotal = parsed.length;
+    return cards;
   };
 
   // ── PRIMARY PATH: category-driven parallel web search + one scoring call ────
@@ -2186,7 +2219,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     console.log(`[dealScan] category web search primary — model=${MODEL_DEALSCAN} market=${schoolMarket}${hasHometown ? ` + hometown ${hometown}` : ''} sport=${sport}`);
 
     const searchSys = 'You find real local businesses via web search. Output ONLY a JSON array, no commentary, no markdown.';
-    const mk = (q, cats) => `Use web search: ${q}. Return up to 6 REAL businesses you actually find, each as {"name","website","category","email","evidence","franchise"}. For EVERY business, actively look for marketing-activity signals: sponsors a high school, youth, or college team; runs local ads or billboards; has done NIL or athlete partnerships before; runs an active promotional social media presence. "evidence": under 12 words describing ONLY what the search actually shows (e.g. "Sponsors Homewood High athletics"), null when nothing found — never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. Output ONLY the JSON array, no commentary before it.`;
+    const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email","evidence","franchise"}. For EVERY business, actively look for marketing-activity signals: sponsors a high school, youth, or college team; runs local ads or billboards; has done NIL or athlete partnerships before; runs an active promotional social media presence. "evidence": under 12 words describing ONLY what the search actually shows (e.g. "Sponsors Homewood High athletics"), null when nothing found. Never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. Output ONLY the JSON array, no commentary before it.`;
 
     // Athlete interest tags: tagged categories lead the search emphasis on a
     // cache miss, at SUB-TAG specificity ("smoothies, supplements, gyms"), and
@@ -2244,8 +2277,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // unseen candidates left, "deepen" forces ONE fresh search (excluding the known
     // brands) so a refresh keeps surfacing DIFFERENT businesses. A cached pool that
     // still has unseen candidates never triggers a search: refresh paginates free.
-    const _excludeSet = new Set((excludeBrands || []).map((b) => String(b || '').toLowerCase().trim()).filter(Boolean));
-    const _unseenOf = (list) => list.filter((f) => f && f.name && !_excludeSet.has(String(f.name).toLowerCase().trim()));
+    // Compare by _brandKey, not raw string: the shown-set carries names as the
+    // model rendered them on the prior scan ("Planet Smoothie, Marietta"), while
+    // the pool candidate is "Planet Smoothie". Raw-string exclusion missed those
+    // and re-showed businesses on refresh; _brandKey collapses both to one key.
+    const _excludeSet = new Set((excludeBrands || []).map(_brandKey).filter(Boolean));
+    const _unseenOf = (list) => list.filter((f) => f && f.name && !_excludeSet.has(_brandKey(f.name)));
     const _cacheHadPool = !!(schoolCached || hometownCached);
     const deepen = _cacheHadPool && !schoolThin && !hometownThin && _unseenOf(found).length === 0;
     const _deepExcl = deepen
@@ -2269,29 +2306,29 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       searchDefs.push(
         { label: 'school-auto-gym', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `car dealerships, auto services, gyms, and fitness or training facilities ${_geo} that sponsor local sports teams or run local ads${tagEmphasisQ}${_deepExcl}`,
-          `${catHint}, car dealerships, gyms and training facilities`), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          `${catHint}, car dealerships, gyms and training facilities`), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-food-nutrition', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `restaurants, bars, coffee shops, food spots, smoothie and supplement shops ${_geo} that sponsor school sports or advertise locally${tagEmphasisQ}${_deepExcl}`,
-          'restaurants and food spots, coffee shops, smoothie and supplement shops'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'restaurants and food spots, coffee shops, smoothie and supplement shops'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-retail', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `apparel and clothing stores, sporting goods stores, boutiques, and local retail ${_geo} that advertise locally or sponsor teams${tagEmphasisQ}${_deepExcl}`,
-          'apparel and local retail, sporting goods stores, boutiques'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'apparel and local retail, sporting goods stores, boutiques'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-wellness', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `chiropractors, physical therapy, med spas, dentists, optometrists, and health and wellness businesses ${_geo} that advertise locally or sponsor youth sports${_deepExcl}`,
-          'chiropractors and physical therapy, med spas and salons, health and wellness'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'chiropractors and physical therapy, med spas and salons, health and wellness'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-services-ent', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `entertainment venues, golf and bowling, real estate agents, banks and credit unions, insurance agencies, and local professional services ${_geo} that advertise locally or sponsor local sports${_deepExcl}`,
-          'entertainment, real estate agents, banks and credit unions, local professional services'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'entertainment, real estate agents, banks and credit unions, local professional services'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
     if (hasHometown && (!hometownCached || hometownThin || deepen)) {
       searchDefs.push(
         { label: 'hometown-core', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
           `car dealerships, gyms, restaurants, coffee shops, apparel and retail, smoothie and supplement shops in and around ${hometown} that sponsor local youth sports or spend on local marketing${tagEmphasisQ}${_deepExcl}`,
-          `${catHint}, car dealerships, restaurants, smoothie and supplement shops in ${hometown}`), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          `${catHint}, car dealerships, restaurants, smoothie and supplement shops in ${hometown}`), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'hometown-services', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
           `chiropractors, med spas, boutiques, real estate agents, banks, insurance agencies, and entertainment venues in and around ${hometown} that advertise locally or sponsor youth sports${_deepExcl}`,
-          'chiropractors, boutiques and local retail, real estate agents, banks, med spas'), searchSys, 900, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'chiropractors, boutiques and local retail, real estate agents, banks, med spas'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
 
@@ -2357,6 +2394,10 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // return an empty page flagged exhausted so the UI shows the honest banner.
     const PAGE = 10;
     const unseenAll = _unseenOf(found);
+    // Provable pagination log: shown-set size, how many pooled businesses were
+    // excluded as already-seen, and how many remain to page into. A refresh that
+    // returns already-shown brands would show up here as excluded << shownSet.
+    console.log(`[dealScan] local shownSet=${_excludeSet.size} excluded=${found.length - unseenAll.length} poolAfterExclude=${unseenAll.length} returned=${Math.min(PAGE, unseenAll.length)} poolTotal=${found.length} source=web`);
     if (unseenAll.length === 0) {
       console.log('[dealScan] local pool fully exhausted for this athlete: 0 unseen');
       const empty = []; empty._poolExhausted = true; empty._poolTotal = found.length; return empty;
@@ -2856,7 +2897,7 @@ module.exports = {
     resolveEmail, _fetchBrandContacts, _contactApproach, getBrandContacts, _phoneLocalityOk,
     _labelTitle, _mergeContacts, _mergeNameKey, _sourceLead, _CONTACT_SOURCES,
     _parseContactsPayload, _extractContactsFromProse, _extractCitationUrls, _splitNames,
-    _searchContactSource, _localNextPage,
+    _searchContactSource, _localNextPage, _brandKey,
     _setContactSearchImpl: (fn) => { _contactSearchImpl = fn; },
   },
 };
