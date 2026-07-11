@@ -3,19 +3,22 @@
 // Reusable, idempotent demo-account seeder for screen-capture demos.
 //
 // Creates ONE dedicated agent account (demo@comptongroupllc.com) pre-loaded with
-// fully FICTIONAL athletes, media kits, pipeline deals, an inbound inquiry, kit
-// view records, a parsed contract with calendar deliverables, and commission
-// data, so a demo video shows full, professional screens with zero real athlete
-// or brand data.
+// fictional athletes (with fictional PII), media kits, pipeline deals, an inbound
+// inquiry, kit view records, a parsed contract with calendar deliverables, and
+// commission data, so a demo video shows full, professional screens with zero
+// real athlete PII. The athletes attend REAL schools in REAL markets so the Deal
+// Scan demo shows the product at its best: a deep real pool with real rotation.
 //
 // SAFETY
-//  - Athletes, media kits, pipeline deals and contracts are fully fictional.
-//  - ONE exception, on purpose: the Deal Scan demo cache uses a handful of REAL
-//    local businesses in the demo athletes' Georgia markets (Marietta / Atlanta).
-//    Contact discovery (state registry, local news, Facebook, Google) can only
-//    find a named owner for a business that actually exists, so a fictional brand
-//    would always show an empty contact. The real names are discovered LIVE at
-//    view time; no contact data is hard-coded here.
+//  - Athlete identities (names, handles, stats), media kits, pipeline deals and
+//    contracts are fictional. The athletes' SCHOOLS and MARKETS are real
+//    (Kennesaw State / Kennesaw, Georgia State / Atlanta, Mercer / Macon) so a
+//    LIVE Deal Scan builds a genuine deep pool and rotates real businesses.
+//  - The Deal Scan demo cache uses REAL local businesses in each athlete's real
+//    school and hometown market. Contact discovery (state registry, local news,
+//    Facebook, Google) can only find a named owner for a business that actually
+//    exists, so a fictional brand would always show an empty contact. The real
+//    contacts are discovered LIVE at view time; no contact data is hard-coded.
 //  - All writes are scoped to the demo agent's id. Re-running deletes this
 //    account's prior demo data and recreates it, so the state is always the same
 //    clean baseline. No other account is ever touched.
@@ -101,7 +104,7 @@ async function seedDemo(pool) {
       {
         id: ATH.jordan,
         name: 'Jordan Blake', sport: 'Basketball', position: 'Guard',
-        school: 'Riverton College', schoolTier: 'mid-mid',
+        school: 'Kennesaw State University', schoolTier: 'mid-mid',
         instagram: 18400, tiktok: 31200, engagement: 6.3,
         hometown: 'Marietta, Georgia',
         instagramHandle: 'jordanblake',
@@ -110,12 +113,12 @@ async function seedDemo(pool) {
         brandRestrictions: ['alcohol', 'tobacco', 'gambling'],
         year: 'Junior',
         stats: '15.2 ppg, 4.8 apg, 41 percent from three (2024-25)',
-        bio: 'Jordan Blake is a junior guard at Riverton College with a fast-growing following and strong ties to the Marietta community. Known for high-energy content and authentic brand fit, Jordan connects with an engaged audience of college sports fans, fitness enthusiasts, and local supporters. Open to partnerships in fitness, nutrition, apparel, and local business.',
+        bio: 'Jordan Blake is a junior guard at Kennesaw State University with a fast-growing following and strong ties to the Marietta community. Known for high-energy content and authentic brand fit, Jordan connects with an engaged audience of college sports fans, fitness enthusiasts, and local supporters. Open to partnerships in fitness, nutrition, apparel, and local business.',
       },
       {
         id: ATH.avery,
         name: 'Avery Reese', sport: 'Basketball', position: 'Guard',
-        school: 'Riverton College', schoolTier: 'mid-mid',
+        school: 'Georgia State University', schoolTier: 'mid-mid',
         instagram: 21600, tiktok: 38900, engagement: 6.1,
         hometown: 'Alpharetta, Georgia',
         instagramHandle: 'averyreese',
@@ -124,12 +127,12 @@ async function seedDemo(pool) {
         brandRestrictions: ['alcohol', 'tobacco', 'gambling'],
         year: 'Sophomore',
         stats: '12.7 ppg, 5.1 rpg, 3.2 apg (2024-25)',
-        bio: 'Avery Reese is a sophomore guard at Riverton College with a loyal and engaged following. Avery pairs on-court poise with wellness and lifestyle content that resonates with young women, fitness fans, and local supporters. Open to partnerships in skincare, apparel, wellness, and recovery.',
+        bio: 'Avery Reese is a sophomore guard at Georgia State University with a loyal and engaged following. Avery pairs on-court poise with wellness and lifestyle content that resonates with young women, fitness fans, and local supporters. Open to partnerships in skincare, apparel, wellness, and recovery.',
       },
       {
         id: ATH.marcus,
         name: 'Marcus Wells', sport: 'Football', position: 'Wide Receiver',
-        school: 'Fielder State', schoolTier: 'mid-mid',
+        school: 'Mercer University', schoolTier: 'mid-mid',
         instagram: 12900, tiktok: 9800, engagement: 5.4,
         hometown: 'Macon, Georgia',
         instagramHandle: 'marcuswells',
@@ -138,7 +141,7 @@ async function seedDemo(pool) {
         brandRestrictions: ['alcohol', 'tobacco', 'gambling'],
         year: 'Senior',
         stats: '54 rec, 812 yds, 7 TD (2024)',
-        bio: 'Marcus Wells is a senior wide receiver at Fielder State with an authentic voice and a growing audience across Georgia. Marcus mixes training clips, gaming streams, and local food content that connects with college sports fans and everyday supporters. Open to partnerships in fitness, food and beverage, and gaming.',
+        bio: 'Marcus Wells is a senior wide receiver at Mercer University with an authentic voice and a growing audience across Georgia. Marcus mixes training clips, gaming streams, and local food content that connects with college sports fans and everyday supporters. Open to partnerships in fitness, food and beverage, and gaming.',
       },
     ];
 
@@ -314,43 +317,80 @@ async function seedDemo(pool) {
       );
     }
 
-    // ── 8. Deal Scan demo cache — REAL local businesses ───────────────────────
-    // So a screen-share of Deal Scan shows real named contacts. Contact fields
-    // are null ON PURPOSE: the lazy per-brand contact search (state registry,
-    // local news, Facebook, Google Maps) fills the real owner/manager at view
-    // time. Every business here is real and in Jordan's Marietta/Atlanta market,
-    // each region carries a state so the phone locality check runs, and none is
-    // fictional (a fake brand correctly returns no registry/news contact). The
-    // cache hydrates on the GET /deal-scan/cache path, so the cards appear the
-    // moment the demo opens Jordan without spending an API call.
-    const mkCard = (rank, brand, category, region, isFranchise, fitScore, campaign, rationale, matched) => ({
+    // ── 8. Deal Scan demo cache: REAL businesses in each athlete's REAL market ─
+    // The demo athletes now attend REAL schools (Kennesaw State, Georgia State,
+    // Mercer) in REAL markets, so a LIVE Deal Scan during a screen-share builds a
+    // genuine deep pool from web search and rotates real businesses on Refresh.
+    // This pre-cache is the instant first paint: every business is real and in the
+    // athlete's school or hometown market, so the lazy per-brand contact search
+    // (state registry, local news, Facebook, Google Maps) can surface a real
+    // owner/manager. Contact fields are null ON PURPOSE, filled live at view time;
+    // each region carries a state so the phone locality check runs. "shown" is
+    // seeded with these brands so the FIRST Refresh pages past them into freshly
+    // searched businesses, demoing real rotation, not a repeat of the seed set.
+    const mkCard = (rank, brand, category, region, market, marketLabel, isFranchise, fitScore, campaign, rationale, matched) => ({
       rank, brand, tier: 'local', lane: 'local', resultType: 'local', isLocal: true,
       category, dealType: 'post', campaign, rationale,
       estimatedValueLow: 250, estimatedValueHigh: 1000,
-      fitScore, market: 'hometown', marketLabel: 'Hometown - Marietta',
+      fitScore, market, marketLabel,
       region, isFranchise, website: null,
       contactName: null, contactTitle: null, contactEmail: null, contactApproach: null,
       matchedTags: matched || [], activelyMarketing: true, evidence: null,
       suggestedRate: { low: 250, high: 1000 }, source: 'web',
     });
-    const demoScanCards = [
-      mkCard(1, 'D1 Training', 'gym', 'Kennesaw, Georgia', true, 90,
-        'Athlete training ambassador', 'D1 Training runs sport-specific athlete programs and already works with local athletes, so a college guard is a natural ambassador fit.', ['gyms']),
-      mkCard(2, 'Fox Bros Bar-B-Q', 'restaurant', 'Atlanta, Georgia', false, 87,
-        'Game day content series', 'A well-known Atlanta restaurant with a large local following and a history of community sponsorships.', []),
-      mkCard(3, 'Marietta Diner', 'restaurant', 'Marietta, Georgia', false, 85,
+    // Jordan Blake: Kennesaw State (Kennesaw), hometown Marietta.
+    const jordanScan = [
+      mkCard(1, 'D1 Training', 'gym', 'Kennesaw, Georgia', 'school', 'Near Kennesaw', true, 90,
+        'Athlete training ambassador', 'D1 Training runs sport-specific athlete programs near campus and already works with local athletes, so a college guard is a natural ambassador fit.', ['gyms']),
+      mkCard(2, 'Big Shanty Smokehouse', 'restaurant', 'Kennesaw, Georgia', 'school', 'Near Kennesaw', false, 84,
+        'Game day content series', 'A popular Kennesaw restaurant minutes from campus with a strong local following for a community-driven post.', []),
+      mkCard(3, 'Marietta Diner', 'restaurant', 'Marietta, Georgia', 'hometown', 'Hometown - Marietta', false, 85,
         'Hometown feature', 'An iconic Marietta spot the whole community knows, ideal for a hometown-hero content angle.', []),
-      mkCard(4, 'Ed Voyles Honda', 'auto', 'Marietta, Georgia', false, 83,
+      mkCard(4, 'Ed Voyles Honda', 'auto', 'Marietta, Georgia', 'hometown', 'Hometown - Marietta', false, 83,
         'Dealership appearance and posts', 'A Marietta dealership that runs steady local advertising and sponsors area sports, a common local NIL spender.', []),
-      mkCard(5, 'Smoothie King', 'nutrition', 'Marietta, Georgia', true, 81,
+      mkCard(5, 'Smoothie King', 'nutrition', 'Marietta, Georgia', 'hometown', 'Hometown - Marietta', true, 81,
         'Recovery smoothie feature', "Matches Jordan's interest in a local smoothie spot and supplements, with an easy on-camera product.", ['smoothies', 'supplements']),
-      mkCard(6, 'Stockyard Burgers & Bones', 'restaurant', 'Marietta, Georgia', false, 79,
-        'Marietta Square post', 'A Marietta Square restaurant with strong local ties for a community-driven post.', []),
+      mkCard(6, 'Fox Bros Bar-B-Q', 'restaurant', 'Atlanta, Georgia', 'hometown', 'Hometown - Marietta', false, 79,
+        'Atlanta content series', 'A well-known Atlanta restaurant with a large local following and a history of community sponsorships.', []),
     ];
-    await client.query(
-      `UPDATE athletes SET deal_scan_cache = $1::jsonb WHERE id = $2`,
-      [JSON.stringify({ local: { opportunities: demoScanCards, ts: Date.now() } }), ATH.jordan]
-    );
+    // Avery Reese: Georgia State (Atlanta), hometown Alpharetta.
+    const averyScan = [
+      mkCard(1, 'Orangetheory Fitness', 'fitness', 'Alpharetta, Georgia', 'hometown', 'Hometown - Alpharetta', true, 89,
+        'Recovery and training partnership', "Fits Avery's fitness apparel and recovery focus, and the Alpharetta studio markets to exactly her hometown audience.", ['apparel', 'recovery']),
+      mkCard(2, 'Lululemon', 'apparel', 'Alpharetta, Georgia', 'hometown', 'Hometown - Alpharetta', true, 86,
+        'Athleisure lookbook', 'The Avalon store is a natural fit for athleisure content aimed at young, active local followers.', ['apparel']),
+      mkCard(3, 'European Wax Center', 'beauty', 'Alpharetta, Georgia', 'hometown', 'Hometown - Alpharetta', true, 83,
+        'Skincare and self-care feature', "Matches Avery's skincare interest with an easy in-studio appointment and content angle.", ['skincare']),
+      mkCard(4, 'Sweetgreen', 'restaurant', 'Atlanta, Georgia', 'school', 'Near Atlanta', true, 82,
+        'Fuel and recovery series', 'A healthy fast-casual spot near campus that markets to students and pairs well with a wellness message.', ['recovery']),
+      mkCard(5, 'Kale Me Crazy', 'restaurant', 'Atlanta, Georgia', 'school', 'Near Atlanta', false, 80,
+        'Wellness smoothie post', 'An Atlanta health-food cafe with a wellness audience that overlaps with her following.', []),
+      mkCard(6, 'Drybar', 'beauty', 'Atlanta, Georgia', 'school', 'Near Atlanta', true, 78,
+        'Game day glam feature', 'A beauty brand with Atlanta locations for a lifestyle content collaboration.', []),
+    ];
+    // Marcus Wells: Mercer (Macon), hometown Macon.
+    const marcusScan = [
+      mkCard(1, 'Planet Fitness', 'gym', 'Macon, Georgia', 'school', 'Near Macon', true, 88,
+        'Offseason training series', "Matches Marcus's gym focus with a Macon location that markets to the exact local student audience.", ['gyms']),
+      mkCard(2, 'Nu-Way Weiners', 'restaurant', 'Macon, Georgia', 'hometown', 'Hometown - Macon', false, 85,
+        'Hometown snack feature', 'An iconic Macon institution the whole community knows, ideal for a hometown-hero food post.', ['snacks']),
+      mkCard(3, 'The Rookery', 'restaurant', 'Macon, Georgia', 'hometown', 'Hometown - Macon', false, 83,
+        'Downtown Macon post', 'A well-known downtown Macon restaurant with strong local ties for a community-driven post.', []),
+      mkCard(4, 'Fresh Air Bar-B-Que', 'restaurant', 'Macon, Georgia', 'school', 'Near Macon', false, 81,
+        'Game day content series', 'A Middle Georgia barbecue staple with a large local following for game day content.', []),
+      mkCard(5, 'Ingleside Village Pizza', 'restaurant', 'Macon, Georgia', 'hometown', 'Hometown - Macon', false, 79,
+        'Local eats feature', 'A beloved Macon pizza spot that fits his local food content and student audience.', []),
+      mkCard(6, "Jeneane's Cafe", 'restaurant', 'Macon, Georgia', 'hometown', 'Hometown - Macon', false, 77,
+        'Breakfast recap post', 'A long-running Macon breakfast spot with steady community traffic for an easy local post.', []),
+    ];
+    const scanByAthlete = { [ATH.jordan]: jordanScan, [ATH.avery]: averyScan, [ATH.marcus]: marcusScan };
+    for (const [athId, cards] of Object.entries(scanByAthlete)) {
+      await client.query(
+        `UPDATE athletes SET deal_scan_cache = $1::jsonb WHERE id = $2`,
+        [JSON.stringify({ local: { opportunities: cards, ts: Date.now(), shown: cards.map((c) => c.brand) } }), athId]
+      );
+    }
+    const demoScanCards = jordanScan.concat(averyScan, marcusScan);
 
     await client.query('COMMIT');
 
