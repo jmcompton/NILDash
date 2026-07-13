@@ -1996,7 +1996,7 @@ function _localNextPage(pool, excludeBrands, pageSize, priorityFn, getName) {
   return { page, unseenTotal: unseen.length, exhausted: unseen.length <= pageSize };
 }
 
-async function getDealRecommendations(athlete, role, excludeBrands, lane) {
+async function getDealRecommendations(athlete, role, excludeBrands, lane, opts = {}) {
   // Deal Scan now has THREE lanes. The original LOCAL lane lives below; the
   // SOCIAL (DTC/online brands) and TOP NIL SPENDERS lanes are handled by the
   // shared brand-lane helper. Each lane runs independently so the frontend can
@@ -2260,8 +2260,10 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const addCandidate = (it, market) => {
       const nm = ((it && it.name) || '').trim();
       if (!nm) return;
-      const key = nm.toLowerCase();
-      if (seen.has(key)) return;
+      // Dedup by _brandKey (not raw lowercase) so a suffix/case variant of a pool
+      // business is not re-added, which is what keeps a deepen batch genuinely new.
+      const key = _brandKey(nm);
+      if (!key || seen.has(key)) return;
       seen.add(key);
       found.push({
         name: nm, website: it.website || null, category: it.category || null,
@@ -2276,10 +2278,11 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
 
     // ── Pagination + never-repeat ─────────────────────────────────────────────
     // excludeBrands is the persisted shown-set for this athlete. Each scan/refresh
-    // returns the NEXT unseen businesses from the pool. When the CACHED pool has no
-    // unseen candidates left, "deepen" forces ONE fresh search (excluding the known
-    // brands) so a refresh keeps surfacing DIFFERENT businesses. A cached pool that
-    // still has unseen candidates never triggers a search: refresh paginates free.
+    // returns the NEXT unseen businesses from the pool with ZERO web searches until
+    // the pool is exhausted for this athlete. Exhaustion is NOT auto-deepened: the
+    // agent hits the honest banner and only pays for a deeper pass by clicking
+    // "Find more businesses", which sets opts.deepen. That deeper pass searches new
+    // categories, a wider radius and next-tier businesses, excluding the whole pool.
     // Compare by _brandKey, not raw string: the shown-set carries names as the
     // model rendered them on the prior scan ("Planet Smoothie, Marietta"), while
     // the pool candidate is "Planet Smoothie". Raw-string exclusion missed those
@@ -2287,25 +2290,31 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const _excludeSet = new Set((excludeBrands || []).map(_brandKey).filter(Boolean));
     const _unseenOf = (list) => list.filter((f) => f && f.name && !_excludeSet.has(_brandKey(f.name)));
     const _cacheHadPool = !!(schoolCached || hometownCached);
-    const deepen = _cacheHadPool && !schoolThin && !hometownThin && _unseenOf(found).length === 0;
+    // Explicit, on-demand only (never automatic). Deepening a market with no pool
+    // yet is just a normal cold scan, so require an existing pool to deepen.
+    const deepen = !!(opts && opts.deepen) && _cacheHadPool;
+    // Exclude the ENTIRE existing pool (plus the athlete's shown-set) from the
+    // deeper pass so the new batch is genuinely new, not a reshuffle of the pool.
     const _deepExcl = deepen
-      ? ' Do NOT list any of these businesses already suggested; find DIFFERENT real ones: ' + Array.from(new Set([...found.map((f) => f.name), ...(excludeBrands || [])])).filter(Boolean).slice(0, 40).join(', ') + '.'
+      ? ' Do NOT list any of these businesses already known; they are excluded, find DIFFERENT real ones: ' + Array.from(new Set([...found.map((f) => f.name), ...(excludeBrands || [])])).filter(Boolean).slice(0, 60).join(', ') + '.'
       : '';
-    if (deepen) console.log(`[dealScan] pool exhausted for this athlete (${found.length} shown): deepening with a fresh excluded search`);
+    const _poolBefore = found.length;
+    if (deepen) console.log(`[dealScan] deepen requested: expanding the ${_poolBefore}-business ${schoolMarket} pool with a deeper search pass`);
 
     // Per-market cache economics. A HIT that still searches means a thin pool is
-    // being topped up or an exhausted pool deepened; a plain HIT fires zero web
-    // searches, which is the whole point: a second agent in the same market rides
-    // the shared pool for free. SCHOOL_SEARCH_N / HOMETOWN_SEARCH_N are the planned
-    // category searches per market; these booleans are the single source of truth
-    // for both the log and the actual search + cache-write gating below.
-    const SCHOOL_SEARCH_N = 5, HOMETOWN_SEARCH_N = 2;
+    // being topped up or an exhausted pool expanded on demand; a plain HIT fires
+    // zero web searches, which is the whole point: a second agent in the same
+    // market rides the shared pool for free. SCHOOL_SEARCH_N / HOMETOWN_SEARCH_N are
+    // the planned category searches per market (fewer, distinct ones when deepening)
+    // and are the single source of truth for both the log and the search +
+    // cache-write gating below.
+    const SCHOOL_SEARCH_N = deepen ? 4 : 5, HOMETOWN_SEARCH_N = deepen ? 1 : 2;
     const schoolWillSearch = (!schoolCached || schoolThin || deepen);
     const hometownWillSearch = hasHometown && (!hometownCached || hometownThin || deepen);
     const _mktLog = (key, cached, willSearch, n, thin) => {
       if (!cached) return `[dealScan] market cache key=${key} -> MISS (building pool, ${n} web searches)`;
       if (!willSearch) return `[dealScan] market cache key=${key} -> HIT age=${_ageD(cached)}d (0 web searches)`;
-      return `[dealScan] market cache key=${key} -> HIT age=${_ageD(cached)}d ${thin ? 'thin, topping up' : 'exhausted, deepening'} (${n} web searches)`;
+      return `[dealScan] market cache key=${key} -> HIT age=${_ageD(cached)}d ${thin ? 'thin, topping up' : 'expanding on demand'} (${n} web searches)`;
     };
     console.log(_mktLog(schoolCacheKey, schoolCached, schoolWillSearch, SCHOOL_SEARCH_N, schoolThin));
     if (hometownCacheKey) console.log(_mktLog(hometownCacheKey, hometownCached, hometownWillSearch, HOMETOWN_SEARCH_N, hometownThin));
@@ -2321,8 +2330,28 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // Wide geography for a deep pool: the school city PLUS the surrounding metro
     // and nearby towns, not just the city proper.
     const _geo = `in and around ${city}, ${state}, the surrounding metro area, and nearby towns`;
+    // Deepen geography: push OUT past the initial pass, to further-out suburbs and
+    // neighboring towns, and ask for smaller, independent, next-tier businesses.
+    const _geoWide = `in the further-out suburbs and neighboring towns within about 40 miles of ${city}, ${state}, beyond the main metro`;
+    const _tierWide = 'Favor smaller, independent, less prominent local businesses, not the biggest or most obvious names. ';
     const searchDefs = [];
-    if (schoolWillSearch) {
+    if (schoolWillSearch && deepen) {
+      // Deeper pass: categories NOT in the first search, wider radius, next tier.
+      searchDefs.push(
+        { label: 'deep-home-pet', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `${_tierWide}pet stores, groomers and veterinary clinics, and home services like HVAC, plumbing, landscaping, roofing, and cleaning companies ${_geoWide}${tagEmphasisQ}${_deepExcl}`,
+          'pet services and veterinary, home services, landscaping and cleaning'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'deep-personal-care', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `${_tierWide}barbershops, hair and nail salons, tattoo studios, dance and cheer studios, martial arts gyms, and yoga or pilates studios ${_geoWide}${tagEmphasisQ}${_deepExcl}`,
+          'barbershops and salons, tattoo studios, dance and martial arts, yoga and pilates'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'deep-specialty-retail', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `${_tierWide}jewelers, florists, bike shops, outdoor and hunting stores, pharmacies, bookstores, game and hobby shops, and specialty grocers ${_geoWide}${tagEmphasisQ}${_deepExcl}`,
+          'jewelers and florists, bike and outdoor shops, game and hobby shops, specialty grocers'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'deep-services-venues', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `${_tierWide}tutoring and test prep, childcare, event and party venues, breweries and taprooms, farmers markets, print shops, and moving or storage companies ${_geoWide}${_deepExcl}`,
+          'tutoring and childcare, event venues, breweries and taprooms, print and moving services'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+      );
+    } else if (schoolWillSearch) {
       searchDefs.push(
         { label: 'school-auto-gym', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `car dealerships, auto services, gyms, and fitness or training facilities ${_geo} that sponsor local sports teams or run local ads${tagEmphasisQ}${_deepExcl}`,
@@ -2341,7 +2370,13 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
           'entertainment, real estate agents, banks and credit unions, local professional services'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
-    if (hometownWillSearch) {
+    if (hometownWillSearch && deepen) {
+      searchDefs.push(
+        { label: 'deep-hometown', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
+          `${_tierWide}pet and home services, salons and barbershops, dance and martial arts studios, jewelers and florists, tutoring, event venues, breweries, and specialty retail in the further-out suburbs and towns within about 40 miles of ${hometown}, beyond the town center${tagEmphasisQ}${_deepExcl}`,
+          'next-tier local businesses beyond the town center of ' + hometown), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+      );
+    } else if (hometownWillSearch) {
       searchDefs.push(
         { label: 'hometown-core', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
           `car dealerships, gyms, restaurants, coffee shops, apparel and retail, smoothie and supplement shops in and around ${hometown} that sponsor local youth sports or spend on local marketing${tagEmphasisQ}${_deepExcl}`,
@@ -2371,6 +2406,9 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         console.log(`[dealScan] search ${def.label}: ${o.status.toUpperCase()} in ${o.ms}ms${detail}`);
       });
       console.log(`[dealScan] phase 1 live search found ${found.length} candidates total (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _tSearch}ms (elapsed ${Date.now() - _t0}ms)`);
+      // On-demand deepen accounting: how many genuinely-new businesses the deeper
+      // pass added to the shared pool, and how many web searches it cost.
+      if (deepen) console.log(`[dealScan] deepen market=${schoolCacheKey} newFound=${found.length - _poolBefore} webSearches=${searchDefs.length}`);
 
       // One broadened retry before falling back.
       if (found.length < 3) {

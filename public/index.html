@@ -4764,6 +4764,7 @@ async function clearAllResults() {
   _dsLaneData = { local: null, topnil: null };
   _dsLaneBusy = { local: false, topnil: false };
   _dsLaneNote = { local: '', topnil: '' };
+  _dsLaneExhausted = { local: false, topnil: false };
   window._dealScanResults = [];
   var _scanRanked = document.getElementById('scan-ranked-label');
   if (_scanRanked) _scanRanked.style.display = 'none';
@@ -5715,6 +5716,9 @@ var esc = escHtml;
 var _dsLaneData = { local: null, topnil: null };
 var _dsLaneNote = { local: '', topnil: '' };
 var _dsLaneBusy = { local: false, topnil: false };
+// True when the server says this lane's pool is fully shown, which drives the
+// "Find more businesses" deepen button on the local lane.
+var _dsLaneExhausted = { local: false, topnil: false };
 window._agentRateCard = null; // { rates:{deliverable:{low,high}}, dealValueLow, dealValueHigh }
 
 var DS_LANES = ['local', 'topnil'];
@@ -5869,10 +5873,11 @@ async function loadDealScanCache() {
       if (c && Array.isArray(c.opportunities)) {
         _dsLaneData[lane] = c.opportunities;
         if (c.opportunities.length) any = true;
-        // Restore the "seen the whole pool" banner if the last local scan
-        // exhausted it, so a re-open reflects the true state.
+        // Restore the "seen the whole pool" banner and the Find more button if the
+        // last local scan exhausted it, so a re-open reflects the true state.
         if (lane === 'local' && c.poolExhausted && c.opportunities.length) {
           _dsLaneNote[lane] = _dsNoNewNote(lane, c.opportunities);
+          _dsLaneExhausted[lane] = true;
         }
       }
     });
@@ -5888,12 +5893,22 @@ async function loadDealScanCache() {
   } catch(e) { /* hydration is best-effort */ }
 }
 
-async function _dsRunScan(isRefresh) {
+// Fire ONE explicit deeper search pass for the local market ("Find more
+// businesses"). Reuses _dsRunScan with the deepen flag so busy state, rotation
+// and rendering all stay consistent.
+function _dsFindMore() { return _dsRunScan(true, { deepen: true }); }
+
+async function _dsRunScan(isRefresh, opts) {
   if (!selectedAthleteId) { showToast('Select a client first'); return; }
+  var isDeepen = !!(opts && opts.deepen);
+  // Deepen only touches the local lane; a normal scan/refresh runs every lane.
+  var lanes = isDeepen ? ['local'] : DS_LANES;
   var btn  = document.getElementById('deals-run-btn');
   var rbtn = document.getElementById('deals-refresh-btn');
-  if (isRefresh) { if (rbtn) { rbtn.disabled = true; rbtn.textContent = 'Refreshing…'; } }
-  else           { if (btn)  { btn.disabled  = true; btn.textContent  = 'Scanning…'; } }
+  var fmBtn = document.getElementById('ds-findmore-btn');
+  if (isDeepen)       { if (fmBtn) { fmBtn.disabled = true; fmBtn.textContent = 'Searching wider…'; } }
+  else if (isRefresh) { if (rbtn) { rbtn.disabled = true; rbtn.textContent = 'Refreshing…'; } }
+  else                { if (btn)  { btn.disabled  = true; btn.textContent  = 'Scanning…'; } }
 
   document.getElementById('scan-ranked-label').style.display = 'block';
   var emptyEl = document.getElementById('scan-results-empty');
@@ -5902,25 +5917,26 @@ async function _dsRunScan(isRefresh) {
   document.getElementById('ds-lane-tabs').style.display = '';
   if (!_dsHasAnyData()) switchLane('local');
 
-  var exclude = isRefresh
+  var exclude = (isRefresh || isDeepen)
     ? (window._dealScanResults || []).map(function(d){ return d.brand || ''; }).filter(Boolean)
     : [];
 
-  DS_LANES.forEach(function(l){ _dsLaneBusy[l] = true; _dsLaneNote[l] = ''; });
+  lanes.forEach(function(l){ _dsLaneBusy[l] = true; _dsLaneNote[l] = ''; });
   _dsRenderAll();
   _dsStartRotation();
 
   var prog = startDealScanProgress();
 
-  var jobs = DS_LANES.map(function(lane){
+  var jobs = lanes.map(function(lane){
     return fetch('/api/agent/deal-scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // Refresh MUST bypass the 6h scan cache. Send refresh:true so the backend
       // re-runs even when exclude_brands is empty (e.g. results were hydrated
       // from cache and not tracked in _dealScanResults). Without this the refresh
-      // silently returned the cached cards and looked like a dead button.
-      body: JSON.stringify({ athleteId: selectedAthleteId, lane: lane, exclude_brands: exclude, refresh: isRefresh })
+      // silently returned the cached cards and looked like a dead button. deepen
+      // fires the on-demand "Find more" deeper search for the local market.
+      body: JSON.stringify({ athleteId: selectedAthleteId, lane: lane, exclude_brands: exclude, refresh: isRefresh, deepen: (isDeepen && lane === 'local') })
     })
       .then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
       .then(function(res){
@@ -5934,22 +5950,32 @@ async function _dsRunScan(isRefresh) {
           _dsRenderAll();
           return;
         }
+        // Deepen throttled: this market was expanded its daily limit already. Keep
+        // the shown cards and the exhaustion banner, just tell them to try later.
+        if (res.data && res.data.deepenLimited) {
+          showToast(res.data.message || 'This market was just expanded. Try Find more again later.');
+          _dsLaneExhausted[lane] = true;
+          _dsRenderAll();
+          return;
+        }
         // Brands already shown, to tell "found new ones" from "same best matches".
         var oldBrands = (_dsLaneData[lane] || []).map(function(d){ return (d.brand || '').toLowerCase(); });
         // Local paginates a real per-athlete pool 10 at a time; the SERVER is the
-        // authority on whether the whole pool has now been shown.
+        // authority on whether the whole pool has now been shown, which drives the
+        // "Find more businesses" deepen button.
         var exhausted = !!(res.data && res.data.poolExhausted);
+        if (lane === 'local') _dsLaneExhausted[lane] = exhausted;
         if (!opps.length) {
           if (_dsLaneData[lane] && _dsLaneData[lane].length) {
-            // Refresh returned nothing new: keep the shown cards, show the honest
-            // banner. For local this only happens once the pool is exhausted.
-            _dsLaneNote[lane] = isRefresh ? _dsNoNewNote(lane, _dsLaneData[lane]) : '';
+            // Refresh/deepen returned nothing new: keep the shown cards, show the
+            // honest banner. For local this only happens once the pool is exhausted.
+            _dsLaneNote[lane] = (isRefresh || isDeepen) ? _dsNoNewNote(lane, _dsLaneData[lane]) : '';
           } else {
             _dsLaneData[lane] = [];
           }
         } else {
           var newOnes = opps.filter(function(d){ return oldBrands.indexOf((d.brand || '').toLowerCase()) === -1; });
-          // Refresh reveals the NEXT page: replace the shown cards with this page.
+          // Refresh/deepen reveals the NEXT page: replace the shown cards.
           _dsLaneData[lane] = opps;
           if (lane === 'local') {
             // Only banner when the server says every pooled business has been shown,
@@ -5980,10 +6006,12 @@ async function _dsRunScan(isRefresh) {
     if (card) card.style.display = 'none';
   } finally {
     _dsStopRotation();
-    DS_LANES.forEach(function(l){ _dsLaneBusy[l] = false; });
+    lanes.forEach(function(l){ _dsLaneBusy[l] = false; });
     _dsRenderAll();
     if (btn)  { btn.disabled  = false; btn.textContent  = 'Scan Deals with AI'; }
     if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh'; }
+    // The Find more button is re-rendered by _dsRenderAll from _dsLaneExhausted,
+    // so no manual re-enable needed; its old node was replaced.
   }
 }
 
@@ -6032,6 +6060,11 @@ function _dsRenderAll() {
     // as useful context, not an empty/broken lane.
     var _insight = _dsLaneInsight(lane, data);
     if (_insight) topNote += '<div style="font-size:11px;color:var(--muted);background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.22);border-radius:8px;padding:7px 10px;margin-bottom:8px;line-height:1.5">' + esc(_insight) + '</div>';
+    // Once the local pool is fully shown, offer a paid-on-click deeper search that
+    // pulls a new batch of businesses (new categories, wider radius, next tier).
+    if (lane === 'local' && _dsLaneExhausted.local && !busy) {
+      topNote += '<button id="ds-findmore-btn" onclick="_dsFindMore()" style="width:100%;margin-bottom:8px;padding:9px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.35);border-radius:8px;color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Find more businesses</button>';
+    }
 
     if (!data.length) {
       body.innerHTML = topNote + '<div class="ds-lane-empty">No ' + esc(_dsLaneMeta[lane].label.toLowerCase()) + ' matches found right now. Try Refresh.</div>';

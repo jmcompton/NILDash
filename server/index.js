@@ -5354,9 +5354,34 @@ function _scanRateRecord(userKey) {
   _scanHits.set(userKey, arr);
 }
 // A repeat scan is a Refresh (bypass cache) when the client explicitly asks, or
-// when it excludes already-shown brands (the Refresh button's top-up behavior).
+// when it excludes already-shown brands (the Refresh button's top-up behavior),
+// or when it is an explicit "Find more" deepen (which must never serve a cache).
 function _isScanRefresh(body) {
-  return !!(body && (body.refresh === true || (Array.isArray(body.exclude_brands) && body.exclude_brands.length > 0)));
+  return !!(body && (body.refresh === true || body.deepen === true || (Array.isArray(body.exclude_brands) && body.exclude_brands.length > 0)));
+}
+
+// Deepen ("Find more businesses") rate limit. Deepening fires a billable deeper
+// web-search pass that expands the SHARED market pool, so it is limited per market
+// per day (not per user): a handful of expansions per market per day is plenty and
+// caps the cost even if many agents share a market. Keyed by normalized school so
+// it cannot be spammed. In-memory is fine: the shared 30-day pool is the durable
+// artifact; this only throttles how often a market can be expanded.
+const DEEPEN_MAX_PER_DAY = parseInt(process.env.DEAL_SCAN_DEEPEN_MAX_PER_DAY, 10) || 3;
+const _deepenHits = new Map(); // marketKey -> [timestamps ms] (last 24h)
+function _deepenMarketKey(school) {
+  return String(school || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+}
+function _deepenRateCheck(marketKey) {
+  const now = Date.now();
+  const arr = (_deepenHits.get(marketKey) || []).filter((t) => t > now - 86400e3);
+  if (arr.length >= DEEPEN_MAX_PER_DAY) return { ok: false, limit: DEEPEN_MAX_PER_DAY };
+  return { ok: true };
+}
+function _deepenRateRecord(marketKey) {
+  const now = Date.now();
+  const arr = (_deepenHits.get(marketKey) || []).filter((t) => t > now - 86400e3);
+  arr.push(now);
+  _deepenHits.set(marketKey, arr);
 }
 async function _getFreshScanCache(athleteId, lane) {
   try {
@@ -5573,15 +5598,30 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     }
     _scanRateRecord(_rlKey);
 
+    // "Find more businesses": explicit, on-demand deepen (local only). Fires a
+    // billable deeper web-search pass that expands the SHARED market pool, so it is
+    // rate-limited per market per day. On throttle, keep the shown cards and tell
+    // the client to try later; never fire the deeper search.
+    const wantDeepen = req.body.deepen === true && validLane === 'local';
+    if (wantDeepen) {
+      const _dk = _deepenMarketKey(loaded.athleteObj.school);
+      const drl = _deepenRateCheck(_dk);
+      if (!drl.ok) {
+        _logScanCost(validLane, null, Date.now() - _scanT0, false);
+        return res.json({ opportunities: [], lane: validLane, deepenLimited: true, poolExhausted: true, message: `This market was just expanded ${drl.limit} times today. Try Find more again tomorrow.` });
+      }
+      _deepenRateRecord(_dk);
+    }
+
     // Lane targets: Local is primary (up to 10 per page), Top NIL up to 4.
     const TARGET = validLane === 'local' ? 8 : 4;
     const { result: recommendationsRaw, meter: _meter } = await scanMeter.run(async () => {
-      let recs = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane);
+      let recs = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane, { deepen: wantDeepen });
       // Non-local lanes keep the "top up a thin refresh from a no-exclude run"
       // behavior so they don't shrink on repeated refreshes. Local must NOT top
       // up this way: it paginates a persistent pool 10 at a time, and the
       // never-repeat guarantee forbids re-showing an already-excluded business.
-      // Local depth is handled inside getDealRecommendations (deepen-on-exhaust).
+      // Local depth is expanded on demand via the "Find more" deepen flag above.
       if (validLane !== 'local' && recs.length < TARGET && excludeBrands.length) {
         const fresh = await ai.getDealRecommendations(loaded.athleteObj, 'agent', [], validLane);
         const seen = new Set(recs.map((r) => (r.brand || '').toLowerCase()));
