@@ -69,6 +69,16 @@ a.back:hover{color:#C8F135}
     <tbody id="users-table"><tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3);font-size:12px">Loading...</td></tr></tbody>
   </table>
 </div>
+
+<!-- ── Referrals ─────────────────────────────────────────────── -->
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">
+    <div style="font-size:14px;font-weight:600;color:#f0ede6">Referrals</div>
+    <button onclick="loadReferrals()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+  </div>
+  <div id="referrals-body" style="padding:16px 20px;font-size:12px;color:#f0ede6;line-height:1.6">Loading...</div>
+</div>
+
 <div class="sub">Access request management</div>
 <div class="stats">
   <div class="stat"><div class="stat-val" id="total">—</div><div class="stat-lbl">Total</div></div>
@@ -297,6 +307,102 @@ async function runIngestion() {
   }
   setTimeout(() => { btn.textContent = 'Run Deal Comp Ingestion'; btn.disabled = false; }, 3000);
 }
+
+// ── Referrals ────────────────────────────────────────────────
+function refMoney(cents) { return '$' + (Number(cents || 0) / 100).toFixed(2); }
+function refEsc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
+function refStat(label, val) {
+  return '<div><div style="font-size:16px;font-weight:700;color:#f0ede6">' + refEsc(val) + '</div>' +
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:rgba(240,237,230,0.4)">' + refEsc(label) + '</div></div>';
+}
+function refMonthVal(code) { var el = document.getElementById('refmonth-' + code); return el ? el.value : ''; }
+function dlRefCsv(code) {
+  window.open('/api/admin/referrals/export?code=' + encodeURIComponent(code) + '&month=' + encodeURIComponent(refMonthVal(code)), '_blank');
+  return false;
+}
+
+async function loadReferrals() {
+  var body = document.getElementById('referrals-body');
+  body.innerHTML = 'Loading...';
+  try {
+    var r = await fetch('/api/admin/referrals');
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'Failed');
+    if (!data.partners || !data.partners.length) { body.innerHTML = 'No referral partners.'; return; }
+    body.innerHTML = data.partners.map(renderPartner).join('');
+  } catch (e) { body.innerHTML = '<span style="color:#ef4444">Error: ' + refEsc(e.message) + '</span>'; }
+}
+
+function renderPartner(p) {
+  var conv = (p.conversionRate * 100).toFixed(0) + '%';
+  var users = p.referredUsers.map(function(u) {
+    return '<tr>' +
+      '<td style="padding:6px 10px">' + refEsc(u.name || '') + '</td>' +
+      '<td style="padding:6px 10px">' + refEsc(u.email || '') + '</td>' +
+      '<td style="padding:6px 10px">' + (u.signupDate ? new Date(u.signupDate).toLocaleDateString() : '') + '</td>' +
+      '<td style="padding:6px 10px">' + refEsc(u.subscriptionStatus || '') + (u.comped ? ' (comped)' : '') + '</td></tr>';
+  }).join('') || '<tr><td colspan="4" style="padding:10px;color:rgba(240,237,230,0.4)">No referred users yet.</td></tr>';
+  var nowMonth = new Date().toISOString().slice(0, 7);
+  return '<div style="border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px 16px;margin-bottom:16px">' +
+    '<div style="font-weight:700;color:#C8F135;font-size:14px">' + refEsc(p.name) +
+      ' <span style="color:rgba(240,237,230,0.5);font-weight:400">(' + refEsc(p.code) + ', ' + (p.commissionRate * 100).toFixed(0) + '%' + (p.active ? '' : ', INACTIVE') + ')</span></div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:18px;margin:10px 0 4px">' +
+      refStat('Signups', p.totalSignups) + refStat('Converted', p.convertedToPaid) + refStat('Conversion', conv) +
+      refStat('Earned all time', refMoney(p.earnedAllTimeCents)) + refStat('Owed (unpaid)', refMoney(p.owedUnpaidCents)) + refStat('Paid out', refMoney(p.paidOutCents)) +
+    '</div>' +
+    '<div style="margin-top:10px;font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:rgba(240,237,230,0.4)">Referred users</div>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px"><tbody>' + users + '</tbody></table>' +
+    '<div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<span style="font-size:11px;color:rgba(240,237,230,0.5)">Monthly report:</span>' +
+      '<input type="month" id="refmonth-' + p.code + '" value="' + nowMonth + '" style="background:#0d0d0c;border:1px solid rgba(255,255,255,0.15);border-radius:5px;color:#f0ede6;padding:5px 8px;font-size:12px">' +
+      '<button onclick="loadRefReport(\'' + p.code + '\')" style="font-size:12px;padding:6px 12px;background:#84CC16;color:#000;border:none;border-radius:5px;cursor:pointer;font-weight:600">Load report</button>' +
+      '<a href="#" onclick="return dlRefCsv(\'' + p.code + '\')" style="font-size:12px;color:#84CC16">Download CSV</a>' +
+    '</div>' +
+    '<div id="refreport-' + p.code + '" style="margin-top:10px"></div>' +
+  '</div>';
+}
+
+async function loadRefReport(code) {
+  var el = document.getElementById('refreport-' + code);
+  var month = refMonthVal(code);
+  el.innerHTML = 'Loading...';
+  try {
+    var r = await fetch('/api/admin/referrals/report?code=' + encodeURIComponent(code) + '&month=' + encodeURIComponent(month));
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Failed');
+    if (!d.rows.length) { el.innerHTML = '<div style="color:rgba(240,237,230,0.4)">No paid invoices in ' + refEsc(month) + '.</div>'; return; }
+    var rows = d.rows.map(function(row) {
+      return '<tr>' +
+        '<td style="padding:6px 8px">' + (row.paidOut ? '' : '<input type="checkbox" class="refchk-' + code + '" value="' + row.id + '">') + '</td>' +
+        '<td style="padding:6px 8px">' + new Date(row.paymentDate).toLocaleDateString() + '</td>' +
+        '<td style="padding:6px 8px">' + refEsc(row.userName || row.userEmail || row.userId) + '</td>' +
+        '<td style="padding:6px 8px">' + refMoney(row.paymentAmountCents) + '</td>' +
+        '<td style="padding:6px 8px">' + refMoney(row.commissionAmountCents) + '</td>' +
+        '<td style="padding:6px 8px">' + (row.paidOut ? '<span style="color:#4ade80">paid</span>' : '<span style="color:#f59e0b">unpaid</span>') + '</td>' +
+      '</tr>';
+    }).join('');
+    el.innerHTML =
+      '<div style="font-size:12px;margin-bottom:6px">' + d.paidInvoices + ' paid invoice(s), owed ' + refMoney(d.commissionOwedCents) + ', already paid ' + refMoney(d.commissionPaidCents) + '</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.4);text-align:left">' +
+      '<th style="padding:6px 8px"></th><th style="padding:6px 8px">Date</th><th style="padding:6px 8px">Referred user</th><th style="padding:6px 8px">Payment</th><th style="padding:6px 8px">Commission</th><th style="padding:6px 8px">Status</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<button onclick="markRefPaid(\'' + code + '\')" style="margin-top:10px;font-size:12px;padding:6px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:5px;color:#f0ede6;cursor:pointer">Mark selected as paid</button>';
+  } catch (e) { el.innerHTML = '<span style="color:#ef4444">Error: ' + refEsc(e.message) + '</span>'; }
+}
+
+async function markRefPaid(code) {
+  var ids = Array.prototype.slice.call(document.querySelectorAll('.refchk-' + code + ':checked')).map(function(c){ return Number(c.value); });
+  if (!ids.length) { showToast('Select at least one row'); return; }
+  if (!confirm('Mark ' + ids.length + ' commission(s) as paid? Do this AFTER you have sent the Stripe transfer.')) return;
+  try {
+    var r = await fetch('/api/admin/referrals/mark-paid', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids }) });
+    var d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || 'Failed');
+    showToast('Marked ' + d.updated + ' as paid');
+    loadRefReport(code); loadReferrals();
+  } catch (e) { showToast('Error: ' + e.message); }
+}
+
+setTimeout(loadReferrals, 600);
 </script>
 </body>
 </html>

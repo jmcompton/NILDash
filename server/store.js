@@ -37,6 +37,42 @@ async function init() {
     -- was the leak (agentHasAccess used to exempt any non-'free' plan). New rows
     -- default to 'none'; access now comes from a Stripe trial/subscription or comp.
     ALTER TABLE users ALTER COLUMN plan SET DEFAULT 'none';
+    -- Referral attribution (first-touch, permanent). Stamped once at agent signup
+    -- from the ?ref cookie; never overwritten. NULL for organic/unattributed users.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_at TIMESTAMPTZ;
+    -- Referral partners (affiliates). commission_rate is a fraction (0.20 = 20%).
+    CREATE TABLE IF NOT EXISTS referral_partners (
+      code TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT,
+      commission_rate NUMERIC(5,4) NOT NULL DEFAULT 0.20,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    -- Seed Greg Glynn / Pliable Marketing. ON CONFLICT DO NOTHING so re-running init
+    -- never clobbers later admin edits to the rate or active flag.
+    INSERT INTO referral_partners (code, name, email, commission_rate, active)
+    VALUES ('pliable', 'Greg Glynn', 'pliablemarketing@gmail.com', 0.20, TRUE)
+    ON CONFLICT (code) DO NOTHING;
+    -- One row per PAID invoice for a referred user. UNIQUE(stripe_invoice_id) makes
+    -- the invoice.payment_succeeded handler idempotent under Stripe webhook retries.
+    -- Amounts stored in integer cents (from Stripe) to avoid float rounding.
+    CREATE TABLE IF NOT EXISTS referral_commissions (
+      id BIGSERIAL PRIMARY KEY,
+      partner_code TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      stripe_invoice_id TEXT NOT NULL UNIQUE,
+      payment_amount_cents INTEGER NOT NULL,
+      commission_amount_cents INTEGER NOT NULL,
+      commission_rate NUMERIC(5,4) NOT NULL,
+      payment_date TIMESTAMPTZ NOT NULL,
+      paid_out BOOLEAN NOT NULL DEFAULT FALSE,
+      paid_out_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_referral_commissions_partner ON referral_commissions (partner_code);
+    CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users (referred_by);
     CREATE TABLE IF NOT EXISTS athletes (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
@@ -1174,6 +1210,93 @@ async function getUserByEmailWithPassword(email) {
   const r = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
   return r.rows[0] || null;
 }
+async function getUserByStripeCustomer(customerId) {
+  if (!customerId) return null;
+  const r = await pool.query('SELECT * FROM users WHERE stripe_customer_id=$1', [customerId]);
+  if (r.rows[0]) { const { password, ...safe } = r.rows[0]; return safe; }
+  return null;
+}
+
+// ── Referral tracking ────────────────────────────────────────────────────────
+async function getReferralPartner(code) {
+  if (!code) return null;
+  const r = await pool.query('SELECT * FROM referral_partners WHERE code=$1', [String(code).toLowerCase().trim()]);
+  return r.rows[0] || null;
+}
+// PURE decision: given a Stripe invoice, the paying user, and the referral
+// partner, return the commission row to insert, or null when no commission is due.
+// No commission when: $0 (trial) invoice, comped user, unreferred user, or the
+// partner is missing / inactive / mismatched. Amounts stay in integer cents.
+function buildCommissionRow(invoice, user, partner) {
+  if (!invoice || !user || !partner) return null;
+  const amountPaid = Number(invoice.amount_paid) || 0; // cents
+  if (amountPaid <= 0) return null;                    // $0 trial invoice: no commission
+  if (user.comped) return null;                        // comped account: no commission
+  if (!user.referred_by) return null;                  // organic signup: no commission
+  if (partner.code !== user.referred_by || !partner.active) return null;
+  const rate = Number(partner.commission_rate) || 0;
+  if (rate <= 0) return null;
+  const paidAtUnix = (invoice.status_transitions && invoice.status_transitions.paid_at) || invoice.created || null;
+  return {
+    partner_code: partner.code,
+    user_id: user.id,
+    stripe_invoice_id: invoice.id,
+    payment_amount_cents: amountPaid,
+    commission_amount_cents: Math.round(amountPaid * rate),
+    commission_rate: rate,
+    payment_date: paidAtUnix ? new Date(paidAtUnix * 1000).toISOString() : new Date().toISOString(),
+  };
+}
+// PURE admin aggregation: given partner rows, referred-user rows, and commission
+// rows, compute per-partner stats (signups, converted-to-paid, conversion rate,
+// earned all-time / owed-unpaid / paid-out in cents, and the referred-user list).
+// A user counts as "converted" once they have at least one commission row (they
+// paid at least one real invoice). Extracted so the math is unit-testable.
+function aggregateReferrals(partners, users, commissions) {
+  const byCode = {};
+  const convertedByCode = {};
+  for (const c of (commissions || [])) {
+    const a = byCode[c.partner_code] || (byCode[c.partner_code] = { earned: 0, owed: 0, paid: 0 });
+    const amt = Number(c.commission_amount_cents) || 0;
+    a.earned += amt;
+    if (c.paid_out) a.paid += amt; else a.owed += amt;
+    (convertedByCode[c.partner_code] || (convertedByCode[c.partner_code] = new Set())).add(c.user_id);
+  }
+  const usersByCode = {};
+  for (const u of (users || [])) (usersByCode[u.referred_by] || (usersByCode[u.referred_by] = [])).push(u);
+  return (partners || []).map((p) => {
+    const referred = usersByCode[p.code] || [];
+    const converted = (convertedByCode[p.code] || new Set()).size;
+    const sums = byCode[p.code] || { earned: 0, owed: 0, paid: 0 };
+    return {
+      code: p.code, name: p.name, email: p.email,
+      commissionRate: Number(p.commission_rate), active: p.active,
+      totalSignups: referred.length,
+      convertedToPaid: converted,
+      conversionRate: referred.length ? converted / referred.length : 0,
+      earnedAllTimeCents: sums.earned,
+      owedUnpaidCents: sums.owed,
+      paidOutCents: sums.paid,
+      referredUsers: referred.map((u) => ({
+        id: u.id, name: u.name, email: u.email,
+        signupDate: u.created_at, subscriptionStatus: u.subscription_status, comped: u.comped,
+      })),
+    };
+  });
+}
+// Idempotent insert: UNIQUE(stripe_invoice_id) means a replayed webhook is a no-op.
+async function recordReferralCommission(row) {
+  const r = await pool.query(
+    `INSERT INTO referral_commissions
+       (partner_code, user_id, stripe_invoice_id, payment_amount_cents, commission_amount_cents, commission_rate, payment_date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (stripe_invoice_id) DO NOTHING
+     RETURNING id`,
+    [row.partner_code, row.user_id, row.stripe_invoice_id, row.payment_amount_cents,
+     row.commission_amount_cents, row.commission_rate, row.payment_date]
+  );
+  return { inserted: r.rows.length > 0, id: r.rows[0] ? r.rows[0].id : null };
+}
 async function saveUser(id, data) {
   // Never save an account nameless: fall back to the email's local-part.
   const safeName = (data.name && String(data.name).trim())
@@ -1643,6 +1766,7 @@ init().catch(console.error);
 
 module.exports = {
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers,
+  getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals,
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
   getDeal, getDealsByAthlete, getDealsByAgent, saveDeal, deleteDeal,
   saveComp, getComps, getCompStats, getCompsByBrand,

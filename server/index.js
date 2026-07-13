@@ -201,6 +201,34 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
     }
   }
 
+  // ── Referral recurring commission (ADDITIVE, independent of the handlers above) ─
+  // invoice.payment_succeeded fires on the FIRST paid invoice after the trial AND
+  // on every monthly renewal, which is exactly what a recurring commission needs.
+  // For a referred, non-comped agent paying a real (>$0) invoice, write ONE
+  // commission row; UNIQUE(stripe_invoice_id) makes replays a no-op. $0 trial
+  // invoices, comped users, and unreferred users produce nothing. This block never
+  // touches subscription status or access, so existing billing behavior is unchanged.
+  if (event.type === 'invoice.payment_succeeded') {
+    const invoice = event.data.object;
+    try {
+      const user = await store.getUserByStripeCustomer(invoice.customer);
+      if (user && user.referred_by && !user.comped && Number(invoice.amount_paid) > 0) {
+        const partner = await store.getReferralPartner(user.referred_by);
+        const row = store.buildCommissionRow(invoice, user, partner);
+        if (row) {
+          const { inserted } = await store.recordReferralCommission(row);
+          if (inserted) {
+            console.log(`[referral] commission recorded partner=${row.partner_code} user=${row.user_id} invoice=${row.stripe_invoice_id} payment=${row.payment_amount_cents}c commission=${row.commission_amount_cents}c`);
+          } else {
+            console.log(`[referral] duplicate invoice ignored ${row.stripe_invoice_id}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[referral] commission recording failed (ignored):', e.message);
+    }
+  }
+
   res.json({ received: true });
 });
 
@@ -214,6 +242,43 @@ app.use('/api/agent/athlete-media-kit', mkImageJson);
 app.use('/api/athlete/media-kit/save', mkImageJson);
 
 app.use(express.json({ limit: '50kb' }));
+
+// ── Referral first-touch capture ─────────────────────────────────────────────
+// Read a named cookie from the raw header (no cookie-parser dependency).
+function readRawCookie(req, name) {
+  const header = req.headers && req.headers.cookie;
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const i = part.indexOf('=');
+    if (i === -1) continue;
+    if (part.slice(0, i).trim() === name) {
+      try { return decodeURIComponent(part.slice(i + 1).trim()); } catch (_) { return part.slice(i + 1).trim(); }
+    }
+  }
+  return null;
+}
+// A visitor landing on ANY url with ?ref=<code> gets a first-party, first-touch,
+// httpOnly cookie. First code wins (never overwritten), survives browsing, signup,
+// and the full Stripe Checkout redirect (same-domain cookie), and is read once at
+// agent signup. Purely additive: it only sets a cookie, never blocks or alters the
+// request, and must run BEFORE express.static so it fires on GET /?ref=.
+app.use((req, res, next) => {
+  try {
+    const raw = req.query && req.query.ref;
+    const code = String(Array.isArray(raw) ? raw[0] : (raw || '')).toLowerCase().trim().slice(0, 64);
+    if (code && /^[a-z0-9_-]+$/.test(code) && !readRawCookie(req, 'nildash_ref')) {
+      res.cookie('nildash_ref', code, {
+        maxAge: 90 * 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV !== 'development',
+        path: '/',
+      });
+    }
+  } catch (_) { /* referral capture must never break a page load */ }
+  next();
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.set('trust proxy', 1);
 app.use(session({
@@ -397,6 +462,28 @@ app.post('/api/auth/signup', async (req, res) => {
     id, name, email, password: hash, role,
     createdAt: new Date().toISOString(),
   });
+
+  // Referral first-touch attribution. Stamp the referring partner ONCE, only for
+  // agents and only for a KNOWN ACTIVE partner code from the first-touch cookie.
+  // Unknown/inactive codes are silently ignored; a failure here never blocks
+  // signup. `referred_by IS NULL` keeps it permanent (first code wins).
+  if (role === 'agent') {
+    try {
+      const refCode = readRawCookie(req, 'nildash_ref');
+      if (refCode) {
+        const partner = await store.getReferralPartner(refCode);
+        if (partner && partner.active) {
+          await store.pool.query(
+            'UPDATE users SET referred_by = $1, referred_at = NOW() WHERE id = $2 AND referred_by IS NULL',
+            [partner.code, id]
+          );
+          console.log(`[signup] referral attributed user=${id} partner=${partner.code}`);
+        }
+      }
+    } catch (e) {
+      console.error('[signup] referral attribution failed (ignored):', e.message);
+    }
+  }
 
   req.session.userId = id;
   req.session.role   = role;
@@ -3157,6 +3244,116 @@ app.post('/api/admin/seed-demo', requireAuth, async (req, res) => {
     console.error('[admin/seed-demo]', e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Admin: referral partners + commissions ───────────────────
+// Reporting/tracking only. Payouts are MANUAL (paid to the partner via Stripe
+// transfer outside the app); these endpoints only report and flip paid/unpaid.
+async function _referralAdminOrDeny(req, res) {
+  const user = await store.getUser(req.session.userId);
+  if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email) && user.role !== 'admin')) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
+  }
+  return user;
+}
+
+// Overview: every partner with signup/conversion counts, referred-user list, and
+// commission totals (all-time earned, unpaid owed, paid out). Amounts in cents.
+app.get('/api/admin/referrals', requireAuth, async (req, res) => {
+  if (!await _referralAdminOrDeny(req, res)) return;
+  try {
+    const [partners, users, comm] = await Promise.all([
+      store.pool.query('SELECT code, name, email, commission_rate, active, created_at FROM referral_partners ORDER BY created_at'),
+      store.pool.query("SELECT id, name, email, created_at, subscription_status, comped, referred_by FROM users WHERE referred_by IS NOT NULL ORDER BY created_at DESC"),
+      store.pool.query('SELECT partner_code, user_id, commission_amount_cents, paid_out FROM referral_commissions'),
+    ]);
+    const out = store.aggregateReferrals(partners.rows, users.rows, comm.rows);
+    res.json({ partners: out });
+  } catch (e) { console.error('[admin/referrals]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// Monthly report: commission rows for a partner in a given YYYY-MM (by payment_date).
+app.get('/api/admin/referrals/report', requireAuth, async (req, res) => {
+  if (!await _referralAdminOrDeny(req, res)) return;
+  try {
+    const code = String(req.query.code || '').toLowerCase().trim();
+    const month = String(req.query.month || '').trim(); // YYYY-MM
+    if (!code || !/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: 'code and month=YYYY-MM required' });
+    const rows = await _referralMonthRows(code, month);
+    const owed = rows.filter((r) => !r.paid_out).reduce((n, r) => n + r.commission_amount_cents, 0);
+    const paid = rows.filter((r) => r.paid_out).reduce((n, r) => n + r.commission_amount_cents, 0);
+    res.json({
+      code, month,
+      paidInvoices: rows.length,
+      commissionOwedCents: owed,
+      commissionPaidCents: paid,
+      rows: rows.map((r) => ({
+        id: r.id, userId: r.user_id, stripeInvoiceId: r.stripe_invoice_id,
+        paymentAmountCents: r.payment_amount_cents, commissionAmountCents: r.commission_amount_cents,
+        commissionRate: Number(r.commission_rate), paymentDate: r.payment_date, paidOut: r.paid_out,
+        userName: r.user_name, userEmail: r.user_email,
+      })),
+    });
+  } catch (e) { console.error('[admin/referrals/report]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+async function _referralMonthRows(code, month) {
+  const start = month + '-01';
+  const r = await store.pool.query(
+    `SELECT rc.*, u.name AS user_name, u.email AS user_email
+       FROM referral_commissions rc
+       LEFT JOIN users u ON u.id = rc.user_id
+      WHERE rc.partner_code = $1
+        AND rc.payment_date >= $2::date
+        AND rc.payment_date < ($2::date + INTERVAL '1 month')
+      ORDER BY rc.payment_date DESC`,
+    [code, start]
+  );
+  return r.rows;
+}
+
+// Mark specific commission rows as paid (manual payout tracking). Idempotent.
+app.post('/api/admin/referrals/mark-paid', requireAuth, async (req, res) => {
+  if (!await _referralAdminOrDeny(req, res)) return;
+  try {
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(Number).filter((n) => Number.isFinite(n)) : [];
+    const paid = req.body && req.body.paid === false ? false : true; // default: mark paid; allow un-marking
+    if (!ids.length) return res.status(400).json({ error: 'ids[] required' });
+    const r = await store.pool.query(
+      `UPDATE referral_commissions
+          SET paid_out = $2, paid_out_at = CASE WHEN $2 THEN NOW() ELSE NULL END
+        WHERE id = ANY($1::bigint[]) RETURNING id`,
+      [ids, paid]
+    );
+    console.log(`[admin/referrals] marked ${r.rows.length} commission(s) paid=${paid}`);
+    res.json({ ok: true, updated: r.rows.length });
+  } catch (e) { console.error('[admin/referrals/mark-paid]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// CSV export of a partner's monthly report.
+app.get('/api/admin/referrals/export', requireAuth, async (req, res) => {
+  if (!await _referralAdminOrDeny(req, res)) return;
+  try {
+    const code = String(req.query.code || '').toLowerCase().trim();
+    const month = String(req.query.month || '').trim();
+    if (!code || !/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: 'code and month=YYYY-MM required' });
+    const rows = await _referralMonthRows(code, month);
+    const esc = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const header = ['payment_date', 'user_name', 'user_email', 'stripe_invoice_id', 'payment_amount_usd', 'commission_rate', 'commission_amount_usd', 'paid_out'];
+    const lines = [header.join(',')];
+    for (const r of rows) {
+      lines.push([
+        new Date(r.payment_date).toISOString().slice(0, 10),
+        r.user_name || '', r.user_email || '', r.stripe_invoice_id,
+        (r.payment_amount_cents / 100).toFixed(2), Number(r.commission_rate),
+        (r.commission_amount_cents / 100).toFixed(2), r.paid_out ? 'yes' : 'no',
+      ].map(esc).join(','));
+    }
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="referrals-${code}-${month}.csv"`);
+    res.send(lines.join('\n'));
+  } catch (e) { console.error('[admin/referrals/export]', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // ── Admin cleanup ────────────────────────────────────────────
