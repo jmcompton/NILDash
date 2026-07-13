@@ -51,6 +51,20 @@ a.back:hover{color:#C8F135}
   <button onclick="runIngestion()" style="font-size:12px;padding:8px 16px;background:#4ade80;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:600">Run Deal Comp Ingestion</button>
   <span style="font-size:11px;color:rgba(240,237,230,0.4)">Pulls latest disclosed NIL deals from web — runs automatically every Sunday</span>
 </div>
+<!-- ── Create comped agent ───────────────────────────────────── -->
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08)">
+    <div style="font-size:14px;font-weight:600;color:#f0ede6">Create comped agent</div>
+    <div style="font-size:11px;color:rgba(240,237,230,0.4);margin-top:4px">Creates an agent account with full free access, no card and no Stripe checkout. They get a link to set their password and log in.</div>
+  </div>
+  <div style="padding:16px 20px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">
+    <input id="cca-name" type="text" placeholder="Full name" style="flex:1;min-width:160px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="cca-email" type="email" placeholder="email@example.com" style="flex:1;min-width:200px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <button id="cca-btn" onclick="createCompedAgent()" style="padding:8px 16px;background:#a78bfa;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Create comped agent</button>
+  </div>
+  <div id="cca-result" style="padding:0 20px 16px;font-size:12px;color:#f0ede6;display:none"></div>
+</div>
+
 <div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">
     <div style="font-size:14px;font-weight:600;color:#f0ede6">User Plans</div>
@@ -218,6 +232,49 @@ async function setComp(userId, comped) {
     if (u && row) { u.comped = comped; row.outerHTML = userRowHtml(u); }
   } else {
     showToast('Error: ' + (data.error || 'comp update failed'));
+  }
+}
+
+async function createCompedAgent() {
+  const nameEl = document.getElementById('cca-name');
+  const emailEl = document.getElementById('cca-email');
+  const btn = document.getElementById('cca-btn');
+  const out = document.getElementById('cca-result');
+  const name = (nameEl.value || '').trim();
+  const email = (emailEl.value || '').trim();
+  if (!name || !email) { showToast('Name and email are required'); return; }
+  btn.disabled = true; const label = btn.textContent; btn.textContent = 'Creating...';
+  try {
+    const r = await fetch('/api/admin/create-comped-agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email })
+    });
+    const data = await r.json();
+    if (!r.ok || !data.ok) { showToast('Error: ' + (data.error || 'could not create account')); return; }
+    showToast('Comped agent created' + (data.emailed ? ' and emailed' : ''));
+    const escAttr = s => String(s).replace(/"/g, '&quot;');
+    out.style.display = 'block';
+    out.innerHTML =
+      '<div style="background:#0f130a;border:1px solid rgba(167,139,250,0.4);border-radius:8px;padding:12px 14px">' +
+        '<div style="color:#a78bfa;font-weight:700;margin-bottom:6px">' + (data.name || name) + ' is ready (comped, full access, no card)</div>' +
+        '<div style="color:rgba(240,237,230,0.6);margin-bottom:8px">' +
+          (data.emailed
+            ? 'A set-password link was emailed to ' + data.email + '. You can also copy it below.'
+            : 'Email was not sent (delivery not configured). Copy this set-password link and send it to them:') +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<input id="cca-link" readonly value="' + escAttr(data.resetUrl) + '" style="flex:1;padding:7px 10px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;outline:none">' +
+          '<button onclick="(function(){var i=document.getElementById(\'cca-link\');i.select();document.execCommand(\'copy\');showToast(\'Link copied\');})()" style="padding:7px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;cursor:pointer">Copy</button>' +
+        '</div>' +
+        '<div style="color:rgba(240,237,230,0.35);font-size:10px;margin-top:6px">Link expires in 7 days.</div>' +
+      '</div>';
+    nameEl.value = ''; emailEl.value = '';
+    if (typeof loadUsers === 'function') loadUsers();
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = label;
   }
 }
 

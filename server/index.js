@@ -3083,7 +3083,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const user = await store.getUserByEmail(email);
     if (!user) return res.status(400).json({ error: 'User not found' });
-    await store.pool.query("UPDATE users SET data = jsonb_set(data, '{password}', $1) WHERE id=$2", [JSON.stringify(hash), user.id]);
+    await store.pool.query('UPDATE users SET password=$1, password_reset_required=FALSE, updated_at=NOW() WHERE id=$2', [hash, user.id]);
     await store.pool.query('UPDATE password_resets SET used=TRUE WHERE token=$1', [token]);
     res.json({ ok: true });
   } catch(e) { console.error('Reset password error:', e.message); res.status(500).json({ error: 'Failed to reset password' }); }
@@ -3217,6 +3217,62 @@ app.post('/api/admin/set-comp', async (req, res) => {
     await store.pool.query('UPDATE users SET comped = $1 WHERE id = $2', [comped === true, userId]);
     res.json({ ok: true, userId, comped: comped === true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Admin-only: create a comped agent account directly, with NO card and NO Stripe
+// checkout. Comped agents cannot be made through signup (signup always forces a
+// card), so this is their only onboarding path. The account gets full access
+// immediately (comped=true) and a set-password link so they can log in.
+app.post('/api/admin/create-comped-agent', async (req, res) => {
+  try {
+    const admin = await store.getUser(req.session.userId);
+    if (!admin || admin.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+
+    const name = String(req.body.name || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+    if (await store.getUserByEmail(email)) return res.status(400).json({ error: 'That email is already registered' });
+
+    // Create the agent with an unguessable random password; they set their own
+    // through the link below. comped=true grants full access with no card.
+    const crypto = require('crypto');
+    const hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+    const id = 'user-' + Date.now();
+    await store.saveUser(id, { id, name, email, password: hash, role: 'agent', createdAt: new Date().toISOString() });
+    await store.pool.query('UPDATE users SET comped=TRUE, password_reset_required=TRUE WHERE id=$1', [id]);
+
+    // Set-password link, reusing the password reset token flow (7 day window so
+    // onboarding is not rushed).
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 7 * 86400000).toISOString();
+    await store.pool.query('INSERT INTO password_resets (email, token, expires_at) VALUES ($1,$2,$3)', [email, token, expires]);
+    const resetUrl = (process.env.APP_URL || 'https://mynildash.com') + '/reset?token=' + token;
+
+    // Best-effort welcome email. If email is not configured or fails, the admin
+    // still gets the link back to send manually, so onboarding never blocks.
+    const esc = s => String(s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+    let emailed = false;
+    try {
+      await resend.emails.send({
+        from: 'NILDash <noreply@mynildash.com>',
+        to: email,
+        subject: 'Your NILDash account is ready',
+        html: '<div style="font-family:system-ui,Arial,sans-serif;max-width:520px;margin:0 auto;padding:40px">' +
+          '<h2 style="color:#C8F135">NILDash</h2>' +
+          '<p>Hi ' + esc(name) + ',</p>' +
+          '<p>Your NILDash agent account is set up with full, complimentary access. No credit card is needed.</p>' +
+          '<p>Set your password to log in:</p>' +
+          '<a href="' + resetUrl + '" style="display:inline-block;margin:20px 0;padding:12px 24px;background:#C8F135;color:#000;text-decoration:none;border-radius:40px;font-weight:700">Set your password</a>' +
+          '<p style="color:#666;font-size:12px">This link expires in 7 days. After that, use "Forgot password" at ' + (process.env.APP_URL || 'https://mynildash.com') + '.</p>' +
+          '</div>'
+      });
+      emailed = true;
+    } catch (e) { console.error('[create-comped-agent] email failed (link still returned):', e.message); }
+
+    console.log('[admin] created comped agent', id, email, 'emailed=' + emailed);
+    res.json({ ok: true, userId: id, name, email, resetUrl, emailed });
+  } catch (e) { console.error('[create-comped-agent]', e.message); res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/admin/users', async (req, res) => {
