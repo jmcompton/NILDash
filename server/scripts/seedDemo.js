@@ -401,6 +401,10 @@ async function seedDemo(pool) {
       mediaKitUrl: '/media-kit/' + jordanSlug,
       mediaKitSlug: jordanSlug,
       averyKitUrl: '/media-kit/' + averySlug,
+      // Echo the seeded athlete -> real school so a re-seed is self-verifying:
+      // the response confirms the displayed names are corrected (Kennesaw State,
+      // Georgia State, Mercer), not the old fictional schools.
+      roster: athletes.map((a) => ({ name: a.name, school: a.school, hometown: a.hometown })),
       counts: {
         athletes: athletes.length,
         mediaKits: kits.length,

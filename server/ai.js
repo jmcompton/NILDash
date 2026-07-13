@@ -221,9 +221,15 @@ async function streamResponse(athlete, message, role, res) {
   res.end();
 }
 
-// Fast model for quick structured tasks (deal scan, enrichment, contact discovery)
+// Model split by task type, cheapest tier that fits the job:
+//  - EXTRACTION + web-search discovery (deal scan business/brand search, contact
+//    and evidence extraction, geocoding, quick enrichment): Haiku 4.5, the cheapest
+//    tier ($1/$5 per MTok). Haiku 4.5 supports the web_search_20250305 tool used here.
+//  - FIT SCORING (the reasoning step that ranks the extracted pool by fit and writes
+//    rationales): the stronger Sonnet tier, where scoring quality matters.
+//  - QUALITY WRITING (pitch emails, brand kit, outreach, AI command): Opus.
 const MODEL_FAST  = 'claude-haiku-4-5-20251001';
-// Standard model for quality writing (pitch emails, brand kit)
+const MODEL_SCORE = 'claude-sonnet-4-6';
 const MODEL_STANDARD = 'claude-opus-4-8';
 
 // ── Feature flags ─────────────────────────────────────────────────────────────
@@ -804,7 +810,7 @@ Rules:
   let raw = '';
   const _wt0 = Date.now();
   try {
-    raw = await withTimeout(oneShotWebSearch(prompt, sys, 700, 3, 'claude-sonnet-4-6'), 9000, '');
+    raw = await withTimeout(oneShotWebSearch(prompt, sys, 700, 3, MODEL_FAST), 9000, '');
   } catch (e) {
     console.log(`[dealScan] social search brand=${brand} searchMs=${Date.now() - _wt0} result=ERROR ${e.message}`);
     return { evidence: {}, outcome: 'ERROR', cached: false, skipCache: true };
@@ -881,7 +887,7 @@ Return ONLY a JSON array: [{"athlete":string,"sport":string|null,"followerTier":
 Rules: include a deal ONLY if you can point to a real reporting source (sourceUrl is required). followerTier is an approximate description like "~25K" ONLY if it was reported, else null. Return [] if you cannot find real disclosed deals. Never fabricate.`;
     let raw = '';
     try {
-      raw = await withTimeout(oneShotWebSearch(prompt, sys, 700, 3, 'claude-sonnet-4-6'), 9000, '');
+      raw = await withTimeout(oneShotWebSearch(prompt, sys, 700, 3, MODEL_FAST), 9000, '');
     } catch (e) {
       return { evidence: {}, outcome: 'ERROR', cached: false, skipCache: true };
     }
@@ -1291,7 +1297,7 @@ async function _contactWebSearchRaw(prompt, sys) {
   const client = getClient();
   scanMeter.bumpWeb();
   const msg = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: MODEL_FAST,
     max_tokens: 900,
     system: sys,
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
@@ -1387,7 +1393,7 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
   try {
     if (_contactSearchImpl) {
       // Test seam: may return a raw string, or { text, citations }.
-      const out = await _contactSearchImpl(prompt, sys, 900, 2, 'claude-sonnet-4-6', source);
+      const out = await _contactSearchImpl(prompt, sys, 900, 2, MODEL_FAST, source);
       if (out && typeof out === 'object') { text = out.text || ''; citations = out.citations || []; }
       else { text = out || ''; }
     } else {
@@ -1774,7 +1780,7 @@ async function _topnilFromComps(athlete, excludeBrands) {
 }
 
 async function _scanBrandLane(athlete, lane, excludeBrands) {
-  const MODEL_DEALSCAN = 'claude-sonnet-4-6';
+  const MODEL_DEALSCAN = MODEL_FAST; // web-search brand discovery: extraction, runs on the cheap tier
   const _laneT0 = Date.now();
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
@@ -2013,7 +2019,7 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane, opts =
 
   // Deal Scan uses Sonnet (scoped to this function only) — faster than Opus,
   // strong enough for structured local-brand research.
-  const MODEL_DEALSCAN = 'claude-sonnet-4-6';
+  const MODEL_DEALSCAN = MODEL_FAST; // web-search business discovery: extraction, runs on the cheap tier
   const _t0 = Date.now();
   const rate = calculateRate(athlete, 'ig-reel');
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
@@ -2524,7 +2530,7 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
     // The knowledge path is reserved for phase 1 itself producing nothing.
     const scoreSys = 'You are a JSON-only NIL deal API. Output ONLY a valid JSON array. Never fabricate a business, evidence, or an email domain — only use the businesses, evidence, and domains provided.';
     const runScore = async (candList) => {
-      const raw = await oneShot(buildScorePrompt(candList), scoreSys, 3500, MODEL_FAST);
+      const raw = await oneShot(buildScorePrompt(candList), scoreSys, 3500, MODEL_SCORE);
       const { items, salvaged } = extractJsonArrayItems(raw);
       return { items: items.filter((x) => x && x.brand), salvaged, rawLen: String(raw || '').length };
     };
