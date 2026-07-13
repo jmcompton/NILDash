@@ -5384,11 +5384,12 @@ function deepLink(view, params) {
       if (sel) sel.value = String(params.athleteId);
     } catch(e) {}
   }
-  if (view === 'outreach') {
-    // The AI outreach composer lives in the Media Kit view's Outreach tab.
-    if (typeof openOutreachModal === 'function') openOutreachModal(params.athleteId || selectedAthleteId);
-    else showView('marketing', document.getElementById('marketingNavBtn'));
-    if (params.brand) setTimeout(function(){ var b = document.getElementById('or-brand') || document.getElementById('orBrand'); if (b) b.value = params.brand; }, 280);
+  if (view === 'outreach' || view === 'email-compose') {
+    // "Draft follow-up" / "Follow up now" land in the Email Inbox composer with a
+    // started follow-up, not the Media Kit outreach tab. This opens a view AND
+    // triggers an action inside it: open Email Inbox, open Compose, and prefill
+    // the recipient/subject/body.
+    _openFollowupComposer(params);
     return;
   }
   if (view === 'calendar') { showView('calendar', document.querySelector('.nav-item[onclick*=calendar]')); return; }
@@ -5398,6 +5399,51 @@ function deepLink(view, params) {
     return;
   }
   showView(view, document.querySelector('.nav-item[onclick*=' + view + ']'));
+}
+function _resolveFollowupAthleteName(params) {
+  if (params.athleteName && String(params.athleteName).trim()) return String(params.athleteName).trim();
+  try {
+    var list = (typeof athletes !== 'undefined' && athletes) ? athletes : (window.athletes || []);
+    var a = list.find(function(x){ return String(x.id) === String(params.athleteId); });
+    if (a) return a.name || (a.data && a.data.name) || '';
+  } catch(e) {}
+  return '';
+}
+// Open the Email Inbox composer with a started follow-up draft. The recipient is
+// resolved with the SAME rule the outreach modal uses (a named person's
+// non-generic email, or left empty on purpose; never info@). Sending works even
+// while inbox reading is off, so this is the right home for a follow-up.
+function _openFollowupComposer(params) {
+  params = params || {};
+  var emailBtn = document.getElementById('emailNavBtn');
+  showView('email-inbox', emailBtn);
+  try { if (typeof athleteEmailsModule !== 'undefined' && athleteEmailsModule.clearBadge) athleteEmailsModule.clearBadge(); } catch(e) {}
+  var to = '';
+  try {
+    if (window.outreachEngine && typeof window.outreachEngine.resolvePersonalEmail === 'function') {
+      to = window.outreachEngine.resolvePersonalEmail({ name: params.contactName || '', email: params.contactEmail || '' }) || '';
+    }
+  } catch(e) {}
+  var athlete   = _resolveFollowupAthleteName(params) || 'my client';
+  var brand     = (params.brand && String(params.brand).trim()) ? String(params.brand).trim() : 'your team';
+  // Greet by first name only when we resolved a trusted personal contact (a
+  // real recipient). A generic inbox or no contact gets a neutral greeting.
+  var greetName = (to && params.contactName && String(params.contactName).trim()) ? String(params.contactName).trim().split(/\s+/)[0] : 'there';
+  var subject   = 'Following up: ' + athlete + ' x ' + brand;
+  var body = 'Hi ' + greetName + ',\n\n' +
+    'I wanted to follow up on the partnership between ' + athlete + ' and ' + brand + '. ' +
+    'We are excited about the fit and would love to keep things moving.\n\n' +
+    'Would you have time this week for a quick call? I am happy to share ' + athlete + "'s latest numbers and a couple of ideas for how a collaboration could work.\n\n" +
+    'Best,';
+  setTimeout(function(){
+    try {
+      if (window.emailModule) {
+        if (emailModule.loadAccounts) emailModule.loadAccounts();
+        if (emailModule.loadInbox)    emailModule.loadInbox();
+        if (emailModule.openComposer) emailModule.openComposer('new', { to: to, subject: subject, body: body });
+      }
+    } catch(e) { console.warn('[followup] composer open failed:', e && e.message); }
+  }, 80);
 }
 function _highlightPipelineDeal(dealId) {
   var card = document.querySelector('[data-deal-id="' + dealId + '"]');
@@ -5583,7 +5629,15 @@ async function loadHomeFollowUps() {
 }
 function homeFollowupDraft(i) {
   var f = (window._homeFollowups || [])[i];
-  if (f) deepLink('outreach', { athleteId: f.athleteId, brand: f.brand || '' });
+  if (!f) return;
+  deepLink('email-compose', {
+    athleteId:    f.athleteId,
+    brand:        f.brand || '',
+    athleteName:  f.athleteName || '',
+    contactName:  f.contactName || '',
+    contactEmail: f.contactEmail || '',
+    contactTitle: f.contactTitle || '',
+  });
 }
 
 //  KPIS

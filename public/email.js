@@ -349,11 +349,17 @@ function openComposer(mode, prefill) {
     const bodyEl = document.getElementById('compose-body');
     if (bodyEl) bodyEl.value = `\n\n--- Forwarded message ---\nFrom: ${lastMsg.from_address}\nDate: ${lastMsg.sent_at}\nSubject: ${lastMsg.subject}\n\n${lastMsg.body_text || ''}`;
   } else {
-    // New compose — prefill if provided
+    // New compose: prefill from the provided intent (to/cc/subject/body). Empty
+    // defaults keep a fresh "+ Compose" clean between opens, and let the dashboard
+    // "Draft follow-up" land here with a started follow-up draft.
     const toEl = document.getElementById('compose-to');
+    const ccEl = document.getElementById('compose-cc');
     const subEl = document.getElementById('compose-subject');
-    if (toEl && prefill?.to) toEl.value = prefill.to;
-    if (subEl && prefill?.subject) subEl.value = prefill.subject;
+    const bodyEl = document.getElementById('compose-body');
+    if (toEl) toEl.value = prefill?.to || '';
+    if (ccEl) ccEl.value = prefill?.cc || '';
+    if (subEl) subEl.value = prefill?.subject || '';
+    if (bodyEl) bodyEl.value = prefill?.body || '';
   }
 
   modal.style.display = 'flex';

@@ -262,8 +262,10 @@ function renderRunResult(data) {
   const contactName  = hasName ? contact.name.trim() : (rawEmail && emailGeneric ? 'General inbox' : 'No named contact found');
   const contactTitle = contact?.title || (hasName ? 'Contact' : 'No verified decision maker');
   const contactPhone = contact?.phone || null;
-  // A "personal" email = a real named person's published address, not a generic inbox.
-  const personalEmail = (rawEmail && !emailGeneric && hasName) ? rawEmail : null;
+  // A "personal" email = a real named person's published address, not a generic
+  // inbox. resolvePersonalEmail is the one shared rule (also used by the
+  // dashboard "Draft follow-up" composer) so both resolve the recipient the same.
+  const personalEmail = resolvePersonalEmail(contact);
   const confidence   = contact ? Math.round((contact.confidence_score || 0) * 100) : 0;
   // Rule 5: only prefill To with a trustworthy personal email (confidence >= 60).
   // A generic inbox or a low-confidence contact never auto-populates the recipient.
@@ -631,6 +633,17 @@ function _isGenericInboxFE(email) {
   return typeof email === 'string' && /^(info|contact|hello|hi|sales|support|admin|team|marketing|press|media|partnerships?|pr|office|general|inquiries|enquiries|service)@/i.test(email.trim());
 }
 
+// The one shared recipient rule. Returns a named person's published, non-generic
+// email, or null. A generic inbox (info@, sales@, ...) or an unnamed contact
+// never becomes an auto-prefilled recipient. Reused by the dashboard
+// "Draft follow-up" composer so both surfaces resolve the recipient identically.
+function resolvePersonalEmail(contact) {
+  var rawEmail = contact && contact.email ? String(contact.email).trim() : '';
+  if (!rawEmail || _isGenericInboxFE(rawEmail)) return null;
+  var hasName = !!(contact && contact.name && String(contact.name).trim());
+  return hasName ? rawEmail : null;
+}
+
 // ── Export ────────────────────────────────────────────────────────────────────
 
 window.outreachEngine = {
@@ -638,4 +651,5 @@ window.outreachEngine = {
   close:        closeOutreachModal,
   sendOutreach,
   saveDraft,
+  resolvePersonalEmail,
 };

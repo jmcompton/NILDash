@@ -2586,6 +2586,22 @@ app.post('/api/ai/contract/pdf', requireAuth, async (req, res) => {
 });
 
 // ── Dashboard Follow-Ups ─────────────────────────────────────
+// Pull the best-known brand contact out of a deal's stored data so the dashboard
+// "Draft follow-up" can prefill the email composer. Prefers a named contact that
+// has an email, then any named contact, then the legacy flat fields. Values are
+// passed through raw; the client applies the same named-email / generic-inbox
+// rule the outreach modal uses (never auto-fills a generic info@ inbox).
+function extractDealContact(deal) {
+  if (!deal) return { contactName: null, contactEmail: null, contactTitle: null };
+  const list = Array.isArray(deal.contacts) ? deal.contacts : [];
+  const pick = list.find(c => c && c.email && c.name) || list.find(c => c && c.name) || null;
+  if (pick) return { contactName: pick.name || null, contactEmail: pick.email || null, contactTitle: pick.title || null };
+  if (deal.contactName || deal.contactEmail) {
+    return { contactName: deal.contactName || null, contactEmail: deal.contactEmail || null, contactTitle: deal.contactTitle || null };
+  }
+  return { contactName: null, contactEmail: null, contactTitle: null };
+}
+
 app.get('/api/dashboard/followups', requireAuth, async (req, res) => {
   const agentId = req.session.userId;
   const followups = [];
@@ -2601,15 +2617,20 @@ app.get('/api/dashboard/followups', requireAuth, async (req, res) => {
       if (staleStages.includes(stage) && updatedAt) {
         const daysSince = Math.floor((now - new Date(updatedAt)) / 86400000);
         if (daysSince >= 7) {
+          const dc = extractDealContact(deal);
           followups.push({
             type: 'deal',
             label: `${deal.brand || 'Deal'} — ${stage}`,
             detail: `No update in ${daysSince} days`,
             urgency: daysSince >= 14 ? 'high' : 'medium',
             // Carried so the dashboard can deep-link "Draft follow-up" straight
-            // into Outreach with the right athlete + brand preselected.
+            // into the email composer with the right athlete, brand, and contact.
             athleteId: deal.athleteId || null,
             brand: deal.brand || null,
+            athleteName: deal.athleteName || null,
+            contactName: dc.contactName,
+            contactEmail: dc.contactEmail,
+            contactTitle: dc.contactTitle,
           });
         }
       }
@@ -9688,10 +9709,11 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     }
     staleRows.sort((a, b) => b.days - a.days);
     for (const { d, days } of staleRows) {
+      const dc = extractDealContact(d);
       raw.push({
         urgency: 'red', priority: 1, kind: 'stale_deal',
         text: `${d.brand} has not heard from you in ${days} days`,
-        action: { label: 'Draft follow-up', view: 'outreach', params: { athleteId: d.athleteId, brand: d.brand } },
+        action: { label: 'Draft follow-up', view: 'outreach', params: { athleteId: d.athleteId, brand: d.brand, athleteName: d.athleteName || null, contactName: dc.contactName, contactEmail: dc.contactEmail, contactTitle: dc.contactTitle } },
       });
     }
 
@@ -9700,7 +9722,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       raw.push({
         urgency: 'green', priority: 2, kind: 'inquiry',
         text: `${r.brand || 'A brand'} asked about ${first(r.athlete_name)}`,
-        action: { label: 'Follow up now', view: 'outreach', params: { athleteId: r.athlete_id, brand: r.brand || '' } },
+        action: { label: 'Follow up now', view: 'outreach', params: { athleteId: r.athlete_id, brand: r.brand || '', athleteName: r.athlete_name || null } },
       });
     }
 
@@ -9710,7 +9732,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       raw.push({
         urgency: 'green', priority: 3, kind: 'kit_view',
         text: `${first(r.athlete_name)}'s media kit was viewed ${n} ${n === 1 ? 'time' : 'times'} in the last 2 days`,
-        action: { label: 'Follow up now', view: 'outreach', params: { athleteId: r.athlete_id, brand: r.brand || '' } },
+        action: { label: 'Follow up now', view: 'outreach', params: { athleteId: r.athlete_id, brand: r.brand || '', athleteName: r.athlete_name || null } },
       });
     }
 
