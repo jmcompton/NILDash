@@ -190,9 +190,9 @@ async function loadEmailInbox() {
     // Inbox sync is disabled (restricted-scope). Show a short placeholder
     // instead of the message list; do not call /threads.
     if (el) el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:28px 20px;text-align:center;line-height:1.6">' +
-      '<div style="font-size:22px;margin-bottom:8px">📥</div>' +
-      '<div style="font-weight:600;color:var(--text)">Inbox sync coming soon</div>' +
-      '<div style="margin-top:6px">Reading your Gmail inbox is temporarily unavailable. Sending outreach from your connected account still works.</div>' +
+      '<div style="font-size:22px;margin-bottom:8px">📤</div>' +
+      '<div style="font-weight:600;color:var(--text)">Send from your Gmail, right here</div>' +
+      '<div style="margin-top:6px">Your connected Gmail is ready for outreach. Every email you send from NILDash goes from your own account. Inbox viewing inside NILDash is on the roadmap. For now, replies land in your normal Gmail inbox.</div>' +
       '</div>';
     return;
   }
