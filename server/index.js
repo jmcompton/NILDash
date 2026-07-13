@@ -209,20 +209,12 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
   // invoices, comped users, and unreferred users produce nothing. This block never
   // touches subscription status or access, so existing billing behavior is unchanged.
   if (event.type === 'invoice.payment_succeeded') {
-    const invoice = event.data.object;
     try {
-      const user = await store.getUserByStripeCustomer(invoice.customer);
-      if (user && user.referred_by && !user.comped && Number(invoice.amount_paid) > 0) {
-        const partner = await store.getReferralPartner(user.referred_by);
-        const row = store.buildCommissionRow(invoice, user, partner);
-        if (row) {
-          const { inserted } = await store.recordReferralCommission(row);
-          if (inserted) {
-            console.log(`[referral] commission recorded partner=${row.partner_code} user=${row.user_id} invoice=${row.stripe_invoice_id} payment=${row.payment_amount_cents}c commission=${row.commission_amount_cents}c`);
-          } else {
-            console.log(`[referral] duplicate invoice ignored ${row.stripe_invoice_id}`);
-          }
-        }
+      const r = await store.recordReferralForInvoice(event.data.object);
+      if (r.recorded) {
+        console.log(`[referral] commission recorded partner=${r.row.partner_code} user=${r.row.user_id} invoice=${r.row.stripe_invoice_id} payment=${r.row.payment_amount_cents}c commission=${r.row.commission_amount_cents}c`);
+      } else if (r.duplicate) {
+        console.log(`[referral] duplicate invoice ignored ${r.row.stripe_invoice_id}`);
       }
     } catch (e) {
       console.error('[referral] commission recording failed (ignored):', e.message);

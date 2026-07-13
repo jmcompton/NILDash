@@ -1297,6 +1297,22 @@ async function recordReferralCommission(row) {
   );
   return { inserted: r.rows.length > 0, id: r.rows[0] ? r.rows[0].id : null };
 }
+// The full commission decision + write for one Stripe invoice, shared by the
+// invoice.payment_succeeded webhook and the Stripe test-clock verification so both
+// run the SAME path. Returns { recorded, duplicate, reason, row, id }. Never throws
+// on a "no commission due" case; only real DB errors propagate.
+async function recordReferralForInvoice(invoice) {
+  const user = await getUserByStripeCustomer(invoice && invoice.customer);
+  if (!user) return { recorded: false, reason: 'no user for customer' };
+  if (user.comped) return { recorded: false, reason: 'comped user' };
+  if (!user.referred_by) return { recorded: false, reason: 'unreferred user' };
+  if (!(Number(invoice.amount_paid) > 0)) return { recorded: false, reason: 'zero-amount (trial) invoice' };
+  const partner = await getReferralPartner(user.referred_by);
+  const row = buildCommissionRow(invoice, user, partner);
+  if (!row) return { recorded: false, reason: 'partner missing, inactive, or code mismatch' };
+  const { inserted, id } = await recordReferralCommission(row);
+  return { recorded: inserted, duplicate: !inserted, id, row };
+}
 async function saveUser(id, data) {
   // Never save an account nameless: fall back to the email's local-part.
   const safeName = (data.name && String(data.name).trim())
@@ -1766,7 +1782,7 @@ init().catch(console.error);
 
 module.exports = {
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers,
-  getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals,
+  getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals, recordReferralForInvoice,
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
   getDeal, getDealsByAthlete, getDealsByAgent, saveDeal, deleteDeal,
   saveComp, getComps, getCompStats, getCompsByBrand,
