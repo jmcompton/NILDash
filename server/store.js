@@ -1454,9 +1454,18 @@ async function backfillChecklist(userId) {
 }
 
 // ── Deal Scan market cache helpers ──────────────────────────────────────────
+// The pool of web-searched local businesses per market. Keyed by market+lane
+// ONLY (cache_key is the table's PRIMARY KEY, with no agent or user column), so
+// the pool is GLOBAL and SHARED: the first agent to scan a market builds it, and
+// every other agent scanning any athlete in that same market rides the same pool
+// with ZERO new web searches until it expires. Local businesses barely change
+// month to month, so the window is long (30 days). The per-athlete rotation
+// (shown-set) lives separately on athletes.deal_scan_cache, so a shared pool
+// never collides with per-athlete freshness.
 // Both are defensively wrapped: a cache failure must degrade to a live search,
 // never break a scan.
-async function getMarketCache(cacheKey, ttlDays = 5) {
+const MARKET_CACHE_TTL_DAYS = 30;
+async function getMarketCache(cacheKey, ttlDays = MARKET_CACHE_TTL_DAYS) {
   if (!cacheKey) return null;
   try {
     const r = await pool.query(
@@ -1470,9 +1479,9 @@ async function getMarketCache(cacheKey, ttlDays = 5) {
       console.log(`[cache] READ key=market:${cacheKey} -> MISS`);
       return null;
     }
-    const ageH = row.fetched_at ? ((Date.now() - new Date(row.fetched_at).getTime()) / 3.6e6).toFixed(1) : '?';
+    const ageD = row.fetched_at ? ((Date.now() - new Date(row.fetched_at).getTime()) / 8.64e7).toFixed(1) : '?';
     scanMeter.bumpHit();
-    console.log(`[cache] READ key=market:${cacheKey} -> HIT age=${ageH}h`);
+    console.log(`[cache] READ key=market:${cacheKey} -> HIT age=${ageD}d (0 web searches)`);
     return { candidates, fetchedAt: row.fetched_at };
   } catch (e) {
     scanMeter.bumpMiss();
@@ -1641,6 +1650,6 @@ module.exports = {
   getOnboarding, logWizardEvent, completeWizard, markChecklistItem,
   dismissChecklist, markTooltipSeen, backfillChecklist, getOnboardingAnalytics,
   CHECKLIST_ITEMS,
-  getMarketCache, setMarketCache,
+  getMarketCache, setMarketCache, MARKET_CACHE_TTL_DAYS,
   pool
 };

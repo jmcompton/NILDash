@@ -2235,8 +2235,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
 
     // ── Market-level candidate cache ─────────────────────────────────────────
     // Phase-1 pools are per-market and stable for days, so they are cached in
-    // Postgres (TTL 5 days). Live searches run ONLY for cache misses and write
-    // through. Phase-2 scoring below always runs fresh per athlete.
+    // Postgres, keyed by market+lane only (GLOBAL, shared across all agents;
+    // TTL 30 days). Live searches run ONLY for cache misses and write through, so
+    // once any agent builds a market pool every other agent scanning that market
+    // rides it with zero web searches. Phase-2 scoring runs fresh per athlete, and
+    // the per-athlete shown-set (rotation) lives on athletes.deal_scan_cache, so
+    // the shared pool never collides with per-athlete freshness.
     const normMarket = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     const schoolCacheKey = `${normMarket(schoolMarket)}:local`;
     const hometownCacheKey = hasHometown ? `${normMarket(hometown)}:local` : null;
@@ -2249,11 +2253,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // the next scan without freezing a bad day for the whole TTL.
     const schoolThin = !!(schoolCached && schoolCached.candidates.length < 5);
     const hometownThin = !!(hometownCached && hometownCached.candidates.length < 2);
-    const _ageH = (cc) => Math.round((Date.now() - new Date(cc.fetchedAt).getTime()) / 3600000);
-    console.log(
-      `[dealScan] market cache ${schoolCached ? `HIT ${schoolCacheKey} (${schoolCached.candidates.length} candidates, age ${_ageH(schoolCached)}h${schoolThin ? ', thin - topping up' : ''})` : `MISS ${schoolCacheKey}`}` +
-      (hometownCacheKey ? ` | ${hometownCached ? `HIT ${hometownCacheKey} (${hometownCached.candidates.length} candidates, age ${_ageH(hometownCached)}h${hometownThin ? ', thin - topping up' : ''})` : `MISS ${hometownCacheKey}`}` : '')
-    );
+    const _ageD = (cc) => ((Date.now() - new Date(cc.fetchedAt).getTime()) / 8.64e7).toFixed(1);
 
     const found = [];
     const seen = new Set();
@@ -2293,6 +2293,23 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       : '';
     if (deepen) console.log(`[dealScan] pool exhausted for this athlete (${found.length} shown): deepening with a fresh excluded search`);
 
+    // Per-market cache economics. A HIT that still searches means a thin pool is
+    // being topped up or an exhausted pool deepened; a plain HIT fires zero web
+    // searches, which is the whole point: a second agent in the same market rides
+    // the shared pool for free. SCHOOL_SEARCH_N / HOMETOWN_SEARCH_N are the planned
+    // category searches per market; these booleans are the single source of truth
+    // for both the log and the actual search + cache-write gating below.
+    const SCHOOL_SEARCH_N = 5, HOMETOWN_SEARCH_N = 2;
+    const schoolWillSearch = (!schoolCached || schoolThin || deepen);
+    const hometownWillSearch = hasHometown && (!hometownCached || hometownThin || deepen);
+    const _mktLog = (key, cached, willSearch, n, thin) => {
+      if (!cached) return `[dealScan] market cache key=${key} -> MISS (building pool, ${n} web searches)`;
+      if (!willSearch) return `[dealScan] market cache key=${key} -> HIT age=${_ageD(cached)}d (0 web searches)`;
+      return `[dealScan] market cache key=${key} -> HIT age=${_ageD(cached)}d ${thin ? 'thin, topping up' : 'exhausted, deepening'} (${n} web searches)`;
+    };
+    console.log(_mktLog(schoolCacheKey, schoolCached, schoolWillSearch, SCHOOL_SEARCH_N, schoolThin));
+    if (hometownCacheKey) console.log(_mktLog(hometownCacheKey, hometownCached, hometownWillSearch, HOMETOWN_SEARCH_N, hometownThin));
+
     // Live searches for cache misses (and thin cached pools, topped up).
     // The old two big category bundles asked one call for 8 businesses x 6
     // fields; the JSON regularly blew past max_tokens and truncated, which
@@ -2305,7 +2322,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // and nearby towns, not just the city proper.
     const _geo = `in and around ${city}, ${state}, the surrounding metro area, and nearby towns`;
     const searchDefs = [];
-    if (!schoolCached || schoolThin || deepen) {
+    if (schoolWillSearch) {
       searchDefs.push(
         { label: 'school-auto-gym', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `car dealerships, auto services, gyms, and fitness or training facilities ${_geo} that sponsor local sports teams or run local ads${tagEmphasisQ}${_deepExcl}`,
@@ -2324,7 +2341,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
           'entertainment, real estate agents, banks and credit unions, local professional services'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
-    if (hasHometown && (!hometownCached || hometownThin || deepen)) {
+    if (hometownWillSearch) {
       searchDefs.push(
         { label: 'hometown-core', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
           `car dealerships, gyms, restaurants, coffee shops, apparel and retail, smoothie and supplement shops in and around ${hometown} that sponsor local youth sports or spend on local marketing${tagEmphasisQ}${_deepExcl}`,
@@ -2374,12 +2391,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       // still speeds up the next scan); empty pools are never cached. Thin
       // cached pools that were topped up get rewritten with the merged pool.
       // setMarketCache logs WRITE ok / WRITE FAILED loudly.
-      if (!schoolCached || schoolThin || deepen) {
+      if (schoolWillSearch) {
         const poolSchool = found.filter((f) => f.market === 'school');
         if (poolSchool.length >= 1) store.setMarketCache(schoolCacheKey, poolSchool);
         else console.warn(`[dealScan] market cache write SKIPPED ${schoolCacheKey}: 0 school candidates`);
       }
-      if (hometownCacheKey && (!hometownCached || hometownThin || deepen)) {
+      if (hometownCacheKey && hometownWillSearch) {
         const poolHome = found.filter((f) => f.market === 'hometown');
         if (poolHome.length >= 1) store.setMarketCache(hometownCacheKey, poolHome);
         else console.warn(`[dealScan] market cache write SKIPPED ${hometownCacheKey}: 0 hometown candidates`);
