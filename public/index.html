@@ -3106,6 +3106,26 @@ tbody td{padding:11px 14px;vertical-align:middle}
                 <div id="mk-view-stats" style="display:none;margin-top:10px;font-size:11px;color:var(--muted)"></div>
               </div>
 
+              <!-- Brand variants: reframe the same real kit for a specific brand/category -->
+              <div id="mk-variants-section" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-top:12px">
+                <div style="font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Brand variants</div>
+                <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">Same real stats and photos, reframed for a specific brand or category. Each variant gets its own tracked share link, and AI Outreach attaches the matching one automatically.</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+                  <input id="mk-variant-brand" type="text" placeholder="Brand name (e.g. Peach State Smoothies)" style="flex:1;min-width:180px;padding:8px 10px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:12px;outline:none">
+                  <select id="mk-variant-category" style="padding:8px 10px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:12px;outline:none">
+                    <option value="">Category (optional)</option>
+                    <option value="fitness">Fitness / supplements</option>
+                    <option value="restaurant">Restaurant / food</option>
+                    <option value="apparel">Apparel / style</option>
+                    <option value="auto">Auto</option>
+                    <option value="beauty">Beauty / med spa</option>
+                    <option value="local">Local business</option>
+                  </select>
+                  <button id="mk-variant-gen-btn" onclick="mkGenerateVariant()" class="btn btn-primary btn-sm" style="white-space:nowrap;font-size:11px">Generate variant</button>
+                </div>
+                <div id="mk-variants-list"></div>
+              </div>
+
             </div><!-- /left column -->
 
             <!-- RIGHT COLUMN: Live Preview -->
@@ -14454,6 +14474,123 @@ function mkRenderViewStats(vs) {
   el.style.display = 'block';
 }
 
+// ── Brand variants management (Media Kit tab) ───────────────────────────────
+function mkVariantUrl(slug) { return window.location.origin + '/media-kit/' + mkState.slug + '?for=' + encodeURIComponent(slug); }
+
+// Render the list of existing per-brand variants for the loaded kit, with each
+// variant's tracked link, view count, and regenerate/delete controls. Reads only
+// real stored fields (brand, category, opener, matchedTags), nothing invented.
+function mkRenderVariants(mk, viewStats) {
+  var section = document.getElementById('mk-variants-section');
+  var list = document.getElementById('mk-variants-list');
+  if (!section || !list) return;
+  // Variants need a saved base kit (its slug carries every variant link).
+  if (!mk || !mk.slug) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  var variants = mk.variants;
+  if (typeof variants === 'string') { try { variants = JSON.parse(variants); } catch(_) { variants = null; } }
+  variants = (variants && typeof variants === 'object') ? variants : {};
+  mkState.variants = variants;
+  var viewByBrand = {};
+  if (viewStats && Array.isArray(viewStats.variants)) viewStats.variants.forEach(function(v){ viewByBrand[String(v.variant_brand||'').toLowerCase()] = v.count; });
+  var keys = Object.keys(variants);
+  if (!keys.length) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:6px 0">No variants yet. Generate one above, or use "Send kit" on a Deal Scan result.</div>';
+    return;
+  }
+  list.innerHTML = keys.map(function(slug){
+    var v = variants[slug] || {};
+    var views = viewByBrand[String(v.brand||'').toLowerCase()] || 0;
+    var tags = (Array.isArray(v.matchedTags) && v.matchedTags.length) ? v.matchedTags.join(', ') : '';
+    return '<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--bg)">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+        '<div style="min-width:0">' +
+          '<span style="font-size:12px;font-weight:700;color:var(--text)">' + escHtml(v.brand || slug) + '</span>' +
+          (v.category ? ' <span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(132,204,22,0.1);color:var(--accent)">' + escHtml(v.category) + '</span>' : '') +
+          '<span style="font-size:10px;color:var(--muted);margin-left:6px">' + views + ' view' + (views===1?'':'s') + '</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;flex-shrink:0">' +
+          '<button onclick="mkCopyVariantLink(\'' + slug + '\')" class="btn btn-ghost btn-sm" style="font-size:10px;padding:4px 8px">Copy link</button>' +
+          '<button onclick="mkOpenVariant(\'' + slug + '\')" class="btn btn-ghost btn-sm" style="font-size:10px;padding:4px 8px">Open ↗</button>' +
+          '<button onclick="mkGenerateVariant(\'' + slug + '\')" class="btn btn-ghost btn-sm" style="font-size:10px;padding:4px 8px" title="Regenerate">↻</button>' +
+          '<button onclick="mkDeleteVariant(\'' + slug + '\')" class="btn btn-ghost btn-sm" style="font-size:10px;padding:4px 8px;color:#f87171;border-color:rgba(248,113,113,0.4)">Delete</button>' +
+        '</div>' +
+      '</div>' +
+      (v.opener ? '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px">' + escHtml(v.opener) + '</div>' : '') +
+      (tags ? '<div style="font-size:10px;color:var(--muted);margin-top:4px">Emphasis: ' + escHtml(tags) + '</div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+// Re-fetch just the variants + view stats after a create/regenerate/delete,
+// without disturbing the form the agent may be editing.
+async function amkReloadVariants() {
+  if (!amkCurrentAthleteId) return;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/athlete-media-kit/' + amkCurrentAthleteId, { credentials: 'include' });
+    var data = await r.json();
+    if (data && data.mediaKit) { mkRenderVariants(data.mediaKit, data.viewStats); mkRenderViewStats(data.viewStats); }
+  } catch(e) {}
+}
+
+// Generate (or regenerate, when a slug is passed) a brand variant of the loaded
+// kit. Carries the athlete's real interest tags so the emphasis is grounded, not
+// invented. The server rebuilds the opener/emphasis from profile facts only.
+async function mkGenerateVariant(regenerateSlug) {
+  if (!amkCurrentAthleteId) { showToast('Select an athlete first'); return; }
+  if (!mkState.slug) { showToast('Save the base media kit first'); return; }
+  var brand, category = '', regenerate = false;
+  if (regenerateSlug && mkState.variants && mkState.variants[regenerateSlug]) {
+    brand = mkState.variants[regenerateSlug].brand;
+    category = mkState.variants[regenerateSlug].category || '';
+    regenerate = true;
+  } else {
+    var bEl = document.getElementById('mk-variant-brand');
+    var cEl = document.getElementById('mk-variant-category');
+    brand = (bEl && bEl.value || '').trim();
+    category = (cEl && cEl.value || '').trim();
+    if (!brand) { showToast('Enter a brand name'); return; }
+  }
+  var btn = document.getElementById('mk-variant-gen-btn');
+  if (btn && !regenerate) { btn.disabled = true; btn.textContent = 'Generating...'; }
+  try {
+    var ath = (window.athletes || []).find(function(a){ return String(a.id) === String(amkCurrentAthleteId); }) || {};
+    var athTags = ((ath.data && ath.data.tags) || ath.tags || []);
+    var r = await fetch(API_BASE + '/api/agent/media-kit/' + amkCurrentAthleteId + '/variant', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brand: brand, category: category, matchedTags: athTags, regenerate: regenerate })
+    });
+    var data = await r.json();
+    if (r.status === 404 && data.code === 'NO_KIT') { showToast('Save the base media kit first'); return; }
+    if (!r.ok || data.error) throw new Error(data.error || 'failed');
+    showToast(regenerate ? ('Regenerated the ' + brand + ' variant') : ('Variant for ' + brand + ' created'));
+    var bEl2 = document.getElementById('mk-variant-brand'); if (bEl2 && !regenerate) bEl2.value = '';
+    var cEl2 = document.getElementById('mk-variant-category'); if (cEl2 && !regenerate) cEl2.value = '';
+    await amkReloadVariants();
+  } catch(e) {
+    showToast('Could not build the variant right now');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Generate variant'; }
+  }
+}
+
+function mkCopyVariantLink(slug) {
+  var url = mkVariantUrl(slug);
+  if (navigator.clipboard) navigator.clipboard.writeText(url).then(function(){ showToast('Variant link copied'); }, function(){ showToast(url); });
+  else showToast(url);
+}
+function mkOpenVariant(slug) { window.open(mkVariantUrl(slug), '_blank'); }
+async function mkDeleteVariant(slug) {
+  if (!confirm('Delete this brand variant? The base kit and its link are not affected.')) return;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/media-kit/' + amkCurrentAthleteId + '/variant/' + encodeURIComponent(slug), { method: 'DELETE', credentials: 'include' });
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'failed');
+    showToast('Variant deleted');
+    await amkReloadVariants();
+  } catch(e) { showToast('Could not delete the variant'); }
+}
+
 // ── Deal Scan "Send kit": per-brand personalized media kit variant ──────────
 async function sendKitForBrand(i, btn) {
   var d = (window._dealScanResults || [])[i];
@@ -14599,6 +14736,7 @@ async function mkSave() {
     mkState.slug = data.slug;
     showToast('Media kit saved!');
     mkShowShareLink(data.slug);
+    amkReloadVariants();
   } catch(e) {
     showToast('Save failed: ' + e.message);
   }
@@ -14644,7 +14782,7 @@ async function amkLoadForAthlete(athleteId) {
 
   // Reset state. New kits default to the NILDash brand theme; a saved kit's
   // theme is applied after loading below.
-  mkState = { rates: [], slug: null, headshotData: null, actionShotData: null, theme: 'nildash' };
+  mkState = { rates: [], slug: null, headshotData: null, actionShotData: null, theme: 'nildash', variants: {} };
   mkApplyThemeUI();
   amkCurrentAthleteEmail = '';
 
@@ -14724,9 +14862,11 @@ async function amkLoadForAthlete(athleteId) {
       mkRenderRateRows();
       if (mk.slug) mkShowShareLink(mk.slug);
       mkRenderViewStats(data.viewStats);
+      mkRenderVariants(mk, data.viewStats);
     } else {
       mkRenderRateRows();
       mkRenderViewStats(null);
+      mkRenderVariants(null);
     }
     mkUpdatePreview();
   } catch(e) {

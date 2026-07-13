@@ -9359,9 +9359,11 @@ app.post('/api/agent/media-kit/:athleteId/variant', requireAuth, requireAgentSub
     const appUrl = process.env.APP_URL || 'https://mynildash.com';
     const url = `${appUrl}/media-kit/${mk.slug}?for=${brandSlug}`;
 
-    // Idempotent: an existing variant for this brand is reused, not regenerated.
+    // Idempotent by default: an existing variant for this brand is reused, not
+    // regenerated. Pass regenerate:true (or force:true) to rebuild it in place.
+    const regenerate = req.body.regenerate === true || req.body.force === true;
     const variants = (mk.variants && typeof mk.variants === 'object') ? mk.variants : {};
-    if (variants[brandSlug]) {
+    if (variants[brandSlug] && !regenerate) {
       return res.json({ ok: true, brandSlug, url, variant: variants[brandSlug], reused: true });
     }
 
@@ -9413,6 +9415,32 @@ Rules: plain, direct, human language. No em dashes. No exclamation marks. No inv
     res.json({ ok: true, brandSlug, url, variant });
   } catch (e) {
     console.error('[media-kit variant]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE a per-brand variant. Agent-owned only. Removes the key from the
+// media_kits.variants JSONB; the base kit, its slug/link, and other variants are
+// untouched. Idempotent: deleting a missing key still returns ok.
+app.delete('/api/agent/media-kit/:athleteId/variant/:brandSlug', requireAuth, async (req, res) => {
+  try {
+    const { athleteId } = req.params;
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    const user = await store.getUser(req.session.userId);
+    if (athlete.agentId !== req.session.userId && (!user || user.email !== ADMIN_EMAIL)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const key = String(req.params.brandSlug || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+    if (!key) return res.status(400).json({ error: 'brandSlug required' });
+    await store.pool.query(
+      `UPDATE media_kits SET variants = COALESCE(variants, '{}'::jsonb) - $1 WHERE athlete_id = $2`,
+      [key, athleteId]
+    );
+    console.log(`[media-kit variant] deleted ${key} for agent=${req.session.userId} athlete=${athleteId}`);
+    res.json({ ok: true, brandSlug: key });
+  } catch (e) {
+    console.error('[media-kit variant DELETE]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
