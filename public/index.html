@@ -6347,12 +6347,14 @@ function _dsCardHtml(d, i, lane, isTop) {
         (d.campaign  ? '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px"><span style="color:var(--text);font-weight:600">Idea:</span> ' + esc(d.campaign) + '</div>' : '') +
         contactHtml +
       '</div>' +
-      '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">' +
+      '<div onclick="dsToggleWhy(' + i + ')" title="See the factors behind this fit score" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;cursor:pointer">' +
         '<span style="font-size:20px;color:' + scoreColor + ';font-weight:700;line-height:1">' + score + '</span>' +
         '<span style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">Fit</span>' +
         '<div style="width:44px;height:4px;border-radius:2px;background:var(--surface);overflow:hidden;margin-top:2px"><div style="width:' + score + '%;height:100%;background:' + scoreColor + '"></div></div>' +
+        '<span style="font-size:8px;color:var(--accent);text-decoration:underline;margin-top:1px">why?</span>' +
       '</div>' +
     '</div>' +
+    '<div id="dswhy-' + i + '" style="display:none;margin-top:12px;padding:11px 12px;background:var(--surface);border:1px solid var(--border);border-radius:9px"></div>' +
     '<div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">' +
       '<button onclick="prefillOutreach(\'' + brandSafe + '\')" style="flex:1;min-width:110px;padding:9px;background:var(--accent);color:#0A0E1A;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Write Outreach</button>' +
       '<button onclick="addDealToPipeline(\'' + brandSafe + '\',\'' + esc(d.dealType||'ig-post') + '\',\'' + campaignSafe + '\')" style="padding:9px 12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">+ Pipeline</button>' +
@@ -6360,6 +6362,94 @@ function _dsCardHtml(d, i, lane, isTop) {
       '<button onclick="sendKitForBrand(' + i + ', this)" style="padding:9px 12px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.35);color:#60a5fa;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">Send kit</button>' +
     '</div>' +
   '</div>';
+}
+
+// Read the real contact state already on a card (the same fields the contacts
+// slot renders) and turn it into one honest fit factor. Never invents a contact.
+function _dsContactState(d) {
+  var hasAny = d._contactsLoaded || (Array.isArray(d.contacts) && d.contacts.length) || d.businessPhone || d.genericInbox || d.contactName;
+  if (!hasAny) return { label: 'Looking up a named contact', dir: 'neutral' };
+  var contacts = Array.isArray(d.contacts) ? d.contacts.slice() : [];
+  if (!contacts.length && d.contactName) contacts = [{ name: d.contactName, email: d.contactEmail || null, phone: null }];
+  var named = contacts.find(function(c){ return c && c.name && String(c.name).trim(); });
+  if (named && named.email) return { label: 'Named contact found (' + named.name + ')', dir: 'pos' };
+  if (named && named.phone) return { label: 'Named contact found, phone only', dir: 'neutral' };
+  if (named) return { label: 'Named contact found', dir: 'pos' };
+  if (d.businessPhone) return { label: 'Phone listed, no named contact yet', dir: 'neutral' };
+  if (d.genericInbox) return { label: 'Generic inbox only, no named contact', dir: 'neutral' };
+  return { label: 'No published contact found', dir: 'neg' };
+}
+
+// Build an honest "why this scored what it did" receipt for one Deal Scan card,
+// from the SAME real fields the card already shows (market match, actively
+// marketing evidence, interest fit, franchise, contact state, program/verdict,
+// disclosed deals). Every factor is true for THAT specific business. Unknowns are
+// shown as neutral, never padded. Nothing is fabricated.
+function _dsScoreBreakdown(d) {
+  if (!d) return [];
+  var out = [];
+  var isLocal = d.resultType === 'local' || d.lane === 'local' || d.isLocal === true;
+  var isSocial = d.resultType === 'social' || d.lane === 'social';
+  var isNational = d.resultType === 'national';
+  if (isLocal && !isNational) {
+    if (d.market === 'hometown') out.push({ label: d.marketLabel ? ('Hometown market match: ' + d.marketLabel.replace(/^Hometown[\s-]*/,'')) : 'Hometown market match', dir: 'pos' });
+    else if (d.marketLabel) out.push({ label: 'In your school\'s local market', dir: 'pos' });
+    else out.push({ label: 'Local business in your market', dir: 'pos' });
+    if (typeof d.evidence === 'string' && d.evidence) out.push({ label: 'Actively marketing: ' + d.evidence, dir: 'pos' });
+    else out.push({ label: 'No local marketing activity found in search', dir: 'neutral' });
+    if (Array.isArray(d.matchedTags) && d.matchedTags.length) out.push({ label: 'Fits athlete interests: ' + d.matchedTags.slice(0, 4).join(', '), dir: 'pos' });
+    if (d.isFranchise === true) out.push({ label: 'Locally operated franchise, owner controls the budget', dir: 'pos' });
+    out.push(_dsContactState(d));
+    return out;
+  }
+  if (isSocial) {
+    if (d.programStatus === 'open') out.push({ label: 'Ambassador program is open', dir: 'pos' });
+    else if (d.programStatus === 'closed') out.push({ label: 'Ambassador program is closed', dir: 'neg' });
+    else out.push({ label: 'Ambassador program status unclear', dir: 'neutral' });
+    var v = d.verdict || {};
+    if (v.status === 'qualifies') out.push({ label: v.text || 'Meets their follower minimum', dir: 'pos' });
+    else if (v.status === 'below') out.push({ label: v.text || 'Below their follower minimum', dir: 'neg' });
+    else if (v.status === 'no-minimum') out.push({ label: 'No stated follower minimum', dir: 'neutral' });
+    else out.push({ label: 'Follower fit unknown, add follower counts', dir: 'neutral' });
+    if (d.evidence && d.evidence.offer) out.push({ label: 'Public creator offer: ' + d.evidence.offer, dir: 'pos' });
+    return out;
+  }
+  // Top NIL / national brands
+  var deals = (Array.isArray(d.disclosedDeals) && d.disclosedDeals.length) ? d.disclosedDeals : ((d.evidence && Array.isArray(d.evidence.deals)) ? d.evidence.deals : []);
+  if (deals.length) out.push({ label: deals.length + ' disclosed NIL deal' + (deals.length > 1 ? 's' : '') + ' on record', dir: 'pos' });
+  else out.push({ label: 'No disclosed deals on record yet', dir: 'neutral' });
+  if (d.evidence && d.evidence.profileSource === 'comp') out.push({ label: 'Verified in the NIL comp database', dir: 'pos' });
+  if (Array.isArray(d.matchedTags) && d.matchedTags.length) out.push({ label: 'Fits athlete interests: ' + d.matchedTags.slice(0, 4).join(', '), dir: 'pos' });
+  var tv = d.verdict || {};
+  if (tv.status === 'in-range' || tv.status === 'above') out.push({ label: tv.text || 'Athlete fits their typical deal profile', dir: 'pos' });
+  else if (tv.status === 'below') out.push({ label: tv.text || 'Below their typical deal profile', dir: 'neg' });
+  if (isNational && d.fallbackNote) out.push({ label: 'Shown because a local search could not complete', dir: 'neutral' });
+  return out;
+}
+
+// Toggle the fit-score breakdown panel under a card (collapsed by default,
+// expands inline on click, collapses on a second click). Reads the live card
+// object so lazily-loaded contacts are reflected when present.
+function dsToggleWhy(i) {
+  var panel = document.getElementById('dswhy-' + i);
+  if (!panel) return;
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  var d = (window._dealScanResults || [])[i];
+  if (!d) return;
+  var factors = _dsScoreBreakdown(d);
+  var dirMeta = { pos: { sym: '+', color: '#84CC16' }, neg: { sym: '−', color: '#f87171' }, neutral: { sym: '•', color: 'var(--muted)' } };
+  var rows = factors.map(function(f){
+    var m = dirMeta[f.dir] || dirMeta.neutral;
+    return '<div style="display:flex;align-items:flex-start;gap:8px;padding:3px 0">' +
+      '<span style="color:' + m.color + ';font-weight:700;font-size:12px;width:12px;flex-shrink:0;text-align:center;line-height:1.5">' + m.sym + '</span>' +
+      '<span style="font-size:11px;color:var(--text);line-height:1.5">' + esc(f.label) + '</span>' +
+    '</div>';
+  }).join('');
+  panel.innerHTML =
+    '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:7px">Why this scored ' + (d.fitScore || '') + '</div>' +
+    (rows || '<div style="font-size:11px;color:var(--muted)">No factors available for this result.</div>') +
+    '<div style="font-size:9px;color:var(--muted);margin-top:8px;line-height:1.4">These are the real signals found for this business. Anything we could not confirm is marked neutral, not guessed.</div>';
+  panel.style.display = 'block';
 }
 
 function runDealScan()    { return _dsRunScan(false); }
