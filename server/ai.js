@@ -2950,6 +2950,7 @@ module.exports = {
   generateOutreach,
   deriveMatchedTags,
   validTagSubs,
+  lookupSchoolLocation,
   prewarmDealEvidence,
   getBrandContacts,
   // Internal evidence helpers exposed for unit tests only.

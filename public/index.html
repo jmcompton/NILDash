@@ -3227,10 +3227,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <!-- COMPLIANCE -->
       <div id="view-compliance" class="view">
         <div class="page-title">NIL Compliance Checker</div>
-        <div class="page-sub">Check any deal against current state NIL laws — flags issues, generates required disclosure language, and saves to deal notes</div>
+        <div class="page-sub">Check any deal against current state NIL laws, flags issues, generates required disclosure language, and saves to deal notes</div>
+
+        <!-- State NIL reference layer (static, keyed to the active athlete) -->
+        <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.4);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:16px;font-size:12px;color:#fca5a5;font-weight:600">
+          This is educational information, not legal advice. NIL rules change frequently. Confirm current rules with a qualified attorney before acting.
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;margin-bottom:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px">
+            <div style="font-size:13px;font-weight:700;color:var(--text)">State NIL rules for your client</div>
+            <button onclick="loadNilComplianceRef()" style="font-size:10px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer">↻ Refresh</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Based on the active client's home state and school state. Informational reference, not a compliance ruling.</div>
+          <div id="nil-ref-body"><div style="font-size:12px;color:var(--muted)">Select a client to see the NIL rules for their state and school state.</div></div>
+        </div>
 
         <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:20px;font-size:11px;color:#fbbf24">
-           This tool uses AI + live web search to find current NIL rules. Always verify with a licensed attorney before executing deals. NIL laws change frequently.
+           This deal checker uses AI + live web search to find current NIL rules. Always verify with a licensed attorney before executing deals. NIL laws change frequently.
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
@@ -3283,8 +3296,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div>
 
         <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:16px">
-          <div style="font-size:11px;font-weight:700;color:#60a5fa;margin-bottom:8px"> SPARTA 72-Hour Compliance</div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Federal law requires agents to notify the university within 72 hours of signing any NIL agreement. Enter the signing date to track your deadline.</div>
+          <div style="font-size:11px;font-weight:700;color:#60a5fa;margin-bottom:8px"> 72-Hour University Notice (UAAA / RUAAA)</div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Most states, under the Uniform or Revised Uniform Athlete Agents Act, require an agent to notify the school within 72 hours of signing (or before the athlete's next event). This 72-hour notice is a state UAAA / RUAAA requirement, not SPARTA. Enter the signing date to track your deadline.</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
             <div>
               <label class="form-label-sm">Contract Signing Date</label>
@@ -3306,7 +3319,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
           <!-- SPARTA Notice -->
           <div id="comp-sparta-section" style="display:none;margin-bottom:20px">
-            <div style="font-size:12px;font-weight:700;color:#60a5fa;margin-bottom:10px"> SPARTA — University Notification Required</div>
+            <div style="font-size:12px;font-weight:700;color:#60a5fa;margin-bottom:10px"> 72-Hour University Notice Required (UAAA / RUAAA)</div>
             <div id="comp-sparta-timer" style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:12px;font-size:12px"></div>
             <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px">NOTIFICATION LETTER (copy and send to university athletic department)</div>
             <div id="comp-sparta-notice" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px;font-size:11px;line-height:1.7;white-space:pre-wrap;cursor:pointer" onclick="copyText(this)" title="Click to copy"></div>
@@ -4940,6 +4953,9 @@ async function selectAthlete(id) {
   // If the agent is already on Deal Scan, hydrate the new client's cache immediately
   var dealsView = document.getElementById('view-deals');
   if (dealsView && dealsView.classList.contains('active')) loadDealScanCache();
+  // Refresh the compliance state reference if that tab is open.
+  var compView = document.getElementById('view-compliance');
+  if (compView && compView.classList.contains('active')) { try { loadNilComplianceRef(); } catch(e) {} }
 }
 
 async function deleteAthlete(id) {
@@ -5719,6 +5735,7 @@ async function showView(id, btn) {
   if (id === 'contract') prefillContract();
   if (id === 'team-match') tmPreFillFromAthlete();
   if (id === 'deals') { if (selectedAthleteId) loadDealScanCache(); }
+  if (id === 'compliance') { try { loadNilComplianceRef(); } catch(e) {} }
   if (id === 'pdf-scan') loadPdfScanAthletes();
   if (id === 'add-athlete') { const tp = document.getElementById('a_tags'); if (tp && !tp.innerHTML) renderTagPicker('a_tags', []); }
 }
@@ -8604,6 +8621,68 @@ async function loadAnalytics() {
         showToast('PDF downloaded');
       } catch(e) { showToast('Error: ' + e.message); }
     }
+
+// ── State NIL reference layer (static, no AI, keyed to the active athlete) ─────
+function _nilRuleBlock(title, rule) {
+  if (!rule) return '';
+  return '<div style="margin-top:8px"><div style="font-size:11px;font-weight:700;color:var(--text)">' + escHtml(title) + '</div>' +
+    '<div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:2px">' + escHtml(rule.summary || '') + '</div>' +
+    (rule.authority ? '<div style="font-size:10px;color:var(--muted);opacity:0.8;margin-top:2px">Source: ' + escHtml(rule.authority) + '</div>' : '') +
+    '</div>';
+}
+function _nilStateCard(label, s) {
+  if (!s) return '';
+  var conf = s.confidence === 'confident'
+    ? '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(132,204,22,0.14);color:var(--accent);font-weight:700">Reviewed ' + escHtml(s.lastReviewed || '') + '</span>'
+    : '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(251,191,36,0.16);color:#fbbf24;font-weight:700">Verify, may have changed</span>';
+  var flags = (Array.isArray(s.flags) ? s.flags : []).map(function(f){
+    return '<div style="font-size:11px;color:var(--text);line-height:1.6;display:flex;gap:6px;margin-top:4px"><span style="color:#fbbf24">!</span><span>' + escHtml(f) + '</span></div>';
+  }).join('');
+  return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:10px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><div style="font-size:12px;font-weight:700;color:var(--text)">' + escHtml(label) + ': ' + escHtml(s.state) + '</div>' + conf + '</div>' +
+    _nilRuleBlock('Agent registration', s.agentRegistration) +
+    _nilRuleBlock('NIL statute', s.nilStatute) +
+    _nilRuleBlock('High school vs college', s.highSchool) +
+    (flags ? '<div style="margin-top:8px">' + flags + '</div>' : '') +
+    '</div>';
+}
+async function loadNilComplianceRef() {
+  var el = document.getElementById('nil-ref-body');
+  if (!el) return;
+  if (!selectedAthleteId) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted)">Select a client to see the NIL rules for their state and school state.</div>';
+    return;
+  }
+  el.innerHTML = '<div style="font-size:12px;color:var(--muted)">Loading state rules...</div>';
+  try {
+    var r = await fetch(API_BASE + '/api/agent/nil-compliance/' + selectedAthleteId, { credentials: 'include' });
+    if (!r.ok) throw new Error('failed');
+    var d = await r.json();
+    var html = '';
+    if (d.crossState) {
+      html += '<div style="background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:10px;font-size:11px;color:#60a5fa;line-height:1.5">' +
+        'Cross-state situation: your client\'s home state and school state differ. Both states\' rules can apply, so review each below.</div>';
+    }
+    if (d.home) html += _nilStateCard(d.crossState ? 'Home state' : 'State', d.home);
+    if (d.school && d.crossState) html += _nilStateCard('School state', d.school);
+    if (!d.home && !d.school) {
+      html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:10px;font-size:11px;color:var(--muted);line-height:1.6">' +
+        'State could not be resolved from this client\'s hometown or school, so only the federal floor is shown. Add a hometown (City, ST) or a mapped school for a state-specific reference.</div>';
+    }
+    // Federal + national settlement floor, always shown.
+    if (d.federal) {
+      html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px">' +
+        '<div style="font-size:12px;font-weight:700;color:var(--text)">Federal and national settlement floor</div>' +
+        _nilRuleBlock('$' + (d.federal.reporting ? d.federal.reporting.thirdPartyThreshold : 600) + ' NIL Go reporting', d.federal.reporting) +
+        _nilRuleBlock('SPARTA (federal agent conduct)', d.federal.sparta) +
+        _nilRuleBlock('72-hour school notice (UAAA / RUAAA)', d.federal.uaaaNotice) +
+        '</div>';
+    }
+    el.innerHTML = html || '<div style="font-size:12px;color:var(--muted)">No reference available.</div>';
+  } catch (e) {
+    el.innerHTML = '<div style="font-size:12px;color:var(--muted)">Could not load the state reference right now.</div>';
+  }
+}
 
 async function runCompliance() {
   const state = document.getElementById('comp-state').value;

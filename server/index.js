@@ -15,6 +15,7 @@ const store    = require('./store');
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ai       = require('./ai');
+const nilRules = require('./nilStateRules');
 const scanMeter = require('./scanMeter');
 const { requireUniversityMode } = require('./middleware/modeGuard');
 
@@ -2042,7 +2043,7 @@ Return ONLY this JSON:
 app.post('/api/ai/compliance', requireAuth, aiLimiter, async (req, res) => {
   const { state, dealType, brand, value, description, athleteName, sport, school, schoolTier, signingDate } = req.body;
 
-  // SPARTA 72-hour calculation
+  // 72-hour university-notice calculation (a UAAA / RUAAA duty, not SPARTA)
   let spartaSection = '';
   if (signingDate) {
     const signed = new Date(signingDate);
@@ -2050,7 +2051,7 @@ app.post('/api/ai/compliance', requireAuth, aiLimiter, async (req, res) => {
     const now = new Date();
     const hoursLeft = Math.round((deadline - now) / (1000 * 60 * 60));
     const deadlineStr = deadline.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
-    spartaSection = `SPARTA COMPLIANCE:
+    spartaSection = `72-HOUR UNIVERSITY NOTICE (UAAA / RUAAA):
 - Signed: ${signed.toLocaleDateString()}
 - 72-hour university notification deadline: ${deadlineStr}
 - Hours remaining: ${hoursLeft > 0 ? hoursLeft + ' hours' : 'OVERDUE by ' + Math.abs(hoursLeft) + ' hours'}
@@ -2062,8 +2063,8 @@ app.post('/api/ai/compliance', requireAuth, aiLimiter, async (req, res) => {
     'Deal: ' + dealType + ' with ' + (brand||'unknown brand') + ' worth $' + (parseInt(value)||0) + '\n' +
     'Description: ' + (description||'not provided') + '\n' +
     (signingDate ? 'Signing Date: ' + signingDate + '\n' : '') + '\n' +
-    'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Agent licensing requirements in ' + state + ' 5) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 6) SPARTA compliance - agent must notify ' + (school||'the university') + ' within 72 hours of signing 7) School-specific NIL policies\n\n' +
-    'Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text agent must send to university athletic department within 72 hours","sourceNote":"what laws this is based on"}';
+    'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Agent registration requirements in ' + state + ' under the UAAA / RUAAA 5) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 6) The 72-hour notice to ' + (school||'the university') + ' after signing, which is a state UAAA / RUAAA duty, NOT SPARTA 7) SPARTA (federal), which separately bars false or misleading agent conduct and requires specific agency-contract disclosures 8) School-specific NIL policies\n\n' +
+    'Attribute the 72-hour school notice to the UAAA / RUAAA, and SPARTA only to federal agent-conduct and disclosure duties. Return ONLY JSON: {"state":"' + state + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text the agent must send to the university athletic department within 72 hours under the UAAA / RUAAA","sourceNote":"what laws this is based on"}';
   try {
     const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with comprehensive knowledge of all 50 state NIL laws as of 2025-2026, plus the NCAA House settlement rules. Return only valid JSON.', 8000);
     const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -6375,7 +6376,7 @@ app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, r
       const now = new Date();
       const hoursLeft = Math.round((deadline - now) / (1000 * 60 * 60));
       const deadlineStr = deadline.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
-      spartaSection = `SPARTA COMPLIANCE:
+      spartaSection = `72-HOUR UNIVERSITY NOTICE (UAAA / RUAAA):
 - Signed: ${signed.toLocaleDateString()}
 - 72-hour university notification deadline: ${deadlineStr}
 - Hours remaining: ${hoursLeft > 0 ? hoursLeft + ' hours' : 'OVERDUE by ' + Math.abs(hoursLeft) + ' hours'}
@@ -6387,17 +6388,17 @@ app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, r
       : '';
 
     const checksLine = stateResolved
-      ? 'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 5) SPARTA compliance - notify ' + school + ' within 72 hours of signing 6) School-specific NIL policies\n\n'
-      : 'NOTE: The athlete\'s state could not be determined, so do a FEDERAL-LEVEL and SPARTA-only review (do not invent state-specific laws). Check: 1) Federal disclosure requirements 2) $600 NIL reporting threshold 3) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 4) SPARTA compliance - notify ' + school + ' within 72 hours of signing 5) NCAA House settlement rules. Recommend the athlete add their State in Profile for a state-specific check.\n\n';
+      ? 'Check ALL of these: 1) State restrictions in ' + state + ' 2) Disclosure requirements 3) $600 NIL reporting threshold 4) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 5) The 72-hour notice to ' + school + ' after signing, which is a state UAAA / RUAAA duty, NOT SPARTA 6) SPARTA (federal), which separately bars false or misleading agent conduct and requires agency-contract disclosures 7) School-specific NIL policies\n\n'
+      : 'NOTE: The athlete\'s state could not be determined, so do a FEDERAL-LEVEL review (do not invent state-specific laws). Check: 1) Federal disclosure requirements 2) $600 NIL reporting threshold 3) Category restrictions (alcohol/gambling/tobacco/supplements/crypto) 4) SPARTA (federal), which bars false or misleading agent conduct and requires agency-contract disclosures 5) The 72-hour school notice is a state UAAA / RUAAA duty, so note it applies once the state is known, not as SPARTA 6) NCAA House settlement rules. Recommend the athlete add their State in Profile for a state-specific check.\n\n';
 
-    const prompt = 'Analyze this NIL deal for compliance' + (stateResolved ? ' in ' + state : ' (state unknown — federal/SPARTA scope only)') + ':\n' +
+    const prompt = 'Analyze this NIL deal for compliance' + (stateResolved ? ' in ' + state : ' (state unknown, federal scope only)') + ':\n' +
       'Athlete: ' + (ath.name||'Unknown') + ', ' + (ath.sport||'Unknown') + ', ' + school + ' (' + (ath.school_tier||'unknown') + ')\n' +
       'Deal: ' + (dealType||'general') + ' with ' + (brand||'unknown brand') + ' worth $' + (parseInt(value)||0) + '\n' +
       'Description: ' + (description||'not provided') + '\n' +
       (signingDate ? 'Signing Date: ' + signingDate + '\n' : '') +
       notificationNote + '\n' +
       checksLine +
-      'Return ONLY JSON: {"state":"' + (stateResolved ? state : 'Federal (state unspecified)') + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text athlete must send to university athletic department within 72 hours","sourceNote":"what laws this is based on"}';
+      'Attribute the 72-hour school notice to the UAAA / RUAAA, and SPARTA only to federal agent-conduct and disclosure duties. Return ONLY JSON: {"state":"' + (stateResolved ? state : 'Federal (state unspecified)') + '","status":"clear" or "warning" or "blocked","flags":[{"severity":"high" or "warning","issue":"short title","detail":"specific detail"}],"requirements":["required steps"],"disclosure":"exact disclosure language for contract or social post","spartaNotice":"exact letter/email text the agent must send to the university athletic department within 72 hours under the UAAA / RUAAA","sourceNote":"what laws this is based on"}';
 
     const result = await ai.oneShot(prompt, 'You are a NIL compliance expert with comprehensive knowledge of all 50 state NIL laws as of 2025-2026, plus the NCAA House settlement rules. Return only valid JSON.', 8000);
     const cleaned = result.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -9460,6 +9461,35 @@ async function findKitVariantUrl(athleteId, brand) {
     return `${appUrl}/media-kit/${mk.slug}?for=${brandSlug}`;
   } catch (e) { return null; }
 }
+
+// GET /api/agent/nil-compliance/:athleteId : static NIL state reference for the
+// athlete's home state (from hometown "City, ST") and school state (from the
+// hardcoded school map). Pure in-memory lookup: no AI call, no web dependency.
+// Educational information only, never a "compliant / not compliant" verdict.
+app.get('/api/agent/nil-compliance/:athleteId', requireAuth, async (req, res) => {
+  try {
+    const athlete = await store.getAthlete(req.params.athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    if (athlete.agentId !== req.session.userId) {
+      const user = await store.getUser(req.session.userId);
+      if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    }
+    const homeCode = nilRules.stateCodeFromText(athlete.hometown || '');
+    const loc = ai.lookupSchoolLocation(athlete.school || '');
+    const schoolCode = loc ? nilRules.stateCodeFromText(loc.state) : null;
+    const payload = nilRules.rulesForStates(homeCode, schoolCode);
+    res.json(Object.assign({
+      athleteId: athlete.id,
+      schoolName: athlete.school || null,
+      hometown: athlete.hometown || null,
+      schoolStateResolved: !!schoolCode,
+      homeStateResolved: !!homeCode,
+    }, payload));
+  } catch (e) {
+    console.error('[nil-compliance]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // POST /api/agent/generate-bio/:athleteId — agent generates AI bio for an athlete
 app.post('/api/agent/generate-bio/:athleteId', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
