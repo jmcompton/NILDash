@@ -156,7 +156,9 @@ CRITICAL:
   } catch (e) {
     console.error('[companyEnrichment] web search failed, falling back to model knowledge:', e.message);
     try {
-      raw = await oneShot(prompt, system, 2000);
+      // Pin the fallback to Sonnet 4.6 so a failed web search does not silently
+      // upgrade this call to the Opus default.
+      raw = await oneShot(prompt, system, 2000, 'claude-sonnet-4-6');
     } catch (e2) {
       console.error('[companyEnrichment] AI call failed:', e2.message);
       return buildFallback(brandName);

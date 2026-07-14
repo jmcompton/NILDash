@@ -2895,6 +2895,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <!-- Table -->
         <div id="ot-list" style="font-size:12px;color:var(--muted)">Click Refresh to load outreach.</div>
 
+        <!-- AI Outreach emails (from the AI Outreach engine): sent vs replied -->
+        <div style="margin-top:28px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+            <div style="font-size:13px;font-weight:700;color:var(--text)">AI Outreach Emails</div>
+            <button onclick="loadAiOutreachLogs()" class="run-btn" style="padding:6px 12px;font-size:11px">↻ Refresh</button>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Emails you sent through AI Outreach. Mark one replied when the brand answers, so it drops off your follow-up list.</div>
+          <div id="ai-outreach-list" style="font-size:12px;color:var(--muted)">Loading...</div>
+        </div>
+
         <!-- Hidden tracker elements for backward compat -->
         <div id="or-tracker" style="display:none"></div>
       </div>
@@ -5736,6 +5746,7 @@ async function showView(id, btn) {
   if (id === 'team-match') tmPreFillFromAthlete();
   if (id === 'deals') { if (selectedAthleteId) loadDealScanCache(); }
   if (id === 'compliance') { try { loadNilComplianceRef(); } catch(e) {} }
+  if (id === 'outreach') { try { loadUnifiedOutreach(); } catch(e) {} }
   if (id === 'pdf-scan') loadPdfScanAthletes();
   if (id === 'add-athlete') { const tp = document.getElementById('a_tags'); if (tp && !tp.innerHTML) renderTagPicker('a_tags', []); }
 }
@@ -14000,7 +14011,69 @@ function cleanAiText(text) {
 // FIX 3 — UNIFIED OUTREACH TRACKER
 // ══════════════════════════════════════════════════════════════════
 
+// AI Outreach engine emails (outreach_logs): show sent vs replied and let the
+// agent mark a reply, which stops the follow-up poller from nudging that thread.
+async function loadAiOutreachLogs() {
+  var el = document.getElementById('ai-outreach-list');
+  if (!el) return;
+  el.innerHTML = '<span style="color:var(--muted)">Loading...</span>';
+  try {
+    var r = await fetch(API_BASE + '/api/outreach/logs', { credentials: 'include' });
+    if (!r.ok) throw new Error('failed');
+    var rows = await r.json();
+    // Only emails that actually went out or came back matter for reply tracking.
+    rows = (rows || []).filter(function(x) { return x.status === 'sent' || x.status === 'replied'; });
+    if (!rows.length) {
+      el.innerHTML = '<div style="color:var(--muted);padding:16px 0;font-size:12px">No sent AI outreach yet. Generate one from a Deal Scan card with the AI Outreach button.</div>';
+      return;
+    }
+    var pill = function(status) {
+      return status === 'replied'
+        ? '<span style="background:rgba(132,204,22,0.14);color:var(--accent);padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">Replied</span>'
+        : '<span style="background:rgba(96,165,250,0.14);color:#60a5fa;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700">Sent, awaiting reply</span>';
+    };
+    el.innerHTML = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+      '<thead><tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">' +
+        '<th style="text-align:left;padding:8px 10px">Brand</th>' +
+        '<th style="text-align:left;padding:8px 10px">Sent</th>' +
+        '<th style="text-align:left;padding:8px 10px">Status</th>' +
+        '<th style="text-align:left;padding:8px 10px">Action</th>' +
+      '</tr></thead><tbody>' +
+      rows.map(function(row) {
+        var sentDate = row.sent_at ? new Date(row.sent_at).toLocaleDateString() : '-';
+        var action = row.status === 'replied'
+          ? '<button onclick="markOutreachReplied(\'' + row.id + '\', false)" style="padding:4px 10px;border-radius:6px;background:transparent;border:1px solid var(--border);color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit">Mark unanswered</button>'
+          : '<button onclick="markOutreachReplied(\'' + row.id + '\', true)" style="padding:4px 10px;border-radius:6px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.35);color:var(--accent);font-size:10px;font-weight:700;cursor:pointer;font-family:inherit">Mark replied</button>';
+        return '<tr style="border-bottom:1px solid var(--border)">' +
+          '<td style="padding:10px 10px;font-weight:600;color:var(--text)">' + escapeHtml(row.brand_name || '-') + '</td>' +
+          '<td style="padding:10px 10px;color:var(--muted);white-space:nowrap">' + sentDate + '</td>' +
+          '<td style="padding:10px 10px">' + pill(row.status) + (row.replied_at ? ' <span style="color:var(--muted);font-size:10px">' + new Date(row.replied_at).toLocaleDateString() + '</span>' : '') + '</td>' +
+          '<td style="padding:10px 10px">' + action + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table></div>';
+  } catch (e) {
+    el.innerHTML = '<div style="color:var(--muted);padding:16px 0;font-size:12px">Could not load AI outreach right now.</div>';
+  }
+}
+
+async function markOutreachReplied(id, replied) {
+  try {
+    var r = await fetch(API_BASE + '/api/outreach/logs/' + encodeURIComponent(id) + '/replied', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ replied: replied })
+    });
+    var data = await r.json();
+    if (!r.ok || data.error) throw new Error(data.error || 'failed');
+    if (typeof showToast === 'function') showToast(replied ? 'Marked replied. Follow-up nudges stopped for this one.' : 'Marked as awaiting reply.');
+    loadAiOutreachLogs();
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Could not update reply status');
+  }
+}
+
 async function loadUnifiedOutreach() {
+  loadAiOutreachLogs();
   var el = document.getElementById('ot-list');
   if (!el) return;
   el.innerHTML = '<span style="color:var(--muted)">Loading…</span>';

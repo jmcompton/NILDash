@@ -321,6 +321,42 @@ router.patch('/logs/:id', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/outreach/logs/:id/replied
+ * Manual reply tracking. Body: { replied: boolean }.
+ * replied=true sets replied_at + status='replied' (via the existing markReplied),
+ * which the follow-up poller already respects (it only nudges rows with
+ * replied_at IS NULL), so nudges stop once an outreach is marked replied.
+ * replied=false reverts to 'sent' so a mistaken mark can be undone.
+ */
+router.post('/logs/:id/replied', async (req, res) => {
+  try {
+    const replied = req.body.replied !== false; // default true
+    // Ownership + must already be sent.
+    const r = await pool.query(
+      'SELECT id, status FROM outreach_logs WHERE id=$1 AND agent_id=$2',
+      [req.params.id, req.session.userId]
+    );
+    const log = r.rows[0];
+    if (!log) return res.status(404).json({ error: 'Outreach not found' });
+    if (replied) {
+      if (log.status === 'draft') return res.status(400).json({ error: 'Send this outreach before marking it replied' });
+      await followUpSvc.markReplied(log.id);
+    } else {
+      // Undo: clear the reply and return the row to sent so the agent can track it again.
+      await pool.query(
+        `UPDATE outreach_logs SET replied_at=NULL, status='sent', updated_at=NOW() WHERE id=$1 AND agent_id=$2`,
+        [log.id, req.session.userId]
+      );
+    }
+    const out = await pool.query('SELECT * FROM outreach_logs WHERE id=$1', [log.id]);
+    res.json(out.rows[0]);
+  } catch (e) {
+    console.error('[outreach/replied]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Follow-ups ────────────────────────────────────────────────────────────────
 
 /**

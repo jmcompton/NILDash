@@ -15,7 +15,7 @@ const crypto  = require('crypto');
 const fs      = require('fs');
 const path    = require('path');
 const { pool } = require('../store');
-const { oneShot } = require('../ai');
+const { oneShot, MODEL_FAST } = require('../ai');
 
 let PDFDocument;
 try { PDFDocument = require('pdfkit'); } catch (e) {
@@ -142,8 +142,10 @@ Return ONLY this JSON, no markdown:
   "audienceNote": "One complete sentence, max 26 words: who specifically follows this athlete and why that audience is worth reaching for ${brand}."
 }`;
 
+  // Deck copy is structured JSON rendered into fields, not agent-read prose, so
+  // it runs on the cheap Haiku tier (same extraction pattern as Deal Scan).
   const raw = await oneShot(prompt,
-    'Return only valid JSON. No markdown. No preamble. Be specific to this athlete and brand.', 1500);
+    'Return only valid JSON. No markdown. No preamble. Be specific to this athlete and brand.', 1500, MODEL_FAST);
   const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
   const match = clean.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('No JSON in AI response');

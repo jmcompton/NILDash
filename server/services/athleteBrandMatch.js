@@ -16,7 +16,7 @@
 
 const crypto = require('crypto');
 const { pool } = require('../store');
-const { oneShot } = require('../ai');
+const { oneShot, MODEL_FAST } = require('../ai');
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -139,7 +139,10 @@ Return this exact JSON:
 
   let raw;
   try {
-    raw = await oneShot(prompt, system, 2000);
+    // Structured scoring JSON (a number plus strengths/risks the UI renders as
+    // chips), not agent-read prose, so it runs on the cheap Haiku tier, the same
+    // pattern Deal Scan uses for extraction.
+    raw = await oneShot(prompt, system, 2000, MODEL_FAST);
   } catch (e) {
     console.error('[athleteBrandMatch] AI call failed:', e.message);
     return buildFallbackMatch(enrichmentRecord.brand_name);

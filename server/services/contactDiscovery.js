@@ -219,7 +219,9 @@ Always return at least one contact, and the top contact's email must be filled w
   } catch (e) {
     console.error('[contactDiscovery] web search failed, falling back to model knowledge:', e.message);
     try {
-      raw = await oneShot(prompt, system, 2500);
+      // Pin the fallback to Sonnet 4.6 so a failed web search does not silently
+      // upgrade this call to the Opus default.
+      raw = await oneShot(prompt, system, 2500, 'claude-sonnet-4-6');
     } catch (e2) {
       console.error('[contactDiscovery] AI call failed:', e2.message);
       return buildFallbackContacts(brand);
