@@ -98,7 +98,7 @@ var NILCal = (function () {
       var curA = athleteSel.value;
       athleteSel.innerHTML = '<option value="">All Athletes</option>' +
         athleteList.map(function(a) {
-          return '<option value="' + a.id + '"' + (a.id === curA ? ' selected' : '') + '>' + (a.name || a.id) + '</option>';
+          return '<option value="' + a.id + '"' + (a.id === curA ? ' selected' : '') + '>' + (a.name || "Athlete") + '</option>';
         }).join('');
     }
     var brandSel = document.getElementById('cal-filter-brand');

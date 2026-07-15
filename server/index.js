@@ -752,7 +752,7 @@ app.post('/api/university/ai/compliance-check', requireUniversityAuth, async (re
     );
 
     const athletePayload = {
-      name: athData.name || athlete.id,
+      name: athData.name || 'Athlete',
       sport: athData.sport,
       school: athData.school,
       instagram: athData.instagram,
@@ -8875,6 +8875,16 @@ app.get('/api/athlete/media-kit', verifyAthleteToken, async (req, res) => {
 });
 
 // POST /api/athlete/media-kit/save — save/update media kit (athlete auth)
+// Build a public media-kit slug from the athlete's name. Never build it from the
+// athlete ID: that would leak an internal identifier into a public URL. When
+// there is no usable name, fall back to a random token so the slug stays
+// non-identifying.
+function _mediaKitBaseSlug(name) {
+  const fromName = String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const core = fromName || ('athlete-' + require('crypto').randomBytes(4).toString('hex'));
+  return core + '-nil';
+}
+
 app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => {
   try {
     const {
@@ -8893,8 +8903,7 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
       `SELECT a.data->>'name' as name FROM athletes a WHERE a.id = $1`,
       [req.athlete.id]
     );
-    const athleteName = athR.rows[0]?.name || req.athlete.id;
-    const baseSlug = athleteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-nil';
+    const baseSlug = _mediaKitBaseSlug(athR.rows[0]?.name);
 
     // Build headshot/action updates (only update if a new value was supplied;
     // null means "leave unchanged", empty string means "clear photo")
@@ -9254,8 +9263,7 @@ app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, requireAgentSub
       [athleteId, req.session.userId]
     );
     if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
-    const athleteName = athR.rows[0].name || String(athleteId);
-    const baseSlug = athleteName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-nil';
+    const baseSlug = _mediaKitBaseSlug(athR.rows[0].name);
 
     const {
       instagram_handle, instagram_followers, instagram_engagement,

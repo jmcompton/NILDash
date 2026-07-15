@@ -7872,7 +7872,7 @@ async function loadPdfScanAthletes() {
     const athletes = Array.isArray(data) ? data : (data.athletes || []);
     const cur = sel.value;
     sel.innerHTML = '<option value="">— choose athlete —</option>' +
-      athletes.map(a => `<option value="${a.id}" ${a.id === cur ? 'selected' : ''}>${a.name || a.id}</option>`).join('');
+      athletes.map(a => `<option value="${a.id}" ${a.id === cur ? 'selected' : ''}>${a.name || "Athlete"}</option>`).join('');
     _pdfScanAthleteId = sel.value;
   } catch(e) { console.warn('PDF scan athlete load failed', e); }
 }
@@ -8201,7 +8201,7 @@ async function loadAgentOutreach() {
     athletes.forEach(a => {
       const opt = document.createElement('option');
       opt.value = a.id;
-      opt.textContent = a.name || a.id;
+      opt.textContent = a.name || "Athlete";
       filterAthEl.appendChild(opt);
     });
   }
@@ -14083,7 +14083,7 @@ async function loadUnifiedOutreach() {
   if (filterAth && filterAth.options.length <= 1 && typeof athletes !== 'undefined') {
     athletes.forEach(function(a) {
       var opt = document.createElement('option');
-      opt.value = a.id; opt.textContent = a.name || a.id;
+      opt.value = a.id; opt.textContent = a.name || "Athlete";
       filterAth.appendChild(opt);
     });
   }
@@ -14173,7 +14173,7 @@ function openLogOutreachModal() {
   if (sel && sel.options.length <= 1 && typeof athletes !== 'undefined') {
     athletes.forEach(function(a) {
       var opt = document.createElement('option');
-      opt.value = a.id; opt.textContent = a.name || a.id;
+      opt.value = a.id; opt.textContent = a.name || "Athlete";
       sel.appendChild(opt);
     });
     if (selectedAthleteId) sel.value = String(selectedAthleteId);
