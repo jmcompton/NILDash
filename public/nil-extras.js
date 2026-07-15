@@ -247,10 +247,10 @@ async function loadPortalStatus(athleteId) {
       statusEl.textContent = "Account Active";
       statusEl.style.cssText = "font-size:10px;padding:3px 10px;border-radius:40px;background:rgba(74,222,128,0.12);color:#4ade80";
     } else if (hasToken || legacy.invited) {
-      statusEl.textContent = "Invited";
+      statusEl.textContent = "Link created";
       statusEl.style.cssText = "font-size:10px;padding:3px 10px;border-radius:40px;background:rgba(245,158,11,0.12);color:#f59e0b";
     } else {
-      statusEl.textContent = "Not Invited";
+      statusEl.textContent = "No link yet";
       statusEl.style.cssText = "font-size:10px;padding:3px 10px;border-radius:40px;background:rgba(255,255,255,0.06);color:var(--muted)";
     }
 
@@ -275,14 +275,14 @@ async function loadPortalStatus(athleteId) {
     } else if (inviteUrl) {
       var daysAgo = newStatus && newStatus.created_at ? Math.floor((Date.now() - new Date(newStatus.created_at)) / 86400000) : null;
       invSection.innerHTML =
-        "<div style='font-size:12px;color:var(--muted);margin-bottom:8px'>Share this signup link with the athlete" + (daysAgo !== null ? " · Sent " + daysAgo + " day" + (daysAgo !== 1 ? "s" : "") + " ago" : "") + ":</div>" +
+        "<div style='font-size:12px;color:var(--muted);margin-bottom:8px'>Copy this signup link and send it to the athlete yourself" + (daysAgo !== null ? " · Link created " + daysAgo + " day" + (daysAgo !== 1 ? "s" : "") + " ago" : "") + ":</div>" +
         "<div style='display:flex;gap:6px;margin-bottom:8px'>" +
           "<input style='flex:1;font-size:11px;padding:7px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text)' readonly value='" + inviteUrl + "' id='invite-url-" + athleteId + "'>" +
           "<button onclick='copyInviteLink(" + JSON.stringify(athleteId) + ")' style='padding:7px 12px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:11px;font-weight:700;cursor:pointer'>Copy</button>" +
         "</div>" +
         "<button onclick='regenerateInviteLink(" + JSON.stringify(athleteId) + ")' style='width:100%;padding:7px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:11px;cursor:pointer'>🔄 Regenerate Link</button>";
     } else {
-      invSection.innerHTML = "<button onclick='sendAthleteInvite(" + JSON.stringify(athleteId) + ")' style='width:100%;padding:9px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:12px;font-weight:700;cursor:pointer'>📧 Send Invite Link</button>";
+      invSection.innerHTML = "<button onclick='sendAthleteInvite(" + JSON.stringify(athleteId) + ")' style='width:100%;padding:9px;background:var(--accent);border:none;border-radius:6px;color:#000;font-size:12px;font-weight:700;cursor:pointer'>Get invite link</button>";
     }
   } catch(e) { console.error("Portal status error:", e); }
 }
