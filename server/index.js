@@ -1006,7 +1006,7 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa,
-          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants } = req.body;
+          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
 
   // ── Seat limit check ─────────────────────────────────────────
@@ -1061,6 +1061,10 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     stats: stats || '',
     transferReason: transferReason || '',
     gpa: gpa || '',
+    // Optional athlete contact email, stored in the athlete data (not the login
+    // email column). Used to email the portal invite link. Kept only when it
+    // looks like an email so it never becomes an ID-like placeholder.
+    email: (email && String(email).includes('@')) ? String(email).trim() : '',
     // Hometown powers the Deal Scan second market ("hometown hero" angle).
     hometown: (hometown ? String(hometown).trim() : ''),
     // Interest tags ("industry:sub" strings) and product wants feed Deal Scan.
@@ -4260,8 +4264,40 @@ app.post('/api/agents/athletes/:id/invite-token', requireAuth, async (req, res) 
       ['invite-' + athleteId, athleteId, req.session.userId, token, JSON.stringify(vis), expires]
     ).catch(() => {});
 
-    console.log(`[invite-token] Done: agent=${req.session.userId} athlete=${athleteId} token=...${token.slice(-12)}`);
-    res.json({ ok: true, token, inviteUrl, athleteName: athlete.name });
+    // When the athlete has a contact email, actually send the invite link (reusing
+    // the same Resend setup as create-athlete-account). The copy-link flow stays
+    // as the fallback when there is no email or the send fails.
+    const athleteEmail = (athlete.email && String(athlete.email).includes('@')) ? String(athlete.email).trim() : null;
+    let emailed = false;
+    if (athleteEmail) {
+      try {
+        const agentRow = await store.getUser(req.session.userId);
+        const agentName = String((agentRow && agentRow.name) || 'Your agent').replace(/[<>]/g, '');
+        const firstName = String(athlete.name || 'there').replace(/[<>]/g, '');
+        await resend.emails.send({
+          from: 'NILDash <noreply@mynildash.com>',
+          to: [athleteEmail],
+          subject: `${agentName} invited you to your NILDash athlete portal`,
+          html: `
+            <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:32px">
+              <h2 style="color:#6366f1">You're invited to NILDash</h2>
+              <p>Hi ${firstName}, your agent <strong>${agentName}</strong> set up your athlete portal on NILDash.</p>
+              <p>Use the link below to create your login and see your deals, rate card, and deliverables:</p>
+              <a href="${inviteUrl}" style="display:inline-block;background:#6366f1;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:8px">Set up your portal &rarr;</a>
+              <p style="font-size:12px;color:#666;margin-top:16px">Or paste this link into your browser: ${inviteUrl}</p>
+              <p style="font-size:12px;color:#666">This link expires in 30 days.</p>
+            </div>
+          `,
+        });
+        emailed = true;
+        console.log(`[invite-token] invite emailed to ${athleteEmail} for athlete=${athleteId}`);
+      } catch (emailErr) {
+        console.warn('[invite-token] email send failed (link still returned):', emailErr.message);
+      }
+    }
+
+    console.log(`[invite-token] Done: agent=${req.session.userId} athlete=${athleteId} token=...${token.slice(-12)} emailed=${emailed}`);
+    res.json({ ok: true, token, inviteUrl, athleteName: athlete.name, emailed, email: athleteEmail || null });
   } catch (e) {
     console.error('[invite-token] Error:', e.message, e.stack);
     res.status(500).json({ error: e.message });

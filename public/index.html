@@ -2753,6 +2753,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
           </div>
           <div class="form-group-sm"><label class="form-label-sm">School</label><input class="input-sm" id="a_school" placeholder="e.g. Duke University"></div>
           <div class="form-group-sm">
+            <label class="form-label-sm">Email <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+            <input class="input-sm" id="a_email" type="email" placeholder="athlete@email.com">
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">If set, you can email them their portal invite link directly.</div>
+          </div>
+          <div class="form-group-sm">
             <label class="form-label-sm">Hometown</label>
             <input class="input-sm" id="a_hometown" placeholder="e.g. Johns Creek, GA">
             <div style="font-size:10px;color:var(--muted);margin-top:2px">Deal Scan also searches the hometown market when this is set.</div>
@@ -5196,6 +5201,7 @@ async function editAthlete(id) {
   document.getElementById('a_sport').value = a.sport || 'Basketball';
   document.getElementById('a_pos').value = a.position || '';
   document.getElementById('a_school').value = a.school || '';
+  const aEmailEl = document.getElementById('a_email'); if (aEmailEl) aEmailEl.value = a.email || '';
   document.getElementById('a_tier').value = a.schoolTier || 'p4-mid';
   document.getElementById('a_ig').value = a.instagram || '';
   document.getElementById('a_tt').value = a.tiktok || '';
@@ -5236,6 +5242,7 @@ async function updateAthlete(id) {
     sport: document.getElementById('a_sport').value,
     position: document.getElementById('a_pos').value,
     school: document.getElementById('a_school').value,
+    email: (document.getElementById('a_email') ? document.getElementById('a_email').value : '').trim(),
     schoolTier: document.getElementById('a_tier').value,
     instagram: parseInt(document.getElementById('a_ig').value) || 0,
     tiktok: parseInt(document.getElementById('a_tt').value) || 0,
@@ -5282,6 +5289,7 @@ async function addAthlete() {
         name, sport: document.getElementById('a_sport').value,
         position: document.getElementById('a_pos').value,
         school: document.getElementById('a_school').value,
+        email: (document.getElementById('a_email') ? document.getElementById('a_email').value : '').trim(),
         schoolTier: document.getElementById('a_tier').value,
         instagram: document.getElementById('a_ig').value,
         tiktok: document.getElementById('a_tt').value,
@@ -5312,7 +5320,7 @@ async function addAthlete() {
     document.getElementById('kpi-clients').textContent = athletes.length;
     renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
-    ['a_name','a_pos','a_school','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    ['a_name','a_pos','a_school','a_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     renderTagPicker('a_tags', []);
     _statFetchedSource = null;
     const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = '';

@@ -323,7 +323,9 @@ async function sendAthleteInvite(athleteId) {
       body: JSON.stringify({})
     }).then(function(r){return r.json();});
     if (r.ok) {
-      showToast("Invite link created for " + (r.athleteName || "athlete"));
+      showToast(r.emailed
+        ? ("Invite emailed to " + (r.email || "the athlete"))
+        : ("Invite link created for " + (r.athleteName || "athlete") + ". Copy and send it."));
       loadPortalStatus(athleteId);
     } else showToast("Error: " + (r.error || "Failed to create invite"));
   } catch(e) { showToast("Error creating invite"); }
