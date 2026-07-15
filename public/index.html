@@ -2719,6 +2719,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div id="lookup-candidates" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden"></div>
           </div>
 
+          <div class="form-group-sm"><label class="form-label-sm">Full legal name <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+            <input class="input-sm" id="a_legal_name" placeholder="e.g. Paige Elizabeth Briggs">
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">Used on contracts. Leave blank to use their name above.</div>
+          </div>
+
           <div class="form-row" style="margin-bottom:12px">
             <div><label class="form-label-sm">Sport *</label>
               <select class="select-sm" id="a_sport">
@@ -5201,6 +5206,7 @@ async function editAthlete(id) {
   document.getElementById('a_sport').value = a.sport || 'Basketball';
   document.getElementById('a_pos').value = a.position || '';
   document.getElementById('a_school').value = a.school || '';
+  const aLegalEl = document.getElementById('a_legal_name'); if (aLegalEl) aLegalEl.value = a.legal_name || '';
   const aEmailEl = document.getElementById('a_email'); if (aEmailEl) aEmailEl.value = a.email || '';
   document.getElementById('a_tier').value = a.schoolTier || 'p4-mid';
   document.getElementById('a_ig').value = a.instagram || '';
@@ -5240,6 +5246,7 @@ async function updateAthlete(id) {
   const data = {
     name,
     sport: document.getElementById('a_sport').value,
+    legal_name: (document.getElementById('a_legal_name') ? document.getElementById('a_legal_name').value : '').trim(),
     position: document.getElementById('a_pos').value,
     school: document.getElementById('a_school').value,
     email: (document.getElementById('a_email') ? document.getElementById('a_email').value : '').trim(),
@@ -5287,6 +5294,7 @@ async function addAthlete() {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         name, sport: document.getElementById('a_sport').value,
+        legal_name: (document.getElementById('a_legal_name') ? document.getElementById('a_legal_name').value : '').trim(),
         position: document.getElementById('a_pos').value,
         school: document.getElementById('a_school').value,
         email: (document.getElementById('a_email') ? document.getElementById('a_email').value : '').trim(),
@@ -5320,7 +5328,7 @@ async function addAthlete() {
     document.getElementById('kpi-clients').textContent = athletes.length;
     renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
-    ['a_name','a_pos','a_school','a_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    ['a_name','a_legal_name','a_pos','a_school','a_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     renderTagPicker('a_tags', []);
     _statFetchedSource = null;
     const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = '';
@@ -8570,6 +8578,16 @@ async function loadAnalytics() {
       if (!brand || !value) { showToast('Brand and value are required'); return; }
       if (!selectedAthleteId) { showToast('Select an athlete first'); return; }
 
+      // Contracts name the party by legal name. If none is on file, ask for it
+      // before generating rather than silently using the display name. Skipping
+      // the prompt is fine: the server falls back to the display name.
+      const conAth = (typeof athletes !== 'undefined' ? athletes : []).find(a => a.id === selectedAthleteId) || {};
+      let legalName = (conAth.legal_name || '').trim();
+      if (!legalName) {
+        const entered = window.prompt('Full legal name for the contract (leave blank to use "' + (conAth.name || 'their name') + '"):', '');
+        if (entered && entered.trim()) legalName = entered.trim();
+      }
+
       const btn = document.getElementById('con-btn');
       btn.disabled = true; btn.textContent = 'Generating...';
       document.getElementById('con-result').style.display = 'none';
@@ -8579,6 +8597,7 @@ async function loadAnalytics() {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify({
             athleteId: selectedAthleteId,
+            legalName,
             brand,
             value: parseInt(value),
             dealType: document.getElementById('con-deal-type').value,
@@ -8595,6 +8614,9 @@ async function loadAnalytics() {
         });
         const data = await r.json();
         if (data.error) { showToast('Error: ' + data.error); return; }
+        // The server persists a prompted legal name; mirror it locally so the
+        // agent is not prompted again this session.
+        if (legalName && conAth && !conAth.legal_name) conAth.legal_name = legalName;
         lastContract = data.contract;
         document.getElementById('con-text').textContent = data.contract;
         document.getElementById('con-result').style.display = 'block';

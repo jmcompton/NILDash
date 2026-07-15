@@ -1006,7 +1006,7 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa,
-          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email } = req.body;
+          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
 
   // ── Seat limit check ─────────────────────────────────────────
@@ -1065,6 +1065,9 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     // email column). Used to email the portal invite link. Kept only when it
     // looks like an email so it never becomes an ID-like placeholder.
     email: (email && String(email).includes('@')) ? String(email).trim() : '',
+    // Optional full legal name, used only on contracts. Falls back to the display
+    // name when blank. Stored in the athlete data, same pattern as email.
+    legal_name: (legal_name ? String(legal_name).trim() : ''),
     // Hometown powers the Deal Scan second market ("hometown hero" angle).
     hometown: (hometown ? String(hometown).trim() : ''),
     // Interest tags ("industry:sub" strings) and product wants feed Deal Scan.
@@ -2484,15 +2487,30 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
 // ── Contract Generator ────────────────────────────────────────
 app.post('/api/ai/contract', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, dealId, brand, value, deliverables, startDate, endDate,
-          exclusivity, state, agentName, agentEmail, dealType, paymentTerms, usageRights } = req.body;
+          exclusivity, state, agentName, agentEmail, dealType, paymentTerms, usageRights, legalName } = req.body;
 
   const athlete = athleteId ? await store.getAthlete(athleteId) : null;
   if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
 
+  // Contracts name the party by the athlete's full legal name when one is on file
+  // (or one the agent supplied for this generation), falling back to the display
+  // name. Contracts only: other surfaces keep using the display name.
+  const promptedLegal = (legalName && String(legalName).trim()) ? String(legalName).trim() : '';
+  const onFileLegal = (athlete.legal_name && String(athlete.legal_name).trim()) ? String(athlete.legal_name).trim() : '';
+  const partyName = promptedLegal || onFileLegal || athlete.name;
+  // Best-effort: if the agent supplied a legal name and none was stored, save it so
+  // they are not prompted again. Never blocks contract generation.
+  if (promptedLegal && !onFileLegal) {
+    store.pool.query(
+      `UPDATE athletes SET data = data || jsonb_build_object('legal_name', $1::text), updated_at = NOW() WHERE id = $2`,
+      [promptedLegal, athleteId]
+    ).catch((e) => console.warn('[contract] legal_name persist failed (ignored):', e.message));
+  }
+
   const prompt = `Generate a professional NIL representation contract with these exact details:
 
 PARTIES:
-- Athlete: ${athlete.name}, ${athlete.sport} athlete at ${athlete.school || 'their university'}
+- Athlete: ${partyName}, ${athlete.sport} athlete at ${athlete.school || 'their university'}
 - Agent/Manager: ${agentName || 'Agent'} (${agentEmail || 'agent@email.com'})
 - Brand/Company: ${brand}
 
@@ -2536,14 +2554,14 @@ Use professional legal language. Include specific dollar amounts and dates. Add 
   try {
     const contract = await ai.oneShot(prompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.", 4000);
     if (!contract || contract.length < 100) throw new Error('Contract generation failed');
-    res.json({ contract, athleteName: athlete.name, brand, value });
+    res.json({ contract, athleteName: partyName, brand, value });
   } catch (err) {
     console.error('Contract error:', err.message);
     // Retry with shorter prompt
     try {
-      const shortPrompt = 'Generate a professional NIL contract between ' + athlete.name + ' (' + athlete.sport + ' at ' + (athlete.school||'university') + ') and ' + brand + ' for $' + parseInt(value||0).toLocaleString() + '. Deal type: ' + (dealType||'Social Media') + '. Deliverables: ' + (deliverables||'3 Instagram posts') + '. Include: parties, scope, compensation, term, exclusivity, usage rights, FTC disclosure, and signature lines. Use professional legal language.';
+      const shortPrompt = 'Generate a professional NIL contract between ' + partyName + ' (' + athlete.sport + ' at ' + (athlete.school||'university') + ') and ' + brand + ' for $' + parseInt(value||0).toLocaleString() + '. Deal type: ' + (dealType||'Social Media') + '. Deliverables: ' + (deliverables||'3 Instagram posts') + '. Include: parties, scope, compensation, term, exclusivity, usage rights, FTC disclosure, and signature lines. Use professional legal language.';
       const contract = await ai.oneShot(shortPrompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.");
-      res.json({ contract, athleteName: athlete.name, brand, value });
+      res.json({ contract, athleteName: partyName, brand, value });
     } catch(err2) {
       res.status(503).json({ error: 'Contract generation temporarily unavailable. Please try again in 30 seconds.' });
     }
@@ -5259,7 +5277,8 @@ app.delete('/api/athlete/deals/:id', verifyAthleteToken, async (req, res) => {
 async function _getAthleteIdentity(athleteId) {
   const r = await store.pool.query(
     `SELECT a.email, a.phone,
-            a.data->>'name' as name, a.data->>'sport' as sport,
+            a.data->>'name' as name, a.data->>'legal_name' as legal_name,
+            a.data->>'sport' as sport,
             a.data->>'school' as school, a.data->>'position' as position,
             a.state as state
      FROM athletes a WHERE a.id = $1`, [athleteId]
@@ -5289,7 +5308,7 @@ function _buildAgreementText({ athlete, deal, deliverables, amount, timeline, te
   lines.push('');
   lines.push('PARTIES');
   lines.push('-------');
-  lines.push('Athlete: ' + (athlete.name || '—'));
+  lines.push('Athlete: ' + ((athlete.legal_name && String(athlete.legal_name).trim()) || athlete.name || 'Athlete'));
   if (athlete.school) lines.push('School: ' + athlete.school);
   if (athlete.sport) lines.push('Sport: ' + athlete.sport + (athlete.position ? ' (' + athlete.position + ')' : ''));
   lines.push('Brand / Partner: ' + (deal.brand_name || '—'));
