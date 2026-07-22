@@ -282,26 +282,31 @@ function renderRunResult(data) {
   try { campaignIdeas = JSON.parse(matchScore?.campaign_ideas || '[]'); } catch {}
 
   body.innerHTML = `
-    <!-- Match score banner -->
-    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
-      <div style="flex:1;min-width:120px;background:var(--surface2,#222);border:1px solid var(--border,#333);
-                  border-radius:8px;padding:14px;text-align:center">
-        <div style="font-size:28px;font-weight:800;color:${scoreColor}">${score}%</div>
-        <div style="font-size:10px;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">Match Score</div>
+    <!-- Why This Fits — Pitch Angles (hero) -->
+    ${campaignIdeas.length ? `
+    <div style="margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Why This Fits — Pitch Angles</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${campaignIdeas.slice(0,3).map(idea => `
+          <span style="font-size:11px;padding:4px 10px;background:rgba(132,204,22,0.1);
+                       border:1px solid rgba(132,204,22,0.3);border-radius:20px;color:var(--accent,#84CC16)">
+            ${escHtml(typeof idea === 'string' ? idea : (idea.description || JSON.stringify(idea)))}
+          </span>`).join('')}
       </div>
+    </div>` : ''}
+
+    <!-- Contact banner -->
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
       <div style="flex:3;background:var(--surface2,#222);border:1px solid var(--border,#333);
                   border-radius:8px;padding:14px">
         <div style="font-size:11px;font-weight:700;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
-          Best Contact
+          How To Reach Them
         </div>
         <div style="font-size:13px;font-weight:600;color:var(--text,#fff)">${escHtml(contactName)}</div>
         <div style="font-size:11px;color:var(--muted,#888)">${escHtml(contactTitle)}</div>
         ${personalEmail ? `<div style="font-size:11px;color:var(--accent,#84CC16);margin-top:2px">${escHtml(personalEmail)}</div>` : ''}
         ${contactPhone ? `<div style="font-size:11px;color:var(--text,#fff);margin-top:2px">📞 <a href="tel:${escHtml(contactPhone.replace(/[^0-9+]/g,''))}" style="color:var(--accent,#84CC16);text-decoration:none">${escHtml(contactPhone)}</a></div>` : ''}
         ${(!personalEmail && emailGeneric && rawEmail) ? `<div style="font-size:11px;color:var(--muted,#888);margin-top:2px">${escHtml(rawEmail)} <span style="color:var(--muted,#555)">(general inbox, not a person)</span></div>` : ''}
-        ${phoneFirst ? `<div style="font-size:10px;color:var(--muted,#888);margin-top:6px;line-height:1.4">No published personal email. Call ${hasName ? escHtml(contactName.split(' ')[0]) : 'this business'} first, then send the draft below to whoever they point you to.</div>`
-          : (!personalEmail && !contactPhone) ? `<div style="font-size:10px;color:var(--muted,#888);margin-top:6px;line-height:1.4">No verified email or phone found. Use the draft below once you confirm a recipient.</div>` : ''}
-        <div style="font-size:10px;color:var(--muted,#555);margin-top:4px">Confidence: ${confidence}%</div>
       </div>
       ${enrichment ? `
       <div style="flex:2;background:var(--surface2,#222);border:1px solid var(--border,#333);
@@ -314,19 +319,6 @@ function renderRunResult(data) {
         <div style="font-size:11px;color:var(--muted,#888);text-transform:capitalize">${escHtml(enrichment.brand_size || '—')}</div>
       </div>` : ''}
     </div>
-
-    <!-- Campaign ideas chips -->
-    ${campaignIdeas.length ? `
-    <div style="margin-bottom:16px">
-      <div style="font-size:10px;font-weight:700;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Campaign Ideas</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${campaignIdeas.slice(0,3).map(idea => `
-          <span style="font-size:11px;padding:4px 10px;background:rgba(132,204,22,0.1);
-                       border:1px solid rgba(132,204,22,0.3);border-radius:20px;color:var(--accent,#84CC16)">
-            ${escHtml(typeof idea === 'string' ? idea : (idea.description || JSON.stringify(idea)))}
-          </span>`).join('')}
-      </div>
-    </div>` : ''}
 
     <!-- Email editor -->
     <div style="background:var(--surface2,#222);border:1px solid var(--border,#333);border-radius:8px;padding:16px;margin-bottom:16px">
@@ -379,7 +371,7 @@ function renderRunResult(data) {
                  style="width:100%;margin-top:4px;padding:8px 10px;background:var(--surface,#111);
                         border:1px solid var(--border,#333);border-radius:6px;
                         color:var(--text,#fff);font-size:12px;outline:none;box-sizing:border-box">
-          ${!prefillTo ? `<div style="font-size:10px;color:var(--muted,#888);margin-top:4px;line-height:1.4">${phoneFirst ? 'Left blank on purpose. There is no published personal email, so call first and add the address they give you.' : 'Left blank on purpose. No verified personal email was found. Add one before sending.'}</div>` : ''}
+          ${!prefillTo ? `<div style="font-size:10px;color:var(--muted,#888);margin-top:4px;line-height:1.4">Add the recipient once you confirm who to reach — the name and phone above are your starting point.</div>` : ''}
         </div>
       </div>
     </div>
