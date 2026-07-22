@@ -7,6 +7,7 @@ const store = require('./store');
 const { getSeeds } = require('./dealScanSeeds');
 const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
 const scanMeter = require('./scanMeter');
+const { lookupPlace } = require('./services/placesLookup');
 
 // Strip em/en dashes from AI-generated natural-language text. The model leans on
 // em dashes heavily; replace them (and surrounding spaces) with a comma so output
@@ -1608,22 +1609,28 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // phone: a wrong-state number is worse than none. National-brand lanes (social,
   // topnil) have no market and no locality requirement.
   const localityRequired = !!(ctx && (ctx.market === 'school' || ctx.market === 'hometown'));
-  const res = await _fetchBrandContacts(brand, website, false, locationHint, { localityRequired });
+  let places = null;
+  try { places = await lookupPlace(brand, locationHint); } catch (_) { places = null; }
+  const effectiveWebsite = website || (places && places.website) || null;
+  const res = await _fetchBrandContacts(brand, effectiveWebsite, false, locationHint, { localityRequired });
   // Collapse titles at READ time as well, so already-cached rows written before
   // the title fix (stacked "... (per news report) (state filing)") also serve a
   // single clean qualifier, without waiting for a re-search.
   res.contacts = (res.contacts || []).map((c) => ({ ...c, title: _labelTitle(c.source, c.title) }));
+  // Places phone is authoritative for this exact business location, so it
+  // overrides the web-searched number and bypasses the locality gate.
+  if (places && places.phone) { res.businessPhone = places.phone; res.phoneUnconfirmed = false; }
   const withEmail = res.contacts.filter((c) => c.email).length;
   const withPhone = res.contacts.filter((c) => c.phone).length + (res.businessPhone ? 1 : 0);
   const found = res.contacts.length + (res.businessPhone ? 1 : 0) + (res.genericInbox ? 1 : 0);
   const source = res.cached ? 'cache' : res.outcome === 'TIMEOUT' ? 'TIMEOUT' : res.outcome === 'ERROR' ? 'ERROR' : 'web';
   console.log(`[dealScan] contacts brand=${brand} found=${found} named=${res.contacts.length} withEmail=${withEmail} withPhone=${withPhone} source=${source}`);
   const loc = _cleanStr(locationHint) || '';
-  const mapsUrl = (!res.contacts.length && !res.businessPhone)
+  const mapsUrl = (places && places.mapsUrl) || ((!res.contacts.length && !res.businessPhone)
     ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(brand + (loc ? ' ' + loc : ''))
-    : null;
+    : null);
   const approach = _contactApproach(ctx || {}, res.contacts[0] || null, res);
-  return { contacts: res.contacts, genericInbox: res.genericInbox, businessPhone: res.businessPhone, approach, mapsUrl };
+  return { contacts: res.contacts, genericInbox: res.genericInbox, businessPhone: res.businessPhone, approach, mapsUrl, website: (places && places.website) || website || null };
 }
 
 // Build the "Approach" line. References the real person, else the honest phone
