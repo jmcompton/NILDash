@@ -1523,6 +1523,12 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   // end the search; we keep going (and still keep the agent as a fallback). A
   // total wall budget guards a pathological brand from running all six long
   // searches back to back.
+  // Cost gate: skip the web-search fan-out unless the caller opted in (AI Outreach).
+  // Card path returns empty here; getBrandContacts still attaches the Places phone.
+  if (opts && opts.allowSearch === false) {
+    console.log(`[dealScan] contacts brand=${brand} search skipped (card path, no fan-out)`);
+    return { contacts: [], genericInbox: null, businessPhone: null, phoneUnconfirmed: false, outcome: 'SKIPPED', cached: false };
+  }
   const CONTACT_WALL_BUDGET_MS = 22000;
   const _cStart = Date.now();
   const results = [];
@@ -1613,7 +1619,12 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   let places = null;
   try { places = await lookupPlace(brand, locationHint); } catch (_) { places = null; }
   const effectiveWebsite = website || (places && places.website) || null;
-  const res = await _fetchBrandContacts(brand, effectiveWebsite, false, locationHint, { localityRequired });
+  // Cost gate: the 6-source contact web-search fan-out is the biggest Anthropic
+  // cost driver. Only run it on the AI Outreach path (ctx.enrichEmail), where the
+  // agent chose to pursue this business. On the card path we return the Places
+  // phone/website only — cheap, and phone is the actionable contact anyway.
+  const _deep = !!(ctx && ctx.enrichEmail);
+  const res = await _fetchBrandContacts(brand, effectiveWebsite, false, locationHint, { localityRequired, allowSearch: _deep });
   // Collapse titles at READ time as well, so already-cached rows written before
   // the title fix (stacked "... (per news report) (state filing)") also serve a
   // single clean qualifier, without waiting for a re-search.
