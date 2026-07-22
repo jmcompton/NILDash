@@ -82,10 +82,10 @@ a.back:hover{color:#C8F135}
     </thead>
     <tbody id="users-table"><tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3);font-size:12px">Loading...</td></tr></tbody>
   </table>
-  <div style="margin-top:32px"><div style="font-size:14px;font-weight:600;color:#f0ede6;margin-bottom:8px">Agent Activity</div>
+  <div style="margin-top:32px"><div style="font-size:14px;font-weight:600;color:#f0ede6;margin-bottom:8px">Agent Activity<label style="font-size:11px;font-weight:400;color:rgba(240,237,230,0.5);margin-left:12px"><input type="checkbox" id="show-archived" onchange="loadAgentActivity()" style="vertical-align:middle"> Show archived</label></div>
   <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.4);text-align:left">
-  <th style="padding:6px 8px">Agent</th><th style="padding:6px 8px">Plan</th><th style="padding:6px 8px">Last login</th><th style="padding:6px 8px">Scans</th><th style="padding:6px 8px">Athletes</th><th style="padding:6px 8px">Outreach</th><th style="padding:6px 8px">Last active</th>
-  </tr></thead><tbody id="agent-activity-table"><tr><td colspan="7" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Loading...</td></tr></tbody></table></div>
+  <th style="padding:6px 8px">Agent</th><th style="padding:6px 8px">Plan</th><th style="padding:6px 8px">Last login</th><th style="padding:6px 8px">Scans</th><th style="padding:6px 8px">Athletes</th><th style="padding:6px 8px">Outreach</th><th style="padding:6px 8px">Last active</th><th style="padding:6px 8px">Actions</th>
+  </tr></thead><tbody id="agent-activity-table"><tr><td colspan="8" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Loading...</td></tr></tbody></table></div>
 </div>
 
 <!-- ── Referrals ─────────────────────────────────────────────── -->
@@ -311,15 +311,17 @@ async function loadAgentActivity() {
   const el = document.getElementById('agent-activity-table');
   if (!el) return;
   try {
-    const r = await fetch('/api/admin/agent-activity');
-    if (!r.ok) { el.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Failed to load</td></tr>'; return; }
+    var inc = document.getElementById('show-archived') && document.getElementById('show-archived').checked;
+    const r = await fetch('/api/admin/agent-activity' + (inc ? '?includeArchived=1' : ''));
+    if (!r.ok) { el.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Failed to load</td></tr>'; return; }
     const rows = await r.json();
-    if (!rows.length) { el.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">No agents</td></tr>'; return; }
+    if (!rows.length) { el.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">No agents</td></tr>'; return; }
     el.innerHTML = rows.map(function(u) {
       var name = refEsc(u.name || u.email || '-');
       var plan = u.comped ? 'comp' : refEsc(u.plan || '-');
       var cell = 'padding:6px 8px;color:rgba(240,237,230,0.7)';
-      return '<tr style="border-top:1px solid rgba(255,255,255,0.06)">' +
+      var lbl = u.archived ? 'Unarchive' : 'Archive';
+      return '<tr style="border-top:1px solid rgba(255,255,255,0.06)' + (u.archived ? ';opacity:0.45' : '') + '">' +
         '<td style="padding:6px 8px;color:#f0ede6">' + name + '</td>' +
         '<td style="' + cell + '">' + plan + '</td>' +
         '<td style="' + cell + '">' + relTime(u.last_login) + '</td>' +
@@ -327,11 +329,20 @@ async function loadAgentActivity() {
         '<td style="' + cell + '">' + (u.athletes || 0) + '</td>' +
         '<td style="' + cell + '">' + (u.outreach || 0) + '</td>' +
         '<td style="' + cell + '">' + relTime(u.last_activity) + '</td>' +
+        '<td style="padding:6px 8px"><button onclick="archiveUser(\'' + u.id + '\', ' + (!u.archived) + ')" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.12);color:rgba(240,237,230,0.7);padding:3px 10px;border-radius:5px;font-size:11px;cursor:pointer">' + lbl + '</button></td>' +
       '</tr>';
     }).join('');
   } catch (e) {
-    el.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">' + refEsc(e.message) + '</td></tr>';
+    el.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">' + refEsc(e.message) + '</td></tr>';
   }
+}
+
+async function archiveUser(id, archived) {
+  try {
+    const r = await fetch('/api/admin/archive-user', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: id, archived: archived }) });
+    if (!r.ok) { alert('Failed to update'); return; }
+    loadAgentActivity();
+  } catch (e) { alert('Failed to update'); }
 }
 
 async function setPlan(userId, plan) {

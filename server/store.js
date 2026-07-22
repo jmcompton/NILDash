@@ -31,6 +31,7 @@ async function init() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'inactive';
     ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;
     -- Admin-only comp flag: full access with no card and no charge. Never set by
     -- signup; only an admin (or the one-time comp seed) can turn this on.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS comped BOOLEAN DEFAULT FALSE;

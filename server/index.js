@@ -3312,17 +3312,30 @@ app.get('/api/admin/agent-activity', async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);
     if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const includeArchived = req.query.includeArchived === '1';
+    const where = includeArchived ? "u.role IN ('agent','admin')" : "u.role IN ('agent','admin') AND u.archived IS NOT TRUE";
     const r = await store.pool.query(`
-      SELECT u.id, u.name, u.email, u.plan, u.comped, u.subscription_status, u.last_login, u.created_at,
+      SELECT u.id, u.name, u.email, u.plan, u.comped, u.subscription_status, u.last_login, u.created_at, u.archived,
         (SELECT COUNT(*) FROM athletes a WHERE a.agent_id = u.id) AS athletes,
         (SELECT COUNT(*) FROM athlete_activity_log l WHERE l.agent_id = u.id AND l.activity_type = 'deal_scan') AS scans,
         (SELECT COUNT(*) FROM athlete_activity_log l WHERE l.agent_id = u.id AND l.activity_type IN ('outreach_written','email_sent')) AS outreach,
         (SELECT MAX(l.created_at) FROM athlete_activity_log l WHERE l.agent_id = u.id) AS last_activity
       FROM users u
-      WHERE u.role IN ('agent','admin')
+      WHERE ${where}
       ORDER BY u.last_login DESC NULLS LAST
     `);
     res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/archive-user', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const { id, archived } = req.body;
+    if (!id) return res.status(400).json({ error: 'id required' });
+    await store.pool.query('UPDATE users SET archived = $1 WHERE id = $2', [archived === true, id]);
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
