@@ -8,6 +8,7 @@ const { getSeeds } = require('./dealScanSeeds');
 const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
 const scanMeter = require('./scanMeter');
 const { lookupPlace } = require('./services/placesLookup');
+const { findEmail: lookupEmail } = require('./services/hunterLookup');
 
 // Strip em/en dashes from AI-generated natural-language text. The model leans on
 // em dashes heavily; replace them (and surrounding spaces) with a comma so output
@@ -1620,6 +1621,22 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // Places phone is authoritative for this exact business location, so it
   // overrides the web-searched number and bypasses the locality gate.
   if (places && places.phone) { res.businessPhone = places.phone; res.phoneUnconfirmed = false; }
+  // Hunter email finder: for the top named decision-maker who has no email yet,
+  // turn name + domain into a verified email. Gated on ctx.enrichEmail so it
+  // only runs on the explicit AI Outreach path (conserves Hunter credits), and
+  // at most one lookup per brand.
+  if (ctx && ctx.enrichEmail && effectiveWebsite) {
+    const _domain = _domainFromUrl(effectiveWebsite);
+    const _top = (res.contacts || []).find((c) => !c.email && c.name && String(c.name).trim());
+    if (_domain && _top) {
+      const _parts = String(_top.name).trim().split(/\s+/);
+      const _first = _parts[0];
+      const _last = _parts.length > 1 ? _parts[_parts.length - 1] : '';
+      let _hit = null;
+      try { _hit = await lookupEmail(_first, _last, _domain); } catch (_) { _hit = null; }
+      if (_hit && _hit.email) { _top.email = _hit.email; _top.emailSource = 'hunter'; _top.emailScore = _hit.score; }
+    }
+  }
   const withEmail = res.contacts.filter((c) => c.email).length;
   const withPhone = res.contacts.filter((c) => c.phone).length + (res.businessPhone ? 1 : 0);
   const found = res.contacts.length + (res.businessPhone ? 1 : 0) + (res.genericInbox ? 1 : 0);

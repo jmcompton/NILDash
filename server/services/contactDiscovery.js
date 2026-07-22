@@ -74,7 +74,7 @@ async function discoverContacts(agentId, enrichmentRecord) {
   // checked, nothing fabricated. No second implementation, no inferred info@.
   let shared = { contacts: [], businessPhone: null, genericInbox: null };
   try {
-    shared = await getBrandContacts(enrichmentRecord.brand_name, enrichmentRecord.website || null, enrichmentRecord.location || '', {});
+    shared = await getBrandContacts(enrichmentRecord.brand_name, enrichmentRecord.website || null, enrichmentRecord.location || '', { enrichEmail: true });
   } catch (e) {
     console.error('[contactDiscovery] getBrandContacts failed:', e.message);
   }
