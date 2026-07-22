@@ -8,7 +8,7 @@ const { getSeeds } = require('./dealScanSeeds');
 const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
 const scanMeter = require('./scanMeter');
 const { lookupPlace } = require('./services/placesLookup');
-const { findEmail: lookupEmail } = require('./services/hunterLookup');
+const { findDomainEmails: lookupDomain } = require('./services/hunterLookup');
 
 // Strip em/en dashes from AI-generated natural-language text. The model leans on
 // em dashes heavily; replace them (and surrounding spaces) with a comma so output
@@ -1621,20 +1621,40 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // Places phone is authoritative for this exact business location, so it
   // overrides the web-searched number and bypasses the locality gate.
   if (places && places.phone) { res.businessPhone = places.phone; res.phoneUnconfirmed = false; }
-  // Hunter email finder: for the top named decision-maker who has no email yet,
-  // turn name + domain into a verified email. Gated on ctx.enrichEmail so it
-  // only runs on the explicit AI Outreach path (conserves Hunter credits), and
-  // at most one lookup per brand.
+  // Hunter domain search: fill an email so the card is NEVER a dead end. Ladder:
+  // (1) a personal email matched to a named contact = the decision-maker; else
+  // (2) the best personal email as an honestly labeled company contact; else
+  // (3) a REAL generic inbox from Hunter. Phone from Places is the guaranteed
+  // floor. Gated on ctx.enrichEmail (AI Outreach path only). Never guesses.
   if (ctx && ctx.enrichEmail && effectiveWebsite) {
     const _domain = _domainFromUrl(effectiveWebsite);
-    const _top = (res.contacts || []).find((c) => !c.email && c.name && String(c.name).trim());
-    if (_domain && _top) {
-      const _parts = String(_top.name).trim().split(/\s+/);
-      const _first = _parts[0];
-      const _last = _parts.length > 1 ? _parts[_parts.length - 1] : '';
-      let _hit = null;
-      try { _hit = await lookupEmail(_first, _last, _domain); } catch (_) { _hit = null; }
-      if (_hit && _hit.email) { _top.email = _hit.email; _top.emailSource = 'hunter'; _top.emailScore = _hit.score; }
+    let _hunter = null;
+    if (_domain) { try { _hunter = await lookupDomain(_domain); } catch (_) { _hunter = null; } }
+    const _emails = (_hunter && Array.isArray(_hunter.emails)) ? _hunter.emails.filter((e) => e && e.email) : [];
+    if (_emails.length) {
+      const _personal = _emails.filter((e) => e.type === 'personal').sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+      const _generic = _emails.filter((e) => e.type === 'generic').sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+      let _filled = false;
+      for (const c of res.contacts) {
+        if (c.email) continue;
+        const _last = String(c.name || '').trim().toLowerCase().split(/\s+/).pop();
+        const _m = _last && _personal.find((e) => e.lastName && e.lastName.toLowerCase() === _last);
+        if (_m) { c.email = _m.email; c.emailSource = 'hunter'; c.emailScore = _m.confidence; _filled = true; break; }
+      }
+      if (!_filled && _personal.length) {
+        const _b = _personal[0];
+        const _nm = [_b.firstName, _b.lastName].filter(Boolean).join(' ').trim();
+        res.contacts.unshift({
+          name: _nm || null,
+          title: _b.position || 'Company contact (not confirmed owner)',
+          email: _b.email, phone: null, source: 'hunter',
+          emailSource: 'hunter', emailScore: _b.confidence,
+        });
+        _filled = true;
+      }
+      if (!_filled && _generic.length && !res.genericInbox) {
+        res.genericInbox = _generic[0].email;
+      }
     }
   }
   const withEmail = res.contacts.filter((c) => c.email).length;
