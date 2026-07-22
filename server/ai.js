@@ -1657,6 +1657,13 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
       }
     }
   }
+  // Make the card actionable: hand the top named contact the business line as a
+  // callable number when they have none of their own. "Ask for Bryan" plus the
+  // shop's number is the real local play; a name with no number is a dead end.
+  if (res.businessPhone) {
+    const _named = (res.contacts || []).find((c) => c.name && String(c.name).trim() && !c.phone);
+    if (_named) _named.phone = res.businessPhone;
+  }
   const withEmail = res.contacts.filter((c) => c.email).length;
   const withPhone = res.contacts.filter((c) => c.phone).length + (res.businessPhone ? 1 : 0);
   const found = res.contacts.length + (res.businessPhone ? 1 : 0) + (res.genericInbox ? 1 : 0);
