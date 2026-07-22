@@ -229,7 +229,7 @@ async function streamResponse(athlete, message, role, res) {
 //    rationales): the stronger Sonnet tier, where scoring quality matters.
 //  - QUALITY WRITING (pitch emails, brand kit, outreach, AI command): Opus.
 const MODEL_FAST  = 'claude-haiku-4-5-20251001';
-const MODEL_SCORE = 'claude-sonnet-4-6';
+const MODEL_SCORE = 'claude-haiku-4-5-20251001'; // scoring moved to Haiku for speed; was sonnet-4-6
 const MODEL_STANDARD = 'claude-opus-4-8';
 
 // ── Feature flags ─────────────────────────────────────────────────────────────
