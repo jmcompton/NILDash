@@ -6149,6 +6149,16 @@ async function _brandContactsBatch(req, res) {
   }
 }
 app.post('/api/agent/brand-contacts', requireAuth, requireAgentSubscription, aiLimiter, _brandContactsBatch);
+
+app.post('/api/agent/brand-instagram', requireAuth, async (req, res) => {
+  try {
+    const { website } = req.body || {};
+    if (!website) return res.json({ handle: null });
+    const { findInstagram } = require('./services/instagramLookup');
+    const handle = await findInstagram(website);
+    res.json({ handle: handle || null });
+  } catch (e) { res.json({ handle: null }); }
+});
 app.post('/api/athlete/brand-contacts', verifyAthleteToken, aiLimiter, _brandContactsBatch);
 
 // POST /api/athlete/deal-pitch — generate a personalized pitch for a brand (preview)

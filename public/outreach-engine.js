@@ -350,6 +350,18 @@ function renderRunResult(data) {
       </div>
     </div>
 
+    <!-- Instagram DM -->
+    <div style="background:var(--surface2,#222);border:1px solid var(--border,#333);border-radius:8px;padding:16px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Instagram DM</div>
+      <div style="font-size:10px;color:var(--muted,#888);margin-bottom:10px;line-height:1.4">Local shops answer DMs faster than email. Copy this, then open their Instagram and paste it.</div>
+      <textarea id="outreach-ig-dm" rows="4" style="width:100%;padding:8px 10px;background:var(--surface,#111);border:1px solid var(--border,#333);border-radius:6px;color:var(--text,#fff);font-size:12px;outline:none;resize:vertical;line-height:1.5;box-sizing:border-box;font-family:Arial,sans-serif"></textarea>
+      <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button type="button" id="outreach-ig-copy" style="padding:8px 16px;background:transparent;border:1px solid var(--border,#333);border-radius:6px;color:var(--text,#fff);font-size:12px;cursor:pointer">Copy DM</button>
+        <a id="outreach-ig-open" href="#" target="_blank" style="padding:8px 16px;background:var(--accent,#84CC16);border-radius:6px;color:#000;font-size:12px;font-weight:700;text-decoration:none;display:inline-block">Open Instagram</a>
+        <span id="outreach-ig-status" style="font-size:10px;color:var(--muted,#888)"></span>
+      </div>
+    </div>
+
     <!-- Send controls -->
     <div style="background:var(--surface2,#222);border:1px solid var(--border,#333);border-radius:8px;padding:16px;margin-bottom:16px">
       <div style="font-size:11px;font-weight:700;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px">
@@ -412,6 +424,40 @@ function renderRunResult(data) {
     </div>
     <div id="outreach-send-status" style="margin-top:12px;font-size:12px;color:var(--muted,#888)"></div>
   `;
+
+    // Instagram DM: build a paste-ready DM and wire the open/copy buttons.
+    (function setupInstagramDM() {
+      const ta = document.getElementById('outreach-ig-dm');
+      const openLink = document.getElementById('outreach-ig-open');
+      const copyBtn = document.getElementById('outreach-ig-copy');
+      const statusEl = document.getElementById('outreach-ig-status');
+      if (!ta || !openLink) return;
+      const athleteName = ((currentSubject || '').split(/\s+[x×]\s+/)[0] || '').trim() || 'my athlete';
+      const idea = (campaignIdeas && campaignIdeas[0]) ? (typeof campaignIdeas[0] === 'string' ? campaignIdeas[0] : (campaignIdeas[0].description || '')) : '';
+      ta.value = `Hi! I work on the NIL side with ${athleteName}, a college athlete here in your area. I had an idea for a quick partnership with ${brand}${idea ? ' — ' + String(idea).charAt(0).toLowerCase() + String(idea).slice(1) : ''}. Would love to share a short overview if you're open to it!`;
+      // Fallback link: Instagram/Google search for the business. Swapped for a
+      // direct profile link once we resolve the handle.
+      const loc = (enrichment && enrichment.location) ? ' ' + enrichment.location : '';
+      openLink.href = 'https://www.google.com/search?q=' + encodeURIComponent('instagram ' + brand + loc);
+      copyBtn.onclick = function () {
+        ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        if (navigator.clipboard) { navigator.clipboard.writeText(ta.value).catch(function(){}); }
+        if (statusEl) { statusEl.textContent = 'Copied'; setTimeout(function(){ statusEl.textContent = ''; }, 1500); }
+      };
+      // Try to resolve the exact handle from the business website for a direct link.
+      const site = enrichment && enrichment.website;
+      if (site) {
+        fetch('/api/agent/brand-instagram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ website: site }) })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d && d.handle) {
+              openLink.href = 'https://www.instagram.com/' + d.handle;
+              openLink.textContent = 'Open @' + d.handle;
+            }
+          }).catch(function () {});
+      }
+    })();
 
   // Load email accounts into the dropdown
   loadEmailAccountsIntoDropdown();
