@@ -522,6 +522,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
 
   req.session.userId = user.id;
+  store.pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]).catch(() => {});
   req.session.role   = user.role;
   res.json({
     id: user.id, name: user.name, email: user.email, role: user.role,
@@ -3285,6 +3286,24 @@ app.get('/api/admin/users', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/admin/agent-activity', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const r = await store.pool.query(`
+      SELECT u.id, u.name, u.email, u.plan, u.comped, u.subscription_status, u.last_login, u.created_at,
+        (SELECT COUNT(*) FROM athletes a WHERE a.agent_id = u.id) AS athletes,
+        (SELECT COUNT(*) FROM athlete_activity_log l WHERE l.agent_id = u.id AND l.activity_type = 'deal_scan') AS scans,
+        (SELECT COUNT(*) FROM athlete_activity_log l WHERE l.agent_id = u.id AND l.activity_type IN ('outreach_written','email_sent')) AS outreach,
+        (SELECT MAX(l.created_at) FROM athlete_activity_log l WHERE l.agent_id = u.id) AS last_activity
+      FROM users u
+      WHERE u.role IN ('agent','admin')
+      ORDER BY u.last_login DESC NULLS LAST
+    `);
+    res.json(r.rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Admin force delete ───────────────────────────────────────
 app.delete('/api/admin/athlete/:id', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
@@ -5940,6 +5959,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     }
     const rateCard = await _athleteRateCard(athleteId);
     checkOff(req.session.userId, 'deal_scan'); // Getting Started checklist
+    logAthleteActivity(athleteId, req.session.userId, 'deal_scan', `Ran deal scan (${validLane})`, { count: recommendations.length }).catch(() => {});
     _logScanCost(validLane, _meter, Date.now() - _scanT0, false);
     res.json({ opportunities: recommendations, lane: validLane, rateCard, poolExhausted });
   } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
