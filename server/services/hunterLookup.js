@@ -5,7 +5,7 @@
 const store = require('../store');
 
 const FINDER_URL = 'https://api.hunter.io/v2/email-finder';
-const TIMEOUT_MS = 6000;
+const TIMEOUT_MS = 20000;
 const CACHE_DAYS = 30;
 const MIN_SCORE = 50;
 
@@ -29,18 +29,28 @@ async function findEmail(firstName, lastName, domain) {
   const params = new URLSearchParams({ domain: domain, first_name: firstName, api_key: apiKey });
   if (lastName) params.set('last_name', lastName);
 
-  let data = null;
-  try {
+  const _attempt = async () => {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    const resp = await fetch(FINDER_URL + '?' + params.toString(), { signal: ctrl.signal });
-    clearTimeout(t);
-    if (!resp.ok) { console.warn('[hunter] ' + firstName + ' @' + domain + ' http=' + resp.status); return null; }
-    data = await resp.json();
-  } catch (e) {
-    console.warn('[hunter] ' + firstName + ' @' + domain + ' error=' + e.message);
-    return null;
+    try {
+      const resp = await fetch(FINDER_URL + '?' + params.toString(), { signal: ctrl.signal });
+      clearTimeout(t);
+      if (!resp.ok) { console.warn('[hunter] ' + firstName + ' @' + domain + ' http=' + resp.status); return { httpFail: true }; }
+      return { json: await resp.json() };
+    } catch (e) {
+      clearTimeout(t);
+      return { err: e };
+    }
+  };
+  let data = null;
+  let r = await _attempt();
+  if (r.err) {
+    console.warn('[hunter] ' + firstName + ' @' + domain + ' retry after error=' + r.err.message);
+    r = await _attempt();
   }
+  if (r.httpFail) return null;
+  if (r.err) { console.warn('[hunter] ' + firstName + ' @' + domain + ' error=' + r.err.message); return null; }
+  data = r.json;
 
   const d = data && data.data;
   const email = d && d.email;
