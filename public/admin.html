@@ -82,6 +82,10 @@ a.back:hover{color:#C8F135}
     </thead>
     <tbody id="users-table"><tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3);font-size:12px">Loading...</td></tr></tbody>
   </table>
+  <div style="margin-top:32px"><div style="font-size:14px;font-weight:600;color:#f0ede6;margin-bottom:8px">Agent Activity</div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.4);text-align:left">
+  <th style="padding:6px 8px">Agent</th><th style="padding:6px 8px">Plan</th><th style="padding:6px 8px">Last login</th><th style="padding:6px 8px">Scans</th><th style="padding:6px 8px">Athletes</th><th style="padding:6px 8px">Outreach</th><th style="padding:6px 8px">Last active</th>
+  </tr></thead><tbody id="agent-activity-table"><tr><td colspan="7" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Loading...</td></tr></tbody></table></div>
 </div>
 
 <!-- ── Referrals ─────────────────────────────────────────────── -->
@@ -289,6 +293,47 @@ async function loadUsers() {
   el.innerHTML = users.map(userRowHtml).join('');
 }
 
+// Human relative time: "2h ago", "9d ago", or "never" when null.
+function relTime(ts) {
+  if (!ts) return 'never';
+  var then = new Date(ts).getTime();
+  if (isNaN(then)) return 'never';
+  var s = Math.floor((Date.now() - then) / 1000);
+  if (s < 60) return s + 's ago';
+  var m = Math.floor(s / 60); if (m < 60) return m + 'm ago';
+  var h = Math.floor(m / 60); if (h < 24) return h + 'h ago';
+  var d = Math.floor(h / 24); if (d < 30) return d + 'd ago';
+  var mo = Math.floor(d / 30); if (mo < 12) return mo + 'mo ago';
+  return Math.floor(mo / 12) + 'y ago';
+}
+
+async function loadAgentActivity() {
+  const el = document.getElementById('agent-activity-table');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/admin/agent-activity');
+    if (!r.ok) { el.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Failed to load</td></tr>'; return; }
+    const rows = await r.json();
+    if (!rows.length) { el.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">No agents</td></tr>'; return; }
+    el.innerHTML = rows.map(function(u) {
+      var name = refEsc(u.name || u.email || '-');
+      var plan = u.comped ? 'comp' : refEsc(u.plan || '-');
+      var cell = 'padding:6px 8px;color:rgba(240,237,230,0.7)';
+      return '<tr style="border-top:1px solid rgba(255,255,255,0.06)">' +
+        '<td style="padding:6px 8px;color:#f0ede6">' + name + '</td>' +
+        '<td style="' + cell + '">' + plan + '</td>' +
+        '<td style="' + cell + '">' + relTime(u.last_login) + '</td>' +
+        '<td style="' + cell + '">' + (u.scans || 0) + '</td>' +
+        '<td style="' + cell + '">' + (u.athletes || 0) + '</td>' +
+        '<td style="' + cell + '">' + (u.outreach || 0) + '</td>' +
+        '<td style="' + cell + '">' + relTime(u.last_activity) + '</td>' +
+      '</tr>';
+    }).join('');
+  } catch (e) {
+    el.innerHTML = '<tr><td colspan="7" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">' + refEsc(e.message) + '</td></tr>';
+  }
+}
+
 async function setPlan(userId, plan) {
   const r = await fetch('/api/admin/set-plan', {
     method: 'POST',
@@ -323,6 +368,7 @@ function showToast(msg) {
 }
 
 setTimeout(loadUsers, 500);
+setTimeout(loadAgentActivity, 700);
 
 async function seedDemo() {
   if (!confirm('Create or reset the demo account? This wipes and rebuilds only the demo data, nothing else is touched.')) return;
