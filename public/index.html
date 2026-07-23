@@ -6258,7 +6258,7 @@ function _dsContactsHtml(d) {
   }
 
   if (inbox) {
-    out += '<div style="margin-top:8px;font-size:10px;color:var(--muted)">Generic inbox, no named contact found: <a href="mailto:' + esc(inbox) + '" style="color:var(--muted);text-decoration:underline">' + esc(inbox) + '</a></div>';
+    out += '<div style="margin-top:8px;font-size:10px;color:var(--muted)">Email: <a href="mailto:' + esc(inbox) + '" style="color:var(--muted);text-decoration:underline">' + esc(inbox) + '</a></div>';
   }
   if (d.contactApproach) {
     out += '<div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5"><span style="color:var(--text);font-weight:600">Approach:</span> ' + esc(d.contactApproach) + '</div>';
@@ -6385,16 +6385,16 @@ function _dsCardHtml(d, i, lane, isTop) {
 // slot renders) and turn it into one honest fit factor. Never invents a contact.
 function _dsContactState(d) {
   var hasAny = d._contactsLoaded || (Array.isArray(d.contacts) && d.contacts.length) || d.businessPhone || d.genericInbox || d.contactName;
-  if (!hasAny) return { label: 'Looking up a named contact', dir: 'neutral' };
+  if (!hasAny) return { label: 'Run AI Outreach for contact details', dir: 'neutral' };
   var contacts = Array.isArray(d.contacts) ? d.contacts.slice() : [];
   if (!contacts.length && d.contactName) contacts = [{ name: d.contactName, email: d.contactEmail || null, phone: null }];
   var named = contacts.find(function(c){ return c && c.name && String(c.name).trim(); });
   if (named && named.email) return { label: 'Named contact found (' + named.name + ')', dir: 'pos' };
   if (named && named.phone) return { label: 'Named contact found, phone only', dir: 'neutral' };
   if (named) return { label: 'Named contact found', dir: 'pos' };
-  if (d.businessPhone) return { label: 'Phone listed, no named contact yet', dir: 'neutral' };
-  if (d.genericInbox) return { label: 'Generic inbox only, no named contact', dir: 'neutral' };
-  return { label: 'No published contact found', dir: 'neg' };
+  if (d.businessPhone) return { label: 'Phone listed', dir: 'neutral' };
+  if (d.genericInbox) return { label: 'Email listed', dir: 'neutral' };
+  return { label: 'Run AI Outreach for contact details', dir: 'neutral' };
 }
 
 // Build an honest "why this scored what it did" receipt for one Deal Scan card,
