@@ -6057,8 +6057,8 @@ app.post('/api/agent/deal-scan/worked', requireAuth, async (req, res) => {
     const existing = await _loadWorkedBrands(athleteId, l);
     const worked = Array.from(new Set([...existing, String(brand)]));
     await store.pool.query(
-      `UPDATE athletes SET deal_scan_cache = jsonb_set(COALESCE(deal_scan_cache, '{}'::jsonb), $1, $2::jsonb, true) WHERE id = $3`,
-      [`{${l},worked}`, JSON.stringify(worked), athleteId]
+      `UPDATE athletes SET deal_scan_cache = COALESCE(deal_scan_cache, '{}'::jsonb) || jsonb_build_object($1::text, COALESCE(deal_scan_cache->$1::text, '{}'::jsonb) || jsonb_build_object('worked', $2::jsonb)) WHERE id = $3`,
+      [l, JSON.stringify(worked), athleteId]
     );
     res.json({ ok: true, worked: worked.length });
   } catch (e) { res.json({ ok: false }); }
