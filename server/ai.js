@@ -2321,8 +2321,15 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // the next scan without freezing a bad day for the whole TTL.
     // A pool under 15 is too small to serve 10 fresh cards per scan, so treat it
     // as thin and top it up. The old bar of 5 left small markets permanently starved.
-    const schoolThin = !!(schoolCached && schoolCached.candidates.length < 15);
-    const hometownThin = !!(hometownCached && hometownCached.candidates.length < 2);
+    // COST GUARD: a genuinely small market will never reach 15, so without this it
+    // would re-run the widened search on every single scan forever. If the pool was
+    // rebuilt within THIN_RETRY_H and is still thin, it can't grow — serve what we
+    // have and try again tomorrow. Caps a thin market at one widened pass per day.
+    const THIN_RETRY_H = 24;
+    const _ageH = (cc) => (Date.now() - new Date(cc.fetchedAt).getTime()) / 3.6e6;
+    const _thinEligible = (cc, min) => !!(cc && cc.candidates.length < min && _ageH(cc) >= THIN_RETRY_H);
+    const schoolThin = _thinEligible(schoolCached, 15);
+    const hometownThin = _thinEligible(hometownCached, 2);
     const _ageD = (cc) => ((Date.now() - new Date(cc.fetchedAt).getTime()) / 8.64e7).toFixed(1);
 
     const found = [];
