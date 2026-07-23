@@ -5758,7 +5758,21 @@ async function _loadShownBrands(athleteId, lane) {
     const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id=$1', [athleteId]);
     const lanec = r.rows[0] && r.rows[0].deal_scan_cache && r.rows[0].deal_scan_cache[lane];
     const shown = lanec && Array.isArray(lanec.shown) ? lanec.shown : [];
-    return shown.filter((x) => typeof x === 'string' && x.trim());
+    // Rotation window only: the last 24 displayed brands are skipped so an agent
+    // doesn't see the same cards back-to-back, but older ones resurface.
+    return shown.filter((x) => typeof x === 'string' && x.trim()).slice(-24);
+  } catch (_) { return []; }
+}
+
+// Brands the agent actually ACTED on (outreach sent, added to pipeline, or
+// dismissed). These are retired permanently. Merely displaying a brand does
+// not retire it — see _loadShownBrands, which is a short rotation window.
+async function _loadWorkedBrands(athleteId, lane) {
+  try {
+    const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id=$1', [athleteId]);
+    const lanec = r.rows[0] && r.rows[0].deal_scan_cache && r.rows[0].deal_scan_cache[lane];
+    const worked = lanec && Array.isArray(lanec.worked) ? lanec.worked : [];
+    return worked.filter((x) => typeof x === 'string' && x.trim());
   } catch (_) { return []; }
 }
 function _logScanCost(lane, meter, totalMs, servedFromCache) {
@@ -5839,7 +5853,8 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     // Local lane persists a per-athlete shown-set across sessions (see agent
     // endpoint), merged into the client exclude list so the pool keeps advancing.
     const persistedShown = lane === 'local' ? await _loadShownBrands(req.athlete.id, lane) : [];
-    const effectiveExclude = Array.from(new Set([...persistedShown, ...excludeBrands]));
+    const persistedWorked = lane === 'local' ? await _loadWorkedBrands(req.athlete.id, lane) : [];
+    const effectiveExclude = Array.from(new Set([...persistedShown, ...persistedWorked, ...excludeBrands]));
     const _scanT0 = Date.now();
     console.log(`[athlete/deal-scan] athlete=${req.athlete.id} lane=${lane} name=${athleteObj.name} sport=${athleteObj.sport} school=${athleteObj.school}`);
 
@@ -5885,7 +5900,7 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
       const lanePayload = { opportunities: recommendations, ts: Date.now() };
       if (lane === 'local') {
         const returned = recommendations.map((o) => o.brand).filter(Boolean);
-        lanePayload.shown = Array.from(new Set([...persistedShown, ...returned]));
+        lanePayload.shown = Array.from(new Set([...persistedShown, ...returned])).slice(-24);
         lanePayload.poolExhausted = poolExhausted;
       }
       await store.pool.query(
@@ -5930,7 +5945,8 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // keeps advancing over days/weeks. Merge it into what the client sent so a
     // brand-new session (empty client exclude) still skips everything already seen.
     const persistedShown = validLane === 'local' ? await _loadShownBrands(athleteId, validLane) : [];
-    const effectiveExclude = Array.from(new Set([...persistedShown, ...excludeBrands]));
+    const persistedWorked = validLane === 'local' ? await _loadWorkedBrands(athleteId, validLane) : [];
+    const effectiveExclude = Array.from(new Set([...persistedShown, ...persistedWorked, ...excludeBrands]));
     const _scanT0 = Date.now();
 
     // 6h result cache: re-opening the same athlete+lane is free unless Refresh.
@@ -6017,7 +6033,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
       const lanePayload = { opportunities: recommendations, ts: Date.now() };
       if (validLane === 'local') {
         const returned = recommendations.map((o) => o.brand).filter(Boolean);
-        lanePayload.shown = Array.from(new Set([...persistedShown, ...returned]));
+        lanePayload.shown = Array.from(new Set([...persistedShown, ...returned])).slice(-24);
         lanePayload.poolExhausted = poolExhausted;
       }
       await store.pool.query(
@@ -6031,6 +6047,21 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     _logScanCost(validLane, _meter, Date.now() - _scanT0, false);
     res.json({ opportunities: recommendations, lane: validLane, rateCard, poolExhausted });
   } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/agent/deal-scan/worked', requireAuth, async (req, res) => {
+  try {
+    const { athleteId, brand, lane } = req.body || {};
+    if (!athleteId || !brand) return res.json({ ok: false });
+    const l = lane || 'local';
+    const existing = await _loadWorkedBrands(athleteId, l);
+    const worked = Array.from(new Set([...existing, String(brand)]));
+    await store.pool.query(
+      `UPDATE athletes SET deal_scan_cache = jsonb_set(COALESCE(deal_scan_cache, '{}'::jsonb), $1, $2::jsonb, true) WHERE id = $3`,
+      [`{${l},worked}`, JSON.stringify(worked), athleteId]
+    );
+    res.json({ ok: true, worked: worked.length });
+  } catch (e) { res.json({ ok: false }); }
 });
 
 // Re-derive matchedTags on saved scan results at response-assembly time, so
