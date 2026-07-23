@@ -2319,7 +2319,9 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // A thin cached pool (from a partially successful search day) is used AND
     // topped up with a live search, then rewritten, so partial pools speed up
     // the next scan without freezing a bad day for the whole TTL.
-    const schoolThin = !!(schoolCached && schoolCached.candidates.length < 5);
+    // A pool under 15 is too small to serve 10 fresh cards per scan, so treat it
+    // as thin and top it up. The old bar of 5 left small markets permanently starved.
+    const schoolThin = !!(schoolCached && schoolCached.candidates.length < 15);
     const hometownThin = !!(hometownCached && hometownCached.candidates.length < 2);
     const _ageD = (cc) => ((Date.now() - new Date(cc.fetchedAt).getTime()) / 8.64e7).toFixed(1);
 
@@ -2402,6 +2404,10 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // neighboring towns, and ask for smaller, independent, next-tier businesses.
     const _geoWide = `in the further-out suburbs and neighboring towns within about 40 miles of ${city}, ${state}, beyond the main metro`;
     const _tierWide = 'Favor smaller, independent, less prominent local businesses, not the biggest or most obvious names. ';
+    // A thin market must reach past the city on the NORMAL pass too, not only when
+    // the agent manually clicks "Find more". Keeps the metro AND pulls nearby towns.
+    const _geoThin = `in and around ${city}, ${state}, the surrounding metro area, and any towns within about 45 miles`;
+    const _geoStd = schoolThin ? _geoThin : _geo;
     const searchDefs = [];
     if (schoolWillSearch && deepen) {
       // Deeper pass: categories NOT in the first search, wider radius, next tier.
@@ -2422,19 +2428,19 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     } else if (schoolWillSearch) {
       searchDefs.push(
         { label: 'school-auto-gym', market: 'school', p: timedSearch(oneShotWebSearch(mk(
-          `car dealerships, auto services, gyms, and fitness or training facilities ${_geo} that sponsor local sports teams or run local ads${tagEmphasisQ}${_deepExcl}`,
+          `car dealerships, auto services, gyms, and fitness or training facilities ${_geoStd} that sponsor local sports teams or run local ads${tagEmphasisQ}${_deepExcl}`,
           `${catHint}, car dealerships, gyms and training facilities`), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-food-nutrition', market: 'school', p: timedSearch(oneShotWebSearch(mk(
-          `restaurants, bars, coffee shops, food spots, smoothie and supplement shops ${_geo} that sponsor school sports or advertise locally${tagEmphasisQ}${_deepExcl}`,
+          `restaurants, bars, coffee shops, food spots, smoothie and supplement shops ${_geoStd} that sponsor school sports or advertise locally${tagEmphasisQ}${_deepExcl}`,
           'restaurants and food spots, coffee shops, smoothie and supplement shops'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-retail', market: 'school', p: timedSearch(oneShotWebSearch(mk(
-          `apparel and clothing stores, sporting goods stores, boutiques, and local retail ${_geo} that advertise locally or sponsor teams${tagEmphasisQ}${_deepExcl}`,
+          `apparel and clothing stores, sporting goods stores, boutiques, and local retail ${_geoStd} that advertise locally or sponsor teams${tagEmphasisQ}${_deepExcl}`,
           'apparel and local retail, sporting goods stores, boutiques'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-wellness', market: 'school', p: timedSearch(oneShotWebSearch(mk(
-          `chiropractors, physical therapy, med spas, dentists, optometrists, and health and wellness businesses ${_geo} that advertise locally or sponsor youth sports${_deepExcl}`,
+          `chiropractors, physical therapy, med spas, dentists, optometrists, and health and wellness businesses ${_geoStd} that advertise locally or sponsor youth sports${_deepExcl}`,
           'chiropractors and physical therapy, med spas and salons, health and wellness'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-services-ent', market: 'school', p: timedSearch(oneShotWebSearch(mk(
-          `entertainment venues, golf and bowling, real estate agents, banks and credit unions, insurance agencies, and local professional services ${_geo} that advertise locally or sponsor local sports${_deepExcl}`,
+          `entertainment venues, golf and bowling, real estate agents, banks and credit unions, insurance agencies, and local professional services ${_geoStd} that advertise locally or sponsor local sports${_deepExcl}`,
           'entertainment, real estate agents, banks and credit unions, local professional services'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
