@@ -324,6 +324,37 @@ async function requireAgentSubscription(req, res, next) {
     const user = await store.getUser(req.session.userId);
     if (!user) return next();
     if (agentHasAccess(user)) return next();
+
+    // Self-heal: the webhook and the checkout-return sync can both miss (bad
+    // webhook secret, user closed the tab, expired session on redirect). Before
+    // locking out someone who may have actually paid, ask Stripe directly. Only
+    // runs on an otherwise-blocked request, so it costs nothing in the normal case.
+    if (user.stripe_customer_id && (process.env.STRIPE_SECRET_KEY || '').trim()) {
+      try {
+        const stripe = require('stripe')((process.env.STRIPE_SECRET_KEY || '').trim());
+        const subs = await stripe.subscriptions.list({
+          customer: user.stripe_customer_id,
+          status: 'all',
+          limit: 10,
+        });
+        const live = (subs && subs.data ? subs.data : []).find(
+          (s) => s.status === 'active' || s.status === 'trialing'
+        );
+        if (live) {
+          await store.pool.query(
+            `UPDATE users SET subscription_status = $1,
+               stripe_subscription_id = COALESCE(stripe_subscription_id, $2)
+             WHERE id = $3`,
+            [live.status, live.id, user.id]
+          );
+          console.log('[requireAgentSubscription] self-healed access for', user.email, '->', live.status);
+          return next();
+        }
+      } catch (e) {
+        console.error('[requireAgentSubscription] Stripe verify failed:', e.message);
+      }
+    }
+
     return res.status(402).json({ error: 'subscription_required', message: 'Subscribe to unlock your NILDash tools.' });
   } catch (e) {
     console.error('[requireAgentSubscription] error:', e.message);
