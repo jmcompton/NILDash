@@ -401,9 +401,7 @@ async function createAgentCheckoutSession(user) {
     payment_method_types: ['card'],
     mode: 'subscription',
     line_items: [{ price: agentPrice, quantity: 1 }],
-    // Card captured now; the subscription starts in a trial and auto-charges when
-    // it ends. payment_method_collection 'always' forces a card even for a $0 trial.
-    subscription_data: { trial_period_days: AGENT_TRIAL_DAYS },
+    // No trial: the subscription starts immediately and the card is charged at checkout.
     payment_method_collection: 'always',
     success_url: `${appUrl}/api/agent/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${appUrl}/?subscribe=cancelled`,
