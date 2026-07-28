@@ -1191,6 +1191,8 @@ async function init() {
   `).catch(() => {});
 
   await ensureDealOutcomes();
+  await ensureFeedbackColumns();
+  await ensureMarketSightings();
   console.log('Database tables ready');
 }
 
@@ -1606,7 +1608,11 @@ async function backfillChecklist(userId) {
 // never collides with per-athlete freshness.
 // Both are defensively wrapped: a cache failure must degrade to a live search,
 // never break a scan.
-const MARKET_CACHE_TTL_DAYS = 30;
+// Local businesses do not turn over monthly. A 30-day TTL meant every market
+// got a full web-search fan-out twelve times a year for almost no new signal.
+// Web search is the per-unit cost driver in a scan, so this is the cheapest
+// quality-neutral saving available.
+const MARKET_CACHE_TTL_DAYS = 90;
 async function getMarketCache(cacheKey, ttlDays = MARKET_CACHE_TTL_DAYS) {
   if (!cacheKey) return null;
   try {
@@ -1926,6 +1932,185 @@ async function getBenchmarks({ category = null, tier = null, band = null } = {})
   }
 }
 
+// ── Deal Scan feedback loop ─────────────────────────────────────────────────
+// deal_scan_feedback was already written on two positive actions (a brand being
+// pushed to pipeline or outreach) and never read by anything. Two problems with
+// that: nothing learned from it, and it was positive-only, so there was no
+// denominator. A brand picked 3 times looked identical to a brand picked 3 times
+// out of 3 shown versus 3 out of 300.
+//
+// So we now also log every card that gets SHOWN. That turns the table into a
+// proper rate (acted / shown) per business category, pooled across all agents,
+// which is exactly the signal that cannot be bought or scraped.
+async function ensureFeedbackColumns() {
+  for (const sql of [
+    `ALTER TABLE deal_scan_feedback ADD COLUMN IF NOT EXISTS category TEXT`,
+    `ALTER TABLE deal_scan_feedback ADD COLUMN IF NOT EXISTS market TEXT`,
+  ]) await pool.query(sql).catch(e => console.error('[init] feedback cols:', e.message));
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_feedback_cat_action ON deal_scan_feedback(category, action)`
+  ).catch(() => {});
+}
+
+// Bulk-log the cards a scan just surfaced. Fire and forget: this must never
+// slow down or fail a scan.
+async function logScanShown(agentId, athleteId, items, athlete) {
+  try {
+    const rows = (items || []).filter(o => o && o.brand).slice(0, 40);
+    if (!rows.length) return 0;
+    const vals = [];
+    const params = [];
+    rows.forEach((o, i) => {
+      const b = i * 8;
+      vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},'shown',$${b+5},$${b+6},$${b+7},$${b+8})`);
+      params.push(
+        agentId || null, athleteId || null, o.brand,
+        (o.category || '').toLowerCase() || null,
+        athlete?.sport || null, athlete?.position || null,
+        athlete?.schoolTier || null, o.market || null
+      );
+    });
+    await pool.query(
+      `INSERT INTO deal_scan_feedback
+         (agent_id, athlete_id, brand, category, action, sport, position, school_tier, market)
+       VALUES ${vals.join(',')}`, params);
+    return rows.length;
+  } catch (e) {
+    console.error('[feedback] logScanShown:', e.message);
+    return 0;
+  }
+}
+
+// Cross-agent act-rate per category. Cached in memory because this runs inside
+// the scan path and the numbers move slowly.
+const SIGNAL_MIN_SHOWN = 20;   // below this, a rate is noise
+let _signalCache = { at: 0, data: null };
+const SIGNAL_TTL_MS = 10 * 60 * 1000;
+
+async function getScanSignal() {
+  if (_signalCache.data && (Date.now() - _signalCache.at) < SIGNAL_TTL_MS) return _signalCache.data;
+  try {
+    const r = await pool.query(
+      `SELECT COALESCE(category,'') AS category,
+              COUNT(*) FILTER (WHERE action = 'shown')::int AS shown,
+              COUNT(*) FILTER (WHERE action IN ('pipeline','outreach'))::int AS acted
+         FROM deal_scan_feedback
+        WHERE COALESCE(category,'') <> ''
+        GROUP BY COALESCE(category,'')`);
+
+    const cats = {};
+    let totShown = 0, totActed = 0;
+    for (const row of r.rows) { totShown += row.shown; totActed += row.acted; }
+    const baseline = totShown >= SIGNAL_MIN_SHOWN ? (totActed / totShown) : null;
+
+    if (baseline !== null) {
+      for (const row of r.rows) {
+        if (row.shown < SIGNAL_MIN_SHOWN) continue;
+        cats[row.category] = { shown: row.shown, acted: row.acted, rate: row.acted / row.shown };
+      }
+    }
+    const data = { baseline, categories: cats, ready: baseline !== null && Object.keys(cats).length > 0 };
+    _signalCache = { at: Date.now(), data };
+    return data;
+  } catch (e) {
+    console.error('[feedback] getScanSignal:', e.message);
+    const data = { baseline: null, categories: {}, ready: false };
+    _signalCache = { at: Date.now(), data };
+    return data;
+  }
+}
+
+// Nudge the AI's fitScore by how a category actually performs with real agents.
+// Deliberately bounded to +/- MAX_ADJ: this is a tiebreaker on top of the
+// model's judgment, not a replacement for it. A category that no agent has ever
+// acted on should sink a little, not vanish.
+const MAX_ADJ = 8;
+
+function applyScanSignal(items, signal) {
+  if (!signal || !signal.ready || !Array.isArray(items) || !items.length) return items;
+  const b = signal.baseline;
+  if (!b || b <= 0) return items;
+
+  for (const o of items) {
+    const c = (o.category || '').toLowerCase();
+    const s = signal.categories[c];
+    if (!s) continue;
+    // ratio of this category's act-rate to the platform baseline, log-damped so
+    // one hot category cannot dominate the board
+    const ratio = s.rate / b;
+    const adj = Math.max(-MAX_ADJ, Math.min(MAX_ADJ, Math.round(Math.log2(ratio || 0.01) * 4)));
+    if (!adj) continue;
+    const before = Number(o.fitScore) || 0;
+    o.fitScore = Math.max(1, Math.min(99, before + adj));
+    o._signalAdj = adj;
+  }
+  items.sort((x, y) => (Number(y.fitScore) || 0) - (Number(x.fitScore) || 0));
+  return items;
+}
+
+// ── "New in this market" tracking ───────────────────────────────────────────
+// Deal Scan had no concept of new. Rescanning a market showed the same
+// businesses with no way to tell which had just appeared, so there was never a
+// reason to look again. This records the first time each business is seen in a
+// market, which makes "6 businesses we hadn't seen here before" answerable.
+//
+// The established-market guard matters: on the first scan of a market every
+// business is technically new, which is meaningless. A market only starts
+// reporting newcomers once it has history older than the window.
+async function ensureMarketSightings() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS market_business_seen (
+      market_key    TEXT NOT NULL,
+      brand         TEXT NOT NULL,
+      first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+      last_seen_at  TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (market_key, brand)
+    )
+  `).then(() => console.log('[init] market_business_seen table ready'))
+    .catch(e => console.error('[init] market_business_seen:', e.message));
+}
+
+const NEW_WINDOW_DAYS = 30;
+
+// Returns a Set of brand names that are newcomers to this market, then records
+// every brand passed in. Read-then-write order is deliberate: recording first
+// would stamp everything with first_seen = now and nothing would ever be new.
+async function markMarketNewcomers(marketKey, brands) {
+  const out = new Set();
+  try {
+    const list = Array.from(new Set((brands || []).filter(Boolean).map(b => String(b).trim())));
+    if (!marketKey || !list.length) return out;
+
+    const est = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM market_business_seen
+        WHERE market_key = $1 AND first_seen_at < NOW() - ($2 || ' days')::interval`,
+      [marketKey, String(NEW_WINDOW_DAYS)]);
+    const established = (est.rows[0]?.n || 0) > 0;
+
+    if (established) {
+      const known = await pool.query(
+        `SELECT brand, first_seen_at FROM market_business_seen
+          WHERE market_key = $1 AND brand = ANY($2::text[])`, [marketKey, list]);
+      const seen = new Map(known.rows.map(r => [r.brand, r.first_seen_at]));
+      const cutoff = Date.now() - NEW_WINDOW_DAYS * 86400000;
+      for (const b of list) {
+        const f = seen.get(b);
+        if (!f) out.add(b);                                   // never seen here
+        else if (new Date(f).getTime() > cutoff) out.add(b);  // first seen recently
+      }
+    }
+
+    const vals = list.map((_, i) => `($1,$${i + 2})`).join(',');
+    await pool.query(
+      `INSERT INTO market_business_seen (market_key, brand) VALUES ${vals}
+       ON CONFLICT (market_key, brand) DO UPDATE SET last_seen_at = NOW()`,
+      [marketKey, ...list]);
+  } catch (e) {
+    console.error('[market-seen]', e.message);
+  }
+  return out;
+}
+
 module.exports = {
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers,
   getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals, recordReferralForInvoice,
@@ -1938,5 +2123,7 @@ module.exports = {
   CHECKLIST_ITEMS,
   getMarketCache, setMarketCache, MARKET_CACHE_TTL_DAYS,
   ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
+  ensureFeedbackColumns, logScanShown, getScanSignal, applyScanSignal,
+  ensureMarketSightings, markMarketNewcomers, NEW_WINDOW_DAYS,
   pool
 };

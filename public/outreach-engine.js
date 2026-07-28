@@ -502,16 +502,18 @@ async function loadMediaKitAttach(athleteId, brand) {
     return;
   }
 
-  // Public share URL, preferring a per-brand variant when one exists.
+  // Public share URL. ALWAYS carries ?for=<brandSlug> so the open is
+  // attributable to this brand. A generated variant adds personalization on top,
+  // but tracking no longer depends on one existing.
   const origin = window.location.origin;
   let variants = mk.variants;
   if (typeof variants === 'string') { try { variants = JSON.parse(variants); } catch (_) { variants = null; } }
   const brandSlug = _mkBrandSlug(brand);
   let url = origin + '/media-kit/' + mk.slug;
   let label = 'Attach media kit';
-  if (brandSlug && variants && variants[brandSlug]) {
+  if (brandSlug) {
     url = origin + '/media-kit/' + mk.slug + '?for=' + encodeURIComponent(brandSlug);
-    label = 'Attach media kit for ' + brand;
+    if (variants && variants[brandSlug]) label = 'Attach media kit for ' + brand;
   }
   btn.disabled = false; btn.style.cursor = 'pointer'; btn.style.opacity = '1'; btn.title = '';
   btn.dataset.url = url; btn.dataset.label = label; btn.dataset.attached = '0';

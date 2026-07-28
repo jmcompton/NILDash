@@ -2634,7 +2634,7 @@ DRAFTING STYLE — draft this as a practicing sports and entertainment attorney 
 Use professional legal language. Include specific dollar amounts and dates. Add FTC disclosure language. Make it ready to sign.`;
 
   try {
-    const contract = await ai.oneShot(prompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.", 4000);
+    const contract = await ai.oneShot(prompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.", 4000, ai.MODEL_STANDARD);
     if (!contract || contract.length < 100) throw new Error('Contract generation failed');
     res.json({ contract, athleteName: partyName, brand, value });
   } catch (err) {
@@ -2642,7 +2642,7 @@ Use professional legal language. Include specific dollar amounts and dates. Add 
     // Retry with shorter prompt
     try {
       const shortPrompt = 'Generate a professional NIL contract between ' + partyName + ' (' + athlete.sport + ' at ' + (athlete.school||'university') + ') and ' + brand + ' for $' + parseInt(value||0).toLocaleString() + '. Deal type: ' + (dealType||'Social Media') + '. Deliverables: ' + (deliverables||'3 Instagram posts') + '. Include: parties, scope, compensation, term, exclusivity, usage rights, FTC disclosure, and signature lines. Use professional legal language.';
-      const contract = await ai.oneShot(shortPrompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.");
+      const contract = await ai.oneShot(shortPrompt, "You are a practicing sports and entertainment attorney drafting a binding NIL endorsement agreement. Output ONLY the contract itself, exactly as it would appear in a law firm's document: formal recitals, defined and capitalized terms, numbered sections and sub-sections (1., 1.1, 1.2), and precise operative language using shall. Never use markdown, hashtags, bullet dashes, or em dashes. Never include explanatory or conversational text, and never write phrases a real contract would not contain (no 'in today's landscape', 'it is important to note', 'please note', 'this contract ensures', 'we'). Plain-text legal formatting only.", 4000, ai.MODEL_STANDARD);
       res.json({ contract, athleteName: partyName, brand, value });
     } catch(err2) {
       res.status(503).json({ error: 'Contract generation temporarily unavailable. Please try again in 30 seconds.' });
@@ -3228,12 +3228,13 @@ app.post('/api/request-access', async (req, res) => {
 // ── Deal Action Feedback ─────────────────────────────────────
 app.post('/api/feedback/deal-action', requireAuth, async (req, res) => {
   try {
-    const { brand, dealType, action, athleteId } = req.body;
+    const { brand, dealType, action, athleteId, category, market } = req.body;
     const athlete = athleteId ? await store.getAthlete(athleteId) : null;
     await store.pool.query(
-      'INSERT INTO deal_scan_feedback (agent_id, athlete_id, brand, deal_type, action, sport, position, school_tier) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+      'INSERT INTO deal_scan_feedback (agent_id, athlete_id, brand, deal_type, action, sport, position, school_tier, category, market) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
       [req.session.userId, athleteId||'', brand||'', dealType||'', action||'',
-       athlete?.sport||'', athlete?.position||'', athlete?.schoolTier||'']
+       athlete?.sport||'', athlete?.position||'', athlete?.schoolTier||'',
+       (category||'').toLowerCase()||null, market||null]
     );
     res.json({ ok: true });
   } catch(e) { res.json({ ok: false }); }
@@ -6106,6 +6107,40 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     const _taggedN = recommendations.filter((o) => o.matchedTags.length).length;
     const _chipsN = recommendations.reduce((n, o) => n + o.matchedTags.length, 0);
     console.log(`[dealScan] derivation: ${_tagSubs.length} athlete tags -> ${_taggedN} results tagged (${_chipsN} chips total)`);
+
+    // ── Feedback loop ────────────────────────────────────────────────────────
+    // Re-rank by how each business category actually performs with real agents
+    // across the whole platform, then record what we showed so the next scan
+    // knows more than this one did. Both steps are soft: a failure here must
+    // never cost the agent their scan results.
+    try {
+      const signal = await store.getScanSignal();
+      if (signal.ready) {
+        store.applyScanSignal(recommendations, signal);
+        const moved = recommendations.filter(o => o._signalAdj).length;
+        console.log(`[dealScan] signal applied: ${moved}/${recommendations.length} re-scored (baseline act rate ${(signal.baseline * 100).toFixed(1)}%)`);
+        for (const o of recommendations) delete o._signalAdj;
+      } else {
+        console.log('[dealScan] signal not ready yet — still gathering shown/acted data');
+      }
+    } catch (e) { console.error('[dealScan] signal:', e.message); }
+
+    store.logScanShown(req.session.userId, athleteId, recommendations, loaded.athleteObj)
+      .then(n => { if (n) console.log(`[dealScan] logged ${n} shown card(s) for feedback`); })
+      .catch(() => {});
+
+    // ── New in this market ───────────────────────────────────────────────────
+    // Flag businesses that have not been seen in this market before, so a
+    // rescan has something to show for itself instead of the same list again.
+    try {
+      const mk = _deepenMarketKey(loaded.athleteObj.school);
+      const newcomers = await store.markMarketNewcomers(mk, recommendations.map(o => o.brand));
+      let nNew = 0;
+      for (const o of recommendations) {
+        if (o.brand && newcomers.has(String(o.brand).trim())) { o.isNew = true; nNew++; }
+      }
+      if (nNew) console.log(`[dealScan] ${nNew} newcomer(s) in market=${mk}`);
+    } catch (e) { console.error('[dealScan] newcomers:', e.message); }
     if (recommendations.length) {
       // Local: advance the persisted shown-set with the brands just surfaced, so
       // the next scan/refresh (even a later session) starts past these. Store
@@ -8731,7 +8766,7 @@ Extract ALL deliverables, obligations, and payment milestones. Return JSON:
 Return ONLY valid JSON. No markdown.`;
 
     // Run extraction AI call
-    const extractRaw = await ai.oneShot(extractPrompt, 'You are a legal contract analyst. Return only valid JSON. No markdown.', 3500);
+    const extractRaw = await ai.oneShot(extractPrompt, 'You are a legal contract analyst. Return only valid JSON. No markdown.', 3500, ai.MODEL_STANDARD);
 
     // Parse extraction
     let extracted = {};
@@ -9264,6 +9299,80 @@ function mkSessionHash(req) {
   return require('crypto').createHash('sha256').update(salt + '|' + ip + '|' + ua).digest('hex');
 }
 
+// Minimal HTML escape for values interpolated into outbound emails. Brand names
+// come from a URL slug the sender controls, so they get escaped like any other
+// untrusted string.
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Email the agent the moment a named brand opens a media kit.
+// Deduped on (agent, kit, brand, day) so a brand that reads the page four times
+// in an afternoon produces one email, not four.
+async function notifyKitOpened(mk, brandName) {
+  await store.pool.query(`
+    CREATE TABLE IF NOT EXISTS kit_open_notifications (
+      dedupe_key TEXT PRIMARY KEY,
+      agent_id   TEXT,
+      sent_at    TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+
+  const day = new Date().toISOString().slice(0, 10);
+  const key = `${mk.agent_id}|${mk.slug}|${String(brandName).toLowerCase()}|${day}`;
+  const ins = await store.pool.query(
+    `INSERT INTO kit_open_notifications (dedupe_key, agent_id) VALUES ($1,$2)
+     ON CONFLICT (dedupe_key) DO NOTHING RETURNING dedupe_key`,
+    [key, mk.agent_id]
+  );
+  if (!ins.rows.length) return; // already told them today
+
+  const r = await store.pool.query(
+    `SELECT a.data->>'name' AS athlete_name, u.email AS agent_email, u.name AS agent_name
+       FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
+      WHERE a.id = $1`, [mk.athlete_id]);
+  const row = r.rows[0] || {};
+  if (!row.agent_email) return;
+
+  const athleteName = row.athlete_name || 'your athlete';
+  const agentFirst = String(row.agent_name || '').split(/\s+/)[0] || 'there';
+  const appUrl = process.env.APP_URL || 'https://mynildash.com';
+
+  await resend.emails.send({
+    from: 'NILDash <hello@mynildash.com>',
+    to: row.agent_email,
+    subject: `${brandName} just opened ${athleteName}'s media kit`,
+    html: `
+<div style="font-family:'DM Sans',sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#fff">
+  <div style="background:#0A0E1A;padding:16px 24px;border-radius:8px 8px 0 0">
+    <span style="font-family:Bebas Neue,sans-serif;font-size:20px;letter-spacing:0.04em;color:#fff">NIL<span style="color:#84CC16">Dash</span></span>
+    <span style="font-size:11px;font-weight:700;color:#84CC16;margin-left:10px;text-transform:uppercase;letter-spacing:0.08em">Media Kit Opened</span>
+  </div>
+  <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:28px 24px">
+    <h2 style="margin:0 0 10px;font-size:20px;color:#0f172a">${escapeHtml(brandName)} opened ${escapeHtml(athleteName)}'s media kit</h2>
+    <p style="color:#475569;font-size:14px;line-height:1.6;margin:0 0 22px">
+      Hi ${escapeHtml(agentFirst)}, they clicked the tracked link you sent. That is the warmest signal you get before a reply, so it is worth a follow-up today.
+    </p>
+    <a href="${appUrl}" style="display:inline-block;background:#84CC16;color:#0A0E1A;font-weight:700;font-size:14px;padding:11px 22px;border-radius:6px;text-decoration:none">Open NILDash</a>
+  </div>
+  <p style="text-align:center;font-size:11px;color:#94a3b8;margin-top:16px">You get one of these per brand per day.</p>
+</div>`,
+  });
+  console.log(`[kit-open notify] emailed ${row.agent_email} — ${brandName} opened ${mk.slug}`);
+}
+
+// Turn a URL slug back into something readable for display. "barclay-gmc"
+// becomes "Barclay Gmc". Imperfect, but only used when no generated variant
+// carries the real brand string.
+function _deslugBrand(slug) {
+  const s = String(slug || '').trim();
+  if (!s) return null;
+  return s.split('-').filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 async function recordKitView(req, mk, variantSlug, variantBrand) {
   try {
     if (req.session && req.session.userId && req.session.userId === mk.agent_id) return; // agent's own view
@@ -9280,6 +9389,12 @@ async function recordKitView(req, mk, variantSlug, variantBrand) {
        VALUES ($1,$2,$3,$4,$5,$6)`,
       [mk.slug, mk.athlete_id, mk.agent_id || null, variantSlug || null, variantBrand || null, hash]
     );
+    // A named brand just opened this kit. Tell the agent now, not the next time
+    // they happen to load the home page. Anonymous views never email: "someone
+    // looked" is not worth an inbox interruption.
+    if (variantBrand && mk.agent_id) {
+      notifyKitOpened(mk, variantBrand).catch(e => console.warn('[kit-open notify]', e.message));
+    }
   } catch (e) {
     console.warn('[media-kit views] record failed:', e.message);
   }
@@ -9340,8 +9455,14 @@ app.get('/api/media-kit/:slug', async (req, res) => {
     const variants = (mk.variants && typeof mk.variants === 'object') ? mk.variants : {};
     const variant = forSlug && variants[forSlug] ? { ...variants[forSlug], slug: forSlug } : null;
 
-    // Record the view; failures never break the page
-    recordKitView(req, mk, variant ? forSlug : null, variant ? variant.brand : null);
+    // Record the view; failures never break the page.
+    // Brand attribution comes from the ?for= slug, NOT from whether a generated
+    // variant exists. Previously an agent could send a ?for=barclay-gmc link,
+    // and if no AI variant had been built for that brand the open was recorded
+    // as anonymous. That is why "who opened it" never worked outside the few
+    // brands with variants. Any ?for= link now attributes.
+    const brandLabel = variant ? variant.brand : _deslugBrand(forSlug);
+    recordKitView(req, mk, forSlug || null, brandLabel || null);
 
     const { variants: _v, ...mkPublic } = mk;
     res.json({
@@ -9426,18 +9547,23 @@ app.get('/api/agent/home-notices', requireAuth, async (req, res) => {
   const notices = [];
   try {
     const kv = await store.pool.query(
-      `SELECT v.kit_slug, a.data->>'name' AS athlete_name,
+      `SELECT v.kit_slug, a.data->>'name' AS athlete_name, v.variant_brand,
               COUNT(*)::int AS views_today, MAX(v.viewed_at) AS last_viewed_at
          FROM media_kit_views v
          JOIN athletes a ON a.id = v.athlete_id
         WHERE v.agent_id = $1 AND v.viewed_at >= date_trunc('day', NOW())
-        GROUP BY v.kit_slug, a.data->>'name'
-        ORDER BY MAX(v.viewed_at) DESC LIMIT 6`,
+        GROUP BY v.kit_slug, a.data->>'name', v.variant_brand
+        ORDER BY (v.variant_brand IS NULL), MAX(v.viewed_at) DESC LIMIT 6`,
       [req.session.userId]);
     for (const r of kv.rows) {
+      // Named brand when the tracked ?for= link was used, anonymous otherwise.
+      // Brand-attributed opens sort first: they are the actionable ones.
       notices.push({
         type: 'kit_view',
-        text: `${r.athlete_name || 'An athlete'}'s media kit was viewed today`,
+        brand: r.variant_brand || null,
+        text: r.variant_brand
+          ? `${r.variant_brand} opened ${r.athlete_name || 'your athlete'}'s media kit`
+          : `${r.athlete_name || 'An athlete'}'s media kit was viewed today`,
         detail: r.views_today > 1 ? `${r.views_today} views today` : null,
         at: r.last_viewed_at,
       });
@@ -9666,6 +9792,10 @@ app.delete('/api/agent/media-kit/:athleteId/variant/:brandSlug', requireAuth, as
 
 // Look up an existing brand variant URL for (athleteId, brand). Used to attach
 // kit links to AI outreach emails automatically.
+// Returns a TRACKED media kit URL for this brand. Always carries ?for=<slug>,
+// even when no AI-generated variant exists for the brand, because attribution
+// now comes from the slug rather than from variant existence. Returning the
+// plain share URL here was the reason most kit opens showed up as anonymous.
 async function findKitVariantUrl(athleteId, brand) {
   try {
     if (!athleteId || !brand) return null;
@@ -9673,8 +9803,7 @@ async function findKitVariantUrl(athleteId, brand) {
     const mk = mkR.rows[0];
     if (!mk || !mk.slug) return null;
     const brandSlug = String(brand).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
-    const variants = (mk.variants && typeof mk.variants === 'object') ? mk.variants : {};
-    if (!variants[brandSlug]) return null;
+    if (!brandSlug) return null;
     const appUrl = process.env.APP_URL || 'https://mynildash.com';
     return `${appUrl}/media-kit/${mk.slug}?for=${brandSlug}`;
   } catch (e) { return null; }
@@ -10114,7 +10243,9 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       const n = parseInt(r.n) || 0; if (!n) continue;
       raw.push({
         urgency: 'green', priority: 3, kind: 'kit_view',
-        text: `${first(r.athlete_name)}'s media kit was viewed ${n} ${n === 1 ? 'time' : 'times'} in the last 2 days`,
+        text: r.brand
+          ? `${r.brand} opened ${first(r.athlete_name)}'s media kit`
+          : `${first(r.athlete_name)}'s media kit was viewed ${n} ${n === 1 ? 'time' : 'times'} in the last 2 days`,
         action: { label: 'Follow up now', view: 'outreach', params: { athleteId: r.athlete_id, brand: r.brand || '', athleteName: r.athlete_name || null } },
       });
     }

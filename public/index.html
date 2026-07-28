@@ -6406,6 +6406,11 @@ function _dsCardHtml(d, i, lane, isTop) {
   // Market chip (only present on two-market scans) and local-franchise chip.
   // Older cached scans have neither field and render exactly as before.
   var extraChips = '';
+  // Newcomer chip: this business was not in the market pool last time anyone
+  // scanned here. Leads the chip row because it is the reason to look again.
+  if (d.isNew === true) {
+    extraChips += '<span class="ds-lane-chip" style="background:rgba(132,204,22,0.16);color:#84CC16;border:1px solid rgba(132,204,22,0.35)">New here</span>';
+  }
   if (lane === 'local' && d.marketLabel) {
     var mkStyle = d.market === 'hometown'
       ? 'rgba(245,158,11,0.16);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)'
@@ -6612,10 +6617,28 @@ async function addDealToOutreach(brand, campaign) {
 }
 
 // NILViewVal Feedback Loop — track which deals agents pursue
+// Category matters as much as brand: it is what the ranking loop learns from.
+// The call sites don't carry it, so resolve it from the currently rendered
+// cards by brand name.
+function _dsFindCard(brand) {
+  try {
+    var key = String(brand || '').toLowerCase().trim();
+    if (!key || typeof _dsLaneData === 'undefined') return null;
+    for (var lane in _dsLaneData) {
+      var rows = _dsLaneData[lane] || [];
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].brand || '').toLowerCase().trim() === key) return rows[i];
+      }
+    }
+  } catch(e) {}
+  return null;
+}
+
 async function trackDealScanAction(brand, dealType, action) {
   try {
     var ath = athletes.find(function(a) { return a.id === selectedAthleteId; });
     if (!ath) return;
+    var card = _dsFindCard(brand);
     // Store in localStorage for feedback
     var key = 'nil-deal-actions';
     var existing = JSON.parse(localStorage.getItem(key) || '[]');
@@ -6631,7 +6654,11 @@ async function trackDealScanAction(brand, dealType, action) {
     fetch(API_BASE + '/api/feedback/deal-action', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ brand: brand, dealType: dealType, action: action, athleteId: selectedAthleteId })
+      body: JSON.stringify({
+        brand: brand, dealType: dealType, action: action, athleteId: selectedAthleteId,
+        category: card && card.category ? card.category : null,
+        market: card && card.market ? card.market : null
+      })
     }).catch(function() {});
   } catch(e) {}
 }

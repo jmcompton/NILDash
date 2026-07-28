@@ -231,6 +231,12 @@ async function streamResponse(athlete, message, role, res) {
 //    rationales): the stronger Sonnet tier, where scoring quality matters.
 //  - QUALITY WRITING (pitch emails, brand kit, outreach, AI command): Opus.
 const MODEL_FAST  = 'claude-haiku-4-5-20251001';
+// Default tier for any call that does not name a model. This used to be
+// MODEL_STANDARD (Opus), which meant roughly 25 call sites were silently running
+// on the most expensive model available, including several that never needed it.
+// Sonnet was already in explicit use elsewhere in this codebase, so it is a
+// proven quality level here. Opus is now opt-in: pass MODEL_STANDARD to get it.
+const MODEL_BALANCED = 'claude-sonnet-4-6';
 const MODEL_SCORE = 'claude-haiku-4-5-20251001'; // scoring moved to Haiku for speed; was sonnet-4-6
 const MODEL_STANDARD = 'claude-opus-4-8';
 
@@ -242,7 +248,7 @@ async function oneShot(prompt, system, maxTokens, model) {
   const ai = getClient();
   scanMeter.bumpAi(); // count this billable AI call against the current scan
   const delays = [2000, 5000, 10000];
-  const useModel = model || MODEL_STANDARD;
+  const useModel = model || MODEL_BALANCED;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
       const msg = await ai.messages.create({
@@ -253,10 +259,11 @@ async function oneShot(prompt, system, maxTokens, model) {
       });
       return stripEmDashes(msg.content[0].text);
     } catch (err) {
-      // If fast model fails, fall back to standard automatically
+      // If fast model fails, step up one tier — not straight to the most
+      // expensive one. A missing Haiku should not silently bill at Opus rates.
       if (model === MODEL_FAST && attempt === 0 && err?.status === 404) {
-        console.warn('[oneShot] Fast model unavailable, falling back to standard');
-        return oneShot(prompt, system, maxTokens, MODEL_STANDARD);
+        console.warn('[oneShot] Fast model unavailable, falling back to balanced');
+        return oneShot(prompt, system, maxTokens, MODEL_BALANCED);
       }
       const isOverloaded = err?.status === 529 || err?.error?.type === 'overloaded_error' || (err?.message || '').includes('overloaded');
       if (isOverloaded && attempt < delays.length) {
@@ -276,7 +283,7 @@ async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
   const ai = getClient();
   scanMeter.bumpWeb(); // count this billable web-search call against the current scan
   const msg = await ai.messages.create({
-    model: model || MODEL_STANDARD,
+    model: model || MODEL_BALANCED,
     max_tokens: maxTokens || 3000,
     system: system || 'You are a precise research assistant.',
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxSearches || 5 }],
@@ -3010,6 +3017,7 @@ Return ONLY this JSON:
 module.exports = {
   MODEL_FAST,
   MODEL_STANDARD,
+  MODEL_BALANCED,
   FEATURE_EMAIL_V2,
   streamResponse,
   oneShot,
