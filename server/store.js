@@ -1190,6 +1190,7 @@ async function init() {
     ON CONFLICT (id) DO NOTHING
   `).catch(() => {});
 
+  await ensureDealOutcomes();
   console.log('Database tables ready');
 }
 
@@ -1782,6 +1783,149 @@ async function saveBrandEvidence(brandKey, lane, brand, website, evidence, outco
 
 init().catch(console.error);
 
+// ── Local deal outcomes ─────────────────────────────────────────────────────
+// saveComp() already records the ATHLETE side of a closed deal (sport, tier,
+// followers, value). It records nothing about the BUSINESS or the MARKET, so it
+// can answer "what does a G5 softball player get" but never "what does a
+// restaurant near Samford pay". This table adds the missing half.
+//
+// Everything here is derived automatically at close time. There is no form for
+// the agent to fill in, on purpose: a form nobody completes produces no data.
+async function ensureDealOutcomes() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deal_outcomes (
+      id                SERIAL PRIMARY KEY,
+      agent_id          TEXT,
+      athlete_id        TEXT,
+      deal_id           TEXT,
+      brand             TEXT,
+      business_category TEXT,
+      school            TEXT,
+      school_tier       TEXT,
+      sport             TEXT,
+      follower_band     TEXT,
+      deliverable       TEXT,
+      deal_value        NUMERIC,
+      days_to_close     INTEGER,
+      closed_at         TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] deal_outcomes table ready'))
+    .catch(e => console.error('[init] deal_outcomes:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outcomes_cat ON deal_outcomes(business_category)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outcomes_tier ON deal_outcomes(school_tier)`).catch(() => {});
+}
+
+function followerBand(n) {
+  n = parseInt(n) || 0;
+  if (n < 1000)   return 'under-1k';
+  if (n < 5000)   return '1k-5k';
+  if (n < 10000)  return '5k-10k';
+  if (n < 50000)  return '10k-50k';
+  if (n < 100000) return '50k-100k';
+  return '100k-plus';
+}
+
+// Best-effort lookup of what kind of business this brand is. Checked in order of
+// how much we trust it. Returns null rather than guessing.
+async function lookupBusinessCategory(agentId, brand) {
+  if (!brand) return null;
+  const tries = [
+    [`SELECT brand_category AS c FROM athlete_deal_pipeline
+       WHERE agent_id = $1 AND LOWER(brand_name) = LOWER($2)
+         AND COALESCE(brand_category,'') <> '' LIMIT 1`, [agentId, brand]],
+    [`SELECT industry AS c FROM company_enrichment
+       WHERE agent_id = $1 AND LOWER(brand_name) = LOWER($2)
+         AND COALESCE(industry,'') <> '' LIMIT 1`, [agentId, brand]],
+  ];
+  for (const [sql, params] of tries) {
+    try {
+      const r = await pool.query(sql, params);
+      if (r.rows[0]?.c) return String(r.rows[0].c).trim().toLowerCase();
+    } catch (e) { /* table may not exist yet */ }
+  }
+  return null;
+}
+
+async function saveDealOutcome(dealId, dealData, athleteData, agentId) {
+  try {
+    const value = parseInt(dealData.value) || 0;
+    if (value <= 0) return false;
+
+    const created = dealData.createdAt || dealData.created_at || null;
+    let days = null;
+    if (created) {
+      const d = Math.floor((Date.now() - new Date(created).getTime()) / 86400000);
+      if (d >= 0 && d < 3650) days = d;
+    }
+
+    const followers = (parseInt(athleteData.instagram) || 0) + (parseInt(athleteData.tiktok) || 0);
+    const category = await lookupBusinessCategory(agentId, dealData.brand);
+
+    await pool.query(
+      `INSERT INTO deal_outcomes
+         (agent_id, athlete_id, deal_id, brand, business_category, school,
+          school_tier, sport, follower_band, deliverable, deal_value, days_to_close)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [agentId || null, athleteData.id || null, dealId || null,
+       dealData.brand || null, category, athleteData.school || null,
+       athleteData.schoolTier || null, athleteData.sport || null,
+       followerBand(followers), dealData.type || null, value, days]
+    );
+    console.log(`[outcome] saved brand=${dealData.brand} cat=${category || 'unknown'} $${value} days=${days}`);
+    return true;
+  } catch (e) {
+    console.error('[outcome] save failed:', e.message);
+    return false;
+  }
+}
+
+// Benchmarks across ALL agents. MIN_SAMPLE exists because a "median" computed
+// from two deals is worse than showing nothing — it reads as authoritative and
+// it is noise. Below the threshold we return the count and no numbers.
+const MIN_SAMPLE = 5;
+
+async function getBenchmarks({ category = null, tier = null, band = null } = {}) {
+  const where = [`deal_value > 0`];
+  const params = [];
+  if (category) { params.push(category.toLowerCase()); where.push(`LOWER(business_category) = $${params.length}`); }
+  if (tier)     { params.push(tier);                   where.push(`school_tier = $${params.length}`); }
+  if (band)     { params.push(band);                   where.push(`follower_band = $${params.length}`); }
+
+  const sql = `
+    SELECT business_category,
+           COUNT(*)::int AS n,
+           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY deal_value)::numeric AS median,
+           PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY deal_value)::numeric AS p25,
+           PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY deal_value)::numeric AS p75,
+           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY days_to_close)
+             FILTER (WHERE days_to_close IS NOT NULL)::numeric AS median_days
+      FROM deal_outcomes
+     WHERE ${where.join(' AND ')}
+     GROUP BY business_category
+     ORDER BY n DESC`;
+
+  try {
+    const r = await pool.query(sql, params);
+    const total = r.rows.reduce((s, x) => s + x.n, 0);
+    return {
+      totalDeals: total,
+      minSample: MIN_SAMPLE,
+      rows: r.rows.map(x => ({
+        category: x.business_category || 'uncategorized',
+        n: x.n,
+        enough: x.n >= MIN_SAMPLE,
+        median: x.n >= MIN_SAMPLE ? Math.round(Number(x.median)) : null,
+        p25: x.n >= MIN_SAMPLE ? Math.round(Number(x.p25)) : null,
+        p75: x.n >= MIN_SAMPLE ? Math.round(Number(x.p75)) : null,
+        medianDays: x.n >= MIN_SAMPLE && x.median_days != null ? Math.round(Number(x.median_days)) : null,
+      })),
+    };
+  } catch (e) {
+    console.error('[benchmarks]', e.message);
+    return { totalDeals: 0, minSample: MIN_SAMPLE, rows: [] };
+  }
+}
+
 module.exports = {
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers,
   getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals, recordReferralForInvoice,
@@ -1793,5 +1937,6 @@ module.exports = {
   dismissChecklist, markTooltipSeen, backfillChecklist, getOnboardingAnalytics,
   CHECKLIST_ITEMS,
   getMarketCache, setMarketCache, MARKET_CACHE_TTL_DAYS,
+  ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
   pool
 };

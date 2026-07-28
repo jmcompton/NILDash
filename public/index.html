@@ -1648,6 +1648,18 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
           </div>
         </div>
+
+        <!-- ── What local businesses actually paid ── -->
+        <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:12px;padding:16px 18px;margin-top:20px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+            <span style="font-family:var(--head);font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#F0EDE6">What local businesses paid</span>
+            <span id="bm-total" style="font-size:11px;color:#6B7280"></span>
+          </div>
+          <div style="font-size:11px;color:#4B5563;margin-bottom:12px;line-height:1.5">
+            Real closed deals logged across every agent on NILDash. Not estimates.
+          </div>
+          <div id="bm-list"><div style="font-size:11px;color:#4B5563;padding:6px 2px">Loading…</div></div>
+        </div>
       </div>
 
 
@@ -5739,6 +5751,52 @@ async function showView(id, btn) {
   if (id === 'outreach') { try { loadUnifiedOutreach(); } catch(e) {} }
   if (id === 'pdf-scan') loadPdfScanAthletes();
   if (id === 'add-athlete') { const tp = document.getElementById('a_tags'); if (tp && !tp.innerHTML) renderTagPicker('a_tags', []); }
+  if (id === 'rate') { try { loadBenchmarks(); } catch(e) {} }
+}
+
+// ── Local deal benchmarks ───────────────────────────────────────────────────
+// Pooled real closes across all agents. Categories under the sample threshold
+// deliberately show a count and no dollar figures: a median from three deals
+// looks authoritative and is noise, and an agent who prices off it loses money.
+async function loadBenchmarks() {
+  var el = document.getElementById('bm-list');
+  var tot = document.getElementById('bm-total');
+  if (!el) return;
+  try {
+    var d = await fetch(API_BASE + '/api/benchmarks').then(function(r){ return r.json(); });
+    var rows = d.rows || [];
+    if (tot) tot.textContent = d.totalDeals ? (d.totalDeals + ' logged close' + (d.totalDeals === 1 ? '' : 's')) : '';
+
+    if (!rows.length) {
+      el.innerHTML = '<div style="font-size:12px;color:#6B7280;line-height:1.6;padding:4px 2px">'
+        + 'No closed deals logged yet. Every deal you move to Closed adds a data point here, '
+        + 'and the numbers get sharper for everyone as more agents close.</div>';
+      return;
+    }
+
+    el.innerHTML = rows.map(function(r){
+      var name = r.category.charAt(0).toUpperCase() + r.category.slice(1);
+      if (!r.enough) {
+        return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:.5px solid #1e2a3a">'
+          + '<span style="font-size:12.5px;color:#6B7280">' + escHtml(name) + '</span>'
+          + '<span style="font-size:11px;color:#4B5563">' + r.n + ' of ' + d.minSample + ' deals needed</span>'
+          + '</div>';
+      }
+      return '<div style="padding:10px 0;border-top:.5px solid #1e2a3a">'
+        + '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px">'
+          + '<span style="font-size:12.5px;color:#E5E7EB">' + escHtml(name) + '</span>'
+          + '<span style="font-size:15px;font-weight:500;color:#84CC16">$' + r.median.toLocaleString() + '</span>'
+        + '</div>'
+        + '<div style="font-size:11px;color:#4B5563;margin-top:3px">'
+          + 'typical range $' + r.p25.toLocaleString() + ' to $' + r.p75.toLocaleString()
+          + (r.medianDays != null ? ' · about ' + r.medianDays + ' days to close' : '')
+          + ' · ' + r.n + ' deals'
+        + '</div>'
+      + '</div>';
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="font-size:11px;color:#4B5563;padding:6px 2px">Unable to load right now.</div>';
+  }
 }
 async function prefillContract() {
   if (!selectedAthleteId) return;

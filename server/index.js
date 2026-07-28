@@ -1323,9 +1323,61 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
     if (athlete) {
       await store.saveComp(merged, athlete);
       console.log('Deal comp saved:', athlete.sport, athlete.schoolTier, '$' + (merged.value || 0));
+      // Business/market side of the same close. saveComp covers the athlete
+      // half; this covers what the business actually paid and how long it took.
+      await store.saveDealOutcome(req.params.id, merged, athlete, req.session.userId);
     }
   }
   res.json(await store.saveDeal(req.params.id, merged));
+});
+
+// GET /api/benchmarks — what local businesses actually pay, pooled across every
+// agent on the platform. This is the one dataset in the category that cannot be
+// regenerated from an API key: it only exists because agents log real closes.
+// Query params: category, tier, band (all optional).
+app.get('/api/benchmarks', requireAuth, async (req, res) => {
+  try {
+    const data = await store.getBenchmarks({
+      category: req.query.category || null,
+      tier:     req.query.tier     || null,
+      band:     req.query.band     || null,
+    });
+    res.json(data);
+  } catch (e) {
+    console.error('[benchmarks]', e.message);
+    res.json({ totalDeals: 0, minSample: 5, rows: [] });
+  }
+});
+
+// POST /api/benchmarks/backfill — replay historical closed deals into
+// deal_outcomes so benchmarks are not empty on day one. Safe to run more than
+// once: it skips deals already recorded. Admin only.
+app.post('/api/benchmarks/backfill', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+
+    const r = await store.pool.query(
+      `SELECT id, agent_id, athlete_id, data FROM deals
+        WHERE data->>'stage' = 'Closed'
+          AND COALESCE(NULLIF(data->>'value',''),'0')::numeric > 0
+          AND id NOT IN (SELECT COALESCE(deal_id,'') FROM deal_outcomes)`
+    );
+
+    let saved = 0, skipped = 0;
+    for (const row of r.rows) {
+      const athlete = await store.getAthlete(row.athlete_id);
+      if (!athlete) { skipped++; continue; }
+      const deal = { ...row.data, id: row.id };
+      const ok = await store.saveDealOutcome(row.id, deal, athlete, row.agent_id);
+      ok ? saved++ : skipped++;
+    }
+    console.log(`[benchmarks/backfill] candidates=${r.rows.length} saved=${saved} skipped=${skipped}`);
+    res.json({ ok: true, candidates: r.rows.length, saved, skipped });
+  } catch (e) {
+    console.error('[benchmarks/backfill]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.delete('/api/deals/:id', requireAuth, async (req, res) => {
