@@ -5358,18 +5358,39 @@ function renderTodayBlock(data) {
   if (!el) return;
   const actions = (data && data.actions) || [];
   if (!actions.length) {
-    // Positive summary, never a sad empty box.
+    // Never a bare "all caught up" checkmark. An agent with nothing in flight is
+    // exactly the agent who needs a next step, not congratulations. Only an
+    // agent with deals actually moving gets the green all-clear.
     const s = (data && data.summary) || {};
-    const moving = s.movingDeals || 0;
-    const dealsLine = moving > 0
-      ? (moving + (moving === 1 ? ' deal is moving.' : ' deals are moving.'))
-      : 'No active deals yet.';
-    const nextLine = s.nextDeadline ? (' Next deadline is ' + s.nextDeadline + '.') : '';
-    if (sub) sub.textContent = 'All caught up';
+    const moving  = s.movingDeals || 0;
+    const clients = s.clients || 0;
+
+    var body, btn = null;
+    if (!clients) {
+      body = 'Add your first client and NILDash will start finding local brand deals in their market.';
+      btn  = { label: 'Add a client', view: 'add-athlete' };
+    } else if (!moving) {
+      body = clients === 1
+        ? 'Your client is scanned and nothing is overdue. Next step is working the businesses Deal Scan already found.'
+        : 'Your ' + clients + ' clients are scanned and nothing is overdue. Next step is working the businesses Deal Scan already found.';
+      btn  = { label: 'Open Deal Scan', view: 'deals' };
+    } else {
+      body = moving + (moving === 1 ? ' deal is moving' : ' deals are moving')
+           + ' and nothing needs you right now.'
+           + (s.nextDeadline ? ' Next deadline is ' + s.nextDeadline + '.' : '');
+    }
+
+    if (sub) sub.textContent = moving ? 'All caught up' : 'Where to start';
+    var tint = moving ? 'rgba(132,204,22,0.08)' : 'rgba(0,212,255,0.07)';
+    var ring = moving ? 'rgba(132,204,22,0.25)' : 'rgba(0,212,255,0.22)';
+    var accent = moving ? '#84CC16' : '#00D4FF';
     el.innerHTML =
-      '<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:10px;background:rgba(132,204,22,0.08);border:.5px solid rgba(132,204,22,0.25)">' +
-        '<span style="width:22px;height:22px;border-radius:50%;background:rgba(132,204,22,0.16);color:#84CC16;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px">✓</span>' +
-        '<span style="font-size:13px;color:#E5E7EB;line-height:1.5">You are all caught up. ' + escHtml(dealsLine + nextLine) + '</span>' +
+      '<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:10px;background:' + tint + ';border:.5px solid ' + ring + '">' +
+        '<span style="width:22px;height:22px;border-radius:50%;background:' + (moving ? 'rgba(132,204,22,0.16)' : 'rgba(0,212,255,0.14)') + ';color:' + accent + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px">' + (moving ? '✓' : '→') + '</span>' +
+        '<span style="flex:1;min-width:0;font-size:13px;color:#E5E7EB;line-height:1.5">' + escHtml(body) + '</span>' +
+        (btn
+          ? '<button onclick="deepLink(\'' + btn.view + '\',{})" style="flex-shrink:0;padding:7px 13px;background:rgba(0,212,255,0.12);border:1px solid rgba(0,212,255,0.4);color:#00D4FF;border-radius:7px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:var(--head)">' + escHtml(btn.label) + '</button>'
+          : '') +
       '</div>';
     return;
   }

@@ -9911,13 +9911,28 @@ function _todayDayPhrase(dateStr) {
 
 // GET /api/agent/today — the prioritized "what needs me today" action list for
 // the home dashboard. Sources, highest urgency first: overdue/today deliverables
-// (red), deals gone stale 30+ days (red), hot signals like kit views and inbound
-// inquiries (green), and deliverables due this week (amber). At most 5 rows.
+// (red), deals gone stale 30+ days (red), hot signals like kit views, inbound
+// inquiries and replies that never became deals (green), deliverables due this
+// week (amber), and finally Deal Scan nudges for clients who have never been
+// scanned or have gone cold (amber). At most 5 rows.
+//
+// The scan nudges sit at the bottom of the priority order on purpose. An agent
+// with real deadlines never sees them. An agent with no deals yet sees only
+// them, which is the point: before this, a new agent with an empty pipeline got
+// an "all caught up" checkmark and no reason to come back.
 app.get('/api/agent/today', requireAuth, async (req, res) => {
   const agentId = req.session.userId;
   try {
     const notDone = `COALESCE(ace.status,'') NOT IN ('completed','done','complete')`;
-    const [dueR, weekR, viewsR, inbR, deals, nextR, movingR] = await Promise.all([
+    // New queries are individually guarded. The originals share one Promise.all
+    // with no per-query catch, so one missing table takes the whole block down.
+    // Nothing added here can do that.
+    const softQuery = (sql, params) =>
+      store.pool.query(sql, params).catch((e) => {
+        console.error('[agent/today] soft query failed:', e.message);
+        return { rows: [] };
+      });
+    const [dueR, weekR, viewsR, inbR, deals, nextR, movingR, scanR, orphanR] = await Promise.all([
       // RED: deliverables due today or overdue (pending), grouped by athlete + brand
       store.pool.query(
         `SELECT ace.athlete_id, a.data->>'name' AS athlete_name, ace.brand,
@@ -9958,6 +9973,30 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
           WHERE ace.agent_id = $1 AND ace.event_date >= CURRENT_DATE AND ${notDone}`, [agentId]),
       store.pool.query(
         `SELECT COUNT(*) AS n FROM deals WHERE agent_id=$1 AND data->>'stage' NOT IN ('Closed','Lost')`, [agentId]),
+      // Deal Scan recency per client. NULL last_scan means never scanned.
+      softQuery(
+        `SELECT a.id, a.data->>'name' AS athlete_name,
+                MAX(l.created_at) AS last_scan
+           FROM athletes a
+           LEFT JOIN athlete_activity_log l
+             ON l.athlete_id = a.id::text
+            AND l.agent_id = $1
+            AND l.activity_type = 'deal_scan'
+          WHERE a.agent_id = $1
+          GROUP BY a.id, a.data->>'name'
+          ORDER BY last_scan ASC NULLS FIRST`, [agentId]),
+      // A brand replied and the reply never became a deal. Highest-value miss
+      // on the whole page: the hard part already happened and it is leaking.
+      softQuery(
+        `SELECT o.brand_name, o.athlete_id, o.replied_at,
+                a.data->>'name' AS athlete_name
+           FROM outreach_logs o
+           LEFT JOIN athletes a ON a.id::text = o.athlete_id
+          WHERE o.agent_id = $1
+            AND o.replied_at IS NOT NULL
+            AND COALESCE(o.crm_deal_id,'') = ''
+            AND o.replied_at > NOW() - INTERVAL '30 days'
+          ORDER BY o.replied_at DESC`, [agentId]),
     ]);
 
     const first = (name) => (String(name || 'A client').trim().split(/\s+/)[0] || 'A client');
@@ -10006,6 +10045,18 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       });
     }
 
+    // GREEN, a brand replied and it never became a deal (priority 2, tied with
+    // inbound inquiries — both are warm and both decay fast)
+    for (const r of orphanR.rows) {
+      const days = Math.floor((now - new Date(r.replied_at).getTime()) / 86400000);
+      const when = days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+      raw.push({
+        urgency: 'green', priority: 2, kind: 'replied_orphan',
+        text: `${r.brand_name || 'A brand'} replied ${when} and is not in your pipeline`,
+        action: { label: 'Add to pipeline', view: 'pipeline', params: { athleteId: r.athlete_id, brand: r.brand_name || '', athleteName: r.athlete_name || null } },
+      });
+    }
+
     // GREEN, media kit views (priority 3)
     for (const r of viewsR.rows) {
       const n = parseInt(r.n) || 0; if (!n) continue;
@@ -10027,12 +10078,44 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       });
     }
 
-    raw.sort((a, b) => a.priority - b.priority);
-    const actions = raw.slice(0, 5);
+    // AMBER, clients who have never been scanned (priority 5). Cap at 3 so a
+    // roster of 20 fresh clients does not bury everything else.
+    const neverScanned = scanR.rows.filter(r => !r.last_scan);
+    for (const r of neverScanned.slice(0, 3)) {
+      raw.push({
+        urgency: 'amber', priority: 5, kind: 'never_scanned',
+        text: `${first(r.athlete_name)} has never been scanned for local deals`,
+        action: { label: 'Run Deal Scan', view: 'deals', params: { athleteId: r.id, athleteName: r.athlete_name || null } },
+      });
+    }
+
+    // AMBER, clients scanned once and then left alone 30+ days (priority 6)
+    for (const r of scanR.rows) {
+      if (!r.last_scan) continue;
+      const days = Math.floor((now - new Date(r.last_scan).getTime()) / 86400000);
+      if (days < 30) continue;
+      raw.push({
+        urgency: 'amber', priority: 6, kind: 'stale_scan', _days: days,
+        text: `${first(r.athlete_name)} has not been scanned in ${days} days`,
+        action: { label: 'Run Deal Scan', view: 'deals', params: { athleteId: r.id, athleteName: r.athlete_name || null } },
+      });
+    }
+
+    // Within stale_scan, coldest first.
+    raw.sort((a, b) => (a.priority - b.priority) || ((b._days || 0) - (a._days || 0)));
+    const actions = raw.slice(0, 5).map(({ _days, ...a }) => a);
 
     const movingDeals = parseInt(movingR.rows[0]?.n || 0);
     const nextDate = nextR.rows[0]?.d || null;
-    res.json({ actions, summary: { movingDeals, nextDeadline: nextDate ? _todayDayPhrase(nextDate) : null } });
+    res.json({
+      actions,
+      summary: {
+        movingDeals,
+        nextDeadline: nextDate ? _todayDayPhrase(nextDate) : null,
+        clients: scanR.rows.length,
+        neverScanned: neverScanned.length,
+      },
+    });
   } catch (e) {
     console.error('[agent/today]', e.message);
     res.json({ actions: [], summary: { movingDeals: 0, nextDeadline: null } });
