@@ -2728,6 +2728,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div style="font-size:10px;color:var(--muted);margin-top:2px">If set, you can email them their portal invite link directly.</div>
           </div>
           <div class="form-group-sm">
+            <label class="form-label-sm">Parent or guardian email <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+            <input class="input-sm" id="a_parent_email" type="email" placeholder="parent@email.com">
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">Gets copied on the weekly report. Parents who see the work stay out of your inbox.</div>
+          </div>
+          <div class="form-group-sm">
             <label class="form-label-sm">Hometown</label>
             <input class="input-sm" id="a_hometown" placeholder="e.g. Johns Creek, GA">
             <div style="font-size:10px;color:var(--muted);margin-top:2px">Deal Scan also searches the hometown market when this is set.</div>
@@ -3964,6 +3969,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
   </div>
 </div>
 
+<div id="arModal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.72);align-items:center;justify-content:center;padding:20px">
+  <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:14px;width:100%;max-width:640px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:.5px solid #1e2a3a;flex-shrink:0">
+      <div>
+        <div id="arTitle" style="font-family:var(--head);font-size:15px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#F0EDE6">Weekly report</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">This is exactly what they will see</div>
+      </div>
+      <button onclick="closeAthleteReport()" style="background:transparent;border:0;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;padding:0 4px">&times;</button>
+    </div>
+    <div id="arBody" style="overflow-y:auto;flex:1"></div>
+    <div id="arFooter" style="display:none;align-items:center;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:.5px solid #1e2a3a;flex-shrink:0">
+      <button onclick="closeAthleteReport()" style="padding:8px 16px;background:transparent;border:1px solid #1e2a3a;color:var(--muted);border-radius:7px;font-size:12px;cursor:pointer">Cancel</button>
+      <button id="arSendBtn" onclick="sendAthleteReport()" style="padding:8px 18px;background:#84CC16;border:0;color:#0A0E1A;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--head)">Send report</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="addDealModal">
   <div class="modal">
     <button class="modal-close" onclick="document.getElementById('addDealModal').classList.remove('open')">×</button>
@@ -5173,6 +5195,7 @@ async function editAthlete(id) {
   document.getElementById('a_school').value = a.school || '';
   const aLegalEl = document.getElementById('a_legal_name'); if (aLegalEl) aLegalEl.value = a.legal_name || '';
   const aEmailEl = document.getElementById('a_email'); if (aEmailEl) aEmailEl.value = a.email || '';
+  const aPEmailEl = document.getElementById('a_parent_email'); if (aPEmailEl) aPEmailEl.value = a.parentEmail || '';
   document.getElementById('a_tier').value = a.schoolTier || 'p4-mid';
   document.getElementById('a_ig').value = a.instagram || '';
   document.getElementById('a_tt').value = a.tiktok || '';
@@ -5215,6 +5238,7 @@ async function updateAthlete(id) {
     position: document.getElementById('a_pos').value,
     school: document.getElementById('a_school').value,
     email: (document.getElementById('a_email') ? document.getElementById('a_email').value : '').trim(),
+    parentEmail: (document.getElementById('a_parent_email') ? document.getElementById('a_parent_email').value : '').trim(),
     schoolTier: document.getElementById('a_tier').value,
     instagram: parseInt(document.getElementById('a_ig').value) || 0,
     tiktok: parseInt(document.getElementById('a_tt').value) || 0,
@@ -5263,6 +5287,7 @@ async function addAthlete() {
         position: document.getElementById('a_pos').value,
         school: document.getElementById('a_school').value,
         email: (document.getElementById('a_email') ? document.getElementById('a_email').value : '').trim(),
+        parentEmail: (document.getElementById('a_parent_email') ? document.getElementById('a_parent_email').value : '').trim(),
         schoolTier: document.getElementById('a_tier').value,
         instagram: document.getElementById('a_ig').value,
         tiktok: document.getElementById('a_tt').value,
@@ -5293,7 +5318,7 @@ async function addAthlete() {
     document.getElementById('kpi-clients').textContent = athletes.length;
     renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
-    ['a_name','a_legal_name','a_pos','a_school','a_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    ['a_name','a_legal_name','a_pos','a_school','a_email','a_parent_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     renderTagPicker('a_tags', []);
     _statFetchedSource = null;
     const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = '';
@@ -5724,6 +5749,98 @@ async function loadKPIs() {
 }
 
 //  VIEWS 
+// ── Weekly athlete report ───────────────────────────────────────────────────
+// Preview then send. The agent always sees the exact email before it reaches a
+// 19-year-old and their parents.
+var _arState = { athleteId: null, recipients: [], html: '', subject: '' };
+
+async function openAthleteReport(athleteId, athleteName) {
+  _arState = { athleteId: athleteId, recipients: [], html: '', subject: '' };
+  var m = document.getElementById('arModal');
+  if (!m) return;
+  m.style.display = 'flex';
+  document.getElementById('arTitle').textContent = 'Weekly report for ' + (athleteName || 'athlete');
+  document.getElementById('arBody').innerHTML =
+    '<div style="padding:40px;text-align:center;color:var(--muted);font-size:13px">Building the report...</div>';
+  document.getElementById('arFooter').style.display = 'none';
+
+  try {
+    var d = await fetch(API_BASE + '/api/athlete-report/preview/' + encodeURIComponent(athleteId))
+      .then(function(r) { return r.json(); });
+    if (d.error) throw new Error(d.error);
+
+    _arState.html = d.html; _arState.subject = d.subject;
+    _arState.recipients = d.recipients || [];
+
+    if (!d.enoughActivity) {
+      document.getElementById('arBody').innerHTML =
+        '<div style="padding:32px 28px;text-align:center">' +
+          '<div style="font-size:15px;color:#E5E7EB;margin-bottom:8px">Nothing happened this week</div>' +
+          '<div style="font-size:13px;color:var(--muted);line-height:1.6;max-width:380px;margin:0 auto">' +
+            'No outreach went out and no brands looked at the media kit. Sending a report that says nothing ' +
+            'does more harm than sending none. Run some outreach first, then come back.' +
+          '</div></div>';
+      return;
+    }
+
+    var s = d.summary || {};
+    var chips = [
+      s.pitched  ? s.pitched + ' pitched' : null,
+      s.replies  ? s.replies + ' replied' : null,
+      s.opens    ? s.opens + ' opened' : null,
+      s.overdue  ? s.overdue + ' past due' : null
+    ].filter(Boolean).map(function(t) {
+      return '<span style="font-size:11px;color:#84CC16;background:rgba(132,204,22,0.1);padding:3px 9px;border-radius:99px;margin-right:6px">' + escHtml(t) + '</span>';
+    }).join('');
+
+    document.getElementById('arBody').innerHTML =
+      '<div style="padding:14px 20px;border-bottom:.5px solid #1e2a3a">' + chips + '</div>' +
+      '<div style="padding:14px 20px;border-bottom:.5px solid #1e2a3a">' +
+        '<div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Subject</div>' +
+        '<div style="font-size:13px;color:#E5E7EB">' + escHtml(d.subject) + '</div>' +
+      '</div>' +
+      '<div style="padding:14px 20px;border-bottom:.5px solid #1e2a3a">' +
+        '<div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px">Send to</div>' +
+        '<input id="arRecips" class="input-sm" style="width:100%" value="' + escHtml(_arState.recipients.join(', ')) + '" placeholder="athlete@email.com, parent@email.com">' +
+        '<div style="font-size:10px;color:var(--muted);margin-top:4px">Comma separated. Replies come straight back to you.</div>' +
+      '</div>' +
+      '<iframe id="arFrame" style="width:100%;height:460px;border:0;background:#f3f4f6"></iframe>';
+
+    // srcdoc sandboxes the email markup from the app's own styles.
+    document.getElementById('arFrame').srcdoc = d.html;
+    document.getElementById('arFooter').style.display = 'flex';
+  } catch (e) {
+    document.getElementById('arBody').innerHTML =
+      '<div style="padding:32px;text-align:center;color:#EF4444;font-size:13px">' + escHtml(e.message || 'Could not build the report') + '</div>';
+  }
+}
+
+function closeAthleteReport() {
+  var m = document.getElementById('arModal'); if (m) m.style.display = 'none';
+}
+
+async function sendAthleteReport() {
+  var btn = document.getElementById('arSendBtn');
+  var input = document.getElementById('arRecips');
+  var recips = (input ? input.value : '').split(',').map(function(x) { return x.trim(); }).filter(Boolean);
+  if (!recips.length) { alert('Add at least one email address.'); return; }
+  if (!confirm('Send this report to ' + recips.join(', ') + '?')) return;
+
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try {
+    var r = await fetch(API_BASE + '/api/athlete-report/send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: _arState.athleteId, recipients: recips })
+    }).then(function(x) { return x.json(); });
+    if (r.error) throw new Error(r.error);
+    btn.textContent = 'Sent';
+    setTimeout(closeAthleteReport, 900);
+  } catch (e) {
+    alert(e.message || 'Send failed');
+    btn.disabled = false; btn.textContent = 'Send report';
+  }
+}
+
 async function showView(id, btn) {
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
@@ -8246,6 +8363,9 @@ async function loadAthletePortals() {
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          <button onclick="openAthleteReport('${escHtml(a.id)}','${escHtml((a.name||'').replace(/'/g,''))}')" title="Preview and send this week's report to the athlete and their parents" style="padding:6px 14px;background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.35);color:#00D4FF;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">
+            Weekly Report
+          </button>
           ${hasKit
             ? `<span style="font-size:10px;font-weight:700;background:rgba(132,204,22,0.12);color:#84CC16;border-radius:4px;padding:2px 8px;text-transform:uppercase;letter-spacing:0.05em;flex-shrink:0">Kit Ready</span>
                <button onclick="window.open('/media-kit/${escHtml(slug)}','_blank')" style="padding:6px 14px;background:rgba(132,204,22,0.1);border:1px solid rgba(132,204,22,0.3);border-radius:6px;color:#84CC16;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:5px">

@@ -1380,6 +1380,122 @@ app.post('/api/benchmarks/backfill', requireAuth, async (req, res) => {
   }
 });
 
+// ── Weekly athlete report ───────────────────────────────────────────────────
+// GET preview builds the report live so the agent sees exactly what the family
+// will see. Nothing is ever sent without the agent pressing send: these emails
+// go to teenagers and their parents, and a wrong number in one is far worse
+// than a report that goes out a day late.
+const athleteReport = require('./services/athleteReport');
+
+function _reportWindow(weeksBack) {
+  const until = new Date(); until.setHours(0, 0, 0, 0);
+  until.setDate(until.getDate() + 1);                 // through end of today
+  const since = new Date(until);
+  since.setDate(since.getDate() - 7 * (1 + (parseInt(weeksBack) || 0)));
+  return { since, until };
+}
+
+app.get('/api/athlete-report/preview/:athleteId', requireAuth, async (req, res) => {
+  try {
+    const { since, until } = _reportWindow(req.query.weeksBack);
+    const data = await athleteReport.collectReportData(
+      req.params.athleteId, req.session.userId, since, until);
+    if (!data) return res.status(404).json({ error: 'Athlete not found' });
+
+    const recipients = [];
+    if (data.athlete.email) recipients.push(data.athlete.email);
+    if (data.athlete.parentEmail && data.athlete.parentEmail !== data.athlete.email) {
+      recipients.push(data.athlete.parentEmail);
+    }
+
+    res.json({
+      subject: athleteReport.renderSubject(data),
+      html: athleteReport.renderReportHtml(data),
+      recipients,
+      activityScore: data.activityScore,
+      enoughActivity: data.activityScore >= athleteReport.MIN_ACTIVITY_TO_SEND,
+      summary: {
+        pitched: data.pitched.length,
+        replies: data.replies.length,
+        opens: data.opens.length,
+        kitViews: data.namedKitViews.length + (data.anonKitViews ? 1 : 0),
+        earnedPeriod: data.earned.period,
+        overdue: data.overdue.length,
+        upcoming: data.upcoming.length,
+      },
+    });
+  } catch (e) {
+    console.error('[athlete-report/preview]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/athlete-report/send', requireAuth, async (req, res) => {
+  try {
+    const { athleteId, recipients, weeksBack } = req.body || {};
+    if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
+
+    // Recipients come from the request so the agent can add a parent, a family
+    // advisor, or drop someone before sending.
+    const to = (Array.isArray(recipients) ? recipients : [])
+      .map(e => String(e || '').trim())
+      .filter(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    if (!to.length) return res.status(400).json({ error: 'No valid recipients' });
+    if (to.length > 6) return res.status(400).json({ error: 'Too many recipients' });
+
+    const { since, until } = _reportWindow(weeksBack);
+    const data = await athleteReport.collectReportData(athleteId, req.session.userId, since, until);
+    if (!data) return res.status(404).json({ error: 'Athlete not found' });
+    if (data.activityScore < athleteReport.MIN_ACTIVITY_TO_SEND) {
+      return res.status(400).json({ error: 'Nothing happened this week. Sending an empty report does more harm than good.' });
+    }
+
+    await resend.emails.send({
+      from: 'NILDash <hello@mynildash.com>',
+      to,
+      replyTo: data.agent.email || undefined,   // questions go to the agent, not to us
+      subject: athleteReport.renderSubject(data),
+      html: athleteReport.renderReportHtml(data),
+    });
+
+    await store.pool.query(`
+      CREATE TABLE IF NOT EXISTS athlete_reports (
+        id SERIAL PRIMARY KEY, athlete_id TEXT, agent_id TEXT,
+        period_start TIMESTAMPTZ, period_end TIMESTAMPTZ,
+        recipients TEXT, summary JSONB, sent_at TIMESTAMPTZ DEFAULT NOW()
+      )`).catch(() => {});
+    await store.pool.query(
+      `INSERT INTO athlete_reports (athlete_id, agent_id, period_start, period_end, recipients, summary)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [athleteId, req.session.userId, since, until, to.join(', '),
+       JSON.stringify({ pitched: data.pitched.length, replies: data.replies.length, earned: data.earned.period })]
+    ).catch(e => console.error('[athlete-report] log failed:', e.message));
+
+    console.log(`[athlete-report] sent for ${data.athlete.name} to ${to.join(', ')}`);
+    res.json({ ok: true, sentTo: to });
+  } catch (e) {
+    console.error('[athlete-report/send]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// When was each athlete last reported on. Drives the "overdue for an update"
+// nudge on the agent's home page.
+app.get('/api/athlete-report/status', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `SELECT a.id, a.data->>'name' AS name, MAX(r.sent_at) AS last_sent
+         FROM athletes a
+         LEFT JOIN athlete_reports r ON r.athlete_id = a.id AND r.agent_id = $1
+        WHERE a.agent_id = $1
+        GROUP BY a.id, a.data->>'name'
+        ORDER BY MAX(r.sent_at) ASC NULLS FIRST`, [req.session.userId]);
+    res.json({ athletes: r.rows });
+  } catch (e) {
+    res.json({ athletes: [] });
+  }
+});
+
 app.delete('/api/deals/:id', requireAuth, async (req, res) => {
   const deal = await store.getDeal(req.params.id);
   if (!deal) return res.status(404).json({ error: 'Not found' });
