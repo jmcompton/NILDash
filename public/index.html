@@ -754,7 +754,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .ucp-nav-active { color: #e2e8f0 !important; background: rgba(26,58,92,0.3) !important; }
 /* ── Deal Scan lane layout ── */
 /* Local is the primary lane: first and widest on desktop, first on mobile */
-.ds-lanes{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:14px;align-items:start}
+.ds-lanes{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
 .ds-lane[data-lane="local"]{border-color:rgba(132,204,22,0.3)}
 .ds-lane{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column;min-width:0}
 .ds-lane-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -1491,6 +1491,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <!-- Mobile lane switcher (segmented control; visible < 900px via CSS) -->
         <div id="ds-lane-tabs" class="ds-lane-tabs" style="display:none">
           <button class="ds-lane-tab active" data-lane="local" onclick="switchLane('local')">Local <span class="ds-tab-count" id="ds-tabcount-local">0</span></button>
+          <button class="ds-lane-tab" data-lane="social" onclick="switchLane('social')">Social <span class="ds-tab-count" id="ds-tabcount-social">0</span></button>
           <button class="ds-lane-tab" data-lane="topnil" onclick="switchLane('topnil')">National Brands <span class="ds-tab-count" id="ds-tabcount-topnil">0</span></button>
         </div>
         <!-- Lane grid (desktop) / one active lane (mobile) -->
@@ -1499,6 +1500,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div class="ds-lane-head"><span class="ds-lane-title">Local</span><span class="ds-lane-count" id="ds-count-local">—</span></div>
             <div class="ds-lane-sub">Businesses near your client's school, plus their hometown when set</div>
             <div class="ds-lane-body" id="scan-results-local"></div>
+          </div>
+          <div class="ds-lane" data-lane="social">
+            <div class="ds-lane-head"><span class="ds-lane-title">Social</span><span class="ds-lane-count" id="ds-count-social">—</span></div>
+            <div class="ds-lane-sub">Brands with proven athlete payment behavior</div>
+            <div class="ds-lane-body" id="scan-results-social"></div>
           </div>
           <div class="ds-lane" data-lane="topnil">
             <div class="ds-lane-head"><span class="ds-lane-title">National Brands to Know</span><span class="ds-lane-count" id="ds-count-topnil">—</span></div>
@@ -4801,10 +4807,10 @@ async function clearAllResults() {
   if (cmdOut) { cmdOut.classList.remove('visible'); const ct = document.getElementById('commandText'); if (ct) ct.textContent = ''; }
 
   // Deal scan — reset per-client lane state so switching clients gets a clean slate
-  _dsLaneData = { local: null, topnil: null };
-  _dsLaneBusy = { local: false, topnil: false };
-  _dsLaneNote = { local: '', topnil: '' };
-  _dsLaneExhausted = { local: false, topnil: false };
+  _dsLaneData = { local: null, social: null, topnil: null };
+  _dsLaneBusy = { local: false, social: false, topnil: false };
+  _dsLaneNote = { local: '', social: '', topnil: '' };
+  _dsLaneExhausted = { local: false, social: false, topnil: false };
   window._dealScanResults = [];
   var _scanRanked = document.getElementById('scan-ranked-label');
   if (_scanRanked) _scanRanked.style.display = 'none';
@@ -5980,17 +5986,18 @@ async function runCommand() {
 var esc = escHtml;
 
 // Per-lane scan state. null = never scanned; [] = scanned, genuinely empty.
-var _dsLaneData = { local: null, topnil: null };
-var _dsLaneNote = { local: '', topnil: '' };
-var _dsLaneBusy = { local: false, topnil: false };
+var _dsLaneData = { local: null, social: null, topnil: null };
+var _dsLaneNote = { local: '', social: '', topnil: '' };
+var _dsLaneBusy = { local: false, social: false, topnil: false };
 // True when the server says this lane's pool is fully shown, which drives the
 // "Find more businesses" deepen button on the local lane.
-var _dsLaneExhausted = { local: false, topnil: false };
+var _dsLaneExhausted = { local: false, social: false, topnil: false };
 window._agentRateCard = null; // { rates:{deliverable:{low,high}}, dealValueLow, dealValueHigh }
 
-var DS_LANES = ['local', 'topnil'];
+var DS_LANES = ['local', 'social', 'topnil'];
 var _dsLaneMeta = {
   local:  { label: 'Local',       chip: 'rgba(132,204,22,0.18);color:#84CC16;border:1px solid rgba(132,204,22,0.3)' },
+  social: { label: 'Social',      chip: 'rgba(168,85,247,0.18);color:#c084fc;border:1px solid rgba(168,85,247,0.3)' },
   topnil: { label: 'National Brands',     chip: 'rgba(59,130,246,0.18);color:#60a5fa;border:1px solid rgba(59,130,246,0.3)' }
 };
 var _dsCatColors = {
@@ -6203,7 +6210,7 @@ async function _dsRunScan(isRefresh, opts) {
       // from cache and not tracked in _dealScanResults). Without this the refresh
       // silently returned the cached cards and looked like a dead button. deepen
       // fires the on-demand "Find more" deeper search for the local market.
-      body: JSON.stringify({ athleteId: selectedAthleteId, lane: lane, exclude_brands: exclude, refresh: isRefresh, deepen: (isDeepen && lane === 'local') })
+      body: JSON.stringify({ athleteId: selectedAthleteId, lane: lane, exclude_brands: (lane === 'social' ? [] : exclude), refresh: isRefresh, deepen: (isDeepen && lane === 'local') })
     })
       .then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
       .then(function(res){
@@ -6248,6 +6255,10 @@ async function _dsRunScan(isRefresh, opts) {
             // Only banner when the server says every pooled business has been shown,
             // never merely because the first 10 appeared.
             _dsLaneNote[lane] = exhausted ? _dsNoNewNote(lane, opps) : '';
+          } else if (lane === 'social') {
+            // Social is a free, fixed curated set: a refresh re-shows the same matched
+            // brands at no cost, so it never gets the "nothing new" banner.
+            _dsLaneNote[lane] = '';
           } else {
             // Other lanes (National Brands) are a fixed set: banner when a refresh
             // surfaced nothing new, so it does not read as a dead button.
@@ -6349,7 +6360,7 @@ function _dsRenderAll() {
       // Local-lane cards must carry isLocal so AI Outreach triggers the local web search.
       if (lane === 'local' && d.resultType !== 'national') d.isLocal = true;
       window._dealScanResults.push(d);
-      return _dsCardHtml(d, gi, lane, idx === 0);
+      return lane === 'social' ? _dsSocialCardHtml(d, gi) : _dsCardHtml(d, gi, lane, idx === 0);
     }).join('');
     body.innerHTML = topNote + banner + html;
   });
@@ -6578,6 +6589,67 @@ function _dsCardHtml(d, i, lane, isTop) {
       '<button onclick="addDealToPipeline(\'' + brandSafe + '\',\'' + esc(d.dealType||'ig-post') + '\',\'' + campaignSafe + '\')" style="padding:9px 12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">+ Pipeline</button>' +
       '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="padding:9px 12px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">⚡ AI Outreach</button>' +
       '<button onclick="sendKitForBrand(' + i + ', this)" style="padding:9px 12px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.35);color:#60a5fa;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">Send kit</button>' +
+    '</div>' +
+  '</div>';
+}
+
+// Compact follower count for the Social lane tier field: 1000 -> "1k", 150000 -> "150k".
+function _dsFmtTierK(n){ n = Number(n) || 0; return n >= 1000 ? (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(Math.round(n)); }
+
+// Social lane card. A DIFFERENT template from _dsCardHtml: social rows carry no
+// fit score, no contacts, and no Approach line, so none of those are rendered.
+// Same dark card styling (border, radius, padding, chips, button colors) as
+// _dsCardHtml so it reads as the same product.
+function _dsSocialCardHtml(d, i) {
+  var brand = d.brand || d.brand_name || 'Brand';
+  var cat = (d.category || '').toLowerCase();
+  var catStyle = _dsCatColors[cat] || 'rgba(255,255,255,0.06);color:var(--muted)';
+  var brandSafe = brand.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  // Freshness badge: current -> green "Signs athletes", aging -> amber "Verify age".
+  var fresh = d.freshness === 'current'
+    ? { txt: 'Signs athletes', style: 'rgba(132,204,22,0.14);color:#84CC16;border:1px solid rgba(132,204,22,0.35)' }
+    : { txt: 'Verify age',     style: 'rgba(245,158,11,0.16);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)' };
+
+  // Proof link text: "Proof - verified {Mon YYYY}" from proof_date (UTC to avoid drift).
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var pd = d.proof_date ? new Date(d.proof_date) : null;
+  var proofWhen = (pd && !isNaN(pd.getTime())) ? (MON[pd.getUTCMonth()] + ' ' + pd.getUTCFullYear()) : '';
+  var proofText = 'Proof - verified' + (proofWhen ? ' ' + proofWhen : '');
+
+  // 4-up fields.
+  var sportsArr = Array.isArray(d.sports) ? d.sports : [];
+  var signs = sportsArr.map(function(s){ return s === 'all' ? 'All sports' : s; }).join(', ') || '—';
+  var tier = _dsFmtTierK(d.tier_min) + '-' + _dsFmtTierK(d.tier_max);
+  var structMap = { cash_code: 'Cash + code', affiliate: 'Affiliate only', cash: 'Cash', gifting_code: 'Gifting + code' };
+  var structLabel = structMap[d.deal_structure] || d.deal_structure || '—';
+  var estRange;
+  if (d.est_low != null) estRange = '$' + d.est_low + '-$' + (d.est_high != null ? d.est_high : d.est_low);
+  else if (d.deal_structure === 'affiliate') estRange = 'Commission';
+  else if (d.deal_structure === 'gifting_code') estRange = 'Product first';
+  else estRange = '—';
+  var field = function(label, val){
+    return '<div style="min-width:64px">' +
+      '<div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">' + label + '</div>' +
+      '<div style="font-size:11px;color:var(--text);font-weight:600;margin-top:1px">' + esc(val) + '</div></div>';
+  };
+
+  return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:15px 16px">' +
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">' +
+      '<span class="ds-lane-chip" style="background:' + _dsLaneMeta.social.chip + '">Social</span>' +
+      '<span style="font-size:15px;font-weight:700;color:var(--text)">' + esc(brand) + '</span>' +
+      (d.category ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
+    '</div>' +
+    '<div><span class="ds-lane-chip" style="background:' + fresh.style + '">' + fresh.txt + '</span></div>' +
+    (d.whyFits ? '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-top:8px">' + esc(d.whyFits) + '</div>' : '') +
+    (d.proof_url ? '<a href="' + esc(d.proof_url) + '" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:11px;color:#60a5fa;text-decoration:underline">' + esc(proofText) + '</a>' : '') +
+    '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px">' +
+      field('Signs', signs) + field('Tier', tier) + field('Structure', structLabel) + field('Est. range', estRange) +
+    '</div>' +
+    '<div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">' +
+      '<button onclick="prefillOutreach(\'' + brandSafe + '\')" style="flex:1;min-width:110px;padding:9px;background:var(--accent);color:#0A0E1A;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Write Outreach</button>' +
+      '<button onclick="addDealToPipeline(\'' + brandSafe + '\',\'ig-post\',\'\')" style="padding:9px 12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">+ Pipeline</button>' +
+      '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="padding:9px 12px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">⚡ AI Outreach</button>' +
     '</div>' +
   '</div>';
 }
