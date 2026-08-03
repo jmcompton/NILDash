@@ -6133,8 +6133,12 @@ function startDealScanProgress() {
 // Hydrate lanes from the last persisted scan when entering Deal Scan or selecting a client.
 // Only hydrates when nothing is loaded — never clobbers an in-progress scan.
 async function loadDealScanCache() {
-  if (_dsHasAnyData()) return;
   if (!selectedAthleteId) return;
+  // Social is never cached (it reads the shared social_brands index). Fetch it
+  // live and free whenever it has not loaded yet, BEFORE the _dsHasAnyData guard
+  // so a client that already has local/topnil data still gets a fresh social column.
+  if (_dsLaneData.social === null) _dsScanSocialLane();
+  if (_dsHasAnyData()) return;
   try {
     var r = await fetch('/api/agent/deal-scan/cache?athleteId=' + encodeURIComponent(selectedAthleteId));
     if (!r.ok) return;
@@ -6143,6 +6147,7 @@ async function loadDealScanCache() {
     var cache = (d && d.cache) || {};
     var any = false;
     DS_LANES.forEach(function(lane){
+      if (lane === 'social') return; // social is served live, never hydrated from cache
       var c = cache[lane];
       if (c && Array.isArray(c.opportunities)) {
         _dsLaneData[lane] = c.opportunities;
@@ -6165,6 +6170,32 @@ async function loadDealScanCache() {
       _dsRenderAll();
     }
   } catch(e) { /* hydration is best-effort */ }
+}
+
+// Fetch the Social lane on its own (getSocialBrands, zero cost) and render it.
+// Social is never persisted to deal_scan_cache, so on hydration we pull a fresh
+// copy live instead of replaying a stale row.
+async function _dsScanSocialLane() {
+  if (!selectedAthleteId) return;
+  _dsLaneBusy.social = true;
+  document.getElementById('scan-ranked-label').style.display = 'block';
+  var lanesEl = document.getElementById('ds-lanes'); if (lanesEl) lanesEl.style.display = '';
+  var tabsEl = document.getElementById('ds-lane-tabs'); if (tabsEl) tabsEl.style.display = '';
+  _dsRenderAll();
+  try {
+    var r = await fetch('/api/agent/deal-scan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: selectedAthleteId, lane: 'social', exclude_brands: [] })
+    });
+    var res = await r.json();
+    _dsLaneBusy.social = false;
+    if (res && res.rateCard) window._agentRateCard = res.rateCard;
+    _dsLaneData.social = (res && !res.error && Array.isArray(res.opportunities)) ? res.opportunities : [];
+  } catch (e) {
+    _dsLaneBusy.social = false;
+    if (_dsLaneData.social === null) _dsLaneData.social = [];
+  }
+  _dsRenderAll();
 }
 
 // Fire ONE explicit deeper search pass for the local market ("Find more

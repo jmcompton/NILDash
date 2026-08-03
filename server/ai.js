@@ -787,80 +787,6 @@ function _deriveTypicalProfile(deals) {
 }
 
 // Gather (and cache ~7 days) a SOCIAL brand's ambassador/creator program
-// evidence. Returns { evidence, outcome, cached }. outcome is one of
-// OK | SALVAGED | NO_EVIDENCE | TIMEOUT | ERROR. A card is only worth showing
-// with a real apply URL, so brands without one resolve to NO_EVIDENCE.
-async function _fetchSocialProgramEvidence(brand, website, force = false) {
-  if (!force) {
-    const cached = await store.getBrandEvidence(brand, 'social');
-    if (cached) return { evidence: cached.evidence || {}, outcome: cached.outcome || 'NO_EVIDENCE', cached: true };
-  }
-
-  const domain = _domainFromUrl(website);
-  const sys = 'You research brand ambassador programs using web search. Report ONLY facts stated on the brand\'s own website. Never invent a program, a URL, or a follower minimum. Output ONLY one JSON object.';
-  const prompt = `Find the official athlete, ambassador, creator, or affiliate program run by the brand "${brand}"${domain ? ` (website ${domain})` : ''}. Use web search. Use ONLY what is actually stated on ${brand}'s own pages.
-Return ONLY this JSON object:
-{"hasProgram":true|false,"programName":string|null,"status":"open"|"closed"|"unclear","applyUrl":string|null,"followerMinimum":number|null,"requirements":string|null,"offer":string|null,"responseTime":string|null,"sourceUrl":string|null}
-Rules:
-- hasProgram=false when you cannot find a real, brand-run program page. Do not force one.
-- applyUrl must be the actual application or signup page for the program, not the homepage or a blog post. null if you cannot find the real apply page.
-- status "open" only if the page shows applications are currently accepted, "closed" if it says closed or waitlisted, otherwise "unclear".
-- followerMinimum: a single number ONLY if the brand explicitly states a minimum follower or subscriber count, else null. Never guess.
-- requirements: a short line of stated eligibility (for example "public account, US based, 18+"), null if none stated.
-- offer: what the program gives (free product, commission percentage, paid posts, affiliate code), null if not stated.
-- responseTime: only if stated, else null.
-- sourceUrl: the brand page where you found this, null if none.`;
-
-  if (!_loggedSocialQuery) {
-    _loggedSocialQuery = true;
-    console.log(`[dealScan] social SEARCH QUERY sample brand=${brand} sys=${JSON.stringify(sys)} prompt=${JSON.stringify(prompt)}`);
-  }
-
-  let raw = '';
-  const _wt0 = Date.now();
-  try {
-    raw = await withTimeout(oneShotWebSearch(prompt, sys, 700, 3, MODEL_FAST), 9000, '');
-  } catch (e) {
-    console.log(`[dealScan] social search brand=${brand} searchMs=${Date.now() - _wt0} result=ERROR ${e.message}`);
-    return { evidence: {}, outcome: 'ERROR', cached: false, skipCache: true };
-  }
-  // Raw head + length + search time, so a failing brand's actual model output is
-  // visible in the logs (rawLen=0 means the 9s cap fired = TIMEOUT).
-  console.log(`[dealScan] social search brand=${brand} searchMs=${Date.now() - _wt0} rawLen=${(raw || '').length} rawHead=${JSON.stringify((raw || '').slice(0, 300))}`);
-  if (!raw) return { evidence: {}, outcome: 'TIMEOUT', cached: false, skipCache: true };
-
-  let parsed = null;
-  try {
-    const t = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-    const a = t.indexOf('{'), b = t.lastIndexOf('}');
-    if (a !== -1 && b > a) parsed = JSON.parse(t.substring(a, b + 1));
-  } catch (_) { parsed = null; }
-
-  const applyUrl = parsed ? _safeUrl(parsed.applyUrl) : null;
-  if (!parsed || parsed.hasProgram !== true || !applyUrl) {
-    await store.saveBrandEvidence(brand, 'social', brand, website, {}, 'NO_EVIDENCE');
-    return { evidence: {}, outcome: 'NO_EVIDENCE', cached: false };
-  }
-
-  const status = ['open', 'closed', 'unclear'].includes(parsed.status) ? parsed.status : 'unclear';
-  const followerMinimum = (typeof parsed.followerMinimum === 'number' && parsed.followerMinimum > 0)
-    ? Math.round(parsed.followerMinimum) : null;
-  const evidence = {
-    kind: 'program',
-    programName: _cleanStr(parsed.programName),
-    status,
-    applyUrl,
-    followerMinimum,
-    requirements: _cleanStr(parsed.requirements),
-    offer: _cleanStr(parsed.offer),
-    responseTime: _cleanStr(parsed.responseTime),
-    sourceUrl: _safeUrl(parsed.sourceUrl) || applyUrl,
-  };
-  const outcome = status === 'open' ? 'OK' : 'SALVAGED';
-  await store.saveBrandEvidence(brand, 'social', brand, website, evidence, outcome);
-  return { evidence, outcome, cached: false };
-}
-
 // Gather (and cache ~7 days) a TOP NIL brand's disclosed-deal precedent. Prefers
 // our own disclosed-deal table (fast, no web); falls back to a labeled web
 // search only when the table has nothing for the brand.
@@ -941,62 +867,6 @@ Rules: include a deal ONLY if you can point to a real reporting source (sourceUr
 }
 
 // Build a SOCIAL card from a brand's program evidence + this athlete's verdict.
-// Every social card already has a real program; fitScore rewards an OPEN program
-// the athlete actually qualifies for over an unclear one they cannot. Structured
-// fields are also surfaced at top level (programStatus, applyUrl, followerMinimum,
-// verdict) so any consumer can read them without reaching into `evidence`.
-function _buildSocialCard(f, evidence, verdict, ctx) {
-  const { rate, valLow, valHigh } = ctx;
-  let score = 55;
-  if (evidence.status === 'open') score += 25;
-  else if (evidence.status === 'closed') score -= 12;
-  else score += 8; // unclear
-  if (verdict.status === 'qualifies') score += 15;
-  else if (verdict.status === 'no-minimum') score += 8;
-  else if (verdict.status === 'below') score -= 14;
-  else score += 3; // unknown (missing follower counts)
-  if (evidence.offer) score += 4;
-  if (evidence.responseTime) score += 3;
-  if (evidence.requirements) score += 2;
-  score = Math.max(20, Math.min(99, Math.round(score)));
-
-  const parts = [evidence.programName ? `Runs the ${evidence.programName}` : 'Runs a creator ambassador program'];
-  if (evidence.offer) parts.push(evidence.offer);
-  const rationale = stripEmDashes(parts.join('. ').replace(/\.+$/, '') + '.');
-
-  return {
-    brand: f.name,
-    tier: 'social',
-    category: f.category || 'dtc',
-    dealType: /affiliate/i.test(evidence.offer || '') ? 'affiliate' : 'ambassador',
-    campaign: '',
-    rationale,
-    contactApproach: `Apply through their ${evidence.programName || 'ambassador'} page.`,
-    timingNote: evidence.responseTime ? `Typical response: ${evidence.responseTime}` : '',
-    fitScore: score,
-    isLocal: false,
-    resultType: 'social',
-    lane: 'social',
-    source: f._seed ? 'seed' : 'web',
-    evidence: { ...evidence, verdict },
-    // Flat, greppable fields for any consumer / the production verification:
-    programStatus: evidence.status,
-    applyUrl: evidence.applyUrl,
-    followerMinimum: evidence.followerMinimum,
-    sourceUrl: evidence.sourceUrl,
-    verdict,
-    activelyMarketing: true,
-    website: f.website || null,
-    contactEmail: validateContactEmail(f.email, f.website || null),
-    contactName: null,
-    contactTitle: 'Partnerships / Creator Team',
-    contactLinkedIn: null,
-    estimatedValueLow: valLow,
-    estimatedValueHigh: valHigh,
-    suggestedRate: { low: rate.low, high: rate.high },
-  };
-}
-
 // Build a TOP NIL card from disclosed-deal precedent + this athlete's verdict.
 // Comp-table precedent outranks web-found deals, which outrank no verifiable
 // deals at all.
@@ -1725,7 +1595,7 @@ function _contactApproach(card, top, res) {
 // rows so a weekly run keeps the cache from ever expiring. Also warms per-brand
 // contacts. Rate-limited with a small delay between brands. Returns a tally.
 async function prewarmDealEvidence(opts = {}) {
-  const { SOCIAL_SEEDS, TOPNIL_SEEDS } = require('./dealScanSeeds');
+  const { TOPNIL_SEEDS } = require('./dealScanSeeds');
   const force = opts.force !== false; // default true for scheduled refresh
   const delayMs = opts.delayMs || 800;
   const uniqBrands = (table) => {
@@ -1738,20 +1608,10 @@ async function prewarmDealEvidence(opts = {}) {
     }
     return out;
   };
-  const tally = { social: { OK: 0, SALVAGED: 0, NO_EVIDENCE: 0, TIMEOUT: 0, ERROR: 0 },
-                  topnil: { OK: 0, SALVAGED: 0, NO_EVIDENCE: 0, TIMEOUT: 0, ERROR: 0 } };
-  const bump = (lane, outcome) => { if (tally[lane][outcome] !== undefined) tally[lane][outcome]++; };
+  const tally = { topnil: { OK: 0, SALVAGED: 0, NO_EVIDENCE: 0, TIMEOUT: 0, ERROR: 0 } };
 
-  const social = uniqBrands(SOCIAL_SEEDS);
-  console.log(`[prewarm] social: ${social.length} seed brands (force=${force})`);
-  for (const b of social) {
-    try {
-      const r = await _fetchSocialProgramEvidence(b.name, b.website, force);
-      bump('social', r.outcome);
-      console.log(`[prewarm] social brand=${b.name} evidence=${r.outcome}`);
-    } catch (e) { bump('social', 'ERROR'); console.warn(`[prewarm] social brand=${b.name} error=${e.message}`); }
-    await new Promise((res) => setTimeout(res, delayMs));
-  }
+  // SOCIAL lane is now served entirely from the curated social_brands index
+  // (getSocialBrands) — no web/AI, no evidence cache — so nothing to pre-warm.
 
   // TOP NIL is served from deal_comps only now (no web searches at scan time), so
   // there is nothing to pre-warm for it. Warming the old topnil evidence cache
@@ -1760,10 +1620,10 @@ async function prewarmDealEvidence(opts = {}) {
   console.log('[prewarm] topnil: skipped (lane is served from deal_comps, no web searches)');
 
   // Warm per-brand contacts too (30-day cache), so a scan does not pay a contact
-  // web search for common brands. Dedupe across both seed tables.
+  // web search for common brands.
   tally.contacts = { OK: 0, FALLBACK: 0, NONE: 0, TIMEOUT: 0, ERROR: 0 };
   const seenC = new Set();
-  const allBrands = [...social, ...topnil].filter((b) => {
+  const allBrands = [...topnil].filter((b) => {
     const k = (b.name || '').toLowerCase().trim();
     if (!k || seenC.has(k)) return false; seenC.add(k); return true;
   });
@@ -1848,199 +1708,6 @@ async function _topnilFromComps(athlete, excludeBrands) {
   return out;
 }
 
-async function _scanBrandLane(athlete, lane, excludeBrands) {
-  const MODEL_DEALSCAN = MODEL_FAST; // web-search brand discovery: extraction, runs on the cheap tier
-  const _laneT0 = Date.now();
-  const rate = calculateRate(athlete, 'ig-reel');
-  const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
-  const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
-  const sport = athlete.sport || 'football';
-  const school = athlete.school || 'their school';
-  const valLow  = tier === 'macro' ? 2500 : tier === 'mid' ? 800 : tier === 'micro' ? 250 : 100;
-  const valHigh = tier === 'macro' ? 15000 : tier === 'mid' ? 4000 : tier === 'micro' ? 1000 : 500;
-  // Interest tags weight the search queries and scoring; region grounds the
-  // "did deals with athletes near here" evidence search. Mapped schools resolve
-  // instantly; unmapped ones are capped at 6s inside getSchoolLocation.
-  const athleteTagSubs = validTagSubs(athlete.tags);
-  const _loc = await getSchoolLocation(athlete.school || '');
-  const stateCtx = _loc && _loc.known !== false ? _loc.state : '';
-
-  const exclusionLine = excludeBrands && excludeBrands.length > 0
-    ? `\nEXCLUDE THESE BRANDS COMPLETELY — do not suggest them: ${excludeBrands.join(', ')}`
-    : '';
-
-  const tierGuidance = tier === 'macro'
-    ? 'This is a large creator — national brands and bigger budgets are realistic.'
-    : tier === 'mid'
-    ? 'This is a mid-tier creator — established DTC brands and mid-size NIL programs, not the largest national giants.'
-    : 'This is a SMALL (micro/nano) creator. ONLY suggest brands that genuinely run programs for small creators at this follower tier. Do NOT suggest Nike, Adidas, Gatorade, or other mega-brands that only sign stars.';
-
-  const laneCfg = lane === 'social'
-    ? {
-        label: 'Social',
-        resultType: 'social',
-        categoryEnum: 'supplements|apparel|energydrink|app|accessories|beauty|nutrition|fitness|dtc',
-        // Reworked for what converts for agents of smaller athletes: open or
-        // application-based ambassador and micro-influencer programs, plus
-        // brands with evidence of NIL deals at mid-major or regional schools.
-        // A tagged industry always gets its own search (third query).
-        queries: [
-          `brands with OPEN or application-based ambassador and micro-influencer programs in ${new Date().getFullYear()} that accept small creators and college athletes around ${reach.toLocaleString()} followers - supplements, apparel, energy drinks, snacks, apps, accessories`,
-          `brands with reported NIL deals with college athletes at mid-major${stateCtx ? ` or ${stateCtx}` : ''} schools - everyday athletes, not the biggest stars ${new Date().getFullYear()}`,
-          athleteTagSubs.length
-            ? `${athleteTagSubs.join(', ')} brands with ambassador, affiliate, or micro-influencer programs open to small creators and student athletes`
-            : `${sport} micro-influencer brand ambassador programs supplements apparel accessories open to small creators`,
-        ],
-        retryQuery: `brands running open application ambassador or affiliate programs for small Instagram and TikTok creators and student athletes`,
-        scoreIntro: `These REAL brands were just found via web search. Each carries "evidence" of how they work with small creators or athletes when the search found it.`,
-        favor: 'brands with open or application-based ambassador and micro-influencer programs, or reported NIL deals with mid-major and regional athletes',
-      }
-    : {
-        label: 'Top NIL',
-        resultType: 'topnil',
-        categoryEnum: 'nutrition|apparel|tech|finance|food|energydrink|auto|retail|nil',
-        queries: [
-          `brands most active in college NIL deals in ${new Date().getFullYear()} that ALSO sign smaller and mid-tier college athletes in ${sport} — not just the biggest stars`,
-          `top NIL-spending companies with athlete ambassador programs open to ${tier}-tier ${sport} college athletes`,
-          `NIL-active brands partnering with everyday college athletes ${sport} ambassador roster programs ${new Date().getFullYear()}`,
-        ],
-        retryQuery: `companies with the most active college athlete NIL ambassador programs that accept smaller athletes`,
-        scoreIntro: `These REAL NIL-active brands were just found via web search. They currently run college athlete NIL/ambassador programs.`,
-        favor: 'currently NIL-active brands that sign college and smaller athletes in this sport',
-      };
-
-  const searchSys = 'You find real brands via web search. Output ONLY a JSON array, no commentary, no markdown.';
-  const mk = (q) => `Use web search: ${q}. Return up to 8 REAL brands you actually find, each as {"name","website","category","email","evidence"}. "evidence": one short line ONLY when the search shows how the brand works with small creators or athletes (an open ambassador or micro-influencer program by name, application link, reported NIL deals with mid-major or regional athletes), else null - never invent evidence. "email" only if shown on their site, else null. Favor: ${laneCfg.favor}. ONLY a JSON array.`;
-
-  // 15s per-search cap: production web-search calls regularly exceeded the old
-  // 8s cap and timed out to empty. Searches run in parallel so wall-clock stays
-  // ~one search.
-  const BRAND_SEARCH_CAP_MS = 15000;
-  try {
-    console.log(`[dealScan:${lane}] web search brand discovery — model=${MODEL_DEALSCAN} sport=${sport} tier=${tier}${stateCtx ? ` state=${stateCtx}` : ''}${athleteTagSubs.length ? ` tags=${athleteTagSubs.join('/')}` : ''}`);
-    const settled = await Promise.allSettled(
-      laneCfg.queries.map((q) => withTimeout(oneShotWebSearch(mk(q), searchSys, 700, 2, MODEL_DEALSCAN), BRAND_SEARCH_CAP_MS, ''))
-    );
-
-    const found = [];
-    const seen = new Set();
-    const collect = (raw) => {
-      // Salvage-tolerant: truncated arrays still yield their complete objects.
-      const { items } = extractJsonArrayItems(raw);
-      for (const it of items) {
-        const nm = ((it && it.name) || '').trim();
-        if (!nm) continue;
-        const key = nm.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        found.push({ name: nm, website: it.website || null, category: it.category || null, email: it.email || null, evidence: it.evidence || null });
-      }
-    };
-    for (const s of settled) if (s.status === 'fulfilled') collect(s.value);
-    console.log(`[dealScan:${lane}] phase 1 found ${found.length} candidates in ${Date.now() - _laneT0}ms`);
-
-    if (found.length < 6) {
-      try {
-        const retry = await withTimeout(oneShotWebSearch(mk(laneCfg.retryQuery), searchSys, 800, 3, MODEL_DEALSCAN), BRAND_SEARCH_CAP_MS, '');
-        collect(retry);
-      } catch (_) {}
-      console.log(`[dealScan:${lane}] after retry: ${found.length} candidates`);
-    }
-    // Build the investigation POOL: web-discovered brands PLUS the full seed
-    // floor for this tier (tag-weighted). Seeds are a FLOOR, not the universe —
-    // including them every scan (deduped, exclusions honored) guarantees enough
-    // brands that can pass evidence to fill the lane, while discovery adds
-    // tag-relevant brands on top. Pre-warmed seeds are cache hits, so this stays
-    // fast even though the pool is larger.
-    const _excl = (excludeBrands || []).map((b) => (b || '').toLowerCase());
-    const pool = [];
-    const poolSeen = new Set();
-    const addPool = (b, isSeed) => {
-      const key = ((b && b.name) || '').toLowerCase().trim();
-      if (!key || poolSeen.has(key) || _excl.includes(key)) return;
-      poolSeen.add(key);
-      pool.push({ name: b.name, website: b.website || null, category: b.category || null, email: b.email || null, evidence: b.evidence || null, _seed: !!isSeed });
-    };
-    for (const f of found) addPool(f, false);                                   // web-discovered first
-    for (const s of (getSeeds(lane, tier, athleteTagSubs) || [])) addPool(s, true); // seed floor
-    if (pool.length === 0) return [];
-
-    // Investigate more than we keep, because SOCIAL drops brands without a real
-    // program. Return up to 6 for social (the agent wants a usable shortlist),
-    // 4 for top NIL.
-    const INVESTIGATE = lane === 'social' ? 16 : 12;
-    const KEEP = lane === 'social' ? 6 : 4;
-    const investigate = pool.slice(0, INVESTIGATE);
-    console.log(`[dealScan:${lane}] investigating ${investigate.length} candidates (${investigate.filter((x) => !x._seed).length} web, ${investigate.filter((x) => x._seed).length} seed)`);
-
-    // ── Phase 2: STRUCTURED EVIDENCE ──────────────────────────────────────────
-    // Gather real, sourced evidence per candidate (an ambassador program page for
-    // SOCIAL, a disclosed-deal record for TOP NIL). Cache-first, so a warm scan
-    // does zero web calls; cold scans are concurrency-capped (rate-limit safe).
-    // SOCIAL drops any brand with no findable program; TOP NIL keeps no-deal
-    // brands but ranks them last and labels them honestly.
-    const ctx2 = { rate, valLow, valHigh, sport };
-    // Discovery (phase 1) is a web search that is NOT cached; time it separately
-    // from the evidence phase so a repeat scan's cost is attributable.
-    const _discoveryMs = Date.now() - _laneT0;
-    const _effConcurrency = Math.max(1, Math.min(EVIDENCE_CONCURRENCY, investigate.length));
-    const _evT0 = Date.now();
-    const evResults = await _mapLimit(investigate, EVIDENCE_CONCURRENCY, async (f) => {
-      const _bt0 = Date.now();
-      const res = lane === 'social'
-        ? await _fetchSocialProgramEvidence(f.name, f.website)
-        : await _fetchTopNilEvidence(f.name, f.website, sport);
-      return { f, ...res, ms: Date.now() - _bt0 };
-    });
-    const _evidenceMs = Date.now() - _evT0;
-    console.log(`[dealScan:${lane}] phases discovery=${_discoveryMs}ms evidence=${_evidenceMs}ms concurrency=${_effConcurrency} candidates=${investigate.length}`);
-
-    const finishCard = (f, card) => {
-      // Preserve main's consumers: interest-tag chips + source labeling.
-      card.matchedTags = deriveMatchedTags(
-        { brand: card.brand, category: card.category, rationale: card.rationale }, f, athleteTagSubs
-      );
-      card.source = f._seed ? 'seed' : 'web';
-      return card;
-    };
-
-    const cards = [];
-    const _tally = { OK: 0, SALVAGED: 0, NO_EVIDENCE: 0, TIMEOUT: 0, ERROR: 0, cache: 0 };
-    for (const r of evResults) {
-      if (!r) continue;
-      const { f, evidence, outcome, cached, ms } = r;
-      if (_tally[outcome] !== undefined) _tally[outcome]++;
-      if (cached) _tally.cache++;
-      // Per-brand outcome + wall time at the REAL call site, so one production
-      // scan tells the truth about whether this code path ran and how slow it is.
-      console.log(`[dealScan] ${lane} brand=${f.name} evidence=${outcome} ${ms || 0}ms${cached ? ' cache' : ''}`);
-      if (lane === 'social') {
-        if (!evidence || evidence.kind !== 'program') continue; // no program -> no hollow card
-        const verdict = _socialVerdict(evidence.followerMinimum, athlete);
-        cards.push(finishCard(f, _buildSocialCard(f, evidence, verdict, ctx2)));
-      } else {
-        const verdict = _topnilVerdict(evidence && evidence.min, evidence && evidence.max, athlete);
-        cards.push(finishCard(f, _buildTopNilCard(f, evidence || { kind: 'deals', deals: [] }, verdict, outcome, ctx2)));
-      }
-    }
-    console.log(`[dealScan:${lane}] evidence tally ${JSON.stringify(_tally)}`);
-
-    // Evidence-first ranking: fitScore already encodes evidence strength +
-    // qualification, so an open program with a matching minimum (or real
-    // comp-data precedent) outranks a famous brand with nothing verifiable.
-    cards.sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
-    const out = cards.slice(0, KEEP).map((c, i) => ({ ...c, rank: i + 1 }));
-    console.log(`[dealScan:${lane}] returning ${out.length}/${cards.length} evidence-backed in ${Date.now() - _laneT0}ms`);
-    return out; // contacts load lazily via /api/agent/brand-contacts (non-blocking)
-  } catch (err) {
-    console.warn(`[dealScan:${lane}] failed: ${err.message}`);
-    return [];
-  }
-}
-
-// Canonical brand identity for the never-repeat exclude filter. A business shown
-// once must never come back, but its name arrives in inconsistent shapes across a
-// scan and a later refresh: "Planet Smoothie", "Planet Smoothie, Marietta",
 // "Planet Smoothie (Marietta)", "PLANET SMOOTHIE ". Reduce all of them to the
 // same key by dropping any market suffix after the first comma, dropping any
 // parenthetical, normalizing & to "and", and stripping case, spaces and
@@ -2072,18 +1739,13 @@ function _localNextPage(pool, excludeBrands, pageSize, priorityFn, getName) {
 }
 
 async function getDealRecommendations(athlete, role, excludeBrands, lane, opts = {}) {
-  // Deal Scan now has THREE lanes. The original LOCAL lane lives below; the
-  // SOCIAL (DTC/online brands) and TOP NIL SPENDERS lanes are handled by the
-  // shared brand-lane helper. Each lane runs independently so the frontend can
-  // fire all three in parallel and render each column progressively.
+  // Deal Scan lanes. LOCAL runs the web-search pipeline below; TOP NIL is served
+  // from deal_comps only (no web/AI). SOCIAL is served upstream at the endpoint
+  // from the curated social_brands index (store.getSocialBrands) and never reaches
+  // this function, so there is no social branch here.
   lane = lane || 'local';
-  // TOP NIL is served from deal_comps only (no web/AI); SOCIAL uses the shared
-  // brand-lane helper. LOCAL falls through to the pipeline below.
   if (lane === 'topnil') {
     return _topnilFromComps(athlete, excludeBrands);
-  }
-  if (lane === 'social') {
-    return _scanBrandLane(athlete, lane, excludeBrands);
   }
 
   // Deal Scan uses Sonnet (scoped to this function only) — faster than Opus,
@@ -3040,7 +2702,7 @@ module.exports = {
   _test: {
     _fmtFollowers, _cleanStr, _safeUrl, _primaryFollowers,
     _socialVerdict, _topnilVerdict, _deriveTypicalProfile,
-    _buildSocialCard, _buildTopNilCard,
+    _buildTopNilCard,
     _isGenericInbox, _validEmail, _normalizePhone, _contactAuthorityRank,
     resolveEmail, _fetchBrandContacts, _contactApproach, getBrandContacts, _phoneLocalityOk,
     _labelTitle, _mergeContacts, _mergeNameKey, _sourceLead, _CONTACT_SOURCES,

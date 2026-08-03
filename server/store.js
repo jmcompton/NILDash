@@ -683,6 +683,22 @@ async function init() {
     console.error('[init] contacts cache purge skipped:', e.message);
   }
 
+  // One-time: strip any stale 'social' key from athletes.deal_scan_cache. The
+  // Social lane is served live from social_brands (getSocialBrands) and must
+  // never be cached; older rows persisted a social key from the retired AI
+  // brand-lane, which loadDealScanCache would otherwise replay. Guarded by
+  // app_flags so it runs exactly once.
+  try {
+    const flag = await pool.query(`SELECT 1 FROM app_flags WHERE key = 'social_cache_strip_v1'`);
+    if (!flag.rows.length) {
+      const upd = await pool.query(`UPDATE athletes SET deal_scan_cache = deal_scan_cache - 'social' WHERE deal_scan_cache ? 'social'`);
+      await pool.query(`INSERT INTO app_flags (key) VALUES ('social_cache_strip_v1') ON CONFLICT DO NOTHING`).catch(() => {});
+      console.log(`[init] social cache strip (v1): ${upd.rowCount || 0} athlete row(s) updated`);
+    }
+  } catch (e) {
+    console.error('[init] social cache strip skipped:', e.message);
+  }
+
   // One-time comp seed for chosen partners: full access, no card, no charge,
   // until an admin removes it. Guarded by app_flags so a later manual un-comp is
   // not undone on the next boot.

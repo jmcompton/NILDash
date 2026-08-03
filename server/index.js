@@ -6231,6 +6231,8 @@ app.get('/api/athlete/deal-scan/cache', verifyAthleteToken, async (req, res) => 
   try {
     const r = await store.pool.query('SELECT deal_scan_cache, data->\'tags\' as tags FROM athletes WHERE id = $1', [req.athlete.id]);
     const cache = rederiveScanCacheTags((r.rows[0] && r.rows[0].deal_scan_cache) || {}, (r.rows[0] && r.rows[0].tags) || []);
+    // Social is never cached; never hand out a social cache key (see agent route).
+    if (cache && cache.social) delete cache.social;
     const rateCard = await _athleteRateCard(req.athlete.id);
     res.json({ cache, rateCard });
   } catch (e) { console.error('[athlete/deal-scan/cache]', e.message); res.status(500).json({ error: e.message }); }
@@ -6411,6 +6413,9 @@ app.post('/api/agent/deal-scan/worked', requireAuth, async (req, res) => {
     const { athleteId, brand, lane } = req.body || {};
     if (!athleteId || !brand) return res.json({ ok: false });
     const l = lane || 'local';
+    // Social is never cached (served live from social_brands), so it has no
+    // worked-set and must never write a 'social' key into deal_scan_cache.
+    if (l === 'social') return res.json({ ok: false, reason: 'social lane is not cached' });
     const existing = await _loadWorkedBrands(athleteId, l);
     const worked = Array.from(new Set([...existing, String(brand)]));
     await store.pool.query(
@@ -6450,6 +6455,9 @@ app.get('/api/agent/deal-scan/cache', requireAuth, async (req, res) => {
     if (athlete.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
     const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id = $1', [athleteId]);
     const cache = rederiveScanCacheTags((r.rows[0] && r.rows[0].deal_scan_cache) || {}, athlete.tags);
+    // Social is never cached (it reads the shared social_brands index); never hand
+    // out a social cache key so a stale row can't be replayed into the social lane.
+    if (cache && cache.social) delete cache.social;
     const rateCard = await _athleteRateCard(athleteId);
     res.json({ cache, rateCard });
   } catch (e) { console.error('[agent/deal-scan/cache]', e.message); res.status(500).json({ error: e.message }); }
