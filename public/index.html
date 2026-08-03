@@ -754,7 +754,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .ucp-nav-active { color: #e2e8f0 !important; background: rgba(26,58,92,0.3) !important; }
 /* ── Deal Scan lane layout ── */
 /* Local is the primary lane: first and widest on desktop, first on mobile */
-.ds-lanes{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.ds-lanes{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px;align-items:start}
 .ds-lane[data-lane="local"]{border-color:rgba(132,204,22,0.3)}
 .ds-lane{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column;min-width:0}
 .ds-lane-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
@@ -770,6 +770,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .ds-lane-tab.active{background:rgba(132,204,22,0.12);border-color:rgba(132,204,22,0.45);color:#84CC16}
 .ds-tab-count{font-size:10px;font-weight:700;background:rgba(255,255,255,0.08);border-radius:20px;padding:0 6px;min-width:18px;text-align:center}
 .ds-lane-tab.active .ds-tab-count{background:rgba(132,204,22,0.2)}
+/* Desktop right panel: Social + National Brands share a tabbed column */
+.ds-right-panel{display:flex;flex-direction:column;min-width:0}
+.ds-rp-tabs{display:flex;gap:8px;margin-bottom:12px}
+.ds-rp-tab{flex:1;background:transparent;border:0.5px solid var(--border);color:var(--muted);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:700;padding:9px 8px;border-radius:9px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;justify-content:center;gap:6px}
+.ds-rp-tab.active{background:rgba(168,85,247,0.18);color:#c084fc;border:1px solid rgba(168,85,247,0.3)}
+.ds-rp-tab.active .ds-tab-count{background:rgba(168,85,247,0.28)}
+@media(min-width:901px){
+  .ds-right-panel .ds-lane{display:none}
+  .ds-right-panel .ds-lane.ds-rp-active{display:flex}
+}
 .ds-lane-chip{font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:0.03em}
 .ds-step{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
 .ds-step.active{color:var(--text)}
@@ -781,6 +791,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
 @media(max-width:900px){
   .ds-lanes{grid-template-columns:1fr;gap:0}
   .ds-lane-tabs{display:flex}
+  .ds-right-panel{display:contents} /* passthrough: lanes stack as siblings of local */
+  .ds-rp-tabs{display:none}         /* desktop right-panel tabs hidden on mobile */
   .ds-lane{display:none;border:none;padding:0;background:transparent}
   .ds-lane.active{display:flex}
   .ds-lane-head,.ds-lane-sub{display:none}
@@ -1496,20 +1508,26 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div>
         <!-- Lane grid (desktop) / one active lane (mobile) -->
         <div id="ds-lanes" class="ds-lanes" style="display:none">
+          <!-- Left column: Local, always rendered, no tab -->
           <div class="ds-lane active" data-lane="local">
             <div class="ds-lane-head"><span class="ds-lane-title">Local</span><span class="ds-lane-count" id="ds-count-local">—</span></div>
             <div class="ds-lane-sub">Businesses near your client's school, plus their hometown when set</div>
             <div class="ds-lane-body" id="scan-results-local"></div>
           </div>
-          <div class="ds-lane" data-lane="social">
-            <div class="ds-lane-head"><span class="ds-lane-title">Social</span><span class="ds-lane-count" id="ds-count-social">—</span></div>
-            <div class="ds-lane-sub">Brands with proven athlete payment behavior</div>
-            <div class="ds-lane-body" id="scan-results-social"></div>
-          </div>
-          <div class="ds-lane" data-lane="topnil">
-            <div class="ds-lane-head"><span class="ds-lane-title">National Brands to Know</span><span class="ds-lane-count" id="ds-count-topnil">—</span></div>
-            <div class="ds-lane-sub">Big NIL brands that sign athletes like them</div>
-            <div class="ds-lane-body" id="scan-results-topnil"></div>
+          <!-- Right column: Social + National Brands, tabbed (desktop) -->
+          <div class="ds-right-panel">
+            <div class="ds-rp-tabs">
+              <button class="ds-rp-tab active" data-rp="social" onclick="_dsSwitchRightPanel('social')">Social <span class="ds-tab-count" id="ds-rpcount-social">0</span></button>
+              <button class="ds-rp-tab" data-rp="topnil" onclick="_dsSwitchRightPanel('topnil')">National <span class="ds-tab-count" id="ds-rpcount-topnil">0</span></button>
+            </div>
+            <div class="ds-lane ds-rp-active" data-lane="social">
+              <div class="ds-lane-sub">Brands with proven athlete payment behavior</div>
+              <div class="ds-lane-body" id="scan-results-social"></div>
+            </div>
+            <div class="ds-lane" data-lane="topnil">
+              <div class="ds-lane-sub">Big NIL brands that sign athletes like them</div>
+              <div class="ds-lane-body" id="scan-results-topnil"></div>
+            </div>
           </div>
         </div>
         <div id="scan-results-empty" style="text-align:center;color:var(--muted);padding:24px;font-size:12px">Select a client and run a deal scan to see recommendations across Local businesses and National Brands.</div>
@@ -6052,11 +6070,25 @@ function switchLane(lane) {
     c.classList.toggle('active', c.getAttribute('data-lane') === lane);
   });
 }
+// Desktop-only right-panel tab switch (Social / National). Separate from switchLane
+// because that one is coupled to the mobile breakpoint. Toggles visibility only;
+// neither lane's rendered data is destroyed, so switching back is instant.
+function _dsSwitchRightPanel(lane) {
+  document.querySelectorAll('.ds-rp-tab').forEach(function(t){
+    t.classList.toggle('active', t.getAttribute('data-rp') === lane);
+  });
+  document.querySelectorAll('.ds-right-panel .ds-lane').forEach(function(c){
+    c.classList.toggle('ds-rp-active', c.getAttribute('data-lane') === lane);
+  });
+}
 function _setLaneCount(lane, n) {
-  var a = document.getElementById('ds-count-' + lane);
-  var b = document.getElementById('ds-tabcount-' + lane);
+  var num = (typeof n === 'number') ? n : 0;
+  var a = document.getElementById('ds-count-' + lane);      // desktop left-lane badge (local)
+  var b = document.getElementById('ds-tabcount-' + lane);   // mobile lane tab
+  var c = document.getElementById('ds-rpcount-' + lane);    // desktop right-panel tab
   if (a) a.textContent = n;
-  if (b) b.textContent = (typeof n === 'number') ? n : 0;
+  if (b) b.textContent = num;
+  if (c) c.textContent = num;
 }
 
 // ── Progress animation ─────────────────────────────────────────────
