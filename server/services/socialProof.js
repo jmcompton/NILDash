@@ -18,6 +18,44 @@ const SIGNALS = [
   /\bnil\b(?!\s*\))/i,
 ];
 
+// A follower threshold "near the program language": a number followed by k/K or
+// "followers" (e.g. "10k followers", "5,000 followers", "50K+").
+const TIER_STATED_RE = /\b\d[\d,]*\+?\s*(?:k\b|followers\b)/i;
+
+function _decodeEntities(s) {
+  return String(s)
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&#0*39;|&apos;|&rsquo;|&lsquo;/gi, "'")
+    .replace(/&#0*34;|&quot;|&ldquo;|&rdquo;/gi, '"')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&[a-z0-9#]+;/gi, ' '); // any remaining entity -> space
+}
+
+// Build a proofSnippet (context around the matched term: ~150 chars each side,
+// tags removed, entities decoded, whitespace collapsed, trimmed to a clean word/
+// sentence boundary) and a tierStated flag (a follower threshold appears near the
+// match). Pure read of what verifySocialProof ALREADY matched; never affects pass/fail.
+function _proofEvidence(body, matchedRe) {
+  const text = _decodeEntities(String(body).replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  const re = new RegExp(matchedRe.source, 'i'); // fresh, non-global
+  const m = re.exec(text);
+  if (!m) return { proofSnippet: null, tierStated: false };
+  const idx = m.index, len = m[0].length;
+  const start = Math.max(0, idx - 150);
+  const end = Math.min(text.length, idx + len + 150);
+  let snip = text.slice(start, end);
+  if (start > 0) snip = snip.replace(/^\S*\s+/, '');         // drop a partial leading word
+  if (end < text.length) snip = snip.replace(/\s+\S*$/, ''); // drop a partial trailing word
+  const stop = Math.max(snip.lastIndexOf('. '), snip.lastIndexOf('! '), snip.lastIndexOf('? '));
+  if (stop >= 40) snip = snip.slice(0, stop + 1);            // prefer a sentence boundary
+  snip = snip.trim();
+  const wStart = Math.max(0, idx - 400), wEnd = Math.min(text.length, idx + len + 400);
+  const tierStated = TIER_STATED_RE.test(text.slice(wStart, wEnd));
+  return { proofSnippet: snip || null, tierStated };
+}
+
 async function verifySocialProof(proofUrl) {
   if (!proofUrl) return { ok: false, reason: 'missing proof_url', status_code: null, finalUrl: null };
   const ctrl = new AbortController();
@@ -39,7 +77,9 @@ async function verifySocialProof(proofUrl) {
       .replace(/<style[\s\S]*?<\/style>/gi, ' ');
     const matched = SIGNALS.find((re) => re.test(body));
     if (!matched) return { ok: false, reason: 'no program language found on page', status_code: status, finalUrl };
-    return { ok: true, reason: null, status_code: status, finalUrl, matched: matched.source };
+    // Capture what was matched for the card. Does not affect the pass/fail above.
+    const { proofSnippet, tierStated } = _proofEvidence(body, matched);
+    return { ok: true, reason: null, status_code: status, finalUrl, matched: matched.source, proofSnippet, tierStated };
   } catch (e) {
     clearTimeout(t);
     return { ok: false, reason: 'fetch error: ' + e.message, status_code: null, finalUrl: null };
@@ -64,7 +104,8 @@ const MAX_FETCHES_PER_BRAND = 8; // homepage + verify attempts, so cost stays bo
 // URL. Fetches the homepage, scores same-domain links, verifies the top few, then
 // tries common program paths. Every candidate URL still goes through
 // verifySocialProof (200 + SIGNALS), so nothing is trusted without the gate.
-// Returns { url, via: 'link' | 'fallback' } on the first page that passes, else null.
+// Returns { url, via: 'link' | 'fallback', snippet, tierStated } on the first page
+// that passes, else null.
 async function findProgramUrl(website) {
   if (!website) return null;
   let base;
@@ -80,7 +121,7 @@ async function findProgramUrl(website) {
     if (fetches >= MAX_FETCHES_PER_BRAND) return null;
     fetches++;
     const v = await verifySocialProof(u);
-    return v.ok ? (v.finalUrl || u) : null;
+    return v.ok ? { url: v.finalUrl || u, snippet: v.proofSnippet || null, tierStated: !!v.tierStated } : null;
   };
 
   // 1. Fetch the homepage.
@@ -121,7 +162,7 @@ async function findProgramUrl(website) {
   // 4. Verify the top 3 scoring links; first pass wins.
   for (const s of scored.slice(0, 3)) {
     const hit = await tryVerify(s.url);
-    if (hit) return { url: hit, via: 'link' };
+    if (hit) return { url: hit.url, via: 'link', snippet: hit.snippet, tierStated: hit.tierStated };
     if (fetches >= MAX_FETCHES_PER_BRAND) return null;
   }
 
@@ -131,7 +172,7 @@ async function findProgramUrl(website) {
     let u;
     try { u = new URL(p, base.origin).href; } catch { continue; }
     const hit = await tryVerify(u);
-    if (hit) return { url: hit, via: 'fallback' };
+    if (hit) return { url: hit.url, via: 'fallback', snippet: hit.snippet, tierStated: hit.tierStated };
   }
 
   // 6. Nothing passed.

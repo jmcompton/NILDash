@@ -409,12 +409,18 @@ async function init() {
       cadence_note TEXT,
       proof_url TEXT NOT NULL,
       proof_date DATE NOT NULL,
+      proof_snippet TEXT,
+      tier_stated BOOLEAN DEFAULT FALSE,
       active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `).then(() => console.log('[init] social_brands table ready'))
     .catch(e => console.error('[init] social_brands:', e.message));
+  // Evidence captured from the verified program page + whether the page actually
+  // states a follower threshold. ALTER for tables created before these columns.
+  await pool.query(`ALTER TABLE social_brands ADD COLUMN IF NOT EXISTS proof_snippet TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE social_brands ADD COLUMN IF NOT EXISTS tier_stated BOOLEAN DEFAULT FALSE`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_sports ON social_brands USING GIN (sports)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_tier ON social_brands (tier_min, tier_max)`).catch(() => {});
   // Unique on brand so the verify-seed endpoint can upsert with ON CONFLICT (brand).
@@ -2186,10 +2192,12 @@ function _decorateSocialBrand(row) {
     if (now.getDate() < proof.getDate()) proofAge -= 1; // not a full month yet
     if (proofAge < 0) proofAge = 0;
   }
-  const sports = Array.isArray(row.sports) ? row.sports : [];
-  const whyFits =
-    `Signs ${sports.join(', ')} athletes in the ${row.tier_min}–${row.tier_max} follower range.` +
-    (row.cadence_note ? ` ${row.cadence_note}` : '');
+  // whyFits leads with the real program note (cadence_note). No follower-range
+  // sentence: the Tier field below the line already shows it (or "Not stated").
+  // When there is no cadence_note, fall back to the deal-structure description.
+  const structDesc = { cash_code: 'Cash + code', affiliate: 'Affiliate only', cash: 'Cash', gifting_code: 'Gifting + code' };
+  const cadence = row.cadence_note ? String(row.cadence_note).trim() : '';
+  const whyFits = cadence || structDesc[row.deal_structure] || row.deal_structure || 'Runs an athlete program';
   return { ...row, proofAge, freshness: proofAge <= 12 ? 'current' : 'aging', whyFits, lane: 'social' };
 }
 

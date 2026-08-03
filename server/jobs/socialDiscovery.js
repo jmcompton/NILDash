@@ -185,9 +185,9 @@ async function runSocialDiscovery() {
     try {
       await store.pool.query(
         `INSERT INTO social_brands
-           (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_date, active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CURRENT_DATE,true)
-         ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, active = true, updated_at = NOW()`,
+           (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, proof_date, active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CURRENT_DATE,true)
+         ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, active = true, updated_at = NOW()`,
         [
           c.brand,
           c.category || 'unknown',
@@ -200,6 +200,8 @@ async function runSocialDiscovery() {
           c.est_high == null ? null : Number(c.est_high),
           c.cadence_note || null,
           found.url,
+          found.snippet || null,
+          !!found.tierStated,
         ]
       );
       summary.inserted++;
