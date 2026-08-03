@@ -6716,9 +6716,9 @@ function _dsSocialCardHtml(d, i) {
         '<a href="' + esc(d.proof_url) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:none;display:inline-flex;align-items:center;gap:3px">' + esc(proofLabel) + extIcon + '</a>' : '') +
     '</div>' +
     // 3. EVIDENCE BLOCK (only when proof_snippet exists)
-    (d.proof_snippet ? '<div style="border-left:2px solid var(--accent);border-radius:0;padding-left:12px;margin-bottom:14px">' +
-      '<div style="font-size:14px;line-height:1.6;color:var(--text);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">' + esc('"' + String(d.proof_snippet).trim() + '"') + '</div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:6px">Found on their site</div></div>' : '') +
+    (d.offer_summary ? '<div style="border-left:2px solid var(--accent);border-radius:0;padding-left:12px;margin-bottom:14px">' +
+      '<div style="font-size:14px;line-height:1.6;color:var(--text);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">' + esc(String(d.offer_summary).trim()) + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:6px">What they offer</div></div>' : '') +
     // 4. FIELD ROW
     '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:14px">' +
       fld('Deal', dealVal, true, 'var(--text)') +

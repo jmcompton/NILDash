@@ -165,6 +165,28 @@ function _rejectSnippet(s) {
   return null;
 }
 
+// One-time, insert-time AI summary of a verified program page. Called ONLY by the
+// admin verify-seed / reverify endpoints and the nightly discovery job -- NEVER on
+// the scan path, which stays a pure DB read with zero AI calls. One Haiku call, no
+// web search. Returns one plain sentence, or null on NONE / empty / too long / any
+// error. A failed summary must never block an insert.
+async function summarizeProgram(pageText) {
+  try {
+    const text = String(pageText || '').slice(0, 6000).trim();
+    if (!text) return null;
+    const ai = require('../ai');
+    const prompt = 'Here is the text of a brand\'s athlete or creator program page. In ONE sentence under 25 words, state what an athlete gets by joining. Be concrete about compensation if the page mentions it. Write plainly, no marketing language, no exclamation points. If the page does not actually describe a program, return exactly NONE.\n\n' + text;
+    const raw = await ai.oneShot(prompt, 'You summarize brand program pages in one plain, factual sentence. Output only the sentence, or exactly NONE.', 120, ai.MODEL_FAST);
+    const out = String(raw || '').trim().replace(/^["']+|["']+$/g, '').trim();
+    if (!out || out.toUpperCase() === 'NONE') return null;
+    if (out.split(/\s+/).filter(Boolean).length > 40) return null;
+    return out;
+  } catch (e) {
+    console.warn('[socialProof] summarizeProgram failed:', e.message);
+    return null;
+  }
+}
+
 async function verifySocialProof(proofUrl) {
   if (!proofUrl) return { ok: false, reason: 'missing proof_url', status_code: null, finalUrl: null };
   const ctrl = new AbortController();
@@ -196,14 +218,17 @@ async function verifySocialProof(proofUrl) {
     // Capture what was matched for the card. Does not affect the pass/fail above.
     // proofReason is 'matched' | 'alternate_signal' | 'markup_only'.
     const { proofSnippet, tierStated, reason: proofReason } = _proofEvidence(body, matched);
-    return { ok: true, reason: null, status_code: status, finalUrl, matched: matched.source, proofSnippet, tierStated, proofReason };
+    // Tag-stripped visible text of the verified page, surfaced so an insert point can
+    // summarize it once (summarizeProgram) without refetching. Does not affect pass/fail.
+    const pageText = _decodeEntities(body.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+    return { ok: true, reason: null, status_code: status, finalUrl, matched: matched.source, proofSnippet, tierStated, proofReason, pageText };
   } catch (e) {
     clearTimeout(t);
     return { ok: false, reason: 'fetch error: ' + e.message, status_code: null, finalUrl: null };
   }
 }
 
-module.exports = { SIGNALS, verifySocialProof, findProgramUrl };
+module.exports = { SIGNALS, verifySocialProof, findProgramUrl, summarizeProgram };
 
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 // A link is a program-page candidate if its href OR its anchor text mentions any
@@ -238,7 +263,7 @@ async function findProgramUrl(website) {
     if (fetches >= MAX_FETCHES_PER_BRAND) return null;
     fetches++;
     const v = await verifySocialProof(u);
-    return v.ok ? { url: v.finalUrl || u, snippet: v.proofSnippet || null, tierStated: !!v.tierStated } : null;
+    return v.ok ? { url: v.finalUrl || u, snippet: v.proofSnippet || null, tierStated: !!v.tierStated, pageText: v.pageText || '' } : null;
   };
 
   // 1. Fetch the homepage.
@@ -279,7 +304,7 @@ async function findProgramUrl(website) {
   // 4. Verify the top 3 scoring links; first pass wins.
   for (const s of scored.slice(0, 3)) {
     const hit = await tryVerify(s.url);
-    if (hit) return { url: hit.url, via: 'link', snippet: hit.snippet, tierStated: hit.tierStated };
+    if (hit) return { url: hit.url, via: 'link', snippet: hit.snippet, tierStated: hit.tierStated, pageText: hit.pageText };
     if (fetches >= MAX_FETCHES_PER_BRAND) return null;
   }
 
@@ -289,7 +314,7 @@ async function findProgramUrl(website) {
     let u;
     try { u = new URL(p, base.origin).href; } catch { continue; }
     const hit = await tryVerify(u);
-    if (hit) return { url: hit.url, via: 'fallback', snippet: hit.snippet, tierStated: hit.tierStated };
+    if (hit) return { url: hit.url, via: 'fallback', snippet: hit.snippet, tierStated: hit.tierStated, pageText: hit.pageText };
   }
 
   // 6. Nothing passed.

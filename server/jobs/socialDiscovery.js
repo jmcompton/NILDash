@@ -24,7 +24,7 @@ const path = require('path');
 const fs = require('fs');
 const store = require('../store');
 const ai = require('../ai');
-const { verifySocialProof, findProgramUrl } = require('../services/socialProof');
+const { verifySocialProof, findProgramUrl, summarizeProgram } = require('../services/socialProof');
 
 const QUERIES_PATH = path.join(__dirname, '..', 'data', 'socialDiscoveryQueries.json');
 const QUERIES_PER_RUN = 4;   // how many queries to run per night
@@ -128,7 +128,7 @@ async function _alreadyKnown(brand, normSite) {
 }
 
 async function runSocialDiscovery() {
-  const summary = { queriesRun: 0, proposed: 0, inserted: 0, foundByLink: 0, foundByFallback: 0, notFound: 0, skippedDuplicate: 0, insertedBrands: [] };
+  const summary = { queriesRun: 0, proposed: 0, inserted: 0, summarized: 0, foundByLink: 0, foundByFallback: 0, notFound: 0, skippedDuplicate: 0, insertedBrands: [] };
 
   const all = _loadQueries();
   const queries = _pickQueries(all, QUERIES_PER_RUN);
@@ -182,12 +182,14 @@ async function runSocialDiscovery() {
       continue;
     }
     if (found.via === 'link') summary.foundByLink++; else summary.foundByFallback++;
+    // One Haiku call on the verified program page (never on the scan path).
+    const offerSummary = await summarizeProgram(found.pageText); summary.summarized++;
     try {
       await store.pool.query(
         `INSERT INTO social_brands
-           (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, proof_date, active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CURRENT_DATE,true)
-         ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, active = true, updated_at = NOW()`,
+           (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, offer_summary, proof_date, active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,CURRENT_DATE,true)
+         ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, offer_summary = EXCLUDED.offer_summary, active = true, updated_at = NOW()`,
         [
           c.brand,
           c.category || 'unknown',
@@ -202,6 +204,7 @@ async function runSocialDiscovery() {
           found.url,
           found.snippet || null,
           !!found.tierStated,
+          offerSummary,
         ]
       );
       summary.inserted++;
@@ -213,7 +216,7 @@ async function runSocialDiscovery() {
 
   console.log(
     `[socialDiscovery] queriesRun=${summary.queriesRun} proposed=${summary.proposed} ` +
-    `inserted=${summary.inserted} foundByLink=${summary.foundByLink} foundByFallback=${summary.foundByFallback} ` +
+    `inserted=${summary.inserted} summarized=${summary.summarized} foundByLink=${summary.foundByLink} foundByFallback=${summary.foundByFallback} ` +
     `notFound=${summary.notFound} skippedDuplicate=${summary.skippedDuplicate} brands=${JSON.stringify(summary.insertedBrands)}`
   );
   return summary;

@@ -411,6 +411,7 @@ async function init() {
       proof_date DATE NOT NULL,
       proof_snippet TEXT,
       tier_stated BOOLEAN DEFAULT FALSE,
+      offer_summary TEXT,
       active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -421,6 +422,9 @@ async function init() {
   // states a follower threshold. ALTER for tables created before these columns.
   await pool.query(`ALTER TABLE social_brands ADD COLUMN IF NOT EXISTS proof_snippet TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE social_brands ADD COLUMN IF NOT EXISTS tier_stated BOOLEAN DEFAULT FALSE`).catch(() => {});
+  // One-line AI summary of the verified program page, written once at insert time.
+  // Replaces regex snippet extraction for display; proof_snippet is kept for now.
+  await pool.query(`ALTER TABLE social_brands ADD COLUMN IF NOT EXISTS offer_summary TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_sports ON social_brands USING GIN (sports)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_tier ON social_brands (tier_min, tier_max)`).catch(() => {});
   // Unique on brand so the verify-seed endpoint can upsert with ON CONFLICT (brand).

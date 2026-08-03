@@ -3465,7 +3465,7 @@ app.post('/api/admin/set-plan', async (req, res) => {
 // (fetch -> HTTP 200 -> program-language SIGNALS) lives in one shared module so
 // the endpoints below AND the nightly discovery job use the SAME check. Nothing is
 // ever inserted on the word of the caller alone.
-const { verifySocialProof } = require('./services/socialProof');
+const { verifySocialProof, summarizeProgram } = require('./services/socialProof');
 
 // POST /api/admin/social-brands/verify-seed — body: JSON array of candidate rows
 // (social_brands schema minus proof_date). Each proof_url is fetched and checked
@@ -3478,26 +3478,29 @@ app.post('/api/admin/social-brands/verify-seed', async (req, res) => {
     if (!candidates) return res.status(400).json({ error: 'Body must be a JSON array of candidate rows.' });
     const inserted = [];
     const skipped = [];
+    let summarized = 0;
     for (const c of candidates) {
       if (!c || !c.brand || !c.proof_url) { skipped.push({ brand: (c && c.brand) || null, reason: 'missing brand or proof_url', status_code: null }); continue; }
       const v = await verifySocialProof(c.proof_url);
       if (!v.ok) { skipped.push({ brand: c.brand, reason: v.reason, status_code: v.status_code }); continue; }
+      // One Haiku call on the verified page text (never on the scan path).
+      const offerSummary = await summarizeProgram(v.pageText); summarized++;
       try {
         await store.pool.query(
           `INSERT INTO social_brands
-             (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, proof_date, active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CURRENT_DATE,true)
-           ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, active = true, updated_at = NOW()`,
+             (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, offer_summary, proof_date, active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,CURRENT_DATE,true)
+           ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, offer_summary = EXCLUDED.offer_summary, active = true, updated_at = NOW()`,
           [c.brand, c.category, c.website || null, c.sports, c.tier_min, c.tier_max, c.deal_structure,
            c.est_low === undefined ? null : c.est_low, c.est_high === undefined ? null : c.est_high,
-           c.cadence_note || null, c.proof_url, v.proofSnippet || null, !!v.tierStated]
+           c.cadence_note || null, c.proof_url, v.proofSnippet || null, !!v.tierStated, offerSummary]
         );
         inserted.push({ brand: c.brand, status_code: v.status_code, matched: v.matched, finalUrl: v.finalUrl });
       } catch (e) {
         skipped.push({ brand: c.brand, reason: 'db error: ' + e.message, status_code: v.status_code });
       }
     }
-    console.log(`[social-brands/verify-seed] inserted=${inserted.length} skipped=${skipped.length} ` + JSON.stringify({ inserted: inserted.map((i) => i.brand), skipped }));
+    console.log(`[social-brands/verify-seed] inserted=${inserted.length} skipped=${skipped.length} summarized=${summarized} ` + JSON.stringify({ inserted: inserted.map((i) => i.brand), skipped }));
     res.json({ inserted, skipped });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3513,17 +3516,20 @@ app.post('/api/admin/social-brands/reverify', async (req, res) => {
     const rows = (await store.pool.query('SELECT id, brand, proof_url FROM social_brands WHERE active = true')).rows;
     const inserted = [];
     const skipped = [];
+    let summarized = 0;
     for (const row of rows) {
       const v = await verifySocialProof(row.proof_url);
       if (v.ok) {
-        await store.pool.query('UPDATE social_brands SET proof_date = CURRENT_DATE, proof_snippet = $2, tier_stated = $3, active = true, updated_at = NOW() WHERE id = $1', [row.id, v.proofSnippet || null, !!v.tierStated]);
+        // One Haiku call per passing brand; on 200 brands that is 200 calls.
+        const offerSummary = await summarizeProgram(v.pageText); summarized++;
+        await store.pool.query('UPDATE social_brands SET proof_date = CURRENT_DATE, proof_snippet = $2, tier_stated = $3, offer_summary = $4, active = true, updated_at = NOW() WHERE id = $1', [row.id, v.proofSnippet || null, !!v.tierStated, offerSummary]);
         inserted.push({ brand: row.brand, status_code: v.status_code, matched: v.matched, finalUrl: v.finalUrl });
       } else {
         await store.pool.query('UPDATE social_brands SET active = false, updated_at = NOW() WHERE id = $1', [row.id]);
         skipped.push({ brand: row.brand, reason: v.reason, status_code: v.status_code });
       }
     }
-    console.log(`[social-brands/reverify] passed=${inserted.length} retired=${skipped.length} ` + JSON.stringify({ passed: inserted.map((i) => i.brand), retired: skipped }));
+    console.log(`[social-brands/reverify] passed=${inserted.length} retired=${skipped.length} summarized=${summarized} ` + JSON.stringify({ passed: inserted.map((i) => i.brand), retired: skipped }));
     res.json({ inserted, skipped });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
