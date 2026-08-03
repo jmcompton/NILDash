@@ -47,6 +47,17 @@ function _proofEvidence(body, matchedRe) {
   // readable text counts, even when snippet extraction below finds nothing.
   const tierStated = TIER_STATED_RE.test(text);
 
+  // A match sitting in nav / breadcrumb chrome ("Affiliates | On United States
+  // Skip to content") makes a useless snippet. Reject a candidate if its
+  // surrounding 100 chars look like navigation: many pipe separators or a
+  // known skip-link / menu-toggle phrase.
+  const isNavContext = (m) => {
+    const idx = m.index, len = m[0].length;
+    const around = text.slice(Math.max(0, idx - 100), Math.min(text.length, idx + len + 100));
+    if ((around.match(/\|/g) || []).length > 2) return true;
+    return /skip to content|skip to main|toggle menu/i.test(around);
+  };
+
   const snippetAround = (m) => {
     const idx = m.index, len = m[0].length;
     const start = Math.max(0, idx - 150);
@@ -59,16 +70,22 @@ function _proofEvidence(body, matchedRe) {
     return snip.trim() || null;
   };
 
-  // 1. Primary: locate the SAME term verifySocialProof matched, in the prose.
+  // 1. Primary: locate the SAME term verifySocialProof matched, in the prose,
+  //    but only if it is not buried in nav chrome.
   const primary = new RegExp(matchedRe.source, 'i').exec(text);
-  if (primary) return { proofSnippet: snippetAround(primary), tierStated, reason: 'matched' };
+  if (primary && !isNavContext(primary)) return { proofSnippet: snippetAround(primary), tierStated, reason: 'matched' };
 
-  // 2. Fallback: the matched term was markup-only. Scan the prose for ANY SIGNALS
-  //    term and use the first that appears (a nav /affiliate link often pairs with
-  //    body copy elsewhere saying "ambassador" or "become a rep").
+  // 2. Fallback: the matched term was markup-only OR sat in nav chrome. Scan the
+  //    prose for ANY SIGNALS term and use the first CLEAN one (a nav /affiliate
+  //    link often pairs with body copy elsewhere saying "ambassador" or
+  //    "become a rep"). Skip candidates whose context also looks like nav.
   for (const re of SIGNALS) {
-    const alt = new RegExp(re.source, 'i').exec(text);
-    if (alt) return { proofSnippet: snippetAround(alt), tierStated, reason: 'alternate_signal' };
+    const rx = new RegExp(re.source, 'ig');
+    let alt;
+    while ((alt = rx.exec(text)) !== null) {
+      if (alt[0].length === 0) { rx.lastIndex++; continue; }
+      if (!isNavContext(alt)) return { proofSnippet: snippetAround(alt), tierStated, reason: 'alternate_signal' };
+    }
   }
 
   // 3. No program language in the readable prose at all. Snippet null, but
