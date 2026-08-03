@@ -18,9 +18,29 @@ const SIGNALS = [
   /\bnil\b(?!\s*\))/i,
 ];
 
-// A follower threshold "near the program language": a number followed by k/K or
-// "followers" (e.g. "10k followers", "5,000 followers", "50K+").
-const TIER_STATED_RE = /\b\d[\d,]*\+?\s*(?:k\b|followers\b)/i;
+// A STATED follower threshold: a number (optionally with commas / a k suffix)
+// sitting within ~30 chars of an audience word (follower/followers/following/
+// audience), in EITHER order. Proximity is required so a bare figure with no
+// audience word nearby ("50K prize", "$25K giveaway", "1,000 reviews") does NOT
+// count as a tier statement. Matches "10k followers", "5,000 followers",
+// "audience of 12,000", "50K+ audience".
+const _AUDIENCE = '(?:followers?|following|audience)';
+const _NUM = '\\d[\\d,]*\\+?\\s*k?';
+const TIER_STATED_RE = new RegExp(
+  '\\b' + _NUM + '\\b[\\s\\S]{0,30}?\\b' + _AUDIENCE + '\\b' +
+  '|\\b' + _AUDIENCE + '\\b[\\s\\S]{0,30}?\\b' + _NUM + '\\b',
+  'i'
+);
+
+// True when a URL's path is effectively the site root: empty, "/", "/home", or
+// "/index.html" after dropping query string and hash. Used to reject a program
+// path that 301s to the homepage (the program page is gone).
+function isHomepage(url) {
+  try {
+    const p = new URL(url).pathname.replace(/\/+$/, '').toLowerCase();
+    return p === '' || p === '/home' || p === '/index.html';
+  } catch { return false; }
+}
 
 function _decodeEntities(s) {
   return String(s)
@@ -107,6 +127,13 @@ async function verifySocialProof(proofUrl) {
     const status = resp.status;
     const finalUrl = resp.url || proofUrl;
     if (status !== 200) return { ok: false, reason: 'non-200 status', status_code: status, finalUrl };
+    // A program path that redirects to the homepage means the program page is gone:
+    // the requested URL was a specific page but we landed on the site root. Fail it
+    // (independent of SIGNALS) so findProgramUrl moves on to the next candidate and
+    // reverify retires the row. A directly-supplied homepage proof_url is unaffected.
+    if (!isHomepage(proofUrl) && isHomepage(finalUrl)) {
+      return { ok: false, reason: 'redirected to homepage', status_code: status, finalUrl };
+    }
     // Strip <script> and <style> blocks first so a tracking snippet or JSON-LD
     // blob can't trigger a match, then require at least one program signal.
     const body = (await resp.text())
