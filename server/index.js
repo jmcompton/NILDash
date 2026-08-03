@@ -3485,12 +3485,12 @@ app.post('/api/admin/social-brands/verify-seed', async (req, res) => {
       try {
         await store.pool.query(
           `INSERT INTO social_brands
-             (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, proof_date, active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CURRENT_DATE,true)
-           ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, active = true, updated_at = NOW()`,
+             (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, proof_date, active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CURRENT_DATE,true)
+           ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, active = true, updated_at = NOW()`,
           [c.brand, c.category, c.website || null, c.sports, c.tier_min, c.tier_max, c.deal_structure,
            c.est_low === undefined ? null : c.est_low, c.est_high === undefined ? null : c.est_high,
-           c.cadence_note || null, c.proof_url, v.proofSnippet || null]
+           c.cadence_note || null, c.proof_url, v.proofSnippet || null, !!v.tierStated]
         );
         inserted.push({ brand: c.brand, status_code: v.status_code, matched: v.matched, finalUrl: v.finalUrl });
       } catch (e) {
@@ -3516,7 +3516,7 @@ app.post('/api/admin/social-brands/reverify', async (req, res) => {
     for (const row of rows) {
       const v = await verifySocialProof(row.proof_url);
       if (v.ok) {
-        await store.pool.query('UPDATE social_brands SET proof_date = CURRENT_DATE, proof_snippet = $2, active = true, updated_at = NOW() WHERE id = $1', [row.id, v.proofSnippet || null]);
+        await store.pool.query('UPDATE social_brands SET proof_date = CURRENT_DATE, proof_snippet = $2, tier_stated = $3, active = true, updated_at = NOW() WHERE id = $1', [row.id, v.proofSnippet || null, !!v.tierStated]);
         inserted.push({ brand: row.brand, status_code: v.status_code, matched: v.matched, finalUrl: v.finalUrl });
       } else {
         await store.pool.query('UPDATE social_brands SET active = false, updated_at = NOW() WHERE id = $1', [row.id]);
