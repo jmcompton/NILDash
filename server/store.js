@@ -417,6 +417,8 @@ async function init() {
     .catch(e => console.error('[init] social_brands:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_sports ON social_brands USING GIN (sports)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_tier ON social_brands (tier_min, tier_max)`).catch(() => {});
+  // Unique on brand so the verify-seed endpoint can upsert with ON CONFLICT (brand).
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_social_brands_brand ON social_brands (brand)`).catch(() => {});
 
   // Media kit theme: 'school' (auto school colors, the original look) or
   // 'nildash' (dark + lime brand). NULL on existing rows = school behavior, so

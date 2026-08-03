@@ -1,0 +1,28 @@
+[
+  {
+    "brand": "Honey Stinger",
+    "category": "sports nutrition",
+    "website": "https://honeystinger.com",
+    "sports": ["all"],
+    "tier_min": 1000,
+    "tier_max": 150000,
+    "deal_structure": "cash_code",
+    "est_low": 150,
+    "est_high": 750,
+    "cadence_note": "1,000+ active college student-athletes in the program",
+    "proof_url": "https://honeystinger.com/pages/the-hive"
+  },
+  {
+    "brand": "Campus Protein",
+    "category": "supplements",
+    "website": "https://campusprotein.com",
+    "sports": ["all"],
+    "tier_min": 500,
+    "tier_max": 75000,
+    "deal_structure": "affiliate",
+    "est_low": null,
+    "est_high": null,
+    "cadence_note": "Open campus rep program, commission on personal code",
+    "proof_url": "https://campusprotein.com/pages/apply"
+  }
+]

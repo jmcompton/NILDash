@@ -3427,6 +3427,97 @@ app.post('/api/admin/set-plan', async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Social lane brand index: verified insert + periodic reverify ─────────────
+// Every social_brands row must be backed by a live program page. These endpoints
+// fetch the proof_url server-side and require the page to actually mention a
+// program before a row is trusted. Nothing is ever inserted on the word of the
+// caller alone.
+const SOCIAL_PROOF_TERMS = ['ambassador', 'affiliate', 'creator program', 'brand partner', 'nil', 'become a rep', 'sponsored athlete'];
+async function _verifySocialProof(proofUrl) {
+  if (!proofUrl) return { ok: false, reason: 'missing proof_url', status_code: null, finalUrl: null };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const resp = await fetch(proofUrl, {
+      redirect: 'follow',
+      signal: ctrl.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36' },
+    });
+    clearTimeout(t);
+    const status = resp.status;
+    const finalUrl = resp.url || proofUrl;
+    if (status !== 200) return { ok: false, reason: 'non-200 status', status_code: status, finalUrl };
+    const body = (await resp.text()).toLowerCase();
+    const matched = SOCIAL_PROOF_TERMS.find((term) => body.includes(term));
+    if (!matched) return { ok: false, reason: 'no program language found on page', status_code: status, finalUrl };
+    return { ok: true, reason: null, status_code: status, finalUrl, matched };
+  } catch (e) {
+    clearTimeout(t);
+    return { ok: false, reason: 'fetch error: ' + e.message, status_code: null, finalUrl: null };
+  }
+}
+
+// POST /api/admin/social-brands/verify-seed — body: JSON array of candidate rows
+// (social_brands schema minus proof_date). Each proof_url is fetched and checked
+// before its row is upserted with proof_date = today. Failures are never inserted.
+app.post('/api/admin/social-brands/verify-seed', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const candidates = Array.isArray(req.body) ? req.body : (req.body && Array.isArray(req.body.candidates) ? req.body.candidates : null);
+    if (!candidates) return res.status(400).json({ error: 'Body must be a JSON array of candidate rows.' });
+    const inserted = [];
+    const skipped = [];
+    for (const c of candidates) {
+      if (!c || !c.brand || !c.proof_url) { skipped.push({ brand: (c && c.brand) || null, reason: 'missing brand or proof_url', status_code: null }); continue; }
+      const v = await _verifySocialProof(c.proof_url);
+      if (!v.ok) { skipped.push({ brand: c.brand, reason: v.reason, status_code: v.status_code }); continue; }
+      try {
+        await store.pool.query(
+          `INSERT INTO social_brands
+             (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_date, active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CURRENT_DATE,true)
+           ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, active = true, updated_at = NOW()`,
+          [c.brand, c.category, c.website || null, c.sports, c.tier_min, c.tier_max, c.deal_structure,
+           c.est_low === undefined ? null : c.est_low, c.est_high === undefined ? null : c.est_high,
+           c.cadence_note || null, c.proof_url]
+        );
+        inserted.push({ brand: c.brand, status_code: v.status_code, matched: v.matched, finalUrl: v.finalUrl });
+      } catch (e) {
+        skipped.push({ brand: c.brand, reason: 'db error: ' + e.message, status_code: v.status_code });
+      }
+    }
+    console.log(`[social-brands/verify-seed] inserted=${inserted.length} skipped=${skipped.length} ` + JSON.stringify({ inserted: inserted.map((i) => i.brand), skipped }));
+    res.json({ inserted, skipped });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/admin/social-brands/reverify — no input. Re-checks every ACTIVE row's
+// proof_url; passing rows get proof_date refreshed, failing rows are deactivated
+// (active=false). Keeps the index from rotting. Returns { inserted, skipped }
+// where inserted = rows that passed, skipped = rows that failed and were retired.
+app.post('/api/admin/social-brands/reverify', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const rows = (await store.pool.query('SELECT id, brand, proof_url FROM social_brands WHERE active = true')).rows;
+    const inserted = [];
+    const skipped = [];
+    for (const row of rows) {
+      const v = await _verifySocialProof(row.proof_url);
+      if (v.ok) {
+        await store.pool.query('UPDATE social_brands SET proof_date = CURRENT_DATE, active = true, updated_at = NOW() WHERE id = $1', [row.id]);
+        inserted.push({ brand: row.brand, status_code: v.status_code, matched: v.matched, finalUrl: v.finalUrl });
+      } else {
+        await store.pool.query('UPDATE social_brands SET active = false, updated_at = NOW() WHERE id = $1', [row.id]);
+        skipped.push({ brand: row.brand, reason: v.reason, status_code: v.status_code });
+      }
+    }
+    console.log(`[social-brands/reverify] passed=${inserted.length} retired=${skipped.length} ` + JSON.stringify({ passed: inserted.map((i) => i.brand), retired: skipped }));
+    res.json({ inserted, skipped });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Admin-only comp toggle. A comped user gets full access with no card and no
 // charge until an admin removes it. This is the ONLY way to grant free access;
 // signup can never produce it.
