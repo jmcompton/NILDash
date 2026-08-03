@@ -67,17 +67,6 @@ function _proofEvidence(body, matchedRe) {
   // readable text counts, even when snippet extraction below finds nothing.
   const tierStated = TIER_STATED_RE.test(text);
 
-  // A match sitting in nav / breadcrumb chrome ("Affiliates | On United States
-  // Skip to content") makes a useless snippet. Reject a candidate if its
-  // surrounding 100 chars look like navigation: many pipe separators or a
-  // known skip-link / menu-toggle phrase.
-  const isNavContext = (m) => {
-    const idx = m.index, len = m[0].length;
-    const around = text.slice(Math.max(0, idx - 100), Math.min(text.length, idx + len + 100));
-    if ((around.match(/\|/g) || []).length > 2) return true;
-    return /skip to content|skip to main|toggle menu/i.test(around);
-  };
-
   const snippetAround = (m) => {
     const idx = m.index, len = m[0].length;
     const start = Math.max(0, idx - 150);
@@ -90,27 +79,90 @@ function _proofEvidence(body, matchedRe) {
     return snip.trim() || null;
   };
 
-  // 1. Primary: locate the SAME term verifySocialProof matched, in the prose,
-  //    but only if it is not buried in nav chrome.
-  const primary = new RegExp(matchedRe.source, 'i').exec(text);
-  if (primary && !isNavContext(primary)) return { proofSnippet: snippetAround(primary), tierStated, reason: 'matched' };
+  // Consider a candidate snippet and either accept it (return the result object)
+  // or reject it (log the reason and return null). _rejectSnippet returns a reason
+  // string when the snippet reads like footer/nav chrome rather than program prose.
+  const consider = (m, reason) => {
+    const snip = snippetAround(m);
+    if (!snip) return null;
+    const rej = _rejectSnippet(snip);
+    if (rej) { console.log(`[socialProof] snippet rejected (${rej}) path=${reason}: ${snip.slice(0, 90)}`); return null; }
+    return { proofSnippet: snip, tierStated, reason };
+  };
 
-  // 2. Fallback: the matched term was markup-only OR sat in nav chrome. Scan the
-  //    prose for ANY SIGNALS term and use the first CLEAN one (a nav /affiliate
-  //    link often pairs with body copy elsewhere saying "ambassador" or
-  //    "become a rep"). Skip candidates whose context also looks like nav.
+  // 1. Primary: the SAME term verifySocialProof matched, in the prose. Accept only
+  //    if its snippet passes the chrome filters.
+  const primary = new RegExp(matchedRe.source, 'i').exec(text);
+  if (primary) { const r = consider(primary, 'matched'); if (r) return r; }
+
+  // 2. Fallback: the matched term was markup-only OR its snippet was chrome. Walk
+  //    every occurrence of every SIGNALS term and take the first CLEAN snippet (a
+  //    nav /affiliate link often pairs with body copy elsewhere saying "ambassador"
+  //    or "become a rep").
   for (const re of SIGNALS) {
     const rx = new RegExp(re.source, 'ig');
     let alt;
     while ((alt = rx.exec(text)) !== null) {
       if (alt[0].length === 0) { rx.lastIndex++; continue; }
-      if (!isNavContext(alt)) return { proofSnippet: snippetAround(alt), tierStated, reason: 'alternate_signal' };
+      const r = consider(alt, 'alternate_signal');
+      if (r) return r;
     }
   }
 
-  // 3. No program language in the readable prose at all. Snippet null, but
-  //    tierStated already computed independently above.
+  // 3. Every candidate was chrome (or there is no program language in the prose).
+  //    Snippet null; tierStated already computed independently above.
   return { proofSnippet: null, tierStated, reason: 'markup_only' };
+}
+
+// Reject a candidate snippet that reads like footer social links or a nav menu
+// rather than program copy. Returns a short reason string when rejected, else
+// null. Applied to both the primary and alternate_signal candidates.
+const _VERB_WORDS = ['you', 'your', 'we', 'our', 'can', 'will', 'receive', 'earn', 'get', 'apply', 'join', 'become', 'offers', 'provides', 'includes'];
+const _SOCIAL_PLATFORMS = ['instagram', 'facebook', 'twitter', 'tiktok', 'youtube', 'pinterest', 'linkedin'];
+function _rejectSnippet(s) {
+  const t = String(s || '').trim();
+  if (!t) return 'empty';
+  const lower = t.toLowerCase();
+
+  // Legacy chrome tells: many pipe separators or a skip-link / menu-toggle phrase.
+  if ((t.match(/\|/g) || []).length > 2) return 'pipes';
+  if (/skip to content|skip to main|toggle menu/i.test(t)) return 'skip-link';
+
+  const words = lower.split(/\s+/).filter(Boolean);
+
+  // 1. REPETITION: any lowercased 2-word sequence appears 3+ times (e.g. footer
+  //    "Visit our facebook Visit our x Visit our youtube").
+  if (words.length >= 2) {
+    const bigrams = Object.create(null);
+    for (let k = 0; k < words.length - 1; k++) {
+      const bg = words[k] + ' ' + words[k + 1];
+      bigrams[bg] = (bigrams[bg] || 0) + 1;
+      if (bigrams[bg] >= 3) return 'repetition';
+    }
+  }
+
+  // 2. SOCIAL PLATFORM DENSITY: 3+ distinct platform names means a share bar.
+  let distinct = 0;
+  for (const p of _SOCIAL_PLATFORMS) if (lower.indexOf(p) !== -1) distinct++;
+  if (distinct >= 3) return 'social-density';
+
+  // 3. ALL CAPS: >50% of words with 3+ letters are entirely uppercase (nav menus
+  //    like "HAND & STONE TREATMENTS SPAVIA TREATMENTS").
+  const longWords = t.split(/\s+/)
+    .map((w) => w.replace(/[^A-Za-z]/g, ''))
+    .filter((w) => w.length >= 3);
+  if (longWords.length) {
+    let caps = 0;
+    for (const w of longWords) if (w === w.toUpperCase()) caps++;
+    if (caps / longWords.length > 0.5) return 'all-caps';
+  }
+
+  // 4. LOW VERB DENSITY: program copy addresses the reader. Reject if no
+  //    reader-addressing word is present.
+  const wordSet = new Set(words);
+  if (!_VERB_WORDS.some((v) => wordSet.has(v))) return 'low-verb';
+
+  return null;
 }
 
 async function verifySocialProof(proofUrl) {
