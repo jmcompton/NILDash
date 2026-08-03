@@ -33,27 +33,47 @@ function _decodeEntities(s) {
     .replace(/&[a-z0-9#]+;/gi, ' '); // any remaining entity -> space
 }
 
-// Build a proofSnippet (context around the matched term: ~150 chars each side,
-// tags removed, entities decoded, whitespace collapsed, trimmed to a clean word/
-// sentence boundary) and a tierStated flag (a follower threshold appears near the
-// match). Pure read of what verifySocialProof ALREADY matched; never affects pass/fail.
+// Build a READABLE proofSnippet plus a tierStated flag from the verified page.
+// verifySocialProof matches SIGNALS against the tag-laden body (a term can live in
+// an href/class/meta); this reads the same page but works on tag-stripped prose so
+// the snippet is human-readable. Snippet extraction and tier detection are kept
+// independent: a failure of one never zeroes the other. Never affects pass/fail.
+// reason distinguishes the three cases: 'matched' (the term verifySocialProof
+// matched was in the prose), 'alternate_signal' (that term was markup-only but the
+// prose states a different program signal), 'markup_only' (no signal in the prose).
 function _proofEvidence(body, matchedRe) {
   const text = _decodeEntities(String(body).replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
-  const re = new RegExp(matchedRe.source, 'i'); // fresh, non-global
-  const m = re.exec(text);
-  if (!m) return { proofSnippet: null, tierStated: false };
-  const idx = m.index, len = m[0].length;
-  const start = Math.max(0, idx - 150);
-  const end = Math.min(text.length, idx + len + 150);
-  let snip = text.slice(start, end);
-  if (start > 0) snip = snip.replace(/^\S*\s+/, '');         // drop a partial leading word
-  if (end < text.length) snip = snip.replace(/\s+\S*$/, ''); // drop a partial trailing word
-  const stop = Math.max(snip.lastIndexOf('. '), snip.lastIndexOf('! '), snip.lastIndexOf('? '));
-  if (stop >= 40) snip = snip.slice(0, stop + 1);            // prefer a sentence boundary
-  snip = snip.trim();
-  const wStart = Math.max(0, idx - 400), wEnd = Math.min(text.length, idx + len + 400);
-  const tierStated = TIER_STATED_RE.test(text.slice(wStart, wEnd));
-  return { proofSnippet: snip || null, tierStated };
+  // Tier detection stands on its own: a stated follower threshold ANYWHERE in the
+  // readable text counts, even when snippet extraction below finds nothing.
+  const tierStated = TIER_STATED_RE.test(text);
+
+  const snippetAround = (m) => {
+    const idx = m.index, len = m[0].length;
+    const start = Math.max(0, idx - 150);
+    const end = Math.min(text.length, idx + len + 150);
+    let snip = text.slice(start, end);
+    if (start > 0) snip = snip.replace(/^\S*\s+/, '');         // drop a partial leading word
+    if (end < text.length) snip = snip.replace(/\s+\S*$/, ''); // drop a partial trailing word
+    const stop = Math.max(snip.lastIndexOf('. '), snip.lastIndexOf('! '), snip.lastIndexOf('? '));
+    if (stop >= 40) snip = snip.slice(0, stop + 1);            // prefer a sentence boundary
+    return snip.trim() || null;
+  };
+
+  // 1. Primary: locate the SAME term verifySocialProof matched, in the prose.
+  const primary = new RegExp(matchedRe.source, 'i').exec(text);
+  if (primary) return { proofSnippet: snippetAround(primary), tierStated, reason: 'matched' };
+
+  // 2. Fallback: the matched term was markup-only. Scan the prose for ANY SIGNALS
+  //    term and use the first that appears (a nav /affiliate link often pairs with
+  //    body copy elsewhere saying "ambassador" or "become a rep").
+  for (const re of SIGNALS) {
+    const alt = new RegExp(re.source, 'i').exec(text);
+    if (alt) return { proofSnippet: snippetAround(alt), tierStated, reason: 'alternate_signal' };
+  }
+
+  // 3. No program language in the readable prose at all. Snippet null, but
+  //    tierStated already computed independently above.
+  return { proofSnippet: null, tierStated, reason: 'markup_only' };
 }
 
 async function verifySocialProof(proofUrl) {
@@ -78,8 +98,9 @@ async function verifySocialProof(proofUrl) {
     const matched = SIGNALS.find((re) => re.test(body));
     if (!matched) return { ok: false, reason: 'no program language found on page', status_code: status, finalUrl };
     // Capture what was matched for the card. Does not affect the pass/fail above.
-    const { proofSnippet, tierStated } = _proofEvidence(body, matched);
-    return { ok: true, reason: null, status_code: status, finalUrl, matched: matched.source, proofSnippet, tierStated };
+    // proofReason is 'matched' | 'alternate_signal' | 'markup_only'.
+    const { proofSnippet, tierStated, reason: proofReason } = _proofEvidence(body, matched);
+    return { ok: true, reason: null, status_code: status, finalUrl, matched: matched.source, proofSnippet, tierStated, proofReason };
   } catch (e) {
     clearTimeout(t);
     return { ok: false, reason: 'fetch error: ' + e.message, status_code: null, finalUrl: null };
