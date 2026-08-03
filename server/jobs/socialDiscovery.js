@@ -128,7 +128,7 @@ async function _alreadyKnown(brand, normSite) {
 }
 
 async function runSocialDiscovery() {
-  const summary = { queriesRun: 0, proposed: 0, inserted: 0, summarized: 0, foundByLink: 0, foundByFallback: 0, notFound: 0, skippedDuplicate: 0, insertedBrands: [] };
+  const summary = { queriesRun: 0, proposed: 0, inserted: 0, summarizeAttempts: 0, summarized: 0, foundByLink: 0, foundByFallback: 0, notFound: 0, skippedDuplicate: 0, insertedBrands: [] };
 
   const all = _loadQueries();
   const queries = _pickQueries(all, QUERIES_PER_RUN);
@@ -183,7 +183,8 @@ async function runSocialDiscovery() {
     }
     if (found.via === 'link') summary.foundByLink++; else summary.foundByFallback++;
     // One Haiku call on the verified program page (never on the scan path).
-    const offerSummary = await summarizeProgram(found.pageText); summary.summarized++;
+    const offerSummary = await summarizeProgram(found.pageText);
+    summary.summarizeAttempts++; if (offerSummary) summary.summarized++;
     try {
       await store.pool.query(
         `INSERT INTO social_brands
@@ -216,7 +217,7 @@ async function runSocialDiscovery() {
 
   console.log(
     `[socialDiscovery] queriesRun=${summary.queriesRun} proposed=${summary.proposed} ` +
-    `inserted=${summary.inserted} summarized=${summary.summarized} foundByLink=${summary.foundByLink} foundByFallback=${summary.foundByFallback} ` +
+    `inserted=${summary.inserted} attempts=${summary.summarizeAttempts} summarized=${summary.summarized} foundByLink=${summary.foundByLink} foundByFallback=${summary.foundByFallback} ` +
     `notFound=${summary.notFound} skippedDuplicate=${summary.skippedDuplicate} brands=${JSON.stringify(summary.insertedBrands)}`
   );
   return summary;

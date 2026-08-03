@@ -171,18 +171,23 @@ function _rejectSnippet(s) {
 // web search. Returns one plain sentence, or null on NONE / empty / too long / any
 // error. A failed summary must never block an insert.
 async function summarizeProgram(pageText) {
+  // SUMDIAG: temporary diagnostic logging at every exit so a live reverify run
+  // reveals why a summary comes back null. Logic is unchanged.
+  const text = String(pageText || '').slice(0, 6000).trim();
+  console.log(`[socialProof][SUMDIAG] pageTextLen=${text.length}`);
   try {
-    const text = String(pageText || '').slice(0, 6000).trim();
-    if (!text) return null;
+    if (!text) { console.log('[socialProof][SUMDIAG] null reason=empty_pagetext'); return null; }
     const ai = require('../ai');
     const prompt = 'Here is the text of a brand\'s athlete or creator program page. In ONE sentence under 25 words, state what an athlete gets by joining. Be concrete about compensation if the page mentions it. Write plainly, no marketing language, no exclamation points. If the page does not actually describe a program, return exactly NONE.\n\n' + text;
     const raw = await ai.oneShot(prompt, 'You summarize brand program pages in one plain, factual sentence. Output only the sentence, or exactly NONE.', 120, ai.MODEL_FAST);
     const out = String(raw || '').trim().replace(/^["']+|["']+$/g, '').trim();
-    if (!out || out.toUpperCase() === 'NONE') return null;
-    if (out.split(/\s+/).filter(Boolean).length > 40) return null;
+    if (!out || out.toUpperCase() === 'NONE') { console.log(`[socialProof][SUMDIAG] null reason=none_response raw=${String(raw || '').slice(0, 200)}`); return null; }
+    const words = out.split(/\s+/).filter(Boolean).length;
+    if (words > 40) { console.log(`[socialProof][SUMDIAG] null reason=too_long words=${words} raw=${String(raw || '').slice(0, 200)}`); return null; }
+    console.log(`[socialProof][SUMDIAG] ok summary=${out}`);
     return out;
   } catch (e) {
-    console.warn('[socialProof] summarizeProgram failed:', e.message);
+    console.log(`[socialProof][SUMDIAG] null reason=threw err=${e.message}`);
     return null;
   }
 }
