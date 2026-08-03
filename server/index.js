@@ -3432,7 +3432,16 @@ app.post('/api/admin/set-plan', async (req, res) => {
 // fetch the proof_url server-side and require the page to actually mention a
 // program before a row is trusted. Nothing is ever inserted on the word of the
 // caller alone.
-const SOCIAL_PROOF_TERMS = ['ambassador', 'affiliate', 'creator program', 'brand partner', 'nil', 'become a rep', 'sponsored athlete'];
+const SIGNALS = [
+  /\bambassador/i,
+  /\baffiliate/i,
+  /creator program/i,
+  /brand partner/i,
+  /become a rep/i,
+  /sponsored athlete/i,
+  /\bname,? image/i,
+  /\bnil\b(?!\s*\))/i,
+];
 async function _verifySocialProof(proofUrl) {
   if (!proofUrl) return { ok: false, reason: 'missing proof_url', status_code: null, finalUrl: null };
   const ctrl = new AbortController();
@@ -3447,10 +3456,14 @@ async function _verifySocialProof(proofUrl) {
     const status = resp.status;
     const finalUrl = resp.url || proofUrl;
     if (status !== 200) return { ok: false, reason: 'non-200 status', status_code: status, finalUrl };
-    const body = (await resp.text()).toLowerCase();
-    const matched = SOCIAL_PROOF_TERMS.find((term) => body.includes(term));
+    // Strip <script> and <style> blocks first so a tracking snippet or JSON-LD
+    // blob can't trigger a match, then require at least one program signal.
+    const body = (await resp.text())
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ');
+    const matched = SIGNALS.find((re) => re.test(body));
     if (!matched) return { ok: false, reason: 'no program language found on page', status_code: status, finalUrl };
-    return { ok: true, reason: null, status_code: status, finalUrl, matched };
+    return { ok: true, reason: null, status_code: status, finalUrl, matched: matched.source };
   } catch (e) {
     clearTimeout(t);
     return { ok: false, reason: 'fetch error: ' + e.message, status_code: null, finalUrl: null };
