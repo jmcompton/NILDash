@@ -126,6 +126,13 @@ async function runSocialDiscovery() {
       console.warn(`[socialDiscovery] search failed q="${q}": ${e.message}`);
       continue;
     }
+    // DIAGNOSTIC (temporary): disambiguate "model returns ~1" from "model returns
+    // several but most are filtered". Logs the raw text plus the counts at each
+    // stage so a live /discover run shows exactly where candidates are lost.
+    const _parsedAll = _parseCandidates(raw);
+    const _withFields = _parsedAll.filter((c) => c && c.brand && c.proof_url);
+    console.log(`[socialDiscovery][DIAG] q="${q}" rawLen=${(raw || '').length} parsedCount=${_parsedAll.length} withBrand+proofUrl=${_withFields.length}`);
+    console.log(`[socialDiscovery][DIAG] q="${q}" raw=${JSON.stringify(String(raw || '').slice(0, 4000))}`);
     const parsed = _parseCandidates(raw).slice(0, MAX_PER_QUERY);
     for (const c of parsed) {
       if (candidates.length >= MAX_CANDIDATES) break;
