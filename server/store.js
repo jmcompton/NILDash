@@ -420,6 +420,20 @@ async function init() {
   // Unique on brand so the verify-seed endpoint can upsert with ON CONFLICT (brand).
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_social_brands_brand ON social_brands (brand)`).catch(() => {});
 
+  // Proof URLs the nightly discovery job already tried and that FAILED the verify
+  // gate (non-200 or no program language). Keyed by proof_url so the job never
+  // re-checks a dead URL and never re-pays for it.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS social_brand_rejects (
+      proof_url TEXT PRIMARY KEY,
+      brand TEXT,
+      reason TEXT,
+      status_code INT,
+      last_tried TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] social_brand_rejects table ready'))
+    .catch(e => console.error('[init] social_brand_rejects:', e.message));
+
   // Media kit theme: 'school' (auto school colors, the original look) or
   // 'nildash' (dark + lime brand). NULL on existing rows = school behavior, so
   // saved kits are unchanged by this deploy. New kits default to 'nildash' in
