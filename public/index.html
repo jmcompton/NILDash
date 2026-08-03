@@ -6633,59 +6633,71 @@ function _dsFmtTierK(n){ n = Number(n) || 0; return n >= 1000 ? (n / 1000).toFix
 // _dsCardHtml so it reads as the same product.
 function _dsSocialCardHtml(d, i) {
   var brand = d.brand || d.brand_name || 'Brand';
-  var cat = (d.category || '').toLowerCase();
-  var catStyle = _dsCatColors[cat] || 'rgba(255,255,255,0.06);color:var(--muted)';
   var brandSafe = brand.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
-  // Freshness badge: current -> green "Signs athletes", aging -> amber "Verify age".
-  var fresh = d.freshness === 'current'
-    ? { txt: 'Signs athletes', style: 'rgba(132,204,22,0.14);color:#84CC16;border:1px solid rgba(132,204,22,0.35)' }
-    : { txt: 'Verify age',     style: 'rgba(245,158,11,0.16);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)' };
+  // Freshness -> colored status text: current = green "Signs athletes" (with a
+  // check), aging = amber "Verify age" (no icon).
+  var freshCurrent = d.freshness === 'current';
+  var freshTxt = freshCurrent ? 'Signs athletes' : 'Verify age';
+  var freshColor = freshCurrent ? '#84CC16' : '#f59e0b';
+  var checkIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-left:3px;vertical-align:-1px"><path d="M20 6L9 17l-5-5"/></svg>';
+  var extIcon = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>';
 
-  // Proof link text: "Proof - verified {Mon YYYY}" from proof_date (UTC to avoid drift).
+  // "verified {Mon YYYY}" from proof_date (UTC to avoid drift).
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var pd = d.proof_date ? new Date(d.proof_date) : null;
   var proofWhen = (pd && !isNaN(pd.getTime())) ? (MON[pd.getUTCMonth()] + ' ' + pd.getUTCFullYear()) : '';
-  var proofText = 'Proof - verified' + (proofWhen ? ' ' + proofWhen : '');
+  var proofLabel = 'verified' + (proofWhen ? ' ' + proofWhen : '');
 
-  // 4-up fields.
+  // Signs (sports) and Tier.
   var sportsArr = Array.isArray(d.sports) ? d.sports : [];
   var signs = sportsArr.map(function(s){ return s === 'all' ? 'All sports' : s; }).join(', ') || '—';
   // Only show a follower range when the program page actually stated one; the
   // model's default wide range is noise. Matching still uses tier_min/tier_max.
-  var tier = d.tier_stated ? (_dsFmtTierK(d.tier_min) + '-' + _dsFmtTierK(d.tier_max)) : 'Not stated';
-  var structMap = { cash_code: 'Cash + code', affiliate: 'Affiliate only', cash: 'Cash', gifting_code: 'Gifting + code' };
-  var structLabel = structMap[d.deal_structure] || d.deal_structure || '—';
-  var estRange;
-  if (d.est_low != null) estRange = '$' + d.est_low + '-$' + (d.est_high != null ? d.est_high : d.est_low);
-  else if (d.deal_structure === 'affiliate') estRange = 'Commission';
-  else if (d.deal_structure === 'gifting_code') estRange = 'Product first';
-  else estRange = '—';
-  var field = function(label, val){
-    return '<div style="min-width:64px">' +
-      '<div style="font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em">' + label + '</div>' +
-      '<div style="font-size:11px;color:var(--text);font-weight:600;margin-top:1px">' + esc(val) + '</div></div>';
+  var tier = d.tier_stated ? (_dsFmtTierK(d.tier_min) + ' to ' + _dsFmtTierK(d.tier_max)) : 'Not stated';
+
+  // Deal: merge structure + est range into one string.
+  var estStr = (d.est_low != null) ? ('$' + d.est_low + ' to $' + (d.est_high != null ? d.est_high : d.est_low)) : null;
+  var dealVal;
+  if (d.deal_structure === 'affiliate') dealVal = 'Affiliate, commission';
+  else if (d.deal_structure === 'gifting_code') dealVal = 'Gifting, product first';
+  else if (d.deal_structure === 'cash' || d.deal_structure === 'cash_code') dealVal = estStr ? ('Cash, ' + estStr) : 'Cash';
+  else { var w = d.deal_structure || '—'; dealVal = estStr ? (w + ', ' + estStr) : w; }
+
+  var fld = function(label, val, bold, color){
+    return '<div>' +
+      '<div style="font-size:11px;color:var(--muted)">' + label + '</div>' +
+      '<div style="font-size:14px;font-weight:' + (bold ? '500' : '400') + ';color:' + color + ';margin-top:2px">' + esc(val) + '</div></div>';
   };
 
   return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:15px 16px">' +
-    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">' +
+    // 1. HEADER ROW
+    '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px">' +
       '<span class="ds-lane-chip" style="background:' + _dsLaneMeta.social.chip + '">Social</span>' +
-      '<span style="font-size:15px;font-weight:700;color:var(--text)">' + esc(brand) + '</span>' +
-      (d.category ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
+      '<span style="font-size:17px;font-weight:500;color:var(--text)">' + esc(brand) + '</span>' +
+      (d.category ? '<span style="font-size:12px;color:var(--muted)">' + esc(d.category) + '</span>' : '') +
     '</div>' +
-    '<div><span class="ds-lane-chip" style="background:' + fresh.style + '">' + fresh.txt + '</span></div>' +
-    (d.proof_snippet ? '<div style="margin-top:8px">' +
-      '<div><span class="ds-lane-chip" style="background:rgba(96,165,250,0.14);color:#60a5fa;border:1px solid rgba(96,165,250,0.3);white-space:nowrap">Found on their site</span></div>' +
-      '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + esc('"' + String(d.proof_snippet).trim() + '"') + '</div></div>' : '') +
-    (d.whyFits ? '<div style="font-size:12px;color:var(--text);line-height:1.6;margin-top:8px">' + esc(d.whyFits) + '</div>' : '') +
-    (d.proof_url ? '<a href="' + esc(d.proof_url) + '" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:11px;color:#60a5fa;text-decoration:underline">' + esc(proofText) + '</a>' : '') +
-    '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px">' +
-      field('Signs', signs) + field('Tier', tier) + field('Structure', structLabel) + field('Est. range', estRange) +
+    // 2. STATUS ROW
+    '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12px;margin-bottom:14px">' +
+      '<span style="color:' + freshColor + ';font-weight:500;display:inline-flex;align-items:center">' + freshTxt + (freshCurrent ? checkIcon : '') + '</span>' +
+      (d.proof_url ? '<span style="color:var(--muted)">·</span>' +
+        '<a href="' + esc(d.proof_url) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:none;display:inline-flex;align-items:center;gap:3px">' + esc(proofLabel) + extIcon + '</a>' : '') +
     '</div>' +
-    '<div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">' +
-      '<button onclick="prefillOutreach(\'' + brandSafe + '\')" style="flex:1;min-width:110px;padding:9px;background:var(--accent);color:#0A0E1A;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Write Outreach</button>' +
-      '<button onclick="addDealToPipeline(\'' + brandSafe + '\',\'ig-post\',\'\')" style="padding:9px 12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">+ Pipeline</button>' +
-      '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="padding:9px 12px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">⚡ AI Outreach</button>' +
+    // 3. EVIDENCE BLOCK (only when proof_snippet exists)
+    (d.proof_snippet ? '<div style="border-left:2px solid var(--accent);border-radius:0;padding-left:12px;margin-bottom:14px">' +
+      '<div style="font-size:14px;line-height:1.6;color:var(--text);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">' + esc('"' + String(d.proof_snippet).trim() + '"') + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:6px">Found on their site</div></div>' : '') +
+    // 4. FIELD ROW
+    '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:14px">' +
+      fld('Deal', dealVal, true, 'var(--text)') +
+      fld('Signs', signs, false, 'var(--text)') +
+      fld('Tier', tier, false, d.tier_stated ? 'var(--text)' : 'var(--muted)') +
+    '</div>' +
+    // 5. BUTTON ROW
+    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button onclick="prefillOutreach(\'' + brandSafe + '\')" style="flex:1;min-width:110px;padding:9px;background:var(--accent);color:#0A0E1A;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Write outreach</button>' +
+      '<button onclick="addDealToPipeline(\'' + brandSafe + '\',\'ig-post\',\'\')" style="padding:9px 12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">Pipeline</button>' +
+      '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="padding:9px 12px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">AI outreach</button>' +
     '</div>' +
   '</div>';
 }
