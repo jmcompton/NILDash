@@ -389,6 +389,35 @@ async function init() {
   `).then(() => console.log('[init] deal_scan_market_cache table ready'))
     .catch(e => console.error('[init] deal_scan_market_cache:', e.message));
 
+  // ── Social lane brand index ────────────────────────────────────────────────
+  // Curated DTC/creator brands that run public athlete or creator ambassador/
+  // affiliate programs. The Social Deal Scan lane serves directly from this table
+  // (no web search, no AI). sports is lowercase; ARRAY['all'] means sport-agnostic.
+  // tier_min/tier_max bound combined IG+TikTok follower reach.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS social_brands (
+      id SERIAL PRIMARY KEY,
+      brand TEXT NOT NULL,
+      category TEXT NOT NULL,
+      website TEXT,
+      sports TEXT[] NOT NULL,
+      tier_min INT NOT NULL,
+      tier_max INT NOT NULL,
+      deal_structure TEXT NOT NULL,
+      est_low INT,
+      est_high INT,
+      cadence_note TEXT,
+      proof_url TEXT NOT NULL,
+      proof_date DATE NOT NULL,
+      active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] social_brands table ready'))
+    .catch(e => console.error('[init] social_brands:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_sports ON social_brands USING GIN (sports)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_tier ON social_brands (tier_min, tier_max)`).catch(() => {});
+
   // Media kit theme: 'school' (auto school colors, the original look) or
   // 'nildash' (dark + lime brand). NULL on existing rows = school behavior, so
   // saved kits are unchanged by this deploy. New kits default to 'nildash' in
@@ -2111,13 +2140,59 @@ async function markMarketNewcomers(marketKey, brands) {
   return out;
 }
 
+// ── Social lane brand index ──────────────────────────────────────────────────
+// Decorate a raw social_brands row with the deterministic, NO-AI fields the
+// Social Deal Scan lane needs: proofAge (whole months since proof_date),
+// freshness, a plain-language whyFits built only from the row's own columns, and
+// lane='social'.
+function _decorateSocialBrand(row) {
+  const now = new Date();
+  const proof = row.proof_date ? new Date(row.proof_date) : null;
+  let proofAge = 0;
+  if (proof && !isNaN(proof.getTime())) {
+    proofAge = (now.getFullYear() - proof.getFullYear()) * 12 + (now.getMonth() - proof.getMonth());
+    if (now.getDate() < proof.getDate()) proofAge -= 1; // not a full month yet
+    if (proofAge < 0) proofAge = 0;
+  }
+  const sports = Array.isArray(row.sports) ? row.sports : [];
+  const whyFits =
+    `Signs ${sports.join(', ')} athletes in the ${row.tier_min}–${row.tier_max} follower range.` +
+    (row.cadence_note ? ` ${row.cadence_note}` : '');
+  return { ...row, proofAge, freshness: proofAge <= 12 ? 'current' : 'aging', whyFits, lane: 'social' };
+}
+
+// Serve the Social lane straight from the curated social_brands index, matched to
+// the athlete's combined IG+TikTok reach and sport. Pure DB read: no web search,
+// no AI, no cache write. Returns [] on any error so the lane degrades to empty
+// rather than breaking a scan.
+async function getSocialBrands(athlete) {
+  try {
+    const reach = (Number(athlete.instagram) || 0) + (Number(athlete.tiktok) || 0);
+    const sport = String(athlete.sport || '').trim().toLowerCase();
+    const r = await pool.query(
+      `SELECT * FROM social_brands
+        WHERE active = true
+          AND (sports @> ARRAY[$1]::text[] OR sports @> ARRAY['all']::text[])
+          AND tier_min <= $2
+          AND tier_max >= $3
+        ORDER BY proof_date DESC
+        LIMIT 12`,
+      [sport, reach * 1.25, reach * 0.75]
+    );
+    return r.rows.map(_decorateSocialBrand);
+  } catch (e) {
+    console.error('[getSocialBrands]', e.message);
+    return [];
+  }
+}
+
 module.exports = {
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers,
   getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals, recordReferralForInvoice,
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
   getDeal, getDealsByAthlete, getDealsByAgent, saveDeal, deleteDeal,
   saveComp, getComps, getCompStats, getCompsByBrand,
-  getBrandEvidence, saveBrandEvidence, getTopNilComps,
+  getBrandEvidence, saveBrandEvidence, getTopNilComps, getSocialBrands,
   getOnboarding, logWizardEvent, completeWizard, markChecklistItem,
   dismissChecklist, markTooltipSeen, backfillChecklist, getOnboardingAnalytics,
   CHECKLIST_ITEMS,

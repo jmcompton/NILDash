@@ -6044,8 +6044,8 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     const excludeBrands = req.body.exclude_brands || [];
     // Lane: 'local' (default when omitted) or 'topnil'. An unrecognized value is
     // a 400, never a silent full local run.
-    if (req.body.lane !== undefined && req.body.lane !== null && !['local', 'topnil'].includes(req.body.lane)) {
-      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, topnil.' });
+    if (req.body.lane !== undefined && req.body.lane !== null && !['local', 'topnil', 'social'].includes(req.body.lane)) {
+      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, topnil, social.' });
     }
     const lane = req.body.lane || 'local';
     // Local lane persists a per-athlete shown-set across sessions (see agent
@@ -6055,6 +6055,16 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     const effectiveExclude = Array.from(new Set([...persistedShown, ...persistedWorked, ...excludeBrands]));
     const _scanT0 = Date.now();
     console.log(`[athlete/deal-scan] athlete=${req.athlete.id} lane=${lane} name=${athleteObj.name} sport=${athleteObj.sport} school=${athleteObj.school}`);
+
+    // Social lane: served straight from the curated social_brands index. No web
+    // search, no Anthropic call, no cache read/write, no rate-limit machinery.
+    if (lane === 'social') {
+      const opportunities = await store.getSocialBrands(athleteObj);
+      const rateCard = await _athleteRateCard(req.athlete.id);
+      _logScanCost(lane, null, Date.now() - _scanT0, false);
+      console.log(`[athlete/deal-scan] lane=social found=${opportunities.length} (curated index, 0 AI)`);
+      return res.json({ opportunities, lane, rateCard });
+    }
 
     // 6h result cache: a repeat scan within the window is free unless Refresh.
     if (!_isScanRefresh(req.body)) {
@@ -6134,8 +6144,8 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // Lane must be one of the known set. A missing lane defaults to 'local' for
     // backward compatibility; a PRESENT but unrecognized value is a 400 so a bad
     // client cannot silently burn a full local pipeline run.
-    if (lane !== undefined && lane !== null && !['local', 'topnil'].includes(lane)) {
-      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, topnil.' });
+    if (lane !== undefined && lane !== null && !['local', 'topnil', 'social'].includes(lane)) {
+      return res.status(400).json({ error: 'Invalid lane. Must be one of: local, topnil, social.' });
     }
     const validLane = lane || 'local';
     const excludeBrands = Array.isArray(exclude_brands) ? exclude_brands : [];
@@ -6146,6 +6156,17 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     const persistedWorked = validLane === 'local' ? await _loadWorkedBrands(athleteId, validLane) : [];
     const effectiveExclude = Array.from(new Set([...persistedShown, ...persistedWorked, ...excludeBrands]));
     const _scanT0 = Date.now();
+
+    // Social lane: served straight from the curated social_brands index. No web
+    // search, no Anthropic call, no cache read/write, no rate-limit machinery.
+    // Returns before all of the local/topnil pipeline below.
+    if (validLane === 'social') {
+      const opportunities = await store.getSocialBrands(loaded.athleteObj);
+      const rateCard = await _athleteRateCard(athleteId);
+      _logScanCost(validLane, null, Date.now() - _scanT0, false);
+      console.log(`[agent/deal-scan] lane=social found=${opportunities.length} (curated index, 0 AI)`);
+      return res.json({ opportunities, lane: validLane, rateCard });
+    }
 
     // 6h result cache: re-opening the same athlete+lane is free unless Refresh.
     if (!_isScanRefresh(req.body)) {
