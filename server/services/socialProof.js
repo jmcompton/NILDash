@@ -180,13 +180,19 @@ async function summarizeProgram(pageText) {
   try {
     if (!text) { console.log('[socialProof][SUMDIAG] null reason=empty_pagetext'); return { summary: null, size: null }; }
     const ai = require('../ai');
-    const prompt = 'Here is the text of a brand\'s athlete or creator program page. In ONE sentence under 25 words, state what an athlete gets by joining. Be concrete about compensation if the page mentions it. Write plainly, no marketing language, no exclamation points. Also classify the brand. Return "national" if it is a large brand with mass retail distribution, major sponsorships, or household name recognition. Return "small" if it is a direct to consumer or emerging brand. When unsure, return small. Return ONLY a JSON object: {"summary": "...", "size": "small" | "national"}. If the page does not actually describe a program, return {"summary": "NONE", "size": "small"}.\n\n' + text;
-    const raw = await ai.oneShot(prompt, 'You classify and summarize brand program pages. Output ONLY a JSON object with keys "summary" and "size".', 200, ai.MODEL_FAST);
+    const prompt = 'Here is the text of a brand\'s athlete or creator program page. In ONE sentence under 25 words, state what an athlete gets by joining. Be concrete about compensation if the page mentions it. Write plainly, no marketing language, no exclamation points. Also classify the brand. Return "national" if it is a large brand with mass retail distribution, major sponsorships, or household name recognition. Return "small" if it is a direct to consumer or emerging brand. When unsure, return small. Return ONLY a JSON object: {"summary": "...", "size": "small" | "national"}. If the page does not actually describe a program, return {"summary": "NONE", "size": "small"}. Return raw JSON only. Do not wrap it in markdown code fences.\n\n' + text;
+    const raw = await ai.oneShot(prompt, 'You classify and summarize brand program pages. Output ONLY a JSON object with keys "summary" and "size". Return raw JSON only. Do not wrap it in markdown code fences.', 200, ai.MODEL_FAST);
 
-    // Parse the JSON object. If parsing fails, fall back to treating raw as a bare
-    // sentence (the old behavior) with size null.
+    // Strip any markdown code fence the model wraps around the JSON (```json ... ```
+    // or ``` ... ```, with or without the language tag), then parse. Belt and
+    // suspenders: the prompt also asks for raw JSON. On parse failure, fall back to
+    // treating raw as a bare sentence (the old behavior) with size null.
     let summaryRaw = null, size = null, parsed = false;
-    const m = String(raw || '').match(/\{[\s\S]*\}/);
+    const unfenced = String(raw || '').trim()
+      .replace(/^```[ \t]*(?:json)?[ \t]*\r?\n?/i, '') // leading fence (+ optional json tag)
+      .replace(/\r?\n?[ \t]*```[ \t]*$/, '')           // trailing fence
+      .trim();
+    const m = unfenced.match(/\{[\s\S]*\}/);
     if (m) {
       try { const obj = JSON.parse(m[0]); summaryRaw = obj.summary; size = normSize(obj.size); parsed = true; }
       catch (_) { /* fall through to bare-sentence handling */ }
