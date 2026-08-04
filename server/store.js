@@ -412,6 +412,7 @@ async function init() {
       proof_snippet TEXT,
       tier_stated BOOLEAN DEFAULT FALSE,
       offer_summary TEXT,
+      brand_size TEXT,
       active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -425,6 +426,9 @@ async function init() {
   // One-line AI summary of the verified program page, written once at insert time.
   // Replaces regex snippet extraction for display; proof_snippet is kept for now.
   await pool.query(`ALTER TABLE social_brands ADD COLUMN IF NOT EXISTS offer_summary TEXT`).catch(() => {});
+  // Brand size ('small' | 'national' | NULL) from the same summarize call. Small
+  // DTC brands sort to the top of the lane; national brands stay below the fold.
+  await pool.query(`ALTER TABLE social_brands ADD COLUMN IF NOT EXISTS brand_size TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_sports ON social_brands USING GIN (sports)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_social_brands_tier ON social_brands (tier_min, tier_max)`).catch(() => {});
   // Unique on brand so the verify-seed endpoint can upsert with ON CONFLICT (brand).
@@ -2249,7 +2253,7 @@ async function getSocialBrands(athlete) {
               SELECT brand_id FROM social_brand_shown
                WHERE athlete_id = $4 AND shown_at > NOW() - INTERVAL '30 days'
             )
-          ORDER BY proof_date DESC
+          ORDER BY (brand_size = 'small') DESC NULLS LAST, proof_date DESC
           LIMIT 12`,
         [...baseParams, athleteId]
       );
@@ -2263,7 +2267,7 @@ async function getSocialBrands(athlete) {
       const full = await pool.query(
         `SELECT * FROM social_brands
           WHERE ${baseWhere}
-          ORDER BY proof_date DESC
+          ORDER BY (brand_size = 'small') DESC NULLS LAST, proof_date DESC
           LIMIT 12`,
         baseParams
       );

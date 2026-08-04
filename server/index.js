@@ -3491,17 +3491,17 @@ app.post('/api/admin/social-brands/verify-seed', async (req, res) => {
       const v = await verifySocialProof(c.proof_url);
       if (!v.ok) { skipped.push({ brand: c.brand, reason: v.reason, status_code: v.status_code }); continue; }
       // One Haiku call on the verified page text (never on the scan path).
-      const offerSummary = await summarizeProgram(v.pageText);
+      const { summary: offerSummary, size: brandSize } = await summarizeProgram(v.pageText);
       summarizeAttempts++; if (offerSummary) summarized++;
       try {
         await store.pool.query(
           `INSERT INTO social_brands
-             (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, offer_summary, proof_date, active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,CURRENT_DATE,true)
-           ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, offer_summary = EXCLUDED.offer_summary, active = true, updated_at = NOW()`,
+             (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, offer_summary, brand_size, proof_date, active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,CURRENT_DATE,true)
+           ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, offer_summary = EXCLUDED.offer_summary, brand_size = EXCLUDED.brand_size, active = true, updated_at = NOW()`,
           [c.brand, c.category, c.website || null, c.sports, c.tier_min, c.tier_max, c.deal_structure,
            c.est_low === undefined ? null : c.est_low, c.est_high === undefined ? null : c.est_high,
-           c.cadence_note || null, c.proof_url, v.proofSnippet || null, !!v.tierStated, offerSummary]
+           c.cadence_note || null, c.proof_url, v.proofSnippet || null, !!v.tierStated, offerSummary, brandSize]
         );
         inserted.push({ brand: c.brand, status_code: v.status_code, matched: v.matched, finalUrl: v.finalUrl });
       } catch (e) {
@@ -3529,9 +3529,9 @@ app.post('/api/admin/social-brands/reverify', async (req, res) => {
       const v = await verifySocialProof(row.proof_url);
       if (v.ok) {
         // One Haiku call per passing brand; on 200 brands that is 200 calls.
-        const offerSummary = await summarizeProgram(v.pageText);
+        const { summary: offerSummary, size: brandSize } = await summarizeProgram(v.pageText);
         summarizeAttempts++; if (offerSummary) summarized++;
-        await store.pool.query('UPDATE social_brands SET proof_date = CURRENT_DATE, proof_snippet = $2, tier_stated = $3, offer_summary = $4, active = true, updated_at = NOW() WHERE id = $1', [row.id, v.proofSnippet || null, !!v.tierStated, offerSummary]);
+        await store.pool.query('UPDATE social_brands SET proof_date = CURRENT_DATE, proof_snippet = $2, tier_stated = $3, offer_summary = $4, brand_size = $5, active = true, updated_at = NOW() WHERE id = $1', [row.id, v.proofSnippet || null, !!v.tierStated, offerSummary, brandSize]);
         inserted.push({ brand: row.brand, status_code: v.status_code, matched: v.matched, finalUrl: v.finalUrl });
       } else {
         await store.pool.query('UPDATE social_brands SET active = false, updated_at = NOW() WHERE id = $1', [row.id]);

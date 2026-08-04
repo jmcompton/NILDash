@@ -165,30 +165,43 @@ function _rejectSnippet(s) {
   return null;
 }
 
-// One-time, insert-time AI summary of a verified program page. Called ONLY by the
-// admin verify-seed / reverify endpoints and the nightly discovery job -- NEVER on
-// the scan path, which stays a pure DB read with zero AI calls. One Haiku call, no
-// web search. Returns one plain sentence, or null on NONE / empty / too long / any
-// error. A failed summary must never block an insert.
+// One-time, insert-time AI summary + size classification of a verified program
+// page. Called ONLY by the admin verify-seed / reverify endpoints and the nightly
+// discovery job -- NEVER on the scan path, which stays a pure DB read with zero AI
+// calls. One Haiku call, no web search. Returns { summary, size } where summary is
+// one plain sentence (or null on NONE / empty / too long / any error) and size is
+// 'small' | 'national' | null. A failed summary must never block an insert.
 async function summarizeProgram(pageText) {
-  // SUMDIAG: temporary diagnostic logging at every exit so a live reverify run
-  // reveals why a summary comes back null. Logic is unchanged.
+  // SUMDIAG: diagnostic logging at every exit so a live run reveals null causes.
   const text = String(pageText || '').slice(0, 6000).trim();
   console.log(`[socialProof][SUMDIAG] pageTextLen=${text.length}`);
+  const clean = (s) => String(s || '').trim().replace(/^["']+|["']+$/g, '').trim();
+  const normSize = (s) => { const v = String(s || '').trim().toLowerCase(); return v === 'national' ? 'national' : (v === 'small' ? 'small' : null); };
   try {
-    if (!text) { console.log('[socialProof][SUMDIAG] null reason=empty_pagetext'); return null; }
+    if (!text) { console.log('[socialProof][SUMDIAG] null reason=empty_pagetext'); return { summary: null, size: null }; }
     const ai = require('../ai');
-    const prompt = 'Here is the text of a brand\'s athlete or creator program page. In ONE sentence under 25 words, state what an athlete gets by joining. Be concrete about compensation if the page mentions it. Write plainly, no marketing language, no exclamation points. If the page does not actually describe a program, return exactly NONE.\n\n' + text;
-    const raw = await ai.oneShot(prompt, 'You summarize brand program pages in one plain, factual sentence. Output only the sentence, or exactly NONE.', 120, ai.MODEL_FAST);
-    const out = String(raw || '').trim().replace(/^["']+|["']+$/g, '').trim();
-    if (!out || out.toUpperCase() === 'NONE') { console.log(`[socialProof][SUMDIAG] null reason=none_response raw=${String(raw || '').slice(0, 200)}`); return null; }
+    const prompt = 'Here is the text of a brand\'s athlete or creator program page. In ONE sentence under 25 words, state what an athlete gets by joining. Be concrete about compensation if the page mentions it. Write plainly, no marketing language, no exclamation points. Also classify the brand. Return "national" if it is a large brand with mass retail distribution, major sponsorships, or household name recognition. Return "small" if it is a direct to consumer or emerging brand. When unsure, return small. Return ONLY a JSON object: {"summary": "...", "size": "small" | "national"}. If the page does not actually describe a program, return {"summary": "NONE", "size": "small"}.\n\n' + text;
+    const raw = await ai.oneShot(prompt, 'You classify and summarize brand program pages. Output ONLY a JSON object with keys "summary" and "size".', 200, ai.MODEL_FAST);
+
+    // Parse the JSON object. If parsing fails, fall back to treating raw as a bare
+    // sentence (the old behavior) with size null.
+    let summaryRaw = null, size = null, parsed = false;
+    const m = String(raw || '').match(/\{[\s\S]*\}/);
+    if (m) {
+      try { const obj = JSON.parse(m[0]); summaryRaw = obj.summary; size = normSize(obj.size); parsed = true; }
+      catch (_) { /* fall through to bare-sentence handling */ }
+    }
+    if (!parsed) { summaryRaw = raw; size = null; }
+
+    const out = clean(summaryRaw);
+    if (!out || out.toUpperCase() === 'NONE') { console.log(`[socialProof][SUMDIAG] null reason=none_response parsed=${parsed} size=${size} raw=${String(raw || '').slice(0, 200)}`); return { summary: null, size }; }
     const words = out.split(/\s+/).filter(Boolean).length;
-    if (words > 40) { console.log(`[socialProof][SUMDIAG] null reason=too_long words=${words} raw=${String(raw || '').slice(0, 200)}`); return null; }
-    console.log(`[socialProof][SUMDIAG] ok summary=${out}`);
-    return out;
+    if (words > 40) { console.log(`[socialProof][SUMDIAG] null reason=too_long words=${words} raw=${String(raw || '').slice(0, 200)}`); return { summary: null, size }; }
+    console.log(`[socialProof][SUMDIAG] ok size=${size} summary=${out}`);
+    return { summary: out, size };
   } catch (e) {
     console.log(`[socialProof][SUMDIAG] null reason=threw err=${e.message}`);
-    return null;
+    return { summary: null, size: null };
   }
 }
 

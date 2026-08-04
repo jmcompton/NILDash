@@ -183,14 +183,14 @@ async function runSocialDiscovery() {
     }
     if (found.via === 'link') summary.foundByLink++; else summary.foundByFallback++;
     // One Haiku call on the verified program page (never on the scan path).
-    const offerSummary = await summarizeProgram(found.pageText);
+    const { summary: offerSummary, size: brandSize } = await summarizeProgram(found.pageText);
     summary.summarizeAttempts++; if (offerSummary) summary.summarized++;
     try {
       await store.pool.query(
         `INSERT INTO social_brands
-           (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, offer_summary, proof_date, active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,CURRENT_DATE,true)
-         ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, offer_summary = EXCLUDED.offer_summary, active = true, updated_at = NOW()`,
+           (brand, category, website, sports, tier_min, tier_max, deal_structure, est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated, offer_summary, brand_size, proof_date, active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,CURRENT_DATE,true)
+         ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE, proof_snippet = EXCLUDED.proof_snippet, tier_stated = EXCLUDED.tier_stated, offer_summary = EXCLUDED.offer_summary, brand_size = EXCLUDED.brand_size, active = true, updated_at = NOW()`,
         [
           c.brand,
           c.category || 'unknown',
@@ -206,6 +206,7 @@ async function runSocialDiscovery() {
           found.snippet || null,
           !!found.tierStated,
           offerSummary,
+          brandSize,
         ]
       );
       summary.inserted++;
