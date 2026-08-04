@@ -604,6 +604,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     subscription_status: user.subscription_status || 'inactive',
     agentAccess: agentHasAccess(user),
     isFounder: isFounderEmail(user.email),
+    onboardingCompleted: user.onboarding_completed || false,
   });
 
 // ── Admin seed + university link endpoint ─────────────────────────
@@ -6262,6 +6263,15 @@ app.get('/api/athlete/deal-scan/cache', verifyAthleteToken, async (req, res) => 
     const rateCard = await _athleteRateCard(req.athlete.id);
     res.json({ cache, rateCard });
   } catch (e) { console.error('[athlete/deal-scan/cache]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/agent/onboarding-complete — mark the signed-in agent's first-run
+// onboarding assistant as done so it stops auto-opening. Idempotent.
+app.post('/api/agent/onboarding-complete', requireAuth, async (req, res) => {
+  try {
+    await store.pool.query('UPDATE users SET onboarding_completed = true, updated_at = NOW() WHERE id = $1', [req.session.userId]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // POST /api/agent/deal-scan — agent-side three-lane deal scan for a client athlete
