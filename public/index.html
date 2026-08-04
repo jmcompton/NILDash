@@ -5967,7 +5967,19 @@ var _dsLaneBusy = { local: false, social: false, topnil: false };
 // True when the server says this lane's pool is fully shown, which drives the
 // "Find more businesses" deepen button on the local lane.
 var _dsLaneExhausted = { local: false, social: false, topnil: false };
-window._agentRateCard = null; // { rates:{deliverable:{low,high}}, dealValueLow, dealValueHigh }
+// Rate cards are stored PER ATHLETE so one athlete's card never renders on another
+// athlete's cards. window._agentRateCard is kept only as a legacy alias to the
+// ACTIVE athlete's entry (nothing else reads it today).
+window._agentRateCards = {}; // { [athleteId]: rateCard }
+window._agentRateCard = null; // legacy alias -> active athlete's entry
+// Store a rate card under the athlete it was computed for. Only updates the legacy
+// alias when the response is for the currently-active athlete, so a late response
+// for a previously-selected athlete can never overwrite the active card.
+function _dsSetRateCard(athleteId, rateCard) {
+  if (!athleteId || !rateCard) return;
+  window._agentRateCards[athleteId] = rateCard;
+  if (athleteId === selectedAthleteId) window._agentRateCard = rateCard;
+}
 
 var DS_LANES = ['local', 'social', 'topnil'];
 var _dsLaneMeta = {
@@ -6129,10 +6141,11 @@ async function loadDealScanCache() {
   if (_dsLaneData.social === null) _dsScanSocialLane();
   if (_dsHasAnyData()) return;
   try {
-    var r = await fetch('/api/agent/deal-scan/cache?athleteId=' + encodeURIComponent(selectedAthleteId));
+    var _cacheAid = selectedAthleteId;
+    var r = await fetch('/api/agent/deal-scan/cache?athleteId=' + encodeURIComponent(_cacheAid));
     if (!r.ok) return;
     var d = await r.json();
-    if (d && d.rateCard) window._agentRateCard = d.rateCard;
+    if (d && d.rateCard) _dsSetRateCard(_cacheAid, d.rateCard);
     var cache = (d && d.cache) || {};
     var any = false;
     DS_LANES.forEach(function(lane){
@@ -6172,13 +6185,14 @@ async function _dsScanSocialLane() {
   var tabsEl = document.getElementById('ds-lane-tabs'); if (tabsEl) tabsEl.style.display = '';
   _dsRenderAll();
   try {
+    var _socAid = selectedAthleteId;
     var r = await fetch('/api/agent/deal-scan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ athleteId: selectedAthleteId, lane: 'social', exclude_brands: [] })
+      body: JSON.stringify({ athleteId: _socAid, lane: 'social', exclude_brands: [] })
     });
     var res = await r.json();
     _dsLaneBusy.social = false;
-    if (res && res.rateCard) window._agentRateCard = res.rateCard;
+    if (res && res.rateCard) _dsSetRateCard(_socAid, res.rateCard);
     _dsLaneData.social = (res && !res.error && Array.isArray(res.opportunities)) ? res.opportunities : [];
   } catch (e) {
     _dsLaneBusy.social = false;
@@ -6221,6 +6235,7 @@ async function _dsRunScan(isRefresh, opts) {
 
   var prog = startDealScanProgress();
 
+  var _scanAid = selectedAthleteId;
   var jobs = lanes.map(function(lane){
     return fetch('/api/agent/deal-scan', {
       method: 'POST',
@@ -6230,12 +6245,12 @@ async function _dsRunScan(isRefresh, opts) {
       // from cache and not tracked in _dealScanResults). Without this the refresh
       // silently returned the cached cards and looked like a dead button. deepen
       // fires the on-demand "Find more" deeper search for the local market.
-      body: JSON.stringify({ athleteId: selectedAthleteId, lane: lane, exclude_brands: (lane === 'social' ? [] : exclude), refresh: isRefresh, deepen: (isDeepen && lane === 'local') })
+      body: JSON.stringify({ athleteId: _scanAid, lane: lane, exclude_brands: (lane === 'social' ? [] : exclude), refresh: isRefresh, deepen: (isDeepen && lane === 'local') })
     })
       .then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
       .then(function(res){
         var opps = (res.ok && res.data && !res.data.error) ? (res.data.opportunities || []) : [];
-        if (res.ok && res.data && res.data.rateCard) window._agentRateCard = res.data.rateCard;
+        if (res.ok && res.data && res.data.rateCard) _dsSetRateCard(_scanAid, res.data.rateCard);
         _dsLaneBusy[lane] = false;
         // Rate limit: show the clear message, keep any existing results.
         if (res.data && res.data.error === 'rate_limited') {
@@ -6543,12 +6558,19 @@ function _dsEvidenceHtml(d) {
   return out;
 }
 
-// Single IG-post rate for the active athlete, widened ~0.7x-1.3x and rounded to the
-// nearest 25. Uses window._agentRateCard, already delivered with the scan (no extra
-// call, no AI). Returns null when follower data or the rate is missing.
+// THIS athlete's rate card entry (never a global/other athlete's). null when the
+// athlete has not been scanned yet in this session.
+function _dsRateEntry(athlete) {
+  return (athlete && athlete.id && window._agentRateCards) ? window._agentRateCards[athlete.id] : null;
+}
+
+// Single IG-post rate for the GIVEN athlete, widened ~0.7x-1.3x and rounded to the
+// nearest 25. Reads window._agentRateCards[athlete.id] (per athlete, deterministic
+// benchmarks, no AI). Returns null when follower data or the athlete's own rate is
+// missing — the caller decides which fallback text to show.
 function _dsPitchRange(athlete) {
   var followers = (Number(athlete && athlete.instagram) || 0) + (Number(athlete && athlete.tiktok) || 0);
-  var rc = window._agentRateCard;
+  var rc = _dsRateEntry(athlete);
   var post = rc && rc.rates && rc.rates['ig-post'];
   if (!followers || !post) return null;
   var base = ((Number(post.low) || 0) + (Number(post.high) || 0)) / 2;
@@ -6574,7 +6596,11 @@ function _dsPitchFor(opp, athlete) {
   var cat = String(opp && opp.category || '').toLowerCase();
   var evidence = String(opp && opp.evidence || '').toLowerCase();
   var range = _dsPitchRange(athlete);
-  var cashPitch = range ? ('Cash, ' + range) : 'Cash, amount depends on follower count';
+  // Distinguish the two null-range reasons so we never show another athlete's
+  // numbers: no rate entry for THIS athlete -> "Pitch available after scan";
+  // has an entry but no follower data -> the follower-count message.
+  var noScan = !_dsRateEntry(athlete);
+  var cashPitch = range ? ('Cash, ' + range) : (noScan ? 'Pitch available after scan' : 'Cash, amount depends on follower count');
 
   // 1. Evidence mentions an existing NIL / athlete deal.
   if (/\bnil\b|athlete|sponsor|endorse|ambassador|name,?\s*image/.test(evidence)) {
@@ -6602,7 +6628,7 @@ function _dsPitchFor(opp, athlete) {
   }
   // 7. No strong budget signal.
   return {
-    pitch: range ? ('Two feed posts and a story set, ' + range) : 'Two feed posts and a story set, amount depends on follower count',
+    pitch: range ? ('Two feed posts and a story set, ' + range) : (noScan ? 'Pitch available after scan' : 'Two feed posts and a story set, amount depends on follower count'),
     why: 'No strong budget signal, start with a standard package'
   };
 }
