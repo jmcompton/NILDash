@@ -3381,8 +3381,10 @@ if (process.env.NODE_ENV === 'production') scheduleWeeklyIngestion();
 // ── Nightly social brand discovery (3am Central) ─────────────────────────────
 // AI proposes candidate brands; the shared verify gate decides what is inserted.
 // Same self-re-arming setTimeout pattern as the weekly ingestion above, run as a
-// child process so a long job never blocks the event loop.
-function _msUntilNext3amCentral() {
+// child process so a long job never blocks the event loop. Fires TWICE daily,
+// at 3am and 3pm America/Chicago.
+const _DISCOVERY_HOURS_CENTRAL = [3, 15];
+function _msUntilNextDiscoveryCentral() {
   const now = new Date();
   // Current wall-clock in America/Chicago (DST-aware, no dependency).
   const p = new Intl.DateTimeFormat('en-US', {
@@ -3390,15 +3392,20 @@ function _msUntilNext3amCentral() {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   }).formatToParts(now).reduce((o, x) => { o[x.type] = x.value; return o; }, {});
   const h = parseInt(p.hour, 10) % 24, m = parseInt(p.minute, 10), s = parseInt(p.second, 10);
-  let secs = (3 * 3600) - (h * 3600 + m * 60 + s);
-  if (secs <= 0) secs += 24 * 3600;
-  return secs * 1000;
+  const nowSecs = h * 3600 + m * 60 + s;
+  let best = 24 * 3600; // at most a full day away
+  for (const hour of _DISCOVERY_HOURS_CENTRAL) {
+    let secs = (hour * 3600) - nowSecs;
+    if (secs <= 0) secs += 24 * 3600; // that target already passed today; take tomorrow's
+    if (secs < best) best = secs;
+  }
+  return best * 1000;
 }
 function scheduleDailySocialDiscovery() {
-  const ms = _msUntilNext3amCentral();
+  const ms = _msUntilNextDiscoveryCentral();
   console.log('Next social brand discovery:', new Date(Date.now() + ms).toISOString());
   setTimeout(async function runJob() {
-    console.log('Running nightly social brand discovery...');
+    console.log('Running social brand discovery...');
     try {
       const { exec } = require('child_process');
       exec('node ' + require('path').join(__dirname, 'jobs', 'socialDiscovery.js'), (err, stdout) => {
@@ -3406,7 +3413,7 @@ function scheduleDailySocialDiscovery() {
         else console.log('Social discovery complete:', String(stdout || '').slice(-300));
       });
     } catch (e) { console.error('Social discovery failed:', e.message); }
-    setTimeout(runJob, _msUntilNext3amCentral()); // recompute each night (DST + drift)
+    setTimeout(runJob, _msUntilNextDiscoveryCentral()); // recompute after each run (DST + drift)
   }, ms);
 }
 if (process.env.NODE_ENV === 'production') scheduleDailySocialDiscovery();
@@ -6126,6 +6133,7 @@ async function loadDealScanAthlete(athleteId) {
   const dsIg = parseInt(ath.ig) || ath.instagram_followers || 0;
   const dsTt = parseInt(ath.tt) || ath.tiktok_followers || 0;
   const athleteObj = {
+    id: athleteId, // needed by getSocialBrands for per-athlete social rotation
     name: ath.name,
     sport: ath.sport,
     position: ath.position,

@@ -444,6 +444,20 @@ async function init() {
   `).then(() => console.log('[init] social_brand_rejects table ready'))
     .catch(e => console.error('[init] social_brand_rejects:', e.message));
 
+  // Per-athlete rotation log: which social brands have been shown to which
+  // athlete, and when. getSocialBrands excludes a brand shown to THIS athlete in
+  // the last 30 days so an agent sees fresh brands across scans. Per athlete, not
+  // global -- the same brand can still surface for a different client.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS social_brand_shown (
+      athlete_id TEXT NOT NULL,
+      brand_id INT NOT NULL,
+      shown_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (athlete_id, brand_id)
+    )
+  `).then(() => console.log('[init] social_brand_shown table ready'))
+    .catch(e => console.error('[init] social_brand_shown:', e.message));
+
   // Media kit theme: 'school' (auto school colors, the original look) or
   // 'nildash' (dark + lime brand). NULL on existing rows = school behavior, so
   // saved kits are unchanged by this deploy. New kits default to 'nildash' in
@@ -2213,17 +2227,63 @@ async function getSocialBrands(athlete) {
   try {
     const reach = (Number(athlete.instagram) || 0) + (Number(athlete.tiktok) || 0);
     const sport = String(athlete.sport || '').trim().toLowerCase();
-    const r = await pool.query(
-      `SELECT * FROM social_brands
-        WHERE active = true
+    const athleteId = athlete.id || null;
+
+    // Base match: active brands whose tier band brackets this athlete's combined
+    // reach and whose sport list includes the sport (or 'all').
+    const baseWhere = `active = true
           AND (sports @> ARRAY[$1]::text[] OR sports @> ARRAY['all']::text[])
           AND tier_min <= $2
-          AND tier_max >= $3
-        ORDER BY proof_date DESC
-        LIMIT 12`,
-      [sport, reach * 1.25, reach * 0.75]
-    );
-    return r.rows.map(_decorateSocialBrand);
+          AND tier_max >= $3`;
+    const baseParams = [sport, reach * 1.25, reach * 0.75];
+
+    // Rotation: exclude brands shown to THIS athlete in the last 30 days (per
+    // athlete, not global). Re-running the query (e.g. the Refresh button) pulls
+    // the next set. No athlete id -> no exclusion.
+    let rows = [];
+    if (athleteId) {
+      const excl = await pool.query(
+        `SELECT * FROM social_brands
+          WHERE ${baseWhere}
+            AND id NOT IN (
+              SELECT brand_id FROM social_brand_shown
+               WHERE athlete_id = $4 AND shown_at > NOW() - INTERVAL '30 days'
+            )
+          ORDER BY proof_date DESC
+          LIMIT 12`,
+        [...baseParams, athleteId]
+      );
+      rows = excl.rows;
+    }
+
+    // If the exclusion leaves fewer than 5 matches (or there is no athlete id),
+    // ignore the exclusion and return the normal top 12. Better to repeat a brand
+    // than to show an empty lane.
+    if (rows.length < 5) {
+      const full = await pool.query(
+        `SELECT * FROM social_brands
+          WHERE ${baseWhere}
+          ORDER BY proof_date DESC
+          LIMIT 12`,
+        baseParams
+      );
+      rows = full.rows;
+    }
+
+    // Record what we are showing THIS athlete now so the next scan rotates.
+    // Best effort: a logging failure must never break the lane.
+    if (athleteId && rows.length) {
+      try {
+        await pool.query(
+          `INSERT INTO social_brand_shown (athlete_id, brand_id, shown_at)
+           SELECT $1, UNNEST($2::int[]), NOW()
+           ON CONFLICT (athlete_id, brand_id) DO UPDATE SET shown_at = NOW()`,
+          [athleteId, rows.map((r) => r.id)]
+        );
+      } catch (e) { console.warn('[getSocialBrands] shown-log failed:', e.message); }
+    }
+
+    return rows.map(_decorateSocialBrand);
   } catch (e) {
     console.error('[getSocialBrands]', e.message);
     return [];
