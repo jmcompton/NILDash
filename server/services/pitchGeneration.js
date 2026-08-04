@@ -152,7 +152,7 @@ DEAL SCAN CONTEXT:
 - Recommended deal structure: ${dealScanData?.recommendedPitch || 'N/A'}
 - Why that structure: ${dealScanData?.recommendedWhy || 'N/A'}
 
-IMPORTANT: When a recommended deal structure is given above, the email and the partnership_structure field MUST propose that same structure. Do not contradict it or substitute a different compensation model.
+IMPORTANT: When a recommended deal structure is given above, the email and the partnership_structure field MUST propose that same structure. Do not contradict it or substitute a different compensation model. Do NOT state a specific dollar amount, price, or rate anywhere in the email; describe the deliverables only and let the number be discussed on a call.
 
 MATCH ANALYSIS:
 - Compatibility score: ${matchScore?.compatibility_score || 70}/100

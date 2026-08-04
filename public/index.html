@@ -6592,27 +6592,24 @@ function _dsCatHas(cat, list) {
 }
 
 // Pitch + Why for a local/national opportunity. Pure JS, no AI. First match wins.
-// Every pitch names a deliverable, never a bare price.
+// Every pitch names a deliverable. No price is ever displayed; the rate midpoint
+// only scales which deliverable is proposed.
 function _dsPitchFor(opp, athlete) {
   var cat = String(opp && opp.category || '').toLowerCase();
   var evidence = String(opp && opp.evidence || '').toLowerCase();
   var entry = _dsRateEntry(athlete);
   var post = entry && entry.rates && entry.rates['ig-post'];
-  var range = _dsPitchRange(athlete);
-  // Single-post rate midpoint, used only to scale the deliverable to the price band.
-  var base = (range && post) ? (((Number(post.low) || 0) + (Number(post.high) || 0)) / 2) : null;
-  var noScan = !entry;
+  // Single-post rate midpoint (per athlete, never a global), used SILENTLY to scale
+  // the deliverable to the price band. Null when the athlete has no rate entry yet,
+  // in which case the base deliverable renders. The number is never shown.
+  var base = post ? (((Number(post.low) || 0) + (Number(post.high) || 0)) / 2) : null;
 
-  // Scaled cash pitch (rules 1, 3, 7): deliverable matched to the price band, then
-  // the range. No rate entry for THIS athlete yet -> "Pitch available after scan";
-  // entry present but followers missing (range null) -> the mid deliverable, no price.
+  // Scale rules 1, 3, 7 to the price band without displaying the price. Always
+  // returns a deliverable, even with no rate entry or no follower data.
   var scaled = function (midDeliverable) {
-    if (noScan) return 'Pitch available after scan';
-    var deliverable;
-    if (range && base != null && base < 250) deliverable = 'One feed post and a story set';
-    else if (range && base != null && base > 750) deliverable = 'Three feed posts, a story set and one appearance';
-    else deliverable = midDeliverable;
-    return range ? (deliverable + ', ' + range) : deliverable;
+    if (base != null && base < 250) return 'One feed post and a story set';
+    if (base != null && base > 750) return 'Three feed posts, a story set and one appearance';
+    return midDeliverable;
   };
 
   // 1. Evidence mentions an existing NIL / athlete deal.
@@ -6621,7 +6618,7 @@ function _dsPitchFor(opp, athlete) {
   }
   // 2. Franchise location.
   if (opp && opp.isFranchise === true) {
-    return { pitch: 'Free product plus a discount code, no cash ask', why: 'Franchise location, manager has no local budget' };
+    return { pitch: 'Free product plus a discount code', why: 'Franchise location, manager has no local budget' };
   }
   // 3. Category with a real local marketing budget.
   if (_dsCatHas(cat, _DS_CAT_BUDGET)) {
