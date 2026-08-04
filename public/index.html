@@ -6592,45 +6592,55 @@ function _dsCatHas(cat, list) {
 }
 
 // Pitch + Why for a local/national opportunity. Pure JS, no AI. First match wins.
+// Every pitch names a deliverable, never a bare price.
 function _dsPitchFor(opp, athlete) {
   var cat = String(opp && opp.category || '').toLowerCase();
   var evidence = String(opp && opp.evidence || '').toLowerCase();
+  var entry = _dsRateEntry(athlete);
+  var post = entry && entry.rates && entry.rates['ig-post'];
   var range = _dsPitchRange(athlete);
-  // Distinguish the two null-range reasons so we never show another athlete's
-  // numbers: no rate entry for THIS athlete -> "Pitch available after scan";
-  // has an entry but no follower data -> the follower-count message.
-  var noScan = !_dsRateEntry(athlete);
-  var cashPitch = range ? ('Cash, ' + range) : (noScan ? 'Pitch available after scan' : 'Cash, amount depends on follower count');
+  // Single-post rate midpoint, used only to scale the deliverable to the price band.
+  var base = (range && post) ? (((Number(post.low) || 0) + (Number(post.high) || 0)) / 2) : null;
+  var noScan = !entry;
+
+  // Scaled cash pitch (rules 1, 3, 7): deliverable matched to the price band, then
+  // the range. No rate entry for THIS athlete yet -> "Pitch available after scan";
+  // entry present but followers missing (range null) -> the mid deliverable, no price.
+  var scaled = function (midDeliverable) {
+    if (noScan) return 'Pitch available after scan';
+    var deliverable;
+    if (range && base != null && base < 250) deliverable = 'One feed post and a story set';
+    else if (range && base != null && base > 750) deliverable = 'Three feed posts, a story set and one appearance';
+    else deliverable = midDeliverable;
+    return range ? (deliverable + ', ' + range) : deliverable;
+  };
 
   // 1. Evidence mentions an existing NIL / athlete deal.
   if (/\bnil\b|athlete|sponsor|endorse|ambassador|name,?\s*image/.test(evidence)) {
-    return { pitch: cashPitch, why: 'They already did NIL deals with athletes' };
+    return { pitch: scaled('Two feed posts and one appearance'), why: 'They already did NIL deals with athletes' };
   }
   // 2. Franchise location.
   if (opp && opp.isFranchise === true) {
-    return { pitch: 'Free product plus a discount code', why: 'Franchise location, manager has no local budget' };
+    return { pitch: 'Free product plus a discount code, no cash ask', why: 'Franchise location, manager has no local budget' };
   }
   // 3. Category with a real local marketing budget.
   if (_dsCatHas(cat, _DS_CAT_BUDGET)) {
-    return { pitch: cashPitch, why: 'Category with real local marketing budget' };
+    return { pitch: scaled('Two feed posts and one appearance at their location'), why: 'Category with real local marketing budget' };
   }
   // 4. Food and drink.
   if (_dsCatHas(cat, _DS_CAT_FOOD)) {
-    return { pitch: 'Free meals plus a named menu item, athlete takes a cut', why: 'Food businesses trade product before they pay cash' };
+    return { pitch: 'Free meals plus a named menu item, athlete takes 10 percent', why: 'Food businesses trade product before they pay cash' };
   }
   // 5. Service businesses.
   if (_dsCatHas(cat, _DS_CAT_SERVICE)) {
-    return { pitch: 'Free membership or service plus posts', why: 'Service businesses trade access before cash' };
+    return { pitch: 'Free membership plus two feed posts and a story set', why: 'Service businesses trade access before cash' };
   }
   // 6. Retail / apparel.
   if (_dsCatHas(cat, _DS_CAT_RETAIL)) {
-    return { pitch: 'Product plus a discount code', why: 'Retail pays in product and code revenue first' };
+    return { pitch: 'Product plus a discount code, athlete takes 10 percent', why: 'Retail pays in product and code revenue first' };
   }
   // 7. No strong budget signal.
-  return {
-    pitch: range ? ('Two feed posts and a story set, ' + range) : (noScan ? 'Pitch available after scan' : 'Two feed posts and a story set, amount depends on follower count'),
-    why: 'No strong budget signal, start with a standard package'
-  };
+  return { pitch: scaled('Two feed posts and a story set'), why: 'No strong budget signal, start with a standard package' };
 }
 
 function _dsCardHtml(d, i, lane, isTop) {
