@@ -6543,6 +6543,70 @@ function _dsEvidenceHtml(d) {
   return out;
 }
 
+// Single IG-post rate for the active athlete, widened ~0.7x-1.3x and rounded to the
+// nearest 25. Uses window._agentRateCard, already delivered with the scan (no extra
+// call, no AI). Returns null when follower data or the rate is missing.
+function _dsPitchRange(athlete) {
+  var followers = (Number(athlete && athlete.instagram) || 0) + (Number(athlete && athlete.tiktok) || 0);
+  var rc = window._agentRateCard;
+  var post = rc && rc.rates && rc.rates['ig-post'];
+  if (!followers || !post) return null;
+  var base = ((Number(post.low) || 0) + (Number(post.high) || 0)) / 2;
+  if (!base) base = Number(post.low) || Number(post.high) || 0;
+  if (!base) return null;
+  var r25 = function (n) { return Math.max(25, Math.round(n / 25) * 25); };
+  var lo = r25(base * 0.7), hi = r25(base * 1.3);
+  if (hi <= lo) hi = lo + 25;
+  return '$' + lo.toLocaleString() + ' to $' + hi.toLocaleString();
+}
+
+var _DS_CAT_BUDGET  = ['auto', 'dealership', 'medspa', 'bank', 'insurance', 'realty', 'realestate', 'real estate'];
+var _DS_CAT_FOOD    = ['restaurant', 'food', 'coffee', 'bar'];
+var _DS_CAT_SERVICE = ['fitness', 'gym', 'wellness', 'salon', 'barber'];
+var _DS_CAT_RETAIL  = ['apparel', 'retail'];
+// Whole-word match so e.g. "bar" does not match "barber".
+function _dsCatHas(cat, list) {
+  return list.some(function (k) { return new RegExp('\\b' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(cat); });
+}
+
+// Pitch + Why for a local/national opportunity. Pure JS, no AI. First match wins.
+function _dsPitchFor(opp, athlete) {
+  var cat = String(opp && opp.category || '').toLowerCase();
+  var evidence = String(opp && opp.evidence || '').toLowerCase();
+  var range = _dsPitchRange(athlete);
+  var cashPitch = range ? ('Cash, ' + range) : 'Cash, amount depends on follower count';
+
+  // 1. Evidence mentions an existing NIL / athlete deal.
+  if (/\bnil\b|athlete|sponsor|endorse|ambassador|name,?\s*image/.test(evidence)) {
+    return { pitch: cashPitch, why: 'They already did NIL deals with athletes' };
+  }
+  // 2. Franchise location.
+  if (opp && opp.isFranchise === true) {
+    return { pitch: 'Free product plus a discount code', why: 'Franchise location, manager has no local budget' };
+  }
+  // 3. Category with a real local marketing budget.
+  if (_dsCatHas(cat, _DS_CAT_BUDGET)) {
+    return { pitch: cashPitch, why: 'Category with real local marketing budget' };
+  }
+  // 4. Food and drink.
+  if (_dsCatHas(cat, _DS_CAT_FOOD)) {
+    return { pitch: 'Free meals plus a named menu item, athlete takes a cut', why: 'Food businesses trade product before they pay cash' };
+  }
+  // 5. Service businesses.
+  if (_dsCatHas(cat, _DS_CAT_SERVICE)) {
+    return { pitch: 'Free membership or service plus posts', why: 'Service businesses trade access before cash' };
+  }
+  // 6. Retail / apparel.
+  if (_dsCatHas(cat, _DS_CAT_RETAIL)) {
+    return { pitch: 'Product plus a discount code', why: 'Retail pays in product and code revenue first' };
+  }
+  // 7. No strong budget signal.
+  return {
+    pitch: range ? ('Two feed posts and a story set, ' + range) : 'Two feed posts and a story set, amount depends on follower count',
+    why: 'No strong budget signal, start with a standard package'
+  };
+}
+
 function _dsCardHtml(d, i, lane, isTop) {
   var brand = d.brand || d.brand_name || 'Brand';
   var score = d.fitScore || 80;
@@ -6573,6 +6637,22 @@ function _dsCardHtml(d, i, lane, isTop) {
     extraChips += '<span class="ds-lane-chip" style="background:rgba(200,241,53,0.12);color:#C8F135;border:1px solid rgba(200,241,53,0.3)">Matches: ' + esc(d.matchedTags.slice(0, 4).join(', ')) + '</span>';
   }
 
+  // Pitch + Why: what to propose and why, grounded in this card's own signals.
+  // Rendered on local and national (topnil) cards; social cards use a different
+  // template and are never routed here. Stashed on d so AI Outreach proposes the
+  // same thing (d IS window._dealScanResults[i]).
+  var _ath = (window.athletes || (typeof athletes !== 'undefined' ? athletes : []) || []).find(function (a) { return a.id === selectedAthleteId; }) || {};
+  var _pw = _dsPitchFor(d, _ath);
+  d.recommendedPitch = _pw.pitch;
+  d.recommendedWhy = _pw.why;
+  var pitchBlock =
+    '<div style="background:var(--surface1,var(--surface));border:1px solid var(--border);border-radius:9px;padding:11px 12px;margin-top:10px">' +
+      '<div style="font-size:11px;color:var(--muted)">Pitch</div>' +
+      '<div style="font-size:14px;font-weight:500;color:var(--text);margin-top:2px;line-height:1.4">' + esc(_pw.pitch) + '</div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:9px">Why</div>' +
+      '<div style="font-size:13px;color:var(--muted);margin-top:2px;line-height:1.5">' + esc(_pw.why) + '</div>' +
+    '</div>';
+
   // Contacts load lazily (after the card renders) so the scan stays fast. The
   // slot shows "Finding contact" until _dsLoadContacts fills it.
   var contactHtml = '<div id="dsc-' + i + '">' + _dsContactSlotInner(d) + '</div>';
@@ -6594,6 +6674,7 @@ function _dsCardHtml(d, i, lane, isTop) {
         _dsEvidenceHtml(d) +
         (lane === 'local' && typeof d.evidence === 'string' && d.evidence ? '<div style="display:flex;align-items:flex-start;gap:7px;margin-top:6px"><span class="ds-lane-chip" style="background:rgba(132,204,22,0.14);color:#84CC16;border:1px solid rgba(132,204,22,0.35);flex-shrink:0;white-space:nowrap">Actively marketing</span><span style="font-size:11px;color:var(--muted);line-height:1.5">' + esc(d.evidence) + '</span></div>' : '') +
         (d.campaign  ? '<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px"><span style="color:var(--text);font-weight:600">Idea:</span> ' + esc(d.campaign) + '</div>' : '') +
+        pitchBlock +
         contactHtml +
       '</div>' +
       '<div onclick="dsToggleWhy(' + i + ')" title="See the factors behind this fit score" style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;cursor:pointer">' +

@@ -149,6 +149,10 @@ DEAL SCAN CONTEXT:
 - Why this brand was flagged: ${dealScanData?.rationale || 'Strong fit identified'}
 - Category: ${dealScanData?.category || 'N/A'}
 - Fit score: ${dealScanData?.fitScore || 'N/A'}/100
+- Recommended deal structure: ${dealScanData?.recommendedPitch || 'N/A'}
+- Why that structure: ${dealScanData?.recommendedWhy || 'N/A'}
+
+IMPORTANT: When a recommended deal structure is given above, the email and the partnership_structure field MUST propose that same structure. Do not contradict it or substitute a different compensation model.
 
 MATCH ANALYSIS:
 - Compatibility score: ${matchScore?.compatibility_score || 70}/100
