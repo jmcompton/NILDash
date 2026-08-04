@@ -1246,56 +1246,50 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item active" id="homeNavBtn" onclick="showView('home',this)">
         <span class="nav-dot-item"></span>Home
       </button>
-      <div class="nav-section-label">Command</div>
-      <button class="nav-item" onclick="showView('command',this)">
-        <span class="nav-dot-item"></span>AI Command
-      </button>
       <button class="nav-item" onclick="showView('deals',this)">
         <span class="nav-dot-item"></span>Deal Scan
-      </button>
-      <button class="nav-item" onclick="showView('rate',this)">
-        <span class="nav-dot-item"></span>Rate Calculator
-      </button>
-      <button class="nav-item" onclick="showView('team-match',this)">
-        <span class="nav-dot-item"></span>Team Match
-      </button>
-      <button class="nav-item" onclick="showView('outreach',this)">
-        <span class="nav-dot-item"></span>Outreach
       </button>
       <button class="nav-item" onclick="showView('marketing',this)" id="marketingNavBtn">
         <span class="nav-dot-item"></span>Media Kit
       </button>
-      <button class="nav-item" onclick="showView('calendar',this)">
-        <span class="nav-dot-item"></span>Calendar
-      </button>
-      <button class="nav-item" onclick="showView('compliance',this)">
-        <span class="nav-dot-item"></span>Compliance
-      </button>
-      <button class="nav-item" onclick="showView('contract',this)">
-        <span class="nav-dot-item"></span>Contract
-      </button>
-      <button class="nav-item" onclick="showView('pdf-scan',this)" id="pdfScanNavBtn">
-        <span class="nav-dot-item"></span>PDF Scanner
-      </button>
-      <button class="nav-item" onclick="showView('analytics',this)">
-        <span class="nav-dot-item"></span>Analytics
-      </button>
-      <button class="nav-item" onclick="showView('commission',this)">
-        <span class="nav-dot-item"></span>Commission
+      <button class="nav-item" onclick="showView('outreach',this)">
+        <span class="nav-dot-item"></span>Outreach
       </button>
       <button class="nav-item" onclick="showView('pipeline',this)">
         <span class="nav-dot-item"></span>Pipeline
       </button>
-      <div class="nav-section-label">Roster</div>
       <button class="nav-item" onclick="showView('roster',this)">
         <span class="nav-dot-item"></span>My Roster
       </button>
       <button class="nav-item" onclick="showView('add-athlete',this)" id="addAthleteNavBtn">
         <span class="nav-dot-item"></span>Add Client
       </button>
-      <button class="nav-item" onclick="showView('athlete-portals',this)" id="athletePortalsNavBtn">
-        <span class="nav-dot-item"></span>Athlete Portals
+      <!-- AI Command: held in the sidebar pending a placement decision -->
+      <button class="nav-item" onclick="showView('command',this)">
+        <span class="nav-dot-item"></span>AI Command
       </button>
+      <!-- More: collapsed by default, expands in place (session-only, not persisted) -->
+      <button class="nav-item" id="moreNavToggle" aria-expanded="false" onclick="toggleMoreNav()">
+        <span class="nav-dot-item"></span>More
+        <svg id="moreNavChevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-left:auto;transition:transform 0.15s"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div id="moreNavGroup" style="display:none">
+        <button class="nav-item" onclick="showView('analytics',this)">
+          <span class="nav-dot-item"></span>Analytics
+        </button>
+        <button class="nav-item" onclick="showView('commission',this)">
+          <span class="nav-dot-item"></span>Commission
+        </button>
+        <button class="nav-item" onclick="showView('calendar',this)">
+          <span class="nav-dot-item"></span>Calendar
+        </button>
+        <button class="nav-item" onclick="showView('contract',this)">
+          <span class="nav-dot-item"></span>Contract
+        </button>
+        <button class="nav-item" onclick="showView('pdf-scan',this)" id="pdfScanNavBtn">
+          <span class="nav-dot-item"></span>PDF Scanner
+        </button>
+      </div>
       <div class="nav-section-label">Communication</div>
       <button class="nav-item" id="emailNavBtn" onclick="showView('email-inbox',this);emailModule.loadInbox();athleteEmailsModule.clearBadge()">
         <span class="nav-dot-item"></span>Email Inbox
@@ -3369,67 +3363,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </div>
       </div>
 
-      <div id="view-team-match" class="view">
-        <div class="page-title">TEAM MATCH</div>
-        <div class="page-sub">Transfer Portal Intelligence — scan for the best NIL transfer destinations ranked by fit score, NIL value, and pro exposure.</div>
-
-        <!-- ── Active Client Context ── -->
-        <div id="tm-athlete-context" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 14px;margin-bottom:16px;font-size:12px;align-items:center;gap:16px;flex-wrap:wrap">
-          <span style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.06em">Scanning for:</span>
-          <span style="font-weight:700;color:var(--text)" id="tm-ctx-name">—</span>
-          <span style="font-size:11px;color:var(--accent);background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.2);border-radius:4px;padding:2px 8px" id="tm-ctx-sport-pos">—</span>
-          <span style="font-size:11px;color:var(--muted)" id="tm-ctx-school"></span>
-        </div>
-        <div id="tm-no-athlete" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 16px;margin-bottom:16px;font-size:12px;color:var(--muted)">
-          Select an active client above to pre-fill sport and position, or leave filters blank to search all programs.
-        </div>
-
-        <!-- ── Filters ── -->
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px">
-          <div><label class="form-label-sm">Conference</label>
-            <select class="select-sm" id="tm-conf">
-              <option value="any">Any conference</option>
-              <optgroup label="Power 4">
-                <option value="SEC">SEC</option><option value="Big Ten">Big Ten</option><option value="ACC">ACC</option><option value="Big 12">Big 12</option>
-              </optgroup>
-              <optgroup label="High Major">
-                <option value="AAC">AAC</option><option value="Mountain West">Mountain West</option><option value="Pac-12">Pac-12</option><option value="Independent">Independent</option>
-              </optgroup>
-              <optgroup label="Mid Major">
-                <option value="Sun Belt">Sun Belt</option><option value="MAC">MAC</option><option value="CUSA">Conference USA</option><option value="Big East">Big East</option><option value="Atlantic 10">Atlantic 10</option><option value="MVC">Missouri Valley</option><option value="WCC">West Coast</option><option value="SoCon">Southern Conference</option><option value="Big South">Big South</option><option value="OVC">Ohio Valley</option><option value="Ivy">Ivy League</option>
-              </optgroup>
-              <optgroup label="FCS">
-                <option value="MEAC">MEAC</option><option value="SWAC">SWAC</option><option value="CAA">CAA</option><option value="Big Sky">Big Sky</option><option value="Pioneer">Pioneer League</option>
-              </optgroup>
-            </select>
-          </div>
-          <div><label class="form-label-sm">Min NIL / year</label>
-            <select class="select-sm" id="tm-minnil">
-              <option value="0" selected>Any amount</option>
-              <option value="100000">$100K+</option><option value="250000">$250K+</option><option value="500000">$500K+</option><option value="1000000">$1M+</option>
-            </select>
-          </div>
-          <div><label class="form-label-sm">Sort by</label>
-            <select class="select-sm" id="tm-sort">
-              <option value="fit">Fit score</option><option value="nil">NIL value</option><option value="exposure">Pro exposure</option>
-            </select>
-          </div>
-          <div style="display:flex;align-items:flex-end">
-            <button class="run-btn" style="width:100%" id="tm-run-btn" onclick="runTeamMatch()">Scan Teams →</button>
-          </div>
-        </div>
-
-        <div id="tm-summary" style="display:none"></div>
-        <div id="tm-results"></div>
-        <div class="ai-block" id="tm-playbook-block">
-          <div class="ai-header">
-            <div class="spinner" id="tm-spinner"></div>
-            <div class="ai-label" id="tm-playbook-label">Negotiation Playbook</div>
-          </div>
-          <div class="ai-content" id="tm-playbook-text"></div>
-        </div>
-
-      </div><!-- /view-team-match -->
+<!-- Team Match view removed -->
 
       <!-- ── Hidden stubs for Agent Intelligence JS compatibility ── -->
       <div id="intel-pane-hq" style="display:none">
@@ -4687,7 +4621,7 @@ async function bootApp() {
     loadAthleteCalendarPortal();
     loadAthleteOutreachHistory();
     // Hide entire agent nav for athletes
-    const agentOnlyEls = ['view-home','view-command','view-deals','view-rate','view-negotiate','view-team-match','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-pdf-scan','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals','view-university-dashboard'];
+    const agentOnlyEls = ['view-home','view-command','view-deals','view-rate','view-negotiate','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-pdf-scan','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals','view-university-dashboard'];
     agentOnlyEls.forEach(function(id) {
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
@@ -4968,6 +4902,11 @@ async function renderRoster() {
       <div style="display:flex;gap:6px;margin-top:4px">
         <button onclick="event.stopPropagation();openBrandKitModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">Pitch Deck</button>
         <button onclick="event.stopPropagation();openOutreachModal('${a.id}','${(a.name||'').replace(/'/g,'')}')" style="flex:1;background:rgba(132,204,22,0.08);border:1px solid rgba(132,204,22,0.25);border-radius:var(--r-sm);color:var(--accent);font-size:11px;padding:6px;cursor:pointer;font-weight:600">Outreach</button>
+      </div>
+      <div style="display:flex;gap:14px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+        <span onclick="event.stopPropagation();openAthleteTool('${a.id}','rate')" style="font-size:11px;color:var(--accent);cursor:pointer">Rate Calculator</span>
+        <span onclick="event.stopPropagation();openAthleteTool('${a.id}','athlete-portals')" style="font-size:11px;color:var(--accent);cursor:pointer">Portals</span>
+        <span onclick="event.stopPropagation();openAthleteTool('${a.id}','compliance')" style="font-size:11px;color:var(--accent);cursor:pointer">Compliance</span>
       </div>
     </div>`;
   }).join('');
@@ -5875,9 +5814,9 @@ async function showView(id, btn) {
   if (btn) btn.classList.add('active');
   const labels = { home:'Home', command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
     marketing:'Media Kit',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', 'team-match':'Team Match', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
-  const showBar = ['command','deals','rate','negotiate','team-match'].includes(id);
+  const showBar = ['command','deals','rate','negotiate'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
   if (id === 'calendar') { if (window.NILCal) NILCal.initLabel(); loadCalendar(); initAgentGCalStatus(); }
@@ -5886,7 +5825,6 @@ async function showView(id, btn) {
   if (id === 'roster') renderRoster();
   if (id === 'athlete-portals') { loadAthletePortals(); setTimeout(loadAgentOutreach, 400); }
   if (id === 'contract') prefillContract();
-  if (id === 'team-match') tmPreFillFromAthlete();
   if (id === 'deals') { if (selectedAthleteId) loadDealScanCache(); }
   if (id === 'compliance') { try { loadNilComplianceRef(); } catch(e) {} }
   if (id === 'outreach') { try { loadUnifiedOutreach(); } catch(e) {} }
@@ -5938,6 +5876,25 @@ async function loadBenchmarks() {
   } catch(e) {
     el.innerHTML = '<div style="font-size:11px;color:#4B5563;padding:6px 2px">Unable to load right now.</div>';
   }
+}
+// "More" nav group: expand/collapse in place. Session-only state (lives in the DOM,
+// resets on reload), never persisted.
+function toggleMoreNav() {
+  var g = document.getElementById('moreNavGroup');
+  var t = document.getElementById('moreNavToggle');
+  var chev = document.getElementById('moreNavChevron');
+  if (!g) return;
+  var willOpen = g.style.display === 'none' || !g.style.display;
+  g.style.display = willOpen ? 'block' : 'none';
+  if (t) t.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  if (chev) chev.style.transform = willOpen ? 'rotate(180deg)' : '';
+}
+// Open an athlete-context tool (Rate Calculator / Athlete Portals / Compliance)
+// with that athlete pre-selected as the active client. Reached from the My Roster
+// card. selectAthlete sets selectedAthleteId synchronously before showView reads it.
+function openAthleteTool(id, view) {
+  selectAthlete(id);
+  showView(view);
 }
 async function prefillContract() {
   if (!selectedAthleteId) return;
