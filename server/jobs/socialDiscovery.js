@@ -27,7 +27,7 @@ const ai = require('../ai');
 const { verifySocialProof, findProgramUrl, summarizeProgram } = require('../services/socialProof');
 
 const QUERIES_PATH = path.join(__dirname, '..', 'data', 'socialDiscoveryQueries.json');
-const QUERIES_PER_RUN = 12;  // queries to run per run (job fires twice daily: 3am + 3pm)
+const QUERIES_PER_RUN = 20;  // queries to run per run (job fires twice daily: 3am + 3pm)
 const MAX_PER_QUERY = 10;    // brands the model may return per query
 const MAX_CANDIDATES = 60;   // hard cap on candidates verified per run (cost bound)
 
