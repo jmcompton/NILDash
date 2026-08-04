@@ -6674,12 +6674,28 @@ function _dsSocialCardHtml(d, i) {
   var freshColor = freshCurrent ? '#84CC16' : '#f59e0b';
   var checkIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-left:3px;vertical-align:-1px"><path d="M20 6L9 17l-5-5"/></svg>';
   var extIcon = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>';
+  var boltIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-right:6px;vertical-align:-2px"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>';
 
-  // "verified {Mon YYYY}" from proof_date (UTC to avoid drift).
+  // Favicon: derive the hostname from the website column (strip protocol + www).
+  var host = '';
+  try { var wsrc = String(d.website || '').trim(); if (wsrc) { if (!/^https?:\/\//i.test(wsrc)) wsrc = 'https://' + wsrc; host = new URL(wsrc).hostname.replace(/^www\./, ''); } } catch (_) { host = ''; }
+  var favicon = host
+    ? '<img src="https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=64" width="34" height="34" loading="lazy" alt="" aria-hidden="true" onerror="this.style.display=\'none\'" style="width:34px;height:34px;border-radius:8px;background:var(--surface1,var(--surface));flex-shrink:0;object-fit:contain">'
+    : '';
+
+  // Size chip: small -> green success chip, national -> muted grey chip, null -> none.
+  var sizeChip = '';
+  if (d.brand_size === 'small') sizeChip = '<span class="ds-lane-chip" style="background:rgba(132,204,22,0.14);color:#84CC16;border:1px solid rgba(132,204,22,0.35)">Small brand</span>';
+  else if (d.brand_size === 'national') sizeChip = '<span class="ds-lane-chip" style="background:rgba(255,255,255,0.06);color:var(--muted);border:1px solid var(--border)">National</span>';
+
+  // Proof link chip. The verified date lives in the title attribute, not on the card face.
   var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var pd = d.proof_date ? new Date(d.proof_date) : null;
   var proofWhen = (pd && !isNaN(pd.getTime())) ? (MON[pd.getUTCMonth()] + ' ' + pd.getUTCFullYear()) : '';
-  var proofLabel = 'verified' + (proofWhen ? ' ' + proofWhen : '');
+  var proofTitle = proofWhen ? ('Verified ' + proofWhen) : 'Verified';
+  var proofChip = d.proof_url
+    ? '<a href="' + esc(d.proof_url) + '" target="_blank" rel="noopener" title="' + esc(proofTitle) + '" style="flex-shrink:0;white-space:nowrap;font-size:12px;padding:5px 11px;border:0.5px solid var(--accent);color:var(--accent);border-radius:var(--radius,8px);text-decoration:none;display:inline-flex;align-items:center;gap:4px">Program page' + extIcon + '</a>'
+    : '';
 
   // Signs (sports) and Tier.
   var sportsArr = Array.isArray(d.sports) ? d.sports : [];
@@ -6703,33 +6719,35 @@ function _dsSocialCardHtml(d, i) {
   };
 
   return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:15px 16px">' +
-    // 1. HEADER ROW
-    '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:4px">' +
-      '<span class="ds-lane-chip" style="background:' + _dsLaneMeta.social.chip + '">Social</span>' +
-      '<span style="font-size:17px;font-weight:500;color:var(--text)">' + esc(brand) + '</span>' +
-      (d.category ? '<span style="font-size:12px;color:var(--muted)">' + esc(d.category) + '</span>' : '') +
+    // 1. HEADER ROW: favicon | brand/category/size + freshness | proof-page chip
+    '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:14px">' +
+      favicon +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+          '<span style="font-size:17px;font-weight:500;color:var(--text)">' + esc(brand) + '</span>' +
+          (d.category ? '<span style="font-size:12px;color:var(--muted)">' + esc(d.category) + '</span>' : '') +
+          sizeChip +
+        '</div>' +
+        '<div style="font-size:12px;margin-top:4px">' +
+          '<span style="color:' + freshColor + ';font-weight:500;display:inline-flex;align-items:center">' + freshTxt + (freshCurrent ? checkIcon : '') + '</span>' +
+        '</div>' +
+      '</div>' +
+      proofChip +
     '</div>' +
-    // 2. STATUS ROW
-    '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:12px;margin-bottom:14px">' +
-      '<span style="color:' + freshColor + ';font-weight:500;display:inline-flex;align-items:center">' + freshTxt + (freshCurrent ? checkIcon : '') + '</span>' +
-      (d.proof_url ? '<span style="color:var(--muted)">·</span>' +
-        '<a href="' + esc(d.proof_url) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:none;display:inline-flex;align-items:center;gap:3px">' + esc(proofLabel) + extIcon + '</a>' : '') +
-    '</div>' +
-    // 3. EVIDENCE BLOCK (only when proof_snippet exists)
+    // 2. EVIDENCE BLOCK (only when offer_summary exists)
     (d.offer_summary ? '<div style="border-left:2px solid var(--accent);border-radius:0;padding-left:12px;margin-bottom:14px">' +
       '<div style="font-size:14px;line-height:1.6;color:var(--text);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">' + esc(String(d.offer_summary).trim()) + '</div>' +
       '<div style="font-size:11px;color:var(--muted);margin-top:6px">What they offer</div></div>' : '') +
-    // 4. FIELD ROW
-    '<div style="display:flex;flex-wrap:wrap;gap:20px;margin-bottom:14px">' +
+    // 3. FIELD ROW
+    '<div style="display:flex;flex-wrap:wrap;gap:22px;margin-bottom:14px">' +
       fld('Deal', dealVal, true, 'var(--text)') +
       fld('Signs', signs, false, 'var(--text)') +
       fld('Tier', tier, false, d.tier_stated ? 'var(--text)' : 'var(--muted)') +
     '</div>' +
-    // 5. BUTTON ROW
-    '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-      '<button onclick="prefillOutreach(\'' + brandSafe + '\')" style="flex:1;min-width:110px;padding:9px;background:var(--accent);color:#0A0E1A;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Write outreach</button>' +
-      '<button onclick="addDealToPipeline(\'' + brandSafe + '\',\'ig-post\',\'\')" style="padding:9px 12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">Pipeline</button>' +
-      '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="padding:9px 12px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">AI outreach</button>' +
+    // 4. ACTION ROW: AI outreach is the single primary control; pipeline is a text link
+    '<div style="display:flex;align-items:center;gap:16px">' +
+      '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="display:inline-flex;align-items:center;background:rgba(168,85,247,0.22);border:1px solid rgba(168,85,247,0.5);color:#c084fc;border-radius:8px;font-size:14px;font-weight:700;padding:9px 22px;cursor:pointer">' + boltIcon + 'AI outreach</button>' +
+      '<span onclick="addDealToPipeline(\'' + brandSafe + '\',\'ig-post\',\'\')" style="font-size:13px;color:var(--muted);cursor:pointer">Add to pipeline</span>' +
     '</div>' +
   '</div>';
 }
