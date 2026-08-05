@@ -2046,41 +2046,6 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     if (schoolCached) for (const cnd of schoolCached.candidates) addCandidate(cnd, 'school');
     if (hometownCached) for (const cnd of hometownCached.candidates) addCandidate(cnd, 'hometown');
 
-    // ── Google Places discovery (school market) ───────────────────────────────
-    // For a COLD school build (not deepen), pull the FULL local-business pool from
-    // Google Places instead of the handful an LLM recalls. Gated on a real market
-    // (locationKnown), a key, and the discovery flag; built at most once per market
-    // per 24h. Falls back to the web-search path when disabled, keyless, geocode/
-    // Places fails, or Places returns nothing (G: never delete the web path).
-    let placesSchoolUsed = false;
-    const _placesEnabled = (process.env.DEAL_SCAN_DISCOVERY || 'places') !== 'websearch'
-      && !!(process.env.GOOGLE_PLACES_API_KEY || '').trim();
-    if (_placesEnabled && schoolWillSearch && !deepen && locationKnown) {
-      if ((opts && opts.forcePlaces) || _placesBuildAllowed(schoolCacheKey)) {
-        try {
-          const pr = await buildMarketPoolFromPlaces(school);
-          if (pr.ok && pr.candidates.length) {
-            _placesBuildRecord(schoolCacheKey);
-            for (const c of pr.candidates) {
-              const k = _brandKey(c.name);
-              if (k && !seen.has(k)) { seen.add(k); found.push(c); }
-            }
-            placesSchoolUsed = true;
-            // Persist the FULL pool now (no truncation), keyed to this market.
-            const poolSchool = found.filter((f) => f.market === 'school');
-            if (poolSchool.length) store.setMarketCache(schoolCacheKey, poolSchool);
-            console.log(`[dealScan] PLACES school market=${schoolCacheKey} poolSize=${poolSchool.length} placesCalls=${pr.placesCalls} elapsedMs=${pr.ms}`);
-          } else {
-            console.warn(`[dealScan] Places returned nothing (${pr.reason || 'empty'}) for ${schoolCacheKey}; falling back to web search`);
-          }
-        } catch (e) {
-          console.warn('[dealScan] Places build failed, falling back to web search:', e.message);
-        }
-      } else {
-        console.log(`[dealScan] Places build for ${schoolCacheKey} skipped by 24h cost guard; using web search`);
-      }
-    }
-
     // ── Pagination + never-repeat ─────────────────────────────────────────────
     // excludeBrands is the persisted shown-set for this athlete. Each scan/refresh
     // returns the NEXT unseen businesses from the pool with ZERO web searches until
@@ -2122,6 +2087,48 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const SCHOOL_SEARCH_N = deepen ? 4 : 8, HOMETOWN_SEARCH_N = deepen ? 1 : 2;
     const schoolWillSearch = (!schoolCached || schoolThin || deepen);
     const hometownWillSearch = hasHometown && (!hometownCached || hometownThin || deepen);
+
+    // ── Google Places discovery (school market) ───────────────────────────────
+    // For a COLD school build (not deepen), pull the FULL local-business pool from
+    // Google Places instead of the handful an LLM recalls. Gated on a real market
+    // (locationKnown), a key, and the discovery flag; built at most once per market
+    // per 24h. Declared here, AFTER schoolWillSearch/deepen exist, so there is no
+    // temporal-dead-zone reference. Falls back to the web-search path when disabled,
+    // keyless, geocode/Places fails, or Places returns nothing (G: never delete it).
+    let placesSchoolUsed = false;
+    const _placesEnabled = (process.env.DEAL_SCAN_DISCOVERY || 'places') !== 'websearch'
+      && !!(process.env.GOOGLE_PLACES_API_KEY || '').trim();
+    const _placesEligible = _placesEnabled && schoolWillSearch && !deepen && locationKnown;
+    // #2: log entry visibility, not just success, so a scan that never reaches the
+    // build shows WHY (which gate failed).
+    console.log(`[dealScan] Places eligible=${_placesEligible} market=${schoolCacheKey} (enabled=${_placesEnabled} schoolWillSearch=${schoolWillSearch} deepen=${deepen} locationKnown=${locationKnown})`);
+    if (_placesEligible) {
+      if ((opts && opts.forcePlaces) || _placesBuildAllowed(schoolCacheKey)) {
+        console.log(`[dealScan] Places branch ENTER market=${schoolCacheKey} force=${!!(opts && opts.forcePlaces)}`);
+        try {
+          const pr = await buildMarketPoolFromPlaces(school);
+          if (pr.ok && pr.candidates.length) {
+            _placesBuildRecord(schoolCacheKey);
+            for (const c of pr.candidates) {
+              const k = _brandKey(c.name);
+              if (k && !seen.has(k)) { seen.add(k); found.push(c); }
+            }
+            placesSchoolUsed = true;
+            // Persist the FULL pool now (no truncation), keyed to this market.
+            const poolSchool = found.filter((f) => f.market === 'school');
+            if (poolSchool.length) store.setMarketCache(schoolCacheKey, poolSchool);
+            console.log(`[dealScan] PLACES school market=${schoolCacheKey} poolSize=${poolSchool.length} placesCalls=${pr.placesCalls} elapsedMs=${pr.ms}`);
+          } else {
+            console.warn(`[dealScan] Places returned nothing (${pr.reason || 'empty'}) for ${schoolCacheKey}; falling back to web search`);
+          }
+        } catch (e) {
+          console.error('[dealScan] Places build threw, falling back to web search:', e.message);
+        }
+      } else {
+        console.log(`[dealScan] Places build for ${schoolCacheKey} skipped by 24h cost guard; using web search`);
+      }
+    }
+
     const _mktLog = (key, cached, willSearch, n, thin) => {
       if (!cached) return `[dealScan] market cache key=${key} -> MISS (building pool, ${n} web searches)`;
       if (!willSearch) return `[dealScan] market cache key=${key} -> HIT age=${_ageD(cached)}d (0 web searches)`;
@@ -2282,7 +2289,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     }
 
     // Too thin to be a credible local scan — let the knowledge path try instead.
-    if (found.length < 3) throw new Error(`only ${found.length} web candidates`);
+    // Marked so the catch tells this DELIBERATE fallback apart from a real failure.
+    if (found.length < 3) { const e = new Error(`only ${found.length} web candidates`); e._thinFallback = true; throw e; }
 
     // ── Paginate: score only the NEXT page of UNSEEN businesses ────────────────
     // A deep pool is built once; each scan/refresh shows the next 10 the agent has
@@ -2463,7 +2471,17 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
     localCards._poolUnseen = unseenAll.length; // drives auto-deepen when a market runs thin
     return localCards; // contacts load lazily via /api/agent/brand-contacts (non-blocking)
   } catch (webErr) {
-    console.warn('[dealScan] category web-search path failed, trying model knowledge:', webErr.message);
+    // Only a DELIBERATE thin-market signal is allowed to fall through to the model-
+    // knowledge path. A real discovery failure (bug, ReferenceError, network) must
+    // NOT be masked as uncached model-knowledge results — log it loudly and return
+    // an honest empty local lane instead (#3).
+    if (!(webErr && webErr._thinFallback)) {
+      console.error('[dealScan] LOCAL DISCOVERY FAILED (returning honest empty, NOT model knowledge):', webErr && webErr.message);
+      if (webErr && webErr.stack) console.error(webErr.stack);
+      const empty = []; empty._poolExhausted = true; empty._poolTotal = 0; empty._poolUnseen = 0;
+      return empty;
+    }
+    console.warn('[dealScan] local pool too thin, trying model knowledge:', webErr.message);
   }
 
   // ── FALLBACK: model knowledge (no web search) ───────────────────────────────
