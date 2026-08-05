@@ -465,7 +465,12 @@ app.get('/api/agent/stripe-complete', requireAuth, async (req, res) => {
 // ── Health ─────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   const hasKey = !!(process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_API_KEY.includes('YOUR_KEY'));
-  res.json({ status: 'ok', aiReady: hasKey, version: '1.0.0' });
+  // Deployed commit, so "is my push actually live" is checkable without the Railway
+  // dashboard. Railway injects RAILWAY_GIT_COMMIT_SHA; the fallbacks cover other
+  // hosts. "unknown" means the host did not inject a commit env var.
+  const commit = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.SOURCE_COMMIT
+    || process.env.GIT_COMMIT || process.env.COMMIT_SHA || 'unknown';
+  res.json({ status: 'ok', aiReady: hasKey, version: '1.0.0', commit: String(commit).slice(0, 12), commitFull: commit });
 });
 
 // ── Auth routes ────────────────────────────────────────────────

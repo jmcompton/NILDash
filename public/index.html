@@ -3469,6 +3469,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button onclick="_dsLedgerStats(this)" style="padding:8px 16px;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.35);border-radius:var(--r-sm);color:#60a5fa;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Ledger stats</button>
         <button onclick="_dsRunBackfill(this)" style="padding:8px 16px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:var(--r-sm);color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Run backfill</button>
+        <button onclick="_dsSocialDepth(this)" style="padding:8px 16px;background:rgba(45,212,191,0.12);border:1px solid rgba(45,212,191,0.4);border-radius:var(--r-sm);color:#2dd4bf;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Social depth</button>
       </div>
       <pre id="ds-ledger-out" style="display:none;margin-top:12px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-x:auto"></pre>
     </div>
@@ -6848,6 +6849,29 @@ async function _dsLedgerStats(btn) {
   if (btn) btn.disabled = true;
   try {
     var r = await fetch(API_BASE + '/api/admin/brand-engagement/stats', { credentials: 'include' });
+    var data = await r.json().catch(function () { return {}; });
+    if (out) {
+      out.style.display = 'block';
+      out.textContent = r.ok ? JSON.stringify(data, null, 2) : ('Error ' + r.status + ': ' + (data.error || 'request failed'));
+    }
+  } catch (e) {
+    if (out) { out.style.display = 'block'; out.textContent = 'Request failed: ' + (e && e.message ? e.message : e); }
+  }
+  if (btn) btn.disabled = false;
+}
+
+// Admin (Growth view): Social lane depth for the currently selected Deal Scan
+// athlete. Builds the URL from selectedAthleteId so it works from a phone without
+// typing one. Uses the session cookie; read-only.
+async function _dsSocialDepth(btn) {
+  var out = document.getElementById('ds-ledger-out');
+  if (!selectedAthleteId) {
+    if (out) { out.style.display = 'block'; out.textContent = 'No Deal Scan athlete selected. Open Deal Scan, pick a client, then come back and tap Social depth.'; }
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/deal-scan/social-depth?athleteId=' + encodeURIComponent(selectedAthleteId), { credentials: 'include' });
     var data = await r.json().catch(function () { return {}; });
     if (out) {
       out.style.display = 'block';
