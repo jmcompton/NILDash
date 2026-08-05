@@ -2445,6 +2445,50 @@ async function getSocialBrands(athlete) {
   }
 }
 
+// Eligibility used by the Social lane: active brands whose sport list includes the
+// athlete's sport (or 'all') and whose tier band brackets the athlete's combined
+// IG+TikTok reach (+/-25%). Single source so the pool, the depth report, and the
+// legacy rotation all agree on what "eligible" means.
+function _socialBaseMatch(athlete) {
+  const reach = (Number(athlete.instagram) || 0) + (Number(athlete.tiktok) || 0);
+  const sport = String(athlete.sport || '').trim().toLowerCase();
+  const where = `active = true
+        AND (sports @> ARRAY[$1]::text[] OR sports @> ARRAY['all']::text[])
+        AND tier_min <= $2
+        AND tier_max >= $3`;
+  return { where, params: [sport, reach * 1.25, reach * 0.75] };
+}
+
+// FULL eligible Social pool for an athlete, fit-ordered (small DTC brands first,
+// then freshest proof). NO 12-limit and NO social_brand_shown exclusion: the
+// brand_engagement ledger now drives unseen/backfill selection and records shown,
+// exactly like the Local lane. Pure DB read.
+async function getSocialBrandPool(athlete) {
+  try {
+    const { where, params } = _socialBaseMatch(athlete);
+    const r = await pool.query(
+      `SELECT * FROM social_brands WHERE ${where}
+        ORDER BY (brand_size = 'small') DESC NULLS LAST, proof_date DESC`,
+      params
+    );
+    return (r.rows || []).map(_decorateSocialBrand);
+  } catch (e) { console.error('[getSocialBrandPool]', e.message); return []; }
+}
+
+// Depth report for the Social lane: how many verified (active) brands exist in the
+// index, and how many are eligible for THIS athlete after the sport + audience
+// filters. Drives the "is the real fix growing the index" decision.
+async function getSocialDepth(athlete) {
+  try {
+    const { where, params } = _socialBaseMatch(athlete);
+    const [totalR, eligR] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS n FROM social_brands WHERE active = true`),
+      pool.query(`SELECT COUNT(*)::int AS n FROM social_brands WHERE ${where}`, params),
+    ]);
+    return { totalActive: totalR.rows[0].n, eligibleForAthlete: eligR.rows[0].n };
+  } catch (e) { console.error('[getSocialDepth]', e.message); return { totalActive: 0, eligibleForAthlete: 0 }; }
+}
+
 module.exports = {
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers,
   getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals, recordReferralForInvoice,
@@ -2457,6 +2501,7 @@ module.exports = {
   CHECKLIST_ITEMS,
   getMarketCache, setMarketCache, MARKET_CACHE_TTL_DAYS,
   getBrandLedgerRows, upsertShownBrands, markBrandContacted, unmarkBrandContacted, getCrossAthleteContacted,
+  getSocialBrandPool, getSocialDepth,
   ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
   ensureFeedbackColumns, logScanShown, getScanSignal, applyScanSignal,
   ensureMarketSightings, markMarketNewcomers, NEW_WINDOW_DAYS,

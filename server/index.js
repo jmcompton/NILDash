@@ -6188,6 +6188,29 @@ function _logScanCost(lane, meter, totalMs, servedFromCache) {
   console.log(`[dealScan] COST lane=${lane} webSearches=${m.webSearches} aiCalls=${m.aiCalls} cacheHits=${m.cacheHits} cacheMisses=${m.cacheMisses} totalMs=${totalMs}${servedFromCache ? ' servedFromCache=1' : ''}`);
 }
 
+// Social lane selection over the full eligible pool, using the SAME order the
+// Local lane uses: exclude contacted/etc, fill from unseen (already fit-ordered:
+// small DTC brands first, then freshest proof), then backfill from state=shown
+// oldest last_shown first. Pure function; the caller does the shown upsert. The
+// brand_key is the normalized root domain (ai.resolveBrandKey, lane 'social'),
+// never the display name. Returns { page, exhausted }.
+function _socialLedgerSelect(poolList, ledgerRows, pageSize, athleteId) {
+  const RET = new Set(['contacted', 'responded', 'closed', 'dead']);
+  const byKey = {};
+  for (const r of (ledgerRows || [])) byKey[r.brand_key] = { state: r.state, lastShownAt: Number(r.last_shown_ms) || 0 };
+  for (const b of poolList) if (!b.brandKey) b.brandKey = ai.resolveBrandKey(b, 'social');
+  const notRetired = poolList.filter((b) => !(b.brandKey && byKey[b.brandKey] && RET.has(byKey[b.brandKey].state)));
+  const excludedContacted = poolList.length - notRetired.length;
+  const unseen = notRetired.filter((b) => !(b.brandKey && byKey[b.brandKey]));
+  const shown = notRetired.filter((b) => b.brandKey && byKey[b.brandKey] && byKey[b.brandKey].state === 'shown');
+  shown.sort((a, b) => (byKey[a.brandKey].lastShownAt || 0) - (byKey[b.brandKey].lastShownAt || 0));
+  const page = unseen.slice(0, pageSize);
+  let backfill = 0;
+  if (page.length < pageSize) { const fill = shown.slice(0, pageSize - page.length); backfill = fill.length; for (const b of fill) page.push(b); }
+  console.log(`[dealScan] LEDGER athlete=${athleteId} lane=social unseen=${unseen.length} shown_backfill=${backfill} excluded_contacted=${excludedContacted} page=${page.length} poolEligible=${poolList.length}`);
+  return { page, exhausted: page.length === 0 };
+}
+
 // Build the brand-engagement ledger the local scan selection consumes. Rows come
 // from the store; the name-slug bridge (for pre-ledger name-keyed rows) is built
 // here with ai.brandNameSlug so slug logic stays single-sourced in ai.js.
@@ -6332,14 +6355,17 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     // Social lane: served straight from the curated social_brands index. No web
     // search, no Anthropic call, no cache read/write, no rate-limit machinery.
     if (lane === 'social') {
-      let opportunities = await store.getSocialBrands(athleteObj);
-      // Ledger: exclude brands already contacted for this athlete, record the rest
-      // as shown, and attach cross-athlete badges. Social keeps its own rotation.
-      opportunities = await _applyLedgerToResponse(req.athlete.agent_id || null, req.athlete.id, 'social', opportunities, { excludeRetired: true });
+      // Social paginates the same way Local does: full eligible pool, then the
+      // brand_engagement ledger picks unseen-by-fit and backfills shown oldest-first.
+      const socialPool = await store.getSocialBrandPool(athleteObj);
+      const ledgerRows = await store.getBrandLedgerRows(req.athlete.id);
+      const sel = _socialLedgerSelect(socialPool, ledgerRows, 12, req.athlete.id);
+      const opportunities = sel.page;
+      await _applyLedgerToResponse(req.athlete.agent_id || null, req.athlete.id, 'social', opportunities);
       const rateCard = await _athleteRateCard(req.athlete.id);
       _logScanCost(lane, null, Date.now() - _scanT0, false);
-      console.log(`[athlete/deal-scan] lane=social found=${opportunities.length} (curated index, 0 AI)`);
-      return res.json({ opportunities, lane, rateCard });
+      console.log(`[athlete/deal-scan] lane=social eligible=${socialPool.length} returned=${opportunities.length} (curated index, 0 AI)`);
+      return res.json({ opportunities, lane, rateCard, poolExhausted: sel.exhausted });
     }
 
     // 6h result cache: a repeat scan within the window is free unless Refresh.
@@ -6453,14 +6479,18 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // search, no Anthropic call, no cache read/write, no rate-limit machinery.
     // Returns before all of the local/topnil pipeline below.
     if (validLane === 'social') {
-      let opportunities = await store.getSocialBrands(loaded.athleteObj);
-      // Ledger: exclude brands already contacted for this athlete, record the rest
-      // as shown, and attach cross-athlete badges. Social keeps its own rotation.
-      opportunities = await _applyLedgerToResponse(req.session.userId, athleteId, 'social', opportunities, { excludeRetired: true });
+      // Social now paginates the SAME way Local does: full eligible pool, then the
+      // brand_engagement ledger picks unseen-by-fit and backfills shown oldest-first.
+      const socialPool = await store.getSocialBrandPool(loaded.athleteObj);
+      const ledgerRows = await store.getBrandLedgerRows(athleteId);
+      const sel = _socialLedgerSelect(socialPool, ledgerRows, 12, athleteId);
+      const opportunities = sel.page;
+      // Record the shown page + attach cross-athlete badges (brandKey already set).
+      await _applyLedgerToResponse(req.session.userId, athleteId, 'social', opportunities);
       const rateCard = await _athleteRateCard(athleteId);
       _logScanCost(validLane, null, Date.now() - _scanT0, false);
-      console.log(`[agent/deal-scan] lane=social found=${opportunities.length} (curated index, 0 AI)`);
-      return res.json({ opportunities, lane: validLane, rateCard });
+      console.log(`[agent/deal-scan] lane=social eligible=${socialPool.length} returned=${opportunities.length} (curated index, 0 AI)`);
+      return res.json({ opportunities, lane: validLane, rateCard, poolExhausted: sel.exhausted });
     }
 
     // 6h result cache: re-opening the same athlete+lane is free unless Refresh.
@@ -6697,6 +6727,25 @@ app.post('/api/agent/deal-scan/contacted/undo', requireAuth, async (req, res) =>
   } catch (e) { console.error('[deal-scan/contacted/undo]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// Social lane depth report (read-only): how many verified (active) social brands
+// exist, and how many are eligible for this athlete after the sport + audience
+// filters. estimatedPagesBeforeLoop = ceil(eligible / 12). If eligible is small,
+// growing the index is the real fix, not the selection logic.
+app.get('/api/agent/deal-scan/social-depth', requireAuth, async (req, res) => {
+  try {
+    const athleteId = req.query.athleteId;
+    const loaded = await loadDealScanAthlete(athleteId);
+    if (!loaded) return res.status(404).json({ error: 'Athlete not found' });
+    const _ru = await store.getUser(req.session.userId);
+    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
+    if (loaded.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
+    const depth = await store.getSocialDepth(loaded.athleteObj);
+    const PAGE = 12;
+    const estimatedPagesBeforeLoop = depth.eligibleForAthlete > 0 ? Math.ceil(depth.eligibleForAthlete / PAGE) : 0;
+    res.json({ ok: true, ...depth, pageSize: PAGE, estimatedPagesBeforeLoop });
+  } catch (e) { console.error('[deal-scan/social-depth]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // One-time migration (#6): backfill brand_engagement from whatever shown/worked
 // tracking exists today, so agents do not suddenly see brands they already worked.
 // Admin-gated and idempotent (ON CONFLICT DO NOTHING never overwrites a live row),
@@ -6769,6 +6818,24 @@ app.post('/api/admin/backfill-brand-engagement', requireAuth, async (req, res) =
     for (const row of bo.rows) {
       const lane = row.brand_website ? 'national' : 'local';
       await insert(row.agent_id, row.athlete_id, lane, ai.resolveBrandKey({ brand: row.brand_name, website: row.brand_website, lane }, lane), row.brand_name, 'contacted', 'migrated_outreach');
+    }
+    // 4. social_brand_shown -> shown (Social lane), root-domain keyed via the brand's
+    //    website, preserving the historical shown_at so backfill order is honest.
+    const ssRows = await store.pool.query(
+      `SELECT sbs.athlete_id, a.agent_id, sb.brand, sb.website, sbs.shown_at
+         FROM social_brand_shown sbs
+         JOIN social_brands sb ON sb.id = sbs.brand_id
+         LEFT JOIN athletes a ON a.id = sbs.athlete_id`);
+    for (const row of ssRows.rows) {
+      const key = ai.resolveBrandKey({ brand: row.brand, website: row.website, lane: 'social' }, 'social');
+      if (!key || !row.athlete_id) continue;
+      const r = await store.pool.query(
+        `INSERT INTO brand_engagement
+           (agent_id, athlete_id, brand_key, brand_name, lane, state, shown_count, first_shown_at, last_shown_at)
+         VALUES ($1,$2,$3,$4,'social','shown',1,$5,$5)
+         ON CONFLICT (athlete_id, brand_key) DO NOTHING`,
+        [row.agent_id || null, String(row.athlete_id), key, row.brand || null, row.shown_at || new Date()]);
+      if ((r.rowCount || 0) > 0) counts.shown++; else counts.skippedExisting++;
     }
     const total = counts.contacted + counts.shown + counts.skippedExisting;
     console.log(`[backfill] brand_engagement: ${JSON.stringify(counts)}`);
