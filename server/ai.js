@@ -1959,7 +1959,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     console.log(`[dealScan] category web search primary — model=${MODEL_DEALSCAN} market=${schoolMarket}${hasHometown ? ` + hometown ${hometown}` : ''} sport=${sport}`);
 
     const searchSys = 'You find real local businesses via web search. Output ONLY a JSON array, no commentary, no markdown.';
-    const mk = (q, cats) => `Use web search: ${q}. Return up to 8 REAL businesses you actually find, each as {"name","website","category","email","evidence","franchise"}. For EVERY business, actively look for marketing-activity signals: sponsors a high school, youth, or college team; runs local ads or billboards; has done NIL or athlete partnerships before; runs an active promotional social media presence. "evidence": under 12 words describing ONLY what the search actually shows (e.g. "Sponsors Homewood High athletics"), null when nothing found. Never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. Output ONLY the JSON array, no commentary before it.`;
+    const mk = (q, cats) => `Use web search: ${q}. Return 15 to 20 real businesses you actually find. More is better. Return every one you can find, not just the best. Each as {"name","website","category","email","evidence","franchise"}. For EVERY business, actively look for marketing-activity signals: sponsors a high school, youth, or college team; runs local ads or billboards; has done NIL or athlete partnerships before; runs an active promotional social media presence. "evidence": under 12 words describing ONLY what the search actually shows (e.g. "Sponsors Homewood High athletics"), null when nothing found. Never invent evidence. "franchise": true only when it is a locally owned or operated franchise location of a national brand and you can point at the specific location or operator, else false. "email" only if shown on their site, else null. Favor: ${cats}. Output ONLY the JSON array, no commentary before it.`;
 
     // Athlete interest tags: tagged categories lead the search emphasis on a
     // cache miss, at SUB-TAG specificity ("smoothies, supplements, gyms"), and
@@ -2099,67 +2099,71 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       searchDefs.push(
         { label: 'deep-home-pet', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `${_tierWide}pet stores, groomers and veterinary clinics, and home services like HVAC, plumbing, landscaping, roofing, and cleaning companies ${_geoWide}${tagEmphasisQ}${_deepExcl}`,
-          'pet services and veterinary, home services, landscaping and cleaning'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'pet services and veterinary, home services, landscaping and cleaning'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'deep-personal-care', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `${_tierWide}barbershops, hair and nail salons, tattoo studios, dance and cheer studios, martial arts gyms, and yoga or pilates studios ${_geoWide}${tagEmphasisQ}${_deepExcl}`,
-          'barbershops and salons, tattoo studios, dance and martial arts, yoga and pilates'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'barbershops and salons, tattoo studios, dance and martial arts, yoga and pilates'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'deep-specialty-retail', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `${_tierWide}jewelers, florists, bike shops, outdoor and hunting stores, pharmacies, bookstores, game and hobby shops, and specialty grocers ${_geoWide}${tagEmphasisQ}${_deepExcl}`,
-          'jewelers and florists, bike and outdoor shops, game and hobby shops, specialty grocers'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'jewelers and florists, bike and outdoor shops, game and hobby shops, specialty grocers'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'deep-services-venues', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `${_tierWide}tutoring and test prep, childcare, event and party venues, breweries and taprooms, farmers markets, print shops, and moving or storage companies ${_geoWide}${_deepExcl}`,
-          'tutoring and childcare, event venues, breweries and taprooms, print and moving services'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'tutoring and childcare, event venues, breweries and taprooms, print and moving services'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     } else if (schoolWillSearch) {
       searchDefs.push(
         { label: 'school-auto-gym', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `car dealerships, auto services, gyms, and fitness or training facilities ${_geoStd} that sponsor local sports teams or run local ads${tagEmphasisQ}${_deepExcl}`,
-          `${catHint}, car dealerships, gyms and training facilities`), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          `${catHint}, car dealerships, gyms and training facilities`), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-food-nutrition', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `restaurants, bars, coffee shops, food spots, smoothie and supplement shops ${_geoStd} that sponsor school sports or advertise locally${tagEmphasisQ}${_deepExcl}`,
-          'restaurants and food spots, coffee shops, smoothie and supplement shops'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'restaurants and food spots, coffee shops, smoothie and supplement shops'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-retail', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `apparel and clothing stores, sporting goods stores, boutiques, and local retail ${_geoStd} that advertise locally or sponsor teams${tagEmphasisQ}${_deepExcl}`,
-          'apparel and local retail, sporting goods stores, boutiques'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'apparel and local retail, sporting goods stores, boutiques'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-wellness', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `chiropractors, physical therapy, med spas, dentists, optometrists, and health and wellness businesses ${_geoStd} that advertise locally or sponsor youth sports${_deepExcl}`,
-          'chiropractors and physical therapy, med spas and salons, health and wellness'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'chiropractors and physical therapy, med spas and salons, health and wellness'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-services-ent', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `entertainment venues, golf and bowling, real estate agents, banks and credit unions, insurance agencies, and local professional services ${_geoStd} that advertise locally or sponsor local sports${_deepExcl}`,
-          'entertainment, real estate agents, banks and credit unions, local professional services'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'entertainment, real estate agents, banks and credit unions, local professional services'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         // Passes 6-8: folded in from the deepen set so a cold market starts deeper
         // (see SCHOOL_SEARCH_N note above). Standard geo/tier, same as passes 1-5.
         { label: 'school-pet-home', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `pet stores, groomers and veterinary clinics, and home services like HVAC, plumbing, landscaping, roofing, and cleaning companies ${_geoStd} that advertise locally or sponsor local sports${_deepExcl}`,
-          'pet services and veterinary, home services, landscaping and cleaning'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'pet services and veterinary, home services, landscaping and cleaning'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-personal-care', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `barbershops, hair and nail salons, tattoo studios, dance and cheer studios, martial arts gyms, and yoga or pilates studios ${_geoStd} that advertise locally or sponsor youth sports${tagEmphasisQ}${_deepExcl}`,
-          'barbershops and salons, tattoo studios, dance and martial arts, yoga and pilates'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'barbershops and salons, tattoo studios, dance and martial arts, yoga and pilates'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'school-specialty-retail', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `jewelers, florists, bike shops, outdoor and hunting stores, pharmacies, bookstores, game and hobby shops, and specialty grocers ${_geoStd} that advertise locally or sponsor teams${tagEmphasisQ}${_deepExcl}`,
-          'jewelers and florists, bike and outdoor shops, game and hobby shops, specialty grocers'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'jewelers and florists, bike and outdoor shops, game and hobby shops, specialty grocers'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
     if (hometownWillSearch && deepen) {
       searchDefs.push(
         { label: 'deep-hometown', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
           `${_tierWide}pet and home services, salons and barbershops, dance and martial arts studios, jewelers and florists, tutoring, event venues, breweries, and specialty retail in the further-out suburbs and towns within about 40 miles of ${hometown}, beyond the town center${tagEmphasisQ}${_deepExcl}`,
-          'next-tier local businesses beyond the town center of ' + hometown), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'next-tier local businesses beyond the town center of ' + hometown), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     } else if (hometownWillSearch) {
       searchDefs.push(
         { label: 'hometown-core', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
           `car dealerships, gyms, restaurants, coffee shops, apparel and retail, smoothie and supplement shops in and around ${hometown} that sponsor local youth sports or spend on local marketing${tagEmphasisQ}${_deepExcl}`,
-          `${catHint}, car dealerships, restaurants, smoothie and supplement shops in ${hometown}`), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          `${catHint}, car dealerships, restaurants, smoothie and supplement shops in ${hometown}`), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
         { label: 'hometown-services', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
           `chiropractors, med spas, boutiques, real estate agents, banks, insurance agencies, and entertainment venues in and around ${hometown} that advertise locally or sponsor youth sports${_deepExcl}`,
-          'chiropractors, boutiques and local retail, real estate agents, banks, med spas'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+          'chiropractors, boutiques and local retail, real estate agents, banks, med spas'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
 
     if (searchDefs.length) {
       const _tSearch = Date.now();
       const outcomes = await Promise.all(searchDefs.map((s) => s.p));
+      // FILTER TRACE: track raw model output -> parsed items -> pooled (after the
+      // addCandidate dedup/no-name filter), per pass AND in aggregate, so we can see
+      // exactly where candidates are lost between the search and the pool.
+      let _totalParsed = 0, _totalPooled = 0;
       outcomes.forEach((o, idx) => {
         const def = searchDefs[idx];
         let detail = '';
@@ -2167,14 +2171,18 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
           const before = found.length;
           const { items, salvaged } = extractJsonArrayItems(o.raw);
           for (const it of items) addCandidate(it, def.market);
+          const added = found.length - before;
+          _totalParsed += items.length; _totalPooled += added;
           detail = items.length
-            ? ` — ${items.length} parsed${salvaged ? ' (SALVAGED from truncated output)' : ''}, ${found.length - before} new`
-            : ` — parsed-but-empty (raw ${o.raw.length} chars)`;
+            ? ` parsed=${items.length}${salvaged ? ' (SALVAGED from truncated output)' : ''} pooled=${added} dropped=${items.length - added} (duplicate/no-name)`
+            : ` parsed-but-empty (raw ${o.raw.length} chars)`;
         } else if (o.status === 'error') {
           detail = ` — ${o.err}`;
         }
         console.log(`[dealScan] search ${def.label}: ${o.status.toUpperCase()} in ${o.ms}ms${detail}`);
       });
+      // Aggregate filter step 1 (parse -> pool, i.e. the addCandidate dedup filter).
+      console.log(`[dealScan] FILTER parse->pool: ${_totalParsed} parsed across ${searchDefs.length} passes, ${_totalPooled} pooled, ${_totalParsed - _totalPooled} dropped as duplicate or no-name`);
       console.log(`[dealScan] phase 1 live search found ${found.length} candidates total (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _tSearch}ms (elapsed ${Date.now() - _t0}ms)`);
       // On-demand deepen accounting: how many genuinely-new businesses the deeper
       // pass added to the shared pool, and how many web searches it cost.
@@ -2185,7 +2193,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         console.warn(`[dealScan] only ${found.length} candidates — running one broadened retry search`);
         const retryOut = await timedSearch(oneShotWebSearch(
           mk(`popular local businesses, restaurants, gyms, car dealerships and shops in ${city}, ${state}`, 'any local business that advertises locally'),
-          searchSys, 900, 3, MODEL_DEALSCAN
+          searchSys, 1800, 4, MODEL_DEALSCAN
         ), LOCAL_SEARCH_CAP_MS);
         if (retryOut.status === 'ok') {
           const { items } = extractJsonArrayItems(retryOut.raw);

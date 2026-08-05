@@ -3544,6 +3544,51 @@ app.post('/api/admin/social-brands/reverify', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// POST /api/admin/rebuild-market. Body { school }. Deletes that school's cached
+// local market pool and cold-rebuilds it immediately (full fresh category passes),
+// so an agent gets a bigger pool tonight without waiting for cache expiry. Returns
+// the old vs new pool size. Admin only.
+app.post('/api/admin/rebuild-market', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const school = String((req.body && req.body.school) || '').trim();
+    if (!school) return res.status(400).json({ error: 'school is required' });
+    // Same normalization getDealRecommendations uses for the cache key.
+    const slug = school.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const cacheKey = slug + ':local';
+
+    const _sizeOf = async () => {
+      const r = await store.pool.query('SELECT jsonb_array_length(candidates) AS n FROM deal_scan_market_cache WHERE cache_key = $1', [cacheKey]);
+      return r.rows[0] ? Number(r.rows[0].n) : 0;
+    };
+    const oldPoolSize = await _sizeOf();
+    await store.pool.query('DELETE FROM deal_scan_market_cache WHERE cache_key = $1', [cacheKey]);
+
+    // Cold rebuild: cache row is gone, so this runs the full 8-pass search and writes
+    // the new pool back. Minimal athlete shape is enough to drive the school market.
+    const athObj = { name: 'Market Rebuild', school, sport: 'basketball', instagram: 0, tiktok: 0, tags: [], position: '' };
+    const t0 = Date.now();
+    let returned = 0;
+    try {
+      const recs = await ai.getDealRecommendations(athObj, 'agent', [], 'local', {});
+      returned = Array.isArray(recs) ? recs.length : 0;
+    } catch (e) {
+      return res.status(500).json({ error: 'rebuild failed: ' + e.message, cacheKey, oldPoolSize });
+    }
+    // setMarketCache is fire-and-forget inside getDealRecommendations, so poll briefly
+    // for the write to land before reporting the new size.
+    let newPoolSize = 0;
+    for (let i = 0; i < 8; i++) {
+      newPoolSize = await _sizeOf();
+      if (newPoolSize > 0) break;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    console.log(`[admin/rebuild-market] school="${school}" key=${cacheKey} oldPool=${oldPoolSize} newPool=${newPoolSize} returned=${returned} in ${Date.now() - t0}ms`);
+    res.json({ school, cacheKey, oldPoolSize, newPoolSize, returned, ms: Date.now() - t0 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/admin/social-brands/discover — run the nightly discovery job on demand.
 // Same job the 3am Central cron runs: AI proposes candidates, the shared verify
 // gate decides what is inserted. Returns the run summary so it can be tested now.
