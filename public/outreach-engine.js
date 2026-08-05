@@ -444,6 +444,9 @@ function renderRunResult(data) {
         try { document.execCommand('copy'); } catch (_) {}
         if (navigator.clipboard) { navigator.clipboard.writeText(ta.value).catch(function(){}); }
         if (statusEl) { statusEl.textContent = 'Copied'; setTimeout(function(){ statusEl.textContent = ''; }, 1500); }
+        // Soft retire: opening AI Outreach and copying the DM is an intent to reach
+        // out, so mark the brand contacted (undoable) through the Deal Scan ledger.
+        if (window._dsOnBrandContacted) window._dsOnBrandContacted(OutreachEngineState.currentDealResult, 'ai_outreach_copy', true);
       };
       // Try to resolve the exact handle from the business website for a direct link.
       const site = enrichment && enrichment.website;
@@ -587,6 +590,10 @@ async function sendOutreach(outreachId) {
     }
 
     await outreachAPI.post('/logs/' + outreachId + '/send', { emailAccountId: accountId, toEmail });
+
+    // Hard retire: an email actually sent through the platform is the strongest
+    // contacted signal. No undo. Retire the brand through the Deal Scan ledger.
+    if (window._dsOnBrandContacted) window._dsOnBrandContacted(OutreachEngineState.currentDealResult, 'email_sent', false);
 
     const status = document.getElementById('outreach-send-status');
     if (status) {

@@ -6717,6 +6717,9 @@ function _dsCardHtml(d, i, lane, isTop) {
           laneChip +
           '<span style="font-size:15px;font-weight:700;color:var(--text)">' + esc(brand) + '</span>' +
           extraChips +
+          // Cross-athlete warning (#4): this brand is already contacted for another
+          // client under this agent. Never hides the card, just flags it.
+          (d.contactedElsewhere ? '<span class="ds-lane-chip" title="You already contacted this brand for another client" style="background:rgba(245,158,11,0.14);color:#f59e0b;border:1px solid rgba(245,158,11,0.35)">Contacted for ' + esc(d.contactedElsewhere.athleteName || 'another athlete') + (d.contactedElsewhere.date ? ' on ' + esc(d.contactedElsewhere.date) : '') + '</span>' : '') +
           (d.category ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:' + catStyle + '">' + esc(d.category) + '</span>' : '') +
           (isTop ? '<span style="font-size:9px;padding:2px 7px;border-radius:4px;background:rgba(132,204,22,0.08);color:#84CC16;border:1px solid rgba(132,204,22,0.2)">BEST FIT</span>' : '') +
         '</div>' +
@@ -6740,9 +6743,91 @@ function _dsCardHtml(d, i, lane, isTop) {
       '<button onclick="addDealToPipeline(\'' + brandSafe + '\',\'' + esc(d.dealType||'ig-post') + '\',\'' + campaignSafe + '\')" style="padding:9px 12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.25);color:#4ade80;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">+ Pipeline</button>' +
       '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="padding:9px 12px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">⚡ AI Outreach</button>' +
       '<button onclick="sendKitForBrand(' + i + ', this)" style="padding:9px 12px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.35);color:#60a5fa;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600">Send kit</button>' +
+      // Manual retire (#3): agents work outside the app constantly and need to
+      // mark a brand contacted by hand so it stops coming back. Undoable.
+      '<button id="dsmc-btn-' + i + '" onclick="_dsMarkContacted(' + i + ', this, \'manual\', true)"' + (d._contacted ? ' disabled' : '') + ' style="padding:9px 12px;background:rgba(148,163,184,0.12);border:1px solid rgba(148,163,184,0.35);color:var(--muted);border-radius:8px;font-size:11px;cursor:pointer;font-weight:600' + (d._contacted ? ';opacity:0.6' : '') + '">' + (d._contacted ? 'Contacted' : 'Mark as contacted') + '</button>' +
     '</div>' +
+    '<div id="dsmc-' + i + '" style="margin-top:8px;font-size:11px;color:var(--muted);' + (d._contacted ? '' : 'display:none') + '">' + (d._contacted ? 'Marked as contacted. It will not show again for this athlete.' : '') + '</div>' +
   '</div>';
 }
+
+// Retire a Deal Scan brand for the selected athlete through the single ledger
+// endpoint. via records the path (manual / pipeline / send_kit / email_sent /
+// ai_outreach_copy); undoable shows an inline Undo for the soft/manual paths.
+async function _dsMarkContacted(i, btnEl, via, undoable) {
+  var d = (window._dealScanResults || [])[i];
+  if (!d) return;
+  var slot = document.getElementById('dsmc-' + i);
+  try {
+    var resp = await fetch(API_BASE + '/api/agent/deal-scan/contacted', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({
+        athleteId: selectedAthleteId,
+        brand: d.brand || d.brand_name || null,
+        brandKey: d.brandKey || null,
+        website: d.website || null,
+        place_id: d.place_id || null,
+        category: d.category || null,
+        lane: d.lane || 'local',
+        via: via || 'manual',
+      }),
+    });
+    var data = await resp.json().catch(function () { return {}; });
+    if (!resp.ok || !data.ok) { if (typeof showToast === 'function') showToast('Could not mark as contacted'); return; }
+    d.brandKey = data.brandKey || d.brandKey;
+    d._contacted = true;
+    if (btnEl) { btnEl.textContent = 'Contacted'; btnEl.disabled = true; btnEl.style.opacity = '0.6'; btnEl.style.cursor = 'default'; }
+    if (slot) {
+      slot.style.display = 'block';
+      slot.innerHTML = 'Marked as contacted. It will not show again for this athlete.' +
+        (undoable ? ' <a href="#" onclick="_dsUndoContacted(' + i + ',event)" style="color:var(--accent);text-decoration:underline">Undo</a>' : '');
+    }
+  } catch (e) { if (typeof showToast === 'function') showToast('Could not mark as contacted'); }
+}
+
+async function _dsUndoContacted(i, ev) {
+  if (ev) ev.preventDefault();
+  var d = (window._dealScanResults || [])[i];
+  if (!d || !d.brandKey) return;
+  try {
+    var resp = await fetch(API_BASE + '/api/agent/deal-scan/contacted/undo', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ athleteId: selectedAthleteId, brandKey: d.brandKey }),
+    });
+    var data = await resp.json().catch(function () { return {}; });
+    if (resp.ok && data.ok) {
+      d._contacted = false;
+      var slot = document.getElementById('dsmc-' + i);
+      if (slot) { slot.style.display = 'none'; slot.innerHTML = ''; }
+      var btn = document.getElementById('dsmc-btn-' + i);
+      if (btn) { btn.textContent = 'Mark as contacted'; btn.disabled = false; btn.style.opacity = ''; btn.style.cursor = 'pointer'; }
+      if (typeof showToast === 'function') showToast('Undone');
+    } else if (typeof showToast === 'function') { showToast('Could not undo'); }
+  } catch (e) { if (typeof showToast === 'function') showToast('Could not undo'); }
+}
+
+// Hook the outreach engine calls after a real email send (hard) or a DM copy
+// (soft), so the modal retires through the same ledger path as the cards. Finds
+// the on-screen card to update its UI; if the card is not shown, retires silently.
+window._dsOnBrandContacted = function (deal, via, undoable) {
+  if (!deal) return;
+  var results = window._dealScanResults || [];
+  var i = results.indexOf(deal);
+  if (i < 0) {
+    for (var k = 0; k < results.length; k++) {
+      if (results[k] && ((deal.brandKey && results[k].brandKey === deal.brandKey) ||
+          ((results[k].brand || results[k].brand_name) === (deal.brand || deal.brand_name)))) { i = k; break; }
+    }
+  }
+  if (i < 0) {
+    fetch(API_BASE + '/api/agent/deal-scan/contacted', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ athleteId: selectedAthleteId, brand: deal.brand || deal.brand_name || null, brandKey: deal.brandKey || null, website: deal.website || null, place_id: deal.place_id || null, lane: deal.lane || 'local', via: via || 'ai_outreach' }),
+    }).catch(function () {});
+    return;
+  }
+  _dsMarkContacted(i, document.getElementById('dsmc-btn-' + i), via, undoable);
+};
 
 // Compact follower count for the Social lane tier field: 1000 -> "1k", 150000 -> "150k".
 function _dsFmtTierK(n){ n = Number(n) || 0; return n >= 1000 ? (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(Math.round(n)); }
@@ -6815,6 +6900,7 @@ function _dsSocialCardHtml(d, i) {
           '<span style="font-size:17px;font-weight:500;color:var(--text)">' + esc(brand) + '</span>' +
           (d.category ? '<span style="font-size:12px;color:var(--muted)">' + esc(d.category) + '</span>' : '') +
           sizeChip +
+          (d.contactedElsewhere ? '<span class="ds-lane-chip" title="You already contacted this brand for another client" style="background:rgba(245,158,11,0.14);color:#f59e0b;border:1px solid rgba(245,158,11,0.35)">Contacted for ' + esc(d.contactedElsewhere.athleteName || 'another athlete') + (d.contactedElsewhere.date ? ' on ' + esc(d.contactedElsewhere.date) : '') + '</span>' : '') +
         '</div>' +
         '<div style="font-size:12px;margin-top:4px">' +
           '<span style="color:' + freshColor + ';font-weight:500;display:inline-flex;align-items:center">' + freshTxt + (freshCurrent ? checkIcon : '') + '</span>' +
@@ -6836,7 +6922,10 @@ function _dsSocialCardHtml(d, i) {
     '<div style="display:flex;align-items:center;gap:16px">' +
       '<button onclick="if(window.outreachEngine){window.outreachEngine.generate(selectedAthleteId,window._dealScanResults[' + i + ']);}else{showToast(\'Outreach engine loading…\');}" style="display:inline-flex;align-items:center;background:rgba(168,85,247,0.22);border:1px solid rgba(168,85,247,0.5);color:#c084fc;border-radius:8px;font-size:14px;font-weight:700;padding:9px 22px;cursor:pointer">' + boltIcon + 'AI outreach</button>' +
       '<span onclick="addDealToPipeline(\'' + brandSafe + '\',\'ig-post\',\'\')" style="font-size:13px;color:var(--muted);cursor:pointer">Add to pipeline</span>' +
+      // Manual retire (#3), on every card including social. Undoable.
+      '<button id="dsmc-btn-' + i + '" onclick="_dsMarkContacted(' + i + ', this, \'manual\', true)"' + (d._contacted ? ' disabled' : '') + ' style="font-size:13px;color:var(--muted);cursor:pointer;background:none;border:none;padding:0;text-decoration:underline' + (d._contacted ? ';opacity:0.6' : '') + '">' + (d._contacted ? 'Contacted' : 'Mark as contacted') + '</button>' +
     '</div>' +
+    '<div id="dsmc-' + i + '" style="margin-top:8px;font-size:11px;color:var(--muted);' + (d._contacted ? '' : 'display:none') + '">' + (d._contacted ? 'Marked as contacted. It will not show again for this athlete.' : '') + '</div>' +
   '</div>';
 }
 
@@ -6960,6 +7049,10 @@ async function addDealToPipeline(brand, dealType, campaign) {
     });
     // Track for NILViewVal feedback
     trackDealScanAction(brand, dealType, 'pipeline');
+    // Hard retire (#3): adding to the pipeline means this brand is being worked, so
+    // it should never surface again for this athlete. No undo prompt.
+    var _pd = (window._dealScanResults || []).find(function (x) { return (x.brand || x.brand_name) === brand; });
+    if (_pd && window._dsOnBrandContacted) window._dsOnBrandContacted(_pd, 'pipeline', false);
     showToast(brand + ' added to Pipeline' + (estimatedValue > 0 ? ' — est. $' + estimatedValue.toLocaleString() : ''));
   } catch(e) { showToast('Error adding to pipeline'); }
 }
@@ -15237,6 +15330,8 @@ async function sendKitForBrand(i, btn) {
     // Prefer the local origin so the copied link works in every environment
     var localUrl = url.replace(/^https?:\/\/[^/]+/, window.location.origin);
     if (navigator.clipboard) { try { await navigator.clipboard.writeText(localUrl); } catch(_) {} }
+    // Hard retire (#3): sending the kit means this brand is being worked. No undo.
+    if (window._dsOnBrandContacted) window._dsOnBrandContacted(d, 'send_kit', false);
     showToast('Kit for ' + d.brand + ' ready. Link copied.');
     if (btn) { btn.textContent = 'Kit ready'; btn.disabled = false; return; }
   } catch (e) {

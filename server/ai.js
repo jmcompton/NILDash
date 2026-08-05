@@ -1746,6 +1746,57 @@ function _brandKey(s) {
     .replace(/[^a-z0-9]+/g, ''); // strip case-insensitive punctuation + whitespace
 }
 
+// Normalized ROOT domain from a URL or hostname: lowercased, scheme and path
+// stripped, leading "www." and any remaining subdomain removed down to the last
+// two labels. The multi-part TLD case (a.co.uk) is a known limitation, acceptable
+// for the US DTC brands the social/national lanes carry.
+function _rootDomain(url) {
+  let s = String(url || '').trim().toLowerCase();
+  if (!s) return '';
+  s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//, ''); // strip scheme
+  s = s.split(/[/?#]/)[0];                       // host + port only
+  s = s.split('@').pop();                        // drop any user@ part
+  s = s.split(':')[0];                           // drop :port
+  s = s.replace(/^www\./, '');
+  if (!s || !s.includes('.')) return s;
+  const parts = s.split('.').filter(Boolean);
+  return parts.length <= 2 ? parts.join('.') : parts.slice(-2).join('.');
+}
+
+// SINGLE source of truth for a brand's engagement-ledger identity key. Used by the
+// scan selection, the shown/contacted upserts, the retirement endpoints, and the
+// backfill, so a brand is keyed exactly one way everywhere. NEVER key on the
+// display name silently; the name-slug fallbacks below are logged so we can see
+// how often a real key was unavailable.
+//   local           -> "place:<google place_id>" (stable; the Homewood store is a
+//                       different key from the Hoover one). No place_id (web-search
+//                       markets, never Places) -> "localname:<name>-<city>" + WARN.
+//   social/national  -> "dom:<root domain>". No domain -> "name:<name-slug>" + WARN.
+function resolveBrandKey(opp, lane) {
+  const o = opp || {};
+  const laneN = String(lane || o.lane || 'local').toLowerCase();
+  const name = o.brand || o.brand_name || o.name || '';
+  if (laneN === 'local') {
+    const pid = o.place_id || o.placeId || null;
+    if (pid) return 'place:' + String(pid).trim();
+    const city = o.city || o.market_city || o.region || '';
+    const nslug = _normMarket(name);
+    if (nslug) {
+      console.warn(`[brandKey] LOCAL fallback (no place_id) name="${name}" city="${city}"`);
+      return 'localname:' + nslug + (city ? '-' + _normMarket(String(city).split(',')[0]) : '');
+    }
+    return null;
+  }
+  const dom = _rootDomain(o.website || o.url || o.domain || '');
+  if (dom) return 'dom:' + dom;
+  const nslug = _normMarket(name);
+  if (nslug) {
+    console.warn(`[brandKey] ${laneN} fallback (no domain) name="${name}"`);
+    return 'name:' + nslug;
+  }
+  return null;
+}
+
 // Select the next page of UNSEEN candidates from a local market pool, ranked by
 // the caller's priority (then name, so pagination is deterministic and refreshes
 // walk the pool without repeats). Identity is compared by _brandKey, NOT by exact
@@ -1916,6 +1967,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     let market = d.market === 'hometown' ? 'hometown' : 'school';
     if (!hasHometown) market = 'school';
     const evidence = meta && meta.evidence ? String(meta.evidence).slice(0, 180) : null;
+    // Google place_id is the local brand's stable ledger identity. It comes from
+    // the Places pool candidate (meta); the model-scored card never carries it, so
+    // read it from meta first. Attach both the id and the resolved brand_key so
+    // the route can upsert the engagement ledger and the card can drive retirement.
+    const placeId = (meta && meta.place_id) || d.place_id || null;
+    const _bkCity = market === 'hometown' ? hometownCity : city;
     return {
       ...d,
       rank: i + 1,
@@ -1924,6 +1981,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       isLocal: true,
       source,
       market,
+      place_id: placeId,
+      brandKey: resolveBrandKey({ place_id: placeId, brand: d.brand, city: _bkCity, lane: 'local' }, 'local'),
       marketLabel: hasHometown ? marketLabelFor(market) : null,
       // Region for the lazy contacts lookup (franchise phone disambiguation).
       // ALWAYS carry a state so the contact locality check can run. A hometown
@@ -2314,25 +2373,67 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // not seen for this athlete. When nothing unseen remains (even after deepening)
     // return an empty page flagged exhausted so the UI shows the honest banner.
     const PAGE = 10;
-    const unseenAll = _unseenOf(found);
-    // Provable pagination log: shown-set size, how many pooled businesses were
-    // excluded as already-seen, and how many remain to page into. A refresh that
-    // returns already-shown brands would show up here as excluded << shownSet.
-    console.log(`[dealScan] local shownSet=${_excludeSet.size} excluded=${found.length - unseenAll.length} poolAfterExclude=${unseenAll.length} returned=${Math.min(PAGE, unseenAll.length)} poolTotal=${found.length} source=web`);
-    if (unseenAll.length === 0) {
-      console.log('[dealScan] local pool fully exhausted for this athlete: 0 unseen');
+    // ── Per-athlete brand engagement ledger drives selection ──────────────────
+    // Identity is the brand_key (place_id for local), NOT the display name. The
+    // route passes opts.ledger = { byKey, retiredNameSlugs }. Rules (#2):
+    //   a. exclude every brand_key that is contacted/responded/closed/dead;
+    //   b. fill the page from candidates with NO ledger row (unseen), by fit;
+    //   c. if unseen runs dry, backfill from state=shown, oldest last_shown first,
+    //      so brands the agent ignored cycle back;
+    //   d. only an EMPTY page (no unseen AND no shown) is the exhausted banner.
+    // Displaying never retires a brand; the shown upsert happens in the route.
+    for (const f of found) {
+      if (!f._bk) f._bk = resolveBrandKey({ place_id: f.place_id, brand: f.name, city: (f.market === 'hometown' ? hometownCity : city), lane: 'local' }, 'local');
+    }
+    const _ledger = (opts && opts.ledger) || {};
+    const _ledgerByKey = _ledger.byKey || {};
+    const _retiredSlugs = _ledger.retiredNameSlugs instanceof Set ? _ledger.retiredNameSlugs : new Set();
+    const _RETIRED = new Set(['contacted', 'responded', 'closed', 'dead']);
+    const _candPriority = (f) => {
+      const tagHits = deriveMatchedTags({ brand: f.name, category: f.category }, f, athleteTagSubs).length;
+      return (tagHits ? 4 + tagHits : 0) + (f.evidence ? 2 : 0) + (f.market === 'hometown' ? 3 : 0);
+    };
+    const _isRetired = (f) => {
+      const row = f._bk ? _ledgerByKey[f._bk] : null;
+      if (row && _RETIRED.has(row.state)) return true;
+      // Migration bridge: pre-ledger "worked" brands were name-keyed. Also exclude
+      // a candidate whose NAME-slug matches a retired name-keyed row even though we
+      // now prefer place_id. A backward-compat guard, not a primary key.
+      if (_retiredSlugs.size && _retiredSlugs.has(_brandKey(f.name))) return true;
+      return false;
+    };
+    const _notRetired = found.filter((f) => !_isRetired(f));
+    const _excludedContacted = found.length - _notRetired.length;
+    const _unseen = _notRetired.filter((f) => !(f._bk && _ledgerByKey[f._bk]));
+    const _shownPool = _notRetired.filter((f) => f._bk && _ledgerByKey[f._bk] && _ledgerByKey[f._bk].state === 'shown');
+    _unseen.sort((a, b) => _candPriority(b) - _candPriority(a));
+    _shownPool.sort((a, b) => (_ledgerByKey[a._bk].lastShownAt || 0) - (_ledgerByKey[b._bk].lastShownAt || 0));
+    const _page = _unseen.slice(0, PAGE);
+    let _shownBackfill = 0;
+    if (_page.length < PAGE) {
+      const fill = _shownPool.slice(0, PAGE - _page.length);
+      _shownBackfill = fill.length;
+      for (const f of fill) _page.push(f);
+    }
+    // #5: one ledger line per scan.
+    console.log(`[dealScan] LEDGER athlete=${athlete.id} lane=local unseen=${_unseen.length} shown_backfill=${_shownBackfill} excluded_contacted=${_excludedContacted} page=${_page.length}`);
+    console.log(`[dealScan] local poolTotal=${found.length} notRetired=${_notRetired.length} unseen=${_unseen.length} shownPool=${_shownPool.length} returned=${_page.length} source=web`);
+    if (_page.length === 0) {
+      console.log('[dealScan] local ledger exhausted: no unseen and no shown-backfill');
       const empty = []; empty._poolExhausted = true; empty._poolTotal = found.length; empty._poolUnseen = 0; return empty;
     }
 
-    // Phase 2: score + enrich the next page of real businesses (no web search).
-    const hometownFound = unseenAll.filter((f) => f.market === 'hometown');
+    // Phase 2: score + enrich this page of real businesses (no web search).
+    // Hometown spares come from the whole not-retired pool so the reserve backstop
+    // can still splice hometown picks in even if none landed on the priority page.
+    const hometownFound = _notRetired.filter((f) => f.market === 'hometown');
     if (hasHometown && hometownFound.length === 0) {
       console.warn(`[dealScan] hometown search found 0 viable candidates for "${hometown}" — local lane will be school-market only`);
     }
     // Reserve 2-3 slots for hometown whenever its search found anything viable,
     // so school results cannot crowd them out.
     const reserveHometown = hasHometown ? Math.min(3, hometownFound.length) : 0;
-    const wantCount = Math.min(PAGE, unseenAll.length);
+    const wantCount = _page.length;
     const marketScoringLine = hasHometown
       ? `Each candidate carries a "market" field: "school" (${city}, near ${school}) or "hometown" (${hometown} — the athlete GREW UP there; use the hometown-hero angle: local recognition, community ties, "local kid makes good"). Keep the market value from the input.${reserveHometown ? ` HARD REQUIREMENT: include AT LEAST ${reserveHometown} hometown-market pick(s). Those slots are reserved for hometown even if school candidates score higher.` : ''}`
       : `Every candidate is in the school market ("market":"school").`;
@@ -2341,18 +2442,11 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const metaByName = new Map();
     for (const f of found) if (f.name) metaByName.set(f.name.toLowerCase().trim(), f);
 
-    // Only the next PAGE (10) unseen candidates are sent to scoring: keeps the
-    // output token budget safe (scoring 24 candidates used to truncate the JSON
-    // and crash phase 2) AND is the pagination unit: refresh walks the pool 10
-    // at a time. Priority keeps the guarantees intact: tag matches first, then
-    // marketing evidence, then hometown reserve, then the rest.
-    const _candPriority = (f) => {
-      const tagHits = deriveMatchedTags({ brand: f.name, category: f.category }, f, athleteTagSubs).length;
-      return (tagHits ? 4 + tagHits : 0) + (f.evidence ? 2 : 0) + (f.market === 'hometown' ? 3 : 0);
-    };
-    // Score only this page of unseen candidates (was the whole pool), so refresh
-    // walks through the pool 10 at a time and never re-scores a shown business.
-    const scoreCandidates = _localNextPage(unseenAll, [], PAGE, _candPriority).page;
+    // Only this ledger-selected page (10) is sent to scoring: keeps the output
+    // token budget safe (scoring 24 candidates used to truncate the JSON and crash
+    // phase 2) AND is the pagination unit. The page was already ranked by fit
+    // (unseen by _candPriority, then shown-backfill oldest-first) above.
+    const scoreCandidates = _page;
     const compactOf = (list) => JSON.stringify(list.map((f) => {
       const o = { name: f.name, market: f.market };
       if (f.website) o.website = f.website;
@@ -2417,7 +2511,9 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
       // rationales use only the candidate's own fields. No model, no invention.
       scoringOutcome = 'FELL-BACK to deterministic assembly';
       const _sportFit = (f) => (f.category && catHint.toLowerCase().includes(String(f.category).toLowerCase()) ? 1 : 0);
-      const ranked = [...unseenAll].sort((a, b) => (_candPriority(b) + _sportFit(b)) - (_candPriority(a) + _sportFit(a)));
+      // Assemble only from the ledger-selected page, so a deterministic fallback can
+      // never surface a retired (contacted) brand.
+      const ranked = [...scoreCandidates].sort((a, b) => (_candPriority(b) + _sportFit(b)) - (_candPriority(a) + _sportFit(a)));
       const homePicks = ranked.filter((f) => f.market === 'hometown').slice(0, Math.max(reserveHometown, hasHometown ? 2 : 0));
       const schoolPicks = ranked.filter((f) => f.market !== 'hometown').slice(0, Math.max(3, wantCount - homePicks.length));
       parsed = schoolPicks.concat(homePicks).map((f, i) => ({
@@ -2483,9 +2579,11 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
       const meta = metaByName.get((d.brand || '').toLowerCase().trim()) || null;
       return finalizeLocal(d, i, 'web', meta ? meta.website : (d.website || null), meta);
     });
-    localCards._poolExhausted = (unseenAll.length <= PAGE);
+    // Page was non-empty (an empty page returned the exhausted banner earlier), so
+    // this is NOT the exhausted state (#2d: banner only when nothing at all to show).
+    localCards._poolExhausted = false;
     localCards._poolTotal = found.length;
-    localCards._poolUnseen = unseenAll.length; // drives auto-deepen when a market runs thin
+    localCards._poolUnseen = _unseen.length; // genuine NEW-brand count drives auto-deepen
     return localCards; // contacts load lazily via /api/agent/brand-contacts (non-blocking)
   } catch (webErr) {
     // Only a DELIBERATE thin-market signal is allowed to fall through to the model-
@@ -2821,6 +2919,8 @@ module.exports = {
   validTagSubs,
   lookupSchoolLocation,
   resolveLocalMarketKey,
+  resolveBrandKey,
+  brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
   prewarmDealEvidence,
   getBrandContacts,
   // Internal evidence helpers exposed for unit tests only.

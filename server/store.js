@@ -588,6 +588,37 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_pipeline_athlete ON athlete_deal_pipeline(athlete_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_pipeline_status ON athlete_deal_pipeline(status)`).catch(() => {});
 
+  // ── Brand engagement ledger (per athlete) ─────────────────────────────────
+  // The source of truth for "has this athlete already been shown / already
+  // pitched this brand" in Deal Scan, keyed by a stable brand_key (place_id for
+  // local, root domain otherwise, see ai.resolveBrandKey), NOT the display name.
+  // Drives scan selection so refresh surfaces new brands and contacted brands
+  // never come back. state: shown | contacted | responded | closed | dead.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS brand_engagement (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT,
+      athlete_id TEXT NOT NULL,
+      brand_key TEXT NOT NULL,
+      brand_name TEXT,
+      lane TEXT,
+      state TEXT NOT NULL DEFAULT 'shown',
+      shown_count INT DEFAULT 0,
+      first_shown_at TIMESTAMPTZ,
+      last_shown_at TIMESTAMPTZ,
+      contacted_at TIMESTAMPTZ,
+      contacted_via TEXT,
+      outcome TEXT,
+      outcome_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (athlete_id, brand_key)
+    )
+  `).then(() => console.log('[init] brand_engagement table ready'))
+    .catch(e => console.error('[init] brand_engagement:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_athlete_state ON brand_engagement (athlete_id, state)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_agent_key ON brand_engagement (agent_id, brand_key)`).catch(() => {});
+
   // ── Athlete Self-Managed Deals ────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS athlete_self_deals (
@@ -1749,6 +1780,123 @@ async function setMarketCache(cacheKey, candidates) {
   }
 }
 
+// ── Brand engagement ledger ──────────────────────────────────────────────────
+// All defensively wrapped: a ledger failure must degrade to "no ledger data",
+// never break a scan or an action. brand_key is computed by ai.resolveBrandKey;
+// this layer stores and reads rows only, it never derives keys.
+
+// Raw ledger rows for one athlete. The route turns these into the { byKey,
+// retiredNameSlugs } shape the scan selection consumes (name-slugs are built with
+// ai.brandNameSlug in the route, so slug logic stays single-sourced in ai.js).
+async function getBrandLedgerRows(athleteId) {
+  if (!athleteId) return [];
+  try {
+    const r = await pool.query(
+      `SELECT brand_key, brand_name, lane, state, shown_count,
+              EXTRACT(EPOCH FROM last_shown_at) * 1000 AS last_shown_ms
+         FROM brand_engagement WHERE athlete_id = $1`,
+      [String(athleteId)]);
+    return r.rows || [];
+  } catch (e) {
+    console.warn(`[brandLedger] load failed athlete=${athleteId}: ${e.message}`);
+    return [];
+  }
+}
+
+// Upsert one displayed brand as state=shown. Displaying NEVER retires a brand and
+// never un-retires one: on conflict we only bump shown_count / last_shown_at and
+// leave state untouched (a contacted row stays contacted). items are already
+// filtered to non-retired-for-this-athlete brands by selection.
+async function upsertShownBrands(agentId, athleteId, lane, items) {
+  if (!athleteId || !Array.isArray(items) || !items.length) return 0;
+  let n = 0;
+  for (const it of items) {
+    const bk = it && it.brandKey;
+    if (!bk) continue;
+    try {
+      await pool.query(
+        `INSERT INTO brand_engagement
+           (agent_id, athlete_id, brand_key, brand_name, lane, state, shown_count, first_shown_at, last_shown_at)
+         VALUES ($1,$2,$3,$4,$5,'shown',1,NOW(),NOW())
+         ON CONFLICT (athlete_id, brand_key) DO UPDATE SET
+           shown_count = brand_engagement.shown_count + 1,
+           last_shown_at = NOW(),
+           brand_name = COALESCE(EXCLUDED.brand_name, brand_engagement.brand_name),
+           agent_id = COALESCE(brand_engagement.agent_id, EXCLUDED.agent_id),
+           lane = COALESCE(brand_engagement.lane, EXCLUDED.lane),
+           updated_at = NOW()`,
+        [agentId || null, String(athleteId), bk, it.brandName || null, lane || null]);
+      n++;
+    } catch (e) { console.warn(`[brandLedger] shown upsert failed key=${bk}: ${e.message}`); }
+  }
+  return n;
+}
+
+// Retire a brand: state=contacted, recording which path did it (contacted_via).
+async function markBrandContacted(agentId, athleteId, lane, brandKey, brandName, via) {
+  if (!athleteId || !brandKey) return false;
+  try {
+    await pool.query(
+      `INSERT INTO brand_engagement
+         (agent_id, athlete_id, brand_key, brand_name, lane, state, shown_count, first_shown_at, last_shown_at, contacted_at, contacted_via)
+       VALUES ($1,$2,$3,$4,$5,'contacted',0,NOW(),NOW(),NOW(),$6)
+       ON CONFLICT (athlete_id, brand_key) DO UPDATE SET
+         state = 'contacted', contacted_at = NOW(), contacted_via = $6,
+         brand_name = COALESCE(EXCLUDED.brand_name, brand_engagement.brand_name),
+         agent_id = COALESCE(brand_engagement.agent_id, EXCLUDED.agent_id),
+         lane = COALESCE(brand_engagement.lane, EXCLUDED.lane),
+         updated_at = NOW()`,
+      [agentId || null, String(athleteId), brandKey, brandName || null, lane || null, via || null]);
+    return true;
+  } catch (e) { console.warn(`[brandLedger] contacted mark failed key=${brandKey}: ${e.message}`); return false; }
+}
+
+// Undo a soft retirement: revert a just-contacted row back to shown. Only reverts
+// state=contacted (never responded/closed/dead), so a real outcome is never lost.
+async function unmarkBrandContacted(athleteId, brandKey) {
+  if (!athleteId || !brandKey) return false;
+  try {
+    const r = await pool.query(
+      `UPDATE brand_engagement
+          SET state = 'shown', contacted_at = NULL, contacted_via = NULL, updated_at = NOW()
+        WHERE athlete_id = $1 AND brand_key = $2 AND state = 'contacted'`,
+      [String(athleteId), brandKey]);
+    return (r.rowCount || 0) > 0;
+  } catch (e) { console.warn(`[brandLedger] undo failed key=${brandKey}: ${e.message}`); return false; }
+}
+
+// Cross-athlete warning (#4): brands this AGENT already contacted for a DIFFERENT
+// athlete. Returns { brandKey: { athleteName, date } }. Never hides a card; the
+// route just attaches a badge.
+async function getCrossAthleteContacted(agentId, brandKeys, excludeAthleteId) {
+  const out = {};
+  if (!agentId || !Array.isArray(brandKeys) || !brandKeys.length) return out;
+  const keys = Array.from(new Set(brandKeys.filter(Boolean)));
+  if (!keys.length) return out;
+  try {
+    const r = await pool.query(
+      `SELECT DISTINCT ON (be.brand_key)
+              be.brand_key,
+              be.contacted_at,
+              COALESCE(a.data->>'name', be.brand_name) AS athlete_name
+         FROM brand_engagement be
+         LEFT JOIN athletes a ON a.id = be.athlete_id
+        WHERE be.agent_id = $1
+          AND be.athlete_id <> $2
+          AND be.brand_key = ANY($3)
+          AND be.state IN ('contacted','responded','closed')
+        ORDER BY be.brand_key, be.contacted_at DESC NULLS LAST`,
+      [String(agentId), String(excludeAthleteId || ''), keys]);
+    for (const row of r.rows || []) {
+      out[row.brand_key] = {
+        athleteName: row.athlete_name || 'another athlete',
+        date: row.contacted_at ? new Date(row.contacted_at).toISOString().slice(0, 10) : null,
+      };
+    }
+  } catch (e) { console.warn(`[brandLedger] cross-athlete lookup failed: ${e.message}`); }
+  return out;
+}
+
 // Aggregate wizard step drop-off for a lightweight internal analytics view.
 async function getOnboardingAnalytics() {
   try {
@@ -2308,6 +2456,7 @@ module.exports = {
   dismissChecklist, markTooltipSeen, backfillChecklist, getOnboardingAnalytics,
   CHECKLIST_ITEMS,
   getMarketCache, setMarketCache, MARKET_CACHE_TTL_DAYS,
+  getBrandLedgerRows, upsertShownBrands, markBrandContacted, unmarkBrandContacted, getCrossAthleteContacted,
   ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
   ensureFeedbackColumns, logScanShown, getScanSignal, applyScanSignal,
   ensureMarketSightings, markMarketNewcomers, NEW_WINDOW_DAYS,

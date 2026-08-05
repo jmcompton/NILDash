@@ -6187,6 +6187,68 @@ function _logScanCost(lane, meter, totalMs, servedFromCache) {
   const m = meter || { webSearches: 0, aiCalls: 0, cacheHits: 0, cacheMisses: 0 };
   console.log(`[dealScan] COST lane=${lane} webSearches=${m.webSearches} aiCalls=${m.aiCalls} cacheHits=${m.cacheHits} cacheMisses=${m.cacheMisses} totalMs=${totalMs}${servedFromCache ? ' servedFromCache=1' : ''}`);
 }
+
+// Build the brand-engagement ledger the local scan selection consumes. Rows come
+// from the store; the name-slug bridge (for pre-ledger name-keyed rows) is built
+// here with ai.brandNameSlug so slug logic stays single-sourced in ai.js.
+async function _loadScanLedger(athleteId) {
+  const rows = await store.getBrandLedgerRows(athleteId);
+  const byKey = {};
+  const retiredNameSlugs = new Set();
+  const RETIRED = new Set(['contacted', 'responded', 'closed', 'dead']);
+  for (const r of rows) {
+    byKey[r.brand_key] = { state: r.state, lastShownAt: Number(r.last_shown_ms) || 0, shownCount: r.shown_count };
+    if (RETIRED.has(r.state) && r.brand_name) retiredNameSlugs.add(ai.brandNameSlug(r.brand_name));
+  }
+  return { byKey, retiredNameSlugs };
+}
+
+// After a page is built (or a cached page re-served), record every displayed
+// brand as shown and attach the cross-athlete "already contacted for X" badge.
+// Returns the (possibly retire-filtered) opportunity list. Displaying never
+// retires a brand; upsertShownBrands leaves a contacted state intact. Soft and
+// defensive: a ledger failure must never cost the agent their scan.
+//   opts.excludeRetired: drop brands this athlete already contacted/closed/etc.
+//     The LOCAL lane is already pre-filtered in ai.js, so this is for the social
+//     and top-NIL lanes, whose selection does not read the ledger.
+async function _applyLedgerToResponse(agentId, athleteId, lane, opportunities, opts) {
+  let opps = Array.isArray(opportunities) ? opportunities : [];
+  if (!opps.length) return opps;
+  // Local cards already carry brandKey (place_id based) from ai.js; other lanes
+  // get it from the same single resolver, keyed on the card's website/domain.
+  for (const o of opps) {
+    if (!o.brandKey) o.brandKey = ai.resolveBrandKey(o, lane);
+  }
+  if (opts && opts.excludeRetired) {
+    try {
+      const rows = await store.getBrandLedgerRows(athleteId);
+      const RET = new Set(['contacted', 'responded', 'closed', 'dead']);
+      const retired = new Set();
+      for (const r of rows) if (RET.has(r.state)) retired.add(r.brand_key);
+      if (retired.size) {
+        const before = opps.length;
+        opps = opps.filter((o) => !(o.brandKey && retired.has(o.brandKey)));
+        if (opps.length !== before) console.log(`[dealScan] ledger excluded ${before - opps.length} contacted brand(s) from lane=${lane} athlete=${athleteId}`);
+      }
+    } catch (e) { console.warn('[dealScan] retire-filter failed:', e.message); }
+  }
+  try {
+    await store.upsertShownBrands(
+      agentId, athleteId, lane,
+      opps.filter((o) => o.brandKey).map((o) => ({ brandKey: o.brandKey, brandName: o.brand || o.brand_name || null }))
+    );
+  } catch (e) { console.warn('[dealScan] shown upsert failed:', e.message); }
+  if (agentId) {
+    try {
+      const badges = await store.getCrossAthleteContacted(agentId, opps.map((o) => o.brandKey), athleteId);
+      for (const o of opps) {
+        const b = o.brandKey && badges[o.brandKey];
+        if (b) o.contactedElsewhere = b; // { athleteName, date } -> rendered as a badge
+      }
+    } catch (e) { console.warn('[dealScan] cross-athlete badge failed:', e.message); }
+  }
+  return opps;
+}
 function _rateLimitedScanMessage(rl) {
   const per = rl.scope === 'hour' ? 'hour' : 'day';
   const when = rl.scope === 'hour' ? 'in a little while' : 'tomorrow';
@@ -6270,7 +6332,10 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     // Social lane: served straight from the curated social_brands index. No web
     // search, no Anthropic call, no cache read/write, no rate-limit machinery.
     if (lane === 'social') {
-      const opportunities = await store.getSocialBrands(athleteObj);
+      let opportunities = await store.getSocialBrands(athleteObj);
+      // Ledger: exclude brands already contacted for this athlete, record the rest
+      // as shown, and attach cross-athlete badges. Social keeps its own rotation.
+      opportunities = await _applyLedgerToResponse(req.athlete.agent_id || null, req.athlete.id, 'social', opportunities, { excludeRetired: true });
       const rateCard = await _athleteRateCard(req.athlete.id);
       _logScanCost(lane, null, Date.now() - _scanT0, false);
       console.log(`[athlete/deal-scan] lane=social found=${opportunities.length} (curated index, 0 AI)`);
@@ -6283,6 +6348,7 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
       if (fresh) {
         const cache = rederiveScanCacheTags({ [lane]: fresh }, athleteObj.tags);
         const rateCard = await _athleteRateCard(req.athlete.id);
+        await _applyLedgerToResponse(req.athlete.agent_id || null, req.athlete.id, lane, cache[lane].opportunities);
         _logScanCost(lane, null, Date.now() - _scanT0, true);
         return res.json({ opportunities: cache[lane].opportunities, lane, rateCard, cached: true, poolExhausted: !!fresh.poolExhausted });
       }
@@ -6296,8 +6362,10 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     }
     _scanRateRecord(_rlKey);
 
+    // Per-athlete engagement ledger drives local selection (see agent endpoint).
+    const scanLedger = lane === 'local' ? await _loadScanLedger(req.athlete.id) : null;
     const { result: _recs, meter: _meter } = await scanMeter.run(
-      () => ai.getDealRecommendations(athleteObj, 'athlete', effectiveExclude, lane)
+      () => ai.getDealRecommendations(athleteObj, 'athlete', effectiveExclude, lane, { ledger: scanLedger })
     );
     const poolExhausted = !!(_recs && _recs._poolExhausted);
     let recommendations = _recs;
@@ -6312,6 +6380,8 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
     console.log(`[dealScan] derivation: ${_tagSubs.length} athlete tags -> ${recommendations.filter((o) => o.matchedTags.length).length} results tagged (${recommendations.reduce((n, o) => n + o.matchedTags.length, 0)} chips total)`);
     await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deal_scan', `Ran deal scan (${lane})`, {});
     console.log(`[athlete/deal-scan] lane=${lane} found=${recommendations.length}`);
+    // Brand engagement ledger: record displayed brands as shown + attach badges.
+    recommendations = await _applyLedgerToResponse(req.athlete.agent_id || null, req.athlete.id, lane, recommendations, { excludeRetired: true });
     // Persist this lane's results so re-entering Deal Scan / reloading re-hydrates
     // the athlete's opportunities. NON-DESTRUCTIVE: only overwrite when we got
     // genuine results, so a transient empty refresh never wipes a good cache.
@@ -6383,7 +6453,10 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // search, no Anthropic call, no cache read/write, no rate-limit machinery.
     // Returns before all of the local/topnil pipeline below.
     if (validLane === 'social') {
-      const opportunities = await store.getSocialBrands(loaded.athleteObj);
+      let opportunities = await store.getSocialBrands(loaded.athleteObj);
+      // Ledger: exclude brands already contacted for this athlete, record the rest
+      // as shown, and attach cross-athlete badges. Social keeps its own rotation.
+      opportunities = await _applyLedgerToResponse(req.session.userId, athleteId, 'social', opportunities, { excludeRetired: true });
       const rateCard = await _athleteRateCard(athleteId);
       _logScanCost(validLane, null, Date.now() - _scanT0, false);
       console.log(`[agent/deal-scan] lane=social found=${opportunities.length} (curated index, 0 AI)`);
@@ -6396,6 +6469,9 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
       if (fresh) {
         const cache = rederiveScanCacheTags({ [validLane]: fresh }, loaded.athleteObj.tags);
         const rateCard = await _athleteRateCard(athleteId);
+        // Re-serving the same page still counts as a display: refresh the shown
+        // ledger and (re)attach cross-athlete badges so a cached open is consistent.
+        await _applyLedgerToResponse(req.session.userId, athleteId, validLane, cache[validLane].opportunities);
         _logScanCost(validLane, null, Date.now() - _scanT0, true);
         return res.json({ opportunities: cache[validLane].opportunities, lane: validLane, rateCard, cached: true, poolExhausted: !!fresh.poolExhausted });
       }
@@ -6426,8 +6502,12 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
 
     // Lane targets: Local is primary (up to 10 per page), Top NIL up to 4.
     const TARGET = validLane === 'local' ? 8 : 4;
+    // Per-athlete engagement ledger drives local selection (exclude contacted,
+    // page unseen by fit, backfill shown oldest-first). Loaded once and passed to
+    // every pass (initial, manual deepen, auto-deepen) so they all agree.
+    const scanLedger = validLane === 'local' ? await _loadScanLedger(athleteId) : null;
     const { result: recommendationsRaw, meter: _meter } = await scanMeter.run(async () => {
-      let recs = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane, { deepen: wantDeepen });
+      let recs = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane, { deepen: wantDeepen, ledger: scanLedger });
       // AUTO-DEEPEN: a thin local pool (fewer than 5 unseen candidates) recycles the
       // same businesses on refresh. Grow it automatically before returning, whether
       // or not this was a refresh, so a normal scan also grows a thin market. Skipped
@@ -6441,7 +6521,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
           if (_autoDeepenAllowed(_dk) && _deepenRateCheck(_dk).ok) {
             _autoDeepenRecord(_dk); _deepenRateRecord(_dk);
             try {
-              const deeper = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane, { deepen: true });
+              const deeper = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane, { deepen: true, ledger: scanLedger });
               if (Array.isArray(deeper) && deeper.length) recs = deeper;
               console.log(`[dealScan] auto-deepen market=${_dk} unseen=${_unseen} grew pool, returned=${(deeper || []).length}`);
             } catch (e) { console.warn('[dealScan] auto-deepen failed:', e.message); }
@@ -6528,6 +6608,12 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
       }
       if (nNew) console.log(`[dealScan] ${nNew} newcomer(s) in market=${mk}`);
     } catch (e) { console.error('[dealScan] newcomers:', e.message); }
+    // Brand engagement ledger: mark every displayed brand as shown and attach the
+    // cross-athlete "already contacted for X" badge. Done before persistence so the
+    // cached copy carries brandKey + the badge too. Never retires on display.
+    // excludeRetired is a no-op for local (ai.js already excluded), and drops any
+    // already-contacted brand from top-NIL.
+    recommendations = await _applyLedgerToResponse(req.session.userId, athleteId, validLane, recommendations, { excludeRetired: true });
     if (recommendations.length) {
       // Local: advance the persisted shown-set with the brands just surfaced, so
       // the next scan/refresh (even a later session) starts past these. Store
@@ -6568,6 +6654,106 @@ app.post('/api/agent/deal-scan/worked', requireAuth, async (req, res) => {
     );
     res.json({ ok: true, worked: worked.length });
   } catch (e) { res.json({ ok: false }); }
+});
+
+// Retire a Deal Scan brand for an athlete (state=contacted), recording which path
+// did it via contacted_via. Backs the manual "Mark as contacted" control, the hard
+// retires (Add to pipeline, Send kit, email actually sent), and the soft AI-Outreach
+// retire. The brand_key is computed by the ONE resolver (ai.resolveBrandKey) from
+// whatever identity the card carries (place_id / website), never the name alone.
+app.post('/api/agent/deal-scan/contacted', requireAuth, async (req, res) => {
+  try {
+    const { athleteId, brand, brandKey, website, place_id, category, lane, via } = req.body || {};
+    if (!athleteId || (!brandKey && !brand && !website && !place_id)) {
+      return res.status(400).json({ error: 'athleteId and a brand identity are required' });
+    }
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    const _ru = await store.getUser(req.session.userId);
+    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
+    if (athlete.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
+    const l = lane || 'local';
+    const key = brandKey || ai.resolveBrandKey({ brand, website, place_id, category, lane: l }, l);
+    if (!key) return res.status(400).json({ error: 'Could not resolve a brand key' });
+    await store.markBrandContacted(athlete.agentId || req.session.userId, athleteId, l, key, brand || null, via || 'manual');
+    console.log(`[dealScan] CONTACTED athlete=${athleteId} lane=${l} via=${via || 'manual'} key=${key}`);
+    res.json({ ok: true, brandKey: key });
+  } catch (e) { console.error('[deal-scan/contacted]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// Undo a soft retirement (AI-Outreach-copied / manual mis-click): revert to shown.
+// Only reverts a state=contacted row, so a real outcome (responded/closed) is safe.
+app.post('/api/agent/deal-scan/contacted/undo', requireAuth, async (req, res) => {
+  try {
+    const { athleteId, brandKey } = req.body || {};
+    if (!athleteId || !brandKey) return res.status(400).json({ error: 'athleteId and brandKey are required' });
+    const athlete = await store.getAthlete(athleteId);
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    const _ru = await store.getUser(req.session.userId);
+    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
+    if (athlete.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
+    const undone = await store.unmarkBrandContacted(athleteId, brandKey);
+    res.json({ ok: undone });
+  } catch (e) { console.error('[deal-scan/contacted/undo]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// One-time migration (#6): backfill brand_engagement from whatever shown/worked
+// tracking exists today, so agents do not suddenly see brands they already worked.
+// Admin-gated and idempotent (ON CONFLICT DO NOTHING never overwrites a live row),
+// so it is safe to re-run. NOT auto-run on boot: the selection query is reviewed
+// first, then this is triggered manually.
+app.post('/api/admin/backfill-brand-engagement', requireAuth, async (req, res) => {
+  try {
+    const _ru = await store.getUser(req.session.userId);
+    if (!_ru || (_ru.email !== ADMIN_EMAIL && !isFounderEmail(_ru.email) && _ru.role !== 'admin')) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const counts = { contacted: 0, shown: 0, skippedExisting: 0, athletes: 0 };
+    const insert = async (agentId, athleteId, lane, key, brandName, state, via) => {
+      if (!key || !athleteId) return;
+      const r = await store.pool.query(
+        `INSERT INTO brand_engagement
+           (agent_id, athlete_id, brand_key, brand_name, lane, state, shown_count, first_shown_at, last_shown_at, contacted_at, contacted_via)
+         VALUES ($1,$2,$3,$4,$5,$6,
+                 CASE WHEN $6 = 'shown' THEN 1 ELSE 0 END, NOW(), NOW(),
+                 CASE WHEN $6 = 'contacted' THEN NOW() ELSE NULL END, $7)
+         ON CONFLICT (athlete_id, brand_key) DO NOTHING`,
+        [agentId || null, String(athleteId), key, brandName || null, lane || null, state, via || null]);
+      if ((r.rowCount || 0) > 0) counts[state] = (counts[state] || 0) + 1; else counts.skippedExisting++;
+    };
+    // 1. athletes.deal_scan_cache: worked -> contacted, shown -> shown (name-keyed,
+    //    which the selection's name-slug bridge honors even against place_id keys).
+    const ac = await store.pool.query(
+      `SELECT id, agent_id, deal_scan_cache FROM athletes
+        WHERE deal_scan_cache IS NOT NULL AND deal_scan_cache <> '{}'::jsonb`);
+    for (const row of ac.rows) {
+      counts.athletes++;
+      const cache = row.deal_scan_cache || {};
+      for (const lane of Object.keys(cache)) {
+        const lc = cache[lane] || {};
+        for (const b of (Array.isArray(lc.worked) ? lc.worked : [])) {
+          await insert(row.agent_id, row.id, lane, ai.resolveBrandKey({ brand: b, lane }, lane), b, 'contacted', 'migrated_worked');
+        }
+        for (const b of (Array.isArray(lc.shown) ? lc.shown : [])) {
+          await insert(row.agent_id, row.id, lane, ai.resolveBrandKey({ brand: b, lane }, lane), b, 'shown', null);
+        }
+      }
+    }
+    // 2. athlete_deal_pipeline -> contacted.
+    const dp = await store.pool.query(`SELECT athlete_id, agent_id, brand_name FROM athlete_deal_pipeline`);
+    for (const row of dp.rows) {
+      await insert(row.agent_id, row.athlete_id, 'local', ai.resolveBrandKey({ brand: row.brand_name, lane: 'local' }, 'local'), row.brand_name, 'contacted', 'migrated_pipeline');
+    }
+    // 3. athlete_brand_outreach -> contacted (root-domain key when a website exists).
+    const bo = await store.pool.query(`SELECT athlete_id, agent_id, brand_name, brand_website FROM athlete_brand_outreach`);
+    for (const row of bo.rows) {
+      const lane = row.brand_website ? 'national' : 'local';
+      await insert(row.agent_id, row.athlete_id, lane, ai.resolveBrandKey({ brand: row.brand_name, website: row.brand_website, lane }, lane), row.brand_name, 'contacted', 'migrated_outreach');
+    }
+    const total = counts.contacted + counts.shown + counts.skippedExisting;
+    console.log(`[backfill] brand_engagement: ${JSON.stringify(counts)}`);
+    res.json({ ok: true, counts, note: total ? 'Backfilled from existing shown/worked trackers.' : 'No prior shown/worked data found; starting clean.' });
+  } catch (e) { console.error('[backfill brand_engagement]', e.message); res.status(500).json({ error: e.message }); }
 });
 
 // Re-derive matchedTags on saved scan results at response-assembly time, so
