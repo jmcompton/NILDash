@@ -2558,6 +2558,9 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
       // is bounded so a strong low-type business can still out-score a weak high-type.
       const _tier = businessTier(meta || d);
       d._tier = _tier;
+      // Diagnostic: the raw Google types array and both category labels (Places vs the
+      // model's) next to the resolved tier, so a mis-tiered business is never a guess.
+      console.log(`[dealScan] TIER brand="${d.brand}" rawTypes=${JSON.stringify((meta && meta.types) || null)} placesCat=${meta ? (meta.category || null) : null} modelCat=${d.category || null} -> tier=${_tier}`);
       if (_tier !== 'medium') {
         const bump = _tier === 'high' ? 6 : -6;
         d.fitScore = Math.max(1, Math.min(100, (Number(d.fitScore) || 80) + bump));

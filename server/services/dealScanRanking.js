@@ -72,6 +72,29 @@ const HIGH_TIER_CATEGORIES = [
 ];
 const LOW_TIER_CATEGORIES = ['pet', 'vet', 'veterinary', 'animal'];
 
+// Pet / animal-care name markers. Google's legacy Places types only cover
+// pet_store and veterinary_care, so grooming, boarding, and "pet spa" businesses
+// come back typed as spa/establishment with no pet type, and placesMarket remaps
+// pet_store -> retail and veterinary_care -> wellness, so the category never says
+// "pet" either. This name guard catches them. When a NAME (or category) carries
+// one of these, the business is pet care / grooming / vet / boarding and belongs
+// in LOW regardless of "care", "spa", "training", or "fitness" words in the name.
+// Word-boundary matched, so "dog" does not hit "Underdog Fitness" and "vet" does
+// not hit "Corvette".
+const PET_MARKERS = [
+  'pet', 'pets', 'dog', 'dogs', 'doggie', 'doggy', 'puppy', 'pup', 'pooch', 'canine',
+  'cat', 'cats', 'kitten', 'feline', 'paws', 'paw', 'whisker', 'whiskers',
+  'animal', 'animals', 'groom', 'grooming', 'groomer', 'kennel', 'boarding',
+  'veterinary', 'veterinarian', 'vet', 'vets',
+];
+const _petRe = new RegExp(
+  '\\b(?:' + PET_MARKERS.map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b', 'i'
+);
+function _isPetBusiness(nameOrCat) {
+  const s = String(nameOrCat || '').toLowerCase();
+  return !!s && _petRe.test(s);
+}
+
 function _typesHitAny(list, types) {
   for (const t of types) { if (list.indexOf(t) !== -1) return true; }
   return false;
@@ -82,21 +105,31 @@ function _catHitAny(list, category) {
   return list.some((k) => c.indexOf(k) !== -1);
 }
 
-// Return 'high' | 'medium' | 'low' for a candidate. Places types win; category is
-// the fallback for candidates that have no types.
+// Return 'high' | 'medium' | 'low' for a candidate.
+//   1. Google Places `types` are the SOURCE OF TRUTH: pet_store / veterinary_care
+//      -> low; a clear high type (gym, restaurant, car_dealer, ...) -> high, which
+//      keeps a real gym or restaurant that happens to have a pet word in its name
+//      (e.g. "Mad Dog CrossFit", typed gym) in the high tier.
+//   2. Pet-name/category guard: grooming, boarding, "pet spa", vet, etc. land LOW
+//      even when the name also says care/spa/training/fitness and even when Google
+//      returned no useful type. Runs AFTER the high-type check for the reason above.
+//   3. Category-keyword fallback for candidates with no Places types.
 function businessTier(candidate) {
   const c = candidate || {};
+  const name = String(c.brand || c.name || '').toLowerCase();
+  const category = String(c.category || '').toLowerCase();
   const types = Array.isArray(c.types) ? c.types.map((t) => String(t).toLowerCase()) : [];
   if (types.length) {
     if (_typesHitAny(LOW_TIER_TYPES, types)) return 'low';
     if (_typesHitAny(HIGH_TIER_TYPES, types)) return 'high';
   }
-  if (_catHitAny(LOW_TIER_CATEGORIES, c.category)) return 'low';
-  if (_catHitAny(HIGH_TIER_CATEGORIES, c.category)) return 'high';
+  if (_isPetBusiness(name) || _isPetBusiness(category)) return 'low';
+  if (_catHitAny(LOW_TIER_CATEGORIES, category)) return 'low';
+  if (_catHitAny(HIGH_TIER_CATEGORIES, category)) return 'high';
   return 'medium';
 }
 
 module.exports = {
   NO_LOCAL_AUTHORITY, isNoLocalAuthority,
-  HIGH_TIER_TYPES, LOW_TIER_TYPES, HIGH_TIER_CATEGORIES, LOW_TIER_CATEGORIES, businessTier,
+  HIGH_TIER_TYPES, LOW_TIER_TYPES, HIGH_TIER_CATEGORIES, LOW_TIER_CATEGORIES, PET_MARKERS, businessTier,
 };
