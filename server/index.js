@@ -6702,6 +6702,26 @@ app.post('/api/agent/deal-scan/contacted/undo', requireAuth, async (req, res) =>
 // Admin-gated and idempotent (ON CONFLICT DO NOTHING never overwrites a live row),
 // so it is safe to re-run. NOT auto-run on boot: the selection query is reviewed
 // first, then this is triggered manually.
+// Read-only ledger stats: COUNT(*) from brand_engagement, broken down by state and
+// by lane. Admin-gated, writes nothing (SELECT only). Session-cookie auth, so it
+// runs from a logged-in admin phone without any manual token.
+app.get('/api/admin/brand-engagement/stats', requireAuth, async (req, res) => {
+  try {
+    const _ru = await store.getUser(req.session.userId);
+    if (!_ru || (_ru.email !== ADMIN_EMAIL && !isFounderEmail(_ru.email) && _ru.role !== 'admin')) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const [totalR, byStateR, byLaneR] = await Promise.all([
+      store.pool.query(`SELECT COUNT(*)::int AS n FROM brand_engagement`),
+      store.pool.query(`SELECT COALESCE(state, '(none)') AS state, COUNT(*)::int AS n FROM brand_engagement GROUP BY state ORDER BY n DESC`),
+      store.pool.query(`SELECT COALESCE(lane, '(none)') AS lane, COUNT(*)::int AS n FROM brand_engagement GROUP BY lane ORDER BY n DESC`),
+    ]);
+    const byState = {}; for (const r of byStateR.rows) byState[r.state] = r.n;
+    const byLane = {}; for (const r of byLaneR.rows) byLane[r.lane] = r.n;
+    res.json({ ok: true, total: totalR.rows[0].n, byState, byLane });
+  } catch (e) { console.error('[brand-engagement/stats]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/admin/backfill-brand-engagement', requireAuth, async (req, res) => {
   try {
     const _ru = await store.getUser(req.session.userId);

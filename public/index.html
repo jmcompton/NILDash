@@ -3461,6 +3461,18 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="page-title">Growth</div>
     <div class="page-sub">Admin-only · Automated outreach to NIL agents and schools</div>
 
+    <!-- Deal Scan brand-engagement ledger: read-only stats + the one-time backfill.
+         Both use the session cookie, so they run from a logged-in admin phone. -->
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px 16px;margin-bottom:18px">
+      <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">Deal Scan ledger</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Read the brand_engagement counts, or run the one-time backfill from existing shown/worked trackers.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="_dsLedgerStats(this)" style="padding:8px 16px;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.35);border-radius:var(--r-sm);color:#60a5fa;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Ledger stats</button>
+        <button onclick="_dsRunBackfill(this)" style="padding:8px 16px;background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.4);border-radius:var(--r-sm);color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Run backfill</button>
+      </div>
+      <pre id="ds-ledger-out" style="display:none;margin-top:12px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-x:auto"></pre>
+    </div>
+
     <!-- Sub-tab nav -->
     <div style="display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
       <button id="gtab-prospects-btn" onclick="growthModule.switchTab('prospects')" style="padding:8px 16px;border:none;background:none;color:var(--accent);font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-1px">Prospects</button>
@@ -6828,6 +6840,46 @@ window._dsOnBrandContacted = function (deal, via, undoable) {
   }
   _dsMarkContacted(i, document.getElementById('dsmc-btn-' + i), via, undoable);
 };
+
+// Admin (Growth view): read-only brand_engagement stats. Uses the session cookie
+// (credentials: include), so it works from a logged-in admin phone. Writes nothing.
+async function _dsLedgerStats(btn) {
+  var out = document.getElementById('ds-ledger-out');
+  if (btn) btn.disabled = true;
+  try {
+    var r = await fetch(API_BASE + '/api/admin/brand-engagement/stats', { credentials: 'include' });
+    var data = await r.json().catch(function () { return {}; });
+    if (out) {
+      out.style.display = 'block';
+      out.textContent = r.ok ? JSON.stringify(data, null, 2) : ('Error ' + r.status + ': ' + (data.error || 'request failed'));
+    }
+  } catch (e) {
+    if (out) { out.style.display = 'block'; out.textContent = 'Request failed: ' + (e && e.message ? e.message : e); }
+  }
+  if (btn) btn.disabled = false;
+}
+
+// Admin (Growth view): run the one-time backfill. This WRITES, so confirm first so
+// it can never fire by accident. Idempotent server-side (ON CONFLICT DO NOTHING).
+async function _dsRunBackfill(btn) {
+  if (!confirm('Run the brand_engagement backfill now?\n\nThis migrates rows from the existing shown/worked trackers into the ledger. It writes, but it is idempotent (safe to re-run).')) return;
+  var out = document.getElementById('ds-ledger-out');
+  var orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Running...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/admin/backfill-brand-engagement', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+    });
+    var data = await r.json().catch(function () { return {}; });
+    if (out) {
+      out.style.display = 'block';
+      out.textContent = r.ok ? JSON.stringify(data, null, 2) : ('Error ' + r.status + ': ' + (data.error || 'request failed'));
+    }
+  } catch (e) {
+    if (out) { out.style.display = 'block'; out.textContent = 'Request failed: ' + (e && e.message ? e.message : e); }
+  }
+  if (btn) { btn.disabled = false; btn.textContent = orig; }
+}
 
 // Compact follower count for the Social lane tier field: 1000 -> "1k", 150000 -> "150k".
 function _dsFmtTierK(n){ n = Number(n) || 0; return n >= 1000 ? (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(Math.round(n)); }
