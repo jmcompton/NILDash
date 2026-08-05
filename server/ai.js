@@ -2288,9 +2288,26 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       console.log(`[dealScan] phase 1 served from ${_src}: ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _t0}ms`);
     }
 
-    // Too thin to be a credible local scan — let the knowledge path try instead.
-    // Marked so the catch tells this DELIBERATE fallback apart from a real failure.
-    if (found.length < 3) { const e = new Error(`only ${found.length} web candidates`); e._thinFallback = true; throw e; }
+    // #1: ONE unambiguous pool-size line on EVERY local scan (cold build, warm
+    // cache, or Places), so "did the pool actually build for this market" is never
+    // a guess again. schoolPool is the count for the resolved market key.
+    const _schoolPoolN = found.filter((f) => f.market === 'school').length;
+    const _hometownPoolN = found.filter((f) => f.market === 'hometown').length;
+    const _poolSource = placesSchoolUsed ? 'places' : (searchDefs.length ? (_cacheHadPool ? 'cache+websearch' : 'websearch') : 'cache');
+    console.log(`[dealScan] POOL market=${schoolCacheKey} schoolPool=${_schoolPoolN} hometownPool=${_hometownPoolN} totalPool=${found.length} source=${_poolSource} locationKnown=${locationKnown}`);
+
+    // Too thin to be a credible local scan. For a REAL market (locationKnown) an
+    // empty or near-empty pool means discovery failed or the market is genuinely
+    // empty: say so honestly instead of papering over it with model-invented
+    // brands (the ~8-count knowledge fallback). Only an UNKNOWN location, where
+    // there is no real market to search, falls back to labeled model knowledge.
+    if (found.length < 3) {
+      if (locationKnown) {
+        console.error(`[dealScan] LOCAL POOL EMPTY market=${schoolCacheKey} found=${found.length} (locationKnown) -> honest empty, NOT model knowledge`);
+        const empty = []; empty._poolExhausted = true; empty._poolTotal = found.length; empty._poolUnseen = 0; return empty;
+      }
+      const e = new Error(`only ${found.length} web candidates`); e._thinFallback = true; throw e;
+    }
 
     // ── Paginate: score only the NEXT page of UNSEEN businesses ────────────────
     // A deep pool is built once; each scan/refresh shows the next 10 the agent has

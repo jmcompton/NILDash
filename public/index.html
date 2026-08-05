@@ -6505,8 +6505,11 @@ function _dsContactsHtml(d) {
       '</div>';
     }).join('');
   } else if (phone) {
-    out += '<div style="font-size:12px"><a href="tel:' + esc(telHref(phone)) + '" style="color:#60a5fa;text-decoration:none;font-weight:600">' + esc(phone) + '</a></div>' +
-      '<div style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5">Run AI Outreach to pull the contact for this business.</div>';
+    // #3: a phone number IS contact info, so the block is not empty. Do not render
+    // "Run AI Outreach to pull the contact for this business." here. The block only
+    // renders when there is a contact, phone, or inbox (see the early return at the
+    // top), so a genuinely-empty contact block never reaches this code at all.
+    out += '<div style="font-size:12px"><a href="tel:' + esc(telHref(phone)) + '" style="color:#60a5fa;text-decoration:none;font-weight:600">' + esc(phone) + '</a></div>';
   }
 
   if (inbox) {
@@ -6626,9 +6629,13 @@ function _dsPitchFor(opp, athlete) {
   if (/\bnil\b|athlete|sponsor|endorse|ambassador|name,?\s*image/.test(evidence)) {
     return { pitch: scaled('Two feed posts and one appearance'), why: 'They already did NIL deals with athletes' };
   }
-  // 2. Franchise location.
+  // 2. Locally owned or operated franchise. The isFranchise flag is set ONLY for
+  // a specific local location or operator, whose owner or GM controls a local
+  // marketing budget and can approve small deals without corporate. This mirrors
+  // the FRANCHISE_RULE the scan uses to write the card description, so the pitch
+  // Why and the description no longer contradict each other.
   if (opp && opp.isFranchise === true) {
-    return { pitch: 'Free product plus a discount code', why: 'Franchise location, manager has no local budget' };
+    return { pitch: scaled('Two feed posts and one appearance'), why: 'Locally operated franchise, the owner controls a local budget and can say yes without corporate' };
   }
   // 3. Category with a real local marketing budget.
   if (_dsCatHas(cat, _DS_CAT_BUDGET)) {
