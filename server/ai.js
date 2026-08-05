@@ -482,6 +482,20 @@ async function getSchoolLocation(school) {
   return result;
 }
 
+// Market-key slug (lowercase, non-alnum -> '-'). Single source of truth so the
+// scan and any tooling (e.g. admin rebuild) derive identical cache keys.
+function _normMarket(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+// Resolve a SCHOOL NAME to the exact local market cache key the scan uses:
+// getSchoolLocation(school) -> "City, State" -> _normMarket -> "<slug>:local".
+// This is the same path getDealRecommendations takes, so keys never diverge.
+async function resolveLocalMarketKey(school) {
+  const loc = await getSchoolLocation(school);
+  return `${_normMarket(`${loc.city}, ${loc.state}`)}:local`;
+}
+
 // Free/consumer mail providers are never a legitimate business contact domain
 // for a verified local business — and are the classic shape of a hallucinated
 // email. Reject them outright.
@@ -1978,7 +1992,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // rides it with zero web searches. Phase-2 scoring runs fresh per athlete, and
     // the per-athlete shown-set (rotation) lives on athletes.deal_scan_cache, so
     // the shared pool never collides with per-athlete freshness.
-    const normMarket = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const normMarket = _normMarket; // shared with resolveLocalMarketKey so keys match
     const schoolCacheKey = `${normMarket(schoolMarket)}:local`;
     const hometownCacheKey = hasHometown ? `${normMarket(hometown)}:local` : null;
     const [schoolCached, hometownCached] = await Promise.all([
@@ -2725,6 +2739,7 @@ module.exports = {
   deriveMatchedTags,
   validTagSubs,
   lookupSchoolLocation,
+  resolveLocalMarketKey,
   prewarmDealEvidence,
   getBrandContacts,
   // Internal evidence helpers exposed for unit tests only.

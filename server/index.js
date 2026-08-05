@@ -3544,48 +3544,75 @@ app.post('/api/admin/social-brands/reverify', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/admin/rebuild-market. Body { school }. Deletes that school's cached
-// local market pool and cold-rebuilds it immediately (full fresh category passes),
-// so an agent gets a bigger pool tonight without waiting for cache expiry. Returns
-// the old vs new pool size. Admin only.
+// POST /api/admin/rebuild-market. Body { school } OR { cacheKey }. Resolves the
+// input to the SAME local market key the scan uses (never a naive slug of the
+// school name), deletes that cached pool, and cold-rebuilds it immediately (full
+// fresh category passes). Returns the resolved key and old vs new pool size, and
+// says explicitly when the resolved key had no existing row. Admin only.
 app.post('/api/admin/rebuild-market', requireAuth, async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);
     if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
-    const school = String((req.body && req.body.school) || '').trim();
-    if (!school) return res.status(400).json({ error: 'school is required' });
-    // Same normalization getDealRecommendations uses for the cache key.
-    const slug = school.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    const cacheKey = slug + ':local';
+    const body = req.body || {};
+    const rawKey = String(body.cacheKey || '').trim();
+    const school = String(body.school || '').trim();
+    if (!rawKey && !school) return res.status(400).json({ error: 'Provide { school } or { cacheKey }' });
+
+    // A school name resolves through the EXACT scan path (getSchoolLocation ->
+    // "City, State" -> slug:local) so delete and rebuild target the same key. A raw
+    // cacheKey (no school) is a delete-only convenience for a key you already know.
+    let cacheKey, resolvedVia;
+    if (school) {
+      cacheKey = await ai.resolveLocalMarketKey(school);
+      resolvedVia = 'school';
+    } else {
+      cacheKey = /:local$/.test(rawKey) ? rawKey.toLowerCase() : rawKey.toLowerCase() + ':local';
+      resolvedVia = 'cacheKey';
+    }
 
     const _sizeOf = async () => {
       const r = await store.pool.query('SELECT jsonb_array_length(candidates) AS n FROM deal_scan_market_cache WHERE cache_key = $1', [cacheKey]);
-      return r.rows[0] ? Number(r.rows[0].n) : 0;
+      return r.rows[0] ? Number(r.rows[0].n) : null; // null = no row exists
     };
-    const oldPoolSize = await _sizeOf();
-    await store.pool.query('DELETE FROM deal_scan_market_cache WHERE cache_key = $1', [cacheKey]);
+    const oldSizeRaw = await _sizeOf();
+    const existedBefore = oldSizeRaw !== null;
+    const oldPoolSize = existedBefore ? oldSizeRaw : 0;
+    if (existedBefore) {
+      await store.pool.query('DELETE FROM deal_scan_market_cache WHERE cache_key = $1', [cacheKey]);
+    }
 
     // Cold rebuild: cache row is gone, so this runs the full 8-pass search and writes
-    // the new pool back. Minimal athlete shape is enough to drive the school market.
-    const athObj = { name: 'Market Rebuild', school, sport: 'basketball', instagram: 0, tiktok: 0, tags: [], position: '' };
+    // the new pool back. A school name is required to drive the search; if only a raw
+    // cacheKey was given, we can still delete but cannot rebuild without the school.
     const t0 = Date.now();
-    let returned = 0;
-    try {
-      const recs = await ai.getDealRecommendations(athObj, 'agent', [], 'local', {});
-      returned = Array.isArray(recs) ? recs.length : 0;
-    } catch (e) {
-      return res.status(500).json({ error: 'rebuild failed: ' + e.message, cacheKey, oldPoolSize });
+    let returned = 0, rebuilt = false, newPoolSize = 0;
+    if (school) {
+      const athObj = { name: 'Market Rebuild', school, sport: 'basketball', instagram: 0, tiktok: 0, tags: [], position: '' };
+      try {
+        const recs = await ai.getDealRecommendations(athObj, 'agent', [], 'local', {});
+        returned = Array.isArray(recs) ? recs.length : 0;
+        rebuilt = true;
+      } catch (e) {
+        return res.status(500).json({ error: 'rebuild failed: ' + e.message, cacheKey, resolvedVia, existedBefore, oldPoolSize });
+      }
+      // setMarketCache is fire-and-forget inside getDealRecommendations, so poll
+      // briefly for the write to land before reporting the new size.
+      for (let i = 0; i < 8; i++) {
+        const n = await _sizeOf();
+        newPoolSize = n === null ? 0 : n;
+        if (newPoolSize > 0) break;
+        await new Promise((r) => setTimeout(r, 400));
+      }
     }
-    // setMarketCache is fire-and-forget inside getDealRecommendations, so poll briefly
-    // for the write to land before reporting the new size.
-    let newPoolSize = 0;
-    for (let i = 0; i < 8; i++) {
-      newPoolSize = await _sizeOf();
-      if (newPoolSize > 0) break;
-      await new Promise((r) => setTimeout(r, 400));
-    }
-    console.log(`[admin/rebuild-market] school="${school}" key=${cacheKey} oldPool=${oldPoolSize} newPool=${newPoolSize} returned=${returned} in ${Date.now() - t0}ms`);
-    res.json({ school, cacheKey, oldPoolSize, newPoolSize, returned, ms: Date.now() - t0 });
+    console.log(`[admin/rebuild-market] via=${resolvedVia} key=${cacheKey} existedBefore=${existedBefore} oldPool=${oldPoolSize} newPool=${newPoolSize} returned=${returned} rebuilt=${rebuilt} in ${Date.now() - t0}ms`);
+    res.json({
+      school: school || null, cacheKey, resolvedVia,
+      existedBefore,
+      note: existedBefore ? null : 'No existing cache row for this key; nothing was deleted.',
+      rebuilt,
+      rebuildNote: rebuilt ? null : 'No school provided, so the pool was not rebuilt (pass { school } to rebuild).',
+      oldPoolSize, newPoolSize, returned, ms: Date.now() - t0
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
