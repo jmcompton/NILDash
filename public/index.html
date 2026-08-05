@@ -6275,12 +6275,16 @@ async function _dsRunScan(isRefresh, opts) {
         var exhausted = !!(res.data && res.data.poolExhausted);
         if (lane === 'local') _dsLaneExhausted[lane] = exhausted;
         if (!opps.length) {
+          // Server sends an honest exhausted message for the local lane when even
+          // auto-deepen could not surface anything new. Prefer it over a generic empty.
+          var srvNote = (res.data && res.data.exhaustedNote) || '';
           if (_dsLaneData[lane] && _dsLaneData[lane].length) {
             // Refresh/deepen returned nothing new: keep the shown cards, show the
             // honest banner. For local this only happens once the pool is exhausted.
-            _dsLaneNote[lane] = (isRefresh || isDeepen) ? _dsNoNewNote(lane, _dsLaneData[lane]) : '';
+            _dsLaneNote[lane] = srvNote || ((isRefresh || isDeepen) ? _dsNoNewNote(lane, _dsLaneData[lane]) : '');
           } else {
             _dsLaneData[lane] = [];
+            _dsLaneNote[lane] = srvNote; // honest message renders in the empty state
           }
         } else {
           var newOnes = opps.filter(function(d){ return oldBrands.indexOf((d.brand || '').toLowerCase()) === -1; });
@@ -6339,7 +6343,7 @@ function _dsMarketOf(cards) {
 // Honest banner when a Refresh surfaced no NEW options: the scan worked, these
 // are simply the real best matches. Keeps Refresh from reading as a dead button.
 function _dsNoNewNote(lane, cards) {
-  if (lane === 'local') return 'You have seen every strong local match in ' + _dsMarketOf(cards) + ' for this client. Refresh again later as new businesses appear.';
+  if (lane === 'local') return 'You have seen every business we have found in this market. We are searching for more and will have new ones within 24 hours.';
   return 'These are the national brands to know for this athlete right now.';
 }
 // Standing insight shown under a lane header when a thin result is actually
@@ -6380,7 +6384,13 @@ function _dsRenderAll() {
     }
 
     if (!data.length) {
-      body.innerHTML = topNote + '<div class="ds-lane-empty">No ' + esc(_dsLaneMeta[lane].label.toLowerCase()) + ' matches found right now. Try Refresh.</div>';
+      // When a lane note is present (e.g. the honest local exhausted message), it is
+      // already rendered in topNote and IS the empty state; skip the generic line so
+      // we never contradict it with "Try Refresh".
+      var emptyLine = _dsLaneNote[lane]
+        ? ''
+        : '<div class="ds-lane-empty">No ' + esc(_dsLaneMeta[lane].label.toLowerCase()) + ' matches found right now. Try Refresh.</div>';
+      body.innerHTML = topNote + emptyLine;
       return;
     }
 

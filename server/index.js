@@ -6065,6 +6065,14 @@ function _deepenRateRecord(marketKey) {
   arr.push(now);
   _deepenHits.set(marketKey, arr);
 }
+// Auto-deepen guard: separate from the manual "Find more" budget so an automatic
+// grow fires at most ONCE per market per 24h, while still counting against the
+// shared deepen budget (_deepenRateRecord) when it runs.
+const _autoDeepenHits = new Map(); // marketKey -> last auto-deepen ts (ms)
+function _autoDeepenAllowed(marketKey) {
+  return (Date.now() - (_autoDeepenHits.get(marketKey) || 0)) > 86400e3;
+}
+function _autoDeepenRecord(marketKey) { _autoDeepenHits.set(marketKey, Date.now()); }
 async function _getFreshScanCache(athleteId, lane) {
   try {
     const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id=$1', [athleteId]);
@@ -6348,6 +6356,28 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     const TARGET = validLane === 'local' ? 8 : 4;
     const { result: recommendationsRaw, meter: _meter } = await scanMeter.run(async () => {
       let recs = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane, { deepen: wantDeepen });
+      // AUTO-DEEPEN: a thin local pool (fewer than 5 unseen candidates) recycles the
+      // same businesses on refresh. Grow it automatically before returning, whether
+      // or not this was a refresh, so a normal scan also grows a thin market. Skipped
+      // when the user already asked for a manual "Find more" deepen. Fires at most
+      // ONCE per market per 24h and still counts against the shared deepen budget; if
+      // either guard blocks it, fall through to the current pool rather than erroring.
+      if (validLane === 'local' && !wantDeepen) {
+        const _unseen = (recs && typeof recs._poolUnseen === 'number') ? recs._poolUnseen : recs.length;
+        if (_unseen < 5) {
+          const _dk = _deepenMarketKey(loaded.athleteObj.school);
+          if (_autoDeepenAllowed(_dk) && _deepenRateCheck(_dk).ok) {
+            _autoDeepenRecord(_dk); _deepenRateRecord(_dk);
+            try {
+              const deeper = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane, { deepen: true });
+              if (Array.isArray(deeper) && deeper.length) recs = deeper;
+              console.log(`[dealScan] auto-deepen market=${_dk} unseen=${_unseen} grew pool, returned=${(deeper || []).length}`);
+            } catch (e) { console.warn('[dealScan] auto-deepen failed:', e.message); }
+          } else {
+            console.log(`[dealScan] auto-deepen market=${_dk} unseen=${_unseen} blocked by guard; serving current pool`);
+          }
+        }
+      }
       // Non-local lanes keep the "top up a thin refresh from a no-exclude run"
       // behavior so they don't shrink on repeated refreshes. Local must NOT top
       // up this way: it paginates a persistent pool 10 at a time, and the
@@ -6369,6 +6399,12 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // BEFORE the .map() below, which would drop the array-level property.
     const poolExhausted = !!(recommendationsRaw && recommendationsRaw._poolExhausted);
     let recommendations = recommendationsRaw;
+    // Honest empty state: when the local lane has nothing left to show (every pooled
+    // business already seen and auto-deepen could not add more), say so plainly
+    // instead of recycling. Only for local; other lanes keep their own empties.
+    const exhaustedNote = (validLane === 'local' && (!recommendations || recommendations.length === 0))
+      ? 'You have seen every business we have found in this market. We are searching for more and will have new ones within 24 hours.'
+      : null;
     // Unconditional matchedTags derivation at the route boundary, applied to
     // the final array for EVERY lane and EVERY source (web, knowledge,
     // fallback). This is the single spot every scan response passes through,
@@ -6440,7 +6476,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     checkOff(req.session.userId, 'deal_scan'); // Getting Started checklist
     logAthleteActivity(athleteId, req.session.userId, 'deal_scan', `Ran deal scan (${validLane})`, { count: recommendations.length }).catch(() => {});
     _logScanCost(validLane, _meter, Date.now() - _scanT0, false);
-    res.json({ opportunities: recommendations, lane: validLane, rateCard, poolExhausted });
+    res.json({ opportunities: recommendations, lane: validLane, rateCard, poolExhausted, exhaustedNote });
   } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 

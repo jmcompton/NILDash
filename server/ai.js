@@ -2208,7 +2208,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     console.log(`[dealScan] local shownSet=${_excludeSet.size} excluded=${found.length - unseenAll.length} poolAfterExclude=${unseenAll.length} returned=${Math.min(PAGE, unseenAll.length)} poolTotal=${found.length} source=web`);
     if (unseenAll.length === 0) {
       console.log('[dealScan] local pool fully exhausted for this athlete: 0 unseen');
-      const empty = []; empty._poolExhausted = true; empty._poolTotal = found.length; return empty;
+      const empty = []; empty._poolExhausted = true; empty._poolTotal = found.length; empty._poolUnseen = 0; return empty;
     }
 
     // Phase 2: score + enrich the next page of real businesses (no web search).
@@ -2372,6 +2372,7 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
     });
     localCards._poolExhausted = (unseenAll.length <= PAGE);
     localCards._poolTotal = found.length;
+    localCards._poolUnseen = unseenAll.length; // drives auto-deepen when a market runs thin
     return localCards; // contacts load lazily via /api/agent/brand-contacts (non-blocking)
   } catch (webErr) {
     console.warn('[dealScan] category web-search path failed, trying model knowledge:', webErr.message);
