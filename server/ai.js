@@ -2054,7 +2054,13 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // the planned category searches per market (fewer, distinct ones when deepening)
     // and are the single source of truth for both the log and the search +
     // cache-write gating below.
-    const SCHOOL_SEARCH_N = deepen ? 4 : 5, HOMETOWN_SEARCH_N = deepen ? 1 : 2;
+    // Initial cold-market school passes raised 5 -> 8 (folded in pet/home-services,
+    // personal-care, and specialty-retail categories). A deeper cold pool gives the
+    // first agent in a market room to page/refresh before the rotation window
+    // recycles, and reduces how often auto-deepen has to fire. Tradeoff: +3 Haiku
+    // web-search calls per cold market build (~+$0.02-0.03, one-time, then cached
+    // and shared across every agent in that market). Deepen stays 4 distinct passes.
+    const SCHOOL_SEARCH_N = deepen ? 4 : 8, HOMETOWN_SEARCH_N = deepen ? 1 : 2;
     const schoolWillSearch = (!schoolCached || schoolThin || deepen);
     const hometownWillSearch = hasHometown && (!hometownCached || hometownThin || deepen);
     const _mktLog = (key, cached, willSearch, n, thin) => {
@@ -2086,7 +2092,10 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const _geoStd = schoolThin ? _geoThin : _geo;
     const searchDefs = [];
     if (schoolWillSearch && deepen) {
-      // Deeper pass: categories NOT in the first search, wider radius, next tier.
+      // Deeper pass: wider radius (_geoWide) and next tier (_tierWide), excluding the
+      // whole existing pool (_deepExcl). Since the initial build was widened to 8
+      // categories, three of these overlap the first pass by name but reach FARTHER,
+      // next-tier businesses; deep-services-venues stays fully distinct.
       searchDefs.push(
         { label: 'deep-home-pet', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `${_tierWide}pet stores, groomers and veterinary clinics, and home services like HVAC, plumbing, landscaping, roofing, and cleaning companies ${_geoWide}${tagEmphasisQ}${_deepExcl}`,
@@ -2118,6 +2127,17 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         { label: 'school-services-ent', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `entertainment venues, golf and bowling, real estate agents, banks and credit unions, insurance agencies, and local professional services ${_geoStd} that advertise locally or sponsor local sports${_deepExcl}`,
           'entertainment, real estate agents, banks and credit unions, local professional services'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        // Passes 6-8: folded in from the deepen set so a cold market starts deeper
+        // (see SCHOOL_SEARCH_N note above). Standard geo/tier, same as passes 1-5.
+        { label: 'school-pet-home', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `pet stores, groomers and veterinary clinics, and home services like HVAC, plumbing, landscaping, roofing, and cleaning companies ${_geoStd} that advertise locally or sponsor local sports${_deepExcl}`,
+          'pet services and veterinary, home services, landscaping and cleaning'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'school-personal-care', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `barbershops, hair and nail salons, tattoo studios, dance and cheer studios, martial arts gyms, and yoga or pilates studios ${_geoStd} that advertise locally or sponsor youth sports${tagEmphasisQ}${_deepExcl}`,
+          'barbershops and salons, tattoo studios, dance and martial arts, yoga and pilates'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
+        { label: 'school-specialty-retail', market: 'school', p: timedSearch(oneShotWebSearch(mk(
+          `jewelers, florists, bike shops, outdoor and hunting stores, pharmacies, bookstores, game and hobby shops, and specialty grocers ${_geoStd} that advertise locally or sponsor teams${tagEmphasisQ}${_deepExcl}`,
+          'jewelers and florists, bike and outdoor shops, game and hobby shops, specialty grocers'), searchSys, 1300, 2, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
     if (hometownWillSearch && deepen) {
