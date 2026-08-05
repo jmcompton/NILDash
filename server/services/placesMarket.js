@@ -10,6 +10,7 @@
 // have the "Places API" (legacy) product enabled, same GOOGLE_PLACES_API_KEY.
 
 const { isNationalChain } = require('./nationalChains');
+const { isNoLocalAuthority } = require('./dealScanRanking');
 
 const NEARBY_URL = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json';
 const TEXT_URL = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
@@ -113,12 +114,17 @@ async function buildMarketPoolFromPlaces(school) {
   const poolBeforeFilter = byId.size;
 
   // Filter: OPERATIONAL only, >= MIN_RATINGS reviews. Flag chains, never drop them.
-  let dropClosed = 0, dropThin = 0, chains = 0;
+  // HARD DROP the no-local-authority corporate brands (Walmart, banks, national
+  // pharmacy/grocery, gas stations): no local manager can approve a deal there, so
+  // they are removed from the pool entirely rather than ranked. This does NOT narrow
+  // the Places pull (every type/radius is still fetched); it filters the results.
+  let dropClosed = 0, dropThin = 0, dropCorporate = 0, chains = 0;
   const candidates = [];
   for (const { r, type } of byId.values()) {
     if (r.business_status && r.business_status !== 'OPERATIONAL') { dropClosed++; continue; }
     const ratings = Number(r.user_ratings_total) || 0;
     if (ratings < MIN_RATINGS) { dropThin++; continue; }
+    if (isNoLocalAuthority(r.name)) { dropCorporate++; continue; }
     const chain = isNationalChain(r.name);
     if (chain) chains++;
     const loc = (r.geometry && r.geometry.location) || {};
@@ -146,7 +152,7 @@ async function buildMarketPoolFromPlaces(school) {
   }
 
   const ms = Date.now() - t0;
-  console.log(`[placesMarket] school="${school}" @${lat},${lng} placesCalls=${placesCalls} raw=${poolBeforeFilter} -> pool=${candidates.length} (dropped closed=${dropClosed} thinReviews=${dropThin}, flaggedChains=${chains}) in ${ms}ms`);
+  console.log(`[placesMarket] school="${school}" @${lat},${lng} placesCalls=${placesCalls} raw=${poolBeforeFilter} -> pool=${candidates.length} (dropped closed=${dropClosed} thinReviews=${dropThin} corporate=${dropCorporate}, flaggedChains=${chains}) in ${ms}ms`);
   return { ok: true, candidates, placesCalls, ms, poolBeforeFilter, geocoded: geo.coords };
 }
 

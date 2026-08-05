@@ -9,6 +9,7 @@ const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
 const scanMeter = require('./scanMeter');
 const { lookupPlace } = require('./services/placesLookup');
 const { buildMarketPoolFromPlaces } = require('./services/placesMarket');
+const { isNoLocalAuthority, businessTier } = require('./services/dealScanRanking');
 const { findDomainEmails: lookupDomain } = require('./services/hunterLookup');
 
 // Cost guard: build a given market from Places at most once per 24h (a full build
@@ -2089,6 +2090,11 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const addCandidate = (it, market) => {
       const nm = ((it && it.name) || '').trim();
       if (!nm) return;
+      // HARD EXCLUDE: corporate businesses where no local manager can approve a deal
+      // (Walmart, banks, national grocery/pharmacy, gas stations). Dropped from the
+      // pool at ingest, so they never reach selection, caching, or the ledger. Covers
+      // cache-served and web-search candidates; the Places builder drops them too.
+      if (isNoLocalAuthority(nm)) return;
       // Dedup by _brandKey (not raw lowercase) so a suffix/case variant of a pool
       // business is not re-added, which is what keeps a deepen batch genuinely new.
       const key = _brandKey(nm);
@@ -2098,6 +2104,12 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         name: nm, website: it.website || null, category: it.category || null,
         email: it.email || null, evidence: it.evidence || null,
         franchise: it.franchise === true, market,
+        // Preserve Places extras (present on Places-built + cache-served candidates)
+        // so the ledger keys on place_id and ranking tiers by Places type. addCandidate
+        // used to strip these, which silently downgraded cached pools to name keys.
+        place_id: it.place_id || null,
+        types: Array.isArray(it.types) ? it.types : undefined,
+        chain: it.chain === true ? true : undefined,
       });
     };
     // Serve cached markets straight into the pool (market re-tagged from the
@@ -2389,9 +2401,14 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const _ledgerByKey = _ledger.byKey || {};
     const _retiredSlugs = _ledger.retiredNameSlugs instanceof Set ? _ledger.retiredNameSlugs : new Set();
     const _RETIRED = new Set(['contacted', 'responded', 'closed', 'dead']);
+    // Type tier feeds selection priority so high-signing types (restaurants,
+    // fitness, apparel, auto dealers, nutrition, chiro, med spas) are more likely to
+    // reach the scored page, and low types (pet, vet) less likely. Low is a penalty,
+    // not a filter: a genuinely great low-type business can still make the page.
+    const _tierPriority = (f) => { const t = businessTier(f); return t === 'high' ? 3 : t === 'low' ? -2 : 0; };
     const _candPriority = (f) => {
       const tagHits = deriveMatchedTags({ brand: f.name, category: f.category }, f, athleteTagSubs).length;
-      return (tagHits ? 4 + tagHits : 0) + (f.evidence ? 2 : 0) + (f.market === 'hometown' ? 3 : 0);
+      return (tagHits ? 4 + tagHits : 0) + (f.evidence ? 2 : 0) + (f.market === 'hometown' ? 3 : 0) + _tierPriority(f);
     };
     const _isRetired = (f) => {
       const row = f._bk ? _ledgerByKey[f._bk] : null;
@@ -2535,6 +2552,16 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
       const meta = metaByName.get((d.brand || '').toLowerCase().trim());
       if (meta && d.market !== 'school' && d.market !== 'hometown') d.market = meta.market;
       if (meta && d.isFranchise !== true && meta.franchise === true) d.isFranchise = true;
+      // Feed the type tier into the fit score so high-signing types surface first and
+      // low types (pet, vet) sink, without removing anyone. Tier comes from the Places
+      // candidate (meta has the raw types); fall back to the card's category. The bump
+      // is bounded so a strong low-type business can still out-score a weak high-type.
+      const _tier = businessTier(meta || d);
+      d._tier = _tier;
+      if (_tier !== 'medium') {
+        const bump = _tier === 'high' ? 6 : -6;
+        d.fitScore = Math.max(1, Math.min(100, (Number(d.fitScore) || 80) + bump));
+      }
     }
 
     // ── Guaranteed hometown slots (deterministic backstop) ────────────────────
