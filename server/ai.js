@@ -8,7 +8,17 @@ const { getSeeds } = require('./dealScanSeeds');
 const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
 const scanMeter = require('./scanMeter');
 const { lookupPlace } = require('./services/placesLookup');
+const { buildMarketPoolFromPlaces } = require('./services/placesMarket');
 const { findDomainEmails: lookupDomain } = require('./services/hunterLookup');
+
+// Cost guard: build a given market from Places at most once per 24h (a full build
+// is ~30 types x up to 3 pages of paid calls). In-memory; resets on restart, which
+// is acceptable since the market cache persists the built pool for days.
+const _placesBuildHits = new Map(); // marketKey -> last build ts (ms)
+function _placesBuildAllowed(marketKey) {
+  return (Date.now() - (_placesBuildHits.get(marketKey) || 0)) > 86400e3;
+}
+function _placesBuildRecord(marketKey) { _placesBuildHits.set(marketKey, Date.now()); }
 
 // Strip em/en dashes from AI-generated natural-language text. The model leans on
 // em dashes heavily; replace them (and surrounding spaces) with a comma so output
@@ -2036,6 +2046,41 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     if (schoolCached) for (const cnd of schoolCached.candidates) addCandidate(cnd, 'school');
     if (hometownCached) for (const cnd of hometownCached.candidates) addCandidate(cnd, 'hometown');
 
+    // ── Google Places discovery (school market) ───────────────────────────────
+    // For a COLD school build (not deepen), pull the FULL local-business pool from
+    // Google Places instead of the handful an LLM recalls. Gated on a real market
+    // (locationKnown), a key, and the discovery flag; built at most once per market
+    // per 24h. Falls back to the web-search path when disabled, keyless, geocode/
+    // Places fails, or Places returns nothing (G: never delete the web path).
+    let placesSchoolUsed = false;
+    const _placesEnabled = (process.env.DEAL_SCAN_DISCOVERY || 'places') !== 'websearch'
+      && !!(process.env.GOOGLE_PLACES_API_KEY || '').trim();
+    if (_placesEnabled && schoolWillSearch && !deepen && locationKnown) {
+      if ((opts && opts.forcePlaces) || _placesBuildAllowed(schoolCacheKey)) {
+        try {
+          const pr = await buildMarketPoolFromPlaces(school);
+          if (pr.ok && pr.candidates.length) {
+            _placesBuildRecord(schoolCacheKey);
+            for (const c of pr.candidates) {
+              const k = _brandKey(c.name);
+              if (k && !seen.has(k)) { seen.add(k); found.push(c); }
+            }
+            placesSchoolUsed = true;
+            // Persist the FULL pool now (no truncation), keyed to this market.
+            const poolSchool = found.filter((f) => f.market === 'school');
+            if (poolSchool.length) store.setMarketCache(schoolCacheKey, poolSchool);
+            console.log(`[dealScan] PLACES school market=${schoolCacheKey} poolSize=${poolSchool.length} placesCalls=${pr.placesCalls} elapsedMs=${pr.ms}`);
+          } else {
+            console.warn(`[dealScan] Places returned nothing (${pr.reason || 'empty'}) for ${schoolCacheKey}; falling back to web search`);
+          }
+        } catch (e) {
+          console.warn('[dealScan] Places build failed, falling back to web search:', e.message);
+        }
+      } else {
+        console.log(`[dealScan] Places build for ${schoolCacheKey} skipped by 24h cost guard; using web search`);
+      }
+    }
+
     // ── Pagination + never-repeat ─────────────────────────────────────────────
     // excludeBrands is the persisted shown-set for this athlete. Each scan/refresh
     // returns the NEXT unseen businesses from the pool with ZERO web searches until
@@ -2124,7 +2169,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
           `${_tierWide}tutoring and test prep, childcare, event and party venues, breweries and taprooms, farmers markets, print shops, and moving or storage companies ${_geoWide}${_deepExcl}`,
           'tutoring and childcare, event venues, breweries and taprooms, print and moving services'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
-    } else if (schoolWillSearch) {
+    } else if (schoolWillSearch && !placesSchoolUsed) {
       searchDefs.push(
         { label: 'school-auto-gym', market: 'school', p: timedSearch(oneShotWebSearch(mk(
           `car dealerships, auto services, gyms, and fitness or training facilities ${_geoStd} that sponsor local sports teams or run local ads${tagEmphasisQ}${_deepExcl}`,
@@ -2221,7 +2266,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       // still speeds up the next scan); empty pools are never cached. Thin
       // cached pools that were topped up get rewritten with the merged pool.
       // setMarketCache logs WRITE ok / WRITE FAILED loudly.
-      if (schoolWillSearch) {
+      if (schoolWillSearch && !placesSchoolUsed) { // Places already wrote its full pool above
         const poolSchool = found.filter((f) => f.market === 'school');
         if (poolSchool.length >= 1) store.setMarketCache(schoolCacheKey, poolSchool);
         else console.warn(`[dealScan] market cache write SKIPPED ${schoolCacheKey}: 0 school candidates`);
@@ -2232,7 +2277,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         else console.warn(`[dealScan] market cache write SKIPPED ${hometownCacheKey}: 0 hometown candidates`);
       }
     } else {
-      console.log(`[dealScan] phase 1 served entirely from market cache: ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _t0}ms`);
+      const _src = placesSchoolUsed ? 'Places (no web passes needed)' : 'market cache';
+      console.log(`[dealScan] phase 1 served from ${_src}: ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _t0}ms`);
     }
 
     // Too thin to be a credible local scan — let the knowledge path try instead.

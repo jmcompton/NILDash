@@ -3589,7 +3589,7 @@ app.post('/api/admin/rebuild-market', requireAuth, async (req, res) => {
     if (school) {
       const athObj = { name: 'Market Rebuild', school, sport: 'basketball', instagram: 0, tiktok: 0, tags: [], position: '' };
       try {
-        const recs = await ai.getDealRecommendations(athObj, 'agent', [], 'local', {});
+        const recs = await ai.getDealRecommendations(athObj, 'agent', [], 'local', { forcePlaces: true });
         returned = Array.isArray(recs) ? recs.length : 0;
         rebuilt = true;
       } catch (e) {
