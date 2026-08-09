@@ -85,6 +85,32 @@ function confidenceLabel(contact) {
 // Digits-only, for comparing a contact's phone against the business main line.
 function _digits(p) { return String(p || '').replace(/\D/g, ''); }
 
+// Front-of-house staff: real people, but not who an agent should be calling about a
+// deal. They are held back and only surfaced when there is no Tier 1 or Tier 2
+// contact at all, so a thin result still shows someone rather than nothing.
+// Deliberately narrow: it matches explicit support roles only, never a bare
+// unrecognized title, so a "Chiropractor" or "Dentist" who is actually the owner is
+// never swept into staff.
+const STAFF_TITLE_RE = /\b(assistant|receptionist|front desk|hygienist|technician|tech|aide|intern|clerk|cashier|server|waitstaff|host|hostess|barista|stylist|shampoo|massage therapist|patient (care|coordinator)|office coordinator|sales associate|team member|crew member)\b/i;
+function isStaffTitle(title) {
+  const t = String(title || '').trim();
+  if (!t) return false;
+  return STAFF_TITLE_RE.test(t);
+}
+
+// The name an agent should say on the phone. Keeps an honorific when there is one
+// ("Dr. Scott Duca" -> "Dr. Duca"), otherwise the first name ("Dave Horn" -> "Dave").
+function askName(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  const hon = /^(dr|mr|mrs|ms|prof|doctor)\.?$/i;
+  if (parts.length > 1 && hon.test(parts[0])) {
+    const h = parts[0].replace(/\.?$/, '.');
+    return h.charAt(0).toUpperCase() + h.slice(1) + ' ' + parts[parts.length - 1];
+  }
+  return parts[0];
+}
+
 // Does an Instagram handle look like it belongs to this person rather than to the
 // business? "davehorn" / "dave.horn" / "hornd" for Dave Horn. Conservative: a
 // handle that merely contains the business name will not match a person.
@@ -123,7 +149,9 @@ function buildContactLadder(res, opts = {}) {
   if (bizHandle) {
     personalHandleOwner = named.find((c) => _handleMatchesName(bizHandle, c.name)) || null;
   }
-  const askFor = []; // first names that share the main line, collected for one row
+  const askFor = [];      // names to say on the main line, collected for one row
+  const staffPool = [];   // held back unless there is no Tier 1 or Tier 2
+  const unreachable = []; // named, but no channel of any kind: never given a row
   const t1 = [];
   const t2 = [];
   for (const c of named) {
@@ -135,12 +163,15 @@ function buildContactLadder(res, opts = {}) {
     // name attached to a general number was reading as "call this to get Don".
     const ownDigits = _digits(c.phone);
     const isOwnLine = !!ownDigits && ownDigits !== mainDigits;
-    const first = String(c.name || '').trim().split(/\s+/)[0];
-    // Only a genuinely DIFFERENT number gets its own row. Everyone who merely shares
-    // the business line contributes a name to the single main-line row at the top,
-    // so the same digits are never printed three times as three dead ends.
-    if (!isOwnLine && r.businessPhone && first && askFor.indexOf(first) === -1) askFor.push(first);
+    const say = askName(c.name);
     const igHandle = c.instagram || (personalHandleOwner === c ? bizHandle : null);
+    // A NAME IS NOT A CONTACT. A row must offer a way to reach the person: their own
+    // number, an email, a DM, or failing those the business line with "ask for" them.
+    // With no channel at all they get no row; they are listed under the main line
+    // instead, so the ladder never shows a name an agent cannot act on.
+    const hasOwnChannel = !!(isOwnLine || c.email || igHandle);
+    const isStaff = isStaffTitle(c.title);
+    if (!hasOwnChannel && !r.businessPhone) { if (say && !isStaff) unreachable.push(say); continue; }
     const row = {
       name: c.name,
       title: c.title || null,
@@ -153,6 +184,10 @@ function buildContactLadder(res, opts = {}) {
       // Primary channel for this row: a personal DM beats an email beats the shared
       // main line. Drives what the UI leads with.
       channel: igHandle ? 'instagram' : (c.email ? 'email' : 'phone'),
+      // When their only route is the shared line, say so in words. The digits stay
+      // in the single main-line row at the top and are never reprinted here.
+      reachVia: hasOwnChannel ? null : `Main line, ask for ${say}`,
+      askAs: hasOwnChannel ? null : say, // feeds the single main-line row below
       linkedinUrl: c.linkedinUrl || null,
       sourceUrl: c.sourceUrl || null,
       // Name attribution only. Rendered as "Name: Confident", never as a claim
@@ -160,7 +195,18 @@ function buildContactLadder(res, opts = {}) {
       confidence: confidenceLabel(c),
       sourceNote: sourceNote(c) + (igHandle && personalHandleOwner === c ? '. Instagram handle matches this name, so it is likely their personal account' : ''),
     };
-    if (TIER1_RANKS.indexOf(rank) !== -1) t1.push(row); else t2.push(row);
+    if (isStaff) staffPool.push(row);
+    else if (TIER1_RANKS.indexOf(rank) !== -1) t1.push(row);
+    else t2.push(row);
+  }
+  // Staff surface ONLY when there is no decision maker and no manager to show.
+  if (!t1.length && !t2.length && staffPool.length) {
+    for (const row of staffPool) t2.push(row);
+  }
+  // "Ask for" names come from the rows that actually made the ladder, so a held-back
+  // staff member is not surfaced through the main-line row by the back door.
+  for (const row of t1.concat(t2)) {
+    if (row.askAs && askFor.indexOf(row.askAs) === -1) askFor.push(row.askAs);
   }
 
   const callWindow = callWindowFor(opts.category);
@@ -171,12 +217,11 @@ function buildContactLadder(res, opts = {}) {
   // The main line is hoisted OUT of the tiers and rendered once, at the top, naming
   // everyone to ask for. Previously it appeared on each sharing contact's row AND
   // again as a Tier 3 row, so one number read as three dead ends.
+  const _join = (a) => (a.length === 1 ? a[0] : a.slice(0, -1).join(', ') + ' or ' + a[a.length - 1]);
   const mainLine = r.businessPhone ? {
     phone: r.businessPhone,
     askFor,
-    note: askFor.length
-      ? `Main line, ask for ${askFor.length === 1 ? askFor[0] : askFor.slice(0, -1).join(', ') + ' or ' + askFor[askFor.length - 1]}`
-      : 'Main line, no named person confirmed',
+    note: askFor.length ? `Main line, ask for ${_join(askFor)}` : 'Main line, no named person confirmed',
     callWindow,
     channel: 'phone',
     sourceNote: 'Business phone from the Google Places listing',
@@ -242,10 +287,14 @@ function buildContactLadder(res, opts = {}) {
   return {
     mainLine,
     tiers,
+    // Named people we found but cannot reach by any channel. Never given a row;
+    // shown as context so the research is not silently thrown away.
+    unreachable,
+    staffHeldBack: (t1.length || t2.length) ? staffPool.length : 0,
     hasTier1: t1.length > 0,
     topTier: t1.length ? 1 : (t2.length ? 2 : 3),
     callWindow,
   };
 }
 
-module.exports = { buildContactLadder, confidenceLabel, sourceNote, callWindowFor, TIER1_RANKS, SOURCE_NOTES };
+module.exports = { buildContactLadder, confidenceLabel, sourceNote, callWindowFor, isStaffTitle, askName, TIER1_RANKS, SOURCE_NOTES };

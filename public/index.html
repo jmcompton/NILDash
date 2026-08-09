@@ -6718,7 +6718,8 @@ function _dsLadderHtml(d) {
           '<span title="How sure we are this person holds this role. Not a claim about the phone number." style="font-size:8px;font-weight:700;border-radius:4px;padding:1px 6px;' + conf + '">' + (r.name ? 'Name: ' : '') + esc(r.confidence) + '</span>' +
         '</div>' +
         (bits.length ? '<div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.6">' + bits.join(' <span style="color:var(--border)">&middot;</span> ') + '</div>' : '') +
-        (r.phoneNote && r.phoneKind === 'main' && r.name ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;line-height:1.5">' + esc(r.phoneNote) + '</div>' : '') +
+        // A name is not a contact: when the only route is the shared line, say so.
+        (r.reachVia ? '<div style="font-size:11px;color:#f59e0b;margin-top:3px;line-height:1.5">' + esc(r.reachVia) + '</div>' : '') +
         '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5;font-style:italic">' + esc(r.sourceNote || 'Source not recorded') + '</div>' +
         (r.callWindow ? '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5">Best time to call: ' + esc(r.callWindow) + '</div>' : '') +
       '</div>';
@@ -6727,6 +6728,14 @@ function _dsLadderHtml(d) {
   });
   if (!L.hasTier1) {
     out += '<div style="font-size:10px;color:var(--muted);line-height:1.5">No owner or marketing decision maker found in the free sources. Start with the tier above and ask for the owner by name.</div>';
+  }
+  // Names we found but cannot reach by any channel are shown as context only, never
+  // as rows that look actionable.
+  if (Array.isArray(L.unreachable) && L.unreachable.length) {
+    out += '<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.5">Also named, no contact method found: ' + esc(L.unreachable.join(', ')) + '</div>';
+  }
+  if (L.staffHeldBack) {
+    out += '<div style="font-size:10px;color:var(--muted);margin-top:4px;line-height:1.5">' + L.staffHeldBack + ' staff contact' + (L.staffHeldBack === 1 ? '' : 's') + ' hidden, they cannot approve a deal.</div>';
   }
   return out + '</div>';
 }
@@ -6750,7 +6759,16 @@ async function _dsDeepContacts(i, btn) {
     });
     var data = await r.json().catch(function () { return {}; });
     var row = data && Array.isArray(data.results) && data.results[0];
-    if (!row) { if (btn) { btn.disabled = false; btn.textContent = 'Find the decision maker'; } return; }
+    // Never fail silently. Previously a server-side throw came back as an empty
+    // results array, the button just reset, and the agent saw nothing at all.
+    if (!r.ok || (data && data.error) || !row) {
+      var msg = (data && data.error) ? ('Contact search failed: ' + data.error) : 'Contact search did not return anything. Try again in a moment.';
+      var slotErr = document.getElementById('dsc-' + i);
+      if (slotErr) slotErr.insertAdjacentHTML('beforeend', '<div style="font-size:11px;color:#f87171;margin-top:8px;line-height:1.5">' + esc(msg) + '</div>');
+      if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+      return;
+    }
+    if (row.error) console.warn('[deepContacts] brand failed:', row.error);
     if (Array.isArray(row.contacts)) d.contacts = row.contacts;
     if (row.genericInbox) d.genericInbox = row.genericInbox;
     if (row.businessPhone) d.businessPhone = row.businessPhone;

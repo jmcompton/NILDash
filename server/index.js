@@ -7161,19 +7161,41 @@ async function _brandContactsBatch(req, res) {
         ctx.sourceOrder = ['site', 'facebook', 'registry', 'maps', 'news', 'chamber'];
         ctx.stopAtTier1 = true;
       }
-      const out = await ai.getBrandContacts(String(b.brand || ''), b.website || null, b.region || '', ctx);
-      const row = { brand: b.brand, ...out };
-      if (deep) row.contactLadder = buildContactLadder(out, { rankOf: ai.contactAuthorityRank, category: b.category || null, brand: b.brand });
-      return row;
+      if (!deep) {
+        const out = await ai.getBrandContacts(String(b.brand || ''), b.website || null, b.region || '', ctx);
+        return { brand: b.brand, ...out };
+      }
+      // DEEP: a throw here used to be swallowed by _contactsMapLimit into a null,
+      // which the client received as "no ladder" and rendered as absolutely nothing.
+      // Now the failure is reported AND a ladder is still built, so the original
+      // guarantee holds: never an empty result, always at least the main line.
+      try {
+        const out = await ai.getBrandContacts(String(b.brand || ''), b.website || null, b.region || '', ctx);
+        return {
+          brand: b.brand, ...out,
+          contactLadder: buildContactLadder(out, { rankOf: ai.contactAuthorityRank, category: b.category || null, brand: b.brand }),
+        };
+      } catch (err) {
+        console.error(`[brand-contacts] DEEP FAILED brand="${b.brand}": ${err.message}`, err.stack);
+        const empty = { contacts: [], genericInbox: null, personalInbox: null, businessPhone: null, approach: null, mapsUrl: null };
+        return {
+          brand: b.brand, ...empty, error: err.message,
+          contactLadder: buildContactLadder(empty, { rankOf: ai.contactAuthorityRank, category: b.category || null, brand: b.brand }),
+        };
+      }
     });
+    const rows = results.map((r) => r || { contacts: [], genericInbox: null, businessPhone: null, approach: null });
     if (deep) {
-      const tiers = results.filter(Boolean).map((r) => (r.contactLadder ? r.contactLadder.topTier : '-')).join(',');
-      console.log(`[brand-contacts] DEEP brands=${brands.length} topTiers=[${tiers}] ms=${Date.now() - _t0}`);
+      const tiers = rows.map((r) => (r.contactLadder ? r.contactLadder.topTier : 'none')).join(',');
+      const errs = rows.filter((r) => r.error).length;
+      console.log(`[brand-contacts] DEEP brands=${brands.length} topTiers=[${tiers}] errors=${errs} ms=${Date.now() - _t0}`);
     }
-    res.json({ results: results.map((r) => r || { contacts: [], genericInbox: null, businessPhone: null, approach: null }) });
+    res.json({ results: rows });
   } catch (e) {
-    console.error('[brand-contacts]', e.message);
-    res.json({ results: [] });
+    console.error('[brand-contacts]', e.message, e.stack);
+    // Report the failure instead of an empty array the client cannot distinguish
+    // from "ran fine, found nothing".
+    res.status(500).json({ error: e.message, results: [] });
   }
 }
 app.post('/api/agent/brand-contacts', requireAuth, requireAgentSubscription, aiLimiter, _brandContactsBatch);

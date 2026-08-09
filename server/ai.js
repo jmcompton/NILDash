@@ -250,6 +250,11 @@ const MODEL_FAST  = 'claude-haiku-4-5-20251001';
 const MODEL_BALANCED = 'claude-sonnet-4-6';
 const MODEL_SCORE = 'claude-haiku-4-5-20251001'; // scoring moved to Haiku for speed; was sonnet-4-6
 const MODEL_STANDARD = 'claude-opus-4-8';
+// Copy generation tier. Standing policy: Opus is reserved for contract generation
+// and legal analysis. Nothing in Deal Scan qualifies, so outreach emails, deal
+// pitches and brand kits run on Sonnet, which is far faster and much cheaper for
+// short structured copy. Each call logs its model and elapsed ms.
+const MODEL_GEN = MODEL_BALANCED;
 
 // ── Feature flags ─────────────────────────────────────────────────────────────
 // Set to false to revert to legacy email generation prompts
@@ -2892,8 +2897,10 @@ VOICE RULES — this must sound like a real college athlete wrote it, not a mark
 
 Return ONLY valid JSON: {"subject":"...","body":"..."}`;
 
+  const _genT0 = Date.now();
   try {
-    const raw = await oneShot(prompt, 'You write authentic, casual-but-professional outreach emails in a real college athlete\'s voice. Output ONLY valid JSON {"subject","body"} — no markdown, no preamble. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete — use the athlete\'s name or they/them. No gendered descriptors of any kind.', 1200, MODEL_STANDARD);
+    const raw = await oneShot(prompt, 'You write authentic, casual-but-professional outreach emails in a real college athlete\'s voice. Output ONLY valid JSON {"subject","body"}, no markdown, no preamble. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 1200, MODEL_GEN);
+    console.log(`[generateDealPitch] model=${MODEL_GEN} ms=${Date.now() - _genT0}`);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const m = c.match(/\{[\s\S]*\}/);
     if (!m) throw new Error('No JSON');
@@ -2915,7 +2922,7 @@ async function generateFollowUp(athlete, brand) {
   const bn = brand.brand_name || brand.brand || 'your business';
   const prompt = `Write a very short, friendly follow-up email (2 sentences max) from college athlete ${athlete.name} to ${bn}. They reached out before about an NIL partnership and haven't heard back. Casual, no pressure, no markdown. Return ONLY JSON {"subject":"...","body":"..."}.`;
   try {
-    const raw = await oneShot(prompt, 'You write short friendly follow-up emails in a real athlete\'s voice. Output ONLY JSON {"subject","body"}. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete — use the athlete\'s name or they/them. No gendered descriptors of any kind.', 500, MODEL_FAST);
+    const raw = await oneShot(prompt, 'You write short friendly follow-up emails in a real athlete\'s voice. Output ONLY JSON {"subject","body"}. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 500, MODEL_FAST);
     const c = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const m = c.match(/\{[\s\S]*\}/);
     if (m) { const out = JSON.parse(m[0]); if (out.subject && out.body) return out; }
@@ -3020,8 +3027,10 @@ Return ONLY this JSON — no markdown, no extra keys, no code fences:
   }
 }`;
 
+  const _genT0 = Date.now();
   try {
-    const raw = await oneShot(prompt, 'You are a senior NIL agency strategist. Return only valid JSON. No markdown, no code fences, no preamble. Every field must be specific to this athlete and brand — no placeholder text, no generic statements. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete — use the athlete\'s name or they/them. No gendered descriptors of any kind.', 2000, MODEL_STANDARD);
+    const raw = await oneShot(prompt, 'You are a senior NIL agency strategist. Return only valid JSON. No markdown, no code fences, no preamble. Every field must be specific to this athlete and brand, with no placeholder text and no generic statements. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 2000, MODEL_GEN);
+    console.log(`[generateAthleteBrandKit] model=${MODEL_GEN} ms=${Date.now() - _genT0}`);
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON found in response');
@@ -3044,7 +3053,7 @@ Instagram: ${(athlete.instagram||0).toLocaleString()} followers | TikTok: ${(ath
 Engagement: ${athlete.engagement || 0}% | Stats: ${athlete.stats || 'N/A'}
 DEAL CONTEXT: Target brand: ${targetBrand} | Category: ${category || 'general'} | Goal: ${goal ? '$' + parseInt(goal).toLocaleString() : 'Market rate'}
 Generate outreach messages. Return ONLY JSON: {"sponsorshipEmail":{"subject":"subject","body":"full email 150-200 words"},"instagramDm":"DM under 150 chars","partnershipProposal":"2-3 paragraph proposal","followUpEmail":{"subject":"follow-up subject","body":"75-100 word follow-up"}}`;
-    const raw = await oneShot(legacyPrompt, 'You are an elite sports agent writing brand outreach. Return only valid JSON. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete — use the athlete\'s name or they/them. No gendered descriptors of any kind.', 8000);
+    const raw = await oneShot(legacyPrompt, 'You are an elite sports agent writing brand outreach. Return only valid JSON. Never use em dashes or en dashes. Use commas, periods, or separate sentences instead. Never state or assume the athlete\'s gender. Refer to the sport plainly (say \'basketball\', never \'men\'s basketball\' or \'women\'s basketball\'). Do not use he/she/his/her for the athlete, use the athlete\'s name or they/them. No gendered descriptors of any kind.', 8000);
     const cleaned = raw.replace(/```json/g, '').replace(/```/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
@@ -3110,8 +3119,10 @@ Return ONLY this JSON:
   }
 }`;
 
+  const _genT0 = Date.now();
   try {
-    const raw = await oneShot(prompt, system, 4000, MODEL_STANDARD);
+    const raw = await oneShot(prompt, system, 4000, MODEL_GEN);
+    console.log(`[generateOutreach] model=${MODEL_GEN} ms=${Date.now() - _genT0}`);
     const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('No JSON');
