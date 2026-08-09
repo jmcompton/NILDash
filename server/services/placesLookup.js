@@ -94,26 +94,69 @@ async function lookupPlace(brand, locationHint = '') {
   return out;
 }
 
-// Autocomplete for the manual "Add a Business" input, biased to the athlete's
-// market so the same brand name in three towns returns three distinct place_ids.
-// bias = { lat, lng, radiusM }. Returns [{ place_id, name, address }]. Never
-// throws: an empty array degrades the input to "no suggestions".
-async function autocompletePlaces(input, bias = {}) {
+// Geocode any query to { lat, lng } using the Places API (NEW) searchText. The
+// market pool builder's geocodeSchool uses the LEGACY API, which is a separate
+// product enablement; if legacy is off, that returns null and the autocomplete
+// silently loses its bias. This is the New-API path so bias works off the same
+// enablement autocomplete itself needs. Cached 30 days.
+async function geocodePlace(query) {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  const q = String(input || '').trim();
-  if (!apiKey || q.length < 3) return [];
-  const body = { input: q };
-  if (bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lng)) {
-    body.locationBias = {
-      circle: {
-        center: { latitude: bias.lat, longitude: bias.lng },
-        radius: Math.min(Math.max(Number(bias.radiusM) || 40000, 1), 50000),
-      },
-    };
-  }
+  const q = String(query || '').trim();
+  if (!apiKey || !q) return null;
+  const cacheKey = `geo:${q.toLowerCase()} | ${CACHE_V}`;
+  try {
+    const cached = await store.getBrandEvidence(cacheKey, 'places', CACHE_DAYS);
+    if (cached && cached.evidence) {
+      const ev = cached.evidence;
+      return ev.found === false ? null : ev;
+    }
+  } catch (_) { /* fall through */ }
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    const resp = await fetch(PLACES_URL, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': 'places.id,places.location,places.formattedAddress',
+      },
+      body: JSON.stringify({ textQuery: q, maxResultCount: 1 }),
+    });
+    clearTimeout(t);
+    if (!resp.ok) { console.warn('[places] geocode http=' + resp.status + ' q="' + q + '"'); return null; }
+    const data = await resp.json();
+    const p = data && Array.isArray(data.places) && data.places[0];
+    const loc = p && p.location;
+    if (!loc || !Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) {
+      try { await store.saveBrandEvidence(cacheKey, 'places', q, null, { found: false }, 'NONE'); } catch (_) {}
+      return null;
+    }
+    const out = { found: true, lat: loc.latitude, lng: loc.longitude, address: p.formattedAddress || null };
+    try { await store.saveBrandEvidence(cacheKey, 'places', q, null, out, 'OK'); } catch (_) {}
+    return out;
+  } catch (e) { console.warn('[places] geocode error=' + e.message); return null; }
+}
+
+function _mapSuggestions(data) {
+  const sugg = (data && Array.isArray(data.suggestions)) ? data.suggestions : [];
+  return sugg.map((s) => {
+    const p = s && s.placePrediction;
+    if (!p || !p.placeId) return null;
+    const sf = p.structuredFormat || {};
+    return {
+      place_id: p.placeId,
+      name: (sf.mainText && sf.mainText.text) || (p.text && p.text.text) || '',
+      address: (sf.secondaryText && sf.secondaryText.text) || '',
+    };
+  }).filter((x) => x && x.name);
+}
+
+async function _autocompleteCall(body, apiKey) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
     const resp = await fetch(AUTOCOMPLETE_URL, {
       method: 'POST',
       signal: ctrl.signal,
@@ -121,23 +164,47 @@ async function autocompletePlaces(input, bias = {}) {
       body: JSON.stringify(body),
     });
     clearTimeout(t);
-    if (!resp.ok) { console.warn('[places] autocomplete http=' + resp.status); return []; }
-    const data = await resp.json();
-    const sugg = (data && Array.isArray(data.suggestions)) ? data.suggestions : [];
-    return sugg.map((s) => {
-      const p = s && s.placePrediction;
-      if (!p || !p.placeId) return null;
-      const sf = p.structuredFormat || {};
-      return {
-        place_id: p.placeId,
-        name: (sf.mainText && sf.mainText.text) || (p.text && p.text.text) || '',
-        address: (sf.secondaryText && sf.secondaryText.text) || '',
-      };
-    }).filter((x) => x && x.name).slice(0, 8);
-  } catch (e) {
-    console.warn('[places] autocomplete error=' + e.message);
-    return [];
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '');
+      console.warn('[places] autocomplete http=' + resp.status + ' ' + txt.slice(0, 200));
+      return null;
+    }
+    return await resp.json();
+  } catch (e) { clearTimeout(t); console.warn('[places] autocomplete error=' + e.message); return null; }
+}
+
+// Autocomplete for the manual "Add a Business" input.
+// locationBias is only a SOFT hint: Google still interleaves far-away matches, which
+// is why "Mama Goldbergs" for a Birmingham athlete returned Auburn and Muscle Shoals.
+// So the primary request uses locationRestriction, which HARD-DROPS anything outside
+// the circle. If that returns nothing (genuinely out-of-market business, or too tight
+// a radius) we retry with the soft bias and flag those rows outOfMarket so they sort
+// last and are labeled, rather than silently interleaving.
+async function autocompletePlaces(input, bias = {}) {
+  const apiKey = process.env.GOOGLE_PLACES_API_KEY;
+  const q = String(input || '').trim();
+  if (!apiKey || q.length < 3) return [];
+  const hasBias = bias && Number.isFinite(bias.lat) && Number.isFinite(bias.lng);
+  // Places autocomplete caps a circle at 50km.
+  const radius = Math.min(Math.max(Number(bias.radiusM) || 50000, 1), 50000);
+  const circle = hasBias ? { center: { latitude: bias.lat, longitude: bias.lng }, radius } : null;
+
+  if (circle) {
+    const restricted = await _autocompleteCall({ input: q, locationRestriction: { circle } }, apiKey);
+    const rows = _mapSuggestions(restricted);
+    console.log(`[places] autocomplete q="${q}" mode=restriction center=${bias.lat.toFixed(4)},${bias.lng.toFixed(4)} radiusM=${radius} results=${rows.length}`);
+    if (rows.length) return rows.slice(0, 8);
+    // Nothing inside the market: fall back to a soft bias, clearly labeled.
+    const biased = await _autocompleteCall({ input: q, locationBias: { circle } }, apiKey);
+    const wide = _mapSuggestions(biased).map((r) => ({ ...r, outOfMarket: true }));
+    console.log(`[places] autocomplete q="${q}" mode=bias-fallback results=${wide.length} (none inside ${radius}m)`);
+    return wide.slice(0, 8);
   }
+
+  const plain = await _autocompleteCall({ input: q }, apiKey);
+  const rows = _mapSuggestions(plain);
+  console.warn(`[places] autocomplete q="${q}" mode=UNBIASED (no market coords) results=${rows.length}`);
+  return rows.slice(0, 8);
 }
 
 // Resolve a chosen autocomplete suggestion to full details. Cached 30 days keyed
@@ -178,4 +245,4 @@ async function lookupPlaceById(placeId) {
   }
 }
 
-module.exports = { lookupPlace, autocompletePlaces, lookupPlaceById };
+module.exports = { lookupPlace, autocompletePlaces, lookupPlaceById, geocodePlace };

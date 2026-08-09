@@ -6768,17 +6768,31 @@ app.get('/api/agent/places/autocomplete', requireAuth, requireAgentSubscription,
     const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
     if (loaded.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
-    // Market bias: reuse the scan's own school geocoder (in-process cached).
+    // Market coordinates for the location restriction. The New-API geocoder is
+    // PRIMARY because autocomplete itself runs on the New API, so if that is the
+    // only product enabled the bias still works. The scan's legacy geocodeSchool
+    // is the fallback. Without coordinates the request would be unbiased, which is
+    // exactly how out-of-market results leaked in, so we log which source won.
+    const { autocompletePlaces, geocodePlace } = require('./services/placesLookup');
+    const school = loaded.athleteObj.school || '';
     let bias = {};
+    let biasSource = 'none';
     try {
-      const { geocodeSchool } = require('./services/placesMarket');
-      const geo = await geocodeSchool(loaded.athleteObj.school, (process.env.GOOGLE_PLACES_API_KEY || '').trim());
-      if (geo && geo.coords) bias = { lat: geo.coords.lat, lng: geo.coords.lng, radiusM: 40000 };
-    } catch (e) { console.warn('[addBusiness] geocode bias failed:', e.message); }
+      const g = await geocodePlace(school);
+      if (g && Number.isFinite(g.lat)) { bias = { lat: g.lat, lng: g.lng, radiusM: 50000 }; biasSource = 'new'; }
+    } catch (e) { console.warn('[addBusiness] new-api geocode failed:', e.message); }
+    if (!bias.lat) {
+      try {
+        const { geocodeSchool } = require('./services/placesMarket');
+        const geo = await geocodeSchool(school, (process.env.GOOGLE_PLACES_API_KEY || '').trim());
+        if (geo && geo.coords) { bias = { lat: geo.coords.lat, lng: geo.coords.lng, radiusM: 50000 }; biasSource = 'legacy'; }
+      } catch (e) { console.warn('[addBusiness] legacy geocode failed:', e.message); }
+    }
+    if (biasSource === 'none') console.warn(`[addBusiness] autocomplete UNBIASED school="${school}": both geocoders failed, results will not be market-limited`);
+    else console.log(`[addBusiness] autocomplete bias source=${biasSource} school="${school}" center=${bias.lat.toFixed(4)},${bias.lng.toFixed(4)} radiusM=${bias.radiusM}`);
 
-    const { autocompletePlaces } = require('./services/placesLookup');
     const suggestions = await autocompletePlaces(q, bias);
-    res.json({ suggestions, biased: !!bias.lat });
+    res.json({ suggestions, biased: !!bias.lat, biasSource });
   } catch (e) { console.error('[places/autocomplete]', e.message); res.status(500).json({ error: e.message }); }
 });
 

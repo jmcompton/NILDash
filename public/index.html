@@ -6521,15 +6521,47 @@ function _dsAddBizCloseSugg() {
   if (box) { box.style.display = 'none'; box.innerHTML = ''; }
   _dsAddBizSuggestions = []; _dsAddBizActive = -1;
 }
+// Highlight WITHOUT rebuilding the DOM. The original bug: each row carried an
+// onmouseover that called the full re-render, so moving the pointer onto a row
+// replaced that row's element, the new element fired mouseover again, and the
+// dropdown re-rendered in a loop under the cursor. A click only fires when
+// mousedown and mouseup land on the SAME element, so the click never completed.
+// Highlight now mutates the existing children's style instead.
+function _dsAddBizHighlight() {
+  var box = document.getElementById('ds-addbiz-sugg');
+  if (!box) return;
+  for (var i = 0; i < box.children.length; i++) {
+    box.children[i].style.background = (i === _dsAddBizActive) ? 'rgba(132,204,22,0.10)' : 'transparent';
+  }
+}
 function _dsAddBizRenderSugg() {
   var box = document.getElementById('ds-addbiz-sugg');
   if (!box) return;
   if (!_dsAddBizSuggestions.length) { _dsAddBizCloseSugg(); return; }
+  // ONE delegated listener on the container, which is static markup and is never
+  // replaced, so it survives every innerHTML rewrite of the rows. mousedown (not
+  // click) so it fires before any blur/focus change can tear the dropdown down.
+  if (!box._dsDelegated) {
+    box.addEventListener('mousedown', function (ev) {
+      var row = ev.target && ev.target.closest ? ev.target.closest('[data-idx]') : null;
+      console.log('[addBiz] row mousedown, idx=', row && row.getAttribute('data-idx'));
+      if (!row) return;
+      ev.preventDefault(); // keep focus off the input so nothing closes the list
+      _dsAddBizPick(parseInt(row.getAttribute('data-idx'), 10));
+    });
+    box.addEventListener('mouseover', function (ev) {
+      var row = ev.target && ev.target.closest ? ev.target.closest('[data-idx]') : null;
+      if (!row) return;
+      _dsAddBizActive = parseInt(row.getAttribute('data-idx'), 10);
+      _dsAddBizHighlight(); // style-only, never re-renders
+    });
+    box._dsDelegated = true;
+  }
   box.innerHTML = _dsAddBizSuggestions.map(function (s, i) {
-    var bg = i === _dsAddBizActive ? 'background:rgba(132,204,22,0.10);' : '';
-    return '<div onclick="_dsAddBizPick(' + i + ')" onmouseover="_dsAddBizActive=' + i + ';_dsAddBizRenderSugg()" ' +
-      'style="' + bg + 'padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border)">' +
-      '<div style="font-size:13px;color:var(--text);font-weight:600">' + esc(s.name) + '</div>' +
+    var bg = i === _dsAddBizActive ? 'rgba(132,204,22,0.10)' : 'transparent';
+    return '<div data-idx="' + i + '" style="background:' + bg + ';padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border)">' +
+      '<div style="font-size:13px;color:var(--text);font-weight:600">' + esc(s.name) +
+        (s.outOfMarket ? ' <span style="font-size:9px;font-weight:700;color:#f59e0b">outside market</span>' : '') + '</div>' +
       (s.address ? '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + esc(s.address) + '</div>' : '') +
       '</div>';
   }).join('');
@@ -6561,7 +6593,7 @@ function _dsAddBizKey(ev) {
     _dsAddBizActive += (ev.key === 'ArrowDown' ? 1 : -1);
     if (_dsAddBizActive < 0) _dsAddBizActive = _dsAddBizSuggestions.length - 1;
     if (_dsAddBizActive >= _dsAddBizSuggestions.length) _dsAddBizActive = 0;
-    _dsAddBizRenderSugg();
+    _dsAddBizHighlight(); // style-only; re-rendering here would drop the rows mid-interaction
     return;
   }
   if (ev.key === 'Enter') {
