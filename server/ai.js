@@ -1020,13 +1020,38 @@ function _buildNationalBrandCard(f, ctx, athlete, tagSubs, deals) {
 
 // Generic mailbox local-parts that are never a named person. These may appear at
 // the bottom of a card, clearly labeled, but never as a primary contact.
+// A mailbox is GENERIC only if its local part is on this list. Anything else is a
+// possible person: "mccall@..." is a surname, not an inbox, and was being buried as
+// "general inbox, not a named person". Keep this list tight. Every entry is a role
+// or system mailbox, and none is a plausible surname, so a real person's mailbox can
+// never be swallowed by it.
 const _GENERIC_LOCALPARTS = new Set([
-  'info', 'contact', 'hello', 'hi', 'sales', 'support', 'admin', 'team',
+  // The core set: plain role mailboxes.
+  'info', 'hello', 'contact', 'admin', 'sales', 'support', 'orders', 'booking',
+  'events', 'team', 'office', 'mail', 'hi', 'ask',
+  // Other unambiguous role/system mailboxes. Retained deliberately: dropping these
+  // would classify noreply@ or customerservice@ as "a possible person".
   'marketing', 'press', 'media', 'partnerships', 'partner', 'pr', 'careers',
-  'jobs', 'help', 'office', 'general', 'inquiries', 'enquiries', 'service',
+  'jobs', 'help', 'general', 'inquiries', 'enquiries', 'service',
   'customerservice', 'ambassador', 'ambassadors', 'affiliate', 'affiliates',
-  'noreply', 'no-reply', 'orders', 'booking', 'reservations', 'wholesale',
+  'noreply', 'no-reply', 'donotreply', 'reservations', 'wholesale', 'billing',
+  'accounts', 'accounting', 'hr', 'webmaster', 'postmaster', 'newsletter',
 ]);
+
+// Does an email local part look like it belongs to this person? Handles the common
+// mailbox shapes: last, first, first.last, firstlast, flast, firstl.
+function _localPartMatchesName(localPart, fullName) {
+  const lp = String(localPart || '').toLowerCase().replace(/[^a-z]/g, '');
+  const parts = String(fullName || '').toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z]/g, '')).filter(Boolean);
+  if (!lp || lp.length < 3 || parts.length === 0) return false;
+  const first = parts[0];
+  const last = parts.length > 1 ? parts[parts.length - 1] : '';
+  const cands = [first];
+  if (last) {
+    cands.push(last, first + last, last + first, first[0] + last, first + last[0]);
+  }
+  return cands.some((c) => c && c.length >= 3 && c === lp);
+}
 
 function _validEmail(email) {
   if (!email || typeof email !== 'string') return null;
@@ -1163,7 +1188,10 @@ const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'si
 // Bump when the contacts pipeline changes shape (widened sources, locality fix,
 // ...). A cached row stamped with an older version is treated as a miss so the
 // current search runs once per brand instead of serving stale pre-change data.
-const _CONTACTS_CACHE_VERSION = 3;
+// v4: the evidence shape gained personalInbox, and the generic-inbox test changed,
+// so v3 rows would keep serving a real person's mailbox labeled as a general inbox.
+// The version gate treats them as a miss and re-runs once per brand.
+const _CONTACTS_CACHE_VERSION = 4;
 
 // Test seam (see _searchContactSource). Production leaves this null.
 let _contactSearchImpl = null;
@@ -1465,7 +1493,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
           console.log(`[dealScan] contacts brand=${brand} cached phone rejected on read region=${regionState || 'n/a'}`);
           cphone = null; cunconf = true;
         }
-        return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
+        return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, personalInbox: ev.personalInbox || null, businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
       }
       console.log(`[dealScan] contacts brand=${brand} cache version miss (had v=${ev.v || 'none'}), re-running widened search`);
     }
@@ -1484,7 +1512,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   // Card path returns empty here; getBrandContacts still attaches the Places phone.
   if (opts && opts.allowSearch === false) {
     console.log(`[dealScan] contacts brand=${brand} search skipped (card path, no fan-out)`);
-    return { contacts: [], genericInbox: null, businessPhone: null, phoneUnconfirmed: false, outcome: 'SKIPPED', cached: false };
+    return { contacts: [], genericInbox: null, personalInbox: null, businessPhone: null, phoneUnconfirmed: false, outcome: 'SKIPPED', cached: false };
   }
   // Manual adds get a longer wall budget: the agent is waiting on ONE business they
   // chose, not ten they are skimming, so it is worth spending the extra seconds.
@@ -1540,9 +1568,34 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   );
   named = named.slice(0, 4);
 
-  // Business inbox: first published business-level email from any source.
+  // Business inbox. The published business-level email was previously labeled a
+  // "general inbox" WITHOUT ever testing whether it is actually generic, so a real
+  // person's mailbox (mccall@...) was presented as "not a named person". Now the
+  // generic test decides: a non-generic local part is a possible person, and it is
+  // either attached to the matching person on the ladder or surfaced as its own
+  // named mailbox, never buried.
   let genericInbox = null;
-  for (const src of _CONTACT_SOURCES) { if (bySource[src] && bySource[src].inbox) { genericInbox = bySource[src].inbox; break; } }
+  let personalInbox = null;
+  for (const src of _CONTACT_SOURCES) {
+    const cand = bySource[src] && bySource[src].inbox;
+    if (!cand) continue;
+    if (_isGenericInbox(cand)) { if (!genericInbox) genericInbox = cand; }
+    else if (!personalInbox) personalInbox = cand;
+  }
+  if (personalInbox) {
+    const _lp = String(personalInbox).split('@')[0];
+    const _owner = named.find((c) => !c.email && _localPartMatchesName(_lp, c.name));
+    if (_owner) {
+      _owner.email = personalInbox;
+      _owner.emailSource = 'published';
+      console.log(`[dealScan] contacts brand=${brand} attached mailbox ${personalInbox} to "${_owner.name}" (local part matches name)`);
+      personalInbox = null; // now owned by a person, not a standalone row
+    } else if (named.some((c) => c.email && c.email.toLowerCase() === personalInbox.toLowerCase())) {
+      personalInbox = null; // already on the ladder
+    } else {
+      console.log(`[dealScan] contacts brand=${brand} mailbox ${personalInbox} is NOT generic, surfacing as a named mailbox`);
+    }
+  }
 
   // Business phone: gather every published number (maps first, it carries a
   // confirmed city/state), then take the first that passes the locality check.
@@ -1562,7 +1615,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   const anyTimeout = results.some((r) => r.status === 'timeout');
   const anyError = results.some((r) => r.status === 'error');
 
-  const evidence = { kind: 'contacts', v: _CONTACTS_CACHE_VERSION, contacts: named, genericInbox, businessPhone, phoneUnconfirmed };
+  const evidence = { kind: 'contacts', v: _CONTACTS_CACHE_VERSION, contacts: named, genericInbox, personalInbox, businessPhone, phoneUnconfirmed };
   // Cache whenever we have a usable affordance OR a definitive empty (all sources
   // ran and found nothing). Never cache a pure transient failure.
   let outcome;
@@ -1571,11 +1624,11 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   else if (anyTimeout) outcome = 'TIMEOUT';
   else if (anyError) outcome = 'ERROR';
   else outcome = 'NONE';
-  const hasAffordance = named.length || businessPhone || genericInbox;
+  const hasAffordance = named.length || businessPhone || genericInbox || personalInbox;
   if (hasAffordance || outcome === 'NONE') {
     await store.saveBrandEvidence(cacheKey, 'contacts', brand, website, evidence, outcome);
   }
-  return { contacts: named, genericInbox, businessPhone, phoneUnconfirmed, outcome, cached: false };
+  return { contacts: named, genericInbox, personalInbox, businessPhone, phoneUnconfirmed, outcome, cached: false };
 }
 
 // Public wrapper used by the lazy per-brand contacts endpoint. Fetches (cache
@@ -1650,6 +1703,17 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
       }
     }
   }
+  // Instagram: for a local business the owner's DM is often a better channel than
+  // the phone, and it is a genuinely DIFFERENT contact rather than another copy of
+  // the same number. Site-scraped only (no AI, one fetch, cached 30 days), gated on
+  // the deep path so a plain card scan does not pay for it.
+  if (ctx && ctx.enrichEmail && effectiveWebsite) {
+    try {
+      const { findInstagram } = require('./services/instagramLookup');
+      const handle = await findInstagram(effectiveWebsite);
+      if (handle) res.instagram = handle;
+    } catch (e) { console.warn('[dealScan] instagram lookup failed:', e.message); }
+  }
   // Make the card actionable: hand the top named contact the business line as a
   // callable number when they have none of their own. "Ask for Bryan" plus the
   // shop's number is the real local play; a name with no number is a dead end.
@@ -1667,7 +1731,7 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(brand + (loc ? ' ' + loc : ''))
     : null);
   const approach = _contactApproach(ctx || {}, res.contacts[0] || null, res);
-  return { contacts: res.contacts, genericInbox: res.genericInbox, businessPhone: res.businessPhone, approach, mapsUrl, website: (places && places.website) || website || null };
+  return { contacts: res.contacts, genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, businessPhone: res.businessPhone, approach, mapsUrl, website: (places && places.website) || website || null };
 }
 
 // Build the "Approach" line. References the real person, else the honest phone

@@ -6677,11 +6677,24 @@ var _DS_CONF_STYLE = {
 };
 function _dsLadderHtml(d) {
   var L = d && d.contactLadder;
-  if (!L || !Array.isArray(L.tiers) || !L.tiers.length) return '';
+  if (!L || (!L.mainLine && (!Array.isArray(L.tiers) || !L.tiers.length))) return '';
   var telHref = function(p){ return String(p || '').replace(/[^\d+]/g, ''); };
+  var igLink = function(h){ return 'https://instagram.com/' + encodeURIComponent(String(h || '').replace(/^@/, '')); };
   var out = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' +
     '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px">WHO TO CALL</div>';
-  L.tiers.forEach(function(t){
+  // The shared business line appears exactly ONCE, here, naming everyone to ask
+  // for. Contact rows below never repeat these digits.
+  if (L.mainLine) {
+    out += '<div style="margin-bottom:10px;padding:9px 11px;background:var(--surface);border:1px solid var(--border);border-radius:8px">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<a href="tel:' + esc(telHref(L.mainLine.phone)) + '" style="color:#60a5fa;text-decoration:none;font-weight:700;font-size:13px">' + esc(L.mainLine.phone) + '</a>' +
+        '<span style="font-size:8px;font-weight:700;color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">main line</span>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--text);margin-top:3px;line-height:1.5">' + esc(L.mainLine.note) + '</div>' +
+      (L.mainLine.callWindow ? '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5">Best time to call: ' + esc(L.mainLine.callWindow) + '</div>' : '') +
+    '</div>';
+  }
+  (L.tiers || []).forEach(function(t){
     out += '<div style="margin-bottom:10px">' +
       '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px">Tier ' + t.tier + ' &middot; ' + esc(t.label) + '</div>';
     (t.rows || []).forEach(function(r){
@@ -6689,10 +6702,12 @@ function _dsLadderHtml(d) {
       var bits = [];
       if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>' +
         (r.emailKind === 'pattern' ? ' <span style="font-size:8px;color:var(--muted)">(pattern match)</span>' : ''));
-      // The number is labeled for what it IS. A "main line" tag on a named person
-      // keeps a confident NAME from implying a direct line to that person.
+      // A row only carries a number when it is genuinely DIFFERENT from the main
+      // line, so the same digits are never repeated down the ladder.
       if (r.phone) bits.push('<a href="tel:' + esc(telHref(r.phone)) + '" style="color:#60a5fa;text-decoration:none">' + esc(r.phone) + '</a>' +
-        (r.phoneKind === 'main' && r.name ? ' <span style="font-size:8px;font-weight:700;color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">main line</span>' : ''));
+        (r.phoneKind === 'direct' ? ' <span style="font-size:8px;font-weight:700;color:#84CC16">direct</span>' : ''));
+      if (r.instagram) bits.push('<a href="' + esc(igLink(r.instagram)) + '" target="_blank" rel="noopener" style="color:#e1306c;text-decoration:none;font-weight:600">@' + esc(String(r.instagram).replace(/^@/, '')) + '</a>' +
+        ' <span style="font-size:8px;font-weight:700;color:#e1306c;background:rgba(225,48,108,0.12);border:1px solid rgba(225,48,108,0.32);border-radius:4px;padding:0 5px">DM</span>');
       if (r.linkedinUrl) bits.push('<a href="' + esc(r.linkedinUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline">LinkedIn</a>');
       if (r.sourceUrl) bits.push('<a href="' + esc(r.sourceUrl) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">source</a>');
       if (r.mapsUrl) bits.push('<a href="' + esc(r.mapsUrl) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">Google Maps</a>');

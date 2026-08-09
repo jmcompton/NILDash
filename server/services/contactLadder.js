@@ -85,6 +85,19 @@ function confidenceLabel(contact) {
 // Digits-only, for comparing a contact's phone against the business main line.
 function _digits(p) { return String(p || '').replace(/\D/g, ''); }
 
+// Does an Instagram handle look like it belongs to this person rather than to the
+// business? "davehorn" / "dave.horn" / "hornd" for Dave Horn. Conservative: a
+// handle that merely contains the business name will not match a person.
+function _handleMatchesName(handle, fullName) {
+  const h = String(handle || '').toLowerCase().replace(/[^a-z]/g, '');
+  const parts = String(fullName || '').toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z]/g, '')).filter(Boolean);
+  if (!h || h.length < 4 || parts.length < 2) return false;
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const cands = [first + last, last + first, first[0] + last, first + last[0]];
+  return cands.some((c) => c && c.length >= 4 && (c === h || h === c + 'official'));
+}
+
 function callWindowFor(category) {
   const k = String(category || '').toLowerCase();
   for (const key of Object.keys(CALL_WINDOWS)) {
@@ -102,6 +115,15 @@ function buildContactLadder(res, opts = {}) {
   const named = Array.isArray(r.contacts) ? r.contacts.filter((c) => c && c.name && String(c.name).trim()) : [];
 
   const mainDigits = _digits(r.businessPhone);
+  // A site-scraped handle that carries a person's name is a PERSONAL account, so it
+  // belongs to that person's row and rides their tier. Otherwise it is the business
+  // account and becomes its own business-channel row.
+  const bizHandle = r.instagram || opts.instagram || null;
+  let personalHandleOwner = null;
+  if (bizHandle) {
+    personalHandleOwner = named.find((c) => _handleMatchesName(bizHandle, c.name)) || null;
+  }
+  const askFor = []; // first names that share the main line, collected for one row
   const t1 = [];
   const t2 = [];
   for (const c of named) {
@@ -113,26 +135,30 @@ function buildContactLadder(res, opts = {}) {
     // name attached to a general number was reading as "call this to get Don".
     const ownDigits = _digits(c.phone);
     const isOwnLine = !!ownDigits && ownDigits !== mainDigits;
-    const phone = isOwnLine ? c.phone : (r.businessPhone || null);
-    const phoneKind = !phone ? null : (isOwnLine ? 'direct' : 'main');
     const first = String(c.name || '').trim().split(/\s+/)[0];
+    // Only a genuinely DIFFERENT number gets its own row. Everyone who merely shares
+    // the business line contributes a name to the single main-line row at the top,
+    // so the same digits are never printed three times as three dead ends.
+    if (!isOwnLine && r.businessPhone && first && askFor.indexOf(first) === -1) askFor.push(first);
+    const igHandle = c.instagram || (personalHandleOwner === c ? bizHandle : null);
     const row = {
       name: c.name,
       title: c.title || null,
       email: c.email || null,
       emailKind: c.email ? (c.emailSource === 'hunter' ? 'pattern' : 'published') : null,
-      phone,
-      phoneKind,
-      // Says exactly what the number is, so nothing implies a direct line.
-      phoneNote: phoneKind === 'main'
-        ? (first ? `Main line, ask for ${first}` : 'Main line, not a direct number')
-        : (phoneKind === 'direct' ? 'Direct number listed for this person' : null),
+      phone: isOwnLine ? c.phone : null,
+      phoneKind: isOwnLine ? 'direct' : null,
+      phoneNote: isOwnLine ? 'Direct number listed for this person' : null,
+      instagram: igHandle,
+      // Primary channel for this row: a personal DM beats an email beats the shared
+      // main line. Drives what the UI leads with.
+      channel: igHandle ? 'instagram' : (c.email ? 'email' : 'phone'),
       linkedinUrl: c.linkedinUrl || null,
       sourceUrl: c.sourceUrl || null,
       // Name attribution only. Rendered as "Name: Confident", never as a claim
       // about the phone or email.
       confidence: confidenceLabel(c),
-      sourceNote: sourceNote(c),
+      sourceNote: sourceNote(c) + (igHandle && personalHandleOwner === c ? '. Instagram handle matches this name, so it is likely their personal account' : ''),
     };
     if (TIER1_RANKS.indexOf(rank) !== -1) t1.push(row); else t2.push(row);
   }
@@ -142,18 +168,46 @@ function buildContactLadder(res, opts = {}) {
   if (t1.length) tiers.push({ tier: 1, label: 'Owner or marketing decision maker', rows: t1 });
   if (t2.length) tiers.push({ tier: 2, label: 'GM or manager', rows: t2 });
 
-  // Tier 3 is ALWAYS present when there is a line to call, and is the guaranteed
-  // non-empty floor when no person was found.
+  // The main line is hoisted OUT of the tiers and rendered once, at the top, naming
+  // everyone to ask for. Previously it appeared on each sharing contact's row AND
+  // again as a Tier 3 row, so one number read as three dead ends.
+  const mainLine = r.businessPhone ? {
+    phone: r.businessPhone,
+    askFor,
+    note: askFor.length
+      ? `Main line, ask for ${askFor.length === 1 ? askFor[0] : askFor.slice(0, -1).join(', ') + ' or ' + askFor[askFor.length - 1]}`
+      : 'Main line, no named person confirmed',
+    callWindow,
+    channel: 'phone',
+    sourceNote: 'Business phone from the Google Places listing',
+  } : null;
+
+  // Tier 3 now carries the OTHER business-level channels, not the phone.
   const t3 = [];
-  if (r.businessPhone) {
+  if (bizHandle && !personalHandleOwner) {
     t3.push({
       name: null,
-      title: 'Main line',
-      phone: r.businessPhone,
+      title: 'Business Instagram',
+      instagram: bizHandle,
+      channel: 'instagram',
+      phone: null,
       email: null,
-      confidence: 'Fallback',
-      sourceNote: 'Business phone from the Google Places listing',
-      callWindow,
+      confidence: 'Likely',
+      sourceNote: 'Instagram link found on the business website. DM the account, owners usually read these.',
+      callWindow: null,
+    });
+  }
+  if (r.personalInbox) {
+    t3.push({
+      name: null,
+      title: 'Named mailbox',
+      email: r.personalInbox,
+      emailKind: 'published',
+      channel: 'email',
+      phone: null,
+      confidence: 'Likely',
+      sourceNote: 'Published mailbox with a personal name, not a general inbox. Likely a specific person.',
+      callWindow: null,
     });
   }
   if (r.genericInbox) {
@@ -162,27 +216,31 @@ function buildContactLadder(res, opts = {}) {
       title: 'General inbox',
       phone: null,
       email: r.genericInbox,
+      emailKind: 'published',
+      channel: 'email',
       confidence: 'Fallback',
       sourceNote: 'Published general inbox, not a named person',
       callWindow: null,
     });
   }
-  if (!t1.length && !t2.length && !t3.length) {
+  if (!t1.length && !t2.length && !t3.length && !mainLine) {
     // Absolute floor: never an empty result.
     t3.push({
       name: null,
       title: 'No contact found yet',
       phone: null,
       email: null,
+      channel: 'phone',
       mapsUrl: r.mapsUrl || opts.mapsUrl || null,
       confidence: 'Fallback',
       sourceNote: 'No published contact found in the free sources. Try the Google Maps listing.',
       callWindow,
     });
   }
-  if (t3.length) tiers.push({ tier: 3, label: 'Main line', rows: t3 });
+  if (t3.length) tiers.push({ tier: 3, label: 'Business channels', rows: t3 });
 
   return {
+    mainLine,
     tiers,
     hasTier1: t1.length > 0,
     topTier: t1.length ? 1 : (t2.length ? 2 : 3),
