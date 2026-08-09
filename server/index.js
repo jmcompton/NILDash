@@ -7139,13 +7139,37 @@ async function _contactsMapLimit(items, limit, fn) {
 // warm brands come back instantly). Batched per lane to keep it to one request.
 async function _brandContactsBatch(req, res) {
   try {
-    const brands = Array.isArray(req.body && req.body.brands) ? req.body.brands.slice(0, 12) : [];
+    // DEEP mode: the full contact ladder (6-source web fan-out + Hunter), the same
+    // path Add a Business uses. It is roughly 2-3 Haiku web-search calls per brand,
+    // so it is NOT run for all 10 cards on every scan (that turned a ~$0.01 warm scan
+    // into ~$0.75 and added ~40s of latency). It runs LAZILY, on the one business an
+    // agent actually opens, and is capped at 3 brands per request so a client cannot
+    // ask for a whole page of deep lookups at once.
+    const deep = req.body && req.body.deep === true;
+    const cap = deep ? 3 : 12;
+    const brands = Array.isArray(req.body && req.body.brands) ? req.body.brands.slice(0, cap) : [];
     if (!brands.length) return res.json({ results: [] });
-    const results = await _contactsMapLimit(brands, 6, async (b) => {
+    const { buildContactLadder } = require('./services/contactLadder');
+    const _t0 = Date.now();
+    const results = await _contactsMapLimit(brands, deep ? 2 : 6, async (b) => {
       const ctx = { market: b.market || null, isFranchise: b.isFranchise === true, contactApproach: b.approach || null };
+      if (deep) {
+        // Same ladder settings as Add a Business: site first (the agent already knows
+        // the business, so its own pages are the highest-yield place to find an owner)
+        // and keep searching past a Tier 2 manager.
+        ctx.enrichEmail = true;
+        ctx.sourceOrder = ['site', 'facebook', 'registry', 'maps', 'news', 'chamber'];
+        ctx.stopAtTier1 = true;
+      }
       const out = await ai.getBrandContacts(String(b.brand || ''), b.website || null, b.region || '', ctx);
-      return { brand: b.brand, ...out };
+      const row = { brand: b.brand, ...out };
+      if (deep) row.contactLadder = buildContactLadder(out, { rankOf: ai.contactAuthorityRank, category: b.category || null, brand: b.brand });
+      return row;
     });
+    if (deep) {
+      const tiers = results.filter(Boolean).map((r) => (r.contactLadder ? r.contactLadder.topTier : '-')).join(',');
+      console.log(`[brand-contacts] DEEP brands=${brands.length} topTiers=[${tiers}] ms=${Date.now() - _t0}`);
+    }
     res.json({ results: results.map((r) => r || { contacts: [], genericInbox: null, businessPhone: null, approach: null }) });
   } catch (e) {
     console.error('[brand-contacts]', e.message);

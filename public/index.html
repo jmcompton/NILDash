@@ -6458,6 +6458,15 @@ function _dsContactSlotInner(d) {
       if (d.mapsUrl) inner += '<a href="' + esc(d.mapsUrl) + '" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;font-size:11px;font-weight:700;color:#60a5fa;text-decoration:none">Search on Google Maps</a>';
       html = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' + inner + '</div>';
     }
+    // Deep contact lookup, on demand. The scan itself only does the cheap Places
+    // pass, so a card usually has a phone but no named person. This runs the full
+    // ladder for THIS business only, which is why it is a click and not automatic.
+    if (!d.contactLadder) {
+      var _i = (window._dealScanResults || []).indexOf(d);
+      if (_i >= 0) {
+        html += '<button id="dsdeep-' + _i + '" onclick="_dsDeepContacts(' + _i + ', this)" style="margin-top:9px;padding:7px 12px;background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);color:#c084fc;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Find the decision maker</button>';
+      }
+    }
     return html;
   }
   return '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);display:flex;align-items:center;gap:7px"><span class="ds-lane-spin" style="width:11px;height:11px;flex-shrink:0"></span> Finding contact…</div>';
@@ -6678,8 +6687,12 @@ function _dsLadderHtml(d) {
     (t.rows || []).forEach(function(r){
       var conf = _DS_CONF_STYLE[r.confidence] || _DS_CONF_STYLE.Fallback;
       var bits = [];
-      if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>');
-      if (r.phone) bits.push('<a href="tel:' + esc(telHref(r.phone)) + '" style="color:#60a5fa;text-decoration:none">' + esc(r.phone) + '</a>');
+      if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>' +
+        (r.emailKind === 'pattern' ? ' <span style="font-size:8px;color:var(--muted)">(pattern match)</span>' : ''));
+      // The number is labeled for what it IS. A "main line" tag on a named person
+      // keeps a confident NAME from implying a direct line to that person.
+      if (r.phone) bits.push('<a href="tel:' + esc(telHref(r.phone)) + '" style="color:#60a5fa;text-decoration:none">' + esc(r.phone) + '</a>' +
+        (r.phoneKind === 'main' && r.name ? ' <span style="font-size:8px;font-weight:700;color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">main line</span>' : ''));
       if (r.linkedinUrl) bits.push('<a href="' + esc(r.linkedinUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline">LinkedIn</a>');
       if (r.sourceUrl) bits.push('<a href="' + esc(r.sourceUrl) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">source</a>');
       if (r.mapsUrl) bits.push('<a href="' + esc(r.mapsUrl) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">Google Maps</a>');
@@ -6687,9 +6700,10 @@ function _dsLadderHtml(d) {
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
           '<span style="font-size:12px;font-weight:600;color:var(--text)">' + esc(r.name || r.title || 'Contact') + '</span>' +
           (r.name && r.title ? '<span style="font-size:11px;color:var(--muted)">' + esc(r.title) + '</span>' : '') +
-          '<span style="font-size:8px;font-weight:700;border-radius:4px;padding:1px 6px;' + conf + '">' + esc(r.confidence) + '</span>' +
+          '<span title="How sure we are this person holds this role. Not a claim about the phone number." style="font-size:8px;font-weight:700;border-radius:4px;padding:1px 6px;' + conf + '">' + (r.name ? 'Name: ' : '') + esc(r.confidence) + '</span>' +
         '</div>' +
         (bits.length ? '<div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.6">' + bits.join(' <span style="color:var(--border)">&middot;</span> ') + '</div>' : '') +
+        (r.phoneNote && r.phoneKind === 'main' && r.name ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;line-height:1.5">' + esc(r.phoneNote) + '</div>' : '') +
         '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5;font-style:italic">' + esc(r.sourceNote || 'Source not recorded') + '</div>' +
         (r.callWindow ? '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5">Best time to call: ' + esc(r.callWindow) + '</div>' : '') +
       '</div>';
@@ -6700,6 +6714,40 @@ function _dsLadderHtml(d) {
     out += '<div style="font-size:10px;color:var(--muted);line-height:1.5">No owner or marketing decision maker found in the free sources. Start with the tier above and ask for the owner by name.</div>';
   }
   return out + '</div>';
+}
+
+// On-demand deep contact lookup for ONE Deal Scan card. The scan does the cheap
+// Places pass for all cards; this runs the full 6-source ladder for the single
+// business the agent is actually pursuing, so the cost lands only where it earns
+// its keep. Re-renders that card's contact slot in place.
+async function _dsDeepContacts(i, btn) {
+  var d = (window._dealScanResults || [])[i];
+  if (!d) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Searching…'; }
+  try {
+    var r = await fetch(API_BASE + '/api/agent/brand-contacts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ deep: true, brands: [{
+        brand: d.brand || d.brand_name, website: d.website || null, region: d.region || '',
+        market: d.market || null, isFranchise: d.isFranchise === true,
+        approach: d.contactApproach || null, category: d.category || null,
+      }] }),
+    });
+    var data = await r.json().catch(function () { return {}; });
+    var row = data && Array.isArray(data.results) && data.results[0];
+    if (!row) { if (btn) { btn.disabled = false; btn.textContent = 'Find the decision maker'; } return; }
+    if (Array.isArray(row.contacts)) d.contacts = row.contacts;
+    if (row.genericInbox) d.genericInbox = row.genericInbox;
+    if (row.businessPhone) d.businessPhone = row.businessPhone;
+    if (row.mapsUrl) d.mapsUrl = row.mapsUrl;
+    if (row.approach) d.contactApproach = row.approach;
+    d.contactLadder = row.contactLadder || null;
+    d._contactsLoaded = true;
+    var slot = document.getElementById('dsc-' + i);
+    if (slot) slot.innerHTML = _dsContactSlotInner(d);
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Find the decision maker'; }
+  }
 }
 
 function _dsContactsHtml(d) {

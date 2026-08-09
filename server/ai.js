@@ -1066,6 +1066,48 @@ function _contactAuthorityRank(title) {
   return 7;
 }
 
+// Detect a school named in generated prose that is NOT the athlete's school. Uses
+// the SCHOOL_LOCATIONS keys (the schools the model actually knows) plus their common
+// short forms, so "UConn campus" on a Samford athlete's card is caught. Returns the
+// offending name, or null when the prose is clean. Deliberately conservative: a
+// mention of the athlete's OWN school, or of no school at all, returns null.
+function _foreignSchoolIn(text, athleteSchool) {
+  const t = String(text || '');
+  if (!t) return null;
+  const own = String(athleteSchool || '').toLowerCase();
+  // Short form of the athlete's school ("Samford University" -> "samford") so the
+  // model's shorthand for the CORRECT school is never flagged.
+  const ownShort = own.replace(/\b(university|college|state|of|the|at)\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  // Alias guard: the map holds several names for one school ("Georgia Institute of
+  // Technology" and "Georgia Tech"). Any key resolving to the SAME city/state is the
+  // athlete's own school under another name, so it must never be flagged.
+  const ownLoc = lookupSchoolLocation(String(athleteSchool || ''));
+  for (const key of Object.keys(SCHOOL_LOCATIONS)) {
+    const k = key.toLowerCase();
+    if (own && (own.includes(k) || k.includes(own))) continue; // this IS the athlete's school
+    if (ownLoc) {
+      const kl = SCHOOL_LOCATIONS[key];
+      if (kl && kl.city === ownLoc.city && kl.state === ownLoc.state) continue; // same school, alias
+    }
+    // Conservative token overlap: "Georgia Tech" and "Georgia Institute of
+    // Technology" share "georgia", so treat them as possibly the same school and do
+    // NOT flag. A false negative here just leaves a rationale alone; a false positive
+    // would rewrite a correct one. Bias to leaving correct output untouched.
+    const _tok = (x) => new Set(String(x).toLowerCase().split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= 4 && !['university', 'college', 'state', 'institute', 'technology', 'school'].includes(w)));
+    const ownTok = _tok(athleteSchool);
+    let shares = false;
+    for (const w of _tok(key)) if (ownTok.has(w)) { shares = true; break; }
+    if (shares) continue;
+    const kShort = k.replace(/\b(university|college|state|of|the|at)\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!kShort || kShort.length < 4) continue;
+    if (ownShort && (kShort.includes(ownShort) || ownShort.includes(kShort))) continue;
+    const re = new RegExp('\\b' + kShort.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+') + '\\b', 'i');
+    if (re.test(t)) return key;
+  }
+  return null;
+}
+
 // Tier 1 of the contact ladder: an owner or a marketing decision maker, i.e. someone
 // who can actually approve a local NIL deal. Ranks 0 (owner/founder/CEO), 1 (franchise
 // owner), 2 (officer/LLC member/partner/director), 4 (marketing leadership/CMO) and
@@ -1923,6 +1965,12 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane, opts =
   // Shared rules for both local paths: franchises count as LOCAL, and the
   // rationale must carry a "why they'd say yes" angle.
   const FRANCHISE_RULE = `LOCALLY-OWNED FRANCHISES COUNT AS LOCAL: the local Wingstop, a Chick-fil-A franchisee, an area State Farm agent, a dealership carrying a national marque. These are LOCAL results (mark "isFranchise": true) ONLY when they point at a specific local location or operator (e.g. "Wingstop on Lakeshore Pkwy", "Chick-fil-A Johns Creek franchisee"), never the corporate brand in general. Their angle: the owner or GM controls a local marketing budget and can say yes without corporate. The ban on big national brands with no confirmed NIL activity still applies to this lane.`;
+  // GROUNDING RULE. The why-yes rule below primes "foot traffic near campus", and a
+  // thin candidate (no category, no evidence) gave the model room to name a campus we
+  // never mentioned: a Birmingham business came back citing "UConn campus". Naming the
+  // wrong school is worse than naming none, so the school/city/state given above are
+  // the ONLY ones allowed, and a groundless angle must be dropped, not invented.
+  const GROUNDING_RULE = `NEVER name any university, college, campus, city, or landmark other than the exact ones given above for this athlete. Do not guess or substitute a school. If you cannot ground the "why they'd say yes" angle in the facts provided, use a general local angle ("a local business marketing to the same community") instead of inventing a place.`;
   const WHY_YES_RULE = `Every rationale must include a concrete "why they'd say yes" angle for THIS business and THIS athlete (foot traffic near campus, customer overlap with the sport's fans, owner's community ties, they already market locally). Rank by likelihood this specific business responds to this specific athlete, NOT by brand size.`;
 
   // Athlete interest tags + product wants (validated against the taxonomy).
@@ -2168,7 +2216,9 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         blocked._poolExhausted = true; blocked._poolTotal = 0; blocked._poolUnseen = 0;
         return blocked;
       }
-      console.log(`[dealScan] manual add candidate="${found[0].name}" place_id=${found[0].place_id || 'none'} types=${JSON.stringify(found[0].types || [])}`);
+      // Log the exact grounding facts the scoring prompt will receive, so "was the
+      // right school passed" is answerable from the logs instead of inferred.
+      console.log(`[dealScan] manual add candidate="${found[0].name}" place_id=${found[0].place_id || 'none'} types=${JSON.stringify(found[0].types || [])} | GROUNDING athlete="${athlete.name}" school="${school}" city="${city}" state="${state}" locationKnown=${locationKnown}`);
     }
     // Serve cached markets straight into the pool (market re-tagged from the
     // cache bucket, never trusted from the stored blob). Skipped for a manual add.
@@ -2555,6 +2605,8 @@ ${marketScoringLine}
 
 ${FRANCHISE_RULE}
 
+${GROUNDING_RULE}
+
 Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely good — never pad) and score each 1-100. ${WHY_YES_RULE} Candidates with real marketing-activity "evidence" (team sponsorships, local ads, prior NIL or athlete partnerships, active promo social) get a STRONG ranking boost: they are proven local marketers, so the outreach makes sense. Rationale is 1-2 tight sentences MAXIMUM. Compact JSON only: no prose fields beyond the template, no commentary before or after the array. When a candidate has "evidence", CITE it in the rationale (e.g. "already sponsors a local little league team, so athlete deals are a natural next step"). Never invent evidence that is not in the input. For contactEmail: use the email given if present, otherwise info@/owner@/contact@ at the REAL website domain provided — never invent a fake domain; use null if no domain is known. Output ONLY this JSON array sorted by fitScore descending:
 [{"rank":1,"brand":"","tier":"local","category":"auto|gym|food|restaurant|nutrition|apparel|finance|insurance|realestate|training|chiro|medspa|local","dealType":"post|reel|ambassador|appearance","campaign":"","rationale":"","estimatedValueLow":${valLow},"estimatedValueHigh":${valHigh},"contactApproach":"","timingNote":"","fitScore":88,"isLocal":true,"market":"school|hometown","isFranchise":false,"matchedTags":[],"contactName":null,"contactTitle":"","contactEmail":"","contactLinkedIn":null}]`;
 
@@ -2623,6 +2675,17 @@ Pick the best ${wantCount} for this athlete (fewer only if fewer are genuinely g
       // low types (pet, vet) sink, without removing anyone. Tier comes from the Places
       // candidate (meta has the raw types); fall back to the card's category. The bump
       // is bounded so a strong low-type business can still out-score a weak high-type.
+      // GROUNDING GUARD: a rationale that names a DIFFERENT school than this
+      // athlete's is a hallucination ("UConn campus" for a Samford athlete). The
+      // prompt forbids it, but a prompt rule is not a guarantee, so catch it
+      // deterministically here and replace the sentence with a grounded one. Naming
+      // no school is strictly better than naming the wrong one.
+      const _bad = _foreignSchoolIn(d.rationale, school);
+      if (_bad) {
+        console.error(`[dealScan] GROUNDING VIOLATION brand="${d.brand}" athleteSchool="${school}" invented="${_bad}" rationale="${String(d.rationale).slice(0, 140)}"`);
+        d.rationale = `Local ${d.category || 'business'} in the ${city} market with natural customer overlap for a ${sport} athlete at ${school}.`;
+        d._groundingFixed = true;
+      }
       const _tier = businessTier(meta || d);
       d._tier = _tier;
       // Diagnostic: the raw Google types array and both category labels (Places vs the

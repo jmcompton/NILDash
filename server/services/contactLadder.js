@@ -69,16 +69,21 @@ function sourceNote(contact) {
   return 'Source not recorded, treat as unverified';
 }
 
-// Confidence label. Exactly the mapping specified:
+// Confidence label for the NAME ATTRIBUTION only, i.e. how sure we are that this
+// person holds this role at this business. It says NOTHING about whether the phone
+// number reaches them; that is phoneKind below.
 //   Confident = 'high' WITH a sourceUrl (an official or business-owned page)
 //   Likely    = 'medium', or 'high' with no sourceUrl to point at
-//   Fallback  = a phone line with no name attached
+//   Fallback  = a row with no name attached
 function confidenceLabel(contact) {
   const c = contact || {};
   if (!c.name || !String(c.name).trim()) return 'Fallback';
   if (c.confidence === 'high' && c.sourceUrl) return 'Confident';
   return 'Likely';
 }
+
+// Digits-only, for comparing a contact's phone against the business main line.
+function _digits(p) { return String(p || '').replace(/\D/g, ''); }
 
 function callWindowFor(category) {
   const k = String(category || '').toLowerCase();
@@ -96,17 +101,36 @@ function buildContactLadder(res, opts = {}) {
   const rankOf = typeof opts.rankOf === 'function' ? opts.rankOf : () => 7;
   const named = Array.isArray(r.contacts) ? r.contacts.filter((c) => c && c.name && String(c.name).trim()) : [];
 
+  const mainDigits = _digits(r.businessPhone);
   const t1 = [];
   const t2 = [];
   for (const c of named) {
     const rank = rankOf(c.title);
+    // Separate the NAME confidence from the NUMBER. getBrandContacts donates the
+    // business main line to the top named contact who has none, and a source can
+    // also report the main line as a person's number. Either way that number does
+    // NOT reach that person, so never present it as their direct line: a confident
+    // name attached to a general number was reading as "call this to get Don".
+    const ownDigits = _digits(c.phone);
+    const isOwnLine = !!ownDigits && ownDigits !== mainDigits;
+    const phone = isOwnLine ? c.phone : (r.businessPhone || null);
+    const phoneKind = !phone ? null : (isOwnLine ? 'direct' : 'main');
+    const first = String(c.name || '').trim().split(/\s+/)[0];
     const row = {
       name: c.name,
       title: c.title || null,
       email: c.email || null,
-      phone: c.phone || r.businessPhone || null,
+      emailKind: c.email ? (c.emailSource === 'hunter' ? 'pattern' : 'published') : null,
+      phone,
+      phoneKind,
+      // Says exactly what the number is, so nothing implies a direct line.
+      phoneNote: phoneKind === 'main'
+        ? (first ? `Main line, ask for ${first}` : 'Main line, not a direct number')
+        : (phoneKind === 'direct' ? 'Direct number listed for this person' : null),
       linkedinUrl: c.linkedinUrl || null,
       sourceUrl: c.sourceUrl || null,
+      // Name attribution only. Rendered as "Name: Confident", never as a claim
+      // about the phone or email.
       confidence: confidenceLabel(c),
       sourceNote: sourceNote(c),
     };
