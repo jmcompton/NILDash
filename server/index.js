@@ -6112,6 +6112,28 @@ function _scanRateRecord(userKey) {
   arr.push(now);
   _scanHits.set(userKey, arr);
 }
+
+// Manual "Add a Business" budget: 25 per agent per rolling 24h. Same shape as the
+// scan limiter above, day tier only.
+// CAVEAT, deliberate: this Map is IN-MEMORY and PER-PROCESS. It resets on every
+// deploy or restart, and on a multi-instance deploy each instance counts its own 25.
+// That is fine here because this is a COST BACKSTOP against a runaway loop (an add
+// costs a few cents), not a billing quota. If it ever becomes a real entitlement it
+// needs a DB counter instead.
+const MANUAL_ADD_MAX_PER_DAY = parseInt(process.env.MANUAL_ADD_MAX_PER_DAY, 10) || 25;
+const _manualAddHits = new Map(); // 'agent:<userId>' -> [timestamps ms] (last 24h)
+function _manualAddRateCheck(userKey) {
+  const now = Date.now();
+  const arr = (_manualAddHits.get(userKey) || []).filter((t) => t > now - 86400e3);
+  if (arr.length >= MANUAL_ADD_MAX_PER_DAY) return { ok: false, scope: 'day', limit: MANUAL_ADD_MAX_PER_DAY };
+  return { ok: true, used: arr.length, limit: MANUAL_ADD_MAX_PER_DAY };
+}
+function _manualAddRateRecord(userKey) {
+  const now = Date.now();
+  const arr = (_manualAddHits.get(userKey) || []).filter((t) => t > now - 86400e3);
+  arr.push(now);
+  _manualAddHits.set(userKey, arr);
+}
 // A repeat scan is a Refresh (bypass cache) when the client explicitly asks, or
 // when it excludes already-shown brands (the Refresh button's top-up behavior),
 // or when it is an explicit "Find more" deepen (which must never serve a cache).
@@ -6730,6 +6752,156 @@ app.post('/api/agent/deal-scan/contacted/undo', requireAuth, async (req, res) =>
     const undone = await store.unmarkBrandContacted(athleteId, brandKey);
     res.json({ ok: undone });
   } catch (e) { console.error('[deal-scan/contacted/undo]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// ── Add a Business: Places autocomplete ─────────────────────────────────────
+// Biased to the selected athlete's market so the SAME brand name in three towns
+// returns three distinct place_ids. Read-only, no AI, no ledger write.
+app.get('/api/agent/places/autocomplete', requireAuth, requireAgentSubscription, async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const athleteId = req.query.athleteId;
+    if (q.length < 3) return res.json({ suggestions: [] });
+    const loaded = await loadDealScanAthlete(athleteId);
+    if (!loaded) return res.status(404).json({ error: 'Athlete not found' });
+    const _ru = await store.getUser(req.session.userId);
+    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
+    if (loaded.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+    // Market bias: reuse the scan's own school geocoder (in-process cached).
+    let bias = {};
+    try {
+      const { geocodeSchool } = require('./services/placesMarket');
+      const geo = await geocodeSchool(loaded.athleteObj.school, (process.env.GOOGLE_PLACES_API_KEY || '').trim());
+      if (geo && geo.coords) bias = { lat: geo.coords.lat, lng: geo.coords.lng, radiusM: 40000 };
+    } catch (e) { console.warn('[addBusiness] geocode bias failed:', e.message); }
+
+    const { autocompletePlaces } = require('./services/placesLookup');
+    const suggestions = await autocompletePlaces(q, bias);
+    res.json({ suggestions, biased: !!bias.lat });
+  } catch (e) { console.error('[places/autocomplete]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// ── Add a Business: resolve, score, build the contact ladder, write the ledger ──
+// Reuses the Deal Scan pipeline end to end: the resolved Places business is injected
+// into ai.getDealRecommendations via opts.manualCandidate, so it passes through the
+// SAME hard-exclude, tier ranking, scoring prompt and finalizeLocal as a scanned
+// business. The primary output is a CONTACT, not a score.
+app.post('/api/agent/deal-scan/add-business', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
+  const _t0 = Date.now();
+  try {
+    const { athleteId, place_id, query } = req.body || {};
+    if (!athleteId) return res.status(400).json({ error: 'athleteId is required' });
+    if (!place_id && !query) return res.status(400).json({ error: 'place_id or query is required' });
+    const loaded = await loadDealScanAthlete(athleteId);
+    if (!loaded) return res.status(404).json({ error: 'Athlete not found' });
+    const _ru = await store.getUser(req.session.userId);
+    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
+    if (loaded.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+    // Cost backstop (see _manualAddRateCheck): 25 per agent per rolling 24h.
+    const _rlKey = 'agent:' + req.session.userId;
+    const mrl = _manualAddRateCheck(_rlKey);
+    if (!mrl.ok) {
+      return res.status(429).json({ error: 'rate_limited', scope: mrl.scope, limit: mrl.limit,
+        message: `You have added ${mrl.limit} businesses today. Add more tomorrow.` });
+    }
+
+    const { lookupPlaceById, lookupPlace } = require('./services/placesLookup');
+    const { buildContactLadder } = require('./services/contactLadder');
+    const athleteObj = loaded.athleteObj;
+    const region = [athleteObj.school].filter(Boolean).join('');
+
+    // 1. Resolve to a SPECIFIC location (place_id). A pasted domain, or a query that
+    //    Places cannot match, falls through to the social path keyed on root domain.
+    const looksLikeDomain = !place_id && /^(https?:\/\/)?([a-z0-9-]+\.)+[a-z]{2,}(\/|$)/i.test(String(query || '').trim());
+    let place = null;
+    if (place_id) place = await lookupPlaceById(place_id);
+    else if (!looksLikeDomain) place = await lookupPlace(String(query).trim(), region);
+
+    if (!place || !place.place_id) {
+      // Social fallback: no Places match (or a domain was pasted). Key on root domain.
+      const raw = String(query || '').trim();
+      const brandKey = ai.resolveBrandKey({ brand: raw, website: raw }, 'social');
+      if (!brandKey) return res.status(422).json({ error: 'no_match', message: 'Could not match that to a business or a website. Try the full business name, or paste their website.' });
+      const existingSocial = await store.getBrandLedgerRow(athleteId, brandKey);
+      if (existingSocial) {
+        return res.json({ ok: true, duplicate: true, lane: 'social', brandKey, existing: existingSocial,
+          message: `Already on this athlete's list (${existingSocial.state}).` });
+      }
+      const site = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw.replace(/^\/+/, '');
+      const contacts = await ai.getBrandContacts(raw, site, '', {
+        enrichEmail: true, market: null,
+        sourceOrder: ['site', 'facebook', 'registry', 'maps', 'news', 'chamber'],
+        stopAtTier1: true,
+      });
+      const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, category: null, brand: raw });
+      await store.insertManualBrand(loaded.agentId || req.session.userId, athleteId, 'social', brandKey, raw);
+      _manualAddRateRecord(_rlKey);
+      console.log(`[addBusiness] athlete=${athleteId} SOCIAL fallback brand="${raw}" key=${brandKey} tier=${ladder.topTier} ms=${Date.now() - _t0}`);
+      return res.json({ ok: true, lane: 'social', brandKey,
+        opportunity: { brand: raw, brand_name: raw, website: contacts.website || site, lane: 'social', resultType: 'social',
+          brandKey, source: 'manual', contacts: contacts.contacts, genericInbox: contacts.genericInbox,
+          businessPhone: contacts.businessPhone, mapsUrl: contacts.mapsUrl, contactApproach: contacts.approach },
+        contactLadder: ladder });
+    }
+
+    // 2. Duplicate check on the exact place_id BEFORE any billable work.
+    const brandKey = ai.resolveBrandKey({ place_id: place.place_id, brand: place.name, lane: 'local' }, 'local');
+    const existing = await store.getBrandLedgerRow(athleteId, brandKey);
+    if (existing) {
+      console.log(`[addBusiness] athlete=${athleteId} DUPLICATE key=${brandKey} state=${existing.state}`);
+      return res.json({ ok: true, duplicate: true, lane: 'local', brandKey, existing,
+        message: `${place.name} is already on this athlete's list (${existing.state}).` });
+    }
+
+    // 3. Same enrich/score/generate path Deal Scan uses, via manualCandidate injection.
+    const manualCandidate = {
+      name: place.name, website: place.website || null,
+      category: null, email: null, evidence: null, franchise: false,
+      place_id: place.place_id, types: place.types || [],
+    };
+    const scanLedger = await _loadScanLedger(athleteId);
+    const recs = await ai.getDealRecommendations(athleteObj, 'agent', [], 'local', { manualCandidate, ledger: scanLedger });
+    if (recs && recs._manualBlocked === 'no_local_authority') {
+      return res.status(422).json({ error: 'no_local_authority',
+        message: `${place.name} is a national chain where corporate controls the marketing budget, so a local manager cannot approve a deal. Adding it would waste the call.` });
+    }
+    const card = Array.isArray(recs) && recs[0] ? recs[0] : null;
+    if (!card) return res.status(502).json({ error: 'scoring_failed', message: 'Could not score that business. Try again.' });
+
+    // 4. Contact ladder, site-first and searching past a Tier 2 manager.
+    const contacts = await ai.getBrandContacts(place.name, place.website || null, place.address || region, {
+      enrichEmail: true, market: 'school', isFranchise: card.isFranchise === true,
+      sourceOrder: ['site', 'facebook', 'registry', 'maps', 'news', 'chamber'],
+      stopAtTier1: true,
+    });
+    const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, category: card.category, brand: place.name });
+
+    // 5. Ledger write: lane='local', source='manual', state='shown'.
+    card.brandKey = brandKey;
+    card.place_id = place.place_id;
+    card.source = 'manual';
+    card.isManual = true;
+    card.contacts = contacts.contacts;
+    card.genericInbox = contacts.genericInbox;
+    card.businessPhone = contacts.businessPhone;
+    card.mapsUrl = contacts.mapsUrl;
+    card.contactApproach = contacts.approach || card.contactApproach;
+    card._contactsLoaded = true;
+    card.address = place.address || null;
+    await store.insertManualBrand(loaded.agentId || req.session.userId, athleteId, 'local', brandKey, place.name);
+    try {
+      const badges = await store.getCrossAthleteContacted(req.session.userId, [brandKey], athleteId);
+      if (badges[brandKey]) card.contactedElsewhere = badges[brandKey];
+    } catch (_) { /* badge is optional */ }
+    _manualAddRateRecord(_rlKey);
+    console.log(`[addBusiness] athlete=${athleteId} ADDED "${place.name}" key=${brandKey} tier=${card._tier || '?'} fit=${card.fitScore} ladderTop=${ladder.topTier} hasTier1=${ladder.hasTier1} ms=${Date.now() - _t0}`);
+    res.json({ ok: true, lane: 'local', brandKey, opportunity: card, contactLadder: ladder });
+  } catch (e) {
+    console.error('[addBusiness]', e.message, e.stack);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Social lane depth report (read-only): how many verified (active) social brands

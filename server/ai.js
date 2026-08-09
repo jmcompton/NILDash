@@ -1066,6 +1066,14 @@ function _contactAuthorityRank(title) {
   return 7;
 }
 
+// Tier 1 of the contact ladder: an owner or a marketing decision maker, i.e. someone
+// who can actually approve a local NIL deal. Ranks 0 (owner/founder/CEO), 1 (franchise
+// owner), 2 (officer/LLC member/partner/director), 4 (marketing leadership/CMO) and
+// 5 (marketing or partnerships manager). Rank 3 (GM) and 6 (manager) are Tier 2: they
+// run the store but rarely control the marketing spend. Shared by the manual-add early
+// exit here and by services/contactLadder.js, so the tiering is defined exactly once.
+const _TIER1_RANKS = [0, 1, 2, 4, 5];
+
 // Resolve a contact's email. TODAY: return ONLY an email literally published for
 // this person (and never a generic inbox). The name/domain arguments exist so a
 // verification provider (e.g. Hunter.io) can be dropped in here LATER, returning
@@ -1380,9 +1388,14 @@ function _mergeContacts(all) {
 
 async function _fetchBrandContacts(brand, website, force = false, locationHint = '', opts = {}) {
   const loc = _cleanStr(locationHint) || '';
+  // Manual "Add a Business" runs a DIFFERENT search (site-first order, and it keeps
+  // going until a Tier 1 decision maker is found). Its results must not be served to
+  // a normal scan, and a scan's shallower result must not be served to a manual add,
+  // so the two use separate cache keys.
+  const manualLadder = !!(opts && opts.stopAtTier1);
   // Franchise contacts are location-specific (Planet Smoothie Marietta is not
   // Planet Smoothie Atlanta), so the cache key includes the region when known.
-  const cacheKey = loc ? `${brand} | ${loc}` : brand;
+  const cacheKey = (loc ? `${brand} | ${loc}` : brand) + (manualLadder ? ' | manual' : '');
   const domain = _domainFromUrl(website);
   const regionState = normalizeState((loc.split(',').pop() || '').trim());
   const localityRequired = !!(opts && opts.localityRequired);
@@ -1431,10 +1444,18 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
     console.log(`[dealScan] contacts brand=${brand} search skipped (card path, no fan-out)`);
     return { contacts: [], genericInbox: null, businessPhone: null, phoneUnconfirmed: false, outcome: 'SKIPPED', cached: false };
   }
-  const CONTACT_WALL_BUDGET_MS = 22000;
+  // Manual adds get a longer wall budget: the agent is waiting on ONE business they
+  // chose, not ten they are skimming, so it is worth spending the extra seconds.
+  const CONTACT_WALL_BUDGET_MS = manualLadder ? 40000 : 22000;
   const _cStart = Date.now();
   const results = [];
-  for (const src of _CONTACT_SOURCES) {
+  // Manual adds search SITE FIRST: the agent already knows the business, so its own
+  // about/contact pages are the highest-yield place to find a named owner. Scans keep
+  // the shared order (registry-first) untouched.
+  const sourceOrder = (opts && Array.isArray(opts.sourceOrder) && opts.sourceOrder.length)
+    ? opts.sourceOrder.filter((s) => _CONTACT_SOURCES.indexOf(s) !== -1)
+    : _CONTACT_SOURCES;
+  for (const src of sourceOrder) {
     if (results.length && Date.now() - _cStart > CONTACT_WALL_BUDGET_MS) {
       console.log(`[dealScan] contacts brand=${brand} sequential stop: wall budget after ${results.length} source(s)`);
       break;
@@ -1446,10 +1467,20 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
     console.log(`[dealScan] contacts brand=${brand} source=${r.source} rawLen=${r.rawLen} parsed=${r.parsed} kept=${r.kept}${r.dropReason ? ` dropReason=${r.dropReason}` : ''}${r.usedProse ? ' prose=1' : ''} status=${r.status} ms=${r.ms}`);
     const best = _mergeContacts(results.flatMap((x) => x.contacts))
       .sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title))[0];
-    if (best && _contactAuthorityRank(best.title) < 9) {
-      console.log(`[dealScan] contacts brand=${brand} early exit after ${results.length} source(s): ${best.title}`);
+    const bestRank = best ? _contactAuthorityRank(best.title) : 99;
+    // Scan path: stop at anything better than a bare registered agent (cost lever).
+    // Manual path: a Tier 2 manager does NOT end the search, because that defeats the
+    // ladder. Keep going until a Tier 1 decision maker is found or sources run out.
+    const stop = manualLadder ? _TIER1_RANKS.indexOf(bestRank) !== -1 : bestRank < 9;
+    if (best && stop) {
+      console.log(`[dealScan] contacts brand=${brand} early exit after ${results.length} source(s): ${best.title}${manualLadder ? ' (tier 1)' : ''}`);
       break;
     }
+  }
+  if (manualLadder) {
+    const _t1 = _mergeContacts(results.flatMap((x) => x.contacts))
+      .some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1);
+    if (!_t1) console.log(`[dealScan] contacts brand=${brand} manual ladder: all ${results.length} source(s) exhausted, no tier 1 found`);
   }
   const bySource = {};
   for (const r of results) bySource[r.source] = r;
@@ -1526,7 +1557,14 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // agent chose to pursue this business. On the card path we return the Places
   // phone/website only — cheap, and phone is the actionable contact anyway.
   const _deep = !!(ctx && ctx.enrichEmail);
-  const res = await _fetchBrandContacts(brand, effectiveWebsite, false, locationHint, { localityRequired, allowSearch: _deep });
+  // Manual "Add a Business" passes sourceOrder (site first) and stopAtTier1, so the
+  // ladder keeps searching past a Tier 2 manager. Scans pass neither and are unchanged.
+  const res = await _fetchBrandContacts(brand, effectiveWebsite, false, locationHint, {
+    localityRequired,
+    allowSearch: _deep,
+    sourceOrder: (ctx && Array.isArray(ctx.sourceOrder)) ? ctx.sourceOrder : null,
+    stopAtTier1: !!(ctx && ctx.stopAtTier1),
+  });
   // Collapse titles at READ time as well, so already-cached rows written before
   // the title fix (stacked "... (per news report) (state filing)") also serve a
   // single clean qualifier, without waiting for a re-search.
@@ -2112,10 +2150,30 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
         chain: it.chain === true ? true : undefined,
       });
     };
+    // ── Manual "Add a Business" injection ─────────────────────────────────────
+    // The agent named ONE business and picked its exact Places location. Inject it
+    // as the only candidate and skip every discovery step (market cache, Places
+    // build, web search): there is nothing to discover. It then flows through the
+    // SAME hard-exclude (addCandidate), tier ranking, scoring prompt and
+    // finalizeLocal as a scanned business, so a manual card is identical in shape
+    // and honesty to a scanned one. Nothing here writes the shared market pool.
+    const _isManual = !!(opts && opts.manualCandidate);
+    if (_isManual) {
+      addCandidate(opts.manualCandidate, 'school');
+      if (!found.length) {
+        // Only addCandidate can drop it here, and only for the hard-exclude list.
+        console.log(`[dealScan] manual add REJECTED name="${(opts.manualCandidate || {}).name}" reason=no_local_authority`);
+        const blocked = [];
+        blocked._manualBlocked = 'no_local_authority';
+        blocked._poolExhausted = true; blocked._poolTotal = 0; blocked._poolUnseen = 0;
+        return blocked;
+      }
+      console.log(`[dealScan] manual add candidate="${found[0].name}" place_id=${found[0].place_id || 'none'} types=${JSON.stringify(found[0].types || [])}`);
+    }
     // Serve cached markets straight into the pool (market re-tagged from the
-    // cache bucket, never trusted from the stored blob).
-    if (schoolCached) for (const cnd of schoolCached.candidates) addCandidate(cnd, 'school');
-    if (hometownCached) for (const cnd of hometownCached.candidates) addCandidate(cnd, 'hometown');
+    // cache bucket, never trusted from the stored blob). Skipped for a manual add.
+    if (schoolCached && !_isManual) for (const cnd of schoolCached.candidates) addCandidate(cnd, 'school');
+    if (hometownCached && !_isManual) for (const cnd of hometownCached.candidates) addCandidate(cnd, 'hometown');
 
     // ── Pagination + never-repeat ─────────────────────────────────────────────
     // excludeBrands is the persisted shown-set for this athlete. Each scan/refresh
@@ -2169,7 +2227,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     let placesSchoolUsed = false;
     const _placesEnabled = (process.env.DEAL_SCAN_DISCOVERY || 'places') !== 'websearch'
       && !!(process.env.GOOGLE_PLACES_API_KEY || '').trim();
-    const _placesEligible = _placesEnabled && schoolWillSearch && !deepen && locationKnown;
+    // A manual add never builds the market pool: the business is already chosen.
+    const _placesEligible = _placesEnabled && schoolWillSearch && !deepen && locationKnown && !_isManual;
     // #2: log entry visibility, not just success, so a scan that never reaches the
     // build shows WHY (which gate failed).
     console.log(`[dealScan] Places eligible=${_placesEligible} market=${schoolCacheKey} (enabled=${_placesEnabled} schoolWillSearch=${schoolWillSearch} deepen=${deepen} locationKnown=${locationKnown})`);
@@ -2228,7 +2287,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     const _geoThin = `in and around ${city}, ${state}, the surrounding metro area, and any towns within about 45 miles`;
     const _geoStd = schoolThin ? _geoThin : _geo;
     const searchDefs = [];
-    if (schoolWillSearch && deepen) {
+    if (_isManual) { /* manual add: no discovery passes, the business is already known */ }
+    else if (schoolWillSearch && deepen) {
       // Deeper pass: wider radius (_geoWide) and next tier (_tierWide), excluding the
       // whole existing pool (_deepExcl). Since the initial build was widened to 8
       // categories, three of these overlap the first pass by name but reach FARTHER,
@@ -2277,7 +2337,8 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
           'jewelers and florists, bike and outdoor shops, game and hobby shops, specialty grocers'), searchSys, 2600, 4, MODEL_DEALSCAN), LOCAL_SEARCH_CAP_MS) },
       );
     }
-    if (hometownWillSearch && deepen) {
+    if (_isManual) { /* manual add: no hometown discovery either */ }
+    else if (hometownWillSearch && deepen) {
       searchDefs.push(
         { label: 'deep-hometown', market: 'hometown', p: timedSearch(oneShotWebSearch(mk(
           `${_tierWide}pet and home services, salons and barbershops, dance and martial arts studios, jewelers and florists, tutoring, event venues, breweries, and specialty retail in the further-out suburbs and towns within about 40 miles of ${hometown}, beyond the town center${tagEmphasisQ}${_deepExcl}`,
@@ -2372,7 +2433,9 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // empty: say so honestly instead of papering over it with model-invented
     // brands (the ~8-count knowledge fallback). Only an UNKNOWN location, where
     // there is no real market to search, falls back to labeled model knowledge.
-    if (found.length < 3) {
+    // A manual add is EXPECTED to be exactly one candidate, so the thin-pool rule
+    // does not apply to it.
+    if (found.length < 3 && !_isManual) {
       if (locationKnown) {
         console.error(`[dealScan] LOCAL POOL EMPTY market=${schoolCacheKey} found=${found.length} (locationKnown) -> honest empty, NOT model knowledge`);
         const empty = []; empty._poolExhausted = true; empty._poolTotal = found.length; empty._poolUnseen = 0; return empty;
@@ -2419,15 +2482,19 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       if (_retiredSlugs.size && _retiredSlugs.has(_brandKey(f.name))) return true;
       return false;
     };
-    const _notRetired = found.filter((f) => !_isRetired(f));
+    // A manual add bypasses ledger SELECTION entirely: the agent explicitly asked for
+    // this business, so it is the page. Duplicate handling happens in the route
+    // (which returns the existing card instead of calling this), and the ledger write
+    // still happens afterwards, so nothing here can create a duplicate row.
+    const _notRetired = _isManual ? found : found.filter((f) => !_isRetired(f));
     const _excludedContacted = found.length - _notRetired.length;
     const _unseen = _notRetired.filter((f) => !(f._bk && _ledgerByKey[f._bk]));
     const _shownPool = _notRetired.filter((f) => f._bk && _ledgerByKey[f._bk] && _ledgerByKey[f._bk].state === 'shown');
     _unseen.sort((a, b) => _candPriority(b) - _candPriority(a));
     _shownPool.sort((a, b) => (_ledgerByKey[a._bk].lastShownAt || 0) - (_ledgerByKey[b._bk].lastShownAt || 0));
-    const _page = _unseen.slice(0, PAGE);
+    const _page = _isManual ? found.slice(0, 1) : _unseen.slice(0, PAGE);
     let _shownBackfill = 0;
-    if (_page.length < PAGE) {
+    if (!_isManual && _page.length < PAGE) {
       const fill = _shownPool.slice(0, PAGE - _page.length);
       _shownBackfill = fill.length;
       for (const f of fill) _page.push(f);
@@ -2951,6 +3018,8 @@ module.exports = {
   resolveLocalMarketKey,
   resolveBrandKey,
   brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
+  contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder
+  TIER1_RANKS: _TIER1_RANKS,
   prewarmDealEvidence,
   getBrandContacts,
   // Internal evidence helpers exposed for unit tests only.

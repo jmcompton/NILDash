@@ -618,6 +618,10 @@ async function init() {
     .catch(e => console.error('[init] brand_engagement:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_athlete_state ON brand_engagement (athlete_id, state)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_agent_key ON brand_engagement (agent_id, brand_key)`).catch(() => {});
+  // How the row entered the ledger: 'scan' (surfaced by Deal Scan) or 'manual'
+  // (the agent added the business by name via Add a Business). Additive and
+  // nullable, so existing rows are untouched and read as scan-sourced.
+  await pool.query(`ALTER TABLE brand_engagement ADD COLUMN IF NOT EXISTS source TEXT`).catch(() => {});
 
   // ── Athlete Self-Managed Deals ────────────────────────────────────────────
   await pool.query(`
@@ -1803,6 +1807,44 @@ async function getBrandLedgerRows(athleteId) {
   }
 }
 
+// One ledger row for an exact (athlete, brand_key). Backs the manual-add duplicate
+// check: if a row exists we return the existing card and its state instead of
+// creating a second row (the UNIQUE constraint would reject it anyway).
+async function getBrandLedgerRow(athleteId, brandKey) {
+  if (!athleteId || !brandKey) return null;
+  try {
+    const r = await pool.query(
+      `SELECT brand_key, brand_name, lane, state, source, shown_count,
+              first_shown_at, last_shown_at, contacted_at, contacted_via, outcome, outcome_at,
+              GREATEST(COALESCE(contacted_at, to_timestamp(0)), COALESCE(last_shown_at, to_timestamp(0))) AS last_touched_at
+         FROM brand_engagement WHERE athlete_id = $1 AND brand_key = $2 LIMIT 1`,
+      [String(athleteId), brandKey]);
+    return r.rows[0] || null;
+  } catch (e) { console.warn(`[brandLedger] row lookup failed key=${brandKey}: ${e.message}`); return null; }
+}
+
+// Insert a manually added business as state=shown, source='manual'. Idempotent: on
+// conflict it bumps the shown counters and stamps source='manual' but NEVER changes
+// state, so adding a business already marked contacted does not un-retire it.
+async function insertManualBrand(agentId, athleteId, lane, brandKey, brandName) {
+  if (!athleteId || !brandKey) return false;
+  try {
+    await pool.query(
+      `INSERT INTO brand_engagement
+         (agent_id, athlete_id, brand_key, brand_name, lane, state, source, shown_count, first_shown_at, last_shown_at)
+       VALUES ($1,$2,$3,$4,$5,'shown','manual',1,NOW(),NOW())
+       ON CONFLICT (athlete_id, brand_key) DO UPDATE SET
+         shown_count = brand_engagement.shown_count + 1,
+         last_shown_at = NOW(),
+         source = 'manual',
+         brand_name = COALESCE(EXCLUDED.brand_name, brand_engagement.brand_name),
+         agent_id = COALESCE(brand_engagement.agent_id, EXCLUDED.agent_id),
+         updated_at = NOW()`,
+      [agentId || null, String(athleteId), brandKey, brandName || null, lane || 'local']);
+    return true;
+  } catch (e) { console.warn(`[brandLedger] manual insert failed key=${brandKey}: ${e.message}`); return false; }
+}
+
 // Upsert one displayed brand as state=shown. Displaying NEVER retires a brand and
 // never un-retires one: on conflict we only bump shown_count / last_shown_at and
 // leave state untouched (a contacted row stays contacted). items are already
@@ -2500,7 +2542,7 @@ module.exports = {
   dismissChecklist, markTooltipSeen, backfillChecklist, getOnboardingAnalytics,
   CHECKLIST_ITEMS,
   getMarketCache, setMarketCache, MARKET_CACHE_TTL_DAYS,
-  getBrandLedgerRows, upsertShownBrands, markBrandContacted, unmarkBrandContacted, getCrossAthleteContacted,
+  getBrandLedgerRows, getBrandLedgerRow, insertManualBrand, upsertShownBrands, markBrandContacted, unmarkBrandContacted, getCrossAthleteContacted,
   getSocialBrandPool, getSocialDepth,
   ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
   ensureFeedbackColumns, logScanShown, getScanSignal, applyScanSignal,

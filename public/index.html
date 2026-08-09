@@ -1506,6 +1506,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="ds-lane active" data-lane="local">
             <div class="ds-lane-head"><span class="ds-lane-title">Local</span><span class="ds-lane-count" id="ds-count-local">—</span></div>
             <div class="ds-lane-sub">Businesses near your client's school, plus their hometown when set</div>
+            <!-- Add a Business. Lives OUTSIDE #scan-results-local because _dsRenderAll
+                 rewrites that container's innerHTML on every render, which would blow
+                 away the input's focus and text mid-typing. Always visible. -->
+            <div style="position:relative;margin-bottom:10px">
+              <input id="ds-addbiz-input" type="text" autocomplete="off" placeholder="Know a business already? Add it."
+                oninput="_dsAddBizInput()" onkeydown="_dsAddBizKey(event)"
+                style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box">
+              <div id="ds-addbiz-sugg" style="display:none;position:absolute;z-index:40;left:0;right:0;top:100%;margin-top:4px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.35);max-height:280px;overflow-y:auto"></div>
+              <div id="ds-addbiz-status" style="display:none;font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5"></div>
+            </div>
             <div class="ds-lane-body" id="scan-results-local"></div>
           </div>
           <!-- Right column: Social + National Brands, tabbed (desktop) -->
@@ -6488,7 +6498,181 @@ async function _dsLoadContacts() {
 // card carries no contact data at all (the caller then shows the Approach line
 // alone). info@ never appears as a primary contact; a made-up email never
 // appears at all (the server only sends published emails).
+// ── Add a Business ───────────────────────────────────────────────────────────
+// Google Places autocomplete biased to the selected athlete's market, so the agent
+// picks a SPECIFIC location and we get a place_id (the same brand in three towns
+// resolves to three different results). The chosen business runs through the normal
+// Deal Scan pipeline server-side and comes back as a normal Deal Scan card.
+var _dsAddBizTimer = null;
+var _dsAddBizSuggestions = [];
+var _dsAddBizActive = -1;
+var _dsAddBizBusy = false;
+
+function _dsAddBizStatus(msg, tone) {
+  var el = document.getElementById('ds-addbiz-status');
+  if (!el) return;
+  if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'block';
+  el.style.color = tone === 'err' ? '#f87171' : tone === 'ok' ? '#84CC16' : 'var(--muted)';
+  el.textContent = msg;
+}
+function _dsAddBizCloseSugg() {
+  var box = document.getElementById('ds-addbiz-sugg');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+  _dsAddBizSuggestions = []; _dsAddBizActive = -1;
+}
+function _dsAddBizRenderSugg() {
+  var box = document.getElementById('ds-addbiz-sugg');
+  if (!box) return;
+  if (!_dsAddBizSuggestions.length) { _dsAddBizCloseSugg(); return; }
+  box.innerHTML = _dsAddBizSuggestions.map(function (s, i) {
+    var bg = i === _dsAddBizActive ? 'background:rgba(132,204,22,0.10);' : '';
+    return '<div onclick="_dsAddBizPick(' + i + ')" onmouseover="_dsAddBizActive=' + i + ';_dsAddBizRenderSugg()" ' +
+      'style="' + bg + 'padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border)">' +
+      '<div style="font-size:13px;color:var(--text);font-weight:600">' + esc(s.name) + '</div>' +
+      (s.address ? '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + esc(s.address) + '</div>' : '') +
+      '</div>';
+  }).join('');
+  box.style.display = 'block';
+}
+function _dsAddBizInput() {
+  var el = document.getElementById('ds-addbiz-input');
+  var q = el ? el.value.trim() : '';
+  if (_dsAddBizTimer) clearTimeout(_dsAddBizTimer);
+  if (q.length < 3) { _dsAddBizCloseSugg(); _dsAddBizStatus(''); return; }
+  if (!selectedAthleteId) { _dsAddBizStatus('Select a client first.', 'err'); return; }
+  _dsAddBizTimer = setTimeout(async function () {
+    try {
+      var r = await fetch(API_BASE + '/api/agent/places/autocomplete?athleteId=' + encodeURIComponent(selectedAthleteId) + '&q=' + encodeURIComponent(q), { credentials: 'include' });
+      var data = await r.json().catch(function () { return {}; });
+      if (!r.ok) { _dsAddBizStatus(data.error || 'Could not search businesses.', 'err'); return; }
+      _dsAddBizSuggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+      _dsAddBizActive = -1;
+      _dsAddBizRenderSugg();
+      _dsAddBizStatus(_dsAddBizSuggestions.length ? '' : 'No match. Press Enter to try it as a business name or website.');
+    } catch (e) { _dsAddBizStatus('Could not search businesses.', 'err'); }
+  }, 250);
+}
+function _dsAddBizKey(ev) {
+  if (ev.key === 'Escape') { _dsAddBizCloseSugg(); return; }
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    if (!_dsAddBizSuggestions.length) return;
+    ev.preventDefault();
+    _dsAddBizActive += (ev.key === 'ArrowDown' ? 1 : -1);
+    if (_dsAddBizActive < 0) _dsAddBizActive = _dsAddBizSuggestions.length - 1;
+    if (_dsAddBizActive >= _dsAddBizSuggestions.length) _dsAddBizActive = 0;
+    _dsAddBizRenderSugg();
+    return;
+  }
+  if (ev.key === 'Enter') {
+    ev.preventDefault();
+    if (_dsAddBizActive >= 0 && _dsAddBizSuggestions[_dsAddBizActive]) { _dsAddBizPick(_dsAddBizActive); return; }
+    // No suggestion highlighted: send the raw text. The server falls through to the
+    // social path keyed on root domain when Places cannot match it.
+    var el = document.getElementById('ds-addbiz-input');
+    var q = el ? el.value.trim() : '';
+    if (q.length >= 3) _dsAddBizPost({ athleteId: selectedAthleteId, query: q });
+  }
+}
+function _dsAddBizPick(i) {
+  var s = _dsAddBizSuggestions[i];
+  if (!s) return;
+  var el = document.getElementById('ds-addbiz-input');
+  if (el) el.value = s.name;
+  _dsAddBizCloseSugg();
+  _dsAddBizPost({ athleteId: selectedAthleteId, place_id: s.place_id, query: s.name });
+}
+async function _dsAddBizPost(body) {
+  if (_dsAddBizBusy) return;
+  if (!selectedAthleteId) { _dsAddBizStatus('Select a client first.', 'err'); return; }
+  _dsAddBizBusy = true;
+  _dsAddBizCloseSugg();
+  _dsAddBizStatus('Finding the contact for this business…');
+  try {
+    var r = await fetch(API_BASE + '/api/agent/deal-scan/add-business', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify(body),
+    });
+    var data = await r.json().catch(function () { return {}; });
+    if (!r.ok) {
+      _dsAddBizStatus(data.message || data.error || ('Could not add that business (' + r.status + ').'), 'err');
+      _dsAddBizBusy = false; return;
+    }
+    if (data.duplicate) {
+      var when = data.existing && (data.existing.last_touched_at || data.existing.last_shown_at);
+      _dsAddBizStatus((data.message || 'Already on this list.') + (when ? ' Last touched ' + String(when).slice(0, 10) + '.' : ''), 'ok');
+      _dsAddBizBusy = false; return;
+    }
+    var card = data.opportunity;
+    if (card) {
+      card.contactLadder = data.contactLadder || null;
+      card._contactsLoaded = true;
+      // Mix into the normal Deal Scan list. The ledger already handles dedupe, so a
+      // later scan will not surface it again.
+      if (!Array.isArray(_dsLaneData.local)) _dsLaneData.local = [];
+      _dsLaneData.local.unshift(card);
+      _dsRenderAll();
+      var el = document.getElementById('ds-addbiz-input');
+      if (el) el.value = '';
+      var tier = data.contactLadder && data.contactLadder.topTier;
+      _dsAddBizStatus('Added ' + (card.brand || 'business') + '.' + (tier === 1 ? ' Owner or decision maker found.' : tier === 2 ? ' Manager found, no owner in the free sources.' : ' No named person found, main line only.'), 'ok');
+    } else {
+      _dsAddBizStatus('Added, but no card came back.', 'err');
+    }
+  } catch (e) {
+    _dsAddBizStatus('Could not add that business.', 'err');
+  }
+  _dsAddBizBusy = false;
+}
+
+// Contact ladder (manual "Add a Business" cards). Tier 1 owner/decision maker,
+// Tier 2 GM/manager, Tier 3 main line with a call window. EVERY row shows a
+// confidence label and a one-line source note; a name is never rendered without
+// one. Rendered inside the SAME Deal Scan card component, not a separate UI.
+var _DS_CONF_STYLE = {
+  Confident: 'background:rgba(132,204,22,0.14);color:#84CC16;border:1px solid rgba(132,204,22,0.32)',
+  Likely: 'background:rgba(245,158,11,0.14);color:#f59e0b;border:1px solid rgba(245,158,11,0.32)',
+  Fallback: 'background:rgba(148,163,184,0.14);color:var(--muted);border:1px solid rgba(148,163,184,0.3)'
+};
+function _dsLadderHtml(d) {
+  var L = d && d.contactLadder;
+  if (!L || !Array.isArray(L.tiers) || !L.tiers.length) return '';
+  var telHref = function(p){ return String(p || '').replace(/[^\d+]/g, ''); };
+  var out = '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">' +
+    '<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:8px">WHO TO CALL</div>';
+  L.tiers.forEach(function(t){
+    out += '<div style="margin-bottom:10px">' +
+      '<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px">Tier ' + t.tier + ' &middot; ' + esc(t.label) + '</div>';
+    (t.rows || []).forEach(function(r){
+      var conf = _DS_CONF_STYLE[r.confidence] || _DS_CONF_STYLE.Fallback;
+      var bits = [];
+      if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>');
+      if (r.phone) bits.push('<a href="tel:' + esc(telHref(r.phone)) + '" style="color:#60a5fa;text-decoration:none">' + esc(r.phone) + '</a>');
+      if (r.linkedinUrl) bits.push('<a href="' + esc(r.linkedinUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline">LinkedIn</a>');
+      if (r.sourceUrl) bits.push('<a href="' + esc(r.sourceUrl) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">source</a>');
+      if (r.mapsUrl) bits.push('<a href="' + esc(r.mapsUrl) + '" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:underline">Google Maps</a>');
+      out += '<div style="margin-bottom:8px;padding-left:9px;border-left:2px solid var(--border)">' +
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          '<span style="font-size:12px;font-weight:600;color:var(--text)">' + esc(r.name || r.title || 'Contact') + '</span>' +
+          (r.name && r.title ? '<span style="font-size:11px;color:var(--muted)">' + esc(r.title) + '</span>' : '') +
+          '<span style="font-size:8px;font-weight:700;border-radius:4px;padding:1px 6px;' + conf + '">' + esc(r.confidence) + '</span>' +
+        '</div>' +
+        (bits.length ? '<div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.6">' + bits.join(' <span style="color:var(--border)">&middot;</span> ') + '</div>' : '') +
+        '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5;font-style:italic">' + esc(r.sourceNote || 'Source not recorded') + '</div>' +
+        (r.callWindow ? '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5">Best time to call: ' + esc(r.callWindow) + '</div>' : '') +
+      '</div>';
+    });
+    out += '</div>';
+  });
+  if (!L.hasTier1) {
+    out += '<div style="font-size:10px;color:var(--muted);line-height:1.5">No owner or marketing decision maker found in the free sources. Start with the tier above and ask for the owner by name.</div>';
+  }
+  return out + '</div>';
+}
+
 function _dsContactsHtml(d) {
+  // Manual adds carry a full contact ladder; render that instead of the flat list.
+  if (d && d.contactLadder) return _dsLadderHtml(d);
   var contacts = Array.isArray(d.contacts) ? d.contacts.slice() : [];
   // Back-compat for older cached cards that only carry the single-contact fields.
   if (!contacts.length && d.contactName) {
