@@ -40,11 +40,13 @@ const STALE_MONTHS = 18;           // older evidence can never stand alone as Co
 const TIE_DAYS = 90;               // dates this close cannot separate two candidates
 
 const ROLES = [
-  { key: 'general_manager', label: 'General Manager', match: /\bgeneral manager\b|\bgm\b/i },
+  { key: 'general_manager', label: 'General Manager', match: /\bgeneral manager\b|\bgm\b|executive director of football|director of football management|\bfootball management\b|\bfootball personnel\b/i },
   { key: 'player_personnel', label: 'Director of Player Personnel', match: /player personnel/i },
   { key: 'recruiting', label: 'Director of Recruiting', match: /recruiting/i },
   { key: 'head_coach', label: 'Head Coach', match: /head coach/i },
-  { key: 'collective_director', label: 'NIL Collective Director', match: /collective|executive director|nil/i },
+  // "executive director" alone is NOT enough: Tennessee's "Executive Director of
+  // Football Management" is a GM, not a collective role. Require collective/NIL.
+  { key: 'collective_director', label: 'NIL Collective Director', match: /\bcollective\b|\bnil\b/i },
 ];
 
 // Official athletics domains, used ONLY to classify a source URL as Tier A. Stable
@@ -303,9 +305,19 @@ async function _runSource(source, school) {
 }
 
 function _roleOf(p) {
-  const known = ROLES.find((r) => r.key === p.role);
-  if (known) return known.key;
-  for (const r of ROLES) if (r.match.test(p.title)) return r.key;
+  const title = String((p && p.title) || '');
+  // A title that names FOOTBALL is a football staff role, never the NIL collective
+  // director, whatever the model labeled it. This is the Tennessee case: "Executive
+  // Director of Football Management" is a general manager.
+  const saysFootball = /\bfootball\b/i.test(title);
+  const saysCollective = /\bcollective\b|\bnil\b/i.test(title);
+  const misfiled = (key) => key === 'collective_director' && saysFootball && !saysCollective;
+  const known = ROLES.find((r) => r.key === (p && p.role));
+  if (known && !misfiled(known.key)) return known.key;
+  for (const r of ROLES) {
+    if (misfiled(r.key)) continue;
+    if (r.match.test(title)) return r.key;
+  }
   return null;
 }
 function _nameKey(n) { return String(n || '').toLowerCase().replace(/[^a-z]/g, ''); }
@@ -335,6 +347,13 @@ function _assess(cands, nowMs) {
 // Order candidates for a role: most recently dated first, undated last, tier as the
 // tie-break. This is what stops a 2021 press release outranking a 2026 one.
 function _byRecency(a, b) {
+  // AUTHORITY BEFORE RECENCY. The school's own staff directory is the record of who
+  // holds the job; a dated news article is a claim ABOUT it. Ole Miss had a Tier A
+  // directory listing demoted to 'previous' by an SI article that was not even about
+  // Ole Miss. Tier A now outranks any non-A candidate outright, and dates order
+  // candidates only within the same authority class.
+  const aA = a.some((c) => c.tier === 'A'), bA = b.some((c) => c.tier === 'A');
+  if (aA !== bA) return aA ? -1 : 1;
   const am = _newestMs(a), bm = _newestMs(b);
   if (am != null && bm != null && am !== bm) return bm - am;
   if (am != null && bm == null) return -1;
@@ -344,9 +363,130 @@ function _byRecency(a, b) {
   return at - bt;
 }
 
-async function buildProgram(school, nowMs) {
+// ── Football staff page: discover once, then fetch forever ───────────────────
+// Discovery is a single search, run ONLY when program_source has no URL yet. After
+// that the URL is read from the table and never searched for again, which is what
+// removes the run-to-run variance.
+const STAFF_URL_SYS = 'You find the exact URL of one specific page. Output ONLY JSON. Never invent a URL.';
+
+async function discoverStaffUrl(school, store) {
+  const cfg = SCHOOLS[school] || {};
+  const team = cfg.team || school;
+  const prompt = `Find the official FOOTBALL staff directory or coaching staff page for ${team}${cfg.athletics ? ` on ${cfg.athletics}` : ''}. This is the page listing the football coaches and support staff with their titles, for example a URL like ${cfg.athletics || 'school-athletics.com'}/sports/football/coaches or /staff-directory/football-department. Also find the athletics department CONTACT page that lists office phone numbers.
+Respond with ONLY: {"footballStaffUrl":null,"athleticsContactUrl":null}
+Rules:
+- Both must be real URLs your search actually surfaced on ${cfg.athletics || "the school's athletics site"}. Never construct or guess a URL.
+- footballStaffUrl must be the FOOTBALL staff or coaches page, not a department-wide directory and not a roster of players.
+- Use null for anything you cannot find.`;
+  try {
+    const r = await ai.webSearchJson(prompt, STAFF_URL_SYS);
+    const o = _parse(r.text) || {};
+    const ok = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u.trim() : null;
+    const staffUrl = ok(o.footballStaffUrl);
+    const contactUrl = ok(o.athleticsContactUrl);
+    if (staffUrl) {
+      await store.saveProgramSourceUrl(school, staffUrl, 'search', contactUrl);
+      console.log(`[program-map] school="${school}" staff URL DISCOVERED and persisted: ${staffUrl}`);
+    } else {
+      console.warn(`[program-map] school="${school}" staff URL discovery found nothing`);
+    }
+    return { staffUrl, contactUrl };
+  } catch (e) {
+    console.warn(`[program-map] school="${school}" staff URL discovery failed: ${e.message}`);
+    return { staffUrl: null, contactUrl: null };
+  }
+}
+
+// Load the football staff page for a school: config first, discover only if missing.
+// Returns { staff, url, via, diff, hash }.
+async function loadFootballStaff(school, store, opts = {}) {
+  const staffPage = require('./staffPage');
+  let src = await store.getProgramSource(school);
+  let url = src && src.football_staff_url;
+  if (!url || opts.rediscover) {
+    const d = await discoverStaffUrl(school, store);
+    url = d.staffUrl;
+    src = await store.getProgramSource(school);
+  }
+  if (!url) return { staff: [], url: null, via: 'none', diff: null, hash: null };
+
+  const loaded = await staffPage.loadStaff(url, ai);
+  if (!loaded.ok) return { staff: [], url, via: 'none', error: loaded.reason, diff: null, hash: null };
+
+  // Weekly re-fetch diff: what changed since the last snapshot IS the alert feature.
+  const prev = (src && Array.isArray(src.last_staff)) ? src.last_staff : [];
+  const diff = prev.length ? staffPage.diffStaff(prev, loaded.staff) : null;
+  if (diff && (diff.added.length || diff.removed.length || diff.changed.length)) {
+    console.log(`[program-map] school="${school}" STAFF CHANGES since last fetch: +${diff.added.length} -${diff.removed.length} ~${diff.changed.length}`);
+    for (const a of diff.added) console.log(`    ARRIVED  ${a.name} (${a.title || 'no title'})`);
+    for (const r of diff.removed) console.log(`    LEFT     ${r.name} (${r.title || 'no title'})`);
+    for (const c of diff.changed) console.log(`    CHANGED  ${c.name}: ${c.from || 'none'} -> ${c.to || 'none'}`);
+  }
+  await store.saveProgramStaffSnapshot(school, loaded.staff, loaded.hash, loaded.via);
+  return { staff: loaded.staff, url: loaded.finalUrl || url, via: loaded.via, diff, hash: loaded.hash };
+}
+
+// Turn parsed staff-page rows into records. Everything on this page is football and
+// current by definition, so it is Tier A with no sport gate and no date needed.
+function recordsFromStaffPage(school, staff, url) {
+  const out = [];
+  const takenRole = new Set();
+  for (const p of (staff || [])) {
+    const role = _roleOf({ role: 'other', title: p.title || '' });
+    if (!role) continue;
+    // First listed holder of a role wins; a directory lists them in seniority order.
+    if (takenRole.has(role)) continue;
+    takenRole.add(role);
+    const label = (ROLES.find((r) => r.key === role) || {}).label || role;
+    out.push({
+      school, role, role_label: label,
+      name: p.name, title: p.title || null,
+      email: p.email || null,
+      email_source_url: p.email ? url : null,
+      phone: p.phone || null,
+      linkedin_url: null,
+      source_url: url,
+      source_tier: 'A',
+      sport: 'football',
+      source_tier_note: null,
+      source_date: null,
+      age_months: null,
+      status: 'current',
+      confidence: 'confident',
+      sources: [{ tier: 'A', lane: 'staff_page', url, date: null, title: p.title || null, isFormer: false, sport: 'football' }],
+    });
+  }
+  return out;
+}
+
+async function buildProgram(school, nowMs, store) {
   const now = nowMs || Date.now();
   const t0 = Date.now();
+
+  // PRIMARY SOURCE: the school's own football staff page, fetched directly. One
+  // deterministic GET replaces the search fan-out for every role it covers.
+  let pageRecords = [];
+  let pageInfo = null;
+  if (store) {
+    try {
+      pageInfo = await loadFootballStaff(school, store);
+      pageRecords = recordsFromStaffPage(school, pageInfo.staff, pageInfo.url);
+      console.log(`[program-map] school="${school}" staffPage url=${pageInfo.url || 'none'} parsed=${pageInfo.staff.length} rolesMatched=${pageRecords.length} via=${pageInfo.via}`);
+    } catch (e) { console.warn(`[program-map] school="${school}" staff page failed: ${e.message}`); }
+  }
+  const covered = new Set(pageRecords.map((r) => r.role));
+  const missing = ROLES.filter((r) => !covered.has(r.key)).map((r) => r.key);
+  // SEARCH IS NOW THE EXCEPTION. It runs only for roles the page did not list.
+  // A page that covered everything means zero searches for this program.
+  const needSearch = missing.length > 0;
+  console.log(`[program-map] school="${school}" fromStaffPage=${[...covered].join(',') || 'none'} needSearch=${needSearch ? missing.join(',') : 'no'}`);
+  if (!needSearch) {
+    const filled0 = covered.size;
+    console.log(`[program-map] school="${school}" roles=${filled0}/${ROLES.length} records=${pageRecords.length} searches=0 totalMs=${Date.now() - t0} (staff page only)`);
+    return { school, records: pageRecords, contacts: null, droppedWrongSport: [], staffPage: pageInfo,
+      ms: Date.now() - t0, meter: { searches: 0, outTokens: 0, sources: 0 }, rolesFilled: filled0, rolesTotal: ROLES.length };
+  }
+
   const run = await ai.runSourceWaves(SOURCE_ORDER, (src) => _runSource(src, school), {
     waveSize: 3,
     wallBudgetMs: WALL_BUDGET_MS,
@@ -366,8 +506,11 @@ async function buildProgram(school, nowMs) {
   const meter = { searches: 0, outTokens: 0, sources: run.results.length };
   for (const r of run.results) { meter.searches += r.searches || 0; meter.outTokens += r.outTokens || 0; }
 
-  const records = [];
+  const records = [...pageRecords];
   for (const role of ROLES) {
+    // The staff page already settled this role; a search result cannot override the
+    // school's own football staff listing.
+    if (covered.has(role.key)) continue;
     const forRole = all.filter((p) => _roleOf(p) === role.key);
     if (!forRole.length) {
       console.log(`[program-map] school="${school}" role=${role.key} found=0 tierA=no confidence=empty`);
@@ -439,7 +582,7 @@ async function buildProgram(school, nowMs) {
     console.log(`[program-map] school="${school}" wrongSportDropped=${droppedWrongSport.length} ${JSON.stringify(bySport)}`);
   }
   console.log(`[program-map] school="${school}" roles=${filled}/${ROLES.length} records=${records.length} dropped=${droppedWrongSport.length} sources=${meter.sources} searches=${meter.searches} totalMs=${Date.now() - t0}`);
-  return { school, records, contacts: contactRow, droppedWrongSport, ms: Date.now() - t0, meter, rolesFilled: filled, rolesTotal: ROLES.length };
+  return { school, records, contacts: contactRow, droppedWrongSport, staffPage: pageInfo, ms: Date.now() - t0, meter, rolesFilled: filled, rolesTotal: ROLES.length };
 }
 
 // CROSS-SCHOOL DEDUPE. One person cannot hold the same role at two programs. When a
@@ -495,7 +638,7 @@ function reachVia(record, contacts) {
 }
 
 module.exports = {
-  buildProgram, dedupeAcrossSchools, reachVia, classifyTier, parseDate, isStale, monthsSince,
+  buildProgram, dedupeAcrossSchools, reachVia, discoverStaffUrl, loadFootballStaff, recordsFromStaffPage, classifyTier, parseDate, isStale, monthsSince,
   detectSport, footballScoped,
   ROLES, SCHOOLS, PILOT_SCHOOLS, SOURCE_ORDER, STALE_MONTHS, _assess, _roleOf, _byRecency, _newestMs,
 };

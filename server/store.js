@@ -657,6 +657,30 @@ async function init() {
   // sport, so a football map has to record this or a track GM looks like a Tier A hit.
   await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS sport TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS source_tier_note TEXT`).catch(() => {});
+  // Per-school SOURCE CONFIG. The football staff page URL is discovered ONCE via
+  // search and then persisted here; it is never searched for again. This is what
+  // makes the map deterministic: the same URL is fetched every run, so the same page
+  // yields the same records instead of a different search result each time.
+  // last_staff + last_hash back the weekly re-fetch diff, which is the staff-change
+  // alert feature.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS program_source (
+      school TEXT PRIMARY KEY,
+      football_staff_url TEXT,
+      football_staff_url_discovered_via TEXT,
+      athletics_contact_url TEXT,
+      last_fetched_at TIMESTAMPTZ,
+      last_hash TEXT,
+      last_staff JSONB DEFAULT '[]'::jsonb,
+      last_staff_count INT DEFAULT 0,
+      parse_via TEXT,
+      verified_on DATE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] program_source table ready'))
+    .catch(e => console.error('[init] program_source:', e.message));
+
   // Program-level reach info: the football office line and any published recruiting
   // or collective address. This is what makes the map a call list rather than a
   // name list, since schools rarely publish individual staff emails.
@@ -2047,6 +2071,49 @@ async function saveProgramStaff(school, records) {
   } finally { client.release(); }
 }
 
+async function getProgramSource(school) {
+  try {
+    const r = school
+      ? await pool.query('SELECT * FROM program_source WHERE school = $1', [school])
+      : await pool.query('SELECT * FROM program_source ORDER BY school');
+    return school ? (r.rows[0] || null) : (r.rows || []);
+  } catch (e) { console.error('[programMap] source read failed:', e.message); return school ? null : []; }
+}
+
+// Persist a discovered staff URL. Called once per school; after this the URL is read
+// from here forever and never re-discovered unless explicitly forced.
+async function saveProgramSourceUrl(school, url, via, contactUrl) {
+  if (!school || !url) return false;
+  try {
+    await pool.query(
+      `INSERT INTO program_source (school, football_staff_url, football_staff_url_discovered_via, athletics_contact_url, verified_on, updated_at)
+       VALUES ($1,$2,$3,$4,CURRENT_DATE,NOW())
+       ON CONFLICT (school) DO UPDATE SET
+         football_staff_url = EXCLUDED.football_staff_url,
+         football_staff_url_discovered_via = EXCLUDED.football_staff_url_discovered_via,
+         athletics_contact_url = COALESCE(EXCLUDED.athletics_contact_url, program_source.athletics_contact_url),
+         verified_on = CURRENT_DATE, updated_at = NOW()`,
+      [school, url, via || null, contactUrl || null]);
+    return true;
+  } catch (e) { console.error(`[programMap] source url save failed school="${school}":`, e.message); return false; }
+}
+
+// Record a parse, keeping the previous list so the NEXT run can diff against it.
+async function saveProgramStaffSnapshot(school, staff, hash, via) {
+  if (!school) return false;
+  try {
+    await pool.query(
+      `INSERT INTO program_source (school, last_fetched_at, last_hash, last_staff, last_staff_count, parse_via, updated_at)
+       VALUES ($1,NOW(),$2,$3::jsonb,$4,$5,NOW())
+       ON CONFLICT (school) DO UPDATE SET
+         last_fetched_at = NOW(), last_hash = EXCLUDED.last_hash,
+         last_staff = EXCLUDED.last_staff, last_staff_count = EXCLUDED.last_staff_count,
+         parse_via = EXCLUDED.parse_via, updated_at = NOW()`,
+      [school, hash || null, JSON.stringify(staff || []), (staff || []).length, via || null]);
+    return true;
+  } catch (e) { console.error(`[programMap] snapshot save failed school="${school}":`, e.message); return false; }
+}
+
 async function saveProgramContact(school, c) {
   if (!school || !c) return false;
   try {
@@ -2696,6 +2763,7 @@ module.exports = {
   getBrandLedgerRows, getBrandLedgerRow, insertManualBrand, upsertShownBrands, markBrandContacted, unmarkBrandContacted, getCrossAthleteContacted,
   getSocialBrandPool, getSocialDepth,
   saveProgramStaff, getProgramStaff, saveProgramContact, getProgramContact,
+  getProgramSource, saveProgramSourceUrl, saveProgramStaffSnapshot,
   ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
   ensureFeedbackColumns, logScanShown, getScanSignal, applyScanSignal,
   ensureMarketSightings, markMarketNewcomers, NEW_WINDOW_DAYS,

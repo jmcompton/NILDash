@@ -88,6 +88,32 @@ async function run() {
   const sIdx = args.indexOf('--school');
   const only = sIdx !== -1 ? args[sIdx + 1] : null;
 
+  // --staff: fetch and print the parsed football staff page for one or more schools
+  // WITHOUT building records. This is the "show me Florida and Georgia first" path.
+  if (args.includes('--staff')) {
+    const targets = only ? [only] : programMap.PILOT_SCHOOLS;
+    for (const school of targets) {
+      console.log('\n' + line('='));
+      console.log(`${school} FOOTBALL STAFF PAGE`);
+      console.log(line('='));
+      const res = await programMap.loadFootballStaff(school, store, { rediscover: args.includes('--rediscover') });
+      if (!res.url) { console.log('  NO STAFF URL. Discovery found nothing; set program_source.football_staff_url by hand.'); continue; }
+      console.log(`  url    ${res.url}`);
+      console.log(`  parsed ${res.staff.length} staff via ${res.via}`);
+      if (res.error) console.log(`  ERROR  ${res.error}`);
+      console.log('');
+      for (const p of res.staff) {
+        console.log(`   ${String(p.name).padEnd(28)} ${String(p.title || '(no title)').padEnd(46)} ${p.email || ''} ${p.phone || ''}`);
+      }
+      const recs = programMap.recordsFromStaffPage(school, res.staff, res.url);
+      console.log(`\n  ROLES MATCHED FROM THIS PAGE (${recs.length}):`);
+      for (const r of recs) console.log(`   ${r.role_label.padEnd(30)} ${r.name} (${r.title || 'no title'})`);
+      const missing = programMap.ROLES.filter((x) => !recs.some((r) => r.role === x.key));
+      if (missing.length) console.log(`  roles NOT on this page: ${missing.map((m) => m.key).join(', ')}  (search would fill these)`);
+    }
+    return;
+  }
+
   if (dumpOnly) {
     const rows = await store.getProgramStaff(only || null);
     if (!rows.length) { console.log('No program_staff records stored yet. Run without --dump first.'); return; }
@@ -112,7 +138,7 @@ async function run() {
   // are in hand, since the whole point is spotting one person claimed by two.
   for (const school of schools) {
     try {
-      const out = await programMap.buildProgram(school, nowMs);
+      const out = await programMap.buildProgram(school, nowMs, store);
       perSchool.push(out);
       totalSearches += out.meter.searches;
       totalOut += out.meter.outTokens;
