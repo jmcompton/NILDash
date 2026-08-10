@@ -1302,6 +1302,61 @@ const SIDE_LOOKUP_GRACE_MS = parseInt(process.env.SIDE_LOOKUP_GRACE_MS, 10) || 2
 const CONTACT_SEARCH_MAX_USES = parseInt(process.env.CONTACT_SEARCH_MAX_USES, 10) || 2;
 const CONTACT_SEARCH_MAX_TOKENS = parseInt(process.env.CONTACT_SEARCH_MAX_TOKENS, 10) || 900;
 
+// ── Shared parallel wave engine ──────────────────────────────────────────────
+// Runs independent lookups in parallel waves instead of one at a time: a wave costs
+// its SLOWEST member, not the sum. Used by the brand contact ladder and by the
+// program contact map, so there is exactly one implementation of this behavior.
+//   sources    list of opaque source ids
+//   runOne     (source) => Promise<result>   (must resolve; failures are tolerated)
+//   opts.waveSize      members per wave (default CONTACT_WAVE_SIZE env or 3)
+//   opts.wallBudgetMs  give up starting new waves past this
+//   opts.hasWin(r)     result counts as a win, which permits the straggler cut
+//   opts.isSatisfied(all)  stop between waves
+//   opts.onResult(r)   per-result callback, used for logging
+// Returns { results, ms, waveSize, wavesRun }.
+async function runSourceWaves(sources, runOne, opts = {}) {
+  const waveSize = Math.max(1, opts.waveSize || parseInt(process.env.CONTACT_WAVE_SIZE, 10) || 3);
+  const wallBudgetMs = opts.wallBudgetMs || 22000;
+  const hasWin = typeof opts.hasWin === 'function' ? opts.hasWin : () => false;
+  const isSatisfied = typeof opts.isSatisfied === 'function' ? opts.isSatisfied : () => false;
+  const onResult = typeof opts.onResult === 'function' ? opts.onResult : () => {};
+  const label = opts.label || '';
+  const t0 = Date.now();
+  const all = [];
+  let wavesRun = 0;
+  for (let w = 0; w < sources.length; w += waveSize) {
+    if (all.length && Date.now() - t0 > wallBudgetMs) {
+      console.log(`[waves] ${label} stop: wall budget after ${all.length} source(s)`);
+      break;
+    }
+    const wave = sources.slice(w, w + waveSize);
+    wavesRun++;
+    // STRAGGLER CUT: one dead source must not hold the whole wave. Once every other
+    // member has settled AND we already have a win, stop waiting. The abandoned call
+    // is left to its own timeout and its result is discarded.
+    const waveOut = [];
+    let settled = 0;
+    let win = false;
+    let cut = null;
+    const cutP = new Promise((resolve) => { cut = resolve; });
+    const maybeCut = () => { if (win && settled >= wave.length - 1 && cut) cut('cut'); };
+    const tracked = wave.map((src) => Promise.resolve()
+      .then(() => runOne(src))
+      .then((r) => { if (r) { waveOut.push(r); if (hasWin(r)) win = true; } settled++; maybeCut(); })
+      .catch(() => { settled++; maybeCut(); }));
+    const outcome = await Promise.race([Promise.all(tracked).then(() => 'all'), cutP]);
+    if (outcome === 'cut' && waveOut.length < wave.length) {
+      console.log(`[waves] ${label} wave cut: ${wave.length - waveOut.length} straggler(s) abandoned after a win (wave=${wave.join(',')})`);
+    }
+    for (const r of waveOut) { all.push(r); onResult(r); }
+    if (isSatisfied(all)) {
+      console.log(`[waves] ${label} satisfied after wave ${wavesRun} (${all.length} source(s))`);
+      break;
+    }
+  }
+  return { results: all, ms: Date.now() - t0, waveSize, wavesRun };
+}
+
 async function _contactWebSearchRaw(prompt, sys) {
   const client = getClient();
   scanMeter.bumpWeb();
@@ -1573,56 +1628,33 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   // Tradeoff, accepted deliberately: a wave always spends its full width (3 calls)
   // even when the first source alone would have sufficed. Speed is worth more here
   // than the occasional saved call.
-  const WAVE_SIZE = Math.max(1, parseInt(process.env.CONTACT_WAVE_SIZE, 10) || 3);
-  for (let w = 0; w < sourceOrder.length; w += WAVE_SIZE) {
-    if (results.length && Date.now() - _cStart > CONTACT_WALL_BUDGET_MS) {
-      console.log(`[dealScan] contacts brand=${brand} stop: wall budget after ${results.length} source(s)`);
-      break;
+  // Shared wave engine (runSourceWaves). The brand ladder and the program contact
+  // map run the SAME runner; only the per-source function and the stop rules differ.
+  const _waveRun = await runSourceWaves(
+    sourceOrder,
+    (src) => _searchContactSource(src, brand, loc, domain, regionState),
+    {
+      wallBudgetMs: CONTACT_WALL_BUDGET_MS,
+      label: `brand=${brand}`,
+      // A wave may cut its straggler once this is true of any settled result.
+      hasWin: (r) => (r.contacts || []).some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1),
+      onResult: (r) => {
+        const _t1hit = (r.contacts || []).some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1);
+        console.log(`[brand-contacts] source=${r.source} ms=${r.ms} found=${r.kept} tier1=${_t1hit ? 'yes' : 'no'} searches=${r.searches} outTokens=${r.outTokens} apiMs=${r.apiMs} rawLen=${r.rawLen} status=${r.status} parsed=${r.parsed}${r.dropReason ? ` dropReason=${r.dropReason}` : ''}${r.usedProse ? ' prose=1' : ''}`);
+      },
+      // Between waves: scan stops at anything above a bare registered agent (cost
+      // lever); the manual ladder keeps going until a real Tier 1 decision maker.
+      isSatisfied: (all) => {
+        const best = _mergeContacts(all.flatMap((x) => x.contacts))
+          .sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title))[0];
+        if (!best) return false;
+        const bestRank = _contactAuthorityRank(best.title);
+        return manualLadder ? _TIER1_RANKS.indexOf(bestRank) !== -1 : bestRank < 9;
+      },
     }
-    const wave = sourceOrder.slice(w, w + WAVE_SIZE);
-    // STRAGGLER CUT: one dead source must not hold the whole wave. Facebook hitting
-    // its 15s cap dragged a 23s lookup even though the other two had already come
-    // back with a Tier 1 hit. Once every other member of the wave has settled AND we
-    // already have a Tier 1, stop waiting and move on. The abandoned call is left to
-    // its own 15s timeout; its result is simply discarded.
-    const waveOut = [];
-    let _settled = 0;
-    let _tier1Seen = false;
-    let _cut = null;
-    const _cutP = new Promise((resolve) => { _cut = resolve; });
-    const _maybeCut = () => { if (_tier1Seen && _settled >= wave.length - 1 && _cut) _cut('cut'); };
-    const _tracked = wave.map((src) => _searchContactSource(src, brand, loc, domain, regionState)
-      .then((r) => {
-        waveOut.push(r); _settled++;
-        if ((r.contacts || []).some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1)) _tier1Seen = true;
-        _maybeCut();
-      })
-      .catch(() => { _settled++; _maybeCut(); }));
-    const _outcome = await Promise.race([Promise.all(_tracked).then(() => 'all'), _cutP]);
-    if (_outcome === 'cut' && waveOut.length < wave.length) {
-      console.log(`[brand-contacts] wave cut: ${wave.length - waveOut.length} straggler(s) abandoned after a tier1 hit (wave=${wave.join(',')})`);
-    }
-    for (const r of waveOut) {
-      results.push(r);
-      // Per-source timing and yield, so slow and unproductive sources are visible.
-      // kept = people who survived validation. parsed>0 kept=0 means the extraction
-      // found people but validation dropped them.
-      const _t1hit = (r.contacts || []).some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1);
-      console.log(`[brand-contacts] source=${r.source} ms=${r.ms} found=${r.kept} tier1=${_t1hit ? 'yes' : 'no'} searches=${r.searches} outTokens=${r.outTokens} apiMs=${r.apiMs} rawLen=${r.rawLen} status=${r.status} parsed=${r.parsed}${r.dropReason ? ` dropReason=${r.dropReason}` : ''}${r.usedProse ? ' prose=1' : ''}`);
-    }
-    const best = _mergeContacts(results.flatMap((x) => x.contacts))
-      .sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title))[0];
-    const bestRank = best ? _contactAuthorityRank(best.title) : 99;
-    // Scan path: stop at anything better than a bare registered agent (cost lever).
-    // Manual path: a Tier 2 manager does NOT end the search, because that defeats the
-    // ladder. Keep going until a Tier 1 decision maker is found or sources run out.
-    const stop = manualLadder ? _TIER1_RANKS.indexOf(bestRank) !== -1 : bestRank < 9;
-    if (best && stop) {
-      console.log(`[dealScan] contacts brand=${brand} early exit after wave ${(w / WAVE_SIZE) + 1} (${results.length} source(s)): ${best.title}${manualLadder ? ' (tier 1)' : ''}`);
-      break;
-    }
-  }
-  console.log(`[brand-contacts] fanout brand=${brand} sources=${results.length}/${sourceOrder.length} waveSize=${WAVE_SIZE} totalMs=${Date.now() - _cStart}`);
+  );
+  for (const r of _waveRun.results) results.push(r);
+  console.log(`[brand-contacts] fanout brand=${brand} sources=${results.length}/${sourceOrder.length} waveSize=${_waveRun.waveSize} totalMs=${Date.now() - _cStart}`);
   if (manualLadder) {
     const _t1 = _mergeContacts(results.flatMap((x) => x.contacts))
       .some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1);
@@ -3258,6 +3290,8 @@ module.exports = {
   brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder
   MANUAL_SOURCE_ORDER,                         // shared wave order for deep lookups
+  runSourceWaves,                              // shared parallel wave engine
+  webSearchJson: _contactWebSearchRaw,         // Haiku + web_search primitive (15s capped by caller)
   rootDomain: _rootDomain,                     // injected for the cross-domain contact check
   TIER1_RANKS: _TIER1_RANKS,
   prewarmDealEvidence,

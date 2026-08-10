@@ -618,6 +618,37 @@ async function init() {
     .catch(e => console.error('[init] brand_engagement:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_athlete_state ON brand_engagement (athlete_id, state)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_agent_key ON brand_engagement (agent_id, brand_key)`).catch(() => {});
+  // ── Program Contact Map ───────────────────────────────────────────────────
+  // Who holds power at each FBS program. A SHARED asset: built once by a job and
+  // served to every agent, never run live per query. One row per (school, role,
+  // name), so a genuine disagreement between sources is TWO rows both labeled
+  // 'conflicting' rather than one silently chosen winner.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS program_staff (
+      id SERIAL PRIMARY KEY,
+      school TEXT NOT NULL,
+      role TEXT NOT NULL,
+      role_label TEXT,
+      name TEXT NOT NULL,
+      title TEXT,
+      email TEXT,
+      email_source_url TEXT,
+      phone TEXT,
+      linkedin_url TEXT,
+      source_url TEXT,
+      source_tier TEXT,
+      confidence TEXT,
+      sources JSONB DEFAULT '[]'::jsonb,
+      verified_on DATE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (school, role, name)
+    )
+  `).then(() => console.log('[init] program_staff table ready'))
+    .catch(e => console.error('[init] program_staff:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_school ON program_staff (school)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_school_role ON program_staff (school, role)`).catch(() => {});
+
   // How the row entered the ledger: 'scan' (surfaced by Deal Scan) or 'manual'
   // (the agent added the business by name via Add a Business). Additive and
   // nullable, so existing rows are untouched and read as scan-sourced.
@@ -1939,6 +1970,56 @@ async function getCrossAthleteContacted(agentId, brandKeys, excludeAthleteId) {
   return out;
 }
 
+// ── Program Contact Map storage ──────────────────────────────────────────────
+// Replace a school's records wholesale so a rebuild cannot leave a stale person
+// behind after a staff change. Runs in a transaction: either the new set lands or
+// the old set is untouched.
+async function saveProgramStaff(school, records) {
+  if (!school) return 0;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM program_staff WHERE school = $1', [school]);
+    let n = 0;
+    for (const r of (records || [])) {
+      if (!r || !r.name || !r.role) continue;
+      await client.query(
+        `INSERT INTO program_staff
+           (school, role, role_label, name, title, email, email_source_url, phone,
+            linkedin_url, source_url, source_tier, confidence, sources, verified_on, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW())
+         ON CONFLICT (school, role, name) DO UPDATE SET
+           role_label = EXCLUDED.role_label, title = EXCLUDED.title,
+           email = EXCLUDED.email, email_source_url = EXCLUDED.email_source_url,
+           phone = EXCLUDED.phone, linkedin_url = EXCLUDED.linkedin_url,
+           source_url = EXCLUDED.source_url, source_tier = EXCLUDED.source_tier,
+           confidence = EXCLUDED.confidence, sources = EXCLUDED.sources,
+           verified_on = CURRENT_DATE, updated_at = NOW()`,
+        [school, r.role, r.role_label || null, r.name, r.title || null, r.email || null,
+         r.email_source_url || null, r.phone || null, r.linkedin_url || null,
+         r.source_url || null, r.source_tier || null, r.confidence || null,
+         JSON.stringify(r.sources || [])]);
+      n++;
+    }
+    await client.query('COMMIT');
+    console.log(`[programMap] saved school="${school}" records=${n}`);
+    return n;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error(`[programMap] save failed school="${school}":`, e.message);
+    return 0;
+  } finally { client.release(); }
+}
+
+async function getProgramStaff(school) {
+  try {
+    const r = school
+      ? await pool.query('SELECT * FROM program_staff WHERE school = $1 ORDER BY role, confidence, name', [school])
+      : await pool.query('SELECT * FROM program_staff ORDER BY school, role, confidence, name');
+    return r.rows || [];
+  } catch (e) { console.error('[programMap] read failed:', e.message); return []; }
+}
+
 // Aggregate wizard step drop-off for a lightweight internal analytics view.
 async function getOnboardingAnalytics() {
   try {
@@ -2544,6 +2625,7 @@ module.exports = {
   getMarketCache, setMarketCache, MARKET_CACHE_TTL_DAYS,
   getBrandLedgerRows, getBrandLedgerRow, insertManualBrand, upsertShownBrands, markBrandContacted, unmarkBrandContacted, getCrossAthleteContacted,
   getSocialBrandPool, getSocialDepth,
+  saveProgramStaff, getProgramStaff,
   ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
   ensureFeedbackColumns, logScanShown, getScanSignal, applyScanSignal,
   ensureMarketSightings, markMarketNewcomers, NEW_WINDOW_DAYS,

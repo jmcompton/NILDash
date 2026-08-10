@@ -6942,6 +6942,48 @@ app.get('/api/agent/deal-scan/social-depth', requireAuth, async (req, res) => {
 // Admin-gated and idempotent (ON CONFLICT DO NOTHING never overwrites a live row),
 // so it is safe to re-run. NOT auto-run on boot: the selection query is reviewed
 // first, then this is triggered manually.
+// ── Program Contact Map (pilot) ─────────────────────────────────────────────
+// Build is admin-gated and DELIBERATELY manual: this is a shared cached asset, not
+// a live per-query lookup. Rebuilding a school replaces its records wholesale.
+app.post('/api/admin/program-map/build', requireAuth, async (req, res) => {
+  try {
+    const _ru = await store.getUser(req.session.userId);
+    if (!_ru || (_ru.email !== ADMIN_EMAIL && !isFounderEmail(_ru.email) && _ru.role !== 'admin')) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const programMap = require('./services/programMap');
+    const { school } = req.body || {};
+    const schools = school ? [school] : programMap.PILOT_SCHOOLS;
+    const t0 = Date.now();
+    const out = [];
+    for (const s of schools) {
+      try {
+        const built = await programMap.buildProgram(s);
+        const saved = await store.saveProgramStaff(s, built.records);
+        out.push({ school: s, records: saved, rolesFilled: built.rolesFilled, rolesTotal: built.rolesTotal, ms: built.ms, searches: built.meter.searches });
+      } catch (e) {
+        console.error(`[program-map] ${s} failed:`, e.message);
+        out.push({ school: s, error: e.message });
+      }
+    }
+    res.json({ ok: true, programs: out.length, totalMs: Date.now() - t0, results: out });
+  } catch (e) { console.error('[program-map/build]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// Read-only dump of what is stored, for hand verification.
+app.get('/api/admin/program-map', requireAuth, async (req, res) => {
+  try {
+    const _ru = await store.getUser(req.session.userId);
+    if (!_ru || (_ru.email !== ADMIN_EMAIL && !isFounderEmail(_ru.email) && _ru.role !== 'admin')) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const rows = await store.getProgramStaff(req.query.school || null);
+    const byConfidence = {};
+    for (const r of rows) byConfidence[r.confidence] = (byConfidence[r.confidence] || 0) + 1;
+    res.json({ ok: true, count: rows.length, byConfidence, records: rows });
+  } catch (e) { console.error('[program-map]', e.message); res.status(500).json({ error: e.message }); }
+});
+
 // Read-only ledger stats: COUNT(*) from brand_engagement, broken down by state and
 // by lane. Admin-gated, writes nothing (SELECT only). Session-cookie auth, so it
 // runs from a logged-in admin phone without any manual token.
