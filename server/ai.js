@@ -1530,16 +1530,30 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   const sourceOrder = (opts && Array.isArray(opts.sourceOrder) && opts.sourceOrder.length)
     ? opts.sourceOrder.filter((s) => _CONTACT_SOURCES.indexOf(s) !== -1)
     : _CONTACT_SOURCES;
-  for (const src of sourceOrder) {
+  // Sources run in PARALLEL WAVES instead of one at a time. Strictly sequential was
+  // costing up to 6 x 15s back to back (a real deep call measured 27s), because each
+  // source waited on the one before it for no reason: they are independent lookups.
+  // A wave's latency is its SLOWEST member, not the sum. The early-exit check still
+  // runs between waves, so a Tier 1 hit in wave 1 skips wave 2 entirely.
+  // Tradeoff, accepted deliberately: a wave always spends its full width (3 calls)
+  // even when the first source alone would have sufficed. Speed is worth more here
+  // than the occasional saved call.
+  const WAVE_SIZE = Math.max(1, parseInt(process.env.CONTACT_WAVE_SIZE, 10) || 3);
+  for (let w = 0; w < sourceOrder.length; w += WAVE_SIZE) {
     if (results.length && Date.now() - _cStart > CONTACT_WALL_BUDGET_MS) {
-      console.log(`[dealScan] contacts brand=${brand} sequential stop: wall budget after ${results.length} source(s)`);
+      console.log(`[dealScan] contacts brand=${brand} stop: wall budget after ${results.length} source(s)`);
       break;
     }
-    const r = await _searchContactSource(src, brand, loc, domain, regionState);
-    results.push(r);
-    // parsed = people extracted from the response; kept = survivors of validation.
-    // parsed>0 kept=0 means the extraction found people but validation dropped them.
-    console.log(`[dealScan] contacts brand=${brand} source=${r.source} rawLen=${r.rawLen} parsed=${r.parsed} kept=${r.kept}${r.dropReason ? ` dropReason=${r.dropReason}` : ''}${r.usedProse ? ' prose=1' : ''} status=${r.status} ms=${r.ms}`);
+    const wave = sourceOrder.slice(w, w + WAVE_SIZE);
+    const waveOut = await Promise.all(wave.map((src) => _searchContactSource(src, brand, loc, domain, regionState)));
+    for (const r of waveOut) {
+      results.push(r);
+      // Per-source timing and yield, so slow and unproductive sources are visible.
+      // kept = people who survived validation. parsed>0 kept=0 means the extraction
+      // found people but validation dropped them.
+      const _t1hit = (r.contacts || []).some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1);
+      console.log(`[brand-contacts] source=${r.source} ms=${r.ms} found=${r.kept} tier1=${_t1hit ? 'yes' : 'no'} status=${r.status} parsed=${r.parsed}${r.dropReason ? ` dropReason=${r.dropReason}` : ''}${r.usedProse ? ' prose=1' : ''}`);
+    }
     const best = _mergeContacts(results.flatMap((x) => x.contacts))
       .sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title))[0];
     const bestRank = best ? _contactAuthorityRank(best.title) : 99;
@@ -1548,10 +1562,11 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
     // ladder. Keep going until a Tier 1 decision maker is found or sources run out.
     const stop = manualLadder ? _TIER1_RANKS.indexOf(bestRank) !== -1 : bestRank < 9;
     if (best && stop) {
-      console.log(`[dealScan] contacts brand=${brand} early exit after ${results.length} source(s): ${best.title}${manualLadder ? ' (tier 1)' : ''}`);
+      console.log(`[dealScan] contacts brand=${brand} early exit after wave ${(w / WAVE_SIZE) + 1} (${results.length} source(s)): ${best.title}${manualLadder ? ' (tier 1)' : ''}`);
       break;
     }
   }
+  console.log(`[brand-contacts] fanout brand=${brand} sources=${results.length}/${sourceOrder.length} waveSize=${WAVE_SIZE} totalMs=${Date.now() - _cStart}`);
   if (manualLadder) {
     const _t1 = _mergeContacts(results.flatMap((x) => x.contacts))
       .some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1);
@@ -1657,6 +1672,20 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // agent chose to pursue this business. On the card path we return the Places
   // phone/website only — cheap, and phone is the actionable contact anyway.
   const _deep = !!(ctx && ctx.enrichEmail);
+  // Kick the two INDEPENDENT lookups off now so they overlap the contact fan-out
+  // instead of running after it. Neither needs the contact list to start, and
+  // serially they were adding up to ~8s (Instagram) and ~20s+retry (Hunter) to the
+  // wall time of a deep call. Both are failure-tolerant and resolve to null.
+  let _igPromise = null;
+  let _hunterPromise = null;
+  if (_deep && effectiveWebsite) {
+    try {
+      const { findInstagram } = require('./services/instagramLookup');
+      _igPromise = findInstagram(effectiveWebsite).catch(() => null);
+    } catch (_) { _igPromise = null; }
+    const _dom = _domainFromUrl(effectiveWebsite);
+    if (_dom) { try { _hunterPromise = lookupDomain(_dom).catch(() => null); } catch (_) { _hunterPromise = null; } }
+  }
   // Manual "Add a Business" passes sourceOrder (site first) and stopAtTier1, so the
   // ladder keeps searching past a Tier 2 manager. Scans pass neither and are unchanged.
   const res = await _fetchBrandContacts(brand, effectiveWebsite, false, locationHint, {
@@ -1677,10 +1706,9 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // (2) the best personal email as an honestly labeled company contact; else
   // (3) a REAL generic inbox from Hunter. Phone from Places is the guaranteed
   // floor. Gated on ctx.enrichEmail (AI Outreach path only). Never guesses.
-  if (ctx && ctx.enrichEmail && effectiveWebsite) {
-    const _domain = _domainFromUrl(effectiveWebsite);
+  if (_hunterPromise) {
     let _hunter = null;
-    if (_domain) { try { _hunter = await lookupDomain(_domain); } catch (_) { _hunter = null; } }
+    try { _hunter = await _hunterPromise; } catch (_) { _hunter = null; }
     const _emails = (_hunter && Array.isArray(_hunter.emails)) ? _hunter.emails.filter((e) => e && e.email) : [];
     if (_emails.length) {
       const _personal = _emails.filter((e) => e.type === 'personal').sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
@@ -1712,12 +1740,9 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // the phone, and it is a genuinely DIFFERENT contact rather than another copy of
   // the same number. Site-scraped only (no AI, one fetch, cached 30 days), gated on
   // the deep path so a plain card scan does not pay for it.
-  if (ctx && ctx.enrichEmail && effectiveWebsite) {
-    try {
-      const { findInstagram } = require('./services/instagramLookup');
-      const handle = await findInstagram(effectiveWebsite);
-      if (handle) res.instagram = handle;
-    } catch (e) { console.warn('[dealScan] instagram lookup failed:', e.message); }
+  if (_igPromise) {
+    try { const handle = await _igPromise; if (handle) res.instagram = handle; }
+    catch (e) { console.warn('[dealScan] instagram lookup failed:', e.message); }
   }
   // Make the card actionable: hand the top named contact the business line as a
   // callable number when they have none of their own. "Ask for Bryan" plus the

@@ -6744,19 +6744,55 @@ function _dsLadderHtml(d) {
 // Places pass for all cards; this runs the full 6-source ladder for the single
 // business the agent is actually pursuing, so the cost lands only where it earns
 // its keep. Re-renders that card's contact slot in place.
+// Progress stages for the deep lookup. A real deep call runs 20-30s, which read as
+// a dead button: the agent gave up before it returned. These prove it is alive and
+// roughly track what the server is doing (site first, then the other sources).
+var _DS_DEEP_STAGES = [
+  [0,  'Searching the website'],
+  [6,  'Checking their Facebook page'],
+  [12, 'Checking state filings'],
+  [19, 'Checking maps and news'],
+  [26, 'Almost there'],
+];
 async function _dsDeepContacts(i, btn) {
   var d = (window._dealScanResults || [])[i];
   if (!d) return;
-  if (btn) { btn.disabled = true; btn.textContent = 'Searching…'; }
+  var slot = document.getElementById('dsc-' + i);
+  var started = Date.now();
+  var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var noteId = 'dsdeepnote-' + i;
+  var ticker = null;
+  var stop = function () { if (ticker) { clearInterval(ticker); ticker = null; } };
+  if (btn) { btn.disabled = true; btn.textContent = _DS_DEEP_STAGES[0][1] + '…'; }
+  // Rotate the label, then at 30s offer an explicit choice rather than leaving the
+  // agent guessing whether it is stuck.
+  ticker = setInterval(function () {
+    var secs = (Date.now() - started) / 1000;
+    if (btn) {
+      var label = _DS_DEEP_STAGES[0][1];
+      for (var s = 0; s < _DS_DEEP_STAGES.length; s++) if (secs >= _DS_DEEP_STAGES[s][0]) label = _DS_DEEP_STAGES[s][1];
+      btn.textContent = label + '… ' + Math.floor(secs) + 's';
+    }
+    if (secs >= 30 && !document.getElementById(noteId) && slot) {
+      slot.insertAdjacentHTML('beforeend',
+        '<div id="' + noteId + '" style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6">' +
+        'This one is taking a while. It is still running. ' +
+        '<a href="#" onclick="_dsDeepStop(' + i + ',event)" style="color:#f87171;text-decoration:underline">Stop</a>' +
+        ' or keep waiting.</div>');
+    }
+  }, 1000);
+  window['_dsDeepAbort_' + i] = function () { if (ctrl) ctrl.abort(); };
   try {
     var r = await fetch(API_BASE + '/api/agent/brand-contacts', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      signal: ctrl ? ctrl.signal : undefined,
       body: JSON.stringify({ deep: true, brands: [{
         brand: d.brand || d.brand_name, website: d.website || null, region: d.region || '',
         market: d.market || null, isFranchise: d.isFranchise === true,
         approach: d.contactApproach || null, category: d.category || null,
       }] }),
     });
+    stop();
     var data = await r.json().catch(function () { return {}; });
     var row = data && Array.isArray(data.results) && data.results[0];
     // Never fail silently. Previously a server-side throw came back as an empty
@@ -6776,11 +6812,30 @@ async function _dsDeepContacts(i, btn) {
     if (row.approach) d.contactApproach = row.approach;
     d.contactLadder = row.contactLadder || null;
     d._contactsLoaded = true;
-    var slot = document.getElementById('dsc-' + i);
     if (slot) slot.innerHTML = _dsContactSlotInner(d);
+    console.log('[deepContacts] done in ' + Math.round((Date.now() - started) / 1000) + 's, topTier=' + (d.contactLadder && d.contactLadder.topTier));
   } catch (e) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Find the decision maker'; }
+    stop();
+    var aborted = e && e.name === 'AbortError';
+    if (slot) {
+      var n = document.getElementById(noteId);
+      if (n) n.remove();
+      slot.insertAdjacentHTML('beforeend', '<div style="font-size:11px;color:' + (aborted ? 'var(--muted)' : '#f87171') + ';margin-top:8px;line-height:1.5">' +
+        (aborted ? 'Stopped. The main line above still works.' : 'Contact search failed: ' + esc(e && e.message ? e.message : 'unknown error')) + '</div>');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = aborted ? 'Find the decision maker' : 'Try again'; }
   }
+  stop();
+  var leftover = document.getElementById(noteId);
+  if (leftover) leftover.remove();
+}
+
+// Cancel an in-flight deep lookup. The ladder already on the card (main line and
+// call window) stays exactly as it was.
+function _dsDeepStop(i, ev) {
+  if (ev) ev.preventDefault();
+  var fn = window['_dsDeepAbort_' + i];
+  if (fn) fn();
 }
 
 function _dsContactsHtml(d) {

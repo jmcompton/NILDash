@@ -33,7 +33,13 @@ const syncLocks = new Set();
 async function syncAllAccounts() {
   try {
     const { pool } = require('../store');
-    const r = await pool.query(`SELECT * FROM email_accounts WHERE status='active'`);
+    // Gmail inbox sync off: exclude Gmail accounts in the QUERY rather than looping
+    // them and logging a skip line each. With 7 accounts that was 7 identical lines
+    // per run, drowning the deploy logs. The state is announced once at startup.
+    const r = INBOX_SYNC_ENABLED
+      ? await pool.query(`SELECT * FROM email_accounts WHERE status='active'`)
+      : await pool.query(`SELECT * FROM email_accounts WHERE status='active' AND provider <> 'gmail'`);
+    if (!r.rows.length) return; // nothing syncable, say nothing
     for (const account of r.rows) {
       syncAccount(account).catch(e =>
         console.error(`[emailSync] Account ${account.id} sync error:`, e.message)
@@ -52,10 +58,10 @@ async function syncAccount(account) {
   // Gmail inbox sync is disabled — reading messages needs the RESTRICTED
   // gmail.readonly scope we no longer request. Skip Gmail accounts entirely so
   // nothing throws an insufficient-scope error. (Send still works via gmail.send.)
-  if (account.provider === 'gmail' && !INBOX_SYNC_ENABLED) {
-    console.log('[emailSync] Gmail inbox sync disabled (INBOX_SYNC_ENABLED=false) — skipping', account.email_address);
-    return;
-  }
+  // Silent skip. syncAccount is also called on demand from the email routes, so
+  // logging here fired on every UI-triggered sync as well as every poll. The
+  // disabled state is announced ONCE per process in startPoller instead.
+  if (account.provider === 'gmail' && !INBOX_SYNC_ENABLED) return;
   syncLocks.add(account.id);
 
   const logId = await emailStore.logSyncStart(account.id, account.user_id);
@@ -222,6 +228,12 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
 function startPoller() {
   if (pollerHandle) return;
   console.log('[emailSync] Background poller started (interval: 5 min)');
+  // The one and only line about the disabled state, per process start. Names the
+  // REAL env var: the old message said "INBOX_SYNC_ENABLED=false", which is an
+  // internal constant, not something anyone can set.
+  if (!INBOX_SYNC_ENABLED) {
+    console.log('[emailSync] Gmail inbox sync is OFF (set EMAIL_INBOX_SYNC=1 to enable). Gmail accounts are skipped; sending is unaffected.');
+  }
   // Initial sync after 30 seconds (let server fully boot first)
   setTimeout(syncAllAccounts, 30 * 1000);
   pollerHandle = setInterval(syncAllAccounts, POLL_INTERVAL_MS);
