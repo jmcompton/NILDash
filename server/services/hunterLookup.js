@@ -6,7 +6,11 @@
 const store = require('../store');
 
 const SEARCH_URL = 'https://api.hunter.io/v2/domain-search';
-const TIMEOUT_MS = 20000;
+// 8s, down from 20s. This runs inside the deep contact lookup: a 20s cap meant a
+// slow Hunter response added ~15s AFTER the source fan-out had already finished,
+// which is most of a 20s deep call. Hunter only fills in an email, so waiting a
+// third of a minute for it is never worth it.
+const TIMEOUT_MS = parseInt(process.env.HUNTER_TIMEOUT_MS, 10) || 8000;
 const CACHE_DAYS = 30;
 const LIMIT = 5;
 
@@ -36,8 +40,13 @@ async function findDomainEmails(domain) {
     } catch (e) { clearTimeout(t); return { err: e }; }
   };
 
+  const _t0 = Date.now();
   let r = await _attempt();
-  if (r.err) { console.warn('[hunter] @' + key + ' retry after error=' + r.err.message); r = await _attempt(); }
+  // Retry only a genuine error, never a timeout: a call that already blew the cap
+  // will almost certainly blow it again, doubling the wait for nothing.
+  const _timedOut = (e) => !!e && (e.name === 'AbortError' || /abort/i.test(e.message || ''));
+  if (r.err && !_timedOut(r.err)) { console.warn('[hunter] @' + key + ' retry after error=' + r.err.message); r = await _attempt(); }
+  else if (r.err) console.warn('[hunter] @' + key + ' timed out after ' + (Date.now() - _t0) + 'ms, not retrying');
   if (r.httpFail) return null;
   if (r.err) { console.warn('[hunter] @' + key + ' error=' + r.err.message); return null; }
 

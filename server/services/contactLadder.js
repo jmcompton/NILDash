@@ -32,6 +32,7 @@ const SOURCE_NOTES = {
   news: 'Named in a news article',
   chamber: 'Listed in a chamber of commerce directory',
   hunter: 'Email matched to the company domain',
+  linkedin: 'Public LinkedIn profile naming this business',
 };
 
 // Suggested call windows. Local businesses are reachable at different times by
@@ -199,7 +200,7 @@ function buildContactLadder(res, opts = {}) {
     // number, an email, a DM, or failing those the business line with "ask for" them.
     // With no channel at all they get no row; they are listed under the main line
     // instead, so the ladder never shows a name an agent cannot act on.
-    const hasOwnChannel = !!(isOwnLine || c.email || igHandle);
+    const hasOwnChannel = !!(isOwnLine || c.email || c.linkedinUrl || igHandle);
     const isStaff = isStaffTitle(c.title);
     if (!hasOwnChannel && !r.businessPhone) { if (say && !isStaff) unreachable.push(say); continue; }
     const row = {
@@ -212,9 +213,13 @@ function buildContactLadder(res, opts = {}) {
       phoneKind: isOwnLine ? 'direct' : null,
       phoneNote: isOwnLine ? 'Direct number listed for this person' : null,
       instagram: igHandle,
-      // Primary channel for this row: a personal DM beats an email beats the shared
-      // main line. Drives what the UI leads with.
-      channel: igHandle ? 'instagram' : (c.email ? 'email' : 'phone'),
+      // Primary channel for this row, most person-specific first:
+      //   1 direct email, 2 LinkedIn profile, 3 personal Instagram, 4 direct phone,
+      //   5 the shared main line. Drives what the UI leads with.
+      channel: c.email ? 'email'
+        : (c.linkedinUrl ? 'linkedin'
+        : (igHandle ? 'instagram'
+        : (isOwnLine ? 'phone' : 'mainline'))),
       // When their only route is the shared line, say so in words. The digits stay
       // in the single main-line row at the top and are never reprinted here.
       reachVia: hasOwnChannel ? null : `Main line, ask for ${say}`,

@@ -6846,7 +6846,7 @@ app.post('/api/agent/deal-scan/add-business', requireAuth, requireAgentSubscript
       const site = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw.replace(/^\/+/, '');
       const contacts = await ai.getBrandContacts(raw, site, '', {
         enrichEmail: true, market: null,
-        sourceOrder: ['site', 'facebook', 'registry', 'maps', 'news', 'chamber'],
+        sourceOrder: ai.MANUAL_SOURCE_ORDER,
         stopAtTier1: true,
       });
       const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, category: null, brand: raw });
@@ -6887,7 +6887,7 @@ app.post('/api/agent/deal-scan/add-business', requireAuth, requireAgentSubscript
     // 4. Contact ladder, site-first and searching past a Tier 2 manager.
     const contacts = await ai.getBrandContacts(place.name, place.website || null, place.address || region, {
       enrichEmail: true, market: 'school', isFranchise: card.isFranchise === true,
-      sourceOrder: ['site', 'facebook', 'registry', 'maps', 'news', 'chamber'],
+      sourceOrder: ai.MANUAL_SOURCE_ORDER,
       stopAtTier1: true,
     });
     const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, category: card.category, brand: place.name });
@@ -7158,7 +7158,7 @@ async function _brandContactsBatch(req, res) {
         // the business, so its own pages are the highest-yield place to find an owner)
         // and keep searching past a Tier 2 manager.
         ctx.enrichEmail = true;
-        ctx.sourceOrder = ['site', 'facebook', 'registry', 'maps', 'news', 'chamber'];
+        ctx.sourceOrder = ai.MANUAL_SOURCE_ORDER;
         ctx.stopAtTier1 = true;
       }
       if (!deep) {

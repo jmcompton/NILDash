@@ -1188,7 +1188,15 @@ function _phoneLocalityOk(phone, reportedState, regionState) {
 // small local business rarely has a "Meet the Team" page, but its owner's name
 // is published across several of these. Each is searched in PARALLEL so total
 // per-brand wall time stays close to a single search.
-const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'site'];
+const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'site', 'linkedin'];
+
+// Source order for the DEEP contact ladder, tuned from production hit rates. Wave 1
+// is the first 3, wave 2 the next 3, and so on (CONTACT_WAVE_SIZE).
+//   wave 1: site, facebook, chamber   - the three that actually produce Tier 1 hits
+//   wave 2: linkedin, maps, news      - person-specific and owner-naming fallbacks
+//   wave 3: registry                  - 5 runs, 1 contact, 0 Tier 1: last resort only
+// Single source of truth: every deep caller uses this instead of its own literal.
+const MANUAL_SOURCE_ORDER = ['site', 'facebook', 'chamber', 'linkedin', 'maps', 'news', 'registry'];
 
 // Bump when the contacts pipeline changes shape (widened sources, locality fix,
 // ...). A cached row stamped with an older version is treated as a miss so the
@@ -1203,10 +1211,11 @@ let _contactSearchImpl = null;
 
 // Shared JSON contract + rules appended to every source prompt.
 const _CONTACT_JSON_TAIL = `After you finish searching, respond with ONLY a single JSON object and NOTHING else: no prose, no explanation, no citation text, no markdown code fences. If your web search surfaced any named people, you MUST extract EVERY one of them into the contacts array. Do not answer in sentences.
-{"contacts":[{"name":"Full Name","title":"their role","email":null,"phone":null,"sourceUrl":null,"confidence":"high|medium"}],"businessEmail":null,"businessPhone":null,"city":null,"state":null}
+{"contacts":[{"name":"Full Name","title":"their role","email":null,"phone":null,"linkedinUrl":null,"sourceUrl":null,"confidence":"high|medium"}],"businessEmail":null,"businessPhone":null,"city":null,"state":null}
 Rules:
 - name is REQUIRED for every contact and must be a real person's name your search actually found. title is their role as the source states it (or a short honest descriptor); a registered agent is not an owner, a manager is not an owner, never upgrade a title.
 - email ONLY if literally published for THAT person; never guess from a pattern; else null. phone ONLY if a real published number; else null.
+- linkedinUrl: that person's FULL public LinkedIn profile URL if the search actually surfaced one, else null. Never guess or construct one.
 - sourceUrl: the page you found them on if you have it, else null. A missing URL is fine; still include the person.
 - businessEmail: a published business inbox (not a person), else null. businessPhone: the business main published line, else null.
 - confidence "high" from an official government or business-owned page, "medium" from a directory, social page, or news article.
@@ -1226,6 +1235,8 @@ function _sourceLead(source, brand, loc, domain, regionState) {
       return `Search local news and press for the owner or founder of "${brand}"${where} (queries "${brand} ${loc || ''} owner", "${brand} founder"). Local articles often write a sentence like "owner Gary Lewis said". Extract the person's name, the title exactly as the article states it plus provenance e.g. "Owner (local news)", and the article URL as sourceUrl.`;
     case 'chamber':
       return `Search the local Chamber of Commerce and reputable local business directories for "${brand}"${where}. Extract any principal contact the listing names, with the stated title, and the directory URL as sourceUrl.`;
+    case 'linkedin':
+      return `Search LinkedIn for the owner, founder, or general manager of "${brand}"${where} (queries "${brand} ${loc || ''} owner linkedin", "${brand} founder linkedin"). Extract the person's name, their title exactly as the profile states it, and the FULL public profile URL as linkedinUrl (e.g. https://www.linkedin.com/in/...). Only report a profile that genuinely names this business as their company. Do not guess a profile URL.`;
     case 'site':
     default:
       return `Search the business's OWN website for "${brand}"${where}${domain ? ` (${domain})` : ''}: its team, about, staff, and contact pages. Extract named people with the titles the site states, and any published email or phone.`;
@@ -1285,6 +1296,9 @@ function _extractCitationUrls(blocks) {
 // (SEQUENTIAL within the turn, so max_uses=2 means two round trips before any text
 // is generated), and the output tokens Haiku then generates. Both are env-tunable so
 // they can be A/B'd without a code change. Defaults are unchanged from before.
+// How long we will still wait for Hunter / Instagram once the source fan-out is
+// done. Both start upfront and overlap the fan-out, so this is only the tail.
+const SIDE_LOOKUP_GRACE_MS = parseInt(process.env.SIDE_LOOKUP_GRACE_MS, 10) || 2500;
 const CONTACT_SEARCH_MAX_USES = parseInt(process.env.CONTACT_SEARCH_MAX_USES, 10) || 2;
 const CONTACT_SEARCH_MAX_TOKENS = parseInt(process.env.CONTACT_SEARCH_MAX_TOKENS, 10) || 900;
 
@@ -1434,7 +1448,8 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
     const rawEmail = c && c.email;
     const { email, emailSource } = await resolveEmail(name, domain, rawEmail);
     if (!email && _isGenericInbox(rawEmail) && !inbox) inbox = _validEmail(rawEmail);
-    contacts.push({ name, title, email, emailSource, phone: _normalizePhone(c && c.phone), sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium', source });
+    const _li = (c && typeof c.linkedinUrl === 'string' && /linkedin\.com\/(in|company)\//i.test(c.linkedinUrl)) ? c.linkedinUrl.trim() : null;
+    contacts.push({ name, title, email, emailSource, phone: _normalizePhone(c && c.phone), linkedinUrl: _li, sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium', source });
   }
   const be = _validEmail(payload && payload.businessEmail);
   if (!inbox && be) inbox = be;
@@ -1469,11 +1484,13 @@ function _mergeContacts(all) {
       merged.email = c.email || ex.email;
       merged.emailSource = merged.email === (c.email) ? c.emailSource : ex.emailSource;
       merged.phone = c.phone || ex.phone;
+      merged.linkedinUrl = c.linkedinUrl || ex.linkedinUrl || null;
       byKey.set(key, merged);
     } else {
       ex.email = ex.email || c.email;
       if (!ex.emailSource && c.email) ex.emailSource = c.emailSource;
       ex.phone = ex.phone || c.phone;
+      ex.linkedinUrl = ex.linkedinUrl || c.linkedinUrl || null;
     }
   }
   return [...byKey.values()];
@@ -1563,7 +1580,28 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
       break;
     }
     const wave = sourceOrder.slice(w, w + WAVE_SIZE);
-    const waveOut = await Promise.all(wave.map((src) => _searchContactSource(src, brand, loc, domain, regionState)));
+    // STRAGGLER CUT: one dead source must not hold the whole wave. Facebook hitting
+    // its 15s cap dragged a 23s lookup even though the other two had already come
+    // back with a Tier 1 hit. Once every other member of the wave has settled AND we
+    // already have a Tier 1, stop waiting and move on. The abandoned call is left to
+    // its own 15s timeout; its result is simply discarded.
+    const waveOut = [];
+    let _settled = 0;
+    let _tier1Seen = false;
+    let _cut = null;
+    const _cutP = new Promise((resolve) => { _cut = resolve; });
+    const _maybeCut = () => { if (_tier1Seen && _settled >= wave.length - 1 && _cut) _cut('cut'); };
+    const _tracked = wave.map((src) => _searchContactSource(src, brand, loc, domain, regionState)
+      .then((r) => {
+        waveOut.push(r); _settled++;
+        if ((r.contacts || []).some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1)) _tier1Seen = true;
+        _maybeCut();
+      })
+      .catch(() => { _settled++; _maybeCut(); }));
+    const _outcome = await Promise.race([Promise.all(_tracked).then(() => 'all'), _cutP]);
+    if (_outcome === 'cut' && waveOut.length < wave.length) {
+      console.log(`[brand-contacts] wave cut: ${wave.length - waveOut.length} straggler(s) abandoned after a tier1 hit (wave=${wave.join(',')})`);
+    }
     for (const r of waveOut) {
       results.push(r);
       // Per-source timing and yield, so slow and unproductive sources are visible.
@@ -1683,7 +1721,9 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // topnil) have no market and no locality requirement.
   const localityRequired = !!(ctx && (ctx.market === 'school' || ctx.market === 'hometown'));
   let places = null;
+  const _placesT0 = Date.now();
   try { places = await lookupPlace(brand, locationHint); } catch (_) { places = null; }
+  const _placesMs = Date.now() - _placesT0;
   const effectiveWebsite = website || (places && places.website) || null;
   // Cost gate: the 6-source contact web-search fan-out is the biggest Anthropic
   // cost driver. Only run it on the AI Outreach path (ctx.enrichEmail), where the
@@ -1724,9 +1764,19 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // (2) the best personal email as an honestly labeled company contact; else
   // (3) a REAL generic inbox from Hunter. Phone from Places is the guaranteed
   // floor. Gated on ctx.enrichEmail (AI Outreach path only). Never guesses.
+  let _hunterMs = 0, _igMs = 0;
   if (_hunterPromise) {
+    // These started BEFORE the fan-out, so by now they have had the whole fan-out to
+    // finish. Give them only a short grace after it: a straggler must not become the
+    // dominant cost of the call (a 20s Hunter timeout was adding ~15s of dead wait
+    // after a 5.8s fan-out). Dropping it costs at most an email, never a contact.
+    const _sideT0 = Date.now();
     let _hunter = null;
-    try { _hunter = await _hunterPromise; } catch (_) { _hunter = null; }
+    try {
+      _hunter = await Promise.race([_hunterPromise, new Promise((res) => setTimeout(() => res('__late__'), SIDE_LOOKUP_GRACE_MS))]);
+      if (_hunter === '__late__') { console.log(`[brand-contacts] hunter still running after fan-out, dropped after ${SIDE_LOOKUP_GRACE_MS}ms`); _hunter = null; }
+    } catch (_) { _hunter = null; }
+    _hunterMs = Date.now() - _sideT0;
     const _emails = (_hunter && Array.isArray(_hunter.emails)) ? _hunter.emails.filter((e) => e && e.email) : [];
     if (_emails.length) {
       const _personal = _emails.filter((e) => e.type === 'personal').sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
@@ -1759,9 +1809,16 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // the same number. Site-scraped only (no AI, one fetch, cached 30 days), gated on
   // the deep path so a plain card scan does not pay for it.
   if (_igPromise) {
-    try { const handle = await _igPromise; if (handle) res.instagram = handle; }
-    catch (e) { console.warn('[dealScan] instagram lookup failed:', e.message); }
+    const _igT0 = Date.now();
+    try {
+      const handle = await Promise.race([_igPromise, new Promise((res2) => setTimeout(() => res2('__late__'), SIDE_LOOKUP_GRACE_MS))]);
+      if (handle === '__late__') console.log(`[brand-contacts] instagram still running after fan-out, dropped after ${SIDE_LOOKUP_GRACE_MS}ms`);
+      else if (handle) res.instagram = handle;
+    } catch (e) { console.warn('[dealScan] instagram lookup failed:', e.message); }
+    _igMs = Date.now() - _igT0;
   }
+  // Phase breakdown, so time spent OUTSIDE the fan-out is never unexplained again.
+  if (_deep) console.log(`[brand-contacts] deep brand=${brand} placesMs=${_placesMs} hunterWaitMs=${_hunterMs} igWaitMs=${_igMs}`);
   // Make the card actionable: hand the top named contact the business line as a
   // callable number when they have none of their own. "Ask for Bryan" plus the
   // shop's number is the real local play; a name with no number is a dead end.
@@ -3200,6 +3257,7 @@ module.exports = {
   resolveBrandKey,
   brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder
+  MANUAL_SOURCE_ORDER,                         // shared wave order for deep lookups
   rootDomain: _rootDomain,                     // injected for the cross-domain contact check
   TIER1_RANKS: _TIER1_RANKS,
   prewarmDealEvidence,
