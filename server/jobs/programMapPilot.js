@@ -320,14 +320,25 @@ async function run() {
     return;
   }
 
-  // --fetch-all: run ONLY the staff-page fetch across every pilot school and print
-  // per-school counts. No records written, no search fan-out.
+  // --fetch-all: run the staff-page fetch across every pilot school, print per-school
+  // counts, and WRITE the records. No search fan-out and no model calls.
+  //
+  // It used to print and discard, which made --contacts read whatever the last full
+  // build left behind: stale rows from before the parser learned to read emails and
+  // sections. A page can show 68 of 68 emails here while the key-contact view shows
+  // none, because the two were looking at different data. Pass --dry-run for the old
+  // read-only behavior.
   if (args.includes('--fetch-all')) {
+    const dryRun = args.includes('--dry-run');
+    console.log(dryRun
+      ? '[program-map] --dry-run: parsing and reporting only, nothing will be written'
+      : '[program-map] records WILL be written to program_staff (pass --dry-run to skip)');
     console.log('school                staff  emails  phones  roles  keyContacts  titles  junk  via      ms     url');
     console.log(line('-'));
     const failures = [];
     const suspect = [];
     let tStaff = 0, tEmail = 0, tPhone = 0;
+    let written = 0, withEmailWritten = 0, keyWithEmail = 0;
     for (const school of programMap.PILOT_SCHOOLS) {
       const t0 = Date.now();
       let res;
@@ -340,6 +351,16 @@ async function run() {
       const emails = res.staff.filter((p) => p.email).length;
       const phones = res.staff.filter((p) => p.phone).length;
       tStaff += res.staff.length; tEmail += emails; tPhone += phones;
+      if (!dryRun) {
+        // reach_via is set the same way the full build sets it, so a record written
+        // here is not a second-class version of the same row.
+        const office = await store.getProgramContact(school);
+        for (const r of recs) r.reach_via = programMap.reachVia(r, office);
+        const n = await store.saveProgramStaff(school, recs);
+        written += n;
+        withEmailWritten += recs.filter((r) => r.email).length;
+        keyWithEmail += recs.filter((r) => r.is_key_contact && r.email).length;
+      }
       // Quality is printed per school so a page that parses navigation instead of
       // staff is visible in the table rather than only in a hand audit of the dump.
       const score = staffPage.scoreStaffPage(res.staff, programMap.ROLES.map((r) => r.match));
@@ -360,6 +381,18 @@ async function run() {
         console.log(`    ${s.url}`);
       }
     } else console.log('Every page passed the quality bar.');
+    if (!dryRun) {
+      // The email counts above come from the PARSE. These come from what was written.
+      // If they disagree, the gap is between parsing and storage, and saying so here
+      // is cheaper than discovering it later in --contacts.
+      console.log(`\nWROTE ${written} record(s) to program_staff: ${withEmailWritten} with an email, ${keyWithEmail} of them key contacts.`);
+      if (withEmailWritten !== tEmail) {
+        console.log(`  NOTE: parsed ${tEmail} emails but stored ${withEmailWritten}. The difference is rows dropped as duplicate names.`);
+      }
+      console.log('Next: node server/jobs/programMapPilot.js --contacts');
+    } else {
+      console.log('\n--dry-run: nothing was written. Re-run without it to update program_staff.');
+    }
     return;
   }
 

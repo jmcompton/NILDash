@@ -256,12 +256,25 @@ const FOOTBALL_SECTION = /\bfootball\b/i;
 
 function filterToFootballSections(staff) {
   const list = Array.isArray(staff) ? staff : [];
+  // TWO different lists, and conflating them is how a page reports "no football
+  // section" while its section list plainly shows Football. detected = every heading
+  // found anywhere on the page, including a nav link or a filter button. withPeople =
+  // headings that actually have staff rows beneath them. Only the second can be
+  // filtered on, but the first is what a human reads in the log.
+  const detected = Array.isArray(staff._sections) ? staff._sections : [];
   const sections = [...new Set(list.map((s) => s.section).filter(Boolean))];
   const footballSections = sections.filter((s) => FOOTBALL_SECTION.test(s));
+  const footballDetected = detected.filter((s) => FOOTBALL_SECTION.test(s));
   // No sections at all, or none of them football: this is already a football page
   // (Florida, Georgia) and filtering it would be wrong.
   if (!sections.length || !footballSections.length) {
-    return { staff: list, filtered: false, dropped: 0, sections, footballSections };
+    return {
+      staff: list, filtered: false, dropped: 0, sections, footballSections,
+      detected, footballDetected,
+      // The South Carolina case: a Football heading exists on the page but no parsed
+      // row sits under it, so there is nothing to filter TO.
+      footballHeadingWithNoRows: footballDetected.length > 0 && footballSections.length === 0,
+    };
   }
   const kept = list.filter((s) =>
     (s.section && FOOTBALL_SECTION.test(s.section)) ||
@@ -269,9 +282,9 @@ function filterToFootballSections(staff) {
   // Never filter down to nothing. If the football sections turn out to be almost
   // empty, the section markup was misread and the unfiltered list is the safer answer.
   if (kept.length < 3) {
-    return { staff: list, filtered: false, dropped: 0, sections, footballSections, tooFew: kept.length };
+    return { staff: list, filtered: false, dropped: 0, sections, footballSections, detected, footballDetected, tooFew: kept.length };
   }
-  return { staff: kept, filtered: true, dropped: list.length - kept.length, sections, footballSections };
+  return { staff: kept, filtered: true, dropped: list.length - kept.length, sections, footballSections, detected, footballDetected };
 }
 
 // QUALITY, NOT COUNT. "Biggest page wins" accepted Alabama's 381-row navigation dump
@@ -367,16 +380,30 @@ async function loadStaff(url, ai) {
   } else if (filt.tooFew != null) {
     console.warn(`[staffPage] ${got.finalUrl} football sections matched only ${filt.tooFew} rows, keeping the full list instead`);
   } else if (staff.length > 40) {
-    // A big page that was NOT filtered is either genuinely all football or a
-    // department directory whose headings were not detected. Those two look identical
-    // in a row count, so print the evidence IN FULL and never truncate it: a
-    // truncated list cannot answer the question it exists to answer.
-    if (!sections.length) {
-      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: ${staff.length} rows and NO section headings were detected at all. ` +
+    // A big page that was NOT filtered has several possible causes that look
+    // identical in a row count, so print the evidence IN FULL and never truncate it:
+    // a truncated list cannot answer the question it exists to answer. The two
+    // section lists are reported separately, because a heading with no rows under it
+    // is a different problem from a heading that does not exist.
+    const withRows = filt.sections || [];
+    if (filt.footballHeadingWithNoRows) {
+      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: a football heading EXISTS on this page ` +
+        `[${filt.footballDetected.join(', ')}] but no parsed staff row sits under it, so there is nothing to filter to. ` +
+        `That heading is probably navigation rather than a section label.`);
+      console.warn(`  headings detected on the page (${filt.detected.length}):`);
+      for (const s of filt.detected) console.warn(`    detected: ${s}`);
+      console.warn(`  headings that actually have staff under them (${withRows.length}):`);
+      for (const s of withRows) console.warn(`    with rows: ${s}`);
+    } else if (!withRows.length) {
+      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: ${staff.length} rows and NO section headings have staff under them. ` +
         `If this page is department-wide, its headings use markup the parser does not recognise.`);
+      if (filt.detected && filt.detected.length) {
+        console.warn(`  ${filt.detected.length} heading(s) were detected but none had rows beneath them:`);
+        for (const s of filt.detected) console.warn(`    detected: ${s}`);
+      }
     } else {
-      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: ${sections.length} section(s) detected, none naming football. Full list:`);
-      for (const s of sections) console.warn(`    section: ${s}`);
+      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: ${withRows.length} section(s) have staff under them, none naming football. Full list:`);
+      for (const s of withRows) console.warn(`    with rows: ${s}`);
     }
   }
   const hash = hashStaff(staff);

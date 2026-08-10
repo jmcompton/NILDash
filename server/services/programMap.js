@@ -47,7 +47,11 @@ const ROLES = [
   { key: 'general_manager', label: 'General Manager / Football Ops', match: /\bgeneral manager\b|\bgm\b|chief of staff|director of football operations|football operations|executive director of football|director of football management|\bfootball management\b|\bfootball administration\b/i },
   { key: 'player_personnel', label: 'Player Personnel', match: /player personnel|\bpersonnel\b|\bscouting\b/i },
   { key: 'recruiting', label: 'Recruiting', match: /recruiting|recruitment/i },
-  { key: 'head_coach', label: 'Head Coach', match: /head coach/i },
+  // "Head Football Coach" is as common a title as "Head Coach" and a bare /head coach/
+  // never matched it, which left the head coach empty on pages that plainly listed
+  // one. Only "football" is allowed between the two words: widening it further would
+  // swallow "Head Strength Coach" and "Head Athletic Trainer".
+  { key: 'head_coach', label: 'Head Coach', match: /\bhead\s+(?:football\s+)?coach\b/i },
   // "executive director" alone is NOT enough: Tennessee's "Executive Director of
   // Football Management" is a GM, not a collective role. Require collective/NIL.
   { key: 'collective_director', label: 'NIL Collective Director', match: /\bcollective\b|\bnil\b/i },
@@ -59,7 +63,7 @@ const ROLES = [
 // recruiting operations. All are kept; the most senior becomes the key contact.
 function seniorityRank(title) {
   const t = String(title || '').toLowerCase();
-  if (/\bhead coach\b/.test(t)) return 0;
+  if (/\bhead\s+(?:football\s+)?coach\b/.test(t)) return 0;
   if (/\bassistant\b|\bassoc(iate)?\b|\bdeputy\b/.test(t)) {
     // An "Assistant AD" outranks an "Assistant Director"; both sit below the chief.
     if (/athletic director|\bad\b/.test(t)) return 4;
