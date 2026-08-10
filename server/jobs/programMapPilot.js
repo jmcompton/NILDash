@@ -57,7 +57,9 @@ function dumpRecords(rows, contactsBySchool) {
       for (const r of current) {
         console.log(`    name        ${r.name}`);
         console.log(`    title       ${r.title || '(none)'}`);
+        console.log(`    sport       ${r.sport || 'unstated'}`);
         console.log(`    confidence  ${String(r.confidence || '').toUpperCase()}   (tier ${r.source_tier || '?'}, source dated ${r.source_date || 'UNDATED'}${r.age_months != null ? ', ' + r.age_months + ' months old' : ''})`);
+        if (r.source_tier_note) console.log(`    tier note   ${r.source_tier_note}`);
         console.log(`    email       ${r.email || '(none, never guessed)'}`);
         if (r.email) console.log(`    email src   ${r.email_source_url}`);
         console.log(`    phone       ${r.phone || '(none)'}`);
@@ -121,6 +123,7 @@ async function run() {
     }
   }
 
+  const allDropped = perSchool.flatMap((s2) => s2.droppedWrongSport || []);
   const allRecords = perSchool.flatMap((s2) => s2.records);
   const dedupe = programMap.dedupeAcrossSchools(allRecords);
 
@@ -187,6 +190,18 @@ async function run() {
   for (const c of ['confident', 'likely', 'conflicting', 'unverified']) {
     console.log(`  ${c.padEnd(14)} ${rows.filter((r) => r.confidence === c).length}`);
   }
+
+  console.log(`\nSPORT FILTER`);
+  console.log(`  records dropped as wrong sport  ${allDropped.length}`);
+  if (allDropped.length) {
+    const bySport = {};
+    for (const d of allDropped) bySport[d.sport] = (bySport[d.sport] || 0) + 1;
+    for (const [sp, n] of Object.entries(bySport).sort((a, b) => b[1] - a[1])) console.log(`    ${sp.padEnd(14)} ${n}`);
+    console.log(`  dropped detail:`);
+    for (const d of allDropped) console.log(`    [${d.sport}] ${d.name} (${d.title}) role=${d.role} via ${d.source}`);
+  }
+  const downgraded = rows.filter((r) => r.source_tier_note);
+  console.log(`  tier A downgraded (dept-wide directory, sport not stated)  ${downgraded.length}`);
 
   console.log(`\nRECENCY`);
   const cur = rows.filter((r) => r.status === 'current');

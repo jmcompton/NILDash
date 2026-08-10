@@ -75,6 +75,59 @@ function _host(url) {
   try { return new URL(String(url)).hostname.replace(/^www\./, '').toLowerCase(); } catch (_) { return ''; }
 }
 
+// ── SPORT FILTER ─────────────────────────────────────────────────────────────
+// An athletics department publishes general managers, directors of operations and
+// personnel staff for EVERY sport, all on the same official domain. Without a sport
+// check, a track and field GM found on the school's own site is labeled Confident
+// Tier A: perfectly sourced and completely wrong. That is worse than a stale record,
+// because nothing about it looks suspect. So a record must be about FOOTBALL, and a
+// record that is demonstrably about another sport is DROPPED, not demoted.
+const FOOTBALL_RE = /\bfootball\b|\bgridiron\b|\bqb\b|\boffensive line\b|\bdefensive line\b/i;
+const OTHER_SPORTS = [
+  ['track', /\btrack\b|\bcross ?country\b|\btrack and field\b|\bt&f\b/i],
+  ['basketball', /\bbasketball\b|\bhoops\b|\bmbb\b|\bwbb\b/i],
+  ['baseball', /\bbaseball\b/i],
+  ['softball', /\bsoftball\b/i],
+  ['soccer', /\bsoccer\b/i],
+  ['volleyball', /\bvolleyball\b/i],
+  ['golf', /\bgolf\b/i],
+  ['tennis', /\btennis\b/i],
+  ['swimming', /\bswim\w*\b|\bdiving\b/i],
+  ['gymnastics', /\bgymnastics\b/i],
+  ['wrestling', /\bwrestling\b/i],
+  ['hockey', /\bhockey\b/i],
+  ['rowing', /\browing\b|\bcrew\b/i],
+  ['lacrosse', /\blacrosse\b/i],
+  ['equestrian', /\bequestrian\b/i],
+];
+
+// Which sport does this record belong to? Reads the model's own sport field first,
+// then the published title, then the URL. Returns 'football', a named other sport,
+// or null when nothing in the evidence says.
+function detectSport(modelSport, title, url) {
+  const ms = String(modelSport || '').toLowerCase().trim();
+  if (ms && ms !== 'unknown' && ms !== 'other') {
+    if (FOOTBALL_RE.test(ms)) return 'football';
+    for (const [name, re] of OTHER_SPORTS) if (re.test(ms) || ms === name) return name;
+  }
+  const hay = `${title || ''} ${url || ''}`;
+  // Football wins when the evidence names it: "Director of Football Operations" on a
+  // page that also lists other sports is still a football role.
+  if (FOOTBALL_RE.test(hay)) return 'football';
+  for (const [name, re] of OTHER_SPORTS) if (re.test(hay)) return name;
+  return null;
+}
+
+// Does this specific evidence tie the person to football, rather than merely sitting
+// on the school's domain? A department-wide staff directory that lists every sport
+// is NOT sufficient on its own: the title must name football, or the page must sit
+// on a football path.
+function footballScoped(title, url) {
+  if (FOOTBALL_RE.test(String(title || ''))) return true;
+  const path = (() => { try { return new URL(String(url)).pathname.toLowerCase(); } catch (_) { return String(url || '').toLowerCase(); } })();
+  return /\/football\b|\/fball\b|sport=football|\bfootball\b/.test(path);
+}
+
 function classifyTier(url, school) {
   const h = _host(url);
   if (!h) return 'D';
@@ -115,12 +168,13 @@ function isStale(dateMs, nowMs) {
 const SYS = 'You research college football program staff with web search and return ONLY structured JSON about real people found on real published pages. Report ONLY what a page actually states. Never invent a name, title, email, phone, URL, or date, and never construct an email address from a name.';
 
 const JSON_TAIL = `Respond with ONLY a single JSON object and NOTHING else: no prose, no markdown, no code fences.
-{"people":[{"name":"Full Name","title":"exact title as published","role":"general_manager|player_personnel|recruiting|head_coach|collective_director|other","email":null,"emailSourceUrl":null,"phone":null,"linkedinUrl":null,"sourceUrl":null,"publishedDate":null,"programNamedOnPage":true,"isFormer":false}]}
+{"people":[{"name":"Full Name","title":"exact title as published","role":"general_manager|player_personnel|recruiting|head_coach|collective_director|other","email":null,"emailSourceUrl":null,"phone":null,"linkedinUrl":null,"sourceUrl":null,"publishedDate":null,"programNamedOnPage":true,"isFormer":false,"sport":"football|track|basketball|baseball|softball|soccer|volleyball|other|unknown"}]}
 Rules:
 - name and title are REQUIRED and must come from a page your search actually opened. title must be the EXACT title as published.
 - role: the closest of the listed keys, or "other".
 - publishedDate: the page's publication or last-updated date in YYYY-MM-DD form IF the page states one. If the page shows no date, use null. NEVER guess or approximate a date.
 - programNamedOnPage: true ONLY if that page explicitly names this program. If the page is about a different school, set it false.
+- sport: which SPORT this person's role serves, as the page indicates. ONLY FOOTBALL staff are wanted. An athletics department lists general managers, directors of operations and personnel staff for every sport on the same site, so this must be answered from the page, not assumed. If the page is a department-wide directory that does not say which sport, use "unknown". If the person serves track, basketball, baseball or any other sport, say so plainly and do NOT relabel them as football.
 - isFormer: true if the page describes this person as a FORMER holder of the role, or as having left, been hired elsewhere, or been replaced.
 - email: ONLY if the address is literally printed on a page you found, and emailSourceUrl MUST be that exact page URL. If you cannot give emailSourceUrl, set BOTH to null. NEVER build an address from a name and a domain. A guessed address is worse than none.
 - phone: only a real published number, else null. linkedinUrl: only a profile URL you actually saw, else null.
@@ -141,18 +195,18 @@ function _lead(source, school) {
   const team = cfg.team || school;
   switch (source) {
     case 'athletics_directory':
-      return `Search the OFFICIAL athletics staff directory of ${team}${cfg.athletics ? ` on ${cfg.athletics}` : ''} (queries "${team} football staff directory", "site:${cfg.athletics || ''} staff directory football"). Extract the FOOTBALL general manager, director of player personnel, director of recruiting, and head coach, with exact published titles and the directory URL as sourceUrl. If the directory page shows a last-updated date, report it as publishedDate, otherwise null.`;
+      return `Search the OFFICIAL athletics staff directory of ${team}${cfg.athletics ? ` on ${cfg.athletics}` : ''} for FOOTBALL staff ONLY (queries "${team} FOOTBALL staff directory", "${team} football operations staff", "site:${cfg.athletics || ''} football staff directory"). The department directory also lists track, basketball, baseball and every other sport: ignore all of them. Extract the FOOTBALL general manager, director of player personnel, director of recruiting, and head coach, with exact published titles and the directory URL as sourceUrl. If the directory page shows a last-updated date, report it as publishedDate, otherwise null.`;
     case 'contacts':
       return `Find the published CONTACT details for ${team} football: the football operations or football office main phone number (try the athletics staff directory and the athletics site contact page${cfg.athletics ? ` on ${cfg.athletics}` : ''}), any published recruiting or player personnel email address, and the contact email of the NIL collective that supports ${team} (usually on the collective's own site contact page). Report only what is actually printed on a page, each with the URL of that page.\n${CONTACT_TAIL}`;
     case 'collective':
-      return `Identify the NIL collective that supports ${team} and find its director or executive director. Search "${team} NIL collective executive director" and the collective's own leadership or about page. Extract the name, exact title, page URL, and the page's date if stated. Do not guess which collective it is: only report one a page actually names as supporting ${team}.`;
+      return `Identify the NIL collective that supports ${team} and find its director or executive director. Search "${team} NIL collective executive director" and "${team} football NIL collective" and the collective's own leadership or about page. Extract the name, exact title, page URL, and the page's date if stated. Do not guess which collective it is: only report one a page actually names as supporting ${team}.`;
     case 'press':
-      return `Search official ${team} athletics news posts and school or collective press releases announcing the hiring of a football general manager, director of player personnel, or director of recruiting (queries "${team} names general manager football", "${team} hires director of player personnel"). Report the person named, the exact title, the release URL, and the RELEASE DATE, which these pages almost always show. If a release says someone has LEFT or been replaced, set isFormer true for that person.`;
+      return `Search official ${team} athletics news posts and school or collective press releases announcing the hiring of a FOOTBALL general manager, FOOTBALL director of player personnel, or FOOTBALL director of recruiting (queries "${team} football names general manager", "${team} hires football director of player personnel"). Ignore announcements for any other sport: a track and field or baseball general manager is NOT what is wanted. Report the person named, the exact title, the release URL, and the RELEASE DATE, which these pages almost always show. If a release says someone has LEFT or been replaced, set isFormer true for that person.`;
     case 'linkedin':
-      return `Search LinkedIn for the ${team} football general manager, director of player personnel, and director of recruiting. Extract each person's name, the exact title on their profile, and the FULL public profile URL as both linkedinUrl and sourceUrl. Only report profiles that name ${team} as the CURRENT employer; if a profile shows the role as a past position, set isFormer true.`;
+      return `Search LinkedIn for the ${team} FOOTBALL general manager, FOOTBALL director of player personnel, and FOOTBALL director of recruiting (queries "${team} football general manager linkedin"). If a profile shows the role is for another sport, report that sport rather than calling it football. Extract each person's name, the exact title on their profile, and the FULL public profile URL as both linkedinUrl and sourceUrl. Only report profiles that name ${team} as the CURRENT employer; if a profile shows the role as a past position, set isFormer true.`;
     case 'news':
     default:
-      return `Search recent news coverage for who currently holds these ${team} football roles: general manager, director of player personnel, director of recruiting, and head coach. STRONGLY prefer articles from the last 12 months and always report each article's publication date as publishedDate. If an article says a person has left, been hired elsewhere, or been replaced, set isFormer true for that person.`;
+      return `Search recent news coverage for who currently holds these ${team} FOOTBALL roles (always include the word football in the query, because the athletics department has a general manager for several sports): general manager, director of player personnel, director of recruiting, and head coach. STRONGLY prefer articles from the last 12 months and always report each article's publication date as publishedDate. If an article says a person has left, been hired elsewhere, or been replaced, set isFormer true for that person.`;
   }
 }
 
@@ -187,6 +241,7 @@ async function _runSource(source, school) {
 
   const parsed = _parse(raw) || {};
   const people = [];
+  const dropped = [];
   let contacts = null;
 
   if (isContactLane) {
@@ -212,13 +267,31 @@ async function _runSource(source, school) {
       // A page that does not name this program is not evidence about this program.
       // Demoted to Tier D so it can never make a record Confident.
       const named = p && p.programNamedOnPage === false ? false : true;
-      const tier = named ? classifyTier(sourceUrl, school) : 'D';
+      const roleGuess = _roleOf({ role: String((p && p.role) || 'other'), title });
+      // SPORT GATE. A collective director is a school-level NIL role, not a
+      // sport-specific one, so it is exempt; every football staff role is not.
+      const sport = detectSport(p && p.sport, title, sourceUrl);
+      if (roleGuess !== 'collective_director' && sport && sport !== 'football') {
+        console.warn(`[program-map] school="${school}" role=${roleGuess || 'other'} name="${name}" sportDetected=${sport} DROPPED (source=${source} ${sourceUrl})`);
+        dropped.push({ name, title, role: roleGuess || 'other', sport, sourceUrl, source });
+        continue;
+      }
+      let tier = named ? classifyTier(sourceUrl, school) : 'D';
+      // A department-wide directory listing every sport is not football evidence on
+      // its own: the title must name football, or the page must sit on a football
+      // path. Otherwise the Tier A claim is downgraded and needs corroboration.
+      let tierNote = null;
+      if (tier === 'A' && roleGuess !== 'collective_director' && !footballScoped(title, sourceUrl)) {
+        tier = 'B';
+        tierNote = 'department-wide directory, sport not stated on the page';
+        console.log(`[program-map] school="${school}" role=${roleGuess || 'other'} name="${name}" tierA downgraded: ${tierNote}`);
+      }
       people.push({
         name, title,
         role: String((p && p.role) || 'other'),
         email: em.email, emailSourceUrl: em.url,
         phone: (p && p.phone) ? String(p.phone).trim() : null,
-        linkedinUrl, sourceUrl, tier, source,
+        linkedinUrl, sourceUrl, tier, source, sport, tierNote,
         dateMs: d ? d.getTime() : null,
         dateStr: d ? d.toISOString().slice(0, 10) : null,
         isFormer: !!(p && p.isFormer),
@@ -226,7 +299,7 @@ async function _runSource(source, school) {
       });
     }
   }
-  return { source, people, contacts, status, err, ms: Date.now() - t0, searches, outTokens, rawLen: raw.length };
+  return { source, people, dropped, contacts, status, err, ms: Date.now() - t0, searches, outTokens, rawLen: raw.length };
 }
 
 function _roleOf(p) {
@@ -282,12 +355,13 @@ async function buildProgram(school, nowMs) {
     onResult: (r) => {
       const tierA = (r.people || []).some((p) => p.tier === 'A');
       const dated = (r.people || []).filter((p) => p.dateMs != null).length;
-      console.log(`[program-map] school="${school}" source=${r.source} ms=${r.ms} found=${r.people.length} dated=${dated} tierA=${tierA ? 'yes' : 'no'} searches=${r.searches} status=${r.status}${r.err ? ' err=' + r.err : ''}`);
+      console.log(`[program-map] school="${school}" source=${r.source} ms=${r.ms} found=${r.people.length} dropped=${(r.dropped || []).length} dated=${dated} tierA=${tierA ? 'yes' : 'no'} searches=${r.searches} status=${r.status}${r.err ? ' err=' + r.err : ''}`);
     },
     isSatisfied: () => false,
   });
 
   const all = run.results.flatMap((r) => r.people);
+  const droppedWrongSport = run.results.flatMap((r) => r.dropped || []);
   const contactRow = run.results.map((r) => r.contacts).find(Boolean) || null;
   const meter = { searches: 0, outTokens: 0, sources: run.results.length };
   for (const r of run.results) { meter.searches += r.searches || 0; meter.outTokens += r.outTokens || 0; }
@@ -344,11 +418,13 @@ async function buildProgram(school, nowMs) {
         linkedin_url: withLi ? withLi.linkedinUrl : null,
         source_url: best.sourceUrl,
         source_tier: best.tier,
+        sport: (cands.map((c) => c.sport).find(Boolean)) || 'unstated',
+        source_tier_note: cands.map((c) => c.tierNote).find(Boolean) || null,
         source_date: newest ? new Date(newest).toISOString().slice(0, 10) : null,
         age_months: newest ? Math.round(monthsSince(newest, now) * 10) / 10 : null,
         status: isCurrent ? 'current' : 'previous',
         confidence: isCurrent ? (conflicting ? 'conflicting' : own) : 'previous',
-        sources: cands.map((c) => ({ tier: c.tier, lane: c.source, url: c.sourceUrl, date: c.dateStr, title: c.title, isFormer: c.isFormer })),
+        sources: cands.map((c) => ({ tier: c.tier, lane: c.source, url: c.sourceUrl, date: c.dateStr, title: c.title, isFormer: c.isFormer, sport: c.sport || 'unstated' })),
       });
     });
     const cur = records.filter((x) => x.role === role.key && x.status === 'current')[0];
@@ -357,8 +433,13 @@ async function buildProgram(school, nowMs) {
   }
 
   const filled = new Set(records.filter((r) => r.status === 'current').map((r) => r.role)).size;
-  console.log(`[program-map] school="${school}" roles=${filled}/${ROLES.length} records=${records.length} sources=${meter.sources} searches=${meter.searches} totalMs=${Date.now() - t0}`);
-  return { school, records, contacts: contactRow, ms: Date.now() - t0, meter, rolesFilled: filled, rolesTotal: ROLES.length };
+  if (droppedWrongSport.length) {
+    const bySport = {};
+    for (const d of droppedWrongSport) bySport[d.sport] = (bySport[d.sport] || 0) + 1;
+    console.log(`[program-map] school="${school}" wrongSportDropped=${droppedWrongSport.length} ${JSON.stringify(bySport)}`);
+  }
+  console.log(`[program-map] school="${school}" roles=${filled}/${ROLES.length} records=${records.length} dropped=${droppedWrongSport.length} sources=${meter.sources} searches=${meter.searches} totalMs=${Date.now() - t0}`);
+  return { school, records, contacts: contactRow, droppedWrongSport, ms: Date.now() - t0, meter, rolesFilled: filled, rolesTotal: ROLES.length };
 }
 
 // CROSS-SCHOOL DEDUPE. One person cannot hold the same role at two programs. When a
@@ -415,5 +496,6 @@ function reachVia(record, contacts) {
 
 module.exports = {
   buildProgram, dedupeAcrossSchools, reachVia, classifyTier, parseDate, isStale, monthsSince,
+  detectSport, footballScoped,
   ROLES, SCHOOLS, PILOT_SCHOOLS, SOURCE_ORDER, STALE_MONTHS, _assess, _roleOf, _byRecency, _newestMs,
 };

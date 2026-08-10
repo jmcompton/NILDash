@@ -653,6 +653,10 @@ async function init() {
   await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'current'`).catch(() => {});
   await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS superseded_note TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS reach_via TEXT`).catch(() => {});
+  // Which sport the SOURCE actually indicated. An athletics directory covers every
+  // sport, so a football map has to record this or a track GM looks like a Tier A hit.
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS sport TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS source_tier_note TEXT`).catch(() => {});
   // Program-level reach info: the football office line and any published recruiting
   // or collective address. This is what makes the map a call list rather than a
   // name list, since schools rarely publish individual staff emails.
@@ -2012,8 +2016,8 @@ async function saveProgramStaff(school, records) {
         `INSERT INTO program_staff
            (school, role, role_label, name, title, email, email_source_url, phone,
             linkedin_url, source_url, source_tier, confidence, sources, verified_on, updated_at,
-            source_date, age_months, status, superseded_note, reach_via)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW(),$14,$15,$16,$17,$18)
+            source_date, age_months, status, superseded_note, reach_via, sport, source_tier_note)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW(),$14,$15,$16,$17,$18,$19,$20)
          ON CONFLICT (school, role, name) DO UPDATE SET
            role_label = EXCLUDED.role_label, title = EXCLUDED.title,
            email = EXCLUDED.email, email_source_url = EXCLUDED.email_source_url,
@@ -2022,14 +2026,15 @@ async function saveProgramStaff(school, records) {
            confidence = EXCLUDED.confidence, sources = EXCLUDED.sources,
            source_date = EXCLUDED.source_date, age_months = EXCLUDED.age_months,
            status = EXCLUDED.status, superseded_note = EXCLUDED.superseded_note,
-           reach_via = EXCLUDED.reach_via,
+           reach_via = EXCLUDED.reach_via, sport = EXCLUDED.sport,
+           source_tier_note = EXCLUDED.source_tier_note,
            verified_on = CURRENT_DATE, updated_at = NOW()`,
         [school, r.role, r.role_label || null, r.name, r.title || null, r.email || null,
          r.email_source_url || null, r.phone || null, r.linkedin_url || null,
          r.source_url || null, r.source_tier || null, r.confidence || null,
          JSON.stringify(r.sources || []), r.source_date || null,
          r.age_months == null ? null : r.age_months, r.status || 'current',
-         r.superseded_note || null, r.reach_via || null]);
+         r.superseded_note || null, r.reach_via || null, r.sport || null, r.source_tier_note || null]);
       n++;
     }
     await client.query('COMMIT');
