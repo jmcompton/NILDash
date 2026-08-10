@@ -88,6 +88,84 @@ async function run() {
   const sIdx = args.indexOf('--school');
   const only = sIdx !== -1 ? args[sIdx + 1] : null;
 
+  // --set-url: set the football staff URL BY HAND. A hand-set URL is locked: neither
+  // discovery nor redirect-resolution can overwrite it. This is the escape hatch for
+  // the schools where discovery guesses a path and 404s.
+  //   node server/jobs/programMapPilot.js --set-url --school "LSU" --url "https://..."
+  if (args.includes('--set-url')) {
+    const uIdx = args.indexOf('--url');
+    const url = uIdx !== -1 ? args[uIdx + 1] : null;
+    const cIdx = args.indexOf('--contact-url');
+    const contactUrl = cIdx !== -1 ? args[cIdx + 1] : null;
+    if (!only || !url) {
+      console.log('Usage: --set-url --school "LSU" --url "https://lsusports.net/sports/football/coaches/" [--contact-url "https://..."]');
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) { console.log(`Refusing to store "${url}": not an http(s) URL.`); return; }
+    const ok = await store.saveProgramSourceUrl(only, url, 'manual', contactUrl);
+    if (!ok) { console.log(`Failed to store the URL for ${only}.`); return; }
+    console.log(`SET ${only}\n  football_staff_url = ${url}${contactUrl ? '\n  athletics_contact_url = ' + contactUrl : ''}\n  locked: discovery can no longer overwrite this.`);
+    // Fetch it immediately so a typo shows up now rather than on the next full run.
+    const res = await programMap.loadFootballStaff(only, store);
+    if (res.error) console.log(`  WARNING: fetch failed (${res.error}). The URL is stored; fix it with another --set-url.`);
+    else console.log(`  verified: fetched ${res.staff.length} staff via ${res.via} from ${res.url}`);
+    return;
+  }
+
+  // --urls: show what is stored for every school, and where each URL came from.
+  if (args.includes('--urls')) {
+    const rows = await store.getProgramSource(null);
+    const bySchool = {}; for (const r of rows) bySchool[r.school] = r;
+    console.log('school                lock  via                 staff  url');
+    console.log(line('-'));
+    for (const school of programMap.PILOT_SCHOOLS) {
+      const r = bySchool[school];
+      if (!r || !r.football_staff_url) { console.log(`${school.padEnd(20)}  -     (none set)`); continue; }
+      console.log(`${school.padEnd(20)}  ${r.url_locked ? 'HAND' : 'auto'}  ${String(r.football_staff_url_discovered_via || '?').padEnd(18)}  ${String(r.last_staff_count || 0).padStart(5)}  ${r.football_staff_url}`);
+    }
+    return;
+  }
+
+  // --inspect: report what is ACTUALLY in a page. Answers whether a thin parse is
+  // pagination, lazy loading or a parser miss, and whether phone numbers are even
+  // published, without guessing at any of it.
+  if (args.includes('--inspect')) {
+    const staffPage = require('../services/staffPage');
+    const targets = only ? [only] : programMap.PILOT_SCHOOLS;
+    for (const school of targets) {
+      const src = await store.getProgramSource(school);
+      const url = (src && src.football_staff_url) || null;
+      console.log('\n' + line('='));
+      console.log(`${school} PAGE INSPECTION`);
+      console.log(line('='));
+      if (!url) { console.log('  no URL stored'); continue; }
+      const got = await staffPage.fetchStaffPage(url);
+      if (!got.ok) { console.log(`  FETCH FAILED ${got.reason}  ${url}`); continue; }
+      const i = staffPage.inspectHtml(got.html, got.finalUrl || url);
+      const parsed = staffPage.parseStaffHtml(got.html, got.finalUrl || url);
+      console.log(`  url            ${i.url}`);
+      console.log(`  html bytes     ${i.bytes}   visible text bytes ${i.textBytes}`);
+      console.log(`  parsed staff   ${parsed.length}`);
+      console.log(`  BLOCKS         tr=${i.trBlocks}  staffLi=${i.staffLi}  staffDiv=${i.staffDiv}`);
+      console.log(`  CONTACTS       mailto=${i.mailto}  tel=${i.tel}  phoneLikeText=${i.phoneLikeText}`);
+      console.log(`  PAGINATION     pageParam=${i.pagination.pageParam} markup=${i.pagination.paginationMarkup} loadMore=${i.pagination.loadMore} nextLink=${i.pagination.nextLink}`);
+      console.log(`  CLIENT RENDER  scripts=${i.clientRendered.scriptTags} scriptBytes=${i.clientRendered.scriptBytes} nextData=${i.clientRendered.nextData} ldJson=${i.clientRendered.ldJson} inlineStaffJson=${i.clientRendered.inlineStaffJson} sidearmApi=${i.clientRendered.sidearmApi}`);
+      console.log(`  PHONE IN SLUG  ${i.phoneInUrlSlug || '(none)'}`);
+      if (i.sampleMailto) console.log(`  sample mailto  ...${i.sampleMailto}...`);
+      if (i.sampleTel) console.log(`  sample tel     ...${i.sampleTel}...`);
+      if (i.samplePhoneText) console.log(`  sample phone text  ...${i.samplePhoneText}...`);
+      // The read: state it plainly rather than making the human infer it.
+      const notes = [];
+      if (i.tel === 0 && i.phoneLikeText > 0) notes.push('phones ARE on the page but NOT as tel: links, so the parser must read them from text');
+      if (i.tel === 0 && i.phoneLikeText === 0) notes.push('this page publishes no phone numbers at all');
+      if (parsed.length < 25 && (i.pagination.pageParam || i.pagination.paginationMarkup || i.pagination.nextLink)) notes.push('thin parse WITH pagination markup: the page is paginated');
+      if (parsed.length < 25 && i.clientRendered.scriptBytes > i.textBytes * 3) notes.push('thin parse and script-heavy: content is likely loaded after the initial HTML');
+      if (parsed.length < 25 && !i.pagination.pageParam && !i.pagination.paginationMarkup && i.trBlocks > parsed.length * 2) notes.push('thin parse but plenty of rows present: this is a PARSER miss, not the page');
+      if (notes.length) { console.log('  READ:'); for (const n of notes) console.log(`    - ${n}`); }
+    }
+    return;
+  }
+
   // --staff: fetch and print the parsed football staff page for one or more schools
   // WITHOUT building records. This is the "show me Florida and Georgia first" path.
   if (args.includes('--staff')) {

@@ -682,12 +682,14 @@ async function init() {
       last_staff JSONB DEFAULT '[]'::jsonb,
       last_staff_count INT DEFAULT 0,
       parse_via TEXT,
+      url_locked BOOLEAN DEFAULT FALSE,
       verified_on DATE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `).then(() => console.log('[init] program_source table ready'))
     .catch(e => console.error('[init] program_source:', e.message));
+  await pool.query(`ALTER TABLE program_source ADD COLUMN IF NOT EXISTS url_locked BOOLEAN DEFAULT FALSE`).catch(() => {});
 
   // Program-level reach info: the football office line and any published recruiting
   // or collective address. This is what makes the map a call list rather than a
@@ -2096,15 +2098,29 @@ async function getProgramSource(school) {
 async function saveProgramSourceUrl(school, url, via, contactUrl) {
   if (!school || !url) return false;
   try {
+    // A URL set by hand is authoritative and permanent. Discovery guesses paths and
+    // gets 404s; it must never be able to clobber a URL a human verified. Only
+    // another manual set can replace one.
+    if (via !== 'manual') {
+      const cur = await pool.query('SELECT url_locked, football_staff_url FROM program_source WHERE school = $1', [school]);
+      const row = cur.rows[0];
+      if (row && row.url_locked) {
+        if (row.football_staff_url !== url) {
+          console.log(`[programMap] school="${school}" keeping hand-set URL ${row.football_staff_url}, ignoring ${via} suggestion ${url}`);
+        }
+        return false;
+      }
+    }
     await pool.query(
-      `INSERT INTO program_source (school, football_staff_url, football_staff_url_discovered_via, athletics_contact_url, verified_on, updated_at)
-       VALUES ($1,$2,$3,$4,CURRENT_DATE,NOW())
+      `INSERT INTO program_source (school, football_staff_url, football_staff_url_discovered_via, athletics_contact_url, url_locked, verified_on, updated_at)
+       VALUES ($1,$2,$3,$4,$5,CURRENT_DATE,NOW())
        ON CONFLICT (school) DO UPDATE SET
          football_staff_url = EXCLUDED.football_staff_url,
          football_staff_url_discovered_via = EXCLUDED.football_staff_url_discovered_via,
          athletics_contact_url = COALESCE(EXCLUDED.athletics_contact_url, program_source.athletics_contact_url),
+         url_locked = EXCLUDED.url_locked,
          verified_on = CURRENT_DATE, updated_at = NOW()`,
-      [school, url, via || null, contactUrl || null]);
+      [school, url, via || null, contactUrl || null, via === 'manual']);
     return true;
   } catch (e) { console.error(`[programMap] source url save failed school="${school}":`, e.message); return false; }
 }

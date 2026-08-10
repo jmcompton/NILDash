@@ -459,7 +459,18 @@ async function loadFootballStaff(school, store, opts = {}) {
     url = loaded.finalUrl;
   }
   await store.saveProgramStaffSnapshot(school, loaded.staff, loaded.hash, loaded.via);
-  return { staff: loaded.staff, url: loaded.finalUrl || url, via: loaded.via, diff, hash: loaded.hash };
+  // Some directory slugs carry the office number outright (South Carolina's is
+  // /staff-directory/football-803-777-4271/). That is a real published number with a
+  // citable URL, so take it when it is there.
+  const slugPhone = staffPage.phoneFromUrl(loaded.finalUrl || url);
+  if (slugPhone) {
+    await store.saveProgramContact(school, {
+      football_office_phone: slugPhone,
+      football_office_phone_source_url: loaded.finalUrl || url,
+    });
+    console.log(`[program-map] school="${school}" football office phone from URL slug: ${slugPhone}`);
+  }
+  return { staff: loaded.staff, url: loaded.finalUrl || url, via: loaded.via, diff, hash: loaded.hash, slugPhone };
 }
 
 // Turn parsed staff-page rows into records. Everything on this page is football and

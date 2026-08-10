@@ -203,6 +203,69 @@ async function loadStaff(url, ai) {
   return { ok: true, staff, via, ms: got.ms, hash, finalUrl: got.finalUrl };
 }
 
+// South Carolina's directory slug is /staff-directory/football-803-777-4271/ : the
+// football office number is literally in the URL. Sidearm builds these slugs from the
+// directory title, so any school that titles the section with its phone number gets a
+// real, free phone line out of it. Returns a formatted number or null.
+function phoneFromUrl(url) {
+  const path = (() => { try { return new URL(String(url)).pathname; } catch (_) { return String(url || ''); } })();
+  // Look for 10 digits split by hyphens, not part of a longer digit run (a year or id).
+  const m = path.match(/(?:^|[^\d])(\d{3})-(\d{3})-(\d{4})(?:[^\d]|$)/);
+  if (!m) return null;
+  const area = m[1];
+  if (area[0] === '0' || area[0] === '1') return null; // not a valid US area code
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+// Diagnostic: what is ACTUALLY in this page? Answers the questions that decide
+// whether a thin parse is pagination, lazy loading, or a parser miss, without
+// guessing. Reports counts only; it never changes behavior.
+function inspectHtml(html, url) {
+  const src = String(html || '');
+  const clean = src.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ');
+  const count = (re) => (src.match(re) || []).length;
+  const scripts = [...src.matchAll(/<script[\s\S]*?<\/script>/gi)].map((m) => m[0]);
+  return {
+    url,
+    bytes: src.length,
+    textBytes: _text(clean).length,
+    trBlocks: (clean.match(/<tr[\s\S]{0,6000}?<\/tr>/gi) || []).length,
+    staffLi: (clean.match(/<li[^>]*(?:staff|person|card|directory)[^>]*>/gi) || []).length,
+    staffDiv: (clean.match(/<div[^>]*(?:staff-member|staff_member|person-card|directory-item)[^>]*>/gi) || []).length,
+    mailto: count(/mailto:/gi),
+    tel: count(/tel:/gi),
+    // Phone-shaped text anywhere on the page, even without a tel: link. If this is
+    // high while tel is 0, the numbers are plain text and the parser must read text.
+    phoneLikeText: (_text(clean).match(/\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}/g) || []).length,
+    // Pagination / lazy-load signals.
+    pagination: {
+      pageParam: /[?&]page=/i.test(src),
+      paginationMarkup: /pagination|paginate|page-numbers|data-page=/i.test(src),
+      loadMore: /load[ _-]?more|show[ _-]?more|view[ _-]?all/i.test(_text(clean)),
+      // rel=next is the clean signal, but most athletics paginators just style a
+      // link with class="next" or label it "Next". Miss those and a paginated page
+      // reads as a parser problem, which is exactly the wrong conclusion.
+      nextLink: /rel=["']next["']|class=["'][^"']*\bnext\b[^"']*["']|>\s*next\s*(?:page)?\s*(?:&[a-z]+;|»|>)?\s*</i.test(src),
+    },
+    // Client-rendered signals: little text but lots of script, or a data blob.
+    clientRendered: {
+      scriptTags: scripts.length,
+      scriptBytes: scripts.reduce((n, x) => n + x.length, 0),
+      nextData: /__NEXT_DATA__/.test(src),
+      ldJson: /application\/ld\+json/i.test(src),
+      inlineStaffJson: /"staff"\s*:|"members"\s*:|"personnel"\s*:/i.test(src),
+      sidearmApi: /services\/adaptive_components|sidearm.*\.json|\/api\//i.test(src),
+    },
+    phoneInUrlSlug: phoneFromUrl(url),
+    // First contexts, so a human can see the actual markup shape.
+    // Bounded, not fixed: a match near the top of the file has fewer than 80 leading
+    // chars, and a fixed .{80} would silently report nothing at all there.
+    sampleMailto: (src.match(/.{0,80}mailto:[^"'\s>]+.{0,40}/i) || [''])[0].replace(/\s+/g, ' ').trim(),
+    sampleTel: (src.match(/.{0,80}tel:[^"'\s>]+.{0,40}/i) || [''])[0].replace(/\s+/g, ' ').trim(),
+    samplePhoneText: (_text(clean).match(/.{0,60}\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}.{0,30}/) || [''])[0].trim(),
+  };
+}
+
 function hashStaff(staff) {
   const norm = (staff || []).map((s) => `${(s.name || '').toLowerCase()}|${(s.title || '').toLowerCase()}`).sort().join('\n');
   return crypto.createHash('sha256').update(norm).digest('hex');
@@ -226,5 +289,5 @@ function diffStaff(oldStaff, newStaff) {
 
 module.exports = {
   fetchStaffPage, parseStaffHtml, extractStaffWithModel, loadStaff, hashStaff, diffStaff,
-  looksLikeName, looksLikeTitle, TITLE_HINT,
+  looksLikeName, looksLikeTitle, TITLE_HINT, phoneFromUrl, inspectHtml,
 };
