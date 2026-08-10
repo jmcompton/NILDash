@@ -86,8 +86,41 @@ function looksLikeTitle(s) {
   const v = String(s || '').trim();
   if (!v || v.length < 3 || v.length > 120) return false;
   if (NOT_A_NAME.test(v)) return false;
+  if (JUNK_TEXT.test(v)) return false;
   if (/@|https?:/.test(v)) return false;
   return true;
+}
+
+// Chrome that a link renderer wraps around a real name. Alabama's directory renders
+// every person as "Full Bio for Greg Byrne", and storing that label as the name is
+// what produced 381 rows with no titles and no roles. The name is in there; take it.
+function stripNameLabel(s) {
+  let v = String(s || '').trim();
+  v = v.replace(/\(\s*opens? in a new (?:window|tab)\s*\)/gi, ' ');
+  v = v.replace(/opens? in a new (?:window|tab)/gi, ' ');
+  v = v.replace(/^\s*(?:full\s+bio|bio|profile|player\s+bio|view\s+profile|view\s+bio|read\s+more)\s+(?:for|about|on)\s+/i, '');
+  v = v.replace(/^\s*(?:email|e-?mail|contact|call|phone|photo\s+of|picture\s+of|image\s+of)\s+/i, '');
+  v = v.replace(/['’]s\s+(?:bio|profile|page)\s*$/i, '');
+  v = v.replace(/\s*[-|]\s*(?:full\s+bio|bio|profile)\s*$/i, '');
+  return v.replace(/\s+/g, ' ').trim();
+}
+
+// Carousel controls, nav chrome and link boilerplate. These parse as two capitalized
+// words and would otherwise be stored as people: "All Rotators Playing" is a slider
+// control on the Alabama page, not a member of staff.
+const JUNK_TEXT = /^(?:all\s+rotators|rotators?\b|slide\s*\d|previous|next|play|pause|stop|skip\s+to|main\s+content|search|menu|toggle|loading|view\s+all|show\s+all|see\s+all|filter|sort\s+by|back\s+to|read\s+more|learn\s+more|sign\s+up|subscribe|follow\s+us|share|print|download|opens?\s+in)\b|opens?\s+in\s+a\s+new\s+(?:window|tab)|\bfull\s+bio\b|\ball\s+rotators\b/i;
+
+// Department nouns. A short line built only of these is a SECTION HEADER, not a
+// person: "Football Support Staff", "Sports Medicine", "Business Office".
+const SECTION_WORD = /\b(football|basketball|baseball|softball|soccer|volleyball|tennis|golf|track|field|cross\s+country|swim(ming)?|diving|gymnastics|rowing|wrestling|medicine|nutrition|performance|operations|administration|office|services|department|marketing|communications|compliance|facilities|development|ticket(ing)?|academics?|equipment|video|creative|training|support|staff|personnel|recruiting|strength|conditioning|athletics?|business|human\s+resources|technology|events|hall\s+of\s+fame|leadership|coaches|sports)\b/i;
+
+function looksLikeSectionHeader(text) {
+  const v = String(text || '').trim();
+  if (!v || v.length < 3 || v.length > 60) return false;
+  if (/@|https?:|\d{3}/.test(v)) return false;
+  const words = v.split(/\s+/).filter(Boolean);
+  if (words.length > 6) return false;
+  return SECTION_WORD.test(v);
 }
 function _normPhone(p) {
   const d = String(p || '').replace(/[^\d]/g, '');
@@ -95,8 +128,50 @@ function _normPhone(p) {
   return String(p).trim();
 }
 
-// Deterministic parse. Splits the page into staff blocks (table rows, staff list
-// items, cards) and reads name / title / mailto / tel out of each.
+// Read one staff block. Returns a person or null: null means "not a person", which
+// the caller may then reinterpret as a section header.
+function _personFromBlock(b, pageUrl) {
+  const email = ((b.match(/mailto:([^"'?>\s]+)/i) || [])[1] || '').trim().toLowerCase() || null;
+  // Prefer the DISPLAYED number over the tel: href, which is usually bare digits.
+  const telA = b.match(/<a[^>]*href=["']tel:([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
+  const telRaw = telA ? (_text(telA[2]) || telA[1]) : (((b.match(/tel:([^"'?>\s]+)/i) || [])[1] || '').trim() || null);
+
+  // Cell-based (tables) first, then generic inline elements for card markup.
+  let parts = [...b.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => _text(m[1])).filter(Boolean);
+  if (parts.length < 2) {
+    parts = [...b.matchAll(/<(?:h[1-6]|a|span|p|div|strong)[^>]*>([\s\S]{0,300}?)<\/(?:h[1-6]|a|span|p|div|strong)>/gi)]
+      .map((m) => _text(m[1])).filter(Boolean);
+  }
+  if (!parts.length) return null;
+
+  // Strip link chrome BEFORE testing, so "Full Bio for Greg Byrne" yields the person
+  // rather than being discarded or stored as the label.
+  let nameIdx = -1, name = null;
+  for (let i = 0; i < parts.length; i++) {
+    const cand = stripNameLabel(parts[i]);
+    if (!cand || JUNK_TEXT.test(cand)) continue;
+    if (looksLikeName(cand)) { nameIdx = i; name = cand; break; }
+  }
+  if (nameIdx === -1) return null;
+
+  // Title = the next distinct string that reads like a job title. A hinted match
+  // wins, because "Head Coach" would otherwise be discarded for looking like a name.
+  const after = parts.slice(nameIdx + 1)
+    .filter((p) => p !== name && stripNameLabel(p) !== name && looksLikeTitle(p));
+  const title = after.find((p) => TITLE_HINT.test(p)) || after.find((p) => !looksLikeName(p)) || after[0] || null;
+
+  return {
+    name, title: title || null,
+    email: (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ? email : null,
+    phone: _normPhone(telRaw),
+    sourceUrl: pageUrl || null,
+  };
+}
+
+// Deterministic parse. Walks the page IN DOCUMENT ORDER so that a section header
+// applies to the rows beneath it: a department-wide directory lists football staff
+// under "Football Support Staff" and the swim coach under "Swimming", and without
+// order there is no way to tell them apart.
 function parseStaffHtml(html, pageUrl) {
   const src = String(html || '');
   const clean = src
@@ -105,45 +180,109 @@ function parseStaffHtml(html, pageUrl) {
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
 
   const blocks = [];
-  for (const m of clean.matchAll(/<tr[\s\S]{0,6000}?<\/tr>/gi)) blocks.push(m[0]);
-  for (const m of clean.matchAll(/<li[^>]*(?:staff|person|card|directory)[^>]*>[\s\S]{0,6000}?<\/li>/gi)) blocks.push(m[0]);
-  for (const m of clean.matchAll(/<div[^>]*(?:staff-member|staff_member|person-card|directory-item)[^>]*>[\s\S]{0,6000}?<\/div>/gi)) blocks.push(m[0]);
+  const add = (m) => blocks.push({ start: m.index, end: m.index + m[0].length, html: m[0], kind: 'block' });
+  for (const m of clean.matchAll(/<tr[\s\S]{0,6000}?<\/tr>/gi)) add(m);
+  for (const m of clean.matchAll(/<li[^>]*(?:staff|person|card|directory)[^>]*>[\s\S]{0,6000}?<\/li>/gi)) add(m);
+  for (const m of clean.matchAll(/<div[^>]*(?:staff-member|staff_member|person-card|directory-item)[^>]*>[\s\S]{0,6000}?<\/div>/gi)) add(m);
+
+  // Headings that sit BETWEEN blocks are section headers. One inside a staff card is
+  // that person's own markup and must not reset the section.
+  const heads = [];
+  for (const m of clean.matchAll(/<h[1-6][^>]*>([\s\S]{0,200}?)<\/h[1-6]>/gi)) {
+    const t = _text(m[1]);
+    if (looksLikeSectionHeader(t)) heads.push({ start: m.index, end: m.index + m[0].length, header: t, kind: 'header' });
+  }
+  const inside = (i) => blocks.some((b) => i > b.start && i < b.end);
+  const items = [...blocks, ...heads.filter((h) => !inside(h.start))].sort((a, b) => a.start - b.start);
 
   const out = [];
   const seen = new Set();
-  for (const b of blocks) {
-    const email = ((b.match(/mailto:([^"'?>\s]+)/i) || [])[1] || '').trim().toLowerCase() || null;
-    // Prefer the DISPLAYED number over the tel: href, which is usually bare digits.
-    const telA = b.match(/<a[^>]*href=["']tel:([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
-    const telRaw = telA ? (_text(telA[2]) || telA[1]) : (((b.match(/tel:([^"'?>\s]+)/i) || [])[1] || '').trim() || null);
-
-    // Cell-based (tables) first, then generic inline elements for card markup.
-    let parts = [...b.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => _text(m[1])).filter(Boolean);
-    if (parts.length < 2) {
-      parts = [...b.matchAll(/<(?:h[1-6]|a|span|p|div|strong)[^>]*>([\s\S]{0,300}?)<\/(?:h[1-6]|a|span|p|div|strong)>/gi)]
-        .map((m) => _text(m[1])).filter(Boolean);
+  const sectionsSeen = [];
+  let section = null;
+  let droppedJunk = 0;
+  for (const it of items) {
+    if (it.kind === 'header') {
+      section = it.header;
+      if (!sectionsSeen.includes(section)) sectionsSeen.push(section);
+      continue;
     }
-    if (!parts.length) continue;
-
-    const nameIdx = parts.findIndex(looksLikeName);
-    if (nameIdx === -1) continue;
-    const name = parts[nameIdx];
-    // Title = the next distinct string that reads like a job title. A hinted match
-    // wins, because "Head Coach" would otherwise be discarded for looking like a name.
-    const after = parts.slice(nameIdx + 1).filter((p) => p !== name && looksLikeTitle(p));
-    const title = after.find((p) => TITLE_HINT.test(p)) || after.find((p) => !looksLikeName(p)) || after[0] || null;
-
-    const key = name.toLowerCase().replace(/[^a-z]/g, '');
+    const person = _personFromBlock(it.html, pageUrl);
+    if (!person) {
+      // A row that is not a person but reads like a department label IS the section
+      // header. Auburn renders "Football Support Staff" as a table row, and the old
+      // parser stored it as a nameless record instead of using it.
+      const t = _text(it.html);
+      if (!/mailto:/i.test(it.html) && looksLikeSectionHeader(t)) {
+        section = t;
+        if (!sectionsSeen.includes(section)) sectionsSeen.push(section);
+      } else if (t) droppedJunk++;
+      continue;
+    }
+    const key = person.name.toLowerCase().replace(/[^a-z]/g, '');
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    out.push({
-      name, title,
-      email: (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) ? email : null,
-      phone: _normPhone(telRaw),
-      sourceUrl: pageUrl || null,
-    });
+    person.section = section;
+    out.push(person);
   }
+  out._sections = sectionsSeen;
+  out._droppedJunk = droppedJunk;
   return out;
+}
+
+// A department-wide directory is not a football staff page, but the football staff
+// IS in it, under its own sections. Keep only rows under a football section, plus
+// anyone whose own title names football regardless of where they sit.
+const FOOTBALL_SECTION = /\bfootball\b/i;
+
+function filterToFootballSections(staff) {
+  const list = Array.isArray(staff) ? staff : [];
+  const sections = [...new Set(list.map((s) => s.section).filter(Boolean))];
+  const footballSections = sections.filter((s) => FOOTBALL_SECTION.test(s));
+  // No sections at all, or none of them football: this is already a football page
+  // (Florida, Georgia) and filtering it would be wrong.
+  if (!sections.length || !footballSections.length) {
+    return { staff: list, filtered: false, dropped: 0, sections, footballSections };
+  }
+  const kept = list.filter((s) =>
+    (s.section && FOOTBALL_SECTION.test(s.section)) ||
+    (s.title && FOOTBALL_SECTION.test(s.title)));
+  // Never filter down to nothing. If the football sections turn out to be almost
+  // empty, the section markup was misread and the unfiltered list is the safer answer.
+  if (kept.length < 3) {
+    return { staff: list, filtered: false, dropped: 0, sections, footballSections, tooFew: kept.length };
+  }
+  return { staff: kept, filtered: true, dropped: list.length - kept.length, sections, footballSections };
+}
+
+// QUALITY, NOT COUNT. "Biggest page wins" accepted Alabama's 381-row navigation dump
+// over its real 19-row coaching staff. A page is only a football staff page if its
+// rows carry titles, are not link chrome, and cover the roles that matter.
+const MIN_TITLE_RATE = 0.60;   // at least 60% of rows have a non-empty title
+const MAX_JUNK_RATE = 0.20;    // fewer than 20% of names are junk
+const MIN_KEY_ROLES = 3;       // at least 3 of the 5 key roles present
+
+function scoreStaffPage(staff, keyRolePatterns) {
+  const list = Array.isArray(staff) ? staff : [];
+  const rows = list.length;
+  const pct = (x) => `${Math.round(x * 100)}%`;
+  if (!rows) {
+    return { rows: 0, titleRate: 0, junkRate: 1, keyRoles: 0, accepted: false, reasons: ['no rows parsed'] };
+  }
+  const withTitle = list.filter((s) => s.title && String(s.title).trim()).length;
+  const junk = list.filter((s) => {
+    const n = String(s.name || '');
+    return !n || JUNK_TEXT.test(n) || !looksLikeName(n);
+  }).length;
+  const titleRate = withTitle / rows;
+  const junkRate = junk / rows;
+  const pats = Array.isArray(keyRolePatterns) ? keyRolePatterns : [];
+  const keyRoles = pats.filter((re) => list.some((s) => s.title && re.test(s.title))).length;
+
+  const reasons = [];
+  if (titleRate < MIN_TITLE_RATE) reasons.push(`only ${pct(titleRate)} of rows have a title, need ${pct(MIN_TITLE_RATE)}`);
+  if (junkRate >= MAX_JUNK_RATE) reasons.push(`${pct(junkRate)} of names are junk, must be under ${pct(MAX_JUNK_RATE)}`);
+  if (pats.length && keyRoles < MIN_KEY_ROLES) reasons.push(`only ${keyRoles} of ${pats.length} key roles present, need ${MIN_KEY_ROLES}`);
+  return { rows, titleRate, junkRate, keyRoles, accepted: reasons.length === 0, reasons };
 }
 
 // Model fallback, used ONLY when the deterministic pass is too thin. It reads the
@@ -196,6 +335,19 @@ async function loadStaff(url, ai) {
   if (staff.length < MIN_DETERMINISTIC && ai) {
     const modelStaff = await extractStaffWithModel(got.html, got.finalUrl, ai);
     if (modelStaff.length > staff.length) { staff = modelStaff; via = 'model'; }
+  }
+  // A department-wide directory gets cut to its football sections here, so every
+  // caller sees football staff and nothing else.
+  const sections = Array.isArray(staff._sections) ? staff._sections : [];
+  const filt = filterToFootballSections(staff);
+  staff = filt.staff;
+  if (filt.filtered) {
+    console.log(`[staffPage] ${got.finalUrl} DEPARTMENT-WIDE page cut to football sections ` +
+      `[${filt.footballSections.join(', ')}], dropped ${filt.dropped} of ${filt.dropped + staff.length} rows`);
+  } else if (filt.tooFew != null) {
+    console.warn(`[staffPage] ${got.finalUrl} football sections matched only ${filt.tooFew} rows, keeping the full list instead`);
+  } else if (sections.length > 1) {
+    console.log(`[staffPage] ${got.finalUrl} sections seen: ${sections.slice(0, 8).join(', ')}${sections.length > 8 ? ', ...' : ''} (no football section, not filtered)`);
   }
   const hash = hashStaff(staff);
   if (got.finalUrl && got.finalUrl !== url) {
@@ -292,4 +444,6 @@ function diffStaff(oldStaff, newStaff) {
 module.exports = {
   fetchStaffPage, parseStaffHtml, extractStaffWithModel, loadStaff, hashStaff, diffStaff,
   looksLikeName, looksLikeTitle, TITLE_HINT, phoneFromUrl, inspectHtml,
+  stripNameLabel, looksLikeSectionHeader, filterToFootballSections, scoreStaffPage,
+  JUNK_TEXT, FOOTBALL_SECTION, MIN_TITLE_RATE, MAX_JUNK_RATE, MIN_KEY_ROLES,
 };

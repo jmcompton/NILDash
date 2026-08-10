@@ -415,11 +415,37 @@ const STAFF_URL_CANDIDATES = [
   '/sports/football/roster/staff',
 ];
 
-// "More than 10 staff." A real football directory returns 60 to 110. A homepage that
-// a 404 redirected to parses to a handful of stray rows, so this gate is what stops a
-// soft-404 from being accepted as a win.
-const MIN_SWEEP_STAFF = 11;
+// URLs verified by hand from a run that produced real people with real titles. These
+// are seeded as hand-set (locked) so the sweep can never replace them. Alabama is here
+// because a count-based sweep did exactly that: it replaced the 19-person coaching
+// page holding Kalen DeBoer, Courtney Morgan and Bob Welton with a 381-row navigation
+// dump that had no titles, no emails and no roles at all.
+const VERIFIED_STAFF_URLS = {
+  'Alabama':        'https://rolltide.com/sports/football/coaches',
+  'Georgia':        'https://georgiadogs.com/sports/football/coaches',
+  'Ole Miss':       'https://olemisssports.com/sports/football/coaches',
+  'Florida':        'https://floridagators.com/sports/football/coaches/',
+  'South Carolina': 'https://gamecocksonline.com/staff-directory/football-803-777-4271/',
+};
+
+// A quality floor still needs a size floor under it, but it is now a sanity check
+// rather than the acceptance rule. Acceptance is scoreStaffPage.
+const MIN_SWEEP_STAFF = 5;
 const SWEEP_PAUSE_MS = 250; // one host, several requests: do not hammer it
+
+const KEY_ROLE_PATTERNS = ROLES.map((r) => r.match);
+
+// Write the hand-verified URL for a school if it has one and nothing is locked yet.
+// A URL the user set themselves always wins over this list.
+async function seedVerifiedUrl(school, store) {
+  const good = VERIFIED_STAFF_URLS[school];
+  if (!good) return false;
+  const src = await store.getProgramSource(school);
+  if (src && src.url_locked) return false;
+  await store.saveProgramSourceUrl(school, good, 'manual', src && src.athletics_contact_url);
+  console.log(`[program-map] school="${school}" restored verified staff URL and LOCKED it: ${good}`);
+  return true;
+}
 
 const _pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -439,25 +465,30 @@ async function sweepStaffUrl(school, store, opts = {}) {
     return { url: null, staffCount: 0, tried: [], via: 'none' };
   }
 
+  // Restore a hand-verified URL before anything else, so a school that a previous
+  // sweep damaged comes back on the next run without manual intervention.
+  await seedVerifiedUrl(school, store);
   const src = await store.getProgramSource(school);
   // A hand-set URL is never swept over. That is the whole point of url_locked.
   if (src && src.url_locked && !opts.force) {
     console.log(`[url-sweep] school="${school}" SKIPPED, URL is hand-set: ${src.football_staff_url}`);
     return { url: src.football_staff_url, staffCount: null, tried: [], via: 'manual', skipped: true };
   }
-  // An existing URL that already returns a full directory is also left alone, so
-  // running the sweep across all 10 can only fix schools, never regress a good one.
-  const incumbentCount = (src && Number(src.last_staff_count)) || 0;
-  if (!opts.force && !opts.allPaths && !opts.ignoreIncumbent && incumbentCount >= MIN_SWEEP_STAFF && src.football_staff_url) {
-    console.log(`[url-sweep] school="${school}" SKIPPED, existing URL already returns ${incumbentCount} staff: ${src.football_staff_url}`);
-    return { url: src.football_staff_url, staffCount: incumbentCount, tried: [], via: src.football_staff_url_discovered_via || 'existing', skipped: true };
-  }
 
   const tried = [];
   const seen = new Set();
   let best = null;
-  for (const path of STAFF_URL_CANDIDATES) {
-    const url = `https://${domain}${path}`;
+  // The INCUMBENT is scored as an ordinary candidate rather than trusted on its
+  // stored row count. Comparing a stored count against a fresh one is what let a
+  // 381-row junk page outrank a 19-row real one; the only fair comparison is to
+  // fetch both and score both the same way.
+  const incumbent = src && src.football_staff_url;
+  const candidates = [
+    ...(incumbent ? [{ path: '(current)', url: incumbent, isIncumbent: true }] : []),
+    ...STAFF_URL_CANDIDATES.map((p) => ({ path: p, url: `https://${domain}${p}` })),
+  ];
+  for (const cand of candidates) {
+    const { path, url } = cand;
     const got = await staffPage.fetchStaffPage(url);
     if (!got.ok) {
       const status = got.status || got.reason;
@@ -476,19 +507,31 @@ async function sweepStaffUrl(school, store, opts = {}) {
     }
     seen.add(finalUrl);
 
-    const staff = staffPage.parseStaffHtml(got.html, finalUrl);
+    const parsed = staffPage.parseStaffHtml(got.html, finalUrl);
+    // Cut a department-wide directory to its football sections BEFORE scoring, so a
+    // page is judged on the football staff it actually contributes.
+    const filt = staffPage.filterToFootballSections(parsed);
+    const staff = filt.staff;
     const n = staff.length;
-    const accepted = n >= MIN_SWEEP_STAFF;
+    const score = staffPage.scoreStaffPage(staff, KEY_ROLE_PATTERNS);
+    const accepted = score.accepted && n >= MIN_SWEEP_STAFF;
     const redirect = finalUrl !== url ? ` -> ${finalUrl}` : '';
-    console.log(`[url-sweep] school="${school}" try=${path}${redirect} status=${got.status} staff=${n}` +
-      (accepted ? ' ACCEPTED' : ' too thin, rejected'));
-    tried.push({ path, status: got.status, staff: n, url: finalUrl, accepted });
-    if (accepted && (!best || n > best.staffCount)) {
-      best = { url: finalUrl, staffCount: n, path };
+    const pct = (x) => `${Math.round(x * 100)}%`;
+    const detail = `titles=${pct(score.titleRate)} junk=${pct(score.junkRate)} keyRoles=${score.keyRoles}/${KEY_ROLE_PATTERNS.length}` +
+      (filt.filtered ? ` (cut to football sections, -${filt.dropped})` : '');
+    console.log(`[url-sweep] school="${school}" try=${path}${redirect} status=${got.status} staff=${n} ${detail}` +
+      (accepted ? ' ACCEPTED' : ` REJECTED: ${score.reasons.join('; ') || 'too few rows'}`));
+    tried.push({ path, status: got.status, staff: n, url: finalUrl, accepted, score, reasons: score.reasons });
+    // Among pages that PASS quality, prefer the one covering more key roles, then the
+    // fuller one. Row count never outranks quality, which is the Alabama regression.
+    if (accepted && (!best || score.keyRoles > best.score.keyRoles ||
+      (score.keyRoles === best.score.keyRoles && n > best.staffCount))) {
+      best = { url: finalUrl, staffCount: n, path, score, isIncumbent: !!cand.isIncumbent };
     }
-    // Default behavior is the spec: stop at the FIRST path that hits. --all-paths
-    // keeps going so a thin page can be compared against every other candidate,
-    // which is how a separate support-staff page would show itself.
+    // The incumbent passing quality means there is nothing to fix, so stop. Otherwise
+    // stop at the first candidate PATH that hits, per the spec. --all-paths keeps
+    // going so a thin page can be compared against every other candidate, which is
+    // how a separate support-staff page shows itself.
     if (accepted && !opts.allPaths) break;
     await _pause(SWEEP_PAUSE_MS);
   }
@@ -497,14 +540,13 @@ async function sweepStaffUrl(school, store, opts = {}) {
     console.warn(`[url-sweep] school="${school}" NO CANDIDATE PATH WORKED (${tried.length} tried)`);
     return { url: null, staffCount: 0, tried, via: 'none' };
   }
-  // Never replace a better incumbent with a worse sweep result.
-  if (incumbentCount > best.staffCount && src && src.football_staff_url) {
-    console.log(`[url-sweep] school="${school}" keeping existing URL (${incumbentCount} staff) over sweep result ${best.path} (${best.staffCount} staff)`);
-    return { url: src.football_staff_url, staffCount: incumbentCount, tried, via: 'existing', skipped: true };
+  if (best.isIncumbent) {
+    console.log(`[url-sweep] school="${school}" existing URL still passes quality (${best.staffCount} staff, ${best.score.keyRoles} key roles), left alone`);
+    return { url: best.url, staffCount: best.staffCount, tried, via: src.football_staff_url_discovered_via || 'existing', skipped: true };
   }
   await store.saveProgramSourceUrl(school, best.url, 'sweep', src && src.athletics_contact_url);
-  console.log(`[url-sweep] school="${school}" PERSISTED ${best.url} (${best.staffCount} staff via ${best.path})`);
-  return { url: best.url, staffCount: best.staffCount, tried, via: 'sweep' };
+  console.log(`[url-sweep] school="${school}" PERSISTED ${best.url} (${best.staffCount} staff, ${best.score.keyRoles} key roles, via ${best.path})`);
+  return { url: best.url, staffCount: best.staffCount, tried, via: 'sweep', score: best.score };
 }
 
 // Search is now the EXCEPTION, run only when no known path worked. A school that
@@ -543,6 +585,9 @@ Rules:
 // Returns { staff, url, via, diff, hash }.
 async function loadFootballStaff(school, store, opts = {}) {
   const staffPage = require('./staffPage');
+  // Restore a hand-verified URL if this school has one and nothing is locked yet.
+  // Alabama needs this on a plain fetch, not only under --sweep.
+  await seedVerifiedUrl(school, store);
   let src = await store.getProgramSource(school);
   let url = src && src.football_staff_url;
   let needsAttention = false;
@@ -569,12 +614,11 @@ async function loadFootballStaff(school, store, opts = {}) {
     // A stored URL that has started 404ing is exactly what the sweep repairs, so try
     // it once here rather than making the school a manual chore. _repaired makes this
     // strictly one attempt: without it a replacement that also fails would recurse
-    // forever. ignoreIncumbent (not force) bypasses the stale staff-count check while
-    // still leaving a hand-set URL locked, because a hand-set URL is never swept over
-    // even when it breaks. It gets flagged for attention instead.
+    // forever. A hand-set URL is still never swept over even when it breaks, because
+    // sweepStaffUrl checks the lock itself. It gets flagged for attention instead.
     if (!opts._repaired) {
       console.warn(`[program-map] school="${school}" stored URL failed (${loaded.reason}), sweeping for a replacement`);
-      const swept = await sweepStaffUrl(school, store, { ...opts, ignoreIncumbent: true });
+      const swept = await sweepStaffUrl(school, store, opts);
       if (swept.url && swept.url !== url) {
         return loadFootballStaff(school, store, { ...opts, rediscover: false, _repaired: true });
       }
@@ -654,6 +698,10 @@ function recordsFromStaffPage(school, staff, url) {
       source_url: url,
       source_tier: 'A',
       sport: 'football',
+      // Which section of the page this person was listed under. On a department-wide
+      // directory this is the evidence that they are football staff and not the
+      // swim coach, so it is stored rather than thrown away after filtering.
+      page_section: p.section || null,
       source_tier_note: null,
       source_date: null,
       age_months: null,

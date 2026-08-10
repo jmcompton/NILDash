@@ -664,6 +664,10 @@ async function init() {
   await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS role_rank INT`).catch(() => {});
   await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS is_key_contact BOOLEAN DEFAULT FALSE`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_key ON program_staff (school, is_key_contact)`).catch(() => {});
+  // The section heading this person was listed under on the source page. On a
+  // department-wide directory ("Football Support Staff" vs "Sports Medicine") this is
+  // the evidence for why the row was kept, so it is auditable rather than implicit.
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS page_section TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_name ON program_staff (school, lower(name))`).catch(() => {});
   // Per-school SOURCE CONFIG. The football staff page URL is discovered ONCE via
   // search and then persisted here; it is never searched for again. This is what
@@ -2051,8 +2055,8 @@ async function saveProgramStaff(school, records) {
            (school, role, role_label, name, title, email, email_source_url, phone,
             linkedin_url, source_url, source_tier, confidence, sources, verified_on, updated_at,
             source_date, age_months, status, superseded_note, reach_via, sport, source_tier_note,
-            role_rank, is_key_contact)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW(),$14,$15,$16,$17,$18,$19,$20,$21,$22)
+            role_rank, is_key_contact, page_section)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW(),$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
          ON CONFLICT (school, role, name) DO UPDATE SET
            role_label = EXCLUDED.role_label, title = EXCLUDED.title,
            email = EXCLUDED.email, email_source_url = EXCLUDED.email_source_url,
@@ -2064,6 +2068,7 @@ async function saveProgramStaff(school, records) {
            reach_via = EXCLUDED.reach_via, sport = EXCLUDED.sport,
            source_tier_note = EXCLUDED.source_tier_note,
            role_rank = EXCLUDED.role_rank, is_key_contact = EXCLUDED.is_key_contact,
+           page_section = EXCLUDED.page_section,
            verified_on = CURRENT_DATE, updated_at = NOW()`,
         [school, r.role, r.role_label || null, r.name, r.title || null, r.email || null,
          r.email_source_url || null, r.phone || null, r.linkedin_url || null,
@@ -2071,7 +2076,8 @@ async function saveProgramStaff(school, records) {
          JSON.stringify(r.sources || []), r.source_date || null,
          r.age_months == null ? null : r.age_months, r.status || 'current',
          r.superseded_note || null, r.reach_via || null, r.sport || null, r.source_tier_note || null,
-         r.role_rank == null ? null : r.role_rank, !!r.is_key_contact]);
+         r.role_rank == null ? null : r.role_rank, !!r.is_key_contact,
+         r.page_section || null]);
       n++;
     }
     await client.query('COMMIT');

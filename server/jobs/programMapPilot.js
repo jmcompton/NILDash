@@ -12,6 +12,7 @@
 
 const store = require('../store');
 const programMap = require('../services/programMap');
+const staffPage = require('../services/staffPage');
 
 // Haiku 4.5 pricing, used only for a cost ESTIMATE in the summary. Input is
 // dominated by web-search results, so it is approximated per call rather than
@@ -58,6 +59,7 @@ function dumpRecords(rows, contactsBySchool) {
         console.log(`    name        ${r.name}`);
         console.log(`    title       ${r.title || '(none)'}`);
         console.log(`    sport       ${r.sport || 'unstated'}`);
+        if (r.page_section) console.log(`    listed under "${r.page_section}" on the source page`);
         console.log(`    confidence  ${String(r.confidence || '').toUpperCase()}   (tier ${r.source_tier || '?'}, source dated ${r.source_date || 'UNDATED'}${r.age_months != null ? ', ' + r.age_months + ' months old' : ''})`);
         if (r.source_tier_note) console.log(`    tier note   ${r.source_tier_note}`);
         console.log(`    email       ${r.email || '(none, never guessed)'}`);
@@ -130,7 +132,6 @@ async function run() {
   // pagination, lazy loading or a parser miss, and whether phone numbers are even
   // published, without guessing at any of it.
   if (args.includes('--inspect')) {
-    const staffPage = require('../services/staffPage');
     const targets = only ? [only] : programMap.PILOT_SCHOOLS;
     for (const school of targets) {
       const src = await store.getProgramSource(school);
@@ -260,9 +261,10 @@ async function run() {
   // --fetch-all: run ONLY the staff-page fetch across every pilot school and print
   // per-school counts. No records written, no search fan-out.
   if (args.includes('--fetch-all')) {
-    console.log('school                staff  emails  phones  roles  keyContacts  via      ms     url');
+    console.log('school                staff  emails  phones  roles  keyContacts  titles  junk  via      ms     url');
     console.log(line('-'));
     const failures = [];
+    const suspect = [];
     let tStaff = 0, tEmail = 0, tPhone = 0;
     for (const school of programMap.PILOT_SCHOOLS) {
       const t0 = Date.now();
@@ -276,7 +278,12 @@ async function run() {
       const emails = res.staff.filter((p) => p.email).length;
       const phones = res.staff.filter((p) => p.phone).length;
       tStaff += res.staff.length; tEmail += emails; tPhone += phones;
-      console.log(`${school.padEnd(20)} ${String(res.staff.length).padStart(5)}  ${String(emails).padStart(6)}  ${String(phones).padStart(6)}  ${String(tagged.length).padStart(5)}  ${String(tagged.filter((r) => r.is_key_contact).length).padStart(11)}  ${String(res.via).padEnd(7)} ${String(Date.now() - t0).padStart(5)}  ${res.url}`);
+      // Quality is printed per school so a page that parses navigation instead of
+      // staff is visible in the table rather than only in a hand audit of the dump.
+      const score = staffPage.scoreStaffPage(res.staff, programMap.ROLES.map((r) => r.match));
+      const pct = (x) => `${Math.round(x * 100)}%`;
+      if (!score.accepted) suspect.push({ school, url: res.url, reasons: score.reasons });
+      console.log(`${school.padEnd(20)} ${String(res.staff.length).padStart(5)}  ${String(emails).padStart(6)}  ${String(phones).padStart(6)}  ${String(tagged.length).padStart(5)}  ${String(tagged.filter((r) => r.is_key_contact).length).padStart(11)}  ${pct(score.titleRate).padStart(6)}  ${pct(score.junkRate).padStart(4)}  ${String(res.via).padEnd(7)} ${String(Date.now() - t0).padStart(5)}  ${res.url}`);
     }
     console.log(line('-'));
     console.log(`TOTAL                ${String(tStaff).padStart(5)}  ${String(tEmail).padStart(6)}  ${String(tPhone).padStart(6)}`);
@@ -284,6 +291,13 @@ async function run() {
       console.log(`\nDISCOVERY / FETCH FAILURES (${failures.length}):`);
       for (const f of failures) console.log(`  ${f.school}: ${f.reason}`);
     } else console.log('\nNo discovery or fetch failures.');
+    if (suspect.length) {
+      console.log(`\nPAGES THAT FAIL THE QUALITY BAR (${suspect.length}). These parsed something, but probably not a staff table:`);
+      for (const s of suspect) {
+        console.log(`  ${s.school}: ${s.reasons.join('; ')}`);
+        console.log(`    ${s.url}`);
+      }
+    } else console.log('Every page passed the quality bar.');
     return;
   }
 
