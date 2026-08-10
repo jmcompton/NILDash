@@ -43,7 +43,9 @@ async function fetchStaffPage(url) {
     if (!resp.ok) return { ok: false, reason: 'http_' + resp.status, status: resp.status, ms: Date.now() - t0 };
     let html = await resp.text();
     if (html.length > MAX_HTML_BYTES) html = html.slice(0, MAX_HTML_BYTES);
-    return { ok: true, html, finalUrl: resp.url || url, bytes: html.length, ms: Date.now() - t0 };
+    // status is returned on success too: the URL sweep logs it per candidate, and a
+    // 2xx that is not 200 is worth seeing rather than assuming.
+    return { ok: true, html, status: resp.status, finalUrl: resp.url || url, bytes: html.length, ms: Date.now() - t0 };
   } catch (e) {
     clearTimeout(t);
     return { ok: false, reason: (e && e.name === 'AbortError') ? 'timeout' : ('error_' + (e.message || 'fetch')), ms: Date.now() - t0 };

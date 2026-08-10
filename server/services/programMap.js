@@ -391,10 +391,124 @@ function _byRecency(a, b) {
   return at - bt;
 }
 
-// ── Football staff page: discover once, then fetch forever ───────────────────
-// Discovery is a single search, run ONLY when program_source has no URL yet. After
-// that the URL is read from the table and never searched for again, which is what
-// removes the run-to-run variance.
+// ── Football staff page: sweep known paths, then fetch forever ───────────────
+// URL discovery is a PATTERN problem, not a search problem. Nearly every FBS
+// athletics site runs on Sidearm, and the football staff page sits at one of a small
+// number of predictable paths. Asking a model to search for it produced 404s and
+// run-to-run variance; trying the eight paths that actually work is deterministic,
+// costs nothing, and either finds the page or proves it is not at a known path.
+//
+// Every one of these came off a run that worked:
+//   /sports/football/coaches             Georgia, Ole Miss, Alabama
+//   /staff-directory/department/football Auburn
+//   /sports/football/coaches/            Florida, after redirect
+// South Carolina's /staff-directory/football-803-777-4271/ is deliberately absent:
+// the phone is part of the slug, so it cannot be a fixed pattern. It stays hand-set.
+const STAFF_URL_CANDIDATES = [
+  '/sports/football/coaches',
+  '/sports/football/coaches/',
+  '/sports/football/staff',
+  '/staff-directory/department/football',
+  '/staff-directory?path=football',
+  '/staff-directory/football',
+  '/coaches.aspx?path=football',
+  '/sports/football/roster/staff',
+];
+
+// "More than 10 staff." A real football directory returns 60 to 110. A homepage that
+// a 404 redirected to parses to a handful of stray rows, so this gate is what stops a
+// soft-404 from being accepted as a win.
+const MIN_SWEEP_STAFF = 11;
+const SWEEP_PAUSE_MS = 250; // one host, several requests: do not hammer it
+
+const _pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Try the known paths in order against a school's athletics domain. Returns
+// { url, staffCount, tried, via }. url is null when nothing hit, which is the
+// signal to fall back to search and flag the school.
+//
+// Parsing here is DETERMINISTIC ONLY, never the model fallback: a sweep may fetch
+// eight pages per school and paying a model to read each miss would be absurd. Once a
+// winner is persisted, loadStaff runs normally and can still use the model.
+async function sweepStaffUrl(school, store, opts = {}) {
+  const staffPage = require('./staffPage');
+  const cfg = SCHOOLS[school] || {};
+  const domain = cfg.athletics;
+  if (!domain) {
+    console.warn(`[url-sweep] school="${school}" no athletics domain configured, cannot sweep`);
+    return { url: null, staffCount: 0, tried: [], via: 'none' };
+  }
+
+  const src = await store.getProgramSource(school);
+  // A hand-set URL is never swept over. That is the whole point of url_locked.
+  if (src && src.url_locked && !opts.force) {
+    console.log(`[url-sweep] school="${school}" SKIPPED, URL is hand-set: ${src.football_staff_url}`);
+    return { url: src.football_staff_url, staffCount: null, tried: [], via: 'manual', skipped: true };
+  }
+  // An existing URL that already returns a full directory is also left alone, so
+  // running the sweep across all 10 can only fix schools, never regress a good one.
+  const incumbentCount = (src && Number(src.last_staff_count)) || 0;
+  if (!opts.force && !opts.allPaths && !opts.ignoreIncumbent && incumbentCount >= MIN_SWEEP_STAFF && src.football_staff_url) {
+    console.log(`[url-sweep] school="${school}" SKIPPED, existing URL already returns ${incumbentCount} staff: ${src.football_staff_url}`);
+    return { url: src.football_staff_url, staffCount: incumbentCount, tried: [], via: src.football_staff_url_discovered_via || 'existing', skipped: true };
+  }
+
+  const tried = [];
+  const seen = new Set();
+  let best = null;
+  for (const path of STAFF_URL_CANDIDATES) {
+    const url = `https://${domain}${path}`;
+    const got = await staffPage.fetchStaffPage(url);
+    if (!got.ok) {
+      const status = got.status || got.reason;
+      console.log(`[url-sweep] school="${school}" try=${path} status=${status}`);
+      tried.push({ path, status, staff: 0 });
+      await _pause(SWEEP_PAUSE_MS);
+      continue;
+    }
+    // Two candidates often redirect to the same page (the trailing-slash pair always
+    // does). Counting it twice would misreport how many distinct pages exist.
+    const finalUrl = got.finalUrl || url;
+    if (seen.has(finalUrl)) {
+      console.log(`[url-sweep] school="${school}" try=${path} status=${got.status} same page as an earlier try, skipped`);
+      tried.push({ path, status: got.status, staff: 0, duplicateOf: finalUrl });
+      continue;
+    }
+    seen.add(finalUrl);
+
+    const staff = staffPage.parseStaffHtml(got.html, finalUrl);
+    const n = staff.length;
+    const accepted = n >= MIN_SWEEP_STAFF;
+    const redirect = finalUrl !== url ? ` -> ${finalUrl}` : '';
+    console.log(`[url-sweep] school="${school}" try=${path}${redirect} status=${got.status} staff=${n}` +
+      (accepted ? ' ACCEPTED' : ' too thin, rejected'));
+    tried.push({ path, status: got.status, staff: n, url: finalUrl, accepted });
+    if (accepted && (!best || n > best.staffCount)) {
+      best = { url: finalUrl, staffCount: n, path };
+    }
+    // Default behavior is the spec: stop at the FIRST path that hits. --all-paths
+    // keeps going so a thin page can be compared against every other candidate,
+    // which is how a separate support-staff page would show itself.
+    if (accepted && !opts.allPaths) break;
+    await _pause(SWEEP_PAUSE_MS);
+  }
+
+  if (!best) {
+    console.warn(`[url-sweep] school="${school}" NO CANDIDATE PATH WORKED (${tried.length} tried)`);
+    return { url: null, staffCount: 0, tried, via: 'none' };
+  }
+  // Never replace a better incumbent with a worse sweep result.
+  if (incumbentCount > best.staffCount && src && src.football_staff_url) {
+    console.log(`[url-sweep] school="${school}" keeping existing URL (${incumbentCount} staff) over sweep result ${best.path} (${best.staffCount} staff)`);
+    return { url: src.football_staff_url, staffCount: incumbentCount, tried, via: 'existing', skipped: true };
+  }
+  await store.saveProgramSourceUrl(school, best.url, 'sweep', src && src.athletics_contact_url);
+  console.log(`[url-sweep] school="${school}" PERSISTED ${best.url} (${best.staffCount} staff via ${best.path})`);
+  return { url: best.url, staffCount: best.staffCount, tried, via: 'sweep' };
+}
+
+// Search is now the EXCEPTION, run only when no known path worked. A school that
+// lands here is flagged so it shows up in the output as needing attention.
 const STAFF_URL_SYS = 'You find the exact URL of one specific page. Output ONLY JSON. Never invent a URL.';
 
 async function discoverStaffUrl(school, store) {
@@ -431,15 +545,42 @@ async function loadFootballStaff(school, store, opts = {}) {
   const staffPage = require('./staffPage');
   let src = await store.getProgramSource(school);
   let url = src && src.football_staff_url;
+  let needsAttention = false;
   if (!url || opts.rediscover) {
-    const d = await discoverStaffUrl(school, store);
-    url = d.staffUrl;
+    // Pattern first: eight known paths, deterministic, free.
+    const swept = await sweepStaffUrl(school, store, opts);
+    url = swept.url;
+    // Only if every known path missed does this become a search problem again.
+    if (!url) {
+      console.warn(`[program-map] school="${school}" no known path worked, falling back to search`);
+      const d = await discoverStaffUrl(school, store);
+      url = d.staffUrl;
+      needsAttention = true;
+    }
     src = await store.getProgramSource(school);
   }
-  if (!url) return { staff: [], url: null, via: 'none', diff: null, hash: null };
+  if (!url) {
+    console.warn(`[program-map] school="${school}" NEEDS ATTENTION: no staff URL from sweep or search. Set one by hand with --set-url.`);
+    return { staff: [], url: null, via: 'none', diff: null, hash: null, needsAttention: true };
+  }
 
   const loaded = await staffPage.loadStaff(url, ai);
-  if (!loaded.ok) return { staff: [], url, via: 'none', error: loaded.reason, diff: null, hash: null };
+  if (!loaded.ok) {
+    // A stored URL that has started 404ing is exactly what the sweep repairs, so try
+    // it once here rather than making the school a manual chore. _repaired makes this
+    // strictly one attempt: without it a replacement that also fails would recurse
+    // forever. ignoreIncumbent (not force) bypasses the stale staff-count check while
+    // still leaving a hand-set URL locked, because a hand-set URL is never swept over
+    // even when it breaks. It gets flagged for attention instead.
+    if (!opts._repaired) {
+      console.warn(`[program-map] school="${school}" stored URL failed (${loaded.reason}), sweeping for a replacement`);
+      const swept = await sweepStaffUrl(school, store, { ...opts, ignoreIncumbent: true });
+      if (swept.url && swept.url !== url) {
+        return loadFootballStaff(school, store, { ...opts, rediscover: false, _repaired: true });
+      }
+    }
+    return { staff: [], url, via: 'none', error: loaded.reason, diff: null, hash: null, needsAttention: true };
+  }
 
   // Weekly re-fetch diff: what changed since the last snapshot IS the alert feature.
   const prev = (src && Array.isArray(src.last_staff)) ? src.last_staff : [];
@@ -705,7 +846,8 @@ function reachVia(record, contacts) {
 
 module.exports = {
   seniorityRank,
-  buildProgram, dedupeAcrossSchools, reachVia, discoverStaffUrl, loadFootballStaff, recordsFromStaffPage, classifyTier, parseDate, isStale, monthsSince,
+  buildProgram, dedupeAcrossSchools, reachVia, discoverStaffUrl, sweepStaffUrl, STAFF_URL_CANDIDATES, MIN_SWEEP_STAFF,
+  loadFootballStaff, recordsFromStaffPage, classifyTier, parseDate, isStale, monthsSince,
   detectSport, footballScoped,
   ROLES, SCHOOLS, PILOT_SCHOOLS, SOURCE_ORDER, STALE_MONTHS, _assess, _roleOf, _byRecency, _newestMs,
 };

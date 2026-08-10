@@ -195,6 +195,68 @@ async function run() {
     return;
   }
 
+  // --sweep: try the known Sidearm paths for every school (or one, with --school) and
+  // persist the first that returns a real directory. Touches nothing else: no records
+  // written, no search, no model calls.
+  //   --force       sweep even schools whose URL is hand-set or already working
+  //   --all-paths   try EVERY candidate instead of stopping at the first hit, and
+  //                 report the count for each. This is how a thin page gets compared
+  //                 against a possible separate support-staff page.
+  if (args.includes('--sweep')) {
+    const schools = only ? [only] : programMap.PILOT_SCHOOLS;
+    const sweepOpts = { force: args.includes('--force'), allPaths: args.includes('--all-paths') };
+    console.log(`[url-sweep] sweeping ${schools.length} school(s) over ${programMap.STAFF_URL_CANDIDATES.length} known paths`);
+    console.log(`[url-sweep] accept threshold: more than ${programMap.MIN_SWEEP_STAFF - 1} parsed staff`);
+    if (sweepOpts.allPaths) console.log('[url-sweep] --all-paths: trying every candidate, not stopping at the first hit');
+    if (sweepOpts.force) console.log('[url-sweep] --force: hand-set and already-working URLs will ALSO be swept');
+    console.log('');
+
+    const results = [];
+    for (const school of schools) {
+      let r;
+      try { r = await programMap.sweepStaffUrl(school, store, sweepOpts); }
+      catch (e) { console.log(`[url-sweep] school="${school}" ERROR ${e.message}`); r = { url: null, staffCount: 0, tried: [], via: 'error', error: e.message }; }
+      results.push({ school, ...r });
+      console.log('');
+    }
+
+    console.log(line('-'));
+    console.log('school                staff  via       url');
+    console.log(line('-'));
+    for (const r of results) {
+      const cnt = r.staffCount == null ? '  hand' : String(r.staffCount).padStart(5);
+      console.log(`${r.school.padEnd(20)} ${cnt}  ${String(r.via).padEnd(8)}  ${r.url || 'NONE'}`);
+    }
+    console.log(line('-'));
+
+    // --all-paths only: the full per-path grid, which is the evidence for whether a
+    // thin page has a fuller sibling.
+    if (sweepOpts.allPaths) {
+      console.log('\nPER-PATH RESULTS:');
+      for (const r of results) {
+        if (!r.tried || !r.tried.length) continue;
+        console.log(`  ${r.school}:`);
+        for (const t of r.tried) {
+          const note = t.duplicateOf ? 'duplicate of an earlier path' : `staff=${t.staff}${t.accepted ? ' ACCEPTED' : ''}`;
+          console.log(`    ${String(t.path).padEnd(38)} status=${String(t.status).padEnd(8)} ${note}`);
+        }
+      }
+    }
+
+    const stuck = results.filter((r) => !r.url);
+    if (stuck.length) {
+      console.log(`\nNEEDS ATTENTION (${stuck.length}): no known path worked. Set these by hand:`);
+      for (const r of stuck) {
+        console.log(`  ${r.school}`);
+        console.log(`    node server/jobs/programMapPilot.js --set-url --school "${r.school}" --url "https://..."`);
+      }
+    } else {
+      console.log('\nEvery school has a staff URL.');
+    }
+    console.log('\nNext: node server/jobs/programMapPilot.js --fetch-all');
+    return;
+  }
+
   // --fetch-all: run ONLY the staff-page fetch across every pilot school and print
   // per-school counts. No records written, no search fan-out.
   if (args.includes('--fetch-all')) {
