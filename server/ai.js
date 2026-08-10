@@ -1280,19 +1280,34 @@ function _extractCitationUrls(blocks) {
 // One contact web-search call that returns BOTH the text and the citation URLs.
 // (oneShotWebSearch throws away everything but the text, so it cannot give us the
 // real source links.) Throws on API error so the caller can surface it.
+// Latency knobs for one contact source. A source's wall time is dominated by two
+// things inside this single call: the web searches Anthropic runs server-side
+// (SEQUENTIAL within the turn, so max_uses=2 means two round trips before any text
+// is generated), and the output tokens Haiku then generates. Both are env-tunable so
+// they can be A/B'd without a code change. Defaults are unchanged from before.
+const CONTACT_SEARCH_MAX_USES = parseInt(process.env.CONTACT_SEARCH_MAX_USES, 10) || 2;
+const CONTACT_SEARCH_MAX_TOKENS = parseInt(process.env.CONTACT_SEARCH_MAX_TOKENS, 10) || 900;
+
 async function _contactWebSearchRaw(prompt, sys) {
   const client = getClient();
   scanMeter.bumpWeb();
+  const _apiT0 = Date.now();
   const msg = await client.messages.create({
     model: MODEL_FAST,
-    max_tokens: 900,
+    max_tokens: CONTACT_SEARCH_MAX_TOKENS,
     system: sys,
-    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 2 }],
+    tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: CONTACT_SEARCH_MAX_USES }],
     messages: [{ role: 'user', content: prompt }],
   });
+  const apiMs = Date.now() - _apiT0;
   const blocks = Array.isArray(msg.content) ? msg.content : [];
   const text = stripEmDashes(blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n'));
-  return { text, citations: _extractCitationUrls(blocks) };
+  // How many web searches the model ACTUALLY ran, and how many tokens it generated.
+  // Together these say whether a slow source is slow because of searching or because
+  // of writing, which is the difference between tuning max_uses and max_tokens.
+  const searches = blocks.filter((b) => b && b.type === 'web_search_tool_result').length;
+  const outTokens = (msg.usage && msg.usage.output_tokens) || 0;
+  return { text, citations: _extractCitationUrls(blocks), searches, outTokens, apiMs };
 }
 
 // Pull the contacts payload out of a model response. Accepts a JSON object
@@ -1377,6 +1392,7 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
   // if the call throws (auth, tool, rate limit), record it so the per-source log
   // shows the real reason instead of a silent empty.
   let text = '', citations = [], status = 'ran', errMsg = '';
+  let searches = 0, outTokens = 0, apiMs = 0;
   try {
     if (_contactSearchImpl) {
       // Test seam: may return a raw string, or { text, citations }.
@@ -1389,6 +1405,7 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
         new Promise((_, rej) => setTimeout(() => rej(new Error('timeout-15s')), 15000)),
       ]);
       text = r.text || ''; citations = r.citations || [];
+      searches = r.searches || 0; outTokens = r.outTokens || 0; apiMs = r.apiMs || 0;
     }
   } catch (e) { status = 'error'; errMsg = (e && e.message) || 'error'; }
   if (status === 'ran' && !text) status = 'empty';
@@ -1428,6 +1445,7 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
   return {
     source, contacts, inbox, businessPhone, state, status,
     ms: Date.now() - t0, rawLen: text.length, parsed: parsedN, kept: contacts.length,
+    searches, outTokens, apiMs,
     dropReason: dropReason || (status === 'error' ? 'error:' + errMsg : ''), usedProse,
   };
 }
@@ -1552,7 +1570,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
       // kept = people who survived validation. parsed>0 kept=0 means the extraction
       // found people but validation dropped them.
       const _t1hit = (r.contacts || []).some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1);
-      console.log(`[brand-contacts] source=${r.source} ms=${r.ms} found=${r.kept} tier1=${_t1hit ? 'yes' : 'no'} status=${r.status} parsed=${r.parsed}${r.dropReason ? ` dropReason=${r.dropReason}` : ''}${r.usedProse ? ' prose=1' : ''}`);
+      console.log(`[brand-contacts] source=${r.source} ms=${r.ms} found=${r.kept} tier1=${_t1hit ? 'yes' : 'no'} searches=${r.searches} outTokens=${r.outTokens} apiMs=${r.apiMs} rawLen=${r.rawLen} status=${r.status} parsed=${r.parsed}${r.dropReason ? ` dropReason=${r.dropReason}` : ''}${r.usedProse ? ' prose=1' : ''}`);
     }
     const best = _mergeContacts(results.flatMap((x) => x.contacts))
       .sort((a, b) => _contactAuthorityRank(a.title) - _contactAuthorityRank(b.title))[0];
@@ -3182,6 +3200,7 @@ module.exports = {
   resolveBrandKey,
   brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder
+  rootDomain: _rootDomain,                     // injected for the cross-domain contact check
   TIER1_RANKS: _TIER1_RANKS,
   prewarmDealEvidence,
   getBrandContacts,

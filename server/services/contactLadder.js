@@ -85,6 +85,32 @@ function confidenceLabel(contact) {
 // Digits-only, for comparing a contact's phone against the business main line.
 function _digits(p) { return String(p || '').replace(/\D/g, ''); }
 
+// Fallback root-domain reducer, used when the caller does not inject ai.rootDomain.
+function _fallbackRootDomain(url) {
+  let s = String(url || '').trim().toLowerCase();
+  if (!s) return '';
+  s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').split(/[/?#]/)[0].split('@').pop().split(':')[0].replace(/^www\./, '');
+  if (!s.includes('.')) return s;
+  const parts = s.split('.').filter(Boolean);
+  return parts.length <= 2 ? parts.join('.') : parts.slice(-2).join('.');
+}
+
+// CROSS-DOMAIN GUARD. An address on a domain other than the business website is not
+// necessarily wrong (a rebranded business often keeps the old mailbox: EW Motion
+// Therapy publishing info@eskridgeandwhite.com), but an agent has no way to know
+// that from the row. So it is never shown as if it belongs to the business: it is
+// labeled with the mismatch, naming the other domain. Returns null when the domains
+// match or when either side is unknown.
+function crossDomainNote(email, bizDomain, rootFn) {
+  const root = typeof rootFn === 'function' ? rootFn : _fallbackRootDomain;
+  const biz = root(bizDomain || '');
+  const at = String(email || '').split('@')[1];
+  if (!biz || !at) return null;
+  const emailRoot = root(at);
+  if (!emailRoot || emailRoot === biz) return null;
+  return `Different domain (${emailRoot}) from the business site (${biz}), possibly a former business name. Verify before using.`;
+}
+
 // Front-of-house staff: real people, but not who an agent should be calling about a
 // deal. They are held back and only surfaced when there is no Tier 1 or Tier 2
 // contact at all, so a thin result still shows someone rather than nothing.
@@ -141,6 +167,10 @@ function buildContactLadder(res, opts = {}) {
   const named = Array.isArray(r.contacts) ? r.contacts.filter((c) => c && c.name && String(c.name).trim()) : [];
 
   const mainDigits = _digits(r.businessPhone);
+  // Business domain that every email on this ladder is checked against.
+  const bizSite = r.website || opts.website || null;
+  const _rootFn = typeof opts.rootDomain === 'function' ? opts.rootDomain : _fallbackRootDomain;
+  const _xdom = (email) => crossDomainNote(email, bizSite, _rootFn);
   // A site-scraped handle that carries a person's name is a PERSONAL account, so it
   // belongs to that person's row and rides their tier. Otherwise it is the business
   // account and becomes its own business-channel row.
@@ -177,6 +207,7 @@ function buildContactLadder(res, opts = {}) {
       title: c.title || null,
       email: c.email || null,
       emailKind: c.email ? (c.emailSource === 'hunter' ? 'pattern' : 'published') : null,
+      emailDomainNote: c.email ? _xdom(c.email) : null,
       phone: isOwnLine ? c.phone : null,
       phoneKind: isOwnLine ? 'direct' : null,
       phoneNote: isOwnLine ? 'Direct number listed for this person' : null,
@@ -248,6 +279,7 @@ function buildContactLadder(res, opts = {}) {
       title: 'Named mailbox',
       email: r.personalInbox,
       emailKind: 'published',
+      emailDomainNote: _xdom(r.personalInbox),
       channel: 'email',
       phone: null,
       confidence: 'Likely',
@@ -262,6 +294,7 @@ function buildContactLadder(res, opts = {}) {
       phone: null,
       email: r.genericInbox,
       emailKind: 'published',
+      emailDomainNote: _xdom(r.genericInbox),
       channel: 'email',
       confidence: 'Fallback',
       sourceNote: 'Published general inbox, not a named person',
@@ -297,4 +330,4 @@ function buildContactLadder(res, opts = {}) {
   };
 }
 
-module.exports = { buildContactLadder, confidenceLabel, sourceNote, callWindowFor, isStaffTitle, askName, TIER1_RANKS, SOURCE_NOTES };
+module.exports = { buildContactLadder, confidenceLabel, sourceNote, callWindowFor, isStaffTitle, askName, crossDomainNote, TIER1_RANKS, SOURCE_NOTES };

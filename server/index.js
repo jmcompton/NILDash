@@ -6849,7 +6849,7 @@ app.post('/api/agent/deal-scan/add-business', requireAuth, requireAgentSubscript
         sourceOrder: ['site', 'facebook', 'registry', 'maps', 'news', 'chamber'],
         stopAtTier1: true,
       });
-      const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, category: null, brand: raw });
+      const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, category: null, brand: raw });
       await store.insertManualBrand(loaded.agentId || req.session.userId, athleteId, 'social', brandKey, raw);
       _manualAddRateRecord(_rlKey);
       console.log(`[addBusiness] athlete=${athleteId} SOCIAL fallback brand="${raw}" key=${brandKey} tier=${ladder.topTier} ms=${Date.now() - _t0}`);
@@ -6890,7 +6890,7 @@ app.post('/api/agent/deal-scan/add-business', requireAuth, requireAgentSubscript
       sourceOrder: ['site', 'facebook', 'registry', 'maps', 'news', 'chamber'],
       stopAtTier1: true,
     });
-    const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, category: card.category, brand: place.name });
+    const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, category: card.category, brand: place.name });
 
     // 5. Ledger write: lane='local', source='manual', state='shown'.
     card.brandKey = brandKey;
@@ -7173,14 +7173,14 @@ async function _brandContactsBatch(req, res) {
         const out = await ai.getBrandContacts(String(b.brand || ''), b.website || null, b.region || '', ctx);
         return {
           brand: b.brand, ...out,
-          contactLadder: buildContactLadder(out, { rankOf: ai.contactAuthorityRank, category: b.category || null, brand: b.brand }),
+          contactLadder: buildContactLadder(out, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, category: b.category || null, brand: b.brand }),
         };
       } catch (err) {
         console.error(`[brand-contacts] DEEP FAILED brand="${b.brand}": ${err.message}`, err.stack);
         const empty = { contacts: [], genericInbox: null, personalInbox: null, businessPhone: null, approach: null, mapsUrl: null };
         return {
           brand: b.brand, ...empty, error: err.message,
-          contactLadder: buildContactLadder(empty, { rankOf: ai.contactAuthorityRank, category: b.category || null, brand: b.brand }),
+          contactLadder: buildContactLadder(empty, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, category: b.category || null, brand: b.brand }),
         };
       }
     });

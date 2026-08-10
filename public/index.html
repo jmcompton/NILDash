@@ -6700,7 +6700,8 @@ function _dsLadderHtml(d) {
     (t.rows || []).forEach(function(r){
       var conf = _DS_CONF_STYLE[r.confidence] || _DS_CONF_STYLE.Fallback;
       var bits = [];
-      if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:#84CC16;text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>' +
+      if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:' + (r.emailDomainNote ? '#f59e0b' : '#84CC16') + ';text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>' +
+        (r.emailDomainNote ? ' <span style="font-size:8px;font-weight:700;color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">other domain</span>' : '') +
         (r.emailKind === 'pattern' ? ' <span style="font-size:8px;color:var(--muted)">(pattern match)</span>' : ''));
       // A row only carries a number when it is genuinely DIFFERENT from the main
       // line, so the same digits are never repeated down the ladder.
@@ -6720,6 +6721,8 @@ function _dsLadderHtml(d) {
         (bits.length ? '<div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.6">' + bits.join(' <span style="color:var(--border)">&middot;</span> ') + '</div>' : '') +
         // A name is not a contact: when the only route is the shared line, say so.
         (r.reachVia ? '<div style="font-size:11px;color:#f59e0b;margin-top:3px;line-height:1.5">' + esc(r.reachVia) + '</div>' : '') +
+        // Never let a cross-domain address read as the business's own.
+        (r.emailDomainNote ? '<div style="font-size:10px;color:#f59e0b;margin-top:3px;line-height:1.5">' + esc(r.emailDomainNote) + '</div>' : '') +
         '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5;font-style:italic">' + esc(r.sourceNote || 'Source not recorded') + '</div>' +
         (r.callWindow ? '<div style="font-size:10px;color:var(--muted);margin-top:3px;line-height:1.5">Best time to call: ' + esc(r.callWindow) + '</div>' : '') +
       '</div>';
