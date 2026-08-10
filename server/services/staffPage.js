@@ -114,8 +114,20 @@ const JUNK_TEXT = /^(?:all\s+rotators|rotators?\b|slide\s*\d|previous|next|play|
 // person: "Football Support Staff", "Sports Medicine", "Business Office".
 const SECTION_WORD = /\b(football|basketball|baseball|softball|soccer|volleyball|tennis|golf|track|field|cross\s+country|swim(ming)?|diving|gymnastics|rowing|wrestling|medicine|nutrition|performance|operations|administration|office|services|department|marketing|communications|compliance|facilities|development|ticket(ing)?|academics?|equipment|video|creative|training|support|staff|personnel|recruiting|strength|conditioning|athletics?|business|human\s+resources|technology|events|hall\s+of\s+fame|leadership|coaches|sports)\b/i;
 
+// Tidy a heading before it is stored or matched. Matching is case-insensitive
+// already, so this is not about case: it strips the decoration that athletics sites
+// hang off headings, such as "FOOTBALL OPERATIONS (12)" or "Football Staff:".
+function normalizeSection(text) {
+  return String(text || '')
+    .replace(/ /g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*\(\s*\d+\s*\)\s*$/, '')
+    .replace(/^[\s\-|:,.]+|[\s\-|:,.]+$/g, '')
+    .trim();
+}
+
 function looksLikeSectionHeader(text) {
-  const v = String(text || '').trim();
+  const v = normalizeSection(text);
   if (!v || v.length < 3 || v.length > 60) return false;
   if (/@|https?:|\d{3}/.test(v)) return false;
   const words = v.split(/\s+/).filter(Boolean);
@@ -188,9 +200,17 @@ function parseStaffHtml(html, pageUrl) {
   // Headings that sit BETWEEN blocks are section headers. One inside a staff card is
   // that person's own markup and must not reset the section.
   const heads = [];
-  for (const m of clean.matchAll(/<h[1-6][^>]*>([\s\S]{0,200}?)<\/h[1-6]>/gi)) {
-    const t = _text(m[1]);
+  const addHead = (m, text) => {
+    const t = normalizeSection(text);
     if (looksLikeSectionHeader(t)) heads.push({ start: m.index, end: m.index + m[0].length, header: t, kind: 'header' });
+  };
+  for (const m of clean.matchAll(/<h[1-6][^>]*>([\s\S]{0,200}?)<\/h[1-6]>/gi)) addHead(m, _text(m[1]));
+  for (const m of clean.matchAll(/<caption[^>]*>([\s\S]{0,200}?)<\/caption>/gi)) addHead(m, _text(m[1]));
+  // Not every site uses a heading tag. Sidearm and its themes frequently render a
+  // department label as a styled div or span whose class names it, and a football
+  // section that is never DETECTED is indistinguishable from one that does not exist.
+  for (const m of clean.matchAll(/<(?:div|p|span|td|th|button|a)[^>]*(?:class|id)=["'][^"']*(?:section|category|group|heading|header|department|sport-title|group-title)[^"']*["'][^>]*>([\s\S]{0,200}?)<\/(?:div|p|span|td|th|button|a)>/gi)) {
+    addHead(m, _text(m[1]));
   }
   const inside = (i) => blocks.some((b) => i > b.start && i < b.end);
   const items = [...blocks, ...heads.filter((h) => !inside(h.start))].sort((a, b) => a.start - b.start);
@@ -211,7 +231,7 @@ function parseStaffHtml(html, pageUrl) {
       // A row that is not a person but reads like a department label IS the section
       // header. Auburn renders "Football Support Staff" as a table row, and the old
       // parser stored it as a nameless record instead of using it.
-      const t = _text(it.html);
+      const t = normalizeSection(_text(it.html));
       if (!/mailto:/i.test(it.html) && looksLikeSectionHeader(t)) {
         section = t;
         if (!sectionsSeen.includes(section)) sectionsSeen.push(section);
@@ -346,8 +366,18 @@ async function loadStaff(url, ai) {
       `[${filt.footballSections.join(', ')}], dropped ${filt.dropped} of ${filt.dropped + staff.length} rows`);
   } else if (filt.tooFew != null) {
     console.warn(`[staffPage] ${got.finalUrl} football sections matched only ${filt.tooFew} rows, keeping the full list instead`);
-  } else if (sections.length > 1) {
-    console.log(`[staffPage] ${got.finalUrl} sections seen: ${sections.slice(0, 8).join(', ')}${sections.length > 8 ? ', ...' : ''} (no football section, not filtered)`);
+  } else if (staff.length > 40) {
+    // A big page that was NOT filtered is either genuinely all football or a
+    // department directory whose headings were not detected. Those two look identical
+    // in a row count, so print the evidence IN FULL and never truncate it: a
+    // truncated list cannot answer the question it exists to answer.
+    if (!sections.length) {
+      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: ${staff.length} rows and NO section headings were detected at all. ` +
+        `If this page is department-wide, its headings use markup the parser does not recognise.`);
+    } else {
+      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: ${sections.length} section(s) detected, none naming football. Full list:`);
+      for (const s of sections) console.warn(`    section: ${s}`);
+    }
   }
   const hash = hashStaff(staff);
   if (got.finalUrl && got.finalUrl !== url) {
@@ -444,6 +474,6 @@ function diffStaff(oldStaff, newStaff) {
 module.exports = {
   fetchStaffPage, parseStaffHtml, extractStaffWithModel, loadStaff, hashStaff, diffStaff,
   looksLikeName, looksLikeTitle, TITLE_HINT, phoneFromUrl, inspectHtml,
-  stripNameLabel, looksLikeSectionHeader, filterToFootballSections, scoreStaffPage,
+  stripNameLabel, looksLikeSectionHeader, normalizeSection, filterToFootballSections, scoreStaffPage,
   JUNK_TEXT, FOOTBALL_SECTION, MIN_TITLE_RATE, MAX_JUNK_RATE, MIN_KEY_ROLES,
 };

@@ -196,6 +196,68 @@ async function run() {
     return;
   }
 
+  // --contacts: the product view. Per school, just the five key roles with the ways
+  // to reach each one. This is what an agent asking "who runs NIL at Missouri" gets,
+  // so it is worth reading as one page rather than inferring from the full dump.
+  if (args.includes('--contacts')) {
+    const schools = only ? [only] : programMap.PILOT_SCHOOLS;
+    const rows = await store.getProgramStaff(only || null);
+    const contacts = await store.getProgramContact(null);
+    const bySchool = {}; for (const c of contacts) bySchool[c.school] = c;
+    if (!rows.length) { console.log('No program_staff records stored yet. Run --fetch-all first.'); return; }
+
+    const roleOrder = programMap.ROLES.map((r) => r.key);
+    const gaps = [];
+    let filled = 0, reachable = 0;
+    for (const school of schools) {
+      const mine = rows.filter((r) => r.school === school);
+      console.log('\n' + line('='));
+      console.log(school.toUpperCase());
+      console.log(line('='));
+      const office = bySchool[school] || {};
+      if (office.football_office_phone) {
+        console.log(`  football office  ${office.football_office_phone}`);
+      }
+      for (const key of roleOrder) {
+        const role = programMap.ROLES.find((r) => r.key === key) || {};
+        // The key contact is the most senior person tagged with the role. Others in
+        // the same role are counted so a thin answer does not look like a full one.
+        const inRole = mine.filter((r) => r.role === key && r.status === 'current');
+        const top = inRole.find((r) => r.is_key_contact) || inRole[0];
+        console.log('');
+        console.log(`  ${role.label || key}`);
+        if (!top) {
+          console.log('    (empty)');
+          gaps.push({ school, role: role.label || key });
+          continue;
+        }
+        filled++;
+        console.log(`    ${top.name}`);
+        console.log(`    ${top.title || '(no title)'}`);
+        console.log(`    email  ${top.email || '(none published)'}`);
+        // A direct number is a direct number. The office line is still a way through,
+        // but it must be labelled as one rather than printed as if it were theirs.
+        let phoneLine = '(none)';
+        if (top.phone) phoneLine = top.phone;
+        else if (office.football_office_phone) phoneLine = `${office.football_office_phone} (office line, ask for ${top.name})`;
+        console.log(`    phone  ${phoneLine}`);
+        if (top.email || top.phone || office.football_office_phone) reachable++;
+        if (top.page_section) console.log(`    listed under "${top.page_section}"`);
+        if (inRole.length > 1) console.log(`    (+${inRole.length - 1} more in this role, see --dump)`);
+      }
+    }
+    const slots = schools.length * roleOrder.length;
+    console.log('\n' + line('-'));
+    console.log(`${filled} of ${slots} key-contact slots filled across ${schools.length} school(s). ${reachable} have a way to reach them.`);
+    if (gaps.length) {
+      console.log(`\nEMPTY ROLES (${gaps.length}):`);
+      const byRole = {};
+      for (const g of gaps) (byRole[g.role] = byRole[g.role] || []).push(g.school);
+      for (const [r, ss] of Object.entries(byRole)) console.log(`  ${r}: ${ss.join(', ')}`);
+    }
+    return;
+  }
+
   // --sweep: try the known Sidearm paths for every school (or one, with --school) and
   // persist the first that returns a real directory. Touches nothing else: no records
   // written, no search, no model calls.
