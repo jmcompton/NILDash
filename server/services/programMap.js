@@ -40,14 +40,42 @@ const STALE_MONTHS = 18;           // older evidence can never stand alone as Co
 const TIE_DAYS = 90;               // dates this close cannot separate two candidates
 
 const ROLES = [
-  { key: 'general_manager', label: 'General Manager', match: /\bgeneral manager\b|\bgm\b|executive director of football|director of football management|\bfootball management\b|\bfootball personnel\b/i },
-  { key: 'player_personnel', label: 'Director of Player Personnel', match: /player personnel/i },
-  { key: 'recruiting', label: 'Director of Recruiting', match: /recruiting/i },
+  // GM / football operations bucket. A program calls this seat several things, and
+  // missing any of them left the role empty on pages that clearly listed it:
+  // "Chief of Staff", "Sr. Director of Football Operations", "Executive Director of
+  // Football Management" are all this bucket.
+  { key: 'general_manager', label: 'General Manager / Football Ops', match: /\bgeneral manager\b|\bgm\b|chief of staff|director of football operations|football operations|executive director of football|director of football management|\bfootball management\b|\bfootball administration\b/i },
+  { key: 'player_personnel', label: 'Player Personnel', match: /player personnel|\bpersonnel\b|\bscouting\b/i },
+  { key: 'recruiting', label: 'Recruiting', match: /recruiting|recruitment/i },
   { key: 'head_coach', label: 'Head Coach', match: /head coach/i },
   // "executive director" alone is NOT enough: Tennessee's "Executive Director of
   // Football Management" is a GM, not a collective role. Require collective/NIL.
   { key: 'collective_director', label: 'NIL Collective Director', match: /\bcollective\b|\bnil\b/i },
 ];
+
+// Seniority within a role, lower = more senior. Where several people plausibly hold
+// a role we rank them rather than picking one arbitrarily: Florida lists both a
+// General Manager and an ASSISTANT General Manager, and Georgia has four people in
+// recruiting operations. All are kept; the most senior becomes the key contact.
+function seniorityRank(title) {
+  const t = String(title || '').toLowerCase();
+  if (/\bhead coach\b/.test(t)) return 0;
+  if (/\bassistant\b|\bassoc(iate)?\b|\bdeputy\b/.test(t)) {
+    // An "Assistant AD" outranks an "Assistant Director"; both sit below the chief.
+    if (/athletic director|\bad\b/.test(t)) return 4;
+    return 6;
+  }
+  if (/\bexecutive director\b|\bgeneral manager\b|\bchief\b/.test(t)) return 1;
+  if (/\bsenior\b|\bsr\.?\b/.test(t)) return 2;
+  if (/\bdirector\b/.test(t)) return 3;
+  if (/\bmanager\b/.test(t)) return 5;
+  if (/\bcoordinator\b/.test(t)) return 7;
+  if (/\banalyst\b|\bspecialist\b/.test(t)) return 8;
+  if (/\bassistant to\b|\bintern\b|\bgraduate\b/.test(t)) return 9;
+  return 6;
+}
+
+
 
 // Official athletics domains, used ONLY to classify a source URL as Tier A. Stable
 // and checkable. Collective names are deliberately NOT hardcoded: they change, and a
@@ -422,6 +450,14 @@ async function loadFootballStaff(school, store, opts = {}) {
     for (const r of diff.removed) console.log(`    LEFT     ${r.name} (${r.title || 'no title'})`);
     for (const c of diff.changed) console.log(`    CHANGED  ${c.name}: ${c.from || 'none'} -> ${c.to || 'none'}`);
   }
+  // Persist the FINAL resolved URL. Florida had a 2023 .aspx path stored that
+  // redirects to /sports/football/coaches/; keeping the old one means re-fetching a
+  // stale path forever.
+  if (loaded.finalUrl && loaded.finalUrl !== url) {
+    await store.saveProgramSourceUrl(school, loaded.finalUrl, 'redirect-resolved', src && src.athletics_contact_url);
+    console.log(`[program-map] school="${school}" persisted RESOLVED url: ${loaded.finalUrl}`);
+    url = loaded.finalUrl;
+  }
   await store.saveProgramStaffSnapshot(school, loaded.staff, loaded.hash, loaded.via);
   return { staff: loaded.staff, url: loaded.finalUrl || url, via: loaded.via, diff, hash: loaded.hash };
 }
@@ -429,17 +465,35 @@ async function loadFootballStaff(school, store, opts = {}) {
 // Turn parsed staff-page rows into records. Everything on this page is football and
 // current by definition, so it is Tier A with no sport gate and no date needed.
 function recordsFromStaffPage(school, staff, url) {
-  const out = [];
-  const takenRole = new Set();
+  // Tag first, then rank within each role. EVERY person is written: the five roles
+  // are a key-contacts VIEW over the full list, not a filter that discards the other
+  // hundred people an agent may want to search.
+  const tagged = [];
   for (const p of (staff || [])) {
     const role = _roleOf({ role: 'other', title: p.title || '' });
-    if (!role) continue;
-    // First listed holder of a role wins; a directory lists them in seniority order.
-    if (takenRole.has(role)) continue;
-    takenRole.add(role);
-    const label = (ROLES.find((r) => r.key === role) || {}).label || role;
+    tagged.push({ p, role: role || null });
+  }
+  const rankByRole = new Map();
+  for (const t of tagged) {
+    if (!t.role) continue;
+    if (!rankByRole.has(t.role)) rankByRole.set(t.role, []);
+    rankByRole.get(t.role).push(t);
+  }
+  for (const [, list] of rankByRole) {
+    list.sort((a, b) => seniorityRank(a.p.title) - seniorityRank(b.p.title));
+    list.forEach((t, i) => { t.rank = i + 1; });
+  }
+
+  const out = [];
+  for (const t of tagged) {
+    const p = t.p;
+    const label = t.role ? ((ROLES.find((r) => r.key === t.role) || {}).label || t.role) : 'Staff';
     out.push({
-      school, role, role_label: label,
+      school,
+      role: t.role || 'staff',
+      role_label: label,
+      role_rank: t.role ? (t.rank || 1) : null,
+      is_key_contact: !!(t.role && t.rank === 1),
       name: p.name, title: p.title || null,
       email: p.email || null,
       email_source_url: p.email ? url : null,
@@ -474,7 +528,7 @@ async function buildProgram(school, nowMs, store) {
       console.log(`[program-map] school="${school}" staffPage url=${pageInfo.url || 'none'} parsed=${pageInfo.staff.length} rolesMatched=${pageRecords.length} via=${pageInfo.via}`);
     } catch (e) { console.warn(`[program-map] school="${school}" staff page failed: ${e.message}`); }
   }
-  const covered = new Set(pageRecords.map((r) => r.role));
+  const covered = new Set(pageRecords.filter((r) => r.role && r.role !== 'staff').map((r) => r.role));
   const missing = ROLES.filter((r) => !covered.has(r.key)).map((r) => r.key);
   // SEARCH IS NOW THE EXCEPTION. It runs only for roles the page did not list.
   // A page that covered everything means zero searches for this program.
@@ -482,6 +536,7 @@ async function buildProgram(school, nowMs, store) {
   console.log(`[program-map] school="${school}" fromStaffPage=${[...covered].join(',') || 'none'} needSearch=${needSearch ? missing.join(',') : 'no'}`);
   if (!needSearch) {
     const filled0 = covered.size;
+    console.log(`[program-map] school="${school}" fullStaffStored=${pageRecords.length} keyContacts=${pageRecords.filter((r) => r.is_key_contact).length}`);
     console.log(`[program-map] school="${school}" roles=${filled0}/${ROLES.length} records=${pageRecords.length} searches=0 totalMs=${Date.now() - t0} (staff page only)`);
     return { school, records: pageRecords, contacts: null, droppedWrongSport: [], staffPage: pageInfo,
       ms: Date.now() - t0, meter: { searches: 0, outTokens: 0, sources: 0 }, rolesFilled: filled0, rolesTotal: ROLES.length };
@@ -575,7 +630,7 @@ async function buildProgram(school, nowMs, store) {
     console.log(`[program-map] school="${school}" role=${role.key} found=${ranked.length} tierA=${forRole.some((p) => p.tier === 'A') ? 'yes' : 'no'} confidence=${cur ? cur.confidence : 'empty'} date=${cur ? (cur.source_date || 'undated') : '-'} previous=${prevN}`);
   }
 
-  const filled = new Set(records.filter((r) => r.status === 'current').map((r) => r.role)).size;
+  const filled = new Set(records.filter((r) => r.status === 'current' && r.role && r.role !== 'staff').map((r) => r.role)).size;
   if (droppedWrongSport.length) {
     const bySport = {};
     for (const d of droppedWrongSport) bySport[d.sport] = (bySport[d.sport] || 0) + 1;
@@ -638,6 +693,7 @@ function reachVia(record, contacts) {
 }
 
 module.exports = {
+  seniorityRank,
   buildProgram, dedupeAcrossSchools, reachVia, discoverStaffUrl, loadFootballStaff, recordsFromStaffPage, classifyTier, parseDate, isStale, monthsSince,
   detectSport, footballScoped,
   ROLES, SCHOOLS, PILOT_SCHOOLS, SOURCE_ORDER, STALE_MONTHS, _assess, _roleOf, _byRecency, _newestMs,

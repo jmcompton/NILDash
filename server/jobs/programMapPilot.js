@@ -106,11 +106,44 @@ async function run() {
         console.log(`   ${String(p.name).padEnd(28)} ${String(p.title || '(no title)').padEnd(46)} ${p.email || ''} ${p.phone || ''}`);
       }
       const recs = programMap.recordsFromStaffPage(school, res.staff, res.url);
-      console.log(`\n  ROLES MATCHED FROM THIS PAGE (${recs.length}):`);
-      for (const r of recs) console.log(`   ${r.role_label.padEnd(30)} ${r.name} (${r.title || 'no title'})`);
-      const missing = programMap.ROLES.filter((x) => !recs.some((r) => r.role === x.key));
-      if (missing.length) console.log(`  roles NOT on this page: ${missing.map((m) => m.key).join(', ')}  (search would fill these)`);
+      const tagged = recs.filter((r) => r.role !== 'staff');
+      console.log(`\n  KEY CONTACTS (${tagged.filter((r) => r.is_key_contact).length} roles matched, ${tagged.length} people tagged, ${recs.length} stored in total):`);
+      for (const role of programMap.ROLES) {
+        const rs = tagged.filter((r) => r.role === role.key).sort((a, b) => a.role_rank - b.role_rank);
+        if (!rs.length) { console.log(`   ${role.label.padEnd(32)} (none on this page)`); continue; }
+        rs.forEach((r) => console.log(`   ${(r.role_rank === 1 ? role.label : '').padEnd(32)} ${r.role_rank}. ${r.name} - ${r.title || 'no title'}${r.email ? '  ' + r.email : ''}`));
+      }
     }
+    return;
+  }
+
+  // --fetch-all: run ONLY the staff-page fetch across every pilot school and print
+  // per-school counts. No records written, no search fan-out.
+  if (args.includes('--fetch-all')) {
+    console.log('school                staff  emails  phones  roles  keyContacts  via      ms     url');
+    console.log(line('-'));
+    const failures = [];
+    let tStaff = 0, tEmail = 0, tPhone = 0;
+    for (const school of programMap.PILOT_SCHOOLS) {
+      const t0 = Date.now();
+      let res;
+      try { res = await programMap.loadFootballStaff(school, store, { rediscover: args.includes('--rediscover') }); }
+      catch (e) { failures.push({ school, reason: e.message }); console.log(`${school.padEnd(20)} FAILED ${e.message}`); continue; }
+      if (!res.url) { failures.push({ school, reason: 'no url discovered' }); console.log(`${school.padEnd(20)} NO URL DISCOVERED`); continue; }
+      if (res.error) { failures.push({ school, reason: res.error }); console.log(`${school.padEnd(20)} FETCH FAILED ${res.error}  ${res.url}`); continue; }
+      const recs = programMap.recordsFromStaffPage(school, res.staff, res.url);
+      const tagged = recs.filter((r) => r.role !== 'staff');
+      const emails = res.staff.filter((p) => p.email).length;
+      const phones = res.staff.filter((p) => p.phone).length;
+      tStaff += res.staff.length; tEmail += emails; tPhone += phones;
+      console.log(`${school.padEnd(20)} ${String(res.staff.length).padStart(5)}  ${String(emails).padStart(6)}  ${String(phones).padStart(6)}  ${String(tagged.length).padStart(5)}  ${String(tagged.filter((r) => r.is_key_contact).length).padStart(11)}  ${String(res.via).padEnd(7)} ${String(Date.now() - t0).padStart(5)}  ${res.url}`);
+    }
+    console.log(line('-'));
+    console.log(`TOTAL                ${String(tStaff).padStart(5)}  ${String(tEmail).padStart(6)}  ${String(tPhone).padStart(6)}`);
+    if (failures.length) {
+      console.log(`\nDISCOVERY / FETCH FAILURES (${failures.length}):`);
+      for (const f of failures) console.log(`  ${f.school}: ${f.reason}`);
+    } else console.log('\nNo discovery or fetch failures.');
     return;
   }
 

@@ -657,6 +657,14 @@ async function init() {
   // sport, so a football map has to record this or a track GM looks like a Tier A hit.
   await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS sport TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS source_tier_note TEXT`).catch(() => {});
+  // The table now holds the FULL football staff, not five roles. role='staff' means
+  // an untagged staff member; role_rank orders the people who share a tagged role,
+  // and is_key_contact marks the most senior of them. The five roles are a view over
+  // this list rather than a filter that discards everyone else.
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS role_rank INT`).catch(() => {});
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS is_key_contact BOOLEAN DEFAULT FALSE`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_key ON program_staff (school, is_key_contact)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_name ON program_staff (school, lower(name))`).catch(() => {});
   // Per-school SOURCE CONFIG. The football staff page URL is discovered ONCE via
   // search and then persisted here; it is never searched for again. This is what
   // makes the map deterministic: the same URL is fetched every run, so the same page
@@ -2040,8 +2048,9 @@ async function saveProgramStaff(school, records) {
         `INSERT INTO program_staff
            (school, role, role_label, name, title, email, email_source_url, phone,
             linkedin_url, source_url, source_tier, confidence, sources, verified_on, updated_at,
-            source_date, age_months, status, superseded_note, reach_via, sport, source_tier_note)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW(),$14,$15,$16,$17,$18,$19,$20)
+            source_date, age_months, status, superseded_note, reach_via, sport, source_tier_note,
+            role_rank, is_key_contact)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW(),$14,$15,$16,$17,$18,$19,$20,$21,$22)
          ON CONFLICT (school, role, name) DO UPDATE SET
            role_label = EXCLUDED.role_label, title = EXCLUDED.title,
            email = EXCLUDED.email, email_source_url = EXCLUDED.email_source_url,
@@ -2052,13 +2061,15 @@ async function saveProgramStaff(school, records) {
            status = EXCLUDED.status, superseded_note = EXCLUDED.superseded_note,
            reach_via = EXCLUDED.reach_via, sport = EXCLUDED.sport,
            source_tier_note = EXCLUDED.source_tier_note,
+           role_rank = EXCLUDED.role_rank, is_key_contact = EXCLUDED.is_key_contact,
            verified_on = CURRENT_DATE, updated_at = NOW()`,
         [school, r.role, r.role_label || null, r.name, r.title || null, r.email || null,
          r.email_source_url || null, r.phone || null, r.linkedin_url || null,
          r.source_url || null, r.source_tier || null, r.confidence || null,
          JSON.stringify(r.sources || []), r.source_date || null,
          r.age_months == null ? null : r.age_months, r.status || 'current',
-         r.superseded_note || null, r.reach_via || null, r.sport || null, r.source_tier_note || null]);
+         r.superseded_note || null, r.reach_via || null, r.sport || null, r.source_tier_note || null,
+         r.role_rank == null ? null : r.role_rank, !!r.is_key_contact]);
       n++;
     }
     await client.query('COMMIT');
@@ -2151,8 +2162,8 @@ async function getProgramContact(school) {
 async function getProgramStaff(school) {
   try {
     const r = school
-      ? await pool.query("SELECT * FROM program_staff WHERE school = $1 ORDER BY role, (status <> 'current'), source_date DESC NULLS LAST, name", [school])
-      : await pool.query("SELECT * FROM program_staff ORDER BY school, role, (status <> 'current'), source_date DESC NULLS LAST, name");
+      ? await pool.query("SELECT * FROM program_staff WHERE school = $1 ORDER BY (role = 'staff'), is_key_contact DESC, role, role_rank NULLS LAST, (status <> 'current'), name", [school])
+      : await pool.query("SELECT * FROM program_staff ORDER BY school, (role = 'staff'), is_key_contact DESC, role, role_rank NULLS LAST, (status <> 'current'), name");
     return r.rows || [];
   } catch (e) { console.error('[programMap] read failed:', e.message); return []; }
 }

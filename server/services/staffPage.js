@@ -57,24 +57,29 @@ function _decode(s) {
 }
 function _text(html) { return _decode(String(html || '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim(); }
 
+// Words that mark a job title. Needed because a title like "Head Coach" is two
+// capitalized words and therefore also looks like a person's name; without this the
+// title column was being rejected as a duplicate name and every title came back null.
+const TITLE_HINT = /coach|director|manager|coordinator|analyst|assistant|associate|officer|president|personnel|recruiting|operations|chief|executive|specialist|trainer|scout|nutrition|strength|equipment|video|creative|administrat/i;
+
 // Does this look like a person's name rather than a column header or a label?
-const NOT_A_NAME = /^(name|title|position|email|phone|staff|coach(es)?|full bio|bio|directory|contact|office|department|sport|photo|image|view|more)$/i;
+const NOT_A_NAME = /^(name|full name|title|position|position title|email|e-?mail|email address|phone|phone number|telephone|staff|coach(es)?|full bio|bio|directory|contact|contact info|office|department|sport|photo|image|view|more|back to top)$/i;
 function looksLikeName(s) {
   const v = String(s || '').trim();
   if (!v || v.length < 4 || v.length > 60) return false;
   if (NOT_A_NAME.test(v)) return false;
   if (/\d|@|https?:/.test(v)) return false;
+  // A row whose name field reads like a JOB TITLE is a parse failure, not a person:
+  // Georgia rendered "Sr. Assistant Athletic Trainer: Football" into the name column.
+  // Real names do not contain role words or title punctuation.
+  if (TITLE_HINT.test(v)) return false;
+  if (/[:;/|,]/.test(v)) return false;
   const words = v.split(/\s+/).filter(Boolean);
   if (words.length < 2 || words.length > 5) return false;
   // Mostly letters, and at least two capitalized words.
   const caps = words.filter((w) => /^[A-Z][A-Za-z'.\-]*$/.test(w)).length;
   return caps >= 2;
 }
-// Words that mark a job title. Needed because a title like "Head Coach" is two
-// capitalized words and therefore also looks like a person's name; without this the
-// title column was being rejected as a duplicate name and every title came back null.
-const TITLE_HINT = /coach|director|manager|coordinator|analyst|assistant|associate|officer|president|personnel|recruiting|operations|chief|executive|specialist|trainer|scout|nutrition|strength|equipment|video|creative|administrat/i;
-
 function looksLikeTitle(s) {
   const v = String(s || '').trim();
   if (!v || v.length < 3 || v.length > 120) return false;
@@ -191,6 +196,9 @@ async function loadStaff(url, ai) {
     if (modelStaff.length > staff.length) { staff = modelStaff; via = 'model'; }
   }
   const hash = hashStaff(staff);
+  if (got.finalUrl && got.finalUrl !== url) {
+    console.log(`[staffPage] REDIRECT ${url} -> ${got.finalUrl} (the resolved URL is what gets persisted)`);
+  }
   console.log(`[staffPage] ${url} bytes=${got.bytes} staff=${staff.length} via=${via} withEmail=${staff.filter((s) => s.email).length} withPhone=${staff.filter((s) => s.phone).length} ms=${got.ms} hash=${hash.slice(0, 8)}`);
   return { ok: true, staff, via, ms: got.ms, hash, finalUrl: got.finalUrl };
 }
