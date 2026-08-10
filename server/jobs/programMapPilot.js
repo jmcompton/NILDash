@@ -208,6 +208,7 @@ async function run() {
 
     const roleOrder = programMap.ROLES.map((r) => r.key);
     const gaps = [];
+    const blocked = [];
     let filled = 0, reachable = 0;
     for (const school of schools) {
       const mine = rows.filter((r) => r.school === school);
@@ -222,7 +223,19 @@ async function run() {
         const role = programMap.ROLES.find((r) => r.key === key) || {};
         // The key contact is the most senior person tagged with the role. Others in
         // the same role are counted so a thin answer does not look like a full one.
-        const inRole = mine.filter((r) => r.role === key && r.status === 'current');
+        // The sport guard runs again HERE, on the way out. recordsFromStaffPage
+        // already blocks these at write time, but a row written before that guard
+        // existed is still in the table until its school is re-fetched, and this view
+        // is the one a person acts on. Cheap to re-check, expensive to get wrong.
+        const inRoleRaw = mine.filter((r) => r.role === key && r.status === 'current');
+        const inRole = inRoleRaw.filter((r) => !programMap.sportContradiction({
+          email: r.email, section: r.page_section, title: r.title,
+        }));
+        for (const r of inRoleRaw) {
+          if (inRole.includes(r)) continue;
+          const bad = programMap.sportContradiction({ email: r.email, section: r.page_section, title: r.title });
+          blocked.push({ school, role: key, name: r.name, sport: bad.sport, kind: bad.kind, evidence: bad.evidence });
+        }
         const top = inRole.find((r) => r.is_key_contact) || inRole[0];
         console.log('');
         console.log(`  ${role.label || key}`);
@@ -249,6 +262,13 @@ async function run() {
     const slots = schools.length * roleOrder.length;
     console.log('\n' + line('-'));
     console.log(`${filled} of ${slots} key-contact slots filled across ${schools.length} school(s). ${reachable} have a way to reach them.`);
+    if (blocked.length) {
+      console.log(`\nBLOCKED BY THE SPORT GUARD (${blocked.length}). These are stored rows that would have been shown as football key contacts:`);
+      for (const b of blocked) {
+        console.log(`  ${b.school} ${b.role}: ${b.name} rejected because ${b.kind} "${b.evidence}" names ${b.sport}`);
+      }
+      console.log('  Re-run --fetch-all to clear these out of program_staff for good.');
+    }
     if (gaps.length) {
       console.log(`\nEMPTY ROLES (${gaps.length}):`);
       const byRole = {};

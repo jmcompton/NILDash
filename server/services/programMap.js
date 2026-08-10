@@ -152,6 +152,64 @@ function detectSport(modelSport, title, url) {
   return null;
 }
 
+// ── FINAL SPORT GUARD ────────────────────────────────────────────────────────
+// The section filter stops a department directory from contributing other sports,
+// but a page with no usable section headings is left unfiltered by design, and
+// nothing downstream re-checked. Missouri came back with the BASEBALL head coach
+// (section "BASEBALL", email baseball@missouri.edu) selected as the FOOTBALL head
+// coach. Perfectly sourced and completely wrong, which is the dangerous kind.
+//
+// So this runs on EVERY record from EVERY school, filtered or not. It is a last
+// guard, not a replacement for the section filter.
+
+// An email address is a claim about who someone is. baseball@missouri.edu on a row
+// selected as the football head coach is a contradiction, and the address is the
+// harder evidence of the two. Tokenised rather than regexed so that "patrick" cannot
+// match "track" and "jbaseball" cannot match "baseball".
+const SPORT_EMAIL_TOKENS = new Map();
+for (const [name] of OTHER_SPORTS) SPORT_EMAIL_TOKENS.set(name, name);
+for (const [tok, name] of [['mbb', 'basketball'], ['wbb', 'basketball'], ['hoops', 'basketball'],
+  ['xc', 'track'], ['crosscountry', 'track'], ['trackandfield', 'track'], ['tf', 'track'],
+  ['swim', 'swimming'], ['dive', 'swimming'], ['diving', 'swimming'], ['crew', 'rowing'],
+  ['vball', 'volleyball'], ['bball', 'basketball'], ['sball', 'softball']]) {
+  SPORT_EMAIL_TOKENS.set(tok, name);
+}
+
+function emailNamesOtherSport(email) {
+  const v = String(email || '').toLowerCase();
+  if (!v) return null;
+  const tokens = v.split(/[^a-z]+/).filter(Boolean);
+  // An address that names football outright is not a contradiction.
+  if (tokens.includes('football') || tokens.includes('fb') || tokens.includes('fball')) return null;
+  for (const t of tokens) if (SPORT_EMAIL_TOKENS.has(t)) return SPORT_EMAIL_TOKENS.get(t);
+  return null;
+}
+
+// Free text (a section heading or a title) that names another sport and does NOT
+// name football. "Football / Basketball Operations" is a football role; "BASKETBALL,
+// MEN'S" is not.
+function textNamesOtherSport(text) {
+  const v = String(text || '');
+  if (!v.trim()) return null;
+  if (FOOTBALL_RE.test(v)) return null;
+  for (const [name, re] of OTHER_SPORTS) if (re.test(v)) return name;
+  return null;
+}
+
+// Returns null when the person is fine, otherwise why they cannot be football.
+// kind 'email' means DROP the record: the address contradicts the claim outright.
+// kind 'section' or 'title' means the person may stay on the roster but can never
+// be selected as a football key contact.
+function sportContradiction(p) {
+  const byEmail = emailNamesOtherSport(p && p.email);
+  if (byEmail) return { kind: 'email', sport: byEmail, evidence: p.email };
+  const bySection = textNamesOtherSport(p && p.section);
+  if (bySection) return { kind: 'section', sport: bySection, evidence: p.section };
+  const byTitle = textNamesOtherSport(p && p.title);
+  if (byTitle) return { kind: 'title', sport: byTitle, evidence: p.title };
+  return null;
+}
+
 // Does this specific evidence tie the person to football, rather than merely sitting
 // on the school's domain? A department-wide staff directory that lists every sport
 // is NOT sufficient on its own: the title must name football, or the page must sit
@@ -662,16 +720,70 @@ async function loadFootballStaff(school, store, opts = {}) {
   return { staff: loaded.staff, url: loaded.finalUrl || url, via: loaded.via, diff, hash: loaded.hash, slugPhone };
 }
 
-// Turn parsed staff-page rows into records. Everything on this page is football and
-// current by definition, so it is Tier A with no sport gate and no date needed.
+// Turn parsed staff-page rows into records. A page that survived the section filter
+// is football by definition, so these are Tier A with no date needed. A page that was
+// left UNFILTERED is not, which is what the sport guard below is for.
 function recordsFromStaffPage(school, staff, url) {
   // Tag first, then rank within each role. EVERY person is written: the five roles
   // are a key-contacts VIEW over the full list, not a filter that discards the other
   // hundred people an agent may want to search.
+  // PAGE-LEVEL CONTEXT. A section naming another sport is a contradiction on its own,
+  // but Missouri's General Manager sat under "CREATIVE", which names no sport at all
+  // and so passes that test while still being the department's creative GM rather
+  // than football's. What condemns it is the page around it: sections for BASEBALL,
+  // BASKETBALL and GOLF, and none for football. On a directory demonstrably covering
+  // many sports with no football section, a row that names football NOWHERE cannot be
+  // assumed to be football.
+  //
+  // Deliberately narrow. A page whose sections are functional rather than per-sport
+  // ("Coaching Staff", "Support Staff") never trips this, and a filtered page has
+  // only football sections left, so this affects exactly the unfiltered multi-sport
+  // case it was written for.
+  const pageSections = [...new Set((staff || []).map((p) => p && p.section).filter(Boolean))];
+  const pageNamesOtherSports = pageSections.some((s) => textNamesOtherSport(s));
+  const pageHasFootballSection = pageSections.some((s) => FOOTBALL_RE.test(s));
+  const multiSportNoFootball = pageNamesOtherSports && !pageHasFootballSection;
+  if (multiSportNoFootball) {
+    console.warn(`[program-map] school="${school}" this page covers other sports and has NO football section ` +
+      `[${pageSections.slice(0, 12).join(', ')}${pageSections.length > 12 ? ', ...' : ''}]. ` +
+      `Only rows that name football themselves can hold a football role.`);
+  }
+
   const tagged = [];
+  const droppedByEmail = [];
+  const demoted = [];
   for (const p of (staff || [])) {
-    const role = _roleOf({ role: 'other', title: p.title || '' });
+    const bad = sportContradiction(p);
+    // An email naming another sport contradicts the row outright. Drop it: a football
+    // head coach whose address is baseball@ is not a football contact at any rank.
+    if (bad && bad.kind === 'email') {
+      droppedByEmail.push({ name: p.name, sport: bad.sport, evidence: bad.evidence });
+      continue;
+    }
+    let role = _roleOf({ role: 'other', title: p.title || '' });
+    // A section or title naming another sport cannot hold a FOOTBALL role. The person
+    // stays on the roster as untagged staff, because on an unfiltered page they are
+    // still someone the school employs, but they can never be a key contact.
+    if (role && bad) {
+      demoted.push({ name: p.name, role, sport: bad.sport, kind: bad.kind, evidence: bad.evidence });
+      role = null;
+    } else if (role && multiSportNoFootball
+      && !FOOTBALL_RE.test(String(p.title || '')) && !FOOTBALL_RE.test(String(p.section || ''))) {
+      demoted.push({ name: p.name, role, sport: 'unstated', kind: 'page',
+        evidence: `section "${p.section || 'none'}" on a multi-sport page with no football section` });
+      role = null;
+    }
     tagged.push({ p, role: role || null });
+  }
+  if (droppedByEmail.length) {
+    console.warn(`[program-map] school="${school}" SPORT GUARD dropped ${droppedByEmail.length} record(s) whose email names another sport:`);
+    for (const d of droppedByEmail.slice(0, 10)) console.warn(`    ${d.name}: ${d.evidence} names ${d.sport}`);
+    if (droppedByEmail.length > 10) console.warn(`    ... and ${droppedByEmail.length - 10} more`);
+  }
+  if (demoted.length) {
+    console.warn(`[program-map] school="${school}" SPORT GUARD blocked ${demoted.length} record(s) from a football role:`);
+    for (const d of demoted.slice(0, 10)) console.warn(`    ${d.name} would have been ${d.role}, but ${d.kind} "${d.evidence}" names ${d.sport}`);
+    if (demoted.length > 10) console.warn(`    ... and ${demoted.length - 10} more`);
   }
   const rankByRole = new Map();
   for (const t of tagged) {
@@ -899,6 +1011,7 @@ function reachVia(record, contacts) {
 module.exports = {
   seniorityRank,
   buildProgram, dedupeAcrossSchools, reachVia, discoverStaffUrl, sweepStaffUrl, STAFF_URL_CANDIDATES, MIN_SWEEP_STAFF,
+  sportContradiction, emailNamesOtherSport, textNamesOtherSport, VERIFIED_STAFF_URLS,
   loadFootballStaff, recordsFromStaffPage, classifyTier, parseDate, isStale, monthsSince,
   detectSport, footballScoped,
   ROLES, SCHOOLS, PILOT_SCHOOLS, SOURCE_ORDER, STALE_MONTHS, _assess, _roleOf, _byRecency, _newestMs,
