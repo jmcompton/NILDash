@@ -646,6 +646,31 @@ async function init() {
     )
   `).then(() => console.log('[init] program_staff table ready'))
     .catch(e => console.error('[init] program_staff:', e.message));
+  // Recency + lifecycle columns. status 'current' vs 'previous' is what keeps a
+  // predecessor stored (with their date) instead of served as the incumbent.
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS source_date DATE`).catch(() => {});
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS age_months NUMERIC`).catch(() => {});
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'current'`).catch(() => {});
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS superseded_note TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE program_staff ADD COLUMN IF NOT EXISTS reach_via TEXT`).catch(() => {});
+  // Program-level reach info: the football office line and any published recruiting
+  // or collective address. This is what makes the map a call list rather than a
+  // name list, since schools rarely publish individual staff emails.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS program_contact (
+      school TEXT PRIMARY KEY,
+      football_office_phone TEXT,
+      football_office_phone_source_url TEXT,
+      recruiting_email TEXT,
+      recruiting_email_source_url TEXT,
+      collective_email TEXT,
+      collective_email_source_url TEXT,
+      collective_name TEXT,
+      verified_on DATE,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] program_contact table ready'))
+    .catch(e => console.error('[init] program_contact:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_school ON program_staff (school)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_school_role ON program_staff (school, role)`).catch(() => {});
 
@@ -1986,19 +2011,25 @@ async function saveProgramStaff(school, records) {
       await client.query(
         `INSERT INTO program_staff
            (school, role, role_label, name, title, email, email_source_url, phone,
-            linkedin_url, source_url, source_tier, confidence, sources, verified_on, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW())
+            linkedin_url, source_url, source_tier, confidence, sources, verified_on, updated_at,
+            source_date, age_months, status, superseded_note, reach_via)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW(),$14,$15,$16,$17,$18)
          ON CONFLICT (school, role, name) DO UPDATE SET
            role_label = EXCLUDED.role_label, title = EXCLUDED.title,
            email = EXCLUDED.email, email_source_url = EXCLUDED.email_source_url,
            phone = EXCLUDED.phone, linkedin_url = EXCLUDED.linkedin_url,
            source_url = EXCLUDED.source_url, source_tier = EXCLUDED.source_tier,
            confidence = EXCLUDED.confidence, sources = EXCLUDED.sources,
+           source_date = EXCLUDED.source_date, age_months = EXCLUDED.age_months,
+           status = EXCLUDED.status, superseded_note = EXCLUDED.superseded_note,
+           reach_via = EXCLUDED.reach_via,
            verified_on = CURRENT_DATE, updated_at = NOW()`,
         [school, r.role, r.role_label || null, r.name, r.title || null, r.email || null,
          r.email_source_url || null, r.phone || null, r.linkedin_url || null,
          r.source_url || null, r.source_tier || null, r.confidence || null,
-         JSON.stringify(r.sources || [])]);
+         JSON.stringify(r.sources || []), r.source_date || null,
+         r.age_months == null ? null : r.age_months, r.status || 'current',
+         r.superseded_note || null, r.reach_via || null]);
       n++;
     }
     await client.query('COMMIT');
@@ -2011,11 +2042,45 @@ async function saveProgramStaff(school, records) {
   } finally { client.release(); }
 }
 
+async function saveProgramContact(school, c) {
+  if (!school || !c) return false;
+  try {
+    await pool.query(
+      `INSERT INTO program_contact
+         (school, football_office_phone, football_office_phone_source_url,
+          recruiting_email, recruiting_email_source_url,
+          collective_email, collective_email_source_url, collective_name, verified_on, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CURRENT_DATE,NOW())
+       ON CONFLICT (school) DO UPDATE SET
+         football_office_phone = EXCLUDED.football_office_phone,
+         football_office_phone_source_url = EXCLUDED.football_office_phone_source_url,
+         recruiting_email = EXCLUDED.recruiting_email,
+         recruiting_email_source_url = EXCLUDED.recruiting_email_source_url,
+         collective_email = EXCLUDED.collective_email,
+         collective_email_source_url = EXCLUDED.collective_email_source_url,
+         collective_name = EXCLUDED.collective_name,
+         verified_on = CURRENT_DATE, updated_at = NOW()`,
+      [school, c.football_office_phone || null, c.football_office_phone_source_url || null,
+       c.recruiting_email || null, c.recruiting_email_source_url || null,
+       c.collective_email || null, c.collective_email_source_url || null, c.collective_name || null]);
+    return true;
+  } catch (e) { console.error(`[programMap] contact save failed school="${school}":`, e.message); return false; }
+}
+
+async function getProgramContact(school) {
+  try {
+    const r = school
+      ? await pool.query('SELECT * FROM program_contact WHERE school = $1', [school])
+      : await pool.query('SELECT * FROM program_contact ORDER BY school');
+    return school ? (r.rows[0] || null) : (r.rows || []);
+  } catch (e) { console.error('[programMap] contact read failed:', e.message); return school ? null : []; }
+}
+
 async function getProgramStaff(school) {
   try {
     const r = school
-      ? await pool.query('SELECT * FROM program_staff WHERE school = $1 ORDER BY role, confidence, name', [school])
-      : await pool.query('SELECT * FROM program_staff ORDER BY school, role, confidence, name');
+      ? await pool.query("SELECT * FROM program_staff WHERE school = $1 ORDER BY role, (status <> 'current'), source_date DESC NULLS LAST, name", [school])
+      : await pool.query("SELECT * FROM program_staff ORDER BY school, role, (status <> 'current'), source_date DESC NULLS LAST, name");
     return r.rows || [];
   } catch (e) { console.error('[programMap] read failed:', e.message); return []; }
 }
@@ -2625,7 +2690,7 @@ module.exports = {
   getMarketCache, setMarketCache, MARKET_CACHE_TTL_DAYS,
   getBrandLedgerRows, getBrandLedgerRow, insertManualBrand, upsertShownBrands, markBrandContacted, unmarkBrandContacted, getCrossAthleteContacted,
   getSocialBrandPool, getSocialDepth,
-  saveProgramStaff, getProgramStaff,
+  saveProgramStaff, getProgramStaff, saveProgramContact, getProgramContact,
   ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
   ensureFeedbackColumns, logScanShown, getScanSignal, applyScanSignal,
   ensureMarketSightings, markMarketNewcomers, NEW_WINDOW_DAYS,

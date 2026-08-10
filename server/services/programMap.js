@@ -1,30 +1,44 @@
 'use strict';
-// Program Contact Map: who holds power at an FBS football program, so an agent knows
-// who to call about a roster spot. A SHARED, cached asset (table program_staff),
-// built by a job and served to everyone. It is never run live per query.
+// Program Contact Map: who holds power at an FBS football program, and how to reach
+// them. A SHARED, cached asset (tables program_staff + program_contact), built by a
+// job and served to everyone. Never run live per query.
 //
 // It reuses the Deal Scan lookup stack rather than introducing a second one:
 //   ai.runSourceWaves  the same parallel wave engine, same straggler cut
 //   ai.webSearchJson   the same Haiku + web_search primitive
 //   a 15s per-source cap, matching the brand ladder
 //
-// The rules that matter here are about EVIDENCE, not retrieval:
-//   Tier A  the school's own athletics staff directory. Authoritative; it wins.
+// EVIDENCE TIERS
+//   Tier A  the school's own athletics staff directory. Authoritative.
 //   Tier B  official school / collective press releases and athletics news posts.
 //   Tier C  LinkedIn, reputable news coverage.
-//   Tier D  anything else.
-// Confident  = a Tier A hit, OR two INDEPENDENT Tier B/C sources that agree.
-// Likely     = a single Tier C source, or a lone Tier B.
-// Conflicting= sources disagree on who holds the role. BOTH are kept and shown.
-// An email is stored ONLY if the search reported the page it was published on. No
-// address is ever constructed or pattern-matched from a name and a domain.
+//   Tier D  anything else, including a page that never names this program.
+//
+// RECENCY (the rule that keeps a predecessor from being served as the incumbent)
+//   Every source carries a publication date when the page states one. Undated pages
+//   rank BELOW anything dated. For a role with several candidates the most recently
+//   dated source wins and becomes 'current'; the rest are kept as 'previous' WITH
+//   their dates, never presented as the incumbent. Nothing whose newest evidence is
+//   older than STALE_MONTHS can be Confident on its own, even from Tier A: a 2021
+//   press release is not evidence of who holds the seat today.
+//
+// CONFIDENCE
+//   Confident   a fresh (or undated) Tier A hit, OR two INDEPENDENT fresh Tier B/C
+//               sources (different lane AND different host) that agree.
+//   Likely      a single Tier C, or a lone Tier B.
+//   Conflicting two candidates whose evidence is too close in time to separate.
+//   Stale       the only evidence is older than STALE_MONTHS.
+//
+// An email is stored ONLY when the search also returns the page it was printed on.
+// Nothing is ever constructed or pattern-matched from a name and a domain.
 
 const ai = require('../ai');
 
 const SOURCE_TIMEOUT_MS = 15000;   // same per-source cap as the brand ladder
-const WALL_BUDGET_MS = 45000;      // per program, across all waves
+const WALL_BUDGET_MS = 55000;      // per program, across all waves
+const STALE_MONTHS = 18;           // older evidence can never stand alone as Confident
+const TIE_DAYS = 90;               // dates this close cannot separate two candidates
 
-// Roles we map, in the order an agent works them.
 const ROLES = [
   { key: 'general_manager', label: 'General Manager', match: /\bgeneral manager\b|\bgm\b/i },
   { key: 'player_personnel', label: 'Director of Player Personnel', match: /player personnel/i },
@@ -33,11 +47,9 @@ const ROLES = [
   { key: 'collective_director', label: 'NIL Collective Director', match: /collective|executive director|nil/i },
 ];
 
-// Official athletics domains, used ONLY to classify a source URL as Tier A. These
-// are stable and checkable. Collective names are deliberately NOT hardcoded: they
-// change often, and a wrong one would poison the search query. The search discovers
-// the collective from the school name instead. If a domain here were wrong the only
-// effect is that records fail to reach Confident, which is a safe failure.
+// Official athletics domains, used ONLY to classify a source URL as Tier A. Stable
+// and checkable. Collective names are deliberately NOT hardcoded: they change, and a
+// wrong one would poison the query, so the search discovers the collective instead.
 const SCHOOLS = {
   'Alabama':       { athletics: 'rolltide.com',        edu: 'ua.edu',      team: 'Alabama Crimson Tide' },
   'Auburn':        { athletics: 'auburntigers.com',    edu: 'auburn.edu',  team: 'Auburn Tigers' },
@@ -52,19 +64,17 @@ const SCHOOLS = {
 };
 const PILOT_SCHOOLS = Object.keys(SCHOOLS);
 
-// Source lanes. Wave 1 targets the authoritative and official material; wave 2 is
-// the person-specific / journalistic fill-in. One search per lane returns EVERY
-// role it can see, so five roles cost about four searches rather than twenty.
-const SOURCE_ORDER = ['athletics_directory', 'collective', 'press', 'linkedin', 'news'];
+// Wave 1 is the authoritative/official material plus the contact hunt; wave 2 is the
+// person-specific and journalistic fill-in. One search per lane returns every role it
+// can see, so five roles cost about six lookups rather than twenty-five.
+const SOURCE_ORDER = ['athletics_directory', 'contacts', 'collective', 'press', 'linkedin', 'news'];
 
-const NEWS_HOSTS = /(^|\.)(espn|si|cbssports|foxsports|yahoo|on3|247sports|rivals|theathletic|al|nola|tennessean|ajc|gainesville|thestate|columbiamissourian|post-gazette|usatoday|sports illustrated|saturdaydownsouth|footballscoop)\./i;
+const NEWS_HOSTS = /(^|\.)(espn|si|cbssports|foxsports|yahoo|on3|247sports|rivals|theathletic|al|nola|tennessean|ajc|gainesville|thestate|columbiamissourian|usatoday|saturdaydownsouth|footballscoop|sports illustrated)\./i;
 
 function _host(url) {
   try { return new URL(String(url)).hostname.replace(/^www\./, '').toLowerCase(); } catch (_) { return ''; }
 }
 
-// Classify a source URL into the evidence tier. Tier A is intentionally strict: the
-// school's OWN athletics site (or .edu), on a staff/coach/administration page.
 function classifyTier(url, school) {
   const h = _host(url);
   if (!h) return 'D';
@@ -73,114 +83,175 @@ function classifyTier(url, school) {
   const official = (cfg.athletics && (h === cfg.athletics || h.endsWith('.' + cfg.athletics)))
     || (cfg.edu && (h === cfg.edu || h.endsWith('.' + cfg.edu)));
   if (official) {
-    // A staff directory / coaches / administration page is the authoritative record.
     if (/staff|directory|coach|administration|personnel|leadership/.test(path)) return 'A';
-    return 'B'; // official site, but a news post or other page
+    return 'B';
   }
   if (h.includes('linkedin.com')) return 'C';
   if (NEWS_HOSTS.test(h)) return 'C';
-  // A collective's own site is official-ish material about itself: Tier B.
   if (/collective|nil|club|fund|trust|victorious|traditions/.test(h)) return 'B';
   return 'D';
 }
 
-const SYS = 'You research college football program staff with web search and return ONLY structured JSON about real people found on real published pages. Report ONLY what a page actually states. Never invent a name, title, email, phone, or URL, and never construct an email address from a name.';
+// Publication date. Undated is null, which sorts BELOW anything dated.
+function parseDate(s) {
+  if (!s) return null;
+  const str = String(s).trim();
+  if (!/\d{4}/.test(str)) return null;
+  const d = new Date(str);
+  if (isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  if (y < 1990 || y > 2100) return null;
+  return d;
+}
+function monthsSince(dateMs, nowMs) {
+  if (dateMs == null) return null;
+  return (nowMs - dateMs) / (1000 * 60 * 60 * 24 * 30.44);
+}
+function isStale(dateMs, nowMs) {
+  const m = monthsSince(dateMs, nowMs);
+  return m != null && m > STALE_MONTHS;
+}
+
+const SYS = 'You research college football program staff with web search and return ONLY structured JSON about real people found on real published pages. Report ONLY what a page actually states. Never invent a name, title, email, phone, URL, or date, and never construct an email address from a name.';
 
 const JSON_TAIL = `Respond with ONLY a single JSON object and NOTHING else: no prose, no markdown, no code fences.
-{"people":[{"name":"Full Name","title":"exact title as published","role":"general_manager|player_personnel|recruiting|head_coach|collective_director|other","email":null,"emailSourceUrl":null,"phone":null,"linkedinUrl":null,"sourceUrl":null}]}
+{"people":[{"name":"Full Name","title":"exact title as published","role":"general_manager|player_personnel|recruiting|head_coach|collective_director|other","email":null,"emailSourceUrl":null,"phone":null,"linkedinUrl":null,"sourceUrl":null,"publishedDate":null,"programNamedOnPage":true,"isFormer":false}]}
 Rules:
-- name and title are REQUIRED and must come from a page your search actually opened. title must be the EXACT title as published, not a paraphrase.
-- role: pick the closest of the listed keys, or "other" if it is not one of them.
-- email: ONLY if the address is literally printed on a page you found. emailSourceUrl MUST be the URL of that exact page. If you cannot give emailSourceUrl, set BOTH email and emailSourceUrl to null. NEVER build an address from a name and a domain, never guess a pattern like first.last@school.edu. A guessed address is worse than none.
-- phone: only a real published number, else null. linkedinUrl: only a real profile URL you actually saw, else null.
+- name and title are REQUIRED and must come from a page your search actually opened. title must be the EXACT title as published.
+- role: the closest of the listed keys, or "other".
+- publishedDate: the page's publication or last-updated date in YYYY-MM-DD form IF the page states one. If the page shows no date, use null. NEVER guess or approximate a date.
+- programNamedOnPage: true ONLY if that page explicitly names this program. If the page is about a different school, set it false.
+- isFormer: true if the page describes this person as a FORMER holder of the role, or as having left, been hired elsewhere, or been replaced.
+- email: ONLY if the address is literally printed on a page you found, and emailSourceUrl MUST be that exact page URL. If you cannot give emailSourceUrl, set BOTH to null. NEVER build an address from a name and a domain. A guessed address is worse than none.
+- phone: only a real published number, else null. linkedinUrl: only a profile URL you actually saw, else null.
 - sourceUrl: the exact page you found this person on. REQUIRED; omit the person entirely if you cannot cite a page.
 - Return {"people":[]} if the search genuinely found nobody.`;
+
+// The contact lane returns program-level reach information, not people.
+const CONTACT_TAIL = `Respond with ONLY a single JSON object and NOTHING else: no prose, no markdown, no code fences.
+{"footballOfficePhone":null,"footballOfficePhoneSourceUrl":null,"recruitingEmail":null,"recruitingEmailSourceUrl":null,"collectiveEmail":null,"collectiveEmailSourceUrl":null,"collectiveName":null}
+Rules:
+- Every value must be literally published on a page your search actually opened, and each *SourceUrl must be that exact page.
+- If you cannot cite the page an address or number came from, set BOTH that value and its source URL to null.
+- NEVER construct an email address from a name, a person, or a domain. Only addresses printed on a real page.
+- footballOfficePhone: the football operations or football office main line, not a ticket office or general switchboard if you can tell them apart.`;
 
 function _lead(source, school) {
   const cfg = SCHOOLS[school] || {};
   const team = cfg.team || school;
   switch (source) {
     case 'athletics_directory':
-      return `Search the OFFICIAL athletics staff directory of ${team}${cfg.athletics ? ` on ${cfg.athletics}` : ''} (queries "${team} football staff directory", "site:${cfg.athletics || ''} staff directory football"). From the directory page, extract the FOOTBALL general manager, director of player personnel, director of recruiting, and head coach, with their exact published titles and the directory page URL as sourceUrl.`;
+      return `Search the OFFICIAL athletics staff directory of ${team}${cfg.athletics ? ` on ${cfg.athletics}` : ''} (queries "${team} football staff directory", "site:${cfg.athletics || ''} staff directory football"). Extract the FOOTBALL general manager, director of player personnel, director of recruiting, and head coach, with exact published titles and the directory URL as sourceUrl. If the directory page shows a last-updated date, report it as publishedDate, otherwise null.`;
+    case 'contacts':
+      return `Find the published CONTACT details for ${team} football: the football operations or football office main phone number (try the athletics staff directory and the athletics site contact page${cfg.athletics ? ` on ${cfg.athletics}` : ''}), any published recruiting or player personnel email address, and the contact email of the NIL collective that supports ${team} (usually on the collective's own site contact page). Report only what is actually printed on a page, each with the URL of that page.\n${CONTACT_TAIL}`;
     case 'collective':
-      return `Identify the NIL collective that supports ${team} and find its director or executive director. Search "${team} NIL collective executive director" and the collective's own website leadership or about page. Extract the person's name, exact title, and the page URL. Do not guess which collective it is: only report one a page actually names as supporting ${team}.`;
+      return `Identify the NIL collective that supports ${team} and find its director or executive director. Search "${team} NIL collective executive director" and the collective's own leadership or about page. Extract the name, exact title, page URL, and the page's date if stated. Do not guess which collective it is: only report one a page actually names as supporting ${team}.`;
     case 'press':
-      return `Search official ${team} athletics news posts and school or collective press releases announcing the hiring of a football general manager, director of player personnel, or director of recruiting (queries "${team} names general manager football", "${team} hires director of player personnel"). Extract the person named, their exact title, and the release URL.`;
+      return `Search official ${team} athletics news posts and school or collective press releases announcing the hiring of a football general manager, director of player personnel, or director of recruiting (queries "${team} names general manager football", "${team} hires director of player personnel"). Report the person named, the exact title, the release URL, and the RELEASE DATE, which these pages almost always show. If a release says someone has LEFT or been replaced, set isFormer true for that person.`;
     case 'linkedin':
-      return `Search LinkedIn for the ${team} football general manager, director of player personnel, and director of recruiting (queries "${team} football general manager linkedin", "${team} director of player personnel linkedin"). Extract each person's name, the exact title on their profile, and the FULL public profile URL as both linkedinUrl and sourceUrl. Only report profiles that name ${team} as the current employer.`;
+      return `Search LinkedIn for the ${team} football general manager, director of player personnel, and director of recruiting. Extract each person's name, the exact title on their profile, and the FULL public profile URL as both linkedinUrl and sourceUrl. Only report profiles that name ${team} as the CURRENT employer; if a profile shows the role as a past position, set isFormer true.`;
     case 'news':
     default:
-      return `Search reputable news coverage for who currently holds these ${team} football roles: general manager, director of player personnel, director of recruiting, and head coach. Prefer articles from the last 18 months. Extract each person's name, exact title, the article URL as sourceUrl, and the publication date if stated.`;
+      return `Search recent news coverage for who currently holds these ${team} football roles: general manager, director of player personnel, director of recruiting, and head coach. STRONGLY prefer articles from the last 12 months and always report each article's publication date as publishedDate. If an article says a person has left, been hired elsewhere, or been replaced, set isFormer true for that person.`;
   }
 }
 
 function _parse(raw) {
   let s = String(raw || '').replace(/```json/gi, '').replace(/```/g, '').trim();
   const a = s.indexOf('{'), b = s.lastIndexOf('}');
-  if (a === -1 || b <= a) return [];
-  try {
-    const o = JSON.parse(s.slice(a, b + 1));
-    return Array.isArray(o.people) ? o.people : [];
-  } catch (_) { return []; }
+  if (a === -1 || b <= a) return null;
+  try { return JSON.parse(s.slice(a, b + 1)); } catch (_) { return null; }
 }
 
-// One source lane for one school.
+function _cleanEmail(email, srcUrl) {
+  const url = (typeof srcUrl === 'string' && /^https?:\/\//i.test(srcUrl)) ? srcUrl.trim() : null;
+  const e = (email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email).trim())) ? String(email).trim().toLowerCase() : null;
+  // Both or neither: an address with no citable page is dropped, never guessed.
+  return url && e ? { email: e, url } : { email: null, url: null };
+}
+
 async function _runSource(source, school) {
   const t0 = Date.now();
   let raw = '', status = 'ran', err = '';
   let searches = 0, outTokens = 0;
+  const isContactLane = source === 'contacts';
+  const prompt = isContactLane ? _lead(source, school) : `${_lead(source, school)}\n${JSON_TAIL}`;
   try {
     const r = await Promise.race([
-      ai.webSearchJson(`${_lead(source, school)}\n${JSON_TAIL}`, SYS),
+      ai.webSearchJson(prompt, SYS),
       new Promise((_, rej) => setTimeout(() => rej(new Error('timeout-15s')), SOURCE_TIMEOUT_MS)),
     ]);
     raw = r.text || ''; searches = r.searches || 0; outTokens = r.outTokens || 0;
   } catch (e) { status = 'error'; err = (e && e.message) || 'error'; }
   if (status === 'ran' && !raw) status = 'empty';
 
+  const parsed = _parse(raw) || {};
   const people = [];
-  for (const p of _parse(raw)) {
-    const name = String((p && p.name) || '').trim();
-    const title = String((p && p.title) || '').trim();
-    const sourceUrl = (p && typeof p.sourceUrl === 'string' && /^https?:\/\//i.test(p.sourceUrl)) ? p.sourceUrl.trim() : null;
-    // No name, no title, or no citable page: not a record.
-    if (!name || !title || !sourceUrl) continue;
-    // EMAIL GUARD: an address survives only with the page it was published on.
-    // Anything else is dropped, because a constructed address that is right most of
-    // the time is worse than an empty field: agents will trust it.
-    const emailSourceUrl = (p && typeof p.emailSourceUrl === 'string' && /^https?:\/\//i.test(p.emailSourceUrl)) ? p.emailSourceUrl.trim() : null;
-    const email = (emailSourceUrl && p.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(p.email).trim())) ? String(p.email).trim().toLowerCase() : null;
-    const linkedinUrl = (p && typeof p.linkedinUrl === 'string' && /linkedin\.com\/(in|company)\//i.test(p.linkedinUrl)) ? p.linkedinUrl.trim() : null;
-    people.push({
-      name, title,
-      role: String((p && p.role) || 'other'),
-      email, emailSourceUrl,
-      phone: (p && p.phone) ? String(p.phone).trim() : null,
-      linkedinUrl, sourceUrl,
-      tier: classifyTier(sourceUrl, school),
-      source,
-    });
+  let contacts = null;
+
+  if (isContactLane) {
+    const phoneUrl = (typeof parsed.footballOfficePhoneSourceUrl === 'string' && /^https?:\/\//i.test(parsed.footballOfficePhoneSourceUrl)) ? parsed.footballOfficePhoneSourceUrl.trim() : null;
+    const rec = _cleanEmail(parsed.recruitingEmail, parsed.recruitingEmailSourceUrl);
+    const col = _cleanEmail(parsed.collectiveEmail, parsed.collectiveEmailSourceUrl);
+    contacts = {
+      football_office_phone: (phoneUrl && parsed.footballOfficePhone) ? String(parsed.footballOfficePhone).trim() : null,
+      football_office_phone_source_url: (phoneUrl && parsed.footballOfficePhone) ? phoneUrl : null,
+      recruiting_email: rec.email, recruiting_email_source_url: rec.url,
+      collective_email: col.email, collective_email_source_url: col.url,
+      collective_name: parsed.collectiveName ? String(parsed.collectiveName).trim() : null,
+    };
+  } else {
+    for (const p of (Array.isArray(parsed.people) ? parsed.people : [])) {
+      const name = String((p && p.name) || '').trim();
+      const title = String((p && p.title) || '').trim();
+      const sourceUrl = (p && typeof p.sourceUrl === 'string' && /^https?:\/\//i.test(p.sourceUrl)) ? p.sourceUrl.trim() : null;
+      if (!name || !title || !sourceUrl) continue;
+      const em = _cleanEmail(p.email, p.emailSourceUrl);
+      const linkedinUrl = (p && typeof p.linkedinUrl === 'string' && /linkedin\.com\/(in|company)\//i.test(p.linkedinUrl)) ? p.linkedinUrl.trim() : null;
+      const d = parseDate(p && p.publishedDate);
+      // A page that does not name this program is not evidence about this program.
+      // Demoted to Tier D so it can never make a record Confident.
+      const named = p && p.programNamedOnPage === false ? false : true;
+      const tier = named ? classifyTier(sourceUrl, school) : 'D';
+      people.push({
+        name, title,
+        role: String((p && p.role) || 'other'),
+        email: em.email, emailSourceUrl: em.url,
+        phone: (p && p.phone) ? String(p.phone).trim() : null,
+        linkedinUrl, sourceUrl, tier, source,
+        dateMs: d ? d.getTime() : null,
+        dateStr: d ? d.toISOString().slice(0, 10) : null,
+        isFormer: !!(p && p.isFormer),
+        programNamed: named,
+      });
+    }
   }
-  return { source, people, status, err, ms: Date.now() - t0, searches, outTokens, rawLen: raw.length };
+  return { source, people, contacts, status, err, ms: Date.now() - t0, searches, outTokens, rawLen: raw.length };
 }
 
-// Assign a person to a role: trust the model's role key when it is one of ours,
-// otherwise fall back to matching the published title.
 function _roleOf(p) {
   const known = ROLES.find((r) => r.key === p.role);
   if (known) return known.key;
   for (const r of ROLES) if (r.match.test(p.title)) return r.key;
   return null;
 }
-
 function _nameKey(n) { return String(n || '').toLowerCase().replace(/[^a-z]/g, ''); }
 
-// Confidence from the evidence, per the rules at the top of this file.
-function _assess(candidates) {
-  const tiers = candidates.map((c) => c.tier);
-  if (tiers.includes('A')) return 'confident';
-  // Two INDEPENDENT sources (different lanes AND different hosts) that agree.
-  const bc = candidates.filter((c) => c.tier === 'B' || c.tier === 'C');
+// Newest evidence for a candidate (null when every source is undated).
+function _newestMs(cands) {
+  const dated = cands.map((c) => c.dateMs).filter((x) => x != null);
+  return dated.length ? Math.max(...dated) : null;
+}
+
+// Confidence, with the recency gate applied.
+function _assess(cands, nowMs) {
+  const newest = _newestMs(cands);
+  const stale = isStale(newest, nowMs);
+  const freshOrUndated = !stale;
+  const hasA = cands.some((c) => c.tier === 'A');
+  if (stale) return 'stale';            // nothing old stands alone, even Tier A
+  if (hasA && freshOrUndated) return 'confident';
+  const bc = cands.filter((c) => (c.tier === 'B' || c.tier === 'C') && !isStale(c.dateMs, nowMs));
   const hosts = new Set(bc.map((c) => _host(c.sourceUrl)));
   const lanes = new Set(bc.map((c) => c.source));
   if (bc.length >= 2 && hosts.size >= 2 && lanes.size >= 2) return 'confident';
@@ -188,36 +259,46 @@ function _assess(candidates) {
   return 'unverified';
 }
 
-// Build the full record set for one school.
-async function buildProgram(school) {
+// Order candidates for a role: most recently dated first, undated last, tier as the
+// tie-break. This is what stops a 2021 press release outranking a 2026 one.
+function _byRecency(a, b) {
+  const am = _newestMs(a), bm = _newestMs(b);
+  if (am != null && bm != null && am !== bm) return bm - am;
+  if (am != null && bm == null) return -1;
+  if (am == null && bm != null) return 1;
+  const at = Math.min(...a.map((c) => 'ABCD'.indexOf(c.tier)));
+  const bt = Math.min(...b.map((c) => 'ABCD'.indexOf(c.tier)));
+  return at - bt;
+}
+
+async function buildProgram(school, nowMs) {
+  const now = nowMs || Date.now();
   const t0 = Date.now();
   const run = await ai.runSourceWaves(SOURCE_ORDER, (src) => _runSource(src, school), {
     waveSize: 3,
     wallBudgetMs: WALL_BUDGET_MS,
     label: `program=${school}`,
-    // A Tier A hit is the win that lets a wave drop its straggler.
     hasWin: (r) => (r.people || []).some((p) => p.tier === 'A'),
     onResult: (r) => {
       const tierA = (r.people || []).some((p) => p.tier === 'A');
-      console.log(`[program-map] school="${school}" source=${r.source} ms=${r.ms} found=${r.people.length} tierA=${tierA ? 'yes' : 'no'} searches=${r.searches} outTokens=${r.outTokens} status=${r.status}${r.err ? ' err=' + r.err : ''}`);
+      const dated = (r.people || []).filter((p) => p.dateMs != null).length;
+      console.log(`[program-map] school="${school}" source=${r.source} ms=${r.ms} found=${r.people.length} dated=${dated} tierA=${tierA ? 'yes' : 'no'} searches=${r.searches} status=${r.status}${r.err ? ' err=' + r.err : ''}`);
     },
-    // Never stop early: the collective director and the personnel roles come from
-    // different lanes, so every lane can still add a role the others missed.
     isSatisfied: () => false,
   });
 
   const all = run.results.flatMap((r) => r.people);
-  const records = [];
+  const contactRow = run.results.map((r) => r.contacts).find(Boolean) || null;
   const meter = { searches: 0, outTokens: 0, sources: run.results.length };
   for (const r of run.results) { meter.searches += r.searches || 0; meter.outTokens += r.outTokens || 0; }
 
+  const records = [];
   for (const role of ROLES) {
     const forRole = all.filter((p) => _roleOf(p) === role.key);
     if (!forRole.length) {
       console.log(`[program-map] school="${school}" role=${role.key} found=0 tierA=no confidence=empty`);
       continue;
     }
-    // Group by person. Distinct people for the same role = a conflict.
     const byPerson = new Map();
     for (const p of forRole) {
       const k = _nameKey(p.name);
@@ -225,19 +306,35 @@ async function buildProgram(school) {
       if (!byPerson.has(k)) byPerson.set(k, []);
       byPerson.get(k).push(p);
     }
-    const people = [...byPerson.values()];
-    // A Tier A record settles a disagreement: the official directory wins outright.
-    const anyTierA = people.some((cs) => cs.some((c) => c.tier === 'A'));
-    const conflicting = people.length > 1 && !anyTierA;
-    for (const cands of people) {
-      const best = cands.slice().sort((a, b) => 'ABCD'.indexOf(a.tier) - 'ABCD'.indexOf(b.tier))[0];
+    // A person every source calls FORMER is a predecessor, not a tie.
+    const groups = [...byPerson.values()];
+    const active = groups.filter((cs) => !cs.every((c) => c.isFormer));
+    const ranked = (active.length ? active : groups).sort(_byRecency);
+
+    // Conflicting only when the top two cannot be separated by date: both undated,
+    // or their newest dates fall within TIE_DAYS of each other.
+    let conflicting = false;
+    if (ranked.length > 1) {
+      const a = _newestMs(ranked[0]), b = _newestMs(ranked[1]);
+      if (a == null && b == null) conflicting = true;
+      else if (a != null && b != null && Math.abs(a - b) <= TIE_DAYS * 864e5) conflicting = true;
+    }
+
+    ranked.forEach((cands, idx) => {
+      const best = cands.slice().sort((x, y) => {
+        if (x.dateMs != null && y.dateMs != null && x.dateMs !== y.dateMs) return y.dateMs - x.dateMs;
+        if (x.dateMs != null && y.dateMs == null) return -1;
+        if (x.dateMs == null && y.dateMs != null) return 1;
+        return 'ABCD'.indexOf(x.tier) - 'ABCD'.indexOf(y.tier);
+      })[0];
       const withEmail = cands.find((c) => c.email) || null;
       const withPhone = cands.find((c) => c.phone) || null;
       const withLi = cands.find((c) => c.linkedinUrl) || null;
-      // If this person has a Tier A citation they are confident even in a
-      // multi-name situation; otherwise a genuine disagreement is labeled.
-      const own = _assess(cands);
-      const confidence = cands.some((c) => c.tier === 'A') ? 'confident' : (conflicting ? 'conflicting' : own);
+      const newest = _newestMs(cands);
+      // Only the top-ranked candidate is current. Everyone else is a PREVIOUS holder,
+      // stored with their date rather than shown as the incumbent.
+      const isCurrent = idx === 0 && !cands.every((c) => c.isFormer);
+      const own = _assess(cands, now);
       records.push({
         school, role: role.key, role_label: role.label,
         name: best.name, title: best.title,
@@ -247,17 +344,76 @@ async function buildProgram(school) {
         linkedin_url: withLi ? withLi.linkedinUrl : null,
         source_url: best.sourceUrl,
         source_tier: best.tier,
-        confidence,
-        sources: cands.map((c) => ({ tier: c.tier, lane: c.source, url: c.sourceUrl, title: c.title })),
+        source_date: newest ? new Date(newest).toISOString().slice(0, 10) : null,
+        age_months: newest ? Math.round(monthsSince(newest, now) * 10) / 10 : null,
+        status: isCurrent ? 'current' : 'previous',
+        confidence: isCurrent ? (conflicting ? 'conflicting' : own) : 'previous',
+        sources: cands.map((c) => ({ tier: c.tier, lane: c.source, url: c.sourceUrl, date: c.dateStr, title: c.title, isFormer: c.isFormer })),
       });
-    }
-    const top = records.filter((x) => x.role === role.key);
-    console.log(`[program-map] school="${school}" role=${role.key} found=${top.length} tierA=${anyTierA ? 'yes' : 'no'} confidence=${top[0] ? top[0].confidence : 'empty'} ms=${Date.now() - t0}`);
+    });
+    const cur = records.filter((x) => x.role === role.key && x.status === 'current')[0];
+    const prevN = records.filter((x) => x.role === role.key && x.status === 'previous').length;
+    console.log(`[program-map] school="${school}" role=${role.key} found=${ranked.length} tierA=${forRole.some((p) => p.tier === 'A') ? 'yes' : 'no'} confidence=${cur ? cur.confidence : 'empty'} date=${cur ? (cur.source_date || 'undated') : '-'} previous=${prevN}`);
   }
 
-  const filled = new Set(records.map((r) => r.role)).size;
+  const filled = new Set(records.filter((r) => r.status === 'current').map((r) => r.role)).size;
   console.log(`[program-map] school="${school}" roles=${filled}/${ROLES.length} records=${records.length} sources=${meter.sources} searches=${meter.searches} totalMs=${Date.now() - t0}`);
-  return { school, records, ms: Date.now() - t0, meter, rolesFilled: filled, rolesTotal: ROLES.length };
+  return { school, records, contacts: contactRow, ms: Date.now() - t0, meter, rolesFilled: filled, rolesTotal: ROLES.length };
 }
 
-module.exports = { buildProgram, classifyTier, ROLES, SCHOOLS, PILOT_SCHOOLS, SOURCE_ORDER, _assess, _roleOf };
+// CROSS-SCHOOL DEDUPE. One person cannot hold the same role at two programs. When a
+// name shows up for the same role at more than one school, the more recently dated
+// evidence keeps 'current' and the others are demoted to 'previous' (they are almost
+// always the person's former program). Logged so the rate is visible.
+function dedupeAcrossSchools(allRecords) {
+  const byPersonRole = new Map();
+  for (const r of allRecords) {
+    if (r.status !== 'current') continue;
+    const k = _nameKey(r.name) + '|' + r.role;
+    if (!byPersonRole.has(k)) byPersonRole.set(k, []);
+    byPersonRole.get(k).push(r);
+  }
+  let collisions = 0, demoted = 0;
+  for (const [k, rows] of byPersonRole) {
+    if (rows.length < 2) continue;
+    collisions++;
+    const sorted = rows.slice().sort((a, b) => {
+      const am = a.source_date ? Date.parse(a.source_date) : null;
+      const bm = b.source_date ? Date.parse(b.source_date) : null;
+      if (am != null && bm != null && am !== bm) return bm - am;
+      if (am != null && bm == null) return -1;
+      if (am == null && bm != null) return 1;
+      return 'ABCD'.indexOf(a.source_tier) - 'ABCD'.indexOf(b.source_tier);
+    });
+    const winner = sorted[0];
+    console.warn(`[program-map] CROSS-SCHOOL COLLISION name="${winner.name}" role=${winner.role}: ` +
+      rows.map((r) => `${r.school}(${r.source_date || 'undated'},${r.source_tier})`).join(' vs ') +
+      ` -> keeping ${winner.school}`);
+    for (const r of sorted.slice(1)) {
+      r.status = 'previous';
+      r.confidence = 'previous';
+      r.superseded_note = `Same person listed as ${winner.role_label} at ${winner.school} on more recent evidence (${winner.source_date || 'undated'}). Treated as a former ${r.school} record.`;
+      demoted++;
+    }
+  }
+  console.log(`[program-map] cross-school dedupe: ${collisions} collision(s), ${demoted} record(s) demoted to previous`);
+  return { collisions, demoted };
+}
+
+// "How to reach" fallback, mirroring the brand ladder: a record with no direct
+// contact still tells the agent what to do.
+function reachVia(record, contacts) {
+  if (record.email) return `Email ${record.email}`;
+  if (record.phone) return `Call ${record.phone}`;
+  if (record.linkedin_url) return 'Message on LinkedIn';
+  const c = contacts || {};
+  if (c.football_office_phone) return `No direct contact published. Call the football office at ${c.football_office_phone} and ask for ${record.name}.`;
+  if (record.role === 'collective_director' && c.collective_email) return `No direct contact published. Email the collective at ${c.collective_email}.`;
+  if (c.recruiting_email) return `No direct contact published. Email the recruiting office at ${c.recruiting_email}.`;
+  return 'No published contact found for this program yet.';
+}
+
+module.exports = {
+  buildProgram, dedupeAcrossSchools, reachVia, classifyTier, parseDate, isStale, monthsSince,
+  ROLES, SCHOOLS, PILOT_SCHOOLS, SOURCE_ORDER, STALE_MONTHS, _assess, _roleOf, _byRecency, _newestMs,
+};

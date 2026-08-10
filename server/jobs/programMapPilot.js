@@ -23,7 +23,7 @@ const EST_INPUT_TOKENS_PER_CALL = 7000;
 
 function line(ch = '-', n = 78) { return ch.repeat(n); }
 
-function dumpRecords(rows) {
+function dumpRecords(rows, contactsBySchool) {
   const bySchool = new Map();
   for (const r of rows) {
     if (!bySchool.has(r.school)) bySchool.set(r.school, []);
@@ -33,6 +33,16 @@ function dumpRecords(rows) {
     console.log('\n' + line('='));
     console.log(school.toUpperCase());
     console.log(line('='));
+    const c = (contactsBySchool && contactsBySchool[school]) || null;
+    console.log('  PROGRAM CONTACT');
+    console.log(`    football office   ${c && c.football_office_phone ? c.football_office_phone : '(none published)'}`);
+    if (c && c.football_office_phone_source_url) console.log(`      src             ${c.football_office_phone_source_url}`);
+    console.log(`    recruiting email  ${c && c.recruiting_email ? c.recruiting_email : '(none published)'}`);
+    if (c && c.recruiting_email_source_url) console.log(`      src             ${c.recruiting_email_source_url}`);
+    console.log(`    collective        ${c && c.collective_name ? c.collective_name : '(unknown)'}`);
+    console.log(`    collective email  ${c && c.collective_email ? c.collective_email : '(none published)'}`);
+    if (c && c.collective_email_source_url) console.log(`      src             ${c.collective_email_source_url}`);
+
     const byRole = new Map();
     for (const r of recs) {
       if (!byRole.has(r.role)) byRole.set(r.role, []);
@@ -41,23 +51,30 @@ function dumpRecords(rows) {
     for (const role of programMap.ROLES) {
       const rs = byRole.get(role.key) || [];
       if (!rs.length) { console.log(`\n  ${role.label}\n    (EMPTY, nothing found)`); continue; }
-      console.log(`\n  ${role.label}${rs.length > 1 ? '   *** ' + rs.length + ' CONFLICTING RECORDS ***' : ''}`);
-      for (const r of rs) {
+      const current = rs.filter((r) => r.status === 'current');
+      const previous = rs.filter((r) => r.status !== 'current');
+      console.log(`\n  ${role.label}${current.length > 1 ? '   *** ' + current.length + ' CONFLICTING ***' : ''}`);
+      for (const r of current) {
         console.log(`    name        ${r.name}`);
         console.log(`    title       ${r.title || '(none)'}`);
-        console.log(`    confidence  ${String(r.confidence || '').toUpperCase()}   (source tier ${r.source_tier || '?'})`);
+        console.log(`    confidence  ${String(r.confidence || '').toUpperCase()}   (tier ${r.source_tier || '?'}, source dated ${r.source_date || 'UNDATED'}${r.age_months != null ? ', ' + r.age_months + ' months old' : ''})`);
         console.log(`    email       ${r.email || '(none, never guessed)'}`);
         if (r.email) console.log(`    email src   ${r.email_source_url}`);
         console.log(`    phone       ${r.phone || '(none)'}`);
         console.log(`    linkedin    ${r.linkedin_url || '(none)'}`);
+        console.log(`    HOW TO REACH ${r.reach_via || '(none)'}`);
         console.log(`    source      ${r.source_url || '(none)'}`);
         console.log(`    verified_on ${r.verified_on ? String(r.verified_on).slice(0, 10) : '(none)'}`);
         const extra = Array.isArray(r.sources) ? r.sources : [];
         if (extra.length > 1) {
           console.log(`    all sources:`);
-          for (const s of extra) console.log(`      [${s.tier}] ${s.lane}: ${s.url}`);
+          for (const sc of extra) console.log(`      [${sc.tier}] ${sc.lane} ${sc.date || 'undated'}${sc.isFormer ? ' (FORMER)' : ''}: ${sc.url}`);
         }
-        if (rs.length > 1) console.log(`    ${line('.', 40)}`);
+      }
+      for (const r of previous) {
+        console.log(`    previously  ${r.name} (${r.title || 'no title'}) dated ${r.source_date || 'undated'} [tier ${r.source_tier}]`);
+        console.log(`                ${r.source_url || ''}`);
+        if (r.superseded_note) console.log(`                ${r.superseded_note}`);
       }
     }
   }
@@ -72,7 +89,9 @@ async function run() {
   if (dumpOnly) {
     const rows = await store.getProgramStaff(only || null);
     if (!rows.length) { console.log('No program_staff records stored yet. Run without --dump first.'); return; }
-    dumpRecords(rows);
+    const cs = await store.getProgramContact(null);
+    const map = {}; for (const x of cs) map[x.school] = x;
+    dumpRecords(rows, map);
     console.log(`\n${rows.length} record(s) stored.`);
     return;
   }
@@ -85,28 +104,42 @@ async function run() {
   const t0 = Date.now();
   const perSchool = [];
   let totalSearches = 0, totalOut = 0, totalSources = 0;
+  const nowMs = Date.now();
 
-  // Sequential across schools on purpose: each school already fans out internally,
-  // and running ten of those at once would hammer the search tool and make the
-  // per-program timings meaningless.
+  // Build every school FIRST. Cross-school dedupe can only run once all programs
+  // are in hand, since the whole point is spotting one person claimed by two.
   for (const school of schools) {
     try {
-      const out = await programMap.buildProgram(school);
-      await store.saveProgramStaff(school, out.records);
+      const out = await programMap.buildProgram(school, nowMs);
       perSchool.push(out);
       totalSearches += out.meter.searches;
       totalOut += out.meter.outTokens;
       totalSources += out.meter.sources;
     } catch (e) {
       console.error(`[program-map] school="${school}" FAILED: ${e.message}`);
-      perSchool.push({ school, records: [], ms: 0, meter: { searches: 0, outTokens: 0, sources: 0 }, rolesFilled: 0, rolesTotal: programMap.ROLES.length, error: e.message });
+      perSchool.push({ school, records: [], contacts: null, ms: 0, meter: { searches: 0, outTokens: 0, sources: 0 }, rolesFilled: 0, rolesTotal: programMap.ROLES.length, error: e.message });
     }
+  }
+
+  const allRecords = perSchool.flatMap((s2) => s2.records);
+  const dedupe = programMap.dedupeAcrossSchools(allRecords);
+
+  // Attach the "how to reach" fallback AFTER dedupe, so a demoted record does not
+  // advertise a live phone line as if the person were still there.
+  for (const s2 of perSchool) {
+    for (const r of s2.records) {
+      r.reach_via = r.status === 'current' ? programMap.reachVia(r, s2.contacts) : null;
+    }
+    await store.saveProgramStaff(s2.school, s2.records);
+    if (s2.contacts) await store.saveProgramContact(s2.school, s2.contacts);
   }
   const totalMs = Date.now() - t0;
 
   // ── The dump ──
   const rows = await store.getProgramStaff(only || null);
-  dumpRecords(rows);
+  const cs = await store.getProgramContact(null);
+  const contactMap = {}; for (const x of cs) contactMap[x.school] = x;
+  dumpRecords(rows, contactMap);
 
   // ── Summary ──
   const searchCost = totalSearches * PRICE_PER_SEARCH;
@@ -115,7 +148,7 @@ async function run() {
   const emptyByRole = new Map();
   for (const role of programMap.ROLES) emptyByRole.set(role.key, []);
   for (const s of perSchool) {
-    const have = new Set(s.records.map((r) => r.role));
+    const have = new Set(s.records.filter((r) => r.status === 'current').map((r) => r.role));
     for (const role of programMap.ROLES) if (!have.has(role.key)) emptyByRole.get(role.key).push(s.school);
   }
   const tierAByLane = new Map();
@@ -154,6 +187,25 @@ async function run() {
   for (const c of ['confident', 'likely', 'conflicting', 'unverified']) {
     console.log(`  ${c.padEnd(14)} ${rows.filter((r) => r.confidence === c).length}`);
   }
+
+  console.log(`\nRECENCY`);
+  const cur = rows.filter((r) => r.status === 'current');
+  const undated = cur.filter((r) => !r.source_date).length;
+  const stale = cur.filter((r) => r.age_months != null && r.age_months > programMap.STALE_MONTHS).length;
+  console.log(`  current records        ${cur.length}`);
+  console.log(`  previous holders kept  ${rows.length - cur.length}`);
+  console.log(`  undated sources        ${undated}`);
+  console.log(`  older than ${programMap.STALE_MONTHS} months   ${stale}  (never Confident on their own)`);
+  console.log(`  cross-school collisions ${dedupe.collisions}, demoted ${dedupe.demoted}`);
+
+  console.log(`\nCONTACT COVERAGE`);
+  const cAll = Object.values(contactMap);
+  console.log(`  football office phone  ${cAll.filter((c) => c.football_office_phone).length}/${perSchool.length}`);
+  console.log(`  recruiting email       ${cAll.filter((c) => c.recruiting_email).length}/${perSchool.length}`);
+  console.log(`  collective email       ${cAll.filter((c) => c.collective_email).length}/${perSchool.length}`);
+  console.log(`  records with a direct email  ${cur.filter((r) => r.email).length}`);
+  console.log(`  records with a direct phone  ${cur.filter((r) => r.phone).length}`);
+  console.log(`  records with only a fallback ${cur.filter((r) => !r.email && !r.phone).length}`);
 
   console.log(`\nWHICH LANES PRODUCED TIER A HITS`);
   if (!tierAByLane.size) console.log('  none');
