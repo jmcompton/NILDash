@@ -3484,6 +3484,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <pre id="ds-ledger-out" style="display:none;margin-top:12px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-x:auto"></pre>
     </div>
 
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px 16px;margin-bottom:18px">
+      <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">Weekly digest</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Monday 7am Central. Agents with nothing new are skipped entirely. The test send never consumes anyone's real weekly send.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="_digestTest(this)" style="padding:8px 16px;background:rgba(167,139,250,0.12);border:1px solid rgba(167,139,250,0.4);border-radius:var(--r-sm);color:#a78bfa;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Send test digest to me</button>
+        <button onclick="_digestDryRun(this)" style="padding:8px 16px;background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.35);border-radius:var(--r-sm);color:#60a5fa;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Dry run all agents</button>
+      </div>
+      <pre id="digest-out" style="display:none;margin-top:12px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-x:auto"></pre>
+    </div>
+
     <!-- Sub-tab nav -->
     <div style="display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
       <button id="gtab-prospects-btn" onclick="growthModule.switchTab('prospects')" style="padding:8px 16px;border:none;background:none;color:var(--accent);font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-1px">Prospects</button>
@@ -7202,6 +7212,56 @@ window._dsOnBrandContacted = function (deal, via, undoable) {
 
 // Admin (Growth view): read-only brand_engagement stats. Uses the session cookie
 // (credentials: include), so it works from a logged-in admin phone. Writes nothing.
+// Weekly digest controls. The test send goes to the signed-in admin only and never
+// writes to digest_sends, so it can be run as often as needed without burning a
+// real weekly send for anyone.
+async function _digestTest(btn) {
+  var out = document.getElementById('digest-out');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  if (out) { out.style.display = 'block'; out.textContent = 'Building and sending...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/admin/digest/test', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    var d = await r.json().catch(function () { return {}; });
+    if (out) {
+      out.textContent = r.ok
+        ? ('Sent to ' + d.to + '\nSubject: ' + d.subject
+           + '\nUsed real data: ' + (d.usedRealData ? 'yes' : 'no, your account had nothing pending so the email shows SAMPLE content')
+           + '\nResend id: ' + (d.providerId || 'none returned')
+           + '\n\nCheck your inbox AND your spam folder. Where it landed is the thing worth knowing.')
+        : ('Error ' + r.status + ': ' + (d.error || 'request failed'));
+    }
+  } catch (e) {
+    if (out) out.textContent = 'Request failed: ' + (e && e.message ? e.message : e);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Send test digest to me'; }
+}
+
+async function _digestDryRun(btn) {
+  var out = document.getElementById('digest-out');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building...'; }
+  if (out) { out.style.display = 'block'; out.textContent = 'Building every agent digest, sending nothing...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/admin/digest/dry-run', { method: 'POST', credentials: 'include' });
+    var d = await r.json().catch(function () { return {}; });
+    if (out) {
+      out.textContent = r.ok
+        ? ('Week starting ' + d.weekStart
+           + '\nCandidates: ' + d.considered
+           + '\nWould send: ' + d.sent
+           + '\nSkipped as empty: ' + d.skipped
+           + '\nBuild failures: ' + (d.failed || 0)
+           + '\n\nFull per-agent output including the drafted follow-ups is in the Railway logs.')
+        : ('Error ' + r.status + ': ' + (d.error || 'request failed'));
+    }
+  } catch (e) {
+    if (out) out.textContent = 'Request failed: ' + (e && e.message ? e.message : e);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Dry run all agents'; }
+}
+
 async function _dsLedgerStats(btn) {
   var out = document.getElementById('ds-ledger-out');
   if (btn) btn.disabled = true;

@@ -38,6 +38,12 @@ async function init() {
     -- Admin-only comp flag: full access with no card and no charge. Never set by
     -- signup; only an admin (or the one-time comp seed) can turn this on.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS comped BOOLEAN DEFAULT FALSE;
+    -- Weekly digest opt-out. Stored per user and honored at send time. The token is
+    -- what the unsubscribe link carries, so a link cannot be forged from an email
+    -- address alone, and it is generated lazily on first send.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_unsubscribed BOOLEAN DEFAULT FALSE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_unsub_token TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_unsubscribed_at TIMESTAMPTZ;
     -- New agents must not silently get free-forever access. The old 'beta' default
     -- was the leak (agentHasAccess used to exempt any non-'free' plan). New rows
     -- default to 'none'; access now comes from a Stripe trial/subscription or comp.
@@ -616,6 +622,33 @@ async function init() {
     )
   `).then(() => console.log('[init] brand_engagement table ready'))
     .catch(e => console.error('[init] brand_engagement:', e.message));
+  // ── Weekly digest sends ───────────────────────────────────────────────────
+  // The double-send guard. Recurring work in this app runs on in-process
+  // setInterval timers, so a restart or a second Railway instance can fire the same
+  // week twice. UNIQUE (agent_id, week_start) makes that a database rejection
+  // rather than something application logic has to get right. The row is written
+  // BEFORE the send, so a crash mid-send fails closed: nobody gets emailed twice.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS digest_sends (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      week_start DATE NOT NULL,
+      email TEXT,
+      subject TEXT,
+      status TEXT NOT NULL DEFAULT 'claimed',
+      provider_id TEXT,
+      error TEXT,
+      new_matches INT DEFAULT 0,
+      awaiting_reply INT DEFAULT 0,
+      going_cold INT DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      sent_at TIMESTAMPTZ,
+      UNIQUE (agent_id, week_start)
+    )
+  `).then(() => console.log('[init] digest_sends table ready'))
+    .catch(e => console.error('[init] digest_sends:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_digest_sends_week ON digest_sends (week_start)`).catch(() => {});
+
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_athlete_state ON brand_engagement (athlete_id, state)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_engagement_agent_key ON brand_engagement (agent_id, brand_key)`).catch(() => {});
   // ── Program Contact Map ───────────────────────────────────────────────────

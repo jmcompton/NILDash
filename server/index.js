@@ -8306,6 +8306,99 @@ try {
   console.warn('[email] Sync poller failed to start:', e.message);
 }
 
+// ── Weekly digest scheduler ───────────────────────────────────────────────────
+// Follows the existing in-process poller pattern (emailSync, followUpAutomation,
+// RosterAutomationScheduler). There is no Railway cron in this project.
+//
+// A timer cannot land on "Monday 7am". It ticks every 15 minutes and asks whether
+// the window has opened and this agent has been sent THIS WEEK, so a restart at
+// 7:03am still delivers instead of skipping the week. Safety against a double fire
+// is not the timer's job: digest_sends has UNIQUE (agent_id, week_start) and the row
+// is claimed before the send.
+//
+// Off unless WEEKLY_DIGEST_ENABLED=1, so a deploy cannot email everyone by surprise.
+try {
+  const DIGEST_ON = process.env.WEEKLY_DIGEST_ENABLED === '1';
+  if (!DIGEST_ON) {
+    console.log('[digest] weekly digest scheduler is OFF (set WEEKLY_DIGEST_ENABLED=1 to enable)');
+  } else {
+    const digestJob = require('./jobs/weeklyDigest');
+    const TICK_MS = 15 * 60 * 1000;
+    const tick = () => digestJob.run({}).catch((e) => console.error('[digest] tick failed:', e.message));
+    setTimeout(tick, 2 * 60 * 1000);   // let the server finish booting
+    setInterval(tick, TICK_MS);
+    console.log('[digest] weekly digest scheduler started, tick every 15 min, sends Monday 7am Central');
+  }
+} catch (e) {
+  console.warn('[digest] scheduler failed to start:', e.message);
+}
+
+// GET /api/digest/unsubscribe: public, no auth. The link in the email.
+// A token, not an email address, so a link cannot be forged from a known address.
+app.get('/api/digest/unsubscribe', async (req, res) => {
+  const token = String(req.query.token || '');
+  const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head>
+<body style="margin:0;background:#f4f4f2;font-family:Arial,Helvetica,sans-serif">
+<div style="max-width:480px;margin:48px auto;background:#fff;border-radius:12px;padding:28px">
+<div style="font-size:20px;font-weight:800;color:#111827">${title}</div>
+<div style="font-size:15px;color:#4b5563;margin-top:10px;line-height:1.5">${body}</div>
+</div></body></html>`;
+  if (!token) return res.status(400).send(page('Invalid link', 'That unsubscribe link is missing its token.'));
+  try {
+    const r = await store.pool.query(
+      `UPDATE users SET digest_unsubscribed = TRUE, digest_unsubscribed_at = NOW()
+       WHERE digest_unsub_token = $1 RETURNING email`, [token]);
+    if (!r.rows[0]) return res.status(404).send(page('Link not recognised', 'We could not match that unsubscribe link to an account.'));
+    console.log(`[digest] unsubscribed ${r.rows[0].email}`);
+    res.send(page('Unsubscribed', `${escapeHtml(r.rows[0].email)} will no longer receive the weekly digest. Account emails such as password resets are unaffected.`));
+  } catch (e) {
+    console.error('[digest/unsubscribe]', e.message);
+    res.status(500).send(page('Something went wrong', 'Please try again, or reply to any NILDash email and we will remove you by hand.'));
+  }
+});
+// One-click unsubscribe (RFC 8058): Gmail and Outlook POST to the same URL.
+app.post('/api/digest/unsubscribe', async (req, res) => {
+  const token = String(req.query.token || '');
+  if (!token) return res.status(400).json({ error: 'token required' });
+  try {
+    await store.pool.query(
+      `UPDATE users SET digest_unsubscribed = TRUE, digest_unsubscribed_at = NOW() WHERE digest_unsub_token = $1`, [token]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/admin/digest/test: "Send test digest to me". Never touches
+// digest_sends, so testing cannot consume anyone's real weekly send.
+app.post('/api/admin/digest/test', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const digestJob = require('./jobs/weeklyDigest');
+    const to = (req.body && req.body.to) || user.email;
+    // Only ever to the admin's own address unless an explicit target is a real user.
+    const out = await digestJob.sendTest(to);
+    res.json(out);
+  } catch (e) {
+    console.error('[admin/digest/test]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/digest/dry-run: build every agent's email, send nothing.
+app.post('/api/admin/digest/dry-run', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const digestJob = require('./jobs/weeklyDigest');
+    const out = await digestJob.run({ dryRun: true, force: true });
+    res.json(out);
+  } catch (e) {
+    console.error('[admin/digest/dry-run]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Growth Tab (Admin-only B2B Outreach) ──────────────────────────────────────
 try {
   const growthRoutes = require('./routes/growth');
