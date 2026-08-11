@@ -3733,6 +3733,63 @@ app.get('/api/admin/agent-activity', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Admin: signup funnel ─────────────────────────────────────
+// signed up -> set password -> logged in -> added athlete -> ran a scan -> sent
+// outreach. Counts at each step plus the names stuck at each one.
+//
+// Deliberately reads EVERY non-archived user, not just role='agent'. The Agent
+// Activity table filters on role and that filter is exactly how an account goes
+// missing from it, so a view meant to find missing people must not repeat it. Each
+// row carries its role so an unexpected one is visible rather than silently dropped.
+//
+// LIMIT, stated because it changes how the numbers should be read: NILDash keeps no
+// outbound email delivery log. This can tell you a reset link was never used; it
+// cannot tell you whether the invite email arrived, bounced, or went to spam. The
+// password_resets columns are the closest available evidence.
+const signupFunnel = require('./services/signupFunnel');
+
+app.get('/api/admin/signup-funnel', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const includeArchived = req.query.includeArchived === '1';
+    const r = await store.pool.query(`
+      WITH u AS (
+        SELECT id, name, email, role, plan, comped, subscription_status, archived,
+               created_at, last_login, password_reset_required
+        FROM users
+        ${includeArchived ? '' : 'WHERE archived IS NOT TRUE'}
+      ),
+      ath AS (SELECT agent_id, COUNT(*) AS n FROM athletes GROUP BY agent_id),
+      act AS (
+        SELECT agent_id,
+          COUNT(*) FILTER (WHERE activity_type = 'deal_scan') AS scans,
+          COUNT(*) FILTER (WHERE activity_type IN ('outreach_written','email_sent')) AS outreach
+        FROM athlete_activity_log GROUP BY agent_id
+      ),
+      pr AS (
+        SELECT LOWER(email) AS email, COUNT(*) AS tokens,
+               BOOL_OR(used) AS any_used, MAX(expires_at) AS last_expires
+        FROM password_resets GROUP BY LOWER(email)
+      )
+      SELECT u.*,
+        COALESCE(ath.n, 0)::int AS athletes,
+        COALESCE(act.scans, 0)::int AS scans,
+        COALESCE(act.outreach, 0)::int AS outreach,
+        COALESCE(pr.tokens, 0)::int AS reset_tokens,
+        COALESCE(pr.any_used, FALSE) AS reset_used,
+        pr.last_expires AS reset_expires
+      FROM u
+      LEFT JOIN ath ON ath.agent_id = u.id
+      LEFT JOIN act ON act.agent_id = u.id
+      LEFT JOIN pr  ON pr.email = LOWER(u.email)
+      ORDER BY u.created_at DESC
+    `);
+
+    res.json(signupFunnel.buildFunnel(r.rows));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/admin/archive-user', async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);

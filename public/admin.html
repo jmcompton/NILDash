@@ -88,6 +88,17 @@ a.back:hover{color:#C8F135}
   </tr></thead><tbody id="agent-activity-table"><tr><td colspan="8" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Loading...</td></tr></tbody></table></div>
 </div>
 
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">
+    <div>
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Signup Funnel</div>
+      <div style="font-size:11px;color:rgba(240,237,230,0.4);margin-top:2px">Every non-archived account, whatever its role. Click a step to see who is stuck there.</div>
+    </div>
+    <button onclick="loadFunnel()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+  </div>
+  <div id="funnel-body" style="padding:16px 20px;font-size:12px;color:rgba(240,237,230,0.5)">Loading...</div>
+</div>
+
 <!-- ── Referrals ─────────────────────────────────────────────── -->
 <div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">
@@ -380,6 +391,97 @@ function showToast(msg) {
 
 setTimeout(loadUsers, 500);
 setTimeout(loadAgentActivity, 700);
+setTimeout(loadFunnel, 900);
+
+var _funnelOpen = null;
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+async function loadFunnel() {
+  var el = document.getElementById('funnel-body');
+  if (!el) return;
+  el.textContent = 'Loading...';
+  var r = await fetch('/api/admin/signup-funnel');
+  if (!r.ok) { el.textContent = 'Failed to load (' + r.status + ')'; return; }
+  var d = await r.json();
+  window._funnel = d;
+  var total = d.total || 0;
+  var html = '';
+
+  html += '<table style="width:100%;border-collapse:collapse">';
+  html += '<thead><tr style="color:rgba(240,237,230,0.4);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">'
+        + '<th style="padding:6px 8px">Step</th><th style="padding:6px 8px">Reached</th>'
+        + '<th style="padding:6px 8px">Of total</th><th style="padding:6px 8px">Lost here</th>'
+        + '<th style="padding:6px 8px"></th></tr></thead><tbody>';
+  (d.steps || []).forEach(function(s, i) {
+    var pct = total ? Math.round(s.reached / total * 100) : 0;
+    var open = _funnelOpen === s.key;
+    html += '<tr style="border-top:1px solid rgba(255,255,255,0.06)">'
+      + '<td style="padding:8px">' + esc(s.label) + '</td>'
+      + '<td style="padding:8px;font-weight:700;color:#f0ede6">' + s.reached + '</td>'
+      + '<td style="padding:8px;color:rgba(240,237,230,0.5)">' + pct + '%'
+      + '<span style="display:inline-block;width:80px;height:5px;background:rgba(255,255,255,0.08);border-radius:3px;margin-left:8px;vertical-align:middle">'
+      + '<span style="display:block;height:5px;border-radius:3px;background:#a78bfa;width:' + pct + '%"></span></span></td>'
+      + '<td style="padding:8px;color:' + (s.stuck.length ? '#f59e0b' : 'rgba(240,237,230,0.3)') + '">' + s.stuck.length + '</td>'
+      + '<td style="padding:8px">' + (s.stuck.length
+          ? '<button onclick="toggleFunnel(\'' + s.key + '\')" style="font-size:11px;padding:3px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">'
+            + (open ? 'Hide' : 'Show names') + '</button>'
+          : '') + '</td></tr>';
+    if (open && s.stuck.length) {
+      html += '<tr><td colspan="5" style="padding:0 8px 12px 8px">'
+        + '<div style="background:#0d0d0c;border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:10px">';
+      s.stuck.forEach(function(p) {
+        html += '<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'
+          + '<span style="color:#f0ede6;font-weight:600">' + esc(p.name || '(no name)') + '</span> '
+          + '<span style="color:rgba(240,237,230,0.4)">' + esc(p.email) + '</span>'
+          + (p.role && p.role !== 'agent' ? ' <span style="color:#f59e0b">role=' + esc(p.role) + '</span>' : '')
+          + (p.note ? '<div style="color:rgba(240,237,230,0.45);font-size:11px;margin-top:2px">' + esc(p.note) + '</div>' : '')
+          + '</div>';
+      });
+      html += '</div></td></tr>';
+    }
+  });
+  html += '</tbody></table>';
+
+  // The Bryce case: accounts the Agent Activity table cannot show, and why.
+  if ((d.missingFromAgentActivity || []).length) {
+    html += '<div style="margin-top:16px;padding:12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px">'
+      + '<div style="color:#f59e0b;font-weight:600;font-size:12px;margin-bottom:6px">'
+      + d.missingFromAgentActivity.length + ' account(s) do NOT appear in Agent Activity</div>'
+      + '<div style="color:rgba(240,237,230,0.5);font-size:11px;margin-bottom:8px">That table only shows role agent or admin, and only when not archived.</div>';
+    d.missingFromAgentActivity.forEach(function(u) {
+      html += '<div style="padding:3px 0;font-size:12px">'
+        + '<span style="color:#f0ede6">' + esc(u.name || '(no name)') + '</span> '
+        + '<span style="color:rgba(240,237,230,0.4)">' + esc(u.email) + '</span> '
+        + '<span style="color:#f59e0b">role=' + esc(u.role || 'null') + (u.archived ? ' archived' : '') + '</span></div>';
+    });
+    html += '</div>';
+  }
+
+  if ((d.anomalies || []).length) {
+    html += '<div style="margin-top:12px;padding:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px">'
+      + '<div style="color:#f0ede6;font-weight:600;font-size:12px;margin-bottom:6px">Out of order (' + d.anomalies.length + ')</div>'
+      + '<div style="color:rgba(240,237,230,0.5);font-size:11px;margin-bottom:8px">Stuck at one step but has already done a later one. Counted at the earlier step, listed here so the number is not quietly wrong.</div>';
+    d.anomalies.forEach(function(u) {
+      html += '<div style="padding:3px 0;font-size:12px"><span style="color:#f0ede6">' + esc(u.name || u.email) + '</span> '
+        + '<span style="color:rgba(240,237,230,0.4)">stuck at ' + esc(u.stuckAt) + ', already did ' + esc((u.laterStepsDone || []).join(', ')) + '</span></div>';
+    });
+    html += '</div>';
+  }
+
+  if (d.note) {
+    html += '<div style="margin-top:12px;font-size:11px;color:rgba(240,237,230,0.35)">' + esc(d.note) + '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function toggleFunnel(key) {
+  _funnelOpen = (_funnelOpen === key) ? null : key;
+  loadFunnel();
+}
 
 async function seedDemo() {
   if (!confirm('Create or reset the demo account? This wipes and rebuilds only the demo data, nothing else is touched.')) return;
