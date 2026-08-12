@@ -140,6 +140,40 @@ function _normPhone(p) {
   return String(p).trim();
 }
 
+// Find the true end of a nested element. A non-greedy `<div ...>[\s\S]*?</div>`
+// stops at the FIRST closing tag, which for a Sidearm person card is the inner
+// name wrapper. Everything after it, including the title and the mailto, is cut
+// off, and the page parses as names with no titles. Maryland reported 334 names
+// and 0 titles for exactly this reason.
+const MAX_BLOCK_CHARS = 20000;
+function _sliceBalanced(src, openStart, tag) {
+  const token = new RegExp(`<${tag}\\b|</${tag}\\s*>`, 'gi');
+  token.lastIndex = openStart;
+  let depth = 0, m;
+  while ((m = token.exec(src))) {
+    if (m.index - openStart > MAX_BLOCK_CHARS) break; // malformed markup, do not run away
+    if (m[0][1] === '/') {
+      depth--;
+      if (depth <= 0) return { start: openStart, end: m.index + m[0].length };
+    } else depth++;
+  }
+  return null; // unclosed: skip rather than swallow the rest of the document
+}
+
+// Text lines from nested markup. Closing tags become line breaks, so a card whose
+// name, title and email sit in sibling elements yields three clean parts instead of
+// one run-on string. This is what makes a person card readable without knowing the
+// site's exact class names, which vary between Sidearm themes.
+function _textLines(html) {
+  return _decode(String(html || '')
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|span|a|h[1-6]|td|th|tr|strong|em|label)\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, ' '))
+    .split('\n')
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
 // Read one staff block. Returns a person or null: null means "not a person", which
 // the caller may then reinterpret as a section header.
 function _personFromBlock(b, pageUrl) {
@@ -148,8 +182,14 @@ function _personFromBlock(b, pageUrl) {
   const telA = b.match(/<a[^>]*href=["']tel:([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i);
   const telRaw = telA ? (_text(telA[2]) || telA[1]) : (((b.match(/tel:([^"'?>\s]+)/i) || [])[1] || '').trim() || null);
 
-  // Cell-based (tables) first, then generic inline elements for card markup.
+  // Cell-based (tables) first. Then LINE-based, which handles nested card markup
+  // where an element-matching regex groups the name and title into one string.
+  // The old inline-element pass is kept last, for blocks the line split flattens.
   let parts = [...b.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => _text(m[1])).filter(Boolean);
+  if (parts.length < 2) {
+    const lines = _textLines(b);
+    if (lines.length >= 2) parts = lines;
+  }
   if (parts.length < 2) {
     parts = [...b.matchAll(/<(?:h[1-6]|a|span|p|div|strong)[^>]*>([\s\S]{0,300}?)<\/(?:h[1-6]|a|span|p|div|strong)>/gi)]
       .map((m) => _text(m[1])).filter(Boolean);
@@ -170,7 +210,18 @@ function _personFromBlock(b, pageUrl) {
   // wins, because "Head Coach" would otherwise be discarded for looking like a name.
   const after = parts.slice(nameIdx + 1)
     .filter((p) => p !== name && stripNameLabel(p) !== name && looksLikeTitle(p));
-  const title = after.find((p) => TITLE_HINT.test(p)) || after.find((p) => !looksLikeName(p)) || after[0] || null;
+  let title = after.find((p) => TITLE_HINT.test(p)) || after.find((p) => !looksLikeName(p)) || after[0] || null;
+
+  // Last resort: some card themes put the title only in the link's accessible name,
+  // as aria-label="James E. Smith - Head Football Coach". That is published markup,
+  // not a guess, so it is worth reading before giving up on the title.
+  if (!title) {
+    for (const m of b.matchAll(/aria-label="([^"]{3,120})"/gi)) {
+      const seg = m[1].split(/\s+[-|,]\s+|\s{2,}/).map((s) => s.trim()).filter(Boolean);
+      const cand = seg.find((s) => s !== name && TITLE_HINT.test(s) && looksLikeTitle(s));
+      if (cand) { title = cand; break; }
+    }
+  }
 
   return {
     name, title: title || null,
@@ -194,8 +245,24 @@ function parseStaffHtml(html, pageUrl) {
   const blocks = [];
   const add = (m) => blocks.push({ start: m.index, end: m.index + m[0].length, html: m[0], kind: 'block' });
   for (const m of clean.matchAll(/<tr[\s\S]{0,6000}?<\/tr>/gi)) add(m);
-  for (const m of clean.matchAll(/<li[^>]*(?:staff|person|card|directory)[^>]*>[\s\S]{0,6000}?<\/li>/gi)) add(m);
-  for (const m of clean.matchAll(/<div[^>]*(?:staff-member|staff_member|person-card|directory-item)[^>]*>[\s\S]{0,6000}?<\/div>/gi)) add(m);
+
+  // li and div NEST, so their extent has to be found by counting depth rather than
+  // by a non-greedy match. Nested openings inside a block already taken are skipped,
+  // so one card yields one person rather than one per inner wrapper.
+  const collectNested = (openRe, tag) => {
+    const taken = [];
+    for (const m of clean.matchAll(openRe)) {
+      if (taken.some((t) => m.index >= t.start && m.index < t.end)) continue;
+      const span = _sliceBalanced(clean, m.index, tag);
+      if (!span) continue;
+      taken.push(span);
+      blocks.push({ start: span.start, end: span.end, html: clean.slice(span.start, span.end), kind: 'block' });
+    }
+  };
+  collectNested(/<li[^>]*(?:staff|person|card|directory)[^>]*>/gi, 'li');
+  // s-person-card is the Sidearm card root. person-card already matches it as a
+  // substring, but naming it makes the intent findable when this needs revisiting.
+  collectNested(/<div[^>]*(?:s-person-card|staff-member|staff_member|person-card|directory-item)[^>]*>/gi, 'div');
 
   // Headings that sit BETWEEN blocks are section headers. One inside a staff card is
   // that person's own markup and must not reset the section.

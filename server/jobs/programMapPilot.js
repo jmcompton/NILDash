@@ -112,7 +112,10 @@ async function run() {
     `);
     const by = {};
     for (const row of r.rows) by[row.school] = row.key_contacts;
-    return schoolList().filter((s) => !by[s] || by[s] === 0);
+    // Every known school, not schoolList(): a repair list scoped to the pilot ten
+    // would silently ignore the broken schools among the other 125, which is the
+    // same subset bug that made the coverage block report 9 of 10.
+    return programMap.ALL_SCHOOLS.filter((s) => !by[s] || by[s] === 0);
   }
 
   // --set-url: set the football staff URL BY HAND. A hand-set URL is locked: neither
@@ -419,7 +422,7 @@ async function run() {
       console.log(`[program-map] fetching ${targets.length} named school(s): ${targets.join(', ')}`);
     } else if (args.includes('--only-zero')) {
       targets = await zeroKeyContactSchools();
-      console.log(`[program-map] --only-zero: ${targets.length} school(s) with zero key contacts, out of ${schoolList().length}`);
+      console.log(`[program-map] --only-zero: ${targets.length} school(s) with zero key contacts, out of ${programMap.ALL_SCHOOLS.length} known`);
       if (!targets.length) { console.log('[program-map] every school has at least one key contact. Nothing to repair.'); return; }
       for (const s of targets) console.log(`    ${s}`);
       console.log('');
@@ -540,13 +543,17 @@ async function run() {
       `);
       const bySchool = {};
       for (const r of cov.rows) bySchool[r.school] = r;
-      const all = schoolList();
+      // ALWAYS the full universe, never the subset that was just fetched. A scoped
+      // run measuring only its own 10 schools reported "9/10" while real coverage
+      // was 117/135, which reads as a catastrophe or a triumph depending on which
+      // subset you happened to run. The number has to mean the same thing every time.
+      const all = programMap.ALL_SCHOOLS;
       const withThree = all.filter((s) => bySchool[s] && bySchool[s].key_contacts >= 3);
       const withEmail = all.filter((s) => bySchool[s] && bySchool[s].key_with_email >= 1);
       const zero = all.filter((s) => !bySchool[s] || bySchool[s].key_contacts === 0);
 
       console.log('\n' + line('='));
-      console.log('COVERAGE, across all ' + all.length + ' school(s) in this list');
+      console.log(`COVERAGE, across all ${all.length} known school(s), not just the ${targets.length} fetched in this run`);
       console.log(line('='));
       const p = (n) => `${n} (${Math.round((n / all.length) * 100)}%)`;
       console.log(`  at least 3 key contacts:              ${p(withThree.length)}`);
