@@ -13,6 +13,12 @@
 const store = require('../store');
 const programMap = require('../services/programMap');
 const staffPage = require('../services/staffPage');
+const ai = require('../ai');
+
+// Wall-clock backstop around ONE school. Nothing in a 135-school run may be able to
+// stall the whole thing: the Minnesota search fallback did exactly that, printing
+// "falling back to search" and then never returning.
+const SCHOOL_CAP_MS = 90000;
 
 // Haiku 4.5 pricing, used only for a cost ESTIMATE in the summary. Input is
 // dominated by web-search results, so it is approximated per call rather than
@@ -369,17 +375,52 @@ async function run() {
     console.log(dryRun
       ? '[program-map] --dry-run: parsing and reporting only, nothing will be written'
       : '[program-map] records WILL be written to program_staff (pass --dry-run to skip)');
+    // --resume: skip schools whose records were written in the last 24 hours, so a
+    // rerun after a stall picks up where it stopped instead of refetching everything
+    // already in hand.
+    let targets = schoolList();
+    let skippedFresh = 0;
+    if (args.includes('--resume')) {
+      const fresh = await store.pool.query(`
+        SELECT school FROM program_staff
+        WHERE status = 'current'
+        GROUP BY school
+        HAVING MAX(updated_at) > NOW() - INTERVAL '24 hours'
+      `);
+      const done = new Set(fresh.rows.map((r) => r.school));
+      const before = targets.length;
+      targets = targets.filter((s) => !done.has(s));
+      skippedFresh = before - targets.length;
+      console.log(`[program-map] --resume: skipping ${skippedFresh} school(s) fetched in the last 24h, fetching ${targets.length}`);
+      if (!targets.length) { console.log('[program-map] nothing left to fetch. Drop --resume to force a full refetch.'); return; }
+    }
     console.log('school                staff  emails  phones  roles  keyContacts  titles  junk  via      ms     url');
     console.log(line('-'));
     const failures = [];
     const suspect = [];
+    const timedOut = [];
     let tStaff = 0, tEmail = 0, tPhone = 0;
     let written = 0, withEmailWritten = 0, keyWithEmail = 0;
-    for (const school of schoolList()) {
+    let idx = 0;
+    for (const school of targets) {
+      idx++;
       const t0 = Date.now();
       let res;
-      try { res = await programMap.loadFootballStaff(school, store, { rediscover: args.includes('--rediscover') }); }
-      catch (e) { failures.push({ school, reason: e.message }); console.log(`${school.padEnd(20)} FAILED ${e.message}`); continue; }
+      try {
+        // BACKSTOP. Every external call inside loadFootballStaff is capped
+        // individually, but this bounds the whole school regardless of what stalls
+        // inside it, including anything added later. One school can cost 90
+        // seconds; it can never cost the run.
+        res = await ai.withTimeout(
+          programMap.loadFootballStaff(school, store, { rediscover: args.includes('--rediscover') }),
+          SCHOOL_CAP_MS, `fetch for ${school}`);
+      } catch (e) {
+        const isTimeout = /^timeout after/.test(e.message || '');
+        if (isTimeout) timedOut.push(school);
+        failures.push({ school, reason: e.message });
+        console.log(`${school.padEnd(20)} ${isTimeout ? 'TIMED OUT after ' + Math.round(SCHOOL_CAP_MS / 1000) + 's, moving on' : 'FAILED ' + e.message}`);
+        continue;
+      }
       if (!res.url) { failures.push({ school, reason: 'no url discovered' }); console.log(`${school.padEnd(20)} NO URL DISCOVERED`); continue; }
       if (res.error) { failures.push({ school, reason: res.error }); console.log(`${school.padEnd(20)} FETCH FAILED ${res.error}  ${res.url}`); continue; }
       const recs = programMap.recordsFromStaffPage(school, res.staff, res.url);
@@ -428,6 +469,47 @@ async function run() {
       console.log('Next: node server/jobs/programMapPilot.js --contacts');
     } else {
       console.log('\n--dry-run: nothing was written. Re-run without it to update program_staff.');
+    }
+
+    if (timedOut.length) {
+      console.log(`\nTIMED OUT (${timedOut.length}), skipped so the run could continue. Re-run with --resume to retry just these:`);
+      for (const s of timedOut) console.log(`  ${s}`);
+    }
+
+    // ── The number that actually says whether this is usable ────────────────
+    // School count is a vanity metric: 135 schools with no reachable people is
+    // worth nothing. Coverage is measured in KEY CONTACTS, read back from the
+    // database so it reflects every school including ones --resume skipped.
+    if (!dryRun) {
+      const cov = await store.pool.query(`
+        SELECT school,
+          COUNT(*) FILTER (WHERE is_key_contact)::int AS key_contacts,
+          COUNT(*) FILTER (WHERE is_key_contact AND email IS NOT NULL)::int AS key_with_email
+        FROM program_staff WHERE status = 'current' GROUP BY school
+      `);
+      const bySchool = {};
+      for (const r of cov.rows) bySchool[r.school] = r;
+      const all = schoolList();
+      const withThree = all.filter((s) => bySchool[s] && bySchool[s].key_contacts >= 3);
+      const withEmail = all.filter((s) => bySchool[s] && bySchool[s].key_with_email >= 1);
+      const zero = all.filter((s) => !bySchool[s] || bySchool[s].key_contacts === 0);
+
+      console.log('\n' + line('='));
+      console.log('COVERAGE, across all ' + all.length + ' school(s) in this list');
+      console.log(line('='));
+      const p = (n) => `${n} (${Math.round((n / all.length) * 100)}%)`;
+      console.log(`  at least 3 key contacts:              ${p(withThree.length)}`);
+      console.log(`  at least 1 key contact with an email: ${p(withEmail.length)}`);
+      console.log(`  ZERO key contacts:                    ${p(zero.length)}`);
+      if (zero.length) {
+        console.log(`\nSCHOOLS WITH ZERO KEY CONTACTS (${zero.length}). These are the ones to fix:`);
+        for (const s of zero) {
+          const why = !bySchool[s] ? 'no records at all' : 'records exist but no role matched';
+          console.log(`  ${s.padEnd(22)} ${why}`);
+        }
+        console.log('\n  For a school with no records, set its URL by hand:');
+        console.log('    node server/jobs/programMapPilot.js --set-url --school "NAME" --url "https://..."');
+      }
     }
     return;
   }

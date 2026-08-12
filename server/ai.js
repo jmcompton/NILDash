@@ -35,9 +35,36 @@ function getClient() {
   if (!client) {
     const key = process.env.ANTHROPIC_API_KEY;
     if (!key || key.includes('YOUR_KEY')) throw new Error('ANTHROPIC_API_KEY not set');
-    client = new Anthropic({ apiKey: key });
+    // The SDK default request timeout is TEN MINUTES, and with retries a single
+    // hung call can block a caller for far longer. That is what stalled the
+    // 135-school program map run: a search fallback with no cap of its own
+    // inherited the default and never returned.
+    //
+    // Left at the SDK default here so long generations (contracts, legal analysis)
+    // keep working exactly as they do today, but exposed as an env var so it can be
+    // lowered globally without a deploy. Callers that must stay responsive should
+    // use withTimeout below rather than relying on this.
+    client = new Anthropic({
+      apiKey: key,
+      timeout: Number(process.env.ANTHROPIC_TIMEOUT_MS) || 600000,
+    });
   }
   return client;
+}
+
+// Hard wall-clock cap on any promise. The rejection is what lets a caller log the
+// stall, mark the item, and move on: a job that processes 135 things must never be
+// stoppable by one of them.
+//
+// NOTE what this does NOT do: the underlying request keeps running and its result
+// is discarded. That is the right trade for a batch job (bounded wall clock beats
+// a tidy cancellation) but it means a capped call still costs money.
+function withTimeout(promise, ms, label) {
+  let timer = null;
+  const capped = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms: ${label || 'operation'}`)), ms);
+  });
+  return Promise.race([promise, capped]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
 function withTimeout(promise, ms, fallbackValue) {
@@ -3291,7 +3318,11 @@ module.exports = {
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder
   MANUAL_SOURCE_ORDER,                         // shared wave order for deep lookups
   runSourceWaves,                              // shared parallel wave engine
-  webSearchJson: _contactWebSearchRaw,         // Haiku + web_search primitive (15s capped by caller)
+  withTimeout,                                 // hard wall-clock cap, see the note above
+  // Haiku + web_search primitive. UNCAPPED: every caller must wrap it in
+  // withTimeout. The contact ladder does so at 15s; discoverStaffUrl did not, and
+  // that is exactly how the 135-school run hung.
+  webSearchJson: _contactWebSearchRaw,
   rootDomain: _rootDomain,                     // injected for the cross-domain contact check
   TIER1_RANKS: _TIER1_RANKS,
   prewarmDealEvidence,

@@ -634,6 +634,11 @@ async function sweepStaffUrl(school, store, opts = {}) {
 // lands here is flagged so it shows up in the output as needing attention.
 const STAFF_URL_SYS = 'You find the exact URL of one specific page. Output ONLY JSON. Never invent a URL.';
 
+// Wall-clock caps. Every external call in this file is bounded, because the job
+// that uses them walks 135 schools and one stall must cost one school, not the run.
+const DISCOVER_TIMEOUT_MS = 30000;   // the search fallback
+const SCHOOL_TIMEOUT_MS = 90000;     // backstop around one school's entire fetch
+
 async function discoverStaffUrl(school, store) {
   const cfg = SCHOOLS[school] || {};
   const team = cfg.team || school;
@@ -644,7 +649,11 @@ Rules:
 - footballStaffUrl must be the FOOTBALL staff or coaches page, not a department-wide directory and not a roster of players.
 - Use null for anything you cannot find.`;
   try {
-    const r = await ai.webSearchJson(prompt, STAFF_URL_SYS);
+    // HARD CAP. webSearchJson is uncapped and inherits the SDK's ten-minute default,
+    // so without this one school can block a 135-school run forever. That is not a
+    // theoretical risk: it is what happened on Minnesota.
+    const r = await ai.withTimeout(
+      ai.webSearchJson(prompt, STAFF_URL_SYS), DISCOVER_TIMEOUT_MS, `staff URL search for ${school}`);
     const o = _parse(r.text) || {};
     const ok = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u.trim() : null;
     const staffUrl = ok(o.footballStaffUrl);
@@ -657,8 +666,10 @@ Rules:
     }
     return { staffUrl, contactUrl };
   } catch (e) {
-    console.warn(`[program-map] school="${school}" staff URL discovery failed: ${e.message}`);
-    return { staffUrl: null, contactUrl: null };
+    const timedOut = /^timeout after/.test(e.message || '');
+    console.warn(`[program-map] school="${school}" staff URL discovery ${timedOut ? 'TIMED OUT' : 'failed'}: ${e.message}`);
+    if (timedOut) console.warn(`[program-map] school="${school}" NEEDS ATTENTION: search timed out, moving on. Set a URL by hand with --set-url.`);
+    return { staffUrl: null, contactUrl: null, timedOut };
   }
 }
 

@@ -335,7 +335,13 @@ Rules:
 PAGE TEXT:
 ${text}`;
   try {
-    const raw = await ai.oneShot(prompt, sys, 3000, ai.MODEL_FAST);
+    // Capped for the same reason discoverStaffUrl is: oneShot retries up to four
+    // times and each attempt inherits the SDK's ten-minute default, so an unbounded
+    // call here can stall a bulk run just as surely as a hung search.
+    const call = ai.oneShot(prompt, sys, 3000, ai.MODEL_FAST);
+    const raw = ai.withTimeout
+      ? await ai.withTimeout(call, MODEL_EXTRACT_TIMEOUT_MS, `staff extraction for ${pageUrl}`)
+      : await call;
     const s = String(raw || '').replace(/```json/gi, '').replace(/```/g, '').trim();
     const a = s.indexOf('{'), b = s.lastIndexOf('}');
     if (a === -1 || b <= a) return [];
@@ -355,6 +361,7 @@ ${text}`;
 }
 
 const MIN_DETERMINISTIC = 5; // below this the page probably did not parse structurally
+const MODEL_EXTRACT_TIMEOUT_MS = 30000; // hard cap on the model fallback
 
 // Fetch + parse one staff page. Returns { ok, staff, via, ms, hash }.
 async function loadStaff(url, ai) {
