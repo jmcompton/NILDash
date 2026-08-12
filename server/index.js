@@ -7041,6 +7041,102 @@ app.get('/api/admin/program-map', requireAuth, async (req, res) => {
   } catch (e) { console.error('[program-map]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// ── Programs tab: read-only program staff lookup for agents ──────────────────
+// A LOOKUP, nothing more. No athlete matching, no fit scoring, no "which schools
+// suit this client": that needs data the program map does not hold, and inventing
+// it would be worse than not having it.
+//
+// Available to any signed-in agent (the admin program-map route above stays
+// admin-only because it exposes build controls). Read-only: SELECT only, no writes.
+
+// Only schools we actually have data for. An empty state for the other 126
+// programs would imply we are still loading them; we are not.
+app.get('/api/programs/schools', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(`
+      SELECT ps.school,
+             COUNT(*)::int AS staff_count,
+             COUNT(*) FILTER (WHERE ps.is_key_contact)::int AS key_contacts,
+             COUNT(*) FILTER (WHERE ps.email IS NOT NULL)::int AS with_email,
+             MAX(src.last_fetched_at) AS last_fetched
+      FROM program_staff ps
+      LEFT JOIN program_source src ON src.school = ps.school
+      WHERE ps.status = 'current'
+      GROUP BY ps.school
+      HAVING COUNT(*) > 0
+      ORDER BY ps.school
+    `);
+    res.json({ schools: r.rows });
+  } catch (e) {
+    console.error('[programs/schools]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// One school. Key contacts in the fixed order the agent asked for, then everyone
+// else. Nothing is synthesised: a missing email is absent, never a guess.
+const PROGRAM_KEY_ORDER = ['general_manager', 'player_personnel', 'recruiting', 'head_coach'];
+
+app.get('/api/programs/:school', requireAuth, async (req, res) => {
+  try {
+    const school = String(req.params.school || '').trim();
+    if (!school) return res.status(400).json({ error: 'school required' });
+
+    const rows = await store.getProgramStaff(school);
+    const current = rows.filter((r) => r.status === 'current');
+    if (!current.length) return res.status(404).json({ error: 'no data for that school' });
+
+    const contactRow = await store.getProgramContact(school);
+    const srcQ = await store.pool.query(
+      'SELECT football_staff_url, last_fetched_at, last_staff_count FROM program_source WHERE school = $1', [school]);
+    const src = srcQ.rows[0] || {};
+
+    // The key contacts, one per role, most senior first. role_rank 1 is the senior
+    // person in that role; anyone below is surfaced under the full staff list rather
+    // than silently dropped.
+    const keyContacts = [];
+    for (const role of PROGRAM_KEY_ORDER) {
+      const inRole = current.filter((r) => r.role === role);
+      if (!inRole.length) continue;
+      const top = inRole.find((r) => r.is_key_contact) || inRole[0];
+      keyContacts.push({
+        role, role_label: top.role_label, name: top.name, title: top.title,
+        email: top.email || null, email_source_url: top.email_source_url || null,
+        phone: top.phone || null, source_url: top.source_url || null,
+        page_section: top.page_section || null,
+        others_in_role: inRole.length - 1,
+      });
+    }
+
+    const keyIds = new Set(keyContacts.map((k) => `${k.role}|${k.name}`));
+    const fullStaff = current
+      .filter((r) => !keyIds.has(`${r.role}|${r.name}`))
+      .map((r) => ({
+        name: r.name, title: r.title, role: r.role, role_label: r.role_label,
+        email: r.email || null, phone: r.phone || null,
+        source_url: r.source_url || null, page_section: r.page_section || null,
+      }));
+
+    res.json({
+      school,
+      officePhone: (contactRow && contactRow.football_office_phone) || null,
+      officePhoneSource: (contactRow && contactRow.football_office_phone_source_url) || null,
+      staffUrl: src.football_staff_url || null,
+      lastFetched: src.last_fetched_at || null,
+      totals: {
+        staff: current.length,
+        withEmail: current.filter((r) => r.email).length,
+        withPhone: current.filter((r) => r.phone).length,
+      },
+      keyContacts,
+      fullStaff,
+    });
+  } catch (e) {
+    console.error('[programs/school]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Read-only ledger stats: COUNT(*) from brand_engagement, broken down by state and
 // by lane. Admin-gated, writes nothing (SELECT only). Session-cookie auth, so it
 // runs from a logged-in admin phone without any manual token.

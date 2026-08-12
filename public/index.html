@@ -1249,6 +1249,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('deals',this)">
         <span class="nav-dot-item"></span>Deal Scan
       </button>
+      <button class="nav-item" onclick="showView('programs',this)">
+        <span class="nav-dot-item"></span>Programs
+      </button>
       <button class="nav-item" onclick="showView('marketing',this)" id="marketingNavBtn">
         <span class="nav-dot-item"></span>Media Kit
       </button>
@@ -1475,6 +1478,20 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div class="ai-block" id="commandOutput">
           <div class="ai-header"><div class="spinner" id="cmdSpinner"></div><div class="ai-label">NILDash Intelligence</div></div>
           <div class="ai-content" id="commandText"></div>
+        </div>
+      </div>
+
+      <!--  PROGRAMS: read-only staff lookup. Mobile first, single column throughout. -->
+      <div id="view-programs" class="view">
+        <div style="max-width:720px">
+          <div style="margin-bottom:6px;font-size:13px;color:var(--muted)">Who decides roster spots. Type a school name.</div>
+          <div style="position:relative;margin-bottom:18px">
+            <input id="prog-search" type="text" autocomplete="off" placeholder="Search schools"
+              oninput="progOnInput()" onfocus="progOnInput()" onkeydown="progKeyNav(event)"
+              style="width:100%;box-sizing:border-box;min-height:48px;padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-size:16px;font-family:'DM Sans',sans-serif;outline:none">
+            <div id="prog-suggest" style="display:none;position:absolute;top:100%;left:0;right:0;z-index:40;margin-top:4px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;max-height:320px;overflow-y:auto"></div>
+          </div>
+          <div id="prog-body"></div>
         </div>
       </div>
 
@@ -5847,7 +5864,7 @@ async function showView(id, btn) {
   if (btn) btn.classList.add('active');
   const labels = { home:'Home', command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
     marketing:'Media Kit',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   const showBar = ['command','deals','rate','negotiate'].includes(id);
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
@@ -5859,6 +5876,8 @@ async function showView(id, btn) {
   if (id === 'athlete-portals') { loadAthletePortals(); setTimeout(loadAgentOutreach, 400); }
   if (id === 'contract') prefillContract();
   if (id === 'deals') { if (selectedAthleteId) loadDealScanCache(); }
+  // Warm the school list so the first keystroke in the search box is instant.
+  if (id === 'programs') { try { progLoadSchools(); } catch (e) {} }
   if (id === 'compliance') { try { loadNilComplianceRef(); } catch(e) {} }
   if (id === 'outreach') { try { loadUnifiedOutreach(); } catch(e) {} }
   if (id === 'pdf-scan') loadPdfScanAthletes();
@@ -7212,6 +7231,250 @@ window._dsOnBrandContacted = function (deal, via, undoable) {
 
 // Admin (Growth view): read-only brand_engagement stats. Uses the session cookie
 // (credentials: include), so it works from a logged-in admin phone. Writes nothing.
+// ── Programs tab ────────────────────────────────────────────────────────────
+// A lookup over program_staff. Read-only, no matching, no scoring.
+//
+// Never invents a contact: a missing email renders as nothing at all, not as a
+// guess and not as a constructed firstname.lastname@school.edu.
+var _progSchools = null;
+var _progActive = -1;
+var _progCurrent = null;
+
+function progEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+async function progLoadSchools() {
+  if (_progSchools) return _progSchools;
+  try {
+    var r = await fetch(API_BASE + '/api/programs/schools', { credentials: 'include' });
+    var d = await r.json().catch(function () { return {}; });
+    _progSchools = (d && d.schools) || [];
+  } catch (e) { _progSchools = []; }
+  return _progSchools;
+}
+
+async function progOnInput() {
+  var input = document.getElementById('prog-search');
+  var box = document.getElementById('prog-suggest');
+  if (!input || !box) return;
+  var schools = await progLoadSchools();
+  var q = input.value.trim().toLowerCase();
+  var matches = schools.filter(function (s) { return !q || s.school.toLowerCase().indexOf(q) !== -1; });
+  _progActive = -1;
+  if (!matches.length) {
+    box.style.display = 'block';
+    box.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:13px">'
+      + (schools.length ? 'No match. We have ' + schools.length + ' school'
+         + (schools.length === 1 ? '' : 's') + ' so far.' : 'No program data loaded yet.')
+      + '</div>';
+    return;
+  }
+  box.style.display = 'block';
+  box.innerHTML = matches.map(function (s, i) {
+    return '<div class="prog-sugg" data-school="' + progEsc(s.school) + '" data-i="' + i + '"'
+      + ' style="padding:13px 14px;min-height:44px;box-sizing:border-box;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:10px;align-items:center">'
+      + '<span style="color:var(--text);font-size:15px">' + progEsc(s.school) + '</span>'
+      + '<span style="color:var(--muted);font-size:12px;white-space:nowrap">' + s.staff_count + ' staff</span>'
+      + '</div>';
+  }).join('');
+}
+
+// One delegated mousedown on the STATIC container. mousedown, not click, because a
+// re-render between mousedown and mouseup destroys the row and the click never
+// lands. This is the same bug that killed the Add a Business suggestions.
+document.addEventListener('mousedown', function (e) {
+  var row = e.target && e.target.closest ? e.target.closest('.prog-sugg') : null;
+  if (!row) return;
+  e.preventDefault();
+  progSelect(row.getAttribute('data-school'));
+});
+
+function progKeyNav(e) {
+  var box = document.getElementById('prog-suggest');
+  if (!box || box.style.display === 'none') return;
+  var rows = box.querySelectorAll('.prog-sugg');
+  if (!rows.length) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    _progActive += (e.key === 'ArrowDown' ? 1 : -1);
+    if (_progActive < 0) _progActive = rows.length - 1;
+    if (_progActive >= rows.length) _progActive = 0;
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].style.background = (i === _progActive) ? 'rgba(132,204,22,0.10)' : '';
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    var pick = rows[_progActive >= 0 ? _progActive : 0];
+    if (pick) progSelect(pick.getAttribute('data-school'));
+  } else if (e.key === 'Escape') {
+    box.style.display = 'none';
+  }
+}
+
+async function progSelect(school) {
+  var box = document.getElementById('prog-suggest');
+  var input = document.getElementById('prog-search');
+  var body = document.getElementById('prog-body');
+  if (box) box.style.display = 'none';
+  if (input) input.value = school;
+  if (!body) return;
+  body.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:13px">Loading ' + progEsc(school) + '...</div>';
+  try {
+    var r = await fetch(API_BASE + '/api/programs/' + encodeURIComponent(school), { credentials: 'include' });
+    var d = await r.json().catch(function () { return {}; });
+    if (!r.ok) {
+      body.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:13px">'
+        + progEsc(d.error || ('Error ' + r.status)) + '</div>';
+      return;
+    }
+    _progCurrent = d;
+    progRender(d);
+  } catch (e) {
+    body.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:13px">Request failed: '
+      + progEsc(e && e.message ? e.message : e) + '</div>';
+  }
+}
+
+function progAgo(ts) {
+  if (!ts) return 'unknown';
+  var ms = Date.now() - new Date(ts).getTime();
+  var d = Math.floor(ms / 86400000);
+  if (d < 1) return 'today';
+  if (d === 1) return 'yesterday';
+  if (d < 30) return d + ' days ago';
+  var mo = Math.floor(d / 30);
+  return mo + ' month' + (mo === 1 ? '' : 's') + ' ago';
+}
+
+// Copy button. 44px tap target, and it says what it copied so a mis-tap is obvious.
+function progCopyBtn(value, label) {
+  if (!value) return '';
+  return '<button onclick="progCopy(this,' + JSON.stringify(value).replace(/"/g, '&quot;') + ')"'
+    + ' title="Copy ' + progEsc(label) + '"'
+    + ' style="min-height:44px;min-width:44px;padding:0 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:12px;font-family:var(--mono);cursor:pointer;flex-shrink:0">Copy</button>';
+}
+
+async function progCopy(btn, value) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(value);
+    else {
+      var ta = document.createElement('textarea');
+      ta.value = value; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    var old = btn.textContent;
+    btn.textContent = 'Copied';
+    btn.style.color = '#84CC16';
+    setTimeout(function () { btn.textContent = old; btn.style.color = ''; }, 1400);
+  } catch (e) { btn.textContent = 'Failed'; }
+}
+
+// A contact line. Renders NOTHING when the value is missing: no placeholder, no
+// "email not found", no constructed address.
+function progContactLine(value, href, label) {
+  if (!value) return '';
+  return '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">'
+    + '<a href="' + progEsc(href) + '" style="flex:1;min-width:0;color:#84CC16;font-size:14px;text-decoration:none;word-break:break-all;line-height:1.4">'
+    + progEsc(value) + '</a>'
+    + progCopyBtn(value, label)
+    + '</div>';
+}
+
+function progSourceLink(url) {
+  if (!url) return '';
+  return '<div style="margin-top:8px"><a href="' + progEsc(url) + '" target="_blank" rel="noopener"'
+    + ' style="font-size:11px;color:var(--muted);text-decoration:underline">source</a></div>';
+}
+
+function progRender(d) {
+  var body = document.getElementById('prog-body');
+  var h = '';
+
+  h += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">';
+  h += '<div style="font-size:20px;font-weight:700;color:var(--text)">' + progEsc(d.school) + '</div>';
+  h += '<div style="font-size:12px;color:var(--muted);margin-top:4px">'
+    + d.totals.staff + ' staff, ' + d.totals.withEmail + ' with an email'
+    + ' &middot; last checked ' + progEsc(progAgo(d.lastFetched)) + '</div>';
+  if (d.officePhone) {
+    h += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">'
+      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Football office</div>'
+      + progContactLine(d.officePhone, 'tel:' + d.officePhone, 'office line')
+      + '</div>';
+  }
+  h += '</div>';
+
+  if (d.keyContacts.length) {
+    h += '<div style="font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">Key contacts</div>';
+    for (var i = 0; i < d.keyContacts.length; i++) {
+      var k = d.keyContacts[i];
+      h += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:10px">'
+        + '<div style="font-size:11px;color:#84CC16;font-weight:700;text-transform:uppercase;letter-spacing:0.06em">' + progEsc(k.role_label || k.role) + '</div>'
+        + '<div style="font-size:17px;font-weight:700;color:var(--text);margin-top:6px;line-height:1.3">' + progEsc(k.name) + '</div>'
+        + '<div style="font-size:13px;color:var(--muted);margin-top:3px;line-height:1.4">' + progEsc(k.title || 'no title published') + '</div>'
+        + progContactLine(k.email, 'mailto:' + k.email, 'email')
+        + progContactLine(k.phone, 'tel:' + k.phone, 'phone')
+        + (k.others_in_role > 0
+            ? '<div style="font-size:11px;color:var(--muted);margin-top:8px">+' + k.others_in_role + ' more in this role, see full staff</div>' : '')
+        + progSourceLink(k.source_url)
+        + '</div>';
+    }
+  } else {
+    h += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:10px;color:var(--muted);font-size:13px">'
+      + 'No key contacts identified for this school yet. The full staff list below is still searchable.</div>';
+  }
+
+  h += '<button onclick="progToggleFull()" id="prog-full-toggle"'
+    + ' style="width:100%;min-height:48px;margin-top:8px;padding:12px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;text-align:left">'
+    + 'Full staff (' + d.fullStaff.length + ')</button>';
+  h += '<div id="prog-full" style="display:none;margin-top:10px">'
+    + '<input id="prog-full-search" type="text" placeholder="Filter by name or title" oninput="progFilterFull()"'
+    + ' style="width:100%;box-sizing:border-box;min-height:48px;padding:12px 14px;margin-bottom:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-size:16px;font-family:\'DM Sans\',sans-serif;outline:none">'
+    + '<div id="prog-full-list"></div></div>';
+
+  body.innerHTML = h;
+}
+
+function progToggleFull() {
+  var el = document.getElementById('prog-full');
+  var btn = document.getElementById('prog-full-toggle');
+  if (!el || !_progCurrent) return;
+  var open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  btn.textContent = (open ? 'Full staff (' : 'Hide full staff (') + _progCurrent.fullStaff.length + ')';
+  if (!open) progFilterFull();
+}
+
+function progFilterFull() {
+  var list = document.getElementById('prog-full-list');
+  var q = (document.getElementById('prog-full-search') || {}).value || '';
+  q = q.trim().toLowerCase();
+  if (!list || !_progCurrent) return;
+  var rows = _progCurrent.fullStaff.filter(function (p) {
+    if (!q) return true;
+    return String(p.name || '').toLowerCase().indexOf(q) !== -1
+        || String(p.title || '').toLowerCase().indexOf(q) !== -1;
+  });
+  if (!rows.length) {
+    list.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:13px">No one matches "' + progEsc(q) + '".</div>';
+    return;
+  }
+  list.innerHTML = rows.map(function (p) {
+    return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:8px">'
+      + '<div style="font-size:15px;font-weight:600;color:var(--text);line-height:1.3">' + progEsc(p.name) + '</div>'
+      + '<div style="font-size:12px;color:var(--muted);margin-top:3px;line-height:1.4">' + progEsc(p.title || 'no title published') + '</div>'
+      + progContactLine(p.email, 'mailto:' + p.email, 'email')
+      + progContactLine(p.phone, 'tel:' + p.phone, 'phone')
+      + '</div>';
+  }).join('');
+  if (rows.length !== _progCurrent.fullStaff.length) {
+    list.innerHTML += '<div style="font-size:11px;color:var(--muted);padding:4px 2px">Showing ' + rows.length
+      + ' of ' + _progCurrent.fullStaff.length + '</div>';
+  }
+}
+
 // Weekly digest controls. The test send goes to the signed-in admin only and never
 // writes to digest_sends, so it can be run as often as needed without burning a
 // real weekly send for anyone.
