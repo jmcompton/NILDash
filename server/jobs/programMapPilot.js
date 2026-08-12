@@ -100,6 +100,20 @@ async function run() {
   // should trigger that by forgetting a flag.
   const allSchools = args.includes('--all-schools');
   const schoolList = () => (allSchools ? programMap.ALL_SCHOOLS : programMap.PILOT_SCHOOLS);
+  // --school may be repeated: --school "Arkansas" --school "Tulane". `only` stays
+  // the first one so every existing single-school command behaves exactly as before.
+  const onlySchools = args.reduce((acc, a, i) => (a === '--school' && args[i + 1] ? acc.concat(args[i + 1]) : acc), []);
+  // Schools that have records but no key contact, or no records at all. This is the
+  // repair list: refetch what is broken instead of all 135.
+  async function zeroKeyContactSchools() {
+    const r = await store.pool.query(`
+      SELECT school, COUNT(*) FILTER (WHERE is_key_contact)::int AS key_contacts
+      FROM program_staff WHERE status = 'current' GROUP BY school
+    `);
+    const by = {};
+    for (const row of r.rows) by[row.school] = row.key_contacts;
+    return schoolList().filter((s) => !by[s] || by[s] === 0);
+  }
 
   // --set-url: set the football staff URL BY HAND. A hand-set URL is locked: neither
   // discovery nor redirect-resolution can overwrite it. This is the escape hatch for
@@ -174,6 +188,24 @@ async function run() {
       if (parsed.length < 25 && i.clientRendered.scriptBytes > i.textBytes * 3) notes.push('thin parse and script-heavy: content is likely loaded after the initial HTML');
       if (parsed.length < 25 && !i.pagination.pageParam && !i.pagination.paginationMarkup && i.trBlocks > parsed.length * 2) notes.push('thin parse but plenty of rows present: this is a PARSER miss, not the page');
       if (notes.length) { console.log('  READ:'); for (const n of notes) console.log(`    - ${n}`); }
+
+      // --rows: the markup of the first few staff blocks and exactly what the parser
+      // pulled out of each. This is what answers "the page parsed 40 names and 0
+      // titles" without guessing at the cause.
+      if (args.includes('--rows')) {
+        const rows = staffPage.inspectRows(got.html, url, 3);
+        console.log(`\n  ROW MARKUP (${rows.blocks} blocks found, showing ${rows.samples.length}):`);
+        rows.samples.forEach((s, i) => {
+          console.log(`\n    --- block ${i + 1} ---`);
+          console.log(`    cells (${s.cellCount}): ${JSON.stringify(s.cells)}`);
+          console.log(`    inline (${s.inlineCount}): ${JSON.stringify(s.inline)}`);
+          if (s.attrs.length) console.log(`    attributes: ${JSON.stringify(s.attrs)}`);
+          console.log(`    parser got: name=${JSON.stringify(s.parsedName)} title=${JSON.stringify(s.parsedTitle)}`);
+          console.log(`    raw: ${s.rawHtml}`);
+        });
+        console.log('\n  If cells or inline hold a title the parser missed, that is a parser fix.');
+        console.log('  If no cell holds a title at all, the page does not publish one and there is nothing to fix.');
+      }
     }
     return;
   }
@@ -380,7 +412,26 @@ async function run() {
     // already in hand.
     let targets = schoolList();
     let skippedFresh = 0;
-    if (args.includes('--resume')) {
+    // Explicit schools win over everything: --school A --school B fetches exactly
+    // those two. Then --only-zero, the repair list. Then the full list.
+    if (onlySchools.length) {
+      targets = onlySchools;
+      console.log(`[program-map] fetching ${targets.length} named school(s): ${targets.join(', ')}`);
+    } else if (args.includes('--only-zero')) {
+      targets = await zeroKeyContactSchools();
+      console.log(`[program-map] --only-zero: ${targets.length} school(s) with zero key contacts, out of ${schoolList().length}`);
+      if (!targets.length) { console.log('[program-map] every school has at least one key contact. Nothing to repair.'); return; }
+      for (const s of targets) console.log(`    ${s}`);
+      console.log('');
+    }
+    // --resume is about not refetching what already worked, so it is meaningless
+    // once the target list is already a deliberate repair list: every school in it
+    // was fetched recently AND is broken, so resume would skip all of them.
+    const resumeApplies = args.includes('--resume') && !onlySchools.length && !args.includes('--only-zero');
+    if (args.includes('--resume') && !resumeApplies) {
+      console.log('[program-map] --resume ignored: the target list is already explicit, and these schools need refetching regardless of when they were last touched.');
+    }
+    if (resumeApplies) {
       const fresh = await store.pool.query(`
         SELECT school FROM program_staff
         WHERE status = 'current'

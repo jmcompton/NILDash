@@ -294,6 +294,45 @@ const MIN_TITLE_RATE = 0.60;   // at least 60% of rows have a non-empty title
 const MAX_JUNK_RATE = 0.20;    // fewer than 20% of names are junk
 const MIN_KEY_ROLES = 3;       // at least 3 of the 5 key roles present
 
+// Why did the title column not come through? A page can parse 40 names with 0
+// titles for several different reasons, and they need different fixes: the title
+// may sit outside the block the name was found in, the block may hold only one
+// cell, or the title may be in an attribute rather than text. Guessing between
+// those wastes a change; this prints the raw markup of the first few blocks and the
+// exact strings the parser pulled out of them, so the answer is readable.
+function inspectRows(html, pageUrl, limit) {
+  const src = String(html || '');
+  const clean = src
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
+  const blocks = [];
+  for (const m of clean.matchAll(/<tr[\s\S]{0,6000}?<\/tr>/gi)) blocks.push(m[0]);
+  for (const m of clean.matchAll(/<li[^>]*(?:staff|person|card|directory)[^>]*>[\s\S]{0,6000}?<\/li>/gi)) blocks.push(m[0]);
+  for (const m of clean.matchAll(/<div[^>]*(?:staff-member|staff_member|person-card|directory-item)[^>]*>[\s\S]{0,6000}?<\/div>/gi)) blocks.push(m[0]);
+
+  const out = [];
+  for (const b of blocks.slice(0, limit || 3)) {
+    const cells = [...b.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((m) => _text(m[1]));
+    const inline = [...b.matchAll(/<(?:h[1-6]|a|span|p|div|strong)[^>]*>([\s\S]{0,300}?)<\/(?:h[1-6]|a|span|p|div|strong)>/gi)]
+      .map((m) => _text(m[1]));
+    const parsed = _personFromBlock(b, pageUrl);
+    out.push({
+      rawHtml: b.replace(/\s+/g, ' ').slice(0, 700),
+      cellCount: cells.length,
+      cells: cells.filter(Boolean).slice(0, 10),
+      inlineCount: inline.length,
+      inline: inline.filter(Boolean).slice(0, 10),
+      // Attribute values are where a missing title most often hides: title=, aria-label=,
+      // data-title=. If the text has no title but an attribute does, that is the answer.
+      attrs: (b.match(/(?:title|aria-label|data-title|alt)="([^"]{3,80})"/gi) || []).slice(0, 6),
+      parsedName: parsed ? parsed.name : null,
+      parsedTitle: parsed ? parsed.title : null,
+    });
+  }
+  return { blocks: blocks.length, samples: out };
+}
+
 function scoreStaffPage(staff, keyRolePatterns) {
   const list = Array.isArray(staff) ? staff : [];
   const rows = list.length;
@@ -508,6 +547,6 @@ function diffStaff(oldStaff, newStaff) {
 module.exports = {
   fetchStaffPage, parseStaffHtml, extractStaffWithModel, loadStaff, hashStaff, diffStaff,
   looksLikeName, looksLikeTitle, TITLE_HINT, phoneFromUrl, inspectHtml,
-  stripNameLabel, looksLikeSectionHeader, normalizeSection, filterToFootballSections, scoreStaffPage,
+  stripNameLabel, looksLikeSectionHeader, normalizeSection, filterToFootballSections, scoreStaffPage, inspectRows,
   JUNK_TEXT, FOOTBALL_SECTION, MIN_TITLE_RATE, MAX_JUNK_RATE, MIN_KEY_ROLES,
 };

@@ -494,6 +494,20 @@ const STAFF_URL_CANDIDATES = [
   '/staff-directory/football',
   '/coaches.aspx?path=football',
   '/sports/football/roster/staff',
+  // Season-suffixed coach pages. Both of these came out of successful discoveries in
+  // the 135-school run (Utah resolved to /coaches/2026, UAB to /coaches/1000), so
+  // they are observed patterns rather than guesses. 1000 is a Sidearm sentinel some
+  // sites use for the current season.
+  '/sports/football/coaches/2026',
+  '/sports/football/coaches/1000',
+  // Query-string form with a trailing slash before the params: a distinct route on
+  // some Sidearm builds from /staff-directory?path=football.
+  '/staff-directory/?path=football',
+  // Bare coach paths, last because they are the most likely to resolve to a
+  // department-wide page. The quality gate rejects those, so trying them costs one
+  // fetch and risks nothing.
+  '/coaches',
+  '/football/coaches',
 ];
 
 // URLs verified by hand from a run that produced real people with real titles. These
@@ -772,7 +786,16 @@ function recordsFromStaffPage(school, staff, url) {
   const pageSections = [...new Set((staff || []).map((p) => p && p.section).filter(Boolean))];
   const pageNamesOtherSports = pageSections.some((s) => textNamesOtherSport(s));
   const pageHasFootballSection = pageSections.some((s) => FOOTBALL_RE.test(s));
-  const multiSportNoFootball = pageNamesOtherSports && !pageHasFootballSection;
+  // A URL that names football is itself evidence the page is the football page, even
+  // when its section markup is department-wide. Several schools serve a
+  // department-shaped directory from a football path, and blocking every row there
+  // because the headings are unlabeled throws away a real football staff list.
+  // Missouri is unaffected: its URL is /staff-directory, which names no sport.
+  const urlIsFootball = footballScoped('', url);
+  const multiSportNoFootball = pageNamesOtherSports && !pageHasFootballSection && !urlIsFootball;
+  if (pageNamesOtherSports && !pageHasFootballSection && urlIsFootball) {
+    console.log(`[program-map] school="${school}" page has no football section but its URL is football-scoped (${url}), so roles are allowed`);
+  }
   if (multiSportNoFootball) {
     console.warn(`[program-map] school="${school}" this page covers other sports and has NO football section ` +
       `[${pageSections.slice(0, 12).join(', ')}${pageSections.length > 12 ? ', ...' : ''}]. ` +
