@@ -7041,6 +7041,69 @@ app.get('/api/admin/program-map', requireAuth, async (req, res) => {
   } catch (e) { console.error('[program-map]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/admin/athlete-signups: who has come in through /athletes.
+//
+// That page is unlinked from the public site but every route behind it is still
+// live, so anyone with the URL can still sign up. This answers whether anyone has,
+// which is not otherwise knowable without a psql the Railway console does not have.
+//
+// STRICTLY READ ONLY. SELECT only, no INSERT/UPDATE/DELETE anywhere below, and no
+// personal data beyond what is needed to answer the question: counts, dates, and
+// for self-signups only, the email, because "did a real person sign up" cannot be
+// answered by a number alone.
+app.get('/api/admin/athlete-signups', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+
+    // athlete_type defaults to 'agent_managed' but older rows predate the column,
+    // so NULL is reported as its own bucket rather than being folded into a default
+    // that was never actually written.
+    const byType = await store.pool.query(`
+      SELECT COALESCE(athlete_type, '(null)') AS athlete_type,
+             COALESCE(subscription_status, '(null)') AS subscription_status,
+             COUNT(*)::int AS n,
+             MAX(created_at) AS newest,
+             MIN(created_at) AS oldest,
+             COUNT(*) FILTER (WHERE email_verified)::int AS verified,
+             COUNT(*) FILTER (WHERE account_activated_at IS NOT NULL)::int AS activated
+      FROM athletes
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+    `);
+
+    const totals = await store.pool.query(`
+      SELECT COUNT(*)::int AS total,
+             MAX(created_at) AS newest,
+             COUNT(*) FILTER (WHERE agent_id IS NULL)::int AS no_agent,
+             COUNT(*) FILTER (WHERE athlete_type = 'self_managed')::int AS self_managed
+      FROM athletes
+    `);
+
+    // The actual question: self-serve signups, newest first. Capped at 25 because
+    // this is a "has anything happened" check, not an export.
+    const selfSignups = await store.pool.query(`
+      SELECT id, email, email_verified, subscription_status, created_at,
+             account_activated_at, last_login,
+             data->>'name' AS name, data->>'school' AS school, data->>'sport' AS sport
+      FROM athletes
+      WHERE athlete_type = 'self_managed' OR id LIKE 'self-%'
+      ORDER BY created_at DESC
+      LIMIT 25
+    `);
+
+    res.json({
+      totals: totals.rows[0] || { total: 0, newest: null, no_agent: 0, self_managed: 0 },
+      byType: byType.rows,
+      selfSignups: selfSignups.rows,
+      note: 'Read-only. /athletes is unlinked from the public site but every route behind it is still live, so a signup here means someone reached it directly.',
+    });
+  } catch (e) {
+    console.error('[admin/athlete-signups]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Programs tab: read-only program staff lookup for agents ──────────────────
 // A LOOKUP, nothing more. No athlete matching, no fit scoring, no "which schools
 // suit this client": that needs data the program map does not hold, and inventing

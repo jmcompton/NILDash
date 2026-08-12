@@ -3511,6 +3511,15 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <pre id="digest-out" style="display:none;margin-top:12px;padding:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-x:auto"></pre>
     </div>
 
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:14px 16px;margin-bottom:18px">
+      <div style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">Athlete signups</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">Read-only count of the athletes table by type and subscription status. /athletes is unlinked from the public site but every route behind it is still live, so this shows whether anyone has reached it directly.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button onclick="_athleteSignups(this)" style="padding:8px 16px;background:rgba(132,204,22,0.12);border:1px solid rgba(132,204,22,0.4);border-radius:var(--r-sm);color:#84CC16;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--mono)">Athlete signups</button>
+      </div>
+      <div id="athsig-out" style="display:none;margin-top:12px"></div>
+    </div>
+
     <!-- Sub-tab nav -->
     <div style="display:flex;gap:6px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
       <button id="gtab-prospects-btn" onclick="growthModule.switchTab('prospects')" style="padding:8px 16px;border:none;background:none;color:var(--accent);font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;border-bottom:2px solid var(--accent);margin-bottom:-1px">Prospects</button>
@@ -7479,6 +7488,93 @@ function progFilterFull() {
     list.innerHTML += '<div style="font-size:11px;color:var(--muted);padding:4px 2px">Showing ' + rows.length
       + ' of ' + _progCurrent.fullStaff.length + '</div>';
   }
+}
+
+// Athlete signups. Read-only: this button issues one GET and renders it. It cannot
+// create, modify or delete anything, and there is no write endpoint behind it.
+function _athSigEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function _athSigDate(ts) {
+  if (!ts) return 'never';
+  var d = new Date(ts);
+  if (isNaN(d.getTime())) return String(ts);
+  var days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  var ago = days < 1 ? 'today' : (days === 1 ? '1 day ago' : days + ' days ago');
+  return d.toISOString().slice(0, 10) + ' (' + ago + ')';
+}
+
+async function _athleteSignups(btn) {
+  var out = document.getElementById('athsig-out');
+  if (btn) { btn.disabled = true; btn.textContent = 'Loading...'; }
+  if (out) { out.style.display = 'block'; out.textContent = 'Reading...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/admin/athlete-signups', { credentials: 'include' });
+    var d = await r.json().catch(function () { return {}; });
+    if (!r.ok) {
+      out.textContent = 'Error ' + r.status + ': ' + (d.error || 'request failed');
+      return;
+    }
+    var t = d.totals || {};
+    var h = '';
+
+    h += '<div style="font-size:13px;color:var(--text);margin-bottom:10px;line-height:1.6">'
+      + '<b>' + t.total + '</b> athlete row(s) total &middot; '
+      + '<b>' + t.self_managed + '</b> self-managed &middot; '
+      + '<b>' + t.no_agent + '</b> with no agent<br>'
+      + '<span style="color:var(--muted)">newest row: ' + _athSigEsc(_athSigDate(t.newest)) + '</span></div>';
+
+    // The headline answer, stated rather than left to be inferred from a table.
+    var selfCount = (d.selfSignups || []).length;
+    if (t.self_managed > 0) {
+      h += '<div style="padding:10px 12px;background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.35);border-radius:var(--r-sm);color:#f59e0b;font-size:12px;font-weight:700;margin-bottom:12px">'
+        + t.self_managed + ' self-serve signup(s) came through /athletes while it was unlinked.</div>';
+    } else {
+      h += '<div style="padding:10px 12px;background:rgba(132,204,22,0.10);border:1px solid rgba(132,204,22,0.30);border-radius:var(--r-sm);color:#84CC16;font-size:12px;font-weight:700;margin-bottom:12px">'
+        + 'No self-serve signups. Nobody has reached /athletes.</div>';
+    }
+
+    h += '<table style="width:100%;border-collapse:collapse;font-size:12px">'
+      + '<thead><tr style="color:var(--muted);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.06em">'
+      + '<th style="padding:6px 8px">athlete_type</th><th style="padding:6px 8px">subscription_status</th>'
+      + '<th style="padding:6px 8px">rows</th><th style="padding:6px 8px">verified</th>'
+      + '<th style="padding:6px 8px">activated</th><th style="padding:6px 8px">newest</th></tr></thead><tbody>';
+    (d.byType || []).forEach(function (row) {
+      h += '<tr style="border-top:1px solid var(--border)">'
+        + '<td style="padding:6px 8px;color:var(--text)">' + _athSigEsc(row.athlete_type) + '</td>'
+        + '<td style="padding:6px 8px;color:var(--muted)">' + _athSigEsc(row.subscription_status) + '</td>'
+        + '<td style="padding:6px 8px;color:var(--text);font-weight:700">' + row.n + '</td>'
+        + '<td style="padding:6px 8px;color:var(--muted)">' + row.verified + '</td>'
+        + '<td style="padding:6px 8px;color:var(--muted)">' + row.activated + '</td>'
+        + '<td style="padding:6px 8px;color:var(--muted)">' + _athSigEsc(_athSigDate(row.newest)) + '</td>'
+        + '</tr>';
+    });
+    h += '</tbody></table>';
+
+    if (selfCount) {
+      h += '<div style="margin-top:14px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Self-serve signups (newest first, max 25)</div>';
+      (d.selfSignups || []).forEach(function (a) {
+        h += '<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">'
+          + '<span style="color:var(--text);font-weight:600">' + _athSigEsc(a.name || '(no name)') + '</span> '
+          + '<span style="color:var(--muted)">' + _athSigEsc(a.email || '(no email)') + '</span>'
+          + '<div style="color:var(--muted);font-size:11px;margin-top:2px">'
+          + _athSigEsc([a.school, a.sport].filter(Boolean).join(' · ') || 'no school or sport')
+          + ' &middot; ' + (a.email_verified ? 'verified' : 'NOT verified')
+          + ' &middot; ' + _athSigEsc(a.subscription_status || 'no status')
+          + ' &middot; signed up ' + _athSigEsc(_athSigDate(a.created_at))
+          + ' &middot; last login ' + _athSigEsc(_athSigDate(a.last_login))
+          + '</div></div>';
+      });
+    }
+
+    if (d.note) h += '<div style="margin-top:12px;font-size:11px;color:var(--muted)">' + _athSigEsc(d.note) + '</div>';
+    out.innerHTML = h;
+  } catch (e) {
+    if (out) out.textContent = 'Request failed: ' + (e && e.message ? e.message : e);
+  }
+  if (btn) { btn.disabled = false; btn.textContent = 'Athlete signups'; }
 }
 
 // Weekly digest controls. The test send goes to the signed-in admin only and never
