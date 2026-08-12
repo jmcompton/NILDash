@@ -98,6 +98,25 @@ const SCHOOLS = {
 };
 const PILOT_SCHOOLS = Object.keys(SCHOOLS);
 
+// The rest of FBS. Merged UNDERNEATH the pilot map so a pilot entry always wins:
+// those ten carry hand-verified URLs and a team name used for grounding, and a bulk
+// list must never overwrite them. Everything here has only a domain, which is all
+// the sweep needs.
+// Fail-soft: server/data is covered by a `data/` .gitignore rule and this file is
+// tracked only by an explicit add. If it ever goes missing from a deploy, the
+// program map degrades to the pilot ten rather than crashing the whole server at
+// require time. An optional school list is not worth a boot failure.
+let FBS_SCHOOLS = {};
+try {
+  FBS_SCHOOLS = require('../data/fbsSchools').FBS_SCHOOLS || {};
+} catch (e) {
+  console.warn('[program-map] FBS school list not found, falling back to the pilot programs only:', e.message);
+}
+for (const [school, athletics] of Object.entries(FBS_SCHOOLS)) {
+  if (!SCHOOLS[school]) SCHOOLS[school] = { athletics, team: school };
+}
+const ALL_SCHOOLS = Object.keys(SCHOOLS).sort();
+
 // Wave 1 is the authoritative/official material plus the contact hunt; wave 2 is the
 // person-specific and journalistic fill-in. One search per lane returns every role it
 // can see, so five roles cost about six lookups rather than twenty-five.
@@ -1014,5 +1033,5 @@ module.exports = {
   sportContradiction, emailNamesOtherSport, textNamesOtherSport, VERIFIED_STAFF_URLS,
   loadFootballStaff, recordsFromStaffPage, classifyTier, parseDate, isStale, monthsSince,
   detectSport, footballScoped,
-  ROLES, SCHOOLS, PILOT_SCHOOLS, SOURCE_ORDER, STALE_MONTHS, _assess, _roleOf, _byRecency, _newestMs,
+  ROLES, SCHOOLS, PILOT_SCHOOLS, ALL_SCHOOLS, SOURCE_ORDER, STALE_MONTHS, _assess, _roleOf, _byRecency, _newestMs,
 };

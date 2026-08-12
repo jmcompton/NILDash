@@ -89,6 +89,11 @@ async function run() {
   const dumpOnly = args.includes('--dump');
   const sIdx = args.indexOf('--school');
   const only = sIdx !== -1 ? args[sIdx + 1] : null;
+  // --all-schools widens every command from the 10 pilot programs to all of FBS.
+  // Opt-in rather than default: a bulk run touches ~135 external sites, and nobody
+  // should trigger that by forgetting a flag.
+  const allSchools = args.includes('--all-schools');
+  const schoolList = () => (allSchools ? programMap.ALL_SCHOOLS : programMap.PILOT_SCHOOLS);
 
   // --set-url: set the football staff URL BY HAND. A hand-set URL is locked: neither
   // discovery nor redirect-resolution can overwrite it. This is the escape hatch for
@@ -120,7 +125,7 @@ async function run() {
     const bySchool = {}; for (const r of rows) bySchool[r.school] = r;
     console.log('school                lock  via                 staff  url');
     console.log(line('-'));
-    for (const school of programMap.PILOT_SCHOOLS) {
+    for (const school of schoolList()) {
       const r = bySchool[school];
       if (!r || !r.football_staff_url) { console.log(`${school.padEnd(20)}  -     (none set)`); continue; }
       console.log(`${school.padEnd(20)}  ${r.url_locked ? 'HAND' : 'auto'}  ${String(r.football_staff_url_discovered_via || '?').padEnd(18)}  ${String(r.last_staff_count || 0).padStart(5)}  ${r.football_staff_url}`);
@@ -132,7 +137,7 @@ async function run() {
   // pagination, lazy loading or a parser miss, and whether phone numbers are even
   // published, without guessing at any of it.
   if (args.includes('--inspect')) {
-    const targets = only ? [only] : programMap.PILOT_SCHOOLS;
+    const targets = only ? [only] : schoolList();
     for (const school of targets) {
       const src = await store.getProgramSource(school);
       const url = (src && src.football_staff_url) || null;
@@ -170,7 +175,7 @@ async function run() {
   // --staff: fetch and print the parsed football staff page for one or more schools
   // WITHOUT building records. This is the "show me Florida and Georgia first" path.
   if (args.includes('--staff')) {
-    const targets = only ? [only] : programMap.PILOT_SCHOOLS;
+    const targets = only ? [only] : schoolList();
     for (const school of targets) {
       console.log('\n' + line('='));
       console.log(`${school} FOOTBALL STAFF PAGE`);
@@ -200,7 +205,7 @@ async function run() {
   // to reach each one. This is what an agent asking "who runs NIL at Missouri" gets,
   // so it is worth reading as one page rather than inferring from the full dump.
   if (args.includes('--contacts')) {
-    const schools = only ? [only] : programMap.PILOT_SCHOOLS;
+    const schools = only ? [only] : schoolList();
     const rows = await store.getProgramStaff(only || null);
     const contacts = await store.getProgramContact(null);
     const bySchool = {}; for (const c of contacts) bySchool[c.school] = c;
@@ -286,16 +291,27 @@ async function run() {
   //                 report the count for each. This is how a thin page gets compared
   //                 against a possible separate support-staff page.
   if (args.includes('--sweep')) {
-    const schools = only ? [only] : programMap.PILOT_SCHOOLS;
+    const schools = only ? [only] : schoolList();
     const sweepOpts = { force: args.includes('--force'), allPaths: args.includes('--all-paths') };
     console.log(`[url-sweep] sweeping ${schools.length} school(s) over ${programMap.STAFF_URL_CANDIDATES.length} known paths`);
-    console.log(`[url-sweep] accept threshold: more than ${programMap.MIN_SWEEP_STAFF - 1} parsed staff`);
+    console.log(`[url-sweep] accept threshold: quality score, not row count`);
     if (sweepOpts.allPaths) console.log('[url-sweep] --all-paths: trying every candidate, not stopping at the first hit');
     if (sweepOpts.force) console.log('[url-sweep] --force: hand-set and already-working URLs will ALSO be swept');
+    // Pre-flight estimate. A bulk run is long enough that a number up front is the
+    // difference between waiting and assuming it hung. No model calls happen here at
+    // all: the sweep parses deterministically, so its only cost is time.
+    if (schools.length > 20) {
+      const perSchool = sweepOpts.allPaths ? 9 : 4;   // fetches attempted on average
+      const secs = Math.round(schools.length * perSchool * 1.2);
+      console.log(`[url-sweep] estimate: about ${perSchool} fetches per school, ~${Math.round(secs / 60)} min total. AI cost: $0, the sweep never calls a model.`);
+    }
     console.log('');
 
     const results = [];
+    let done = 0;
     for (const school of schools) {
+      done++;
+      if (schools.length > 20) console.log(`[url-sweep] --- ${done}/${schools.length} ${school} ---`);
       let r;
       try { r = await programMap.sweepStaffUrl(school, store, sweepOpts); }
       catch (e) { console.log(`[url-sweep] school="${school}" ERROR ${e.message}`); r = { url: null, staffCount: 0, tried: [], via: 'error', error: e.message }; }
@@ -359,7 +375,7 @@ async function run() {
     const suspect = [];
     let tStaff = 0, tEmail = 0, tPhone = 0;
     let written = 0, withEmailWritten = 0, keyWithEmail = 0;
-    for (const school of programMap.PILOT_SCHOOLS) {
+    for (const school of schoolList()) {
       const t0 = Date.now();
       let res;
       try { res = await programMap.loadFootballStaff(school, store, { rediscover: args.includes('--rediscover') }); }
@@ -426,7 +442,7 @@ async function run() {
     return;
   }
 
-  const schools = only ? [only] : programMap.PILOT_SCHOOLS;
+  const schools = only ? [only] : schoolList();
   console.log(`[program-map] PILOT starting: ${schools.length} program(s)`);
   console.log(`[program-map] roles per program: ${programMap.ROLES.map((r) => r.key).join(', ')}`);
   console.log(`[program-map] source lanes: ${programMap.SOURCE_ORDER.join(', ')}\n`);

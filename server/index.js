@@ -7108,14 +7108,23 @@ app.get('/api/programs/:school', requireAuth, async (req, res) => {
       });
     }
 
+    // Everyone else, filtered to decision makers. 81 rows of quality control
+    // assistants and video interns buries the people an agent needs; the target is
+    // 15 to 25 per school. The hidden rows stay in program_staff, they are just not
+    // served here, so nothing is lost and the rule can change in one file.
+    //
+    // Note what this does NOT filter on: whether we have an email. Alabama has 19
+    // staff and 0 published addresses and its GM is still its GM. Name, title and
+    // the office line are enough to make the call.
+    const decisionMaker = require('./services/decisionMaker');
     const keyIds = new Set(keyContacts.map((k) => `${k.role}|${k.name}`));
-    const fullStaff = current
-      .filter((r) => !keyIds.has(`${r.role}|${r.name}`))
-      .map((r) => ({
-        name: r.name, title: r.title, role: r.role, role_label: r.role_label,
-        email: r.email || null, phone: r.phone || null,
-        source_url: r.source_url || null, page_section: r.page_section || null,
-      }));
+    const rest = current.filter((r) => !keyIds.has(`${r.role}|${r.name}`));
+    const { shown, hidden } = decisionMaker.partition(rest);
+    const fullStaff = shown.map((r) => ({
+      name: r.name, title: r.title, role: r.role, role_label: r.role_label,
+      email: r.email || null, phone: r.phone || null,
+      source_url: r.source_url || null, page_section: r.page_section || null,
+    }));
 
     res.json({
       school,
@@ -7124,9 +7133,13 @@ app.get('/api/programs/:school', requireAuth, async (req, res) => {
       staffUrl: src.football_staff_url || null,
       lastFetched: src.last_fetched_at || null,
       totals: {
-        staff: current.length,
-        withEmail: current.filter((r) => r.email).length,
-        withPhone: current.filter((r) => r.phone).length,
+        // shown is what the agent sees; stored is everyone we hold. Reporting both
+        // means a filtered list never reads as the whole roster.
+        shown: keyContacts.length + fullStaff.length,
+        stored: current.length,
+        hidden: hidden.length,
+        withEmail: [...keyContacts, ...fullStaff].filter((r) => r.email).length,
+        withPhone: [...keyContacts, ...fullStaff].filter((r) => r.phone).length,
       },
       keyContacts,
       fullStaff,
