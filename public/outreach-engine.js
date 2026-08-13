@@ -182,6 +182,15 @@ function renderPrewarmedDraft(pre, dealResult, athleteId) {
   // personal contact, so nothing else in the email is rewritten client-side.
   const named = contact && contact.name && resolvePersonalEmail(contact) ? contact.name : null;
   if (named) personalizeGreeting(named);
+
+  // THE MISSING PIECE. Pre-warming skips the contact ladder, so a pre-warmed modal
+  // opened saying "No named contact found" even for businesses where a decision
+  // maker is findable. Run the ladder NOW, for this one business, behind the draft
+  // that is already on screen.
+  //
+  // Only here, never on the /run path below: that workflow does its own contact
+  // discovery, and firing both would pay twice for the same searches.
+  ensureDeepContact(dealResult);
 }
 
 function pickCardContact(d) {
@@ -430,11 +439,9 @@ function renderRunResult(data) {
         <div style="font-size:11px;font-weight:700;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
           How To Reach Them
         </div>
-        <div style="font-size:13px;font-weight:600;color:var(--text,#fff)">${escHtml(contactName)}</div>
-        <div style="font-size:11px;color:var(--muted,#888)">${escHtml(contactTitle)}</div>
-        ${personalEmail ? `<div style="font-size:11px;color:var(--accent,#84CC16);margin-top:2px">${escHtml(personalEmail)}</div>` : ''}
-        ${contactPhone ? `<div style="font-size:11px;color:var(--text,#fff);margin-top:2px">📞 <a href="tel:${escHtml(contactPhone.replace(/[^0-9+]/g,''))}" style="color:var(--accent,#84CC16);text-decoration:none">${escHtml(contactPhone)}</a></div>` : ''}
-        ${(!personalEmail && emailGeneric && rawEmail) ? `<div style="font-size:11px;color:var(--muted,#888);margin-top:2px">${escHtml(rawEmail)} <span style="color:var(--muted,#555)">(general inbox, not a person)</span></div>` : ''}
+        <!-- Re-rendered in place when the decision-maker lookup returns, which is why
+             it is an addressable node rather than inline markup. -->
+        <div id="outreach-reach-body">${reachPanelInner(contact, null)}</div>
       </div>
       ${enrichment ? `
       <div style="flex:2;background:var(--surface2,#222);border:1px solid var(--border,#333);
@@ -601,6 +608,183 @@ function renderRunResult(data) {
   loadEmailAccountsIntoDropdown();
   // Set up the "Attach media kit" button for this athlete + brand.
   loadMediaKitAttach(OutreachEngineState.athleteId || (run && run.athlete_id) || null, brand);
+}
+
+// ── "How To Reach Them", as one function ────────────────────────────────────
+// Rendered twice: once when the modal opens, again when the decision-maker lookup
+// returns. One function so the two cannot drift into showing different things.
+//
+// state: null = settled, 'looking' = the lookup is running, 'none' = it ran and
+// found nobody. The three are visibly different on purpose: an agent who sees
+// "No named contact found" while a search is still running will conclude it is
+// broken and close the modal, which is the behaviour this whole change exists to
+// stop.
+function reachPanelInner(contact, state) {
+  const rawEmail = (contact && contact.email) || null;
+  const emailGeneric = _isGenericInboxFE(rawEmail);
+  const hasName = !!(contact && contact.name && String(contact.name).trim());
+  const personalEmail = resolvePersonalEmail(contact);
+  const contactPhone = (contact && contact.phone) || null;
+
+  const name = hasName
+    ? String(contact.name).trim()
+    : (state === 'looking'
+        ? 'Finding decision maker…'
+        : (rawEmail && emailGeneric ? 'General inbox' : 'No named contact found'));
+  const title = (contact && contact.title)
+    || (hasName ? 'Contact'
+      : (state === 'looking' ? 'Searching this business for an owner or manager' : 'No verified decision maker'));
+
+  const spinner = (state === 'looking')
+    ? '<span style="display:inline-block;width:10px;height:10px;margin-right:7px;vertical-align:middle;'
+      + 'border:2px solid var(--border,#333);border-top-color:var(--accent,#84CC16);border-radius:50%;'
+      + 'animation:outreachspin 0.8s linear infinite"></span>'
+      + '<style>@keyframes outreachspin{to{transform:rotate(360deg)}}</style>'
+    : '';
+
+  let h = '';
+  h += `<div style="font-size:13px;font-weight:600;color:${hasName ? 'var(--text,#fff)' : 'var(--muted,#888)'}">${spinner}${escHtml(name)}</div>`;
+  h += `<div style="font-size:11px;color:var(--muted,#888)">${escHtml(title)}</div>`;
+  if (personalEmail) h += `<div style="font-size:11px;color:var(--accent,#84CC16);margin-top:2px">${escHtml(personalEmail)}</div>`;
+  if (contactPhone) h += `<div style="font-size:11px;color:var(--text,#fff);margin-top:2px">📞 <a href="tel:${escHtml(String(contactPhone).replace(/[^0-9+]/g, ''))}" style="color:var(--accent,#84CC16);text-decoration:none">${escHtml(contactPhone)}</a></div>`;
+  if (!personalEmail && emailGeneric && rawEmail) h += `<div style="font-size:11px;color:var(--muted,#888);margin-top:2px">${escHtml(rawEmail)} <span style="color:var(--muted,#555)">(general inbox, not a person)</span></div>`;
+  // Said plainly, and only once the search is actually over. The main line stays
+  // exactly where it is: a phone you can call is still a way through.
+  if (state === 'none' && !hasName) {
+    h += '<div style="font-size:10px;color:var(--muted,#888);margin-top:6px;line-height:1.5">'
+      + 'We searched this business and could not find a named decision maker. '
+      + (contactPhone ? 'The main line above is the way in.' : 'No published contact was found at all.')
+      + '</div>';
+  }
+  return h;
+}
+
+// ── The decision-maker lookup, fired when the MODAL opens ───────────────────
+// The pre-warmed draft made the modal instant, and instantly said "No named contact
+// found", because pre-warming deliberately skips the contact ladder: running it for
+// all ten cards at scan time costs roughly an order of magnitude more than the
+// drafts do.
+//
+// So it runs HERE instead, for the one business the agent actually opened. The modal
+// is already on screen with its draft; this fills the contact in behind it.
+//
+// ONLY ON THE PRE-WARMED PATH. When there is no pre-warmed draft the modal falls
+// through to POST /run, and that workflow does its own contact discovery. Firing
+// this as well would re-open the double-spend that was just closed.
+async function ensureDeepContact(d) {
+  if (!d) return;
+  const brand = d.brand || d.brand_name;
+  if (!brand) return;
+
+  // ALREADY RAN. Expanding a card runs the same ladder, so an agent who looked at
+  // the card before clicking has already paid for this. _deepLoaded is the explicit
+  // marker; the other two cover cards expanded before that flag existed and the
+  // Add-a-Business path, which also builds a ladder.
+  const alreadyDeep = !!(d._deepLoaded || d.contactLadder
+    || (Array.isArray(d.contacts) && d.contacts.some((c) => c && c.name)));
+  if (alreadyDeep) {
+    console.log('[outreachEngine] contact ladder already resolved for', brand, '- reusing');
+    refreshReachPanel(d, null);
+    return;
+  }
+  if (d._deepLoading) return;
+  d._deepLoading = true;
+
+  refreshReachPanel(d, 'looking');
+  const forBrand = brand;
+  try {
+    const r = await fetch(API_BASE_OE() + '/api/agent/brand-contacts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ deep: true, brands: [{
+        brand: brand, website: d.website || null, region: d.region || '',
+        market: d.market || null, isFranchise: d.isFranchise === true,
+        approach: d.contactApproach || null, category: d.category || null,
+      }] }),
+    });
+    const data = await r.json().catch(function () { return {}; });
+    const row = data && Array.isArray(data.results) && data.results[0];
+    d._deepLoading = false;
+    if (!r.ok || !row || row.error) {
+      // A failed search is not the same as an empty one, and must not be reported as
+      // "we looked and there is nobody".
+      console.warn('[outreachEngine] contact lookup failed:', (data && data.error) || (row && row.error) || r.status);
+      refreshReachPanel(d, 'failed', forBrand);
+      return;
+    }
+    if (Array.isArray(row.contacts)) d.contacts = row.contacts;
+    if (row.genericInbox) d.genericInbox = row.genericInbox;
+    if (row.businessPhone) d.businessPhone = row.businessPhone;
+    if (row.mapsUrl) d.mapsUrl = row.mapsUrl;
+    if (row.approach) d.contactApproach = row.approach;
+    d.contactLadder = row.contactLadder || null;
+    d._contactsLoaded = true;
+    d._deepLoaded = true;
+    // If the card is on screen behind the modal, its own contact slot is now stale.
+    if (typeof window._dsRefreshContactSlot === 'function') {
+      try { window._dsRefreshContactSlot(d); } catch (_) { /* card may be gone */ }
+    }
+    const found = pickCardContact(d);
+    refreshReachPanel(d, found && found.name ? null : 'none', forBrand);
+    applyFoundContact(found, forBrand);
+  } catch (e) {
+    d._deepLoading = false;
+    console.warn('[outreachEngine] contact lookup threw:', e && e.message);
+    refreshReachPanel(d, 'failed', forBrand);
+  }
+}
+
+// Guarded on the brand: the agent may have closed this modal and opened another one
+// while the search was running, and a late reply must not paint one business's
+// contact onto another's screen.
+function stillShowing(forBrand) {
+  if (!forBrand) return true;
+  const cur = OutreachEngineState.currentDealResult;
+  const curBrand = cur && (cur.brand || cur.brand_name);
+  const modal = document.getElementById('outreach-engine-modal');
+  if (!modal || modal.style.display === 'none') return false;
+  return String(curBrand || '') === String(forBrand);
+}
+
+function refreshReachPanel(d, state, forBrand) {
+  if (!stillShowing(forBrand)) return;
+  const el = document.getElementById('outreach-reach-body');
+  if (!el) return;
+  if (state === 'failed') {
+    el.innerHTML = reachPanelInner(pickCardContact(d), null)
+      + '<div style="font-size:10px;color:#fbbf24;margin-top:6px;line-height:1.5">'
+      + 'The contact search did not complete, so this may not be everyone. '
+      + '<a href="#" onclick="window.outreachEngine.retryContact();return false" style="color:#fbbf24;text-decoration:underline">Try again</a>'
+      + '</div>';
+    return;
+  }
+  el.innerHTML = reachPanelInner(pickCardContact(d), state);
+}
+
+// A found person changes two more things besides the panel: the greeting, and the
+// recipient box if it is still empty. Nothing else in the draft is touched.
+function applyFoundContact(found, forBrand) {
+  if (!found || !stillShowing(forBrand)) return;
+  const personal = resolvePersonalEmail(found);
+  if (found.name) personalizeGreeting(found.name);
+  if (personal) {
+    const to = document.getElementById('outreach-to-email');
+    // Only when empty: an address the agent typed themselves wins over a found one.
+    if (to && !to.value) to.value = personal;
+  }
+}
+
+function retryContact() {
+  const d = OutreachEngineState.currentDealResult;
+  if (!d) return;
+  d._deepLoading = false;
+  d._deepLoaded = false;
+  ensureDeepContact(d);
+}
+
+// API_BASE is defined by index.html; fall back to same-origin when this file is
+// loaded on its own (the test harness does exactly that).
+function API_BASE_OE() {
+  return (typeof API_BASE === 'string') ? API_BASE : '';
 }
 
 // ── Attach media kit ────────────────────────────────────────────────────────────
@@ -1020,6 +1204,7 @@ window.outreachEngine = {
   connectGmail,
   reloadAccounts: loadEmailAccountsIntoDropdown,
   resumeAfterConnect: resumeOutreachAfterConnect,
+  retryContact,
 };
 
 // Runs on every load. Does nothing unless a connect was started from this modal

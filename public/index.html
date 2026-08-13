@@ -6546,6 +6546,18 @@ async function _dsLoadContacts() {
   }
 }
 
+// Repaint one card's contact slot from its (possibly just-updated) data. Exposed so
+// the outreach modal can push a ladder it resolved back onto the card behind it,
+// rather than leaving the card showing "Finding contact..." for a business whose
+// contact is already on screen in the modal.
+window._dsRefreshContactSlot = function (d) {
+  var cards = window._dealScanResults || [];
+  var i = cards.indexOf(d);
+  if (i === -1) return;
+  var slot = document.getElementById('dsc-' + i);
+  if (slot) slot.innerHTML = _dsContactSlotInner(d);
+};
+
 // Render the contacts block: real named people first (most senior), then a
 // clearly-labeled generic inbox or an honest phone fallback. Returns '' when the
 // card carries no contact data at all (the caller then shows the Approach line
@@ -6862,6 +6874,10 @@ async function _dsDeepContacts(i, btn) {
     if (row.approach) d.contactApproach = row.approach;
     d.contactLadder = row.contactLadder || null;
     d._contactsLoaded = true;
+    // _contactsLoaded is set by the CHEAP fan-out too, so it cannot tell the two
+    // apart. This flag means specifically "the deep ladder ran", which is what the
+    // outreach modal checks before deciding whether to run it again.
+    d._deepLoaded = true;
     if (slot) slot.innerHTML = _dsContactSlotInner(d);
     console.log('[deepContacts] done in ' + Math.round((Date.now() - started) / 1000) + 's, topTier=' + (d.contactLadder && d.contactLadder.topTier));
   } catch (e) {
