@@ -22,6 +22,9 @@ const OutreachEngineState = {
   currentRunData: null,
   currentDealResult: null,
   athleteId:      null,
+  // Which draft is on screen. connectGmail needs it to save the edits before it
+  // navigates away, and sendOutreach already had it only as a closure argument.
+  currentOutreachId: null,
 };
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -77,8 +80,12 @@ async function generateOutreach(athleteId, dealResultJson) {
 
   OutreachEngineState.currentDealResult = dealResult;
   OutreachEngineState.athleteId = athleteId;
+  OutreachEngineState.currentOutreachId = null;
   showOutreachModal();
   setModalState('loading', dealResult.brand);
+  // Asked NOW, not when they reach the send button. If there is no mailbox the
+  // agent should find out while the draft is being written, not after.
+  checkMailboxForNotice();
 
   try {
     const { runId } = await outreachAPI.post('/run', { athleteId, dealScanResult: dealResult });
@@ -138,6 +145,9 @@ function closeOutreachModal() {
     OutreachEngineState.pollInterval = null;
   }
   OutreachEngineState.activeRunId = null;
+  OutreachEngineState.currentOutreachId = null;
+  const notice = document.getElementById('outreach-mailbox-notice');
+  if (notice) { notice.style.display = 'none'; notice.innerHTML = ''; }
   OutreachEngineState.currentRunData = null;
 }
 
@@ -163,6 +173,10 @@ function buildModal() {
         <button onclick="window.outreachEngine.close()"
                 style="background:none;border:none;color:var(--muted,#888);font-size:22px;cursor:pointer;line-height:1">×</button>
       </div>
+      <!-- Above the body on purpose: setModalState and renderRunResult both replace
+           the body wholesale, and this has to stay visible through generation so the
+           agent learns they cannot send BEFORE they have a draft to send. -->
+      <div id="outreach-mailbox-notice" style="display:none;flex-shrink:0"></div>
       <div id="outreach-modal-body" style="flex:1;overflow-y:auto;padding:20px"></div>
     </div>
   `;
@@ -252,6 +266,7 @@ function renderRunResult(data) {
   const currentSubject = outreach?.subject || `NIL Partnership — ${brand}`;
   const currentBody    = htmlToEditableText(outreach?.body_html || '');
   const outreachId     = outreach?.id;
+  OutreachEngineState.currentOutreachId = outreachId || null;
 
   // Contact info — one shared truth with Deal Scan. A named person is only
   // greeted/emailed by name when they carry a published PERSONAL email; a
@@ -370,11 +385,18 @@ function renderRunResult(data) {
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
         <div style="flex:1;min-width:180px">
           <label style="font-size:10px;color:var(--muted,#888);text-transform:uppercase">From Account</label>
-          <select id="outreach-from-account" style="width:100%;margin-top:4px;padding:8px 10px;
-                  background:var(--surface,#111);border:1px solid var(--border,#333);border-radius:6px;
-                  color:var(--text,#fff);font-size:12px;outline:none">
-            <option value="">Loading accounts…</option>
-          </select>
+          <!-- Filled by loadEmailAccountsIntoDropdown with ONE of three things: the
+               account picker, a Connect Gmail button, or an error with a retry. It
+               used to always be a select, which is how "No email accounts connected"
+               ended up as an unselectable option that the send button then told you
+               to select. -->
+          <div id="outreach-from-slot">
+            <select id="outreach-from-account" style="width:100%;margin-top:4px;padding:8px 10px;
+                    background:var(--surface,#111);border:1px solid var(--border,#333);border-radius:6px;
+                    color:var(--text,#fff);font-size:12px;outline:none">
+              <option value="">Loading accounts…</option>
+            </select>
+          </div>
         </div>
         <div style="flex:1;min-width:180px">
           <label style="font-size:10px;color:var(--muted,#888);text-transform:uppercase">To (Contact Email)</label>
@@ -549,21 +571,192 @@ function toggleMediaKitAttach(btn, hint) {
   }
 }
 
+const FROM_SELECT_CSS = `width:100%;margin-top:4px;padding:8px 10px;
+  background:var(--surface,#111);border:1px solid var(--border,#333);border-radius:6px;
+  color:var(--text,#fff);font-size:12px;outline:none`;
+
+// Three outcomes, three different things in the From slot. The old version had one
+// failure mode for both of the bad cases and it was the same as the good case: a
+// select you could not usefully select from.
+//
+//   accounts        the picker
+//   zero accounts   a Connect Gmail button, right where the picker was
+//   request failed  the error and a Retry, NOT a dropdown stuck on "Loading…"
 async function loadEmailAccountsIntoDropdown() {
+  const slot = document.getElementById('outreach-from-slot');
+  if (!slot) return;
+  let accounts;
   try {
     const r = await fetch('/api/email/accounts');
-    if (!r.ok) return;
-    const accounts = await r.json();
-    const sel = document.getElementById('outreach-from-account');
-    if (!sel) return;
-    if (!accounts.length) {
-      sel.innerHTML = '<option value="">No email accounts connected</option>';
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      renderFromSlotError(slot, e.error || ('Error ' + r.status));
+      updateMailboxNotice(null);
       return;
     }
-    sel.innerHTML = accounts.map(a =>
-      `<option value="${a.id}">${a.email_address} (${a.provider})</option>`
-    ).join('');
-  } catch (e) { /* silent */ }
+    accounts = await r.json();
+  } catch (e) {
+    // A network failure is the SAME user-visible situation as a 500: they cannot
+    // tell whether they have a mailbox. Both must say so rather than sit silent.
+    renderFromSlotError(slot, (e && e.message) ? e.message : 'Could not reach the server');
+    updateMailboxNotice(null);
+    return;
+  }
+
+  if (!Array.isArray(accounts) || !accounts.length) {
+    renderFromSlotConnect(slot);
+    updateMailboxNotice(false);
+    return;
+  }
+  slot.innerHTML = '<select id="outreach-from-account" style="' + FROM_SELECT_CSS + '">'
+    + accounts.map(a => `<option value="${escHtml(a.id)}">${escHtml(a.email_address)} (${escHtml(a.provider)})</option>`).join('')
+    + '</select>';
+  updateMailboxNotice(true);
+}
+
+function renderFromSlotConnect(slot) {
+  slot.innerHTML = `
+    <button type="button" id="outreach-connect-gmail" onclick="window.outreachEngine.connectGmail()"
+            style="width:100%;margin-top:4px;padding:8px 10px;background:var(--accent,#84CC16);
+                   border:1px solid var(--accent,#84CC16);border-radius:6px;color:#0b0f0a;
+                   font-size:12px;font-weight:700;cursor:pointer;min-height:36px">
+      Connect Gmail
+    </button>
+    <div style="font-size:10px;color:var(--muted,#888);margin-top:4px;line-height:1.5">
+      Your draft is saved. You will come straight back here.
+    </div>`;
+}
+
+function renderFromSlotError(slot, msg) {
+  slot.innerHTML = `
+    <div style="margin-top:4px;padding:8px 10px;background:var(--surface,#111);
+                border:1px solid #f87171;border-radius:6px">
+      <div style="font-size:11px;color:#f87171;line-height:1.5">Could not load your accounts: ${escHtml(msg)}</div>
+      <button type="button" onclick="window.outreachEngine.reloadAccounts()"
+              style="margin-top:6px;padding:4px 10px;background:var(--surface2,#222);
+                     border:1px solid var(--border,#333);border-radius:5px;color:var(--text,#fff);
+                     font-size:11px;cursor:pointer;min-height:28px">Retry</button>
+    </div>`;
+}
+
+// ── The notice, shown BEFORE the draft exists ────────────────────────────────
+// Lives in the modal shell above the body, so it survives setModalState and
+// renderRunResult replacing the body, and it is on screen during generation rather
+// than only once there is a finished draft to be disappointed about.
+//   connected === false  no mailbox: say so now
+//   connected === true   nothing to say
+//   connected === null   unknown (the accounts request failed): say THAT, not "no"
+function updateMailboxNotice(connected) {
+  const el = document.getElementById('outreach-mailbox-notice');
+  if (!el) return;
+  if (connected === true) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  if (connected === null) {
+    el.innerHTML = `
+      <div style="padding:10px 20px;background:rgba(251,191,36,0.10);border-bottom:1px solid rgba(251,191,36,0.35);
+                  font-size:12px;color:#fbbf24;line-height:1.5">
+        Could not check whether you have a mailbox connected, so this draft may not be sendable.
+      </div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div style="padding:10px 20px;background:rgba(248,113,113,0.10);border-bottom:1px solid rgba(248,113,113,0.35);
+                display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px;font-size:12px;color:#f87171;line-height:1.5">
+        No mailbox connected, so this draft cannot be sent yet. Connect Gmail now and you will not lose it.
+      </div>
+      <button type="button" onclick="window.outreachEngine.connectGmail()"
+              style="padding:6px 14px;background:var(--accent,#84CC16);border:1px solid var(--accent,#84CC16);
+                     border-radius:6px;color:#0b0f0a;font-size:12px;font-weight:700;cursor:pointer;min-height:32px">
+        Connect Gmail
+      </button>
+    </div>`;
+}
+
+// Checked as soon as the modal opens, so the answer is on screen while the pipeline
+// runs rather than after it. Cheap: one GET that the send panel needs anyway.
+async function checkMailboxForNotice() {
+  try {
+    const r = await fetch('/api/email/accounts');
+    if (!r.ok) { updateMailboxNotice(null); return; }
+    const accounts = await r.json();
+    updateMailboxNotice(Array.isArray(accounts) && accounts.length > 0);
+  } catch (e) { updateMailboxNotice(null); }
+}
+
+// ── Connect, and come back to the same draft ─────────────────────────────────
+const OUTREACH_RESUME_KEY = 'nildash.outreachResume';
+const OUTREACH_RESUME_TTL_MS = 30 * 60 * 1000;
+
+// Saves whatever is on screen FIRST, then leaves. The draft body lives in
+// outreach_logs server-side, so the save is what makes "you will not lose it" true;
+// the sessionStorage marker only says which run to reopen and carries the fields
+// that are not persisted (the To box, and the deal result the send path needs to
+// retire the brand afterwards).
+async function connectGmail() {
+  const outreachId = OutreachEngineState.currentOutreachId;
+  const subject  = document.getElementById('outreach-subject-input')?.value?.trim();
+  const bodyText = document.getElementById('outreach-body-input')?.value?.trim();
+  const toEmail  = document.getElementById('outreach-to-email')?.value?.trim() || '';
+
+  if (outreachId && (subject || bodyText)) {
+    try {
+      await outreachAPI.patch('/logs/' + outreachId, { subject, body_html: editableTextToHtml(bodyText || '') });
+    } catch (e) {
+      // Saving failed, so leaving would lose the edits. Stay put and say so.
+      showOutreachToast('Could not save your draft, so we did not leave the page: ' + e.message, true);
+      return;
+    }
+  }
+
+  try {
+    sessionStorage.setItem(OUTREACH_RESUME_KEY, JSON.stringify({
+      runId: OutreachEngineState.activeRunId,
+      athleteId: OutreachEngineState.athleteId,
+      dealResult: OutreachEngineState.currentDealResult,
+      toEmail,
+      at: Date.now(),
+    }));
+  } catch (e) { /* private mode: the draft is still saved server-side */ }
+
+  const returnTo = window.location.pathname + window.location.search + window.location.hash;
+  window.location.href = '/api/email/oauth/gmail?returnTo=' + encodeURIComponent(returnTo);
+}
+
+// On load after the round trip: reopen the modal on the same run. The draft comes
+// back from the SERVER, not from the browser, so it is the saved copy rather than a
+// hopeful reconstruction.
+async function resumeOutreachAfterConnect() {
+  let raw = null;
+  try { raw = sessionStorage.getItem(OUTREACH_RESUME_KEY); } catch (e) { return; }
+  if (!raw) return;
+  try { sessionStorage.removeItem(OUTREACH_RESUME_KEY); } catch (e) { /* ignore */ }
+
+  let saved;
+  try { saved = JSON.parse(raw); } catch (e) { return; }
+  if (!saved || !saved.runId) return;
+  // Stale markers are dropped rather than yanking someone back into a modal they
+  // left behind an hour ago.
+  if (!saved.at || (Date.now() - saved.at) > OUTREACH_RESUME_TTL_MS) return;
+
+  OutreachEngineState.athleteId = saved.athleteId || null;
+  OutreachEngineState.currentDealResult = saved.dealResult || null;
+  OutreachEngineState.activeRunId = saved.runId;
+
+  showOutreachModal();
+  setModalState('loading', (saved.dealResult && saved.dealResult.brand) || 'your draft');
+  try {
+    const data = await outreachAPI.get('/runs/' + saved.runId);
+    OutreachEngineState.currentRunData = data;
+    renderRunResult(data);
+    if (saved.toEmail) {
+      const to = document.getElementById('outreach-to-email');
+      if (to && !to.value) to.value = saved.toEmail;
+    }
+    showOutreachToast('Gmail connected. Your draft is where you left it.');
+  } catch (e) {
+    setModalState('error', 'Could not reopen your draft: ' + e.message);
+  }
 }
 
 // ── User actions ──────────────────────────────────────────────────────────────
@@ -572,11 +765,23 @@ async function sendOutreach(outreachId) {
   if (!outreachId) { showOutreachToast('No outreach draft found', true); return; }
 
   const toEmail    = document.getElementById('outreach-to-email')?.value?.trim();
-  const accountId  = document.getElementById('outreach-from-account')?.value;
+  const sel        = document.getElementById('outreach-from-account');
+  const accountId  = sel ? sel.value : '';
   const subject    = document.getElementById('outreach-subject-input')?.value?.trim();
   const bodyText   = document.getElementById('outreach-body-input')?.value?.trim();
 
   if (!toEmail)   { showOutreachToast('Enter the recipient email address', true); return; }
+  // The old message said "Select a From account" while the slot showed "No email
+  // accounts connected". There was nothing to select. Now the absence of the select
+  // means the slot is showing a Connect button or an error, and the message says
+  // which rather than asking for something impossible.
+  if (!sel) {
+    const connectBtn = document.getElementById('outreach-connect-gmail');
+    showOutreachToast(connectBtn
+      ? 'Connect Gmail first. Your draft is saved and you will come back to it.'
+      : 'Your email accounts could not be loaded. Use Retry above the Send button.', true);
+    return;
+  }
   if (!accountId) { showOutreachToast('Select a From account', true); return; }
 
   const btn = document.getElementById('outreach-send-btn');
@@ -699,4 +904,18 @@ window.outreachEngine = {
   sendOutreach,
   saveDraft,
   resolvePersonalEmail,
+  connectGmail,
+  reloadAccounts: loadEmailAccountsIntoDropdown,
+  resumeAfterConnect: resumeOutreachAfterConnect,
 };
+
+// Runs on every load. Does nothing unless a connect was started from this modal
+// within the last half hour, and clears the marker either way so a stale one cannot
+// reopen the modal on some unrelated visit.
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', resumeOutreachAfterConnect);
+  } else {
+    resumeOutreachAfterConnect();
+  }
+}

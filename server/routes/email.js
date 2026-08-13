@@ -91,7 +91,8 @@ router.get('/oauth/gmail', (req, res) => {
     });
   }
   try {
-    const state = encodeState({ userId: req.session.userId, provider: 'gmail' });
+    const returnTo = safeReturnTo(req.query.returnTo);
+    const state = encodeState({ userId: req.session.userId, provider: 'gmail', returnTo: returnTo || undefined });
     const url = gmail.getAuthUrl(state);
     res.redirect(url);
   } catch (e) {
@@ -123,7 +124,14 @@ router.get('/oauth/gmail/callback', async (req, res) => {
       return res.redirect('/auth/google/calendar/callback?' + qs);
     }
 
-    if (error) return res.redirect('/#settings?emailError=' + encodeURIComponent(error));
+    // Re-validated here, not trusted from the way out: the state made a round trip
+    // through a third party before coming back.
+    const back = safeReturnTo(decodedState.returnTo);
+    if (error) {
+      return res.redirect(back
+        ? withMarker(back, 'emailError=' + encodeURIComponent(error))
+        : '/#settings?emailError=' + encodeURIComponent(error));
+    }
 
     const { userId } = decodeState(state);
     if (!userId) return res.status(400).send('Invalid state parameter');
@@ -155,10 +163,15 @@ router.get('/oauth/gmail/callback', async (req, res) => {
     // Getting Started checklist: Gmail/Calendar connected
     require('../store').markChecklistItem(userId, 'connect_google').catch(() => {});
 
-    res.redirect('/#settings?emailConnected=gmail');
+    res.redirect(back ? withMarker(back, 'emailConnected=gmail') : '/#settings?emailConnected=gmail');
   } catch (e) {
     console.error('[gmail callback]', e.message);
-    res.redirect('/#settings?emailError=' + encodeURIComponent(e.message));
+    // `back` is out of scope if decodeState threw, so recompute defensively.
+    let backErr = null;
+    try { backErr = safeReturnTo(decodeState(req.query.state).returnTo); } catch (_) { backErr = null; }
+    res.redirect(backErr
+      ? withMarker(backErr, 'emailError=' + encodeURIComponent(e.message))
+      : '/#settings?emailError=' + encodeURIComponent(e.message));
   }
 });
 
@@ -476,4 +489,45 @@ function decodeState(state) {
   } catch { return {}; }
 }
 
+// Where to send the agent back to after connecting. Carried through the OAuth state
+// so a connect started from the outreach modal returns to the outreach modal instead
+// of dumping them on the settings page with their draft apparently gone.
+//
+// THIS IS AN OPEN REDIRECT IF IT IS NOT VALIDATED, and the value survives a round
+// trip through Google, so it must be re-validated on the way back rather than
+// trusted because it was checked on the way out. Only a same-origin path is allowed:
+// it must start with a single slash, and anything that could be read as a scheme or
+// a protocol-relative host is refused outright. Returns null when it cannot be
+// trusted, and the caller falls back to the default destination.
+function safeReturnTo(value) {
+  const v = String(value == null ? '' : value).trim();
+  if (!v) return null;
+  if (v.length > 512) return null;
+  // Control characters, including the newline that would let a value split a header.
+  if (/[\u0000-\u001f\u007f]/.test(v)) return null;
+  // Must be a rooted path. "//evil.com" and "/\\evil.com" are BOTH host-relative in
+  // browsers, so a single leading slash is not enough on its own.
+  if (v[0] !== '/') return null;
+  if (v[1] === '/' || v[1] === '\\') return null;
+  // No scheme anywhere: "/redirect?to=javascript:..." is not something to pass on.
+  if (/^[a-z][a-z0-9+.-]*:/i.test(v)) return null;
+  if (/[a-z][a-z0-9+.-]*:\/\//i.test(v)) return null;
+  return v;
+}
+
+// Append the connected/error marker to a return path, respecting whatever separator
+// the path already uses. The app is hash-routed, so the marker usually lands in the
+// hash, which is exactly where email.js already looks for it.
+function withMarker(path, marker) {
+  const hashAt = path.indexOf('#');
+  if (hashAt === -1) return path + (path.includes('?') ? '&' : '?') + marker;
+  const head = path.slice(0, hashAt);
+  const hash = path.slice(hashAt);
+  return head + hash + (hash.includes('?') ? '&' : '?') + marker;
+}
+
 module.exports = router;
+// Exported for tests. safeReturnTo is the open-redirect guard on the OAuth round
+// trip, so it is worth testing directly rather than only through the route.
+module.exports.safeReturnTo = safeReturnTo;
+module.exports.withMarker = withMarker;
