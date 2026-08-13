@@ -3719,13 +3719,39 @@ app.get('/api/admin/agent-activity', async (req, res) => {
     if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
     const includeArchived = req.query.includeArchived === '1';
     const where = includeArchived ? "u.role IN ('agent','admin')" : "u.role IN ('agent','admin') AND u.archived IS NOT TRUE";
+    // MAILBOX CONNECTION. The question this answers is "did an agent who ran scans
+    // and sent nothing ever have a working send path at all", so it reports the
+    // earliest connection (when they first got one) rather than the newest, and the
+    // status, because a connected-but-erroring account is not a working send path.
+    //
+    // READ ONLY, and no tokens: only whether a row exists, its address, provider,
+    // status and dates. access_token_enc / refresh_token_enc are never selected.
+    //
+    // LIMIT, stated because it changes how a "no" should be read: disconnecting
+    // DELETEs the email_accounts row (DELETE /api/email/accounts/:id), so an agent
+    // who connected and later disconnected is indistinguishable here from one who
+    // never connected. A "no" means "no mailbox now", not "never had one".
     const r = await store.pool.query(`
       SELECT u.id, u.name, u.email, u.plan, u.comped, u.subscription_status, u.last_login, u.created_at, u.archived,
         (SELECT COUNT(*) FROM athletes a WHERE a.agent_id = u.id) AS athletes,
         (SELECT COUNT(*) FROM athlete_activity_log l WHERE l.agent_id = u.id AND l.activity_type = 'deal_scan') AS scans,
         (SELECT COUNT(*) FROM athlete_activity_log l WHERE l.agent_id = u.id AND l.activity_type IN ('outreach_written','email_sent')) AS outreach,
-        (SELECT MAX(l.created_at) FROM athlete_activity_log l WHERE l.agent_id = u.id) AS last_activity
+        (SELECT MAX(l.created_at) FROM athlete_activity_log l WHERE l.agent_id = u.id) AS last_activity,
+        ea.n_accounts, ea.n_gmail, ea.connected_at, ea.email_address, ea.provider, ea.status, ea.last_sync
       FROM users u
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS n_accounts,
+               COUNT(*) FILTER (WHERE provider = 'gmail')::int AS n_gmail,
+               MIN(created_at) AS connected_at,
+               MAX(last_sync) AS last_sync,
+               -- The account to NAME in the row. Prefer gmail, then an active one,
+               -- then the oldest, so a second mailbox added later does not hide the
+               -- one the agent has actually been sending from.
+               (ARRAY_AGG(email_address ORDER BY (provider = 'gmail') DESC, (status = 'active') DESC, created_at))[1] AS email_address,
+               (ARRAY_AGG(provider      ORDER BY (provider = 'gmail') DESC, (status = 'active') DESC, created_at))[1] AS provider,
+               (ARRAY_AGG(status        ORDER BY (provider = 'gmail') DESC, (status = 'active') DESC, created_at))[1] AS status
+        FROM email_accounts WHERE user_id = u.id
+      ) ea ON TRUE
       WHERE ${where}
       ORDER BY u.last_login DESC NULLS LAST
     `);

@@ -84,8 +84,13 @@ a.back:hover{color:#C8F135}
   </table>
   <div style="margin-top:32px"><div style="font-size:14px;font-weight:600;color:#f0ede6;margin-bottom:8px">Agent Activity<label style="font-size:11px;font-weight:400;color:rgba(240,237,230,0.5);margin-left:12px"><input type="checkbox" id="show-archived" onchange="loadAgentActivity()" style="vertical-align:middle"> Show archived</label></div>
   <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.4);text-align:left">
-  <th style="padding:6px 8px">Agent</th><th style="padding:6px 8px">Plan</th><th style="padding:6px 8px">Last login</th><th style="padding:6px 8px">Scans</th><th style="padding:6px 8px">Athletes</th><th style="padding:6px 8px">Outreach</th><th style="padding:6px 8px">Last active</th><th style="padding:6px 8px">Actions</th>
-  </tr></thead><tbody id="agent-activity-table"><tr><td colspan="8" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Loading...</td></tr></tbody></table></div>
+  <th style="padding:6px 8px">Agent</th><th style="padding:6px 8px">Plan</th><th style="padding:6px 8px">Last login</th><th style="padding:6px 8px">Scans</th><th style="padding:6px 8px">Athletes</th><th style="padding:6px 8px">Outreach</th><th style="padding:6px 8px" title="Whether this agent has a connected mailbox to send from, and when they first connected one. A dash means no mailbox NOW: disconnecting deletes the row, so it cannot distinguish never-connected from later-disconnected.">Mailbox</th><th style="padding:6px 8px">Last active</th><th style="padding:6px 8px">Actions</th>
+  </tr></thead><tbody id="agent-activity-table"><tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Loading...</td></tr></tbody></table>
+  <div style="margin-top:6px;font-size:11px;color:rgba(240,237,230,0.4);line-height:1.6">
+    Mailbox is the send path for AI Outreach. <span style="color:#f87171">Scans with no mailbox</span> is the case worth looking at:
+    those agents could not have sent anything, whatever they wrote.
+    A dash means no mailbox <em>now</em> &mdash; disconnecting deletes the record, so it cannot tell you they never had one.
+  </div></div>
 </div>
 
 <div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
@@ -324,9 +329,9 @@ async function loadAgentActivity() {
   try {
     var inc = document.getElementById('show-archived') && document.getElementById('show-archived').checked;
     const r = await fetch('/api/admin/agent-activity' + (inc ? '?includeArchived=1' : ''));
-    if (!r.ok) { el.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Failed to load</td></tr>'; return; }
+    if (!r.ok) { el.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Failed to load</td></tr>'; return; }
     const rows = await r.json();
-    if (!rows.length) { el.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">No agents</td></tr>'; return; }
+    if (!rows.length) { el.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">No agents</td></tr>'; return; }
     el.innerHTML = rows.map(function(u) {
       var name = refEsc(u.name || u.email || '-');
       var plan = u.comped ? 'comp' : refEsc(u.plan || '-');
@@ -339,13 +344,49 @@ async function loadAgentActivity() {
         '<td style="' + cell + '">' + (u.scans || 0) + '</td>' +
         '<td style="' + cell + '">' + (u.athletes || 0) + '</td>' +
         '<td style="' + cell + '">' + (u.outreach || 0) + '</td>' +
+        mailboxCell(u) +
         '<td style="' + cell + '">' + relTime(u.last_activity) + '</td>' +
         '<td style="padding:6px 8px"><button onclick="archiveUser(\'' + u.id + '\', ' + (!u.archived) + ')" style="background:#1a1a18;border:1px solid rgba(255,255,255,0.12);color:rgba(240,237,230,0.7);padding:3px 10px;border-radius:5px;font-size:11px;cursor:pointer">' + lbl + '</button></td>' +
       '</tr>';
     }).join('');
   } catch (e) {
-    el.innerHTML = '<tr><td colspan="8" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">' + refEsc(e.message) + '</td></tr>';
+    el.innerHTML = '<tr><td colspan="9" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">' + refEsc(e.message) + '</td></tr>';
   }
+}
+
+// Does this agent have a send path, and since when.
+//
+// Three states worth telling apart, because they need different answers:
+//   no mailbox        nothing they wrote could ever have gone out
+//   mailbox, erroring connected once, not working now (sync marked it 'error')
+//   mailbox, active   the send path exists, so silence is a choice not a blocker
+//
+// The red case is deliberately "ran scans AND has no mailbox". An agent with no
+// mailbox and no scans has simply not started; an agent who scanned and had no way
+// to send is the one the question is about.
+function mailboxCell(u) {
+  var cell = 'padding:6px 8px;color:rgba(240,237,230,0.7)';
+  var scans = Number(u.scans || 0);
+  if (!u.n_accounts) {
+    // Red only when they actually got as far as scanning.
+    var colour = scans > 0 ? '#f87171' : 'rgba(240,237,230,0.35)';
+    var label = scans > 0 ? 'none, ' + scans + ' scan' + (scans === 1 ? '' : 's') : 'none';
+    return '<td style="padding:6px 8px;color:' + colour + '" title="No connected mailbox now. '
+      + 'Disconnecting deletes the record, so this cannot rule out that they once had one.">' + label + '</td>';
+  }
+  var broken = u.status && u.status !== 'active';
+  var when = u.connected_at ? relTime(u.connected_at) : 'unknown';
+  var provider = u.provider === 'gmail' ? 'Gmail' : refEsc(u.provider || 'mailbox');
+  var extra = u.n_accounts > 1 ? ' +' + (u.n_accounts - 1) : '';
+  var tip = refEsc((u.email_address || '') + ' · ' + (u.provider || '') + ' · status ' + (u.status || 'unknown')
+    + (u.connected_at ? ' · connected ' + new Date(u.connected_at).toISOString().slice(0, 10) : '')
+    + (u.n_accounts > 1 ? ' · ' + u.n_accounts + ' accounts total' : ''));
+  if (broken) {
+    return '<td style="padding:6px 8px;color:#fbbf24" title="' + tip + '">'
+      + provider + ' ' + refEsc(u.status) + extra + ', ' + when + '</td>';
+  }
+  return '<td style="' + cell + '" title="' + tip + '">'
+    + '<span style="color:#84CC16">' + provider + '</span>' + extra + ', ' + when + '</td>';
 }
 
 async function archiveUser(id, archived) {
