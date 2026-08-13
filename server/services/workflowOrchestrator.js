@@ -1,12 +1,12 @@
 // server/services/workflowOrchestrator.js
-// WorkflowOrchestrator, Part 8 of the NIL Outreach Automation Engine.
+// WorkflowOrchestrator — Part 8 of the NIL Outreach Automation Engine.
 //
 // Coordinates all services in the correct sequence:
 //   Deal Scan result → Enrichment → Contact Discovery → Match → Pitch → Deck → Email Draft → CRM
 //
 // All steps run async, non-blocking, with full error isolation.
 // Each step logs to automation_runs and workflow_events tables.
-// Partial failures are captured and reported, never throw on recoverable errors.
+// Partial failures are captured and reported — never throw on recoverable errors.
 //
 // SAFETY: orchestrates NEW services only.
 //         reads athletes and deals tables (read-only on existing).
@@ -51,7 +51,7 @@ async function runOutreachWorkflow(params) {
     [runId, agentId, athleteId, brandName]
   );
 
-  // Run workflow in background, return runId immediately
+  // Run workflow in background — return runId immediately
   setImmediate(() => executeWorkflow(runId, agentId, athlete, dealScanResult, knownContacts).catch(e => {
     console.error('[workflowOrchestrator] Unhandled error in run', runId, e.message);
     markRunFailed(runId, e.message);

@@ -1,5 +1,5 @@
 // server/services/contactDiscovery.js
-// ContactDiscoveryService, Part 2 of the NIL Outreach Automation Engine.
+// ContactDiscoveryService — Part 2 of the NIL Outreach Automation Engine.
 //
 // Responsibilities:
 //   - discover decision makers from enriched company data

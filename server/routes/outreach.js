@@ -66,7 +66,7 @@ function _safeKnownContacts(v) {
  * POST /api/outreach/run
  * Kick off the full automation workflow for one deal scan result.
  * Body: { athleteId, dealScanResult: { brand, campaign, category, ... } }
- * Returns: { runId } immediately, poll /runs/:runId for status.
+ * Returns: { runId } immediately — poll /runs/:runId for status.
  */
 router.post('/run', async (req, res) => {
   try {
@@ -354,7 +354,7 @@ router.post('/logs/:id/send', async (req, res) => {
       return res.status(400).json({ error: 'emailAccountId and toEmail required' });
     }
 
-    // Call the existing /api/email/send endpoint logic (reuse without importing, call via fetch)
+    // Call the existing /api/email/send endpoint logic (reuse without importing — call via fetch)
     // We delegate to the existing email service to avoid any coupling
     const sendResult = await sendViaEmailService(req, emailAccountId, toEmail, log);
 

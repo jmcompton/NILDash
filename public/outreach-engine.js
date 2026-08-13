@@ -1,5 +1,5 @@
 // public/outreach-engine.js
-// NIL Outreach Automation Engine, Deal Scan UI Integration
+// NIL Outreach Automation Engine — Deal Scan UI Integration
 //
 // Adds "Generate Outreach" button to each Deal Scan result card.
 // Shows a full outreach preview modal with:
@@ -11,7 +11,7 @@
 //   - deck download
 //
 // Loaded by index.html after email.js.
-// Uses window.outreachEngine namespace, zero collision with existing code.
+// Uses window.outreachEngine namespace — zero collision with existing code.
 
 'use strict';
 
@@ -228,7 +228,7 @@ function startPolling(runId) {
         clearInterval(OutreachEngineState.pollInterval);
         setModalState('error', data.run?.error_message || 'Workflow failed');
       } else {
-        // Still running, update progress message
+        // Still running — update progress message
         const steps = data.run?.steps_completed;
         const completedSteps = Array.isArray(steps) ? steps : (typeof steps === 'string' ? JSON.parse(steps || '[]') : []);
         updateLoadingProgress(completedSteps);
@@ -381,7 +381,7 @@ function renderRunResult(data) {
   const outreachId     = outreach?.id;
   OutreachEngineState.currentOutreachId = outreachId || null;
 
-  // Contact info, one shared truth with Deal Scan. A named person is only
+  // Contact info — one shared truth with Deal Scan. A named person is only
   // greeted/emailed by name when they carry a published PERSONAL email; a
   // generic inbox is never attached to a person and never auto-prefilled.
   const rawEmail     = contact?.email || null;
