@@ -896,6 +896,44 @@ function recordsFromStaffPage(school, staff, url, sportArg) {
   // because the headings are unlabeled throws away a real staff list.
   // Missouri is unaffected: its URL is /staff-directory, which names no sport.
   const urlIsSport = footballScoped('', url, sport);
+
+  // THE CEILING, AGAIN, HERE. The sweep rejects a department dump, but the sweep only
+  // decides which URL to STORE. --fetch-all reads the stored URL directly, so a dump
+  // that was rejected but left in program_source was still fetched and still turned
+  // into records. That is how South Carolina ended up with the dance team's head
+  // coach as its basketball head coach.
+  //
+  // Two things this deliberately does that the old page-level rule did not:
+  //
+  //   1. It OVERRIDES the URL exemption. A URL naming the sport is evidence that a
+  //      department-shaped page belongs to that sport, and that is worth having for
+  //      rescuing a real page with unlabelled headings. It is not evidence that 393
+  //      rows are one basketball staff. The exemption rescues, it does not excuse.
+  //
+  //   2. It does not require the page to NAME another sport. multiSportNoSport below
+  //      only fires when some heading names a rival sport, so a FLAT dump with no
+  //      headings at all sailed through every check: nothing to contradict, nothing
+  //      cut, no guard. That is the Virginia shape, and 25 rows matching a head-coach
+  //      pattern became 25 conflicting head coaches.
+  //
+  // Zero records, not untagged ones. A wrong contact is worse than a missing one, and
+  // an unsendable roster of the entire athletic department filed under basketball is
+  // not a lesser version of the right answer. saveProgramStaff deletes by
+  // (school, sport) before inserting, so returning [] is what actively CLEARS a
+  // school that was polluted by an earlier run.
+  const ceiling = maxStaffFor(sport);
+  const rowCount = (staff || []).length;
+  if (ceiling != null && rowCount > ceiling && !pageHasSportSection) {
+    console.warn(`[program-map] school="${school}" sport=${sport} DEPARTMENT DUMP REFUSED: ${rowCount} rows, ` +
+      `ceiling ${ceiling}, and no ${sportLabel} section to cut to. ${url}`);
+    console.warn(`[program-map] school="${school}" sport=${sport} writing ZERO records. ` +
+      (urlIsSport
+        ? `The URL names ${sportLabel}, which is NOT enough on its own at this size.`
+        : `The URL does not name ${sportLabel} either.`) +
+      ` Set a real page by hand with --set-url --sport ${sport}.`);
+    return [];
+  }
+
   const multiSportNoSport = pageNamesOtherSports && !pageHasSportSection && !urlIsSport;
   if (pageNamesOtherSports && !pageHasSportSection && urlIsSport) {
     console.log(`[program-map] school="${school}" sport=${sport} page has no ${sportLabel} section but its URL is ${sportLabel}-scoped (${url}), so roles are allowed`);

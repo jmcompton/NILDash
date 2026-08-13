@@ -478,6 +478,144 @@ async function run() {
   // sections. A page can show 68 of 68 emails here while the key-contact view shows
   // none, because the two were looking at different data. Pass --dry-run for the old
   // read-only behavior.
+  // --repair (alias --clear-rejected): undo a polluted school.
+  //
+  // WHY THIS EXISTS. The sweep rejecting a page only stops it being STORED; it does
+  // not remove a URL already in program_source, and --fetch-all reads that URL
+  // directly. Seven schools were fetched from department dumps the sweep had already
+  // rejected. recordsFromStaffPage now refuses those outright, so a plain re-fetch
+  // fixes any school whose URL still resolves; this exists for the rest, where the
+  // stored URL must go and the rows must go with it.
+  //
+  //   node server/jobs/programMapPilot.js --repair --sport basketball \
+  //     --school "Arizona State" --school "Arkansas" ...
+  //
+  // DRY RUN BY DEFAULT. It prints exactly what it would delete and leaves the
+  // database alone; --apply is the flag you have to type. Deleting a school's map is
+  // not something to do by forgetting an argument.
+  if (args.includes('--repair') || args.includes('--clear-rejected')) {
+    const apply = args.includes('--apply');
+    const targets = onlySchools.length ? onlySchools : (allSchools ? programMap.ALL_SCHOOLS : null);
+    if (!targets) {
+      console.log('Usage: --repair --sport basketball --school "Arizona State" [--school ...] [--apply]');
+      console.log('       --repair --sport basketball --all-schools [--apply]');
+      console.log('\nRepairs a school whose stored URL is a department-wide dump: re-sweeps, and');
+      console.log('either writes what the sweep found or leaves the school with ZERO records.');
+      return;
+    }
+    console.log(apply
+      ? `[repair] ${SPORT.label}: WILL DELETE and rewrite ${targets.length} school(s)`
+      : `[repair] ${SPORT.label}: DRY RUN over ${targets.length} school(s). Nothing will be written. Add --apply to execute.`);
+    console.log(`[repair] ceiling for ${SPORT.label}: ${programMap.maxStaffFor(sport) == null ? 'none' : programMap.maxStaffFor(sport) + ' rows'}`);
+    console.log('');
+
+    const out = [];
+    for (const school of targets) {
+      // BEFORE, read from the database rather than assumed, so the report says what
+      // was actually there.
+      const beforeQ = await store.pool.query(
+        `SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE is_key_contact)::int AS keys
+         FROM program_staff WHERE school = $1 AND sport = $2`, [school, sport]);
+      const before = beforeQ.rows[0] || { n: 0, keys: 0 };
+      const srcBefore = await store.getProgramSource(school, sport);
+      const oldUrl = (srcBefore && srcBefore.staff_url) || null;
+      const locked = !!(srcBefore && srcBefore.url_locked);
+
+      console.log(line('-'));
+      console.log(`${school} (${SPORT.label})`);
+      console.log(`  stored rows   ${before.n} (${before.keys} key contact(s))`);
+      console.log(`  stored url    ${oldUrl || '(none)'}${locked ? '  [HAND-SET, will not be cleared]' : ''}`);
+
+      // Re-sweep. The sweep now rejects dumps, so this is the question "is there a
+      // real page for this sport at all", asked again with the fixed rule.
+      let swept;
+      try {
+        swept = await ai.withTimeout(
+          // No special options. The incumbent is already scored as an ordinary
+          // candidate, so with the ceiling in place a stored dump now FAILS and the
+          // sweep carries on through the known paths by itself.
+          programMap.sweepStaffUrl(school, store, { sport }),
+          programMap.SWEEP_SCHOOL_CAP_MS + 15000, `sweep for ${school}`);
+      } catch (e) {
+        console.log(`  sweep         FAILED (${e.message}); leaving this school untouched`);
+        out.push({ school, before: before.n, after: null, action: 'sweep failed' });
+        continue;
+      }
+
+      if (swept.url) {
+        // A page was found. Fetch it and write what it gives, which REPLACES the bad
+        // rows: saveProgramStaff deletes by (school, sport) first.
+        let res;
+        try {
+          res = await ai.withTimeout(
+            programMap.loadFootballStaff(school, store, { sport }), SCHOOL_CAP_MS, `fetch for ${school}`);
+        } catch (e) {
+          console.log(`  fetch         FAILED (${e.message}); rows left as they were`);
+          out.push({ school, before: before.n, after: null, action: 'fetch failed' });
+          continue;
+        }
+        const recs = res.error ? [] : programMap.recordsFromStaffPage(school, res.staff, res.url, sport);
+        console.log(`  sweep found   ${swept.url}`);
+        console.log(`  parsed        ${res.staff ? res.staff.length : 0} row(s) -> ${recs.length} record(s)`);
+        if (!recs.length) {
+          console.log('  NOTE: the fetched page produced no records either (refused as a dump, or empty).');
+        }
+        if (apply) {
+          const office = await store.getProgramContact(school, sport);
+          for (const r of recs) r.reach_via = programMap.reachVia(r, office);
+          const n = await store.saveProgramStaff(school, recs, sport);
+          console.log(`  WROTE         ${n} record(s), replacing the previous ${before.n}`);
+          out.push({ school, before: before.n, after: n, action: recs.length ? 'replaced' : 'cleared' });
+        } else {
+          console.log(`  WOULD WRITE   ${recs.length} record(s), replacing the previous ${before.n}`);
+          out.push({ school, before: before.n, after: recs.length, action: recs.length ? 'replace' : 'clear' });
+        }
+        continue;
+      }
+
+      // Nothing was found. Zero records is the correct end state: a wrong contact is
+      // worse than a missing one. The stored URL goes too, or the next --fetch-all
+      // reads the same dump straight back in.
+      console.log('  sweep found   NOTHING that passes the bar');
+      if (apply) {
+        const del = await store.pool.query(
+          'DELETE FROM program_staff WHERE school = $1 AND sport = $2', [school, sport]);
+        let cleared = false;
+        if (oldUrl && !locked) {
+          // staff_url only. The row stays, so athletics_contact_url and the fetch
+          // history are not thrown away with it.
+          await store.pool.query(
+            `UPDATE program_source SET staff_url = NULL, staff_url_discovered_via = 'repair-cleared',
+                    last_staff_count = 0, updated_at = NOW()
+             WHERE school = $1 AND sport = $2`, [school, sport]);
+          cleared = true;
+        }
+        console.log(`  DELETED       ${del.rowCount || 0} record(s); url ${cleared ? 'CLEARED' : (locked ? 'kept (hand-set)' : 'was already empty')}`);
+        out.push({ school, before: before.n, after: 0, action: 'cleared' });
+      } else {
+        console.log(`  WOULD DELETE  ${before.n} record(s); url ${oldUrl && !locked ? 'would be CLEARED' : (locked ? 'kept (hand-set)' : 'already empty')}`);
+        out.push({ school, before: before.n, after: 0, action: 'clear' });
+      }
+    }
+
+    console.log('\n' + line('='));
+    console.log(apply ? 'REPAIRED' : 'DRY RUN, nothing was written');
+    console.log(line('='));
+    console.log('school                before   after  action');
+    for (const r of out) {
+      console.log(`${r.school.padEnd(20)} ${String(r.before).padStart(6)}  ${r.after == null ? '     -' : String(r.after).padStart(6)}  ${r.action}`);
+    }
+    const emptied = out.filter((r) => r.after === 0).length;
+    if (emptied) {
+      console.log(`\n${emptied} school(s) end with ZERO ${SPORT.label} records. That is the intended outcome:`);
+      console.log('a school with no page is better represented by nothing than by a department dump.');
+      console.log('Set one by hand if you find the real page:');
+      console.log(`  node server/jobs/programMapPilot.js --set-url --school "NAME" --url "https://..." --sport ${sport}`);
+    }
+    if (!apply) console.log('\nRe-run with --apply to execute.');
+    return;
+  }
+
   if (args.includes('--fetch-all')) {
     const dryRun = args.includes('--dry-run');
     console.log(dryRun
