@@ -365,7 +365,12 @@ async function run() {
     const paths = programMap.candidatePathsFor(sport);
     console.log(`[url-sweep] sweeping ${schools.length} school(s) over ${paths.length} known ${SPORT.label} paths`);
     for (const pth of paths) console.log(`             ${pth}`);
+    const ceiling = programMap.maxStaffFor(sport);
     console.log(`[url-sweep] accept: >= ${programMap.minStaffFor(sport)} staff and >= ${programMap.minKeyRolesFor(sport)} of ${roleList.length} key roles`);
+    console.log(ceiling == null
+      ? `[url-sweep] no upper limit on rows for ${SPORT.label}`
+      : `[url-sweep] reject: > ${ceiling} rows on a page NOT cut to a ${SPORT.label} section (a department-wide directory)`);
+    console.log(`[url-sweep] time: ${Math.round(programMap.SWEEP_SCHOOL_CAP_MS / 1000)}s per school, 12s per candidate fetch`);
     console.log(`[url-sweep] accept threshold: quality score, not row count`);
     if (sweepOpts.allPaths) console.log('[url-sweep] --all-paths: trying every candidate, not stopping at the first hit');
     if (sweepOpts.force) console.log('[url-sweep] --force: hand-set and already-working URLs will ALSO be swept');
@@ -385,8 +390,19 @@ async function run() {
       done++;
       if (schools.length > 20) console.log(`[url-sweep] --- ${done}/${schools.length} ${school} ---`);
       let r;
-      try { r = await programMap.sweepStaffUrl(school, store, sweepOpts); }
-      catch (e) { console.log(`[url-sweep] school="${school}" ERROR ${e.message}`); r = { url: null, staffCount: 0, tried: [], via: 'error', error: e.message }; }
+      try {
+        // ABSOLUTE BACKSTOP, the same one --fetch-all already had. sweepStaffUrl
+        // bounds itself cooperatively by checking a deadline between candidates, but
+        // that cannot see a stall inside something it calls; this can. One school may
+        // cost 90 seconds and change. It may never cost the run.
+        r = await ai.withTimeout(
+          programMap.sweepStaffUrl(school, store, sweepOpts),
+          programMap.SWEEP_SCHOOL_CAP_MS + 15000, `sweep for ${school}`);
+      } catch (e) {
+        const isTimeout = /^timeout after/.test(e.message || '');
+        console.log(`[url-sweep] school="${school}" ${isTimeout ? 'TIMED OUT, moving on' : 'ERROR ' + e.message}`);
+        r = { url: null, staffCount: 0, tried: [], via: isTimeout ? 'timeout' : 'error', error: e.message, timedOut: isTimeout };
+      }
       results.push({ school, ...r });
       console.log('');
     }
@@ -414,12 +430,38 @@ async function run() {
       }
     }
 
+    // Rejected as department dumps, reported separately from "nothing found". These
+    // are pages that PARSED, so calling them a miss would read as a broken site when
+    // the site is fine and the page is simply the whole department.
+    const dumps = results.filter((r) => (r.tried || []).some((t) => t.overCeiling));
+    if (dumps.length) {
+      console.log(`\nREJECTED AS DEPARTMENT-WIDE (${dumps.length}). Too many rows for a ${SPORT.label} staff, and not cut to a ${SPORT.label} section:`);
+      for (const r of dumps) {
+        for (const t of (r.tried || []).filter((x) => x.overCeiling)) {
+          console.log(`  ${r.school.padEnd(20)} ${String(t.staff).padStart(4)} rows  ${t.url || t.path}`);
+        }
+      }
+    }
+
+    const ranOut = results.filter((r) => r.timedOut);
+    if (ranOut.length) {
+      console.log(`\nRAN OUT OF TIME (${ranOut.length}), skipped so the run could continue. Re-run the sweep to retry just these:`);
+      for (const r of ranOut) console.log(`  ${r.school}`);
+    }
+
     const stuck = results.filter((r) => !r.url);
     if (stuck.length) {
       console.log(`\nNEEDS ATTENTION (${stuck.length}): no known path worked. Set these by hand:`);
       for (const r of stuck) {
         console.log(`  ${r.school}`);
-        console.log(`    node server/jobs/programMapPilot.js --set-url --school "${r.school}" --url "https://..."`);
+        // A rejected incumbent is worse than an empty one: the bad URL is STILL in
+        // program_source and --fetch-all will still read it. Say so rather than
+        // letting the school look merely empty.
+        if (r.incumbentRejected) {
+          console.log(`    WARNING: the stored URL is still there and still bad (${r.incumbentRejected.rows} rows):`);
+          console.log(`             ${r.incumbentRejected.url}`);
+        }
+        console.log(`    node server/jobs/programMapPilot.js --set-url --school "${r.school}" --url "https://..."${sport === programMap.DEFAULT_SPORT ? '' : ' --sport ' + sport}`);
       }
     } else {
       console.log('\nEvery school has a staff URL.');

@@ -62,7 +62,16 @@ const SPORTS = {
     // Position groups that make a coaching title a decision maker.
     positionGroups: /\b(quarterbacks?|running ?backs?|wide ?receivers?|receivers?|tight ?ends?|offensive line(men)?|o-?line|defensive line(men)?|d-?line|linebackers?|cornerbacks?|safet(y|ies)|secondary|defensive backs?|special teams|edge|nickel|tackles?|guards?|centers?|running game|passing game|run game|pass game)\b/i,
     // A real football directory returns 60 to 110 people.
-    thresholds: { minKeyRoles: 3, minStaff: 5 },
+    //
+    // maxStaff is deliberately NULL for football, which means no ceiling. Football
+    // sits at 117/135 coverage today and at least one accepted page (Missouri, 373
+    // rows) is a department dump that was reviewed and explicitly kept. Switching a
+    // ceiling on here would silently reject it and others like it, which is a change
+    // to football's results and not what this fix is for. The number I would pick if
+    // asked is 180: about 1.6x the fullest real football page, well under the 277 to
+    // 434 department dumps. That is a decision to take deliberately, not a side
+    // effect of fixing basketball.
+    thresholds: { minKeyRoles: 3, minStaff: 5, maxStaff: null },
     verifiedUrls: {
       'Alabama': 'https://rolltide.com/sports/football/coaches',
       'Georgia': 'https://georgiadogs.com/sports/football/coaches',
@@ -105,7 +114,24 @@ const SPORTS = {
     positionGroups: /\b(guards?|forwards?|centers?|post|perimeter|big ?men|wings?|player development)\b/i,
     // Basketball staffs are much smaller. A page with a head coach and one
     // assistant is a real page, not a failure.
-    thresholds: { minKeyRoles: 2, minStaff: 3 },
+    //
+    // maxStaff 40, and here is the defence of that number.
+    //
+    // A D1 men's basketball staff page lists roughly 9 to 20 people: head coach,
+    // associate head coach, two or three assistants, director of basketball
+    // operations, video coordinator, player development, a GM or director of
+    // recruiting, strength, trainer, nutrition, academics, and one to three managers
+    // or graduate assistants. The fullest real pages, the programs that also list
+    // student managers and support staff, reach the high twenties.
+    //
+    // The pages this exists to reject are 277, 370 and 393 rows: Army, Arkansas and
+    // Arizona State returned their whole athletic departments. So the two populations
+    // are separated by a gap from about 30 to about 270, and any number in that gap
+    // works. 40 is chosen near the LOW end of it, at roughly 1.5x the fullest real
+    // page, because a basketball page in the forties is already more likely to be a
+    // two-sport or department page than a real staff, and the cost of rejecting one
+    // is that the sweep keeps looking, not that the school is lost.
+    thresholds: { minKeyRoles: 2, minStaff: 3, maxStaff: 40 },
     verifiedUrls: {},
   },
 
@@ -137,7 +163,7 @@ const SPORTS = {
       { key: 'assistant_coach', label: 'Assistant Coach', match: /\bassistant coach\b|\bassociate head coach\b|\bassistant head coach\b/i },
     ],
     positionGroups: /\b(guards?|forwards?|centers?|post|perimeter|wings?|player development)\b/i,
-    thresholds: { minKeyRoles: 2, minStaff: 3 },
+    thresholds: { minKeyRoles: 2, minStaff: 3, maxStaff: 40 },
     verifiedUrls: {},
   },
 };

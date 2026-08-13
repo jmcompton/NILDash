@@ -29,24 +29,71 @@ const FETCH_TIMEOUT_MS = 12000;
 const MAX_HTML_BYTES = 3_000_000;
 const UA = 'Mozilla/5.0 (compatible; NILDashBot/1.0; +https://nildash.com)';
 
-async function fetchStaffPage(url) {
+// WHY THIS IS SHAPED THE WAY IT IS. The first version cleared the abort timer the
+// moment the response HEADERS arrived and then read the body with `await resp.text()`:
+//
+//     const resp = await fetch(url, { signal: ctrl.signal, ... });
+//     clearTimeout(t);              <-- the 12s cap is gone here
+//     let html = await resp.text(); <-- and this is unbounded
+//
+// So the cap only ever covered connect + headers. A server that answers 200 promptly
+// and then trickles its body forever hung indefinitely, which is what California did
+// and what Minnesota did before it. The timer now covers the WHOLE request.
+//
+// The byte cap had the same shape of problem: slicing to 3MB AFTER `.text()` means a
+// 500MB response is read fully into memory before being truncated. The body is now
+// STREAMED and the read stops at the cap, so an enormous page costs 3MB and a moment,
+// not all of it.
+async function fetchStaffPage(url, opts = {}) {
   const t0 = Date.now();
   if (!url || !/^https?:\/\//i.test(String(url))) return { ok: false, reason: 'bad_url', ms: 0 };
+  // Callers may ask for a tighter cap than the default. The sweep does: it divides a
+  // per-school budget across up to thirteen candidates, so the last candidate must
+  // not be allowed to spend the default twelve seconds it no longer has.
+  const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(250, opts.timeoutMs) : FETCH_TIMEOUT_MS;
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  // ONE timer, cleared only when the body is fully in hand or has failed.
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const resp = await fetch(url, {
       signal: ctrl.signal,
       redirect: 'follow',
       headers: { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml' },
     });
+    if (!resp.ok) {
+      clearTimeout(t);
+      return { ok: false, reason: 'http_' + resp.status, status: resp.status, ms: Date.now() - t0 };
+    }
+    let html = '';
+    let truncated = false;
+    if (resp.body && typeof resp.body.getReader === 'function') {
+      const reader = resp.body.getReader();
+      // stream:true so a multi-byte character split across two chunks is not mangled.
+      const dec = new TextDecoder('utf-8');
+      let bytes = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        bytes += (value.byteLength != null ? value.byteLength : value.length) || 0;
+        html += dec.decode(value, { stream: true });
+        if (bytes >= MAX_HTML_BYTES) {
+          truncated = true;
+          try { await reader.cancel(); } catch (_) { /* already closed */ }
+          break;
+        }
+      }
+      html += dec.decode();
+    } else {
+      // No streaming body (an old runtime, or a test double). Still inside the timer.
+      html = await resp.text();
+    }
     clearTimeout(t);
-    if (!resp.ok) return { ok: false, reason: 'http_' + resp.status, status: resp.status, ms: Date.now() - t0 };
-    let html = await resp.text();
-    if (html.length > MAX_HTML_BYTES) html = html.slice(0, MAX_HTML_BYTES);
+    if (html.length > MAX_HTML_BYTES) { html = html.slice(0, MAX_HTML_BYTES); truncated = true; }
     // status is returned on success too: the URL sweep logs it per candidate, and a
-    // 2xx that is not 200 is worth seeing rather than assuming.
-    return { ok: true, html, status: resp.status, finalUrl: resp.url || url, bytes: html.length, ms: Date.now() - t0 };
+    // 2xx that is not 200 is worth seeing rather than assuming. truncated is returned
+    // so a thin parse off a cut-off page is not mistaken for a thin page.
+    return { ok: true, html, status: resp.status, finalUrl: resp.url || url, bytes: html.length, truncated, ms: Date.now() - t0 };
   } catch (e) {
     clearTimeout(t);
     return { ok: false, reason: (e && e.name === 'AbortError') ? 'timeout' : ('error_' + (e.message || 'fetch')), ms: Date.now() - t0 };

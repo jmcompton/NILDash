@@ -529,8 +529,22 @@ function minKeyRolesFor(sport) {
   const sp = SPORTS[normalizeSport(sport) || DEFAULT_SPORT];
   return (sp && sp.thresholds && sp.thresholds.minKeyRoles) || 3;
 }
+// The plausibility ceiling. null means no ceiling, which is football deliberately.
+function maxStaffFor(sport) {
+  const sp = SPORTS[normalizeSport(sport) || DEFAULT_SPORT];
+  const v = sp && sp.thresholds ? sp.thresholds.maxStaff : null;
+  return Number.isFinite(v) ? v : null;
+}
 
 const SWEEP_PAUSE_MS = 250; // one host, several requests: do not hammer it
+
+// WALL-CLOCK BOUNDS ON THE SWEEP. The fetch path got a 90s per-school backstop; the
+// sweep never did, and California hung exactly the way Minnesota hung. A sweep is up
+// to thirteen fetches against one host, so it needs a total budget AND a share of it
+// per candidate: without the second, twelve well-behaved candidates can still be
+// starved by one that stalls.
+const SWEEP_SCHOOL_CAP_MS = 90000;    // total for one school, across all candidates
+const SWEEP_CANDIDATE_MS = 12000;     // any single candidate fetch
 
 const KEY_ROLE_PATTERNS = ROLES.map((r) => r.match);
 function keyRolePatternsFor(sport) { return rolesFor(sport).map((r) => r.match); }
@@ -563,7 +577,16 @@ async function sweepStaffUrl(school, store, opts = {}) {
   const staffPage = require('./staffPage');
   const sport = normalizeSport(opts.sport) || DEFAULT_SPORT;
   const minStaff = minStaffFor(sport);
+  const maxStaff = maxStaffFor(sport);
   const rolePatterns = keyRolePatternsFor(sport);
+  // The budget for this ONE school. Checked before every candidate and divided into
+  // every candidate fetch, so neither a slow host nor a stalled body can spend more
+  // than this. The CLI wraps the whole call in an absolute timeout as well: this one
+  // is cooperative and stops cleanly with partial results, that one is the backstop
+  // for anything this loop cannot see.
+  const capMs = Number.isFinite(opts.schoolCapMs) ? opts.schoolCapMs : SWEEP_SCHOOL_CAP_MS;
+  const deadline = Date.now() + capMs;
+  let timedOut = false;
   const cfg = SCHOOLS[school] || {};
   const domain = cfg.athletics;
   if (!domain) {
@@ -587,6 +610,10 @@ async function sweepStaffUrl(school, store, opts = {}) {
   const tried = [];
   const seen = new Set();
   let best = null;
+  // Set when the URL already in the database is the thing being rejected. That is a
+  // different situation from "nothing was found", because the bad URL is still stored
+  // and --fetch-all will still read it until something replaces it.
+  let incumbentRejected = null;
   // The INCUMBENT is scored as an ordinary candidate rather than trusted on its
   // stored row count. Comparing a stored count against a fresh one is what let a
   // 381-row junk page outrank a 19-row real one; the only fair comparison is to
@@ -598,7 +625,21 @@ async function sweepStaffUrl(school, store, opts = {}) {
   ];
   for (const cand of candidates) {
     const { path, url } = cand;
-    const got = await staffPage.fetchStaffPage(url);
+    // Out of budget: stop cleanly with whatever has been found rather than letting
+    // one school run on. The remaining candidates are recorded as SKIPPED so the
+    // output never implies they were tried and missed.
+    const left = deadline - Date.now();
+    if (left <= 0) {
+      timedOut = true;
+      console.warn(`[url-sweep] school="${school}" OUT OF TIME after ${Math.round(capMs / 1000)}s, ` +
+        `stopping with ${tried.length} of ${candidates.length} candidate(s) tried`);
+      for (const rest of candidates.slice(candidates.indexOf(cand))) {
+        tried.push({ path: rest.path, status: 'skipped', staff: 0, reasons: ['school time budget exhausted'] });
+      }
+      break;
+    }
+    // Never more than the per-candidate cap, and never more than the school has left.
+    const got = await staffPage.fetchStaffPage(url, { timeoutMs: Math.min(SWEEP_CANDIDATE_MS, left) });
     if (!got.ok) {
       const status = got.status || got.reason;
       console.log(`[url-sweep] school="${school}" try=${path} status=${status}`);
@@ -636,14 +677,32 @@ async function sweepStaffUrl(school, store, opts = {}) {
     const staff = filt.staff;
     const n = staff.length;
     const score = staffPage.scoreStaffPage(staff, rolePatterns, minKeyRolesFor(sport));
-    const accepted = score.accepted && n >= minStaff;
+    // THE PLAUSIBILITY CEILING. Lowering minKeyRoles to 2 for basketball made a
+    // department-wide page EASIER to accept, not harder: a page listing every sport
+    // at once trivially contains a head coach, an assistant and a director of
+    // operations somewhere in it, so it clears a key-role bar that a real basketball
+    // staff of twelve only just clears. Army accepted 277 rows, Arkansas 370, Arizona
+    // State 393. Those are athletic departments. South Carolina already showed what
+    // that produces downstream: the dance team's head coach read as the men's
+    // basketball head coach.
+    //
+    // The ceiling applies ONLY when the page was not successfully cut to a section
+    // for this sport. A page that WAS cut is reporting that sport's own staff, and
+    // its count means what it says however big the original page was.
+    const overCeiling = maxStaff != null && n > maxStaff && !filt.filtered;
+    const accepted = score.accepted && n >= minStaff && !overCeiling;
     const redirect = finalUrl !== url ? ` -> ${finalUrl}` : '';
     const pct = (x) => `${Math.round(x * 100)}%`;
     const detail = `titles=${pct(score.titleRate)} junk=${pct(score.junkRate)} keyRoles=${score.keyRoles}/${rolePatterns.length}` +
-      (filt.filtered ? ` (cut to ${sport} sections, -${filt.dropped})` : '');
+      (filt.filtered ? ` (cut to ${sport} sections, -${filt.dropped})` : '') +
+      (got.truncated ? ' (page hit the 3MB cap and was truncated)' : '');
+    const why = overCeiling
+      ? [`${n} rows is not a ${SPORTS[sport].label} staff (ceiling ${maxStaff}), and the page was not cut to a ${SPORTS[sport].label} section: this is a department-wide directory`]
+      : score.reasons;
     console.log(`[url-sweep] school="${school}" try=${path}${redirect} status=${got.status} staff=${n} ${detail}` +
-      (accepted ? ' ACCEPTED' : ` REJECTED: ${score.reasons.join('; ') || 'too few rows'}`));
-    tried.push({ path, status: got.status, staff: n, url: finalUrl, accepted, score, reasons: score.reasons });
+      (accepted ? ' ACCEPTED' : ` REJECTED: ${why.join('; ') || 'too few rows'}`));
+    tried.push({ path, status: got.status, staff: n, url: finalUrl, accepted, score, reasons: why, overCeiling });
+    if (overCeiling && cand.isIncumbent) incumbentRejected = { url: finalUrl, rows: n };
     // Among pages that PASS quality, prefer the one covering more key roles, then the
     // fuller one. Row count never outranks quality, which is the Alabama regression.
     if (accepted && (!best || score.keyRoles > best.score.keyRoles ||
@@ -659,16 +718,23 @@ async function sweepStaffUrl(school, store, opts = {}) {
   }
 
   if (!best) {
-    console.warn(`[url-sweep] school="${school}" NO CANDIDATE PATH WORKED (${tried.length} tried)`);
-    return { url: null, staffCount: 0, tried, via: 'none' };
+    console.warn(`[url-sweep] school="${school}" NO CANDIDATE PATH WORKED (${tried.length} tried)` +
+      (timedOut ? ' AND THE SCHOOL RAN OUT OF TIME' : ''));
+    if (incumbentRejected) {
+      console.warn(`[url-sweep] school="${school}" the STORED url is the one being rejected ` +
+        `(${incumbentRejected.rows} rows, a department dump): ${incumbentRejected.url}`);
+      console.warn(`[url-sweep] school="${school}" it is STILL in program_source and --fetch-all will still read it. ` +
+        `Replace it with --set-url, or accept that this school has no ${SPORTS[sport].label} page.`);
+    }
+    return { url: null, staffCount: 0, tried, via: 'none', timedOut, incumbentRejected };
   }
   if (best.isIncumbent) {
     console.log(`[url-sweep] school="${school}" existing URL still passes quality (${best.staffCount} staff, ${best.score.keyRoles} key roles), left alone`);
-    return { url: best.url, staffCount: best.staffCount, tried, via: src.staff_url_discovered_via || 'existing', skipped: true };
+    return { url: best.url, staffCount: best.staffCount, tried, via: src.staff_url_discovered_via || 'existing', skipped: true, timedOut };
   }
   await store.saveProgramSourceUrl(school, best.url, 'sweep', src && src.athletics_contact_url, sport);
   console.log(`[url-sweep] school="${school}" PERSISTED ${best.url} (${best.staffCount} staff, ${best.score.keyRoles} key roles, via ${best.path})`);
-  return { url: best.url, staffCount: best.staffCount, tried, via: 'sweep', score: best.score };
+  return { url: best.url, staffCount: best.staffCount, tried, via: 'sweep', score: best.score, timedOut, incumbentRejected };
 }
 
 // Search is now the EXCEPTION, run only when no known path worked. A school that
@@ -1118,5 +1184,6 @@ module.exports = {
   // Sport parameterisation. The table itself is re-exported so callers (the CLI, the
   // API, the tests) read exactly the same definitions this module does.
   SPORTS, UI_SPORTS, SCANNABLE_SPORTS, DEFAULT_SPORT, normalizeSport,
-  rolesFor, candidatePathsFor, verifiedUrlFor, minStaffFor, minKeyRolesFor, keyRolePatternsFor,
+  rolesFor, candidatePathsFor, verifiedUrlFor, minStaffFor, minKeyRolesFor, maxStaffFor, keyRolePatternsFor,
+  SWEEP_SCHOOL_CAP_MS,
 };
