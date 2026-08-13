@@ -108,7 +108,7 @@ async function run() {
   async function zeroKeyContactSchools() {
     const r = await store.pool.query(`
       SELECT school, COUNT(*) FILTER (WHERE is_key_contact)::int AS key_contacts
-      FROM program_staff WHERE status = 'current' GROUP BY school
+      FROM program_staff WHERE status = 'current' AND sport = 'football' GROUP BY school
     `);
     const by = {};
     for (const row of r.rows) by[row.school] = row.key_contacts;

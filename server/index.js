@@ -7123,8 +7123,8 @@ app.get('/api/programs/schools', requireAuth, async (req, res) => {
              COUNT(*) FILTER (WHERE ps.email IS NOT NULL)::int AS with_email,
              MAX(src.last_fetched_at) AS last_fetched
       FROM program_staff ps
-      LEFT JOIN program_source src ON src.school = ps.school
-      WHERE ps.status = 'current'
+      LEFT JOIN program_source src ON src.school = ps.school AND src.sport = ps.sport
+      WHERE ps.status = 'current' AND ps.sport = 'football'
       GROUP BY ps.school
       HAVING COUNT(*) > 0
       ORDER BY ps.school
@@ -7151,7 +7151,8 @@ app.get('/api/programs/:school', requireAuth, async (req, res) => {
 
     const contactRow = await store.getProgramContact(school);
     const srcQ = await store.pool.query(
-      'SELECT football_staff_url, last_fetched_at, last_staff_count FROM program_source WHERE school = $1', [school]);
+      `SELECT staff_url AS football_staff_url, last_fetched_at, last_staff_count
+       FROM program_source WHERE school = $1 AND sport = 'football'`, [school]);
     const src = srcQ.rows[0] || {};
 
     // The key contacts, one per role, most senior first. role_rank 1 is the senior

@@ -660,6 +660,10 @@ async function init() {
     CREATE TABLE IF NOT EXISTS program_staff (
       id SERIAL PRIMARY KEY,
       school TEXT NOT NULL,
+      -- Part of the uniqueness key, so it is declared here rather than only added
+      -- by ALTER below: a fresh database would fail to create the table if the
+      -- UNIQUE clause named a column the column list did not.
+      sport TEXT NOT NULL DEFAULT 'football',
       role TEXT NOT NULL,
       role_label TEXT,
       name TEXT NOT NULL,
@@ -675,7 +679,7 @@ async function init() {
       verified_on DATE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE (school, role, name)
+      UNIQUE (school, sport, role, name)
     )
   `).then(() => console.log('[init] program_staff table ready'))
     .catch(e => console.error('[init] program_staff:', e.message));
@@ -710,9 +714,10 @@ async function init() {
   // alert feature.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS program_source (
-      school TEXT PRIMARY KEY,
-      football_staff_url TEXT,
-      football_staff_url_discovered_via TEXT,
+      school TEXT,
+      sport TEXT NOT NULL DEFAULT 'football',
+      staff_url TEXT,
+      staff_url_discovered_via TEXT,
       athletics_contact_url TEXT,
       last_fetched_at TIMESTAMPTZ,
       last_hash TEXT,
@@ -722,7 +727,8 @@ async function init() {
       url_locked BOOLEAN DEFAULT FALSE,
       verified_on DATE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (school, sport)
     )
   `).then(() => console.log('[init] program_source table ready'))
     .catch(e => console.error('[init] program_source:', e.message));
@@ -733,21 +739,32 @@ async function init() {
   // name list, since schools rarely publish individual staff emails.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS program_contact (
-      school TEXT PRIMARY KEY,
-      football_office_phone TEXT,
-      football_office_phone_source_url TEXT,
+      school TEXT,
+      sport TEXT NOT NULL DEFAULT 'football',
+      office_phone TEXT,
+      office_phone_source_url TEXT,
       recruiting_email TEXT,
       recruiting_email_source_url TEXT,
       collective_email TEXT,
       collective_email_source_url TEXT,
       collective_name TEXT,
       verified_on DATE,
-      updated_at TIMESTAMPTZ DEFAULT NOW()
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (school, sport)
     )
   `).then(() => console.log('[init] program_contact table ready'))
     .catch(e => console.error('[init] program_contact:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_school ON program_staff (school)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_program_staff_school_role ON program_staff (school, role)`).catch(() => {});
+
+  // Sport-aware schema for the program map. Idempotent and a no-op once applied.
+  // Run here as well as from the CLI so deploy order cannot matter: a container
+  // that boots before the migration is run migrates itself rather than serving
+  // traffic against columns the code no longer names. The CLI remains the way to
+  // rehearse it, see the counts, and roll it back.
+  await require('./services/programSportMigration').ensureSchema(pool).catch((e) => {
+    console.error('[init] programSport migration:', e.message);
+  });
 
   // How the row entered the ledger: 'scan' (surfaced by Deal Scan) or 'manual'
   // (the agent added the business by name via Add a Business). Additive and
@@ -2074,12 +2091,28 @@ async function getCrossAthleteContacted(agentId, brandKeys, excludeAthleteId) {
 // Replace a school's records wholesale so a rebuild cannot leave a stale person
 // behind after a staff change. Runs in a transaction: either the new set lands or
 // the old set is untouched.
-async function saveProgramStaff(school, records) {
+async function saveProgramStaff(school, records, sportArg) {
   if (!school) return 0;
+  const list = records || [];
+  // One call writes ONE sport. The delete below is scoped by it, so a mixed batch
+  // would delete one sport's rows and insert another's. Refuse loudly rather than
+  // half-apply: a silent partial write here loses a school's map.
+  const seen = [...new Set(list.map((r) => (r && r.sport) || null).filter(Boolean))];
+  if (seen.length > 1) {
+    console.error(`[programMap] saveProgramStaff school="${school}" REFUSED: records mix sports (${seen.join(', ')})`);
+    return 0;
+  }
+  if (sportArg && seen.length && seen[0] !== sportArg) {
+    console.error(`[programMap] saveProgramStaff school="${school}" REFUSED: called for ${sportArg} but records say ${seen[0]}`);
+    return 0;
+  }
+  const sport = sportArg || seen[0] || 'football';
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('DELETE FROM program_staff WHERE school = $1', [school]);
+    // Scoped to ONE sport. Deleting by school alone would wipe a school's football
+    // map the first time its basketball page was saved.
+    await client.query('DELETE FROM program_staff WHERE school = $1 AND sport = $2', [school, sport]);
     let n = 0;
     for (const r of (records || [])) {
       if (!r || !r.name || !r.role) continue;
@@ -2090,7 +2123,7 @@ async function saveProgramStaff(school, records) {
             source_date, age_months, status, superseded_note, reach_via, sport, source_tier_note,
             role_rank, is_key_contact, page_section)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,CURRENT_DATE,NOW(),$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
-         ON CONFLICT (school, role, name) DO UPDATE SET
+         ON CONFLICT (school, sport, role, name) DO UPDATE SET
            role_label = EXCLUDED.role_label, title = EXCLUDED.title,
            email = EXCLUDED.email, email_source_url = EXCLUDED.email_source_url,
            phone = EXCLUDED.phone, linkedin_url = EXCLUDED.linkedin_url,
@@ -2108,7 +2141,7 @@ async function saveProgramStaff(school, records) {
          r.source_url || null, r.source_tier || null, r.confidence || null,
          JSON.stringify(r.sources || []), r.source_date || null,
          r.age_months == null ? null : r.age_months, r.status || 'current',
-         r.superseded_note || null, r.reach_via || null, r.sport || null, r.source_tier_note || null,
+         r.superseded_note || null, r.reach_via || null, sport, r.source_tier_note || null,
          r.role_rank == null ? null : r.role_rank, !!r.is_key_contact,
          r.page_section || null]);
       n++;
@@ -2123,102 +2156,129 @@ async function saveProgramStaff(school, records) {
   } finally { client.release(); }
 }
 
-async function getProgramSource(school) {
+// sport defaults to football so every existing caller keeps its exact behavior.
+async function getProgramSource(school, sport = 'football') {
   try {
     const r = school
-      ? await pool.query('SELECT * FROM program_source WHERE school = $1', [school])
-      : await pool.query('SELECT * FROM program_source ORDER BY school');
-    return school ? (r.rows[0] || null) : (r.rows || []);
+      ? await pool.query('SELECT * FROM program_source WHERE school = $1 AND sport = $2', [school, sport])
+      : await pool.query('SELECT * FROM program_source WHERE sport = $1 ORDER BY school', [sport]);
+    const rows = r.rows || [];
+    // Readers still asking for football_staff_url keep working: the alias is added
+    // on the way out so the rename does not have to land in every call site in the
+    // same commit as the schema change.
+    for (const row of rows) {
+      if (row && row.staff_url !== undefined) {
+        row.football_staff_url = row.staff_url;
+        row.football_staff_url_discovered_via = row.staff_url_discovered_via;
+      }
+    }
+    return school ? (rows[0] || null) : rows;
   } catch (e) { console.error('[programMap] source read failed:', e.message); return school ? null : []; }
 }
 
 // Persist a discovered staff URL. Called once per school; after this the URL is read
 // from here forever and never re-discovered unless explicitly forced.
-async function saveProgramSourceUrl(school, url, via, contactUrl) {
+async function saveProgramSourceUrl(school, url, via, contactUrl, sport = 'football') {
   if (!school || !url) return false;
   try {
     // A URL set by hand is authoritative and permanent. Discovery guesses paths and
     // gets 404s; it must never be able to clobber a URL a human verified. Only
     // another manual set can replace one.
     if (via !== 'manual') {
-      const cur = await pool.query('SELECT url_locked, football_staff_url FROM program_source WHERE school = $1', [school]);
+      const cur = await pool.query('SELECT url_locked, staff_url FROM program_source WHERE school = $1 AND sport = $2', [school, sport]);
       const row = cur.rows[0];
       if (row && row.url_locked) {
-        if (row.football_staff_url !== url) {
-          console.log(`[programMap] school="${school}" keeping hand-set URL ${row.football_staff_url}, ignoring ${via} suggestion ${url}`);
+        if (row.staff_url !== url) {
+          console.log(`[programMap] school="${school}" sport=${sport} keeping hand-set URL ${row.staff_url}, ignoring ${via} suggestion ${url}`);
         }
         return false;
       }
     }
     await pool.query(
-      `INSERT INTO program_source (school, football_staff_url, football_staff_url_discovered_via, athletics_contact_url, url_locked, verified_on, updated_at)
-       VALUES ($1,$2,$3,$4,$5,CURRENT_DATE,NOW())
-       ON CONFLICT (school) DO UPDATE SET
-         football_staff_url = EXCLUDED.football_staff_url,
-         football_staff_url_discovered_via = EXCLUDED.football_staff_url_discovered_via,
+      `INSERT INTO program_source (school, sport, staff_url, staff_url_discovered_via, athletics_contact_url, url_locked, verified_on, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,NOW())
+       ON CONFLICT (school, sport) DO UPDATE SET
+         staff_url = EXCLUDED.staff_url,
+         staff_url_discovered_via = EXCLUDED.staff_url_discovered_via,
          athletics_contact_url = COALESCE(EXCLUDED.athletics_contact_url, program_source.athletics_contact_url),
          url_locked = EXCLUDED.url_locked,
          verified_on = CURRENT_DATE, updated_at = NOW()`,
-      [school, url, via || null, contactUrl || null, via === 'manual']);
+      [school, sport, url, via || null, contactUrl || null, via === 'manual']);
     return true;
   } catch (e) { console.error(`[programMap] source url save failed school="${school}":`, e.message); return false; }
 }
 
 // Record a parse, keeping the previous list so the NEXT run can diff against it.
-async function saveProgramStaffSnapshot(school, staff, hash, via) {
+async function saveProgramStaffSnapshot(school, staff, hash, via, sport = 'football') {
   if (!school) return false;
   try {
     await pool.query(
-      `INSERT INTO program_source (school, last_fetched_at, last_hash, last_staff, last_staff_count, parse_via, updated_at)
-       VALUES ($1,NOW(),$2,$3::jsonb,$4,$5,NOW())
-       ON CONFLICT (school) DO UPDATE SET
+      `INSERT INTO program_source (school, sport, last_fetched_at, last_hash, last_staff, last_staff_count, parse_via, updated_at)
+       VALUES ($1,$2,NOW(),$3,$4::jsonb,$5,$6,NOW())
+       ON CONFLICT (school, sport) DO UPDATE SET
          last_fetched_at = NOW(), last_hash = EXCLUDED.last_hash,
          last_staff = EXCLUDED.last_staff, last_staff_count = EXCLUDED.last_staff_count,
          parse_via = EXCLUDED.parse_via, updated_at = NOW()`,
-      [school, hash || null, JSON.stringify(staff || []), (staff || []).length, via || null]);
+      [school, sport, hash || null, JSON.stringify(staff || []), (staff || []).length, via || null]);
     return true;
   } catch (e) { console.error(`[programMap] snapshot save failed school="${school}":`, e.message); return false; }
 }
 
-async function saveProgramContact(school, c) {
+async function saveProgramContact(school, c, sport = 'football') {
   if (!school || !c) return false;
   try {
+    // The old football_-prefixed keys are still accepted from callers so this
+    // migration does not have to change every call site at once. Both spellings
+    // land in the same sport-neutral column.
+    const phone = c.office_phone || c.football_office_phone || null;
+    const phoneSrc = c.office_phone_source_url || c.football_office_phone_source_url || null;
     await pool.query(
       `INSERT INTO program_contact
-         (school, football_office_phone, football_office_phone_source_url,
+         (school, sport, office_phone, office_phone_source_url,
           recruiting_email, recruiting_email_source_url,
           collective_email, collective_email_source_url, collective_name, verified_on, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CURRENT_DATE,NOW())
-       ON CONFLICT (school) DO UPDATE SET
-         football_office_phone = EXCLUDED.football_office_phone,
-         football_office_phone_source_url = EXCLUDED.football_office_phone_source_url,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CURRENT_DATE,NOW())
+       ON CONFLICT (school, sport) DO UPDATE SET
+         office_phone = EXCLUDED.office_phone,
+         office_phone_source_url = EXCLUDED.office_phone_source_url,
          recruiting_email = EXCLUDED.recruiting_email,
          recruiting_email_source_url = EXCLUDED.recruiting_email_source_url,
          collective_email = EXCLUDED.collective_email,
          collective_email_source_url = EXCLUDED.collective_email_source_url,
          collective_name = EXCLUDED.collective_name,
          verified_on = CURRENT_DATE, updated_at = NOW()`,
-      [school, c.football_office_phone || null, c.football_office_phone_source_url || null,
+      [school, sport, phone, phoneSrc,
        c.recruiting_email || null, c.recruiting_email_source_url || null,
        c.collective_email || null, c.collective_email_source_url || null, c.collective_name || null]);
     return true;
   } catch (e) { console.error(`[programMap] contact save failed school="${school}":`, e.message); return false; }
 }
 
-async function getProgramContact(school) {
+async function getProgramContact(school, sport = 'football') {
   try {
     const r = school
-      ? await pool.query('SELECT * FROM program_contact WHERE school = $1', [school])
-      : await pool.query('SELECT * FROM program_contact ORDER BY school');
-    return school ? (r.rows[0] || null) : (r.rows || []);
+      ? await pool.query('SELECT * FROM program_contact WHERE school = $1 AND sport = $2', [school, sport])
+      : await pool.query('SELECT * FROM program_contact WHERE sport = $1 ORDER BY school', [sport]);
+    const rows = r.rows || [];
+    // Readers still asking for football_office_phone keep working: the alias is
+    // added on the way out so this migration does not break them mid-flight.
+    for (const row of rows) {
+      if (row && row.office_phone !== undefined) {
+        row.football_office_phone = row.office_phone;
+        row.football_office_phone_source_url = row.office_phone_source_url;
+      }
+    }
+    return school ? (rows[0] || null) : rows;
   } catch (e) { console.error('[programMap] contact read failed:', e.message); return school ? null : []; }
 }
 
-async function getProgramStaff(school) {
+// sport defaults to football, so every existing caller returns exactly what it
+// returned before this migration.
+async function getProgramStaff(school, sport = 'football') {
   try {
     const r = school
-      ? await pool.query("SELECT * FROM program_staff WHERE school = $1 ORDER BY (role = 'staff'), is_key_contact DESC, role, role_rank NULLS LAST, (status <> 'current'), name", [school])
-      : await pool.query("SELECT * FROM program_staff ORDER BY school, (role = 'staff'), is_key_contact DESC, role, role_rank NULLS LAST, (status <> 'current'), name");
+      ? await pool.query("SELECT * FROM program_staff WHERE school = $1 AND sport = $2 ORDER BY (role = 'staff'), is_key_contact DESC, role, role_rank NULLS LAST, (status <> 'current'), name", [school, sport])
+      : await pool.query("SELECT * FROM program_staff WHERE sport = $1 ORDER BY school, (role = 'staff'), is_key_contact DESC, role, role_rank NULLS LAST, (status <> 'current'), name", [sport]);
     return r.rows || [];
   } catch (e) { console.error('[programMap] read failed:', e.message); return []; }
 }
