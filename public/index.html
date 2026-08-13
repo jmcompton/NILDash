@@ -1484,6 +1484,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <!--  PROGRAMS: read-only staff lookup. Mobile first, single column throughout. -->
       <div id="view-programs" class="view">
         <div style="max-width:720px">
+          <!-- SPORT FIRST. The sport is chosen before anything is searched, never
+               after a school is already on screen. One button is always selected,
+               and switching clears the school and the search box: football and
+               basketball contacts must never share a screen. -->
+          <div id="prog-sport-toggle" role="tablist" aria-label="Sport"
+            style="display:flex;gap:8px;margin-bottom:12px"></div>
           <div style="margin-bottom:6px;font-size:13px;color:var(--muted)">Who decides roster spots. Type a school name.</div>
           <div style="position:relative;margin-bottom:18px">
             <input id="prog-search" type="text" autocomplete="off" placeholder="Search schools"
@@ -5886,7 +5892,7 @@ async function showView(id, btn) {
   if (id === 'contract') prefillContract();
   if (id === 'deals') { if (selectedAthleteId) loadDealScanCache(); }
   // Warm the school list so the first keystroke in the search box is instant.
-  if (id === 'programs') { try { progLoadSchools(); } catch (e) {} }
+  if (id === 'programs') { try { progRenderSportToggle(); progLoadSchools(); } catch (e) {} }
   if (id === 'compliance') { try { loadNilComplianceRef(); } catch(e) {} }
   if (id === 'outreach') { try { loadUnifiedOutreach(); } catch(e) {} }
   if (id === 'pdf-scan') loadPdfScanAthletes();
@@ -7245,9 +7251,17 @@ window._dsOnBrandContacted = function (deal, via, undoable) {
 //
 // Never invents a contact: a missing email renders as nothing at all, not as a
 // guess and not as a constructed firstname.lastname@school.edu.
-var _progSchools = null;
+// SPORT IS PART OF EVERY KEY HERE. Both caches used to be keyed on nothing but
+// "the last thing loaded", which is fine with one sport and wrong with two: after
+// switching, the cached school list and the cached school would both still be the
+// other sport's, and the screen would show football staff under a basketball
+// heading. So _progSchools is an object keyed by sport, and _progCurrent carries the
+// sport it was fetched for and is only rendered when that matches the selection.
+var _progSport = 'football';
+var _progSportList = [{ key: 'football', label: 'Football' }, { key: 'mens_basketball', label: "Men's Basketball" }];
+var _progSchools = {};      // sport -> [schools]
 var _progActive = -1;
-var _progCurrent = null;
+var _progCurrent = null;    // carries .sport
 
 function progEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -7255,14 +7269,57 @@ function progEsc(s) {
   });
 }
 
+function progRenderSportToggle() {
+  var el = document.getElementById('prog-sport-toggle');
+  if (!el) return;
+  el.innerHTML = _progSportList.map(function (sp) {
+    var on = sp.key === _progSport;
+    return '<button type="button" role="tab" aria-selected="' + (on ? 'true' : 'false') + '"'
+      + ' data-sport="' + progEsc(sp.key) + '" onclick="progSetSport(\'' + progEsc(sp.key) + '\')"'
+      + ' style="flex:1;min-height:44px;padding:10px 14px;border-radius:var(--r);cursor:pointer;'
+      + 'font-family:\'DM Sans\',sans-serif;font-size:14px;'
+      + (on
+        ? 'background:var(--accent);color:#0b0f0a;border:1px solid var(--accent);font-weight:600'
+        : 'background:var(--surface2);color:var(--muted);border:1px solid var(--border)')
+      + '">' + progEsc(sp.label) + '</button>';
+  }).join('');
+}
+
+// Switching sports clears the school and the search box on purpose. Leaving the
+// previous school on screen while the sport label changed underneath it is exactly
+// the mixed-sport screen this design exists to prevent.
+function progSetSport(sport) {
+  if (!sport || sport === _progSport) return;
+  _progSport = sport;
+  _progCurrent = null;
+  _progActive = -1;
+  var input = document.getElementById('prog-search');
+  if (input) input.value = '';
+  var box = document.getElementById('prog-suggest');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+  var body = document.getElementById('prog-body');
+  if (body) body.innerHTML = '';
+  progRenderSportToggle();
+  progLoadSchools();
+}
+window.progSetSport = progSetSport;
+
 async function progLoadSchools() {
-  if (_progSchools) return _progSchools;
+  var sport = _progSport;
+  if (_progSchools[sport]) return _progSchools[sport];
   try {
-    var r = await fetch(API_BASE + '/api/programs/schools', { credentials: 'include' });
+    var r = await fetch(API_BASE + '/api/programs/schools?sport=' + encodeURIComponent(sport), { credentials: 'include' });
     var d = await r.json().catch(function () { return {}; });
-    _progSchools = (d && d.schools) || [];
-  } catch (e) { _progSchools = []; }
-  return _progSchools;
+    // The server echoes the sport it answered for. Storing the response under THAT
+    // key rather than the one we asked with means a late reply from a sport the user
+    // has already switched away from lands in its own slot instead of the new one.
+    var got = (d && d.sport) || sport;
+    if (d && Array.isArray(d.sports) && d.sports.length) _progSportList = d.sports;
+    _progSchools[got] = (d && d.schools) || [];
+    progRenderSportToggle();
+    return _progSchools[sport] || [];
+  } catch (e) { _progSchools[sport] = []; }
+  return _progSchools[sport];
 }
 
 async function progOnInput() {
@@ -7327,13 +7384,18 @@ async function progSelect(school) {
   var box = document.getElementById('prog-suggest');
   var input = document.getElementById('prog-search');
   var body = document.getElementById('prog-body');
+  var sport = _progSport;   // the sport this request is FOR, captured before awaiting
   if (box) box.style.display = 'none';
   if (input) input.value = school;
   if (!body) return;
   body.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:13px">Loading ' + progEsc(school) + '...</div>';
   try {
-    var r = await fetch(API_BASE + '/api/programs/' + encodeURIComponent(school), { credentials: 'include' });
+    var r = await fetch(API_BASE + '/api/programs/' + encodeURIComponent(school) + '?sport=' + encodeURIComponent(sport), { credentials: 'include' });
     var d = await r.json().catch(function () { return {}; });
+    // The user may have switched sports while this was in flight. Rendering it now
+    // would put one sport's staff on the other sport's screen, which is the single
+    // thing this tab must never do.
+    if (sport !== _progSport) return;
     if (!r.ok) {
       body.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:13px">'
         + progEsc(d.error || ('Error ' + r.status)) + '</div>';
@@ -7404,6 +7466,10 @@ function progRender(d) {
 
   h += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:16px">';
   h += '<div style="font-size:20px;font-weight:700;color:var(--text)">' + progEsc(d.school) + '</div>';
+  // The sport is stated on the card itself, not only in the toggle above it. A
+  // screenshot of this card has to be unambiguous about which staff it shows.
+  h += '<div style="font-size:12px;color:#84CC16;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-top:3px">'
+    + progEsc(d.sportLabel || 'Football') + '</div>';
   // Say plainly that the list is filtered. A count of 23 with 81 stored must not
   // read as "this program has 23 staff".
   h += '<div style="font-size:12px;color:var(--muted);margin-top:4px;line-height:1.5">'
@@ -7415,7 +7481,7 @@ function progRender(d) {
   }
   if (d.officePhone) {
     h += '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">'
-      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Football office</div>'
+      + '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">' + progEsc(d.sportLabel || 'Football') + ' office</div>'
       + progContactLine(d.officePhone, 'tel:' + d.officePhone, 'office line')
       + '</div>';
   }

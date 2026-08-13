@@ -23,6 +23,7 @@
 // rather than a fresh search, so the same page yields the same answer.
 
 const crypto = require('crypto');
+const sports = require('./sports');
 
 const FETCH_TIMEOUT_MS = 12000;
 const MAX_HTML_BYTES = 3_000_000;
@@ -316,12 +317,21 @@ function parseStaffHtml(html, pageUrl) {
   return out;
 }
 
-// A department-wide directory is not a football staff page, but the football staff
-// IS in it, under its own sections. Keep only rows under a football section, plus
-// anyone whose own title names football regardless of where they sit.
-const FOOTBALL_SECTION = /\bfootball\b/i;
+// A department-wide directory is not a single-sport staff page, but that sport's
+// staff IS in it, under its own sections. Keep only rows under a section naming the
+// sport, plus anyone whose own title names it regardless of where they sit.
+//
+// The section test is sports.namesSport, which runs excludeIfMatches BEFORE match.
+// That is the whole reason men's basketball is possible: a "Women's Basketball"
+// heading contains the word basketball, so a plain /\bbasketball\b/ would keep it.
+const FOOTBALL_SECTION = /\bfootball\b/i; // kept for callers that still import it
 
-function filterToFootballSections(staff) {
+function filterToSportSections(staff, sportArg) {
+  const sport = sports.normalizeSport(sportArg) || sports.DEFAULT_SPORT;
+  // Headings use the narrow name-only test; a person's own TITLE uses the wide one,
+  // so "Offensive Line Coach" sitting under a generic heading is still kept.
+  const hitSection = (t) => sports.sectionNamesSport(t, sport);
+  const hitTitle = (t) => sports.namesSport(t, sport);
   const list = Array.isArray(staff) ? staff : [];
   // TWO different lists, and conflating them is how a page reports "no football
   // section" while its section list plainly shows Football. detected = every heading
@@ -330,36 +340,58 @@ function filterToFootballSections(staff) {
   // filtered on, but the first is what a human reads in the log.
   const detected = Array.isArray(staff._sections) ? staff._sections : [];
   const sections = [...new Set(list.map((s) => s.section).filter(Boolean))];
-  const footballSections = sections.filter((s) => FOOTBALL_SECTION.test(s));
-  const footballDetected = detected.filter((s) => FOOTBALL_SECTION.test(s));
-  // No sections at all, or none of them football: this is already a football page
-  // (Florida, Georgia) and filtering it would be wrong.
-  if (!sections.length || !footballSections.length) {
+  const sportSections = sections.filter(hitSection);
+  const sportDetected = detected.filter(hitSection);
+  // No sections at all, or none of them this sport: this is already a single-sport
+  // page (Florida, Georgia) and filtering it would be wrong.
+  if (!sections.length || !sportSections.length) {
     return {
-      staff: list, filtered: false, dropped: 0, sections, footballSections,
-      detected, footballDetected,
+      staff: list, filtered: false, dropped: 0, sections, sportSections, footballSections: sportSections,
+      detected, sportDetected, footballDetected: sportDetected, sport,
       // The South Carolina case: a Football heading exists on the page but no parsed
       // row sits under it, so there is nothing to filter TO.
-      footballHeadingWithNoRows: footballDetected.length > 0 && footballSections.length === 0,
+      sportHeadingWithNoRows: sportDetected.length > 0 && sportSections.length === 0,
+      footballHeadingWithNoRows: sportDetected.length > 0 && sportSections.length === 0,
     };
   }
+  // A title can rescue someone from a GENERIC heading ("Coaching Staff"), but never
+  // from a CONTRADICTING one. "Director of Basketball Operations" under a
+  // "BASKETBALL, WOMEN'S" heading names basketball in its title and would otherwise
+  // be rescued onto the men's list: the title has no "women's" in it, so the title
+  // test alone cannot see the contradiction. The heading can, and the heading wins.
   const kept = list.filter((s) =>
-    (s.section && FOOTBALL_SECTION.test(s.section)) ||
-    (s.title && FOOTBALL_SECTION.test(s.title)));
-  // Never filter down to nothing. If the football sections turn out to be almost
-  // empty, the section markup was misread and the unfiltered list is the safer answer.
+    hitSection(s.section) ||
+    (hitTitle(s.title) && !sports.namesOtherSport(s.section, sport)));
+  // Never filter down to nothing. If the sport's sections turn out to be almost
+  // empty, the section markup was misread and the unfiltered list is the safer
+  // answer. Deliberately a flat 3 rather than the sport's minStaff: this guard is
+  // "the markup was misread", not "the page is too thin to accept", and raising it
+  // to football's 5 would change football behaviour for no reason.
   if (kept.length < 3) {
-    return { staff: list, filtered: false, dropped: 0, sections, footballSections, detected, footballDetected, tooFew: kept.length };
+    return {
+      staff: list, filtered: false, dropped: 0, sections, sportSections, footballSections: sportSections,
+      detected, sportDetected, footballDetected: sportDetected, sport, tooFew: kept.length,
+    };
   }
-  return { staff: kept, filtered: true, dropped: list.length - kept.length, sections, footballSections, detected, footballDetected };
+  return {
+    staff: kept, filtered: true, dropped: list.length - kept.length,
+    sections, sportSections, footballSections: sportSections,
+    detected, sportDetected, footballDetected: sportDetected, sport,
+  };
 }
+
+// Back-compat: the football-only name, unchanged in behaviour.
+function filterToFootballSections(staff) { return filterToSportSections(staff, 'football'); }
 
 // QUALITY, NOT COUNT. "Biggest page wins" accepted Alabama's 381-row navigation dump
 // over its real 19-row coaching staff. A page is only a football staff page if its
 // rows carry titles, are not link chrome, and cover the roles that matter.
 const MIN_TITLE_RATE = 0.60;   // at least 60% of rows have a non-empty title
 const MAX_JUNK_RATE = 0.20;    // fewer than 20% of names are junk
-const MIN_KEY_ROLES = 3;       // at least 3 of the 5 key roles present
+// Default only. The real threshold is per sport (football 3, basketball 2) and is
+// passed in by the caller; a basketball staff of eight cannot be held to a football
+// page's bar. Keeping the default at 3 means every existing caller is unchanged.
+const MIN_KEY_ROLES = 3;
 
 // Why did the title column not come through? A page can parse 40 names with 0
 // titles for several different reasons, and they need different fixes: the title
@@ -400,7 +432,8 @@ function inspectRows(html, pageUrl, limit) {
   return { blocks: blocks.length, samples: out };
 }
 
-function scoreStaffPage(staff, keyRolePatterns) {
+function scoreStaffPage(staff, keyRolePatterns, minKeyRolesArg) {
+  const minKeyRoles = Number.isFinite(minKeyRolesArg) ? minKeyRolesArg : MIN_KEY_ROLES;
   const list = Array.isArray(staff) ? staff : [];
   const rows = list.length;
   const pct = (x) => `${Math.round(x * 100)}%`;
@@ -420,18 +453,19 @@ function scoreStaffPage(staff, keyRolePatterns) {
   const reasons = [];
   if (titleRate < MIN_TITLE_RATE) reasons.push(`only ${pct(titleRate)} of rows have a title, need ${pct(MIN_TITLE_RATE)}`);
   if (junkRate >= MAX_JUNK_RATE) reasons.push(`${pct(junkRate)} of names are junk, must be under ${pct(MAX_JUNK_RATE)}`);
-  if (pats.length && keyRoles < MIN_KEY_ROLES) reasons.push(`only ${keyRoles} of ${pats.length} key roles present, need ${MIN_KEY_ROLES}`);
+  if (pats.length && keyRoles < minKeyRoles) reasons.push(`only ${keyRoles} of ${pats.length} key roles present, need ${minKeyRoles}`);
   return { rows, titleRate, junkRate, keyRoles, accepted: reasons.length === 0, reasons };
 }
 
 // Model fallback, used ONLY when the deterministic pass is too thin. It reads the
 // FETCHED page text, not a fresh search, so the input is fixed and the output is
 // stable for a given page. Never invents: the instruction is extraction only.
-async function extractStaffWithModel(html, pageUrl, ai) {
+async function extractStaffWithModel(html, pageUrl, ai, sportArg) {
+  const sport = sports.getSport(sportArg) || sports.SPORTS[sports.DEFAULT_SPORT];
   const text = _text(html).slice(0, 40000);
   if (!text) return [];
   const sys = 'You extract a staff list from the text of ONE web page. Output ONLY JSON. Copy names and titles exactly as they appear. Never invent a person, a title, an email, or a phone number, and never construct an email address.';
-  const prompt = `This is the text of the football staff page at ${pageUrl}. Extract EVERY staff member listed.
+  const prompt = `This is the text of the ${sport.label} staff page at ${pageUrl}. Extract EVERY staff member listed.
 Respond with ONLY: {"staff":[{"name":"","title":"","email":null,"phone":null}]}
 Rules:
 - Copy the name and title exactly as printed. Include every person, not just senior ones.
@@ -470,7 +504,9 @@ const MIN_DETERMINISTIC = 5; // below this the page probably did not parse struc
 const MODEL_EXTRACT_TIMEOUT_MS = 30000; // hard cap on the model fallback
 
 // Fetch + parse one staff page. Returns { ok, staff, via, ms, hash }.
-async function loadStaff(url, ai) {
+async function loadStaff(url, ai, sportArg) {
+  const sport = sports.normalizeSport(sportArg) || sports.DEFAULT_SPORT;
+  const label = sports.SPORTS[sport].label;
   const got = await fetchStaffPage(url);
   if (!got.ok) {
     console.warn(`[staffPage] fetch FAILED ${url} reason=${got.reason} ms=${got.ms}`);
@@ -479,19 +515,19 @@ async function loadStaff(url, ai) {
   let staff = parseStaffHtml(got.html, got.finalUrl);
   let via = 'parser';
   if (staff.length < MIN_DETERMINISTIC && ai) {
-    const modelStaff = await extractStaffWithModel(got.html, got.finalUrl, ai);
+    const modelStaff = await extractStaffWithModel(got.html, got.finalUrl, ai, sport);
     if (modelStaff.length > staff.length) { staff = modelStaff; via = 'model'; }
   }
-  // A department-wide directory gets cut to its football sections here, so every
-  // caller sees football staff and nothing else.
+  // A department-wide directory gets cut to THIS SPORT's sections here, so every
+  // caller sees one sport's staff and nothing else.
   const sections = Array.isArray(staff._sections) ? staff._sections : [];
-  const filt = filterToFootballSections(staff);
+  const filt = filterToSportSections(staff, sport);
   staff = filt.staff;
   if (filt.filtered) {
-    console.log(`[staffPage] ${got.finalUrl} DEPARTMENT-WIDE page cut to football sections ` +
-      `[${filt.footballSections.join(', ')}], dropped ${filt.dropped} of ${filt.dropped + staff.length} rows`);
+    console.log(`[staffPage] ${got.finalUrl} DEPARTMENT-WIDE page cut to ${label} sections ` +
+      `[${filt.sportSections.join(', ')}], dropped ${filt.dropped} of ${filt.dropped + staff.length} rows`);
   } else if (filt.tooFew != null) {
-    console.warn(`[staffPage] ${got.finalUrl} football sections matched only ${filt.tooFew} rows, keeping the full list instead`);
+    console.warn(`[staffPage] ${got.finalUrl} ${label} sections matched only ${filt.tooFew} rows, keeping the full list instead`);
   } else if (staff.length > 40) {
     // A big page that was NOT filtered has several possible causes that look
     // identical in a row count, so print the evidence IN FULL and never truncate it:
@@ -499,9 +535,9 @@ async function loadStaff(url, ai) {
     // section lists are reported separately, because a heading with no rows under it
     // is a different problem from a heading that does not exist.
     const withRows = filt.sections || [];
-    if (filt.footballHeadingWithNoRows) {
-      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: a football heading EXISTS on this page ` +
-        `[${filt.footballDetected.join(', ')}] but no parsed staff row sits under it, so there is nothing to filter to. ` +
+    if (filt.sportHeadingWithNoRows) {
+      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: a ${label} heading EXISTS on this page ` +
+        `[${filt.sportDetected.join(', ')}] but no parsed staff row sits under it, so there is nothing to filter to. ` +
         `That heading is probably navigation rather than a section label.`);
       console.warn(`  headings detected on the page (${filt.detected.length}):`);
       for (const s of filt.detected) console.warn(`    detected: ${s}`);
@@ -515,7 +551,7 @@ async function loadStaff(url, ai) {
         for (const s of filt.detected) console.warn(`    detected: ${s}`);
       }
     } else {
-      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: ${withRows.length} section(s) have staff under them, none naming football. Full list:`);
+      console.warn(`[staffPage] ${got.finalUrl} NOT FILTERED: ${withRows.length} section(s) have staff under them, none naming ${label}. Full list:`);
       for (const s of withRows) console.warn(`    with rows: ${s}`);
     }
   }
@@ -523,7 +559,7 @@ async function loadStaff(url, ai) {
   if (got.finalUrl && got.finalUrl !== url) {
     console.log(`[staffPage] REDIRECT ${url} -> ${got.finalUrl} (the resolved URL is what gets persisted)`);
   }
-  console.log(`[staffPage] ${url} bytes=${got.bytes} staff=${staff.length} via=${via} withEmail=${staff.filter((s) => s.email).length} withPhone=${staff.filter((s) => s.phone).length} ms=${got.ms} hash=${hash.slice(0, 8)}`);
+  console.log(`[staffPage] ${url} sport=${sport} bytes=${got.bytes} staff=${staff.length} via=${via} withEmail=${staff.filter((s) => s.email).length} withPhone=${staff.filter((s) => s.phone).length} ms=${got.ms} hash=${hash.slice(0, 8)}`);
   return { ok: true, staff, via, ms: got.ms, hash, finalUrl: got.finalUrl };
 }
 
@@ -614,6 +650,7 @@ function diffStaff(oldStaff, newStaff) {
 module.exports = {
   fetchStaffPage, parseStaffHtml, extractStaffWithModel, loadStaff, hashStaff, diffStaff,
   looksLikeName, looksLikeTitle, TITLE_HINT, phoneFromUrl, inspectHtml,
-  stripNameLabel, looksLikeSectionHeader, normalizeSection, filterToFootballSections, scoreStaffPage, inspectRows,
+  stripNameLabel, looksLikeSectionHeader, normalizeSection,
+  filterToSportSections, filterToFootballSections, scoreStaffPage, inspectRows,
   JUNK_TEXT, FOOTBALL_SECTION, MIN_TITLE_RATE, MAX_JUNK_RATE, MIN_KEY_ROLES,
 };

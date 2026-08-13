@@ -7010,20 +7010,31 @@ app.post('/api/admin/program-map/build', requireAuth, async (req, res) => {
     }
     const programMap = require('./services/programMap');
     const { school } = req.body || {};
+    // Sport comes off the body here rather than the query string, because this is a
+    // POST. Same normaliser, same default, same refusal on an unknown sport: a build
+    // must never write rows under a sport nobody asked for.
+    const bSport = (req.body && req.body.sport) ? programMap.normalizeSport(req.body.sport) : programMap.DEFAULT_SPORT;
+    if (!bSport) return res.status(400).json({ error: `unknown sport "${req.body.sport}"` });
     const schools = school ? [school] : programMap.PILOT_SCHOOLS;
     const t0 = Date.now();
     const out = [];
     for (const s of schools) {
       try {
-        const built = await programMap.buildProgram(s);
-        const saved = await store.saveProgramStaff(s, built.records);
+        // NOTE: store is deliberately still not passed, exactly as before. This route
+        // has always called buildProgram with two arguments missing, which means the
+        // staff-page lane (guarded by `if (store)`) has never run here and this build
+        // is search-only. That looks like a bug, but it is a PRE-EXISTING one and
+        // fixing it would change what this endpoint does, which is not what this
+        // change is for. Threaded, not repaired. The CLI is the path that fetches.
+        const built = await programMap.buildProgram(s, null, null, { sport: bSport });
+        const saved = await store.saveProgramStaff(s, built.records, bSport);
         out.push({ school: s, records: saved, rolesFilled: built.rolesFilled, rolesTotal: built.rolesTotal, ms: built.ms, searches: built.meter.searches });
       } catch (e) {
         console.error(`[program-map] ${s} failed:`, e.message);
         out.push({ school: s, error: e.message });
       }
     }
-    res.json({ ok: true, programs: out.length, totalMs: Date.now() - t0, results: out });
+    res.json({ ok: true, sport: bSport, programs: out.length, totalMs: Date.now() - t0, results: out });
   } catch (e) { console.error('[program-map/build]', e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -7034,10 +7045,12 @@ app.get('/api/admin/program-map', requireAuth, async (req, res) => {
     if (!_ru || (_ru.email !== ADMIN_EMAIL && !isFounderEmail(_ru.email) && _ru.role !== 'admin')) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    const rows = await store.getProgramStaff(req.query.school || null);
+    const dumpSport = req.query.sport ? require('./services/sports').normalizeSport(req.query.sport) : 'football';
+    if (!dumpSport) return res.status(400).json({ error: `unknown sport "${req.query.sport}"` });
+    const rows = await store.getProgramStaff(req.query.school || null, dumpSport);
     const byConfidence = {};
     for (const r of rows) byConfidence[r.confidence] = (byConfidence[r.confidence] || 0) + 1;
-    res.json({ ok: true, count: rows.length, byConfidence, records: rows });
+    res.json({ ok: true, sport: dumpSport, count: rows.length, byConfidence, records: rows });
   } catch (e) { console.error('[program-map]', e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -7114,8 +7127,27 @@ app.get('/api/admin/athlete-signups', async (req, res) => {
 
 // Only schools we actually have data for. An empty state for the other 126
 // programs would imply we are still loading them; we are not.
+// SPORT IS A PARAMETER, NEVER A MIX. Both endpoints below resolve ?sport= through
+// the same normaliser the CLI uses, default to football when it is absent, and
+// return 400 on a sport that is not scannable. A response therefore always describes
+// exactly one sport, and the sport it describes is echoed back so the client can
+// prove it got the one it asked for rather than a cached other.
+const _sportsTable = require('./services/sports');
+function _reqSport(req, res) {
+  const raw = req.query && req.query.sport;
+  if (raw == null || String(raw).trim() === '') return _sportsTable.DEFAULT_SPORT;
+  const s = _sportsTable.normalizeSport(raw);
+  if (!s) {
+    res.status(400).json({ error: `unknown sport "${raw}". Known: ${_sportsTable.SCANNABLE.join(', ')}` });
+    return null;
+  }
+  return s;
+}
+
 app.get('/api/programs/schools', requireAuth, async (req, res) => {
   try {
+    const sport = _reqSport(req, res);
+    if (!sport) return;
     const r = await store.pool.query(`
       SELECT ps.school,
              COUNT(*)::int AS staff_count,
@@ -7124,12 +7156,12 @@ app.get('/api/programs/schools', requireAuth, async (req, res) => {
              MAX(src.last_fetched_at) AS last_fetched
       FROM program_staff ps
       LEFT JOIN program_source src ON src.school = ps.school AND src.sport = ps.sport
-      WHERE ps.status = 'current' AND ps.sport = 'football'
+      WHERE ps.status = 'current' AND ps.sport = $1
       GROUP BY ps.school
       HAVING COUNT(*) > 0
       ORDER BY ps.school
-    `);
-    res.json({ schools: r.rows });
+    `, [sport]);
+    res.json({ sport, sports: _sportsTable.UI_SPORTS.map((k) => ({ key: k, label: _sportsTable.SPORTS[k].label })), schools: r.rows });
   } catch (e) {
     console.error('[programs/schools]', e.message);
     res.status(500).json({ error: e.message });
@@ -7138,28 +7170,37 @@ app.get('/api/programs/schools', requireAuth, async (req, res) => {
 
 // One school. Key contacts in the fixed order the agent asked for, then everyone
 // else. Nothing is synthesised: a missing email is absent, never a guess.
+// Football's order, kept exactly as it was. Any other sport takes its role order
+// from the sports table, so a sport's key contacts appear in the order that sport
+// declares rather than in a football-shaped one.
 const PROGRAM_KEY_ORDER = ['general_manager', 'player_personnel', 'recruiting', 'head_coach'];
+function _keyOrderFor(sport) {
+  if (sport === _sportsTable.DEFAULT_SPORT) return PROGRAM_KEY_ORDER;
+  return (_sportsTable.SPORTS[sport].roles || []).map((r) => r.key).filter((k) => k !== 'collective_director');
+}
 
 app.get('/api/programs/:school', requireAuth, async (req, res) => {
   try {
     const school = String(req.params.school || '').trim();
     if (!school) return res.status(400).json({ error: 'school required' });
+    const sport = _reqSport(req, res);
+    if (!sport) return;
 
-    const rows = await store.getProgramStaff(school);
+    const rows = await store.getProgramStaff(school, sport);
     const current = rows.filter((r) => r.status === 'current');
-    if (!current.length) return res.status(404).json({ error: 'no data for that school' });
+    if (!current.length) return res.status(404).json({ error: `no ${_sportsTable.SPORTS[sport].label} data for that school`, sport });
 
-    const contactRow = await store.getProgramContact(school);
+    const contactRow = await store.getProgramContact(school, sport);
     const srcQ = await store.pool.query(
       `SELECT staff_url AS football_staff_url, last_fetched_at, last_staff_count
-       FROM program_source WHERE school = $1 AND sport = 'football'`, [school]);
+       FROM program_source WHERE school = $1 AND sport = $2`, [school, sport]);
     const src = srcQ.rows[0] || {};
 
     // The key contacts, one per role, most senior first. role_rank 1 is the senior
     // person in that role; anyone below is surfaced under the full staff list rather
     // than silently dropped.
     const keyContacts = [];
-    for (const role of PROGRAM_KEY_ORDER) {
+    for (const role of _keyOrderFor(sport)) {
       const inRole = current.filter((r) => r.role === role);
       if (!inRole.length) continue;
       const top = inRole.find((r) => r.is_key_contact) || inRole[0];
@@ -7183,7 +7224,7 @@ app.get('/api/programs/:school', requireAuth, async (req, res) => {
     const decisionMaker = require('./services/decisionMaker');
     const keyIds = new Set(keyContacts.map((k) => `${k.role}|${k.name}`));
     const rest = current.filter((r) => !keyIds.has(`${r.role}|${r.name}`));
-    const { shown, hidden } = decisionMaker.partition(rest);
+    const { shown, hidden } = decisionMaker.partition(rest, sport);
     const fullStaff = shown.map((r) => ({
       name: r.name, title: r.title, role: r.role, role_label: r.role_label,
       email: r.email || null, phone: r.phone || null,
@@ -7192,8 +7233,10 @@ app.get('/api/programs/:school', requireAuth, async (req, res) => {
 
     res.json({
       school,
-      officePhone: (contactRow && contactRow.football_office_phone) || null,
-      officePhoneSource: (contactRow && contactRow.football_office_phone_source_url) || null,
+      sport,
+      sportLabel: _sportsTable.SPORTS[sport].label,
+      officePhone: (contactRow && (contactRow.office_phone || contactRow.football_office_phone)) || null,
+      officePhoneSource: (contactRow && (contactRow.office_phone_source_url || contactRow.football_office_phone_source_url)) || null,
       staffUrl: src.football_staff_url || null,
       lastFetched: src.last_fetched_at || null,
       totals: {
