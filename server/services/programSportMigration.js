@@ -36,9 +36,34 @@ async function tableExists(db, table) {
 
 async function columnExists(db, table, column) {
   const r = await db.query(
-    `SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+    `SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
     [table, column]);
   return r.rows.length > 0;
+}
+
+// Normalise whatever the driver hands back for a column list.
+//
+// This is where the first dry run died with ".slice is not a function". pg_attribute
+// .attname is of type `name`, so ARRAY(...) over it yields name[] (OID 1003), which
+// node-postgres does not parse into a JS array: it arrives as the raw literal
+// "{school,role,name}". The query below now casts to text[] so the driver parses it,
+// and this function still handles the string form, because relying on one driver's
+// type table to be complete is what caused the crash in the first place.
+function _colNames(raw) {
+  if (Array.isArray(raw)) return raw.map(String);
+  if (raw == null) return [];
+  if (typeof raw === 'string') {
+    // Postgres array literal: {a,b,c}, with quotes around anything unusual.
+    const inner = raw.replace(/^\{/, '').replace(/\}$/, '');
+    if (!inner) return [];
+    return inner.split(',').map((s) => s.trim().replace(/^"(.*)"$/, '$1')).filter(Boolean);
+  }
+  // Anything else (int2vector, a Buffer, some future driver shape): say exactly what
+  // arrived rather than throwing an error that names the symptom and not the cause.
+  console.warn('[programSport] unexpected constraint column type:'
+    + ` typeof=${typeof raw} ctor=${raw && raw.constructor && raw.constructor.name} value=${JSON.stringify(raw)}`);
+  return [];
 }
 
 // Find a UNIQUE or PRIMARY KEY constraint by the exact column set it covers, in any
@@ -47,15 +72,36 @@ async function columnExists(db, table, column) {
 async function constraintOn(db, table, columns, type) {
   const r = await db.query(`
     SELECT c.conname,
-           ARRAY(SELECT a.attname FROM unnest(c.conkey) k
+           ARRAY(SELECT a.attname::text FROM unnest(c.conkey) k
                  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k
-                 ORDER BY a.attname) AS cols
+                 ORDER BY a.attname)::text[] AS cols
     FROM pg_constraint c
     WHERE c.conrelid = $1::regclass AND c.contype = $2
   `, ['public.' + table, type]);
   const want = [...columns].sort().join(',');
-  const hit = r.rows.find((row) => (row.cols || []).slice().sort().join(',') === want);
+  const hit = r.rows.find((row) => _colNames(row.cols).sort().join(',') === want);
   return hit ? hit.conname : null;
+}
+
+// Every constraint on a table, for the CLI to print. Seeing the real names and
+// column sets is what turns "none found" from a mystery into a fact.
+async function constraintsFor(db, table) {
+  if (!(await tableExists(db, table))) return [];
+  const r = await db.query(`
+    SELECT c.conname, c.contype,
+           ARRAY(SELECT a.attname::text FROM unnest(c.conkey) k
+                 JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k
+                 ORDER BY a.attname)::text[] AS cols
+    FROM pg_constraint c
+    WHERE c.conrelid = $1::regclass AND c.contype IN ('p','u')
+    ORDER BY c.conname
+  `, ['public.' + table]);
+  return r.rows.map((row) => ({
+    name: row.conname,
+    type: row.contype === 'p' ? 'PRIMARY KEY' : 'UNIQUE',
+    cols: _colNames(row.cols),
+    rawCols: row.cols,
+  }));
 }
 
 async function counts(db) {
@@ -269,4 +315,4 @@ async function ensureSchema(pool) {
   }
 }
 
-module.exports = { TABLES, counts, inspect, plan, rollbackPlan, run, ensureSchema, constraintOn, columnExists };
+module.exports = { TABLES, counts, inspect, plan, rollbackPlan, run, ensureSchema, constraintOn, constraintsFor, columnExists, _colNames };

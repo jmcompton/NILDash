@@ -14,8 +14,33 @@
 //
 // Applying is deliberately the flag you have to type. Bare invocation only looks.
 
-const store = require('../store');
+// This CLI owns its OWN pool and deliberately does NOT require ../store.
+//
+// It used to require it, which had two consequences, both bad. Requiring store.js
+// kicks off its async init() at import time, so the CLI was racing the app's table
+// setup. And the CLI's error path called store.pool.end(), ending a pool it did not
+// create and that init() was still using: one migration failure produced ~80
+// "Cannot use a pool after calling end on the pool" errors from unrelated table
+// setup. A failed migration must not be able to take the database away from
+// anything else in the process.
+//
+// Owning the connection also means this script has no side effects beyond the
+// migration itself: no table creation, no boot-time work, nothing to race.
+const { Pool } = require('pg');
 const mig = require('../services/programSportMigration');
+
+function makePool() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not set. This script connects on its own and cannot borrow the app pool.');
+  }
+  // Same SSL posture as server/store.js, so it connects the same way in every
+  // environment this already runs in.
+  return new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+    max: 2,
+  });
+}
 
 function line(ch = '-', n = 74) { return ch.repeat(n); }
 
@@ -31,7 +56,7 @@ function printCounts(label, c) {
   }
 }
 
-async function main() {
+async function main(pool) {
   const args = process.argv.slice(2);
   const apply = args.includes('--apply');
   const dryRun = args.includes('--dry-run');
@@ -39,10 +64,10 @@ async function main() {
 
   if (apply && rollback) { console.log('Pick one: --apply or --rollback.'); return; }
 
-  const before = await mig.counts(store.pool);
+  const before = await mig.counts(pool);
   printCounts('BEFORE', before);
 
-  const state = await mig.inspect(store.pool);
+  const state = await mig.inspect(pool);
   console.log('\nCURRENT SCHEMA');
   console.log(line());
   console.log(`  program_staff  sport column: ${state.program_staff.exists ? (state.program_staff.hasSport ? 'yes' : 'NO') : 'n/a'}`
@@ -55,7 +80,21 @@ async function main() {
       .map(([k, v]) => `${k}=${v ? 'present' : 'absent'}`).join(', '));
   }
 
-  const built = rollback ? await mig.rollbackPlan(store.pool) : await mig.plan(store.pool);
+  // Every key constraint actually on the table, with the raw driver value beside
+  // the parsed one. The first dry run crashed reading this and reported only the
+  // symptom; printing both means a type surprise is visible rather than fatal.
+  console.log('\nKEY CONSTRAINTS AS THE DATABASE REPORTS THEM');
+  console.log(line());
+  for (const t of mig.TABLES) {
+    const cons = await mig.constraintsFor(pool, t);
+    if (!cons.length) { console.log(`  ${t}: none`); continue; }
+    for (const c of cons) {
+      console.log(`  ${t}: ${c.type} ${c.name} (${c.cols.join(', ') || 'UNPARSED'})`);
+      console.log(`      raw cols: ${typeof c.rawCols} ${JSON.stringify(c.rawCols)}`);
+    }
+  }
+
+  const built = rollback ? await mig.rollbackPlan(pool) : await mig.plan(pool);
   if (rollback && built.blockers.length) {
     console.log('\nCANNOT ROLL BACK:');
     for (const b of built.blockers) console.log(`  ${b}`);
@@ -86,7 +125,7 @@ async function main() {
   const commit = apply || (rollback && !dryRun);
   console.log(`\n${commit ? 'APPLYING (will COMMIT)' : 'DRY RUN (will execute then ROLL BACK)'}`);
   console.log(line());
-  const res = await mig.run(store.pool, steps, { commit });
+  const res = await mig.run(pool, steps, { commit });
 
   if (!res.ok) {
     console.log(`\nFAILED at statement ${res.failedAt + 1} of ${steps.length}: ${res.error}`);
@@ -129,9 +168,20 @@ async function main() {
 }
 
 if (require.main === module) {
-  main()
-    .catch((e) => { console.error('[migrate] fatal:', e.message); process.exitCode = 1; })
-    .finally(() => { if (store.pool && store.pool.end) store.pool.end().catch(() => {}); });
+  let pool = null;
+  (async () => {
+    try {
+      pool = makePool();
+      await main(pool);
+    } catch (e) {
+      console.error('[migrate] fatal:', e.message);
+      if (e && e.stack) console.error(e.stack);
+      process.exitCode = 1;
+    } finally {
+      // Only ever ends the pool THIS script created.
+      if (pool) await pool.end().catch(() => {});
+    }
+  })();
 }
 
 module.exports = { main };
