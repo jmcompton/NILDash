@@ -1,12 +1,12 @@
 // server/services/workflowOrchestrator.js
-// WorkflowOrchestrator — Part 8 of the NIL Outreach Automation Engine.
+// WorkflowOrchestrator, Part 8 of the NIL Outreach Automation Engine.
 //
 // Coordinates all services in the correct sequence:
 //   Deal Scan result → Enrichment → Contact Discovery → Match → Pitch → Deck → Email Draft → CRM
 //
 // All steps run async, non-blocking, with full error isolation.
 // Each step logs to automation_runs and workflow_events tables.
-// Partial failures are captured and reported — never throw on recoverable errors.
+// Partial failures are captured and reported, never throw on recoverable errors.
 //
 // SAFETY: orchestrates NEW services only.
 //         reads athletes and deals tables (read-only on existing).
@@ -39,7 +39,7 @@ const deckSvc        = require('./deckGeneration');
  * Non-blocking: caller gets runId immediately; poll /api/outreach/runs/:runId for status.
  */
 async function runOutreachWorkflow(params) {
-  const { agentId, athlete, dealScanResult } = params;
+  const { agentId, athlete, dealScanResult, knownContacts } = params;
   const brandName = dealScanResult.brand;
   const athleteId = athlete.id;
 
@@ -51,8 +51,8 @@ async function runOutreachWorkflow(params) {
     [runId, agentId, athleteId, brandName]
   );
 
-  // Run workflow in background — return runId immediately
-  setImmediate(() => executeWorkflow(runId, agentId, athlete, dealScanResult).catch(e => {
+  // Run workflow in background, return runId immediately
+  setImmediate(() => executeWorkflow(runId, agentId, athlete, dealScanResult, knownContacts).catch(e => {
     console.error('[workflowOrchestrator] Unhandled error in run', runId, e.message);
     markRunFailed(runId, e.message);
   }));
@@ -95,7 +95,7 @@ async function listRunsForAgent(agentId, limit = 20) {
 
 // ── Workflow Execution ────────────────────────────────────────────────────────
 
-async function executeWorkflow(runId, agentId, athlete, dealScanResult) {
+async function executeWorkflow(runId, agentId, athlete, dealScanResult, knownContacts) {
   const brandName = dealScanResult.brand;
   const athleteId = athlete.id;
   const completedSteps = [];
@@ -139,8 +139,10 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult) {
   await pool.query('UPDATE automation_runs SET enrichment_id=$1 WHERE id=$2', [enrichment.id, runId]);
 
   // ── Step 2: Contact Discovery ──────────────────────────────────────────────
+  // knownContacts is what the CARD already found. When it carries a real answer the
+  // second web fan-out is skipped: same resolver, same searches, already paid for.
   const contacts = await step('contact_discovery', () =>
-    contactSvc.discoverContacts(agentId, enrichment)
+    contactSvc.discoverContacts(agentId, enrichment, knownContacts)
   );
 
   const bestContact = contacts?.[0] || null;

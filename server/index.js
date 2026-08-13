@@ -30,14 +30,14 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'johnmarkcompton@gmail.com';
 // the athlete verify-email flow will resume creating Stripe checkout + trial.
 const BILLING_ENABLED = process.env.BILLING_ENABLED === 'true';
 
-// ── PLATFORM FEE (display / record only — OFF by default) ───────────────────
+// ── PLATFORM FEE (display / record only, OFF by default) ───────────────────
 // Percentage NILDash records on each athlete deal for transparency in the
 // money loop. Defaults to 0 (OFF). When > 0, each deal computes & stores
 // fee_amount and net_amount and shows a breakdown (amount / fee / net).
 // IMPORTANT: this is DISPLAY/RECORD ONLY. NILDash does NOT collect this fee.
 // There is NO payment processing, NO Stripe Connect, NO payouts, NO money
 // movement anywhere in this loop. To turn it on later set env PLATFORM_FEE_PCT
-// (e.g. PLATFORM_FEE_PCT=5) — no rebuild required.
+// (e.g. PLATFORM_FEE_PCT=5), no rebuild required.
 const PLATFORM_FEE_PCT = (function () {
   const v = parseFloat(process.env.PLATFORM_FEE_PCT || '0');
   if (!isFinite(v) || v < 0) return 0;
@@ -67,7 +67,7 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting — login/register: 10 attempts per 15 min
+// Rate limiting, login/register: 10 attempts per 15 min
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -95,7 +95,7 @@ const apiLimiter = rateLimit({
 });
 
 // Social stats fetch: each call spends an Anthropic web-search request, so keep
-// it tight — a few per minute per user.
+// it tight, a few per minute per user.
 const statsLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 6,
@@ -106,7 +106,7 @@ const statsLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// ── Stripe webhook — raw body MUST come before express.json() ─────────────
+// ── Stripe webhook, raw body MUST come before express.json() ─────────────
 // This endpoint uses express.raw() to preserve the raw body for Stripe signature verification.
 app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -549,7 +549,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   // Inactive athlete accounts (removed by agent)
   if (user.role === 'athlete' && user.agent_id) {
     const agentExists = await store.pool.query('SELECT id FROM users WHERE id=$1', [user.agent_id]).catch(() => ({ rows: [] }));
-    // Don't block login here — agent account may just be inactive, keep access
+    // Don't block login here, agent account may just be inactive, keep access
   }
 
   const ok = await bcrypt.compare(password, user.password);
@@ -598,7 +598,7 @@ app.post('/api/auth/logout', (req, res) => {
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!user) return res.status(401).json({ error: 'Not found' });
-  // Refresh session role on every /me call — handles sessions that predate role storage
+  // Refresh session role on every /me call, handles sessions that predate role storage
   if (!req.session.role) req.session.role = user.role;
   res.json({
     id: user.id, name: user.name, email: user.email, role: user.role,
@@ -649,7 +649,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     { id:'samford-demo-008', name:'Cole Hutchins', sport:'Football',           position:'Quarterback',   school:'Samford University', schoolTier:'G5', instagram:31200, tiktok:28900, engagement:4.7, stats:'2,841 pass yds, 24 TD, 7 INT (2024)',    notes:'Starting QB and de facto face of the program.', university_id: UNIV_ID },
   ];
 
-  // UNIVERSITY SIDE ONLY — writes to university_athletes, never to the agent athletes table
+  // UNIVERSITY SIDE ONLY, writes to university_athletes, never to the agent athletes table
   let inserted = 0, updated = 0, failed = 0;
   for (const athlete of SAMFORD_ATHLETES) {
     const { id, name, sport, position, ...rest } = athlete;
@@ -771,7 +771,7 @@ app.post('/api/university/ai/compliance-check', requireUniversityAuth, async (re
     const universityId = req.session.universityId;
     if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
 
-    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    // UNIVERSITY SIDE ONLY, reads from university_athletes
     const athR = await store.pool.query('SELECT * FROM university_athletes WHERE id=$1', [athleteId]);
     if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
     const athlete = athR.rows[0];
@@ -850,7 +850,7 @@ app.post('/api/university/ai/deal-recommendations/:athleteId', requireUniversity
   try {
     const { athleteId } = req.params;
 
-    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    // UNIVERSITY SIDE ONLY, reads from university_athletes
     const athR = await store.pool.query('SELECT * FROM university_athletes WHERE id=$1', [athleteId]);
     if (!athR.rows.length) return res.status(404).json({ error: 'Athlete not found' });
     const athData = athR.rows[0].data || {};
@@ -905,7 +905,7 @@ app.get('/api/university/flags', requireUniversityAuth, async (req, res) => {
   try {
     const universityId = req.session.universityId;
     const { resolved, severity, athlete_id } = req.query;
-    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    // UNIVERSITY SIDE ONLY, reads from university_athletes
     let sql = `SELECT f.*, a.name as athlete_name, a.sport
                FROM university_deal_flags f
                JOIN university_athletes a ON a.id = f.athlete_id
@@ -940,7 +940,7 @@ app.get('/api/university/compliance-dashboard', requireUniversityAuth, async (re
   try {
     const universityId = req.session.universityId;
 
-    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    // UNIVERSITY SIDE ONLY, reads from university_athletes
     const athleteLinks = await store.pool.query(
       `SELECT ual.*, a.name, a.sport
        FROM university_athlete_links ual
@@ -956,7 +956,7 @@ app.get('/api/university/compliance-dashboard', requireUniversityAuth, async (re
       [universityId]
     );
 
-    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    // UNIVERSITY SIDE ONLY, reads from university_athletes
     const topFlags = await store.pool.query(
       `SELECT f.*, a.name as athlete_name, a.sport
        FROM university_deal_flags f
@@ -1109,7 +1109,7 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     // Interest tags ("industry:sub" strings) and product wants feed Deal Scan.
     tags: Array.isArray(tags) ? tags.filter(t => typeof t === 'string').slice(0, 40) : [],
     productWants: (productWants ? String(productWants).trim().slice(0, 300) : ''),
-    // Additive social/onboarding fields — default cleanly so the normal Add
+    // Additive social/onboarding fields, default cleanly so the normal Add
     // Client flow (which does not send these) is unchanged.
     instagramHandle: (instagramHandle ? String(instagramHandle).trim().replace(/^@+/, '').toLowerCase() : ''),
     brandRestrictions: Array.isArray(brandRestrictions) ? brandRestrictions : [],
@@ -1205,7 +1205,7 @@ app.post('/api/agent/create-athlete-account', requireAuth, async (req, res) => {
 app.put('/api/athletes/:id', requireAuth, async (req, res) => {
   const existing = await store.getAthlete(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
-  // FIXED: ownership check — agentId is camelCase from store.getAthlete()
+  // FIXED: ownership check, agentId is camelCase from store.getAthlete()
   const user = await store.getUser(req.session.userId);
   if (existing.agentId !== req.session.userId && user.email !== ADMIN_EMAIL)
     return res.status(403).json({ error: 'Forbidden' });
@@ -1217,7 +1217,7 @@ app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
   const athlete = await store.getAthlete(req.params.id);
   if (!athlete) return res.status(404).json({ error: 'Not found' });
   const user = await store.getUser(req.session.userId);
-  // FIXED: agentId is camelCase from store.getAthlete() — was athlete.agent_id (undefined), causing 403 for owners
+  // FIXED: agentId is camelCase from store.getAthlete(), was athlete.agent_id (undefined), causing 403 for owners
   if (athlete.agentId !== req.session.userId && user.email !== ADMIN_EMAIL) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -1229,7 +1229,7 @@ app.delete('/api/athletes/:id', requireAuth, async (req, res) => {
 app.patch('/api/athletes/:id/note', requireAuth, async (req, res) => {
   const athlete = await store.getAthlete(req.params.id);
   if (!athlete) return res.status(404).json({ error: 'Not found' });
-  // FIXED: agentId is camelCase from store.getAthlete() — was athlete.agent_id (undefined), blocking all notes
+  // FIXED: agentId is camelCase from store.getAthlete(), was athlete.agent_id (undefined), blocking all notes
   if (athlete.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
   await store.saveAthlete(req.params.id, { ...athlete, agentNote: req.body.agentNote || '' });
   res.json({ ok: true });
@@ -1313,7 +1313,7 @@ app.post('/api/deals', requireAuth, async (req, res) => {
 app.patch('/api/deals/:id', requireAuth, async (req, res) => {
   const existing = await store.getDeal(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
-  // FIXED: ownership check — agentId is camelCase from store.getDeal()
+  // FIXED: ownership check, agentId is camelCase from store.getDeal()
   const user = await store.getUser(req.session.userId);
   if (existing.agentId && existing.agentId !== req.session.userId && user.email !== ADMIN_EMAIL)
     return res.status(403).json({ error: 'Forbidden' });
@@ -1337,7 +1337,7 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
   res.json(await store.saveDeal(req.params.id, merged));
 });
 
-// GET /api/benchmarks — what local businesses actually pay, pooled across every
+// GET /api/benchmarks, what local businesses actually pay, pooled across every
 // agent on the platform. This is the one dataset in the category that cannot be
 // regenerated from an API key: it only exists because agents log real closes.
 // Query params: category, tier, band (all optional).
@@ -1355,7 +1355,7 @@ app.get('/api/benchmarks', requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/benchmarks/backfill — replay historical closed deals into
+// POST /api/benchmarks/backfill, replay historical closed deals into
 // deal_outcomes so benchmarks are not empty on day one. Safe to run more than
 // once: it skips deals already recorded. Admin only.
 app.post('/api/benchmarks/backfill', requireAuth, async (req, res) => {
@@ -1507,7 +1507,7 @@ app.delete('/api/deals/:id', requireAuth, async (req, res) => {
   if (!deal) return res.status(404).json({ error: 'Not found' });
   const user = await store.getUser(req.session.userId);
   const isAdmin = user && user.email === ADMIN_EMAIL;
-  // FIXED: agentId is camelCase from store.getDeal() — was deal.agent_id (undefined), allowing anyone to delete any deal
+  // FIXED: agentId is camelCase from store.getDeal(), was deal.agent_id (undefined), allowing anyone to delete any deal
   if (!isAdmin && deal.agentId && deal.agentId !== req.session.userId) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -1520,7 +1520,7 @@ app.delete('/api/deals/:id', requireAuth, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Fire-and-forget checklist writer used by action handlers throughout the app.
-// Never awaited on the request path — a checklist write must not slow or break
+// Never awaited on the request path, a checklist write must not slow or break
 // the underlying action.
 function checkOff(userId, item) {
   if (!userId) return;
@@ -1529,7 +1529,7 @@ function checkOff(userId, item) {
 
 // Wizard + checklist state for the current agent. Backfills historical activity
 // on first read so long-time users don't see an empty checklist. Always returns
-// a usable object — never blocks the dashboard.
+// a usable object, never blocks the dashboard.
 app.get('/api/onboarding', requireAuth, async (req, res) => {
   const row = await store.getOnboarding(req.session.userId, { backfill: true });
   const hasAthletes = await store.pool
@@ -1595,7 +1595,7 @@ app.get('/api/onboarding/analytics', requireAuth, async (req, res) => {
 
 // ── Instagram handle stats fetch (Part B) ──────────────────────────────────
 // Handle in, followers + engagement rate out. Uses the Anthropic web search
-// tool. Hard rule in the prompt: never estimate or fabricate — unknown fields
+// tool. Hard rule in the prompt: never estimate or fabricate, unknown fields
 // come back null. :id may be a real athlete id (result is cached) or the literal
 // "new" for the pre-save wizard flow (handle read from the body).
 function normalizeHandle(raw) {
@@ -1667,7 +1667,7 @@ async function fetchInstagramPageMeta(handle) {
       r = await attempt();
     } catch (e1) {
       // One retry, only when the first attempt failed fast (connection reset
-      // etc.), never after a full timeout — the lane stays under 5s total.
+      // etc.), never after a full timeout, the lane stays under 5s total.
       if (Date.now() - t0 < 1500) r = await attempt();
       else throw e1;
     }
@@ -1915,7 +1915,7 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
   }));
 
   // ── Trustworthy output layer ─────────────────────────────────────────────
-  // Adds transparent estimation fields — keeps all existing fields intact.
+  // Adds transparent estimation fields, keeps all existing fields intact.
   const {
     nilViewVal: _nilVV,
     cleanRange, generateRateDrivers, generateRateLimitations,
@@ -1942,7 +1942,7 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
     'retainer':           _cr('retainer'),
   };
 
-  // Inputs used — for "How this estimate was built" transparency panel
+  // Inputs used, for "How this estimate was built" transparency panel
   const estimateInputs = [
     athlete.instagram > 0   ? 'Instagram reach ('  + (athlete.instagram||0).toLocaleString() + ')' : null,
     athlete.tiktok > 0      ? 'TikTok reach ('     + (athlete.tiktok||0).toLocaleString() + ')'    : null,
@@ -1966,7 +1966,7 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
     } : null,
     confidence,
     confidenceNote,
-    // ── Trustworthy output layer (new fields — additive, backward compatible)
+    // ── Trustworthy output layer (new fields, additive, backward compatible)
     cleanLow:      cleaned.low,
     cleanHigh:     cleaned.high,
     rateDrivers,
@@ -1982,7 +1982,7 @@ app.post('/api/ai/rate', requireAuth, aiLimiter, async (req, res) => {
   checkOff(req.session.userId, 'rate_calc'); // Getting Started checklist
 });
 
-// ── Deal Close Mode — analyze endpoint ────────────────────────
+// ── Deal Close Mode, analyze endpoint ────────────────────────
 app.post('/api/deal-close/analyze', requireAuth, aiLimiter, async (req, res) => {
   const { athleteId, brand, dealScanData } = req.body;
   if (!athleteId || !brand) return res.status(400).json({ error: 'athleteId and brand required' });
@@ -2365,7 +2365,7 @@ Return ONLY the JSON. No markdown, no explanation.`;
       return res.json(JSON.parse(jsonMatch[0]));
     }
 
-    // Non-blocked URL — attempt direct scrape
+    // Non-blocked URL, attempt direct scrape
     const https = require('https');
     const http = require('http');
     const client = url.startsWith('https') ? https : http;
@@ -2599,7 +2599,7 @@ app.post('/api/ai/team-match', requireAuth, aiLimiter, async (req, res) => {
   const athleteRate = nilViewVal(athlete, 'ig-reel');
   const reach = (athlete.instagram||0) + (athlete.tiktok||0);
 
-  // Detect if athlete is from high school or has unknown tier — anchor to realistic programs
+  // Detect if athlete is from high school or has unknown tier, anchor to realistic programs
   const tierRaw = (athlete.schoolTier || '').toLowerCase();
   const isHighSchool = !tierRaw || tierRaw.includes('unknown') || tierRaw.includes('high school') || tierRaw === '';
   const realisticAnchor = isHighSchool
@@ -3091,7 +3091,7 @@ app.delete('/api/athletes/:id/deliverables/:did', requireAuth, async (req, res) 
 });
 
 // ── GET /api/athletes/:id/calendar ────────────────────────────────────────
-// Returns calendar events for a given month (or all) — athlete-scoped, agent-owned
+// Returns calendar events for a given month (or all), athlete-scoped, agent-owned
 app.get('/api/athletes/:id/calendar', requireAuth, async (req, res) => {
   try {
     const athlete = await requireAthleteOwner(req, res);
@@ -3193,7 +3193,7 @@ app.post('/api/athletes/:id/calendar/generate', requireAuth, requireAgentSubscri
 });
 
 // ── PATCH /api/athletes/:id/calendar/:eid ────────────────────────────────
-// Manual edit of a calendar event — marks manually_modified=TRUE so regen preserves it
+// Manual edit of a calendar event, marks manually_modified=TRUE so regen preserves it
 app.patch('/api/athletes/:id/calendar/:eid', requireAuth, async (req, res) => {
   try {
     const athlete = await requireAthleteOwner(req, res);
@@ -3237,7 +3237,7 @@ app.delete('/api/athletes/:id/calendar/:eid', requireAuth, async (req, res) => {
 });
 
 // ── GET /api/contracts/audit ─────────────────────────────────────────────
-// Agent audit log — paginated, agent-scoped
+// Agent audit log, paginated, agent-scoped
 app.get('/api/contracts/audit', requireAuth, async (req, res) => {
   try {
     const limit  = Math.min(parseInt(req.query.limit  || '50', 10), 200);
@@ -3480,7 +3480,7 @@ app.post('/api/admin/set-plan', async (req, res) => {
 // ever inserted on the word of the caller alone.
 const { verifySocialProof, summarizeProgram } = require('./services/socialProof');
 
-// POST /api/admin/social-brands/verify-seed — body: JSON array of candidate rows
+// POST /api/admin/social-brands/verify-seed, body: JSON array of candidate rows
 // (social_brands schema minus proof_date). Each proof_url is fetched and checked
 // before its row is upserted with proof_date = today. Failures are never inserted.
 app.post('/api/admin/social-brands/verify-seed', async (req, res) => {
@@ -3519,7 +3519,7 @@ app.post('/api/admin/social-brands/verify-seed', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/admin/social-brands/reverify — no input. Re-checks every ACTIVE row's
+// POST /api/admin/social-brands/reverify, no input. Re-checks every ACTIVE row's
 // proof_url; passing rows get proof_date refreshed, failing rows are deactivated
 // (active=false). Keeps the index from rotting. Returns { inserted, skipped }
 // where inserted = rows that passed, skipped = rows that failed and were retired.
@@ -3621,7 +3621,7 @@ app.post('/api/admin/rebuild-market', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/admin/social-brands/discover — run the nightly discovery job on demand.
+// POST /api/admin/social-brands/discover, run the nightly discovery job on demand.
 // Same job the 3am Central cron runs: AI proposes candidates, the shared verify
 // gate decides what is inserted. Returns the run summary so it can be tested now.
 app.post('/api/admin/social-brands/discover', async (req, res) => {
@@ -4130,7 +4130,7 @@ function verifyAthleteToken(req, res, next) {
   }
 }
 
-// GET /api/athlete/verify-token/:token — public
+// GET /api/athlete/verify-token/:token, public
 app.get('/api/athlete/verify-token/:token', async (req, res) => {
   try {
     const { token } = req.params;
@@ -4182,7 +4182,7 @@ app.get('/api/athlete/verify-token/:token', async (req, res) => {
   }
 });
 
-// POST /api/athlete/activate — public
+// POST /api/athlete/activate, public
 app.post('/api/athlete/activate', authLimiter, async (req, res) => {
   try {
     const { token, email, password, phone, instagram_handle, tiktok_handle, twitter_handle } = req.body;
@@ -4260,7 +4260,7 @@ app.post('/api/athlete/activate', authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/athlete/login — public
+// POST /api/athlete/login, public
 app.post('/api/athlete/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -4311,7 +4311,7 @@ app.post('/api/athlete/login', authLimiter, async (req, res) => {
   }
 });
 
-// GET /api/athlete/me — requires verifyAthleteToken
+// GET /api/athlete/me, requires verifyAthleteToken
 app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -4353,7 +4353,7 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
       instagram_handle: ath.instagram_handle,
       tiktok_handle: ath.tiktok_handle,
       twitter_handle: ath.twitter_handle,
-      // Follower counts — prefer dedicated columns (self-signup), fall back to data JSON (agent-managed)
+      // Follower counts, prefer dedicated columns (self-signup), fall back to data JSON (agent-managed)
       instagram_followers: ath.instagram_followers != null ? ath.instagram_followers : (ath.followers_ig != null ? parseInt(ath.followers_ig) : null),
       tiktok_followers: ath.tiktok_followers != null ? ath.tiktok_followers : (ath.followers_tiktok != null ? parseInt(ath.followers_tiktok) : null),
       twitter_followers: ath.twitter_followers != null ? ath.twitter_followers : null,
@@ -4376,7 +4376,7 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
 // ATHLETE SELF-SIGNUP FLOW
 // ══════════════════════════════════════════════════════════════════
 
-// POST /api/athlete/self-signup — public, creates unverified athlete + sends verification email
+// POST /api/athlete/self-signup, public, creates unverified athlete + sends verification email
 app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
   try {
     const { name, email, password, school, sport, position,
@@ -4467,9 +4467,9 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
       // Log the full error object so Resend status codes / error codes are visible in Railway logs
       console.error('[self-signup] Email send failed — full error:', JSON.stringify(emailErr, Object.getOwnPropertyNames(emailErr)));
       console.error('[self-signup] Email message:', emailErr.message);
-      // Fallback: verify URL already logged above — admin can paste it directly to verify the account
+      // Fallback: verify URL already logged above, admin can paste it directly to verify the account
       console.log(`[self-signup] FALLBACK verify-url (email failed): ${verifyUrl}`);
-      // Do NOT abort — account was created, athlete can resend or be manually verified
+      // Do NOT abort, account was created, athlete can resend or be manually verified
     }
 
     console.log(`[self-signup] Created athlete ${athleteId} email=${normalizedEmail}`);
@@ -4480,7 +4480,7 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
   }
 });
 
-// POST /api/athlete/resend-verification — re-issue a verification email
+// POST /api/athlete/resend-verification, re-issue a verification email
 // (e.g. the original Resend send failed). Always responds 200 to avoid leaking
 // which emails are registered.
 app.post('/api/athlete/resend-verification', authLimiter, async (req, res) => {
@@ -4546,7 +4546,7 @@ app.post('/api/athlete/resend-verification', authLimiter, async (req, res) => {
   }
 });
 
-// GET /api/athlete/verify-email?token= — verifies email, creates Stripe checkout, redirects
+// GET /api/athlete/verify-email?token=, verifies email, creates Stripe checkout, redirects
 app.get('/api/athlete/verify-email', async (req, res) => {
   const { token } = req.query;
   if (!token) return res.status(400).send('Missing token');
@@ -4555,7 +4555,7 @@ app.get('/api/athlete/verify-email', async (req, res) => {
 
   try {
     // ── 1. Look up athlete by token ────────────────────────────────────────────
-    // Primary query: token only, no type filter — avoids missing rows if
+    // Primary query: token only, no type filter, avoids missing rows if
     // athlete_type was stored with an unexpected value
     const sql = 'SELECT * FROM athletes WHERE email_verify_token = $1';
     const params = [token];
@@ -4638,7 +4638,7 @@ app.get('/api/athlete/verify-email', async (req, res) => {
       return await _issueJwtAndRedirect('free');
     }
 
-    // ── 3. Stripe checkout — only attempted with a confirmed live key ─────────────
+    // ── 3. Stripe checkout, only attempted with a confirmed live key ─────────────
     // ANY other condition (test key, missing key, missing price, connection error)
     // falls through to the bypass and gets the athlete into the portal immediately.
     const stripeKey = process.env.STRIPE_SECRET_KEY || '';
@@ -4650,7 +4650,7 @@ app.get('/api/athlete/verify-email', async (req, res) => {
     let checkoutUrl = null;
     try {
       if (!isLiveKey || !stripePrice) {
-        // Not a live key or no price ID — throw immediately to hit the bypass
+        // Not a live key or no price ID, throw immediately to hit the bypass
         throw new Error('TEST_MODE_BYPASS');
       }
 
@@ -4684,7 +4684,7 @@ app.get('/api/athlete/verify-email', async (req, res) => {
       console.log(`[verify] stripe checkout session created id=${checkoutSession.id}`);
 
     } catch (stripeErr) {
-      // Log everything — connection errors, test-mode throws, invalid price IDs, etc.
+      // Log everything, connection errors, test-mode throws, invalid price IDs, etc.
       if (stripeErr.message !== 'TEST_MODE_BYPASS') {
         console.error('[verify] Stripe error — full:', JSON.stringify(stripeErr, Object.getOwnPropertyNames(stripeErr)));
         console.error('[verify] Stripe error message:', stripeErr.message);
@@ -4707,7 +4707,7 @@ app.get('/api/athlete/verify-email', async (req, res) => {
   }
 });
 
-// GET /api/athlete/stripe-complete?session_id= — exchange Stripe session for JWT, redirect to dashboard
+// GET /api/athlete/stripe-complete?session_id=, exchange Stripe session for JWT, redirect to dashboard
 app.get('/api/athlete/stripe-complete', async (req, res) => {
   const { session_id } = req.query;
   if (!session_id)
@@ -4759,7 +4759,7 @@ app.get('/api/athlete/stripe-complete', async (req, res) => {
   }
 });
 
-// POST /api/agents/athletes/:id/invite-token — agent generates new invite token
+// POST /api/agents/athletes/:id/invite-token, agent generates new invite token
 app.post('/api/agents/athletes/:id/invite-token', requireAuth, async (req, res) => {
   try {
     const athleteId = req.params.id;
@@ -4842,7 +4842,7 @@ app.post('/api/agents/athletes/:id/invite-token', requireAuth, async (req, res) 
   }
 });
 
-// GET /api/agents/athletes/:id/invite-status — check activation status
+// GET /api/agents/athletes/:id/invite-status, check activation status
 app.get('/api/agents/athletes/:id/invite-status', requireAuth, async (req, res) => {
   try {
     const athleteId = req.params.id;
@@ -4877,7 +4877,7 @@ app.get('/api/agents/athletes/:id/invite-status', requireAuth, async (req, res) 
 
 // ── Athlete Brand Outreach ───────────────────────────────────────────────────
 
-// POST /api/athlete/outreach — athlete initiates brand outreach
+// POST /api/athlete/outreach, athlete initiates brand outreach
 app.post('/api/athlete/outreach', verifyAthleteToken, async (req, res) => {
   try {
     const { brand_name, brand_contact_email, brand_website, sport_relevance, message_sent } = req.body;
@@ -4899,13 +4899,13 @@ app.post('/api/athlete/outreach', verifyAthleteToken, async (req, res) => {
   }
 });
 
-// POST /api/athlete/write-outreach — AI generates 3-channel outreach (email, IG DM, LinkedIn)
+// POST /api/athlete/write-outreach, AI generates 3-channel outreach (email, IG DM, LinkedIn)
 app.post('/api/athlete/write-outreach', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const { brand, category, contact, goal } = req.body;
     if (!brand) return res.status(400).json({ error: 'brand is required' });
     // Use the canonical loader so dedicated follower columns (self-signup
-    // athletes) are merged — building from data JSON alone reported 0 followers.
+    // athletes) are merged, building from data JSON alone reported 0 followers.
     const a = await _loadAthleteObjForAI(req.athlete.id);
     if (!a) return res.status(404).json({ error: 'Athlete not found' });
     const goalStr = goal ? `$${Number(goal).toLocaleString()}` : 'a fair NIL rate';
@@ -4939,7 +4939,7 @@ Return ONLY valid JSON (no markdown):
   } catch (e) { console.error('[athlete/write-outreach]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/athlete/outreach — athlete views their outreach history
+// GET /api/athlete/outreach, athlete views their outreach history
 app.get('/api/athlete/outreach', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -4952,7 +4952,7 @@ app.get('/api/athlete/outreach', verifyAthleteToken, async (req, res) => {
   }
 });
 
-// GET /api/agents/athlete-outreach — agent views all athlete outreach
+// GET /api/agents/athlete-outreach, agent views all athlete outreach
 app.get('/api/agents/athlete-outreach', requireAuth, async (req, res) => {
   try {
     const { athlete_id, status } = req.query;
@@ -4998,7 +4998,7 @@ app.put('/api/agents/athlete-outreach/:id/reject', requireAuth, async (req, res)
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/ai-draft-outreach — AI drafts outreach email
+// POST /api/athlete/ai-draft-outreach, AI drafts outreach email
 app.post('/api/athlete/ai-draft-outreach', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const { brand_name, brand_website, sport_relevance } = req.body;
@@ -5044,7 +5044,7 @@ async function logAthleteActivity(athleteId, agentId, type, description, metadat
   } catch (e) { console.error('[logAthleteActivity]', e.message); }
 }
 
-// GET /api/athlete/calendar — athlete views own calendar/deliverables
+// GET /api/athlete/calendar, athlete views own calendar/deliverables
 app.get('/api/athlete/calendar', verifyAthleteToken, async (req, res) => {
   try {
     const { status, brand, from, to } = req.query;
@@ -5062,7 +5062,7 @@ app.get('/api/athlete/calendar', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[athlete/calendar]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// PUT /api/athlete/calendar/:id/status — update deliverable status
+// PUT /api/athlete/calendar/:id/status, update deliverable status
 app.put('/api/athlete/calendar/:id/status', verifyAthleteToken, async (req, res) => {
   try {
     const { status } = req.body;
@@ -5088,7 +5088,7 @@ app.put('/api/athlete/calendar/:id/status', verifyAthleteToken, async (req, res)
 // written to the SAME table the calendar reads (athlete_calendar_events), so
 // they appear on the in-app calendar immediately AND are picked up by the
 // existing Google Calendar sync (which pushes rows where google_event_id IS NULL).
-// We do NOT touch the working sync/auth — we just create rows in its source.
+// We do NOT touch the working sync/auth, we just create rows in its source.
 // ════════════════════════════════════════════════════════════════════════════
 const ATHLETE_DELIVERABLE_TYPES = ['Instagram Post', 'Instagram Story', 'Instagram Reel', 'TikTok', 'Appearance', 'Other'];
 function _normDeliverableType(t) {
@@ -5099,12 +5099,12 @@ function _normDeliverableType(t) {
 function _dateOnly(v) {
   if (!v) return null;
   const s = String(v).trim();
-  // Accept "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm" (datetime) — store the date part.
+  // Accept "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm" (datetime), store the date part.
   const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
   return m ? m[1] : null;
 }
 
-// GET /api/athlete/deliverables — list this athlete's calendar deliverables.
+// GET /api/athlete/deliverables, list this athlete's calendar deliverables.
 // (Same source as GET /api/athlete/calendar; provided as an explicit list endpoint.)
 app.get('/api/athlete/deliverables', verifyAthleteToken, async (req, res) => {
   try {
@@ -5116,7 +5116,7 @@ app.get('/api/athlete/deliverables', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[athlete/deliverables GET]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// Shared create helper — inserts one dated deliverable into athlete_calendar_events.
+// Shared create helper, inserts one dated deliverable into athlete_calendar_events.
 async function _createAthleteDeliverable(athlete, { title, due_date, event_type, notes, deal_id }) {
   const date = _dateOnly(due_date);
   if (!title || !String(title).trim()) { const e = new Error('title required'); e.status = 400; throw e; }
@@ -5152,7 +5152,7 @@ async function _createAthleteDeliverable(athlete, { title, due_date, event_type,
   return ev;
 }
 
-// POST /api/athlete/deliverables — create a dated deliverable
+// POST /api/athlete/deliverables, create a dated deliverable
 app.post('/api/athlete/deliverables', verifyAthleteToken, async (req, res) => {
   try {
     const b = req.body || {};
@@ -5167,7 +5167,7 @@ app.post('/api/athlete/deliverables', verifyAthleteToken, async (req, res) => {
   }
 });
 
-// POST /api/athlete/deals/:id/deliverables — create a deliverable linked to a deal
+// POST /api/athlete/deals/:id/deliverables, create a deliverable linked to a deal
 app.post('/api/athlete/deals/:id/deliverables', verifyAthleteToken, async (req, res) => {
   try {
     const owns = await store.pool.query(
@@ -5187,7 +5187,7 @@ app.post('/api/athlete/deals/:id/deliverables', verifyAthleteToken, async (req, 
   }
 });
 
-// PUT /api/athlete/deliverables/:id — edit a deliverable
+// PUT /api/athlete/deliverables/:id, edit a deliverable
 app.put('/api/athlete/deliverables/:id', verifyAthleteToken, async (req, res) => {
   try {
     const b = req.body || {};
@@ -5212,7 +5212,7 @@ app.put('/api/athlete/deliverables/:id', verifyAthleteToken, async (req, res) =>
   } catch (e) { console.error('[athlete/deliverables PUT]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /api/athlete/deliverables/:id — remove a deliverable
+// DELETE /api/athlete/deliverables/:id, remove a deliverable
 app.delete('/api/athlete/deliverables/:id', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -5226,7 +5226,7 @@ app.delete('/api/athlete/deliverables/:id', verifyAthleteToken, async (req, res)
 
 // ── Google Calendar Integration ───────────────────────────────────────────────
 // Athlete connects their Google Calendar → NILDash pushes deliverables as events.
-// Agent connects → can subscribe to each athlete's dedicated "NIL — [Name]" calendar.
+// Agent connects → can subscribe to each athlete's dedicated "NIL, [Name]" calendar.
 // Uses separate GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET (distinct from Gmail).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -5238,7 +5238,7 @@ function _gcalEncodeState(obj) { return Buffer.from(JSON.stringify(obj)).toStrin
 function _gcalDecodeState(s)   { try { return JSON.parse(Buffer.from(s||'','base64url').toString('utf8')); } catch { return {}; } }
 
 /**
- * Non-blocking helper — pushes a single athlete_calendar_events row to Google Calendar.
+ * Non-blocking helper, pushes a single athlete_calendar_events row to Google Calendar.
  * Skips silently if the athlete has no google_refresh_token or gcal is not configured.
  * Idempotent: skips rows that already have a google_event_id.
  */
@@ -5276,7 +5276,7 @@ async function _pushEventToGCal(athleteId, event) {
   }
 }
 
-// GET /api/athlete/calendar/google/status — is this athlete's Google Calendar connected?
+// GET /api/athlete/calendar/google/status, is this athlete's Google Calendar connected?
 app.get('/api/athlete/calendar/google/status', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -5292,7 +5292,7 @@ app.get('/api/athlete/calendar/google/status', verifyAthleteToken, async (req, r
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/athlete/calendar/google/connect — start OAuth for athlete
+// GET /api/athlete/calendar/google/connect, start OAuth for athlete
 app.get('/api/athlete/calendar/google/connect', verifyAthleteToken, async (req, res) => {
   if (!gcal || !gcal.isAvailable()) {
     return res.status(501).json({ error: 'Google Calendar not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to environment variables.' });
@@ -5302,8 +5302,8 @@ app.get('/api/athlete/calendar/google/connect', verifyAthleteToken, async (req, 
   res.json({ url });
 });
 
-// GET /auth/google/calendar/callback — OAuth callback (athlete + agent)
-// No auth middleware — identity is verified via the state param.
+// GET /auth/google/calendar/callback, OAuth callback (athlete + agent)
+// No auth middleware, identity is verified via the state param.
 app.get('/auth/google/calendar/callback', async (req, res) => {
   const { code, state, error } = req.query;
   if (error) {
@@ -5371,20 +5371,20 @@ app.get('/auth/google/calendar/callback', async (req, res) => {
   }
 });
 
-// POST /api/athlete/calendar/google/sync — re-push all unpushed events for this athlete
+// POST /api/athlete/calendar/google/sync, re-push all unpushed events for this athlete
 app.post('/api/athlete/calendar/google/sync', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
       'SELECT * FROM athlete_calendar_events WHERE athlete_id=$1 AND google_event_id IS NULL ORDER BY event_date ASC',
       [req.athlete.id]
     );
-    // Fire and forget — response is immediate
+    // Fire and forget, response is immediate
     r.rows.forEach(ev => _pushEventToGCal(req.athlete.id, ev));
     res.json({ ok: true, queued: r.rows.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// DELETE /api/athlete/calendar/google/disconnect — revoke athlete's Google Calendar connection
+// DELETE /api/athlete/calendar/google/disconnect, revoke athlete's Google Calendar connection
 app.delete('/api/athlete/calendar/google/disconnect', verifyAthleteToken, async (req, res) => {
   try {
     await store.pool.query(
@@ -5413,7 +5413,7 @@ app.delete('/api/athlete/calendar/google/disconnect', verifyAthleteToken, async 
 function _gmailEncodeState(obj) { return Buffer.from(JSON.stringify(obj)).toString('base64url'); }
 function _gmailDecodeState(s)   { try { return JSON.parse(Buffer.from(s||'','base64url').toString('utf8')); } catch { return {}; } }
 
-// GET /api/athlete/gmail/status — is this athlete's Gmail connected?
+// GET /api/athlete/gmail/status, is this athlete's Gmail connected?
 app.get('/api/athlete/gmail/status', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -5429,7 +5429,7 @@ app.get('/api/athlete/gmail/status', verifyAthleteToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/athlete/gmail/connect — start OAuth for athlete Gmail send
+// GET /api/athlete/gmail/connect, start OAuth for athlete Gmail send
 app.get('/api/athlete/gmail/connect', verifyAthleteToken, async (req, res) => {
   if (!gmailSend || !gmailSend.isAvailable()) {
     return res.status(501).json({ error: 'Gmail integration not configured.' });
@@ -5439,8 +5439,8 @@ app.get('/api/athlete/gmail/connect', verifyAthleteToken, async (req, res) => {
   res.json({ url });
 });
 
-// GET /auth/google/athlete-gmail/callback — OAuth callback for athlete Gmail connect
-// No auth middleware — identity is in the state parameter.
+// GET /auth/google/athlete-gmail/callback, OAuth callback for athlete Gmail connect
+// No auth middleware, identity is in the state parameter.
 app.get('/auth/google/athlete-gmail/callback', async (req, res) => {
   const { code, state, error } = req.query;
   if (error) {
@@ -5472,7 +5472,7 @@ app.get('/auth/google/athlete-gmail/callback', async (req, res) => {
   }
 });
 
-// POST /api/athlete/gmail/disconnect — clear athlete's Gmail connection
+// POST /api/athlete/gmail/disconnect, clear athlete's Gmail connection
 app.post('/api/athlete/gmail/disconnect', verifyAthleteToken, async (req, res) => {
   try {
     await store.pool.query(
@@ -5487,7 +5487,7 @@ app.post('/api/athlete/gmail/disconnect', verifyAthleteToken, async (req, res) =
   }
 });
 
-// GET /api/agent/calendar/google/status — is this agent's Google Calendar connected?
+// GET /api/agent/calendar/google/status, is this agent's Google Calendar connected?
 app.get('/api/agent/calendar/google/status', requireAuth, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -5502,7 +5502,7 @@ app.get('/api/agent/calendar/google/status', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/agent/calendar/google/connect — start OAuth for agent.
+// GET /api/agent/calendar/google/connect, start OAuth for agent.
 // Reuses the SINGLE combined "Connect Google" flow: /api/email/oauth/gmail requests
 // gmail.send + calendar.events + userinfo.email and its callback stores the refresh
 // token as BOTH the email account and the agent's gcal_refresh_token. One consent
@@ -5555,7 +5555,7 @@ app.post('/api/agent/google/disconnect', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/agent/calendar/google/athletes — list this agent's athletes with their gcal status
+// GET /api/agent/calendar/google/athletes, list this agent's athletes with their gcal status
 app.get('/api/agent/calendar/google/athletes', requireAuth, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -5572,13 +5572,13 @@ app.get('/api/agent/calendar/google/athletes', requireAuth, async (req, res) => 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/agent/calendar/google/subscribe/:athleteId — subscribe agent to athlete's NIL calendar
+// POST /api/agent/calendar/google/subscribe/:athleteId, subscribe agent to athlete's NIL calendar
 app.post('/api/agent/calendar/google/subscribe/:athleteId', requireAuth, async (req, res) => {
   try {
     if (!gcal || !gcal.isAvailable()) return res.status(501).json({ error: 'Google Calendar not configured.' });
     // SCOPE NOTE: subscribing uses calendarList (managing the user's calendar
     // list), which requires the full 'calendar' scope. Disabled under the
-    // declared calendar.events scope — short-circuit before any Google call.
+    // declared calendar.events scope, short-circuit before any Google call.
     return res.status(501).json({ error: 'Calendar subscription requires broader Google permissions and is currently unavailable.' });
 
     // Verify athlete belongs to this agent
@@ -5604,12 +5604,12 @@ app.post('/api/agent/calendar/google/subscribe/:athleteId', requireAuth, async (
   }
 });
 
-// DELETE /api/agent/calendar/google/subscribe/:athleteId — unsubscribe
+// DELETE /api/agent/calendar/google/subscribe/:athleteId, unsubscribe
 app.delete('/api/agent/calendar/google/subscribe/:athleteId', requireAuth, async (req, res) => {
   try {
     if (!gcal || !gcal.isAvailable()) return res.status(501).json({ error: 'Google Calendar not configured.' });
     // SCOPE NOTE: unsubscribing uses calendarList (full 'calendar' scope).
-    // Disabled under calendar.events — short-circuit before any Google call.
+    // Disabled under calendar.events, short-circuit before any Google call.
     return res.status(501).json({ error: 'Calendar subscription requires broader Google permissions and is currently unavailable.' });
 
     const athRow = await store.pool.query(
@@ -5632,7 +5632,7 @@ app.delete('/api/agent/calendar/google/subscribe/:athleteId', requireAuth, async
   }
 });
 
-// GET /api/athlete/deals — athlete's self-managed deals
+// GET /api/athlete/deals, athlete's self-managed deals
 app.get('/api/athlete/deals', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -5643,7 +5643,7 @@ app.get('/api/athlete/deals', verifyAthleteToken, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/deals — create self-managed deal
+// POST /api/athlete/deals, create self-managed deal
 app.post('/api/athlete/deals', verifyAthleteToken, async (req, res) => {
   try {
     const { brand_name, deal_type, value, stage, description, start_date, notes, deliverables, timeline } = req.body;
@@ -5664,7 +5664,7 @@ app.post('/api/athlete/deals', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[athlete/deals POST]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/deals/from-scan — "+ Track" a Deal Scan opportunity into
+// POST /api/athlete/deals/from-scan, "+ Track" a Deal Scan opportunity into
 // Brand Tracker at the Outreach stage (Prospect). Single source of truth: this
 // replaces the old separate athlete_deal_pipeline write. Dedupes on
 // athlete + normalized brand name.
@@ -5684,7 +5684,7 @@ app.post('/api/athlete/deals/from-scan', verifyAthleteToken, async (req, res) =>
       [req.athlete.id, brandName]
     );
     if (existing.rows.length) {
-      // Already tracked — optionally refresh the fit score, but never duplicate.
+      // Already tracked, optionally refresh the fit score, but never duplicate.
       if (fitScore != null) {
         await store.pool.query(
           `UPDATE athlete_self_deals SET fit_score=$1, updated_at=NOW() WHERE id=$2 AND athlete_id=$3`,
@@ -5733,7 +5733,7 @@ app.post('/api/athlete/deals/from-scan', verifyAthleteToken, async (req, res) =>
   }
 });
 
-// PUT /api/athlete/deals/:id — update deal
+// PUT /api/athlete/deals/:id, update deal
 app.put('/api/athlete/deals/:id', verifyAthleteToken, async (req, res) => {
   try {
     const { brand_name, deal_type, value, stage, description, notes, start_date, deliverables, timeline } = req.body;
@@ -5787,7 +5787,7 @@ app.delete('/api/athlete/deals/:id', verifyAthleteToken, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// MONEY LOOP — agreement → invoice → paid → earnings (+ disclosure)
+// MONEY LOOP, agreement → invoice → paid → earnings (+ disclosure)
 // Deterministic, plain-language document generation. NO payment processing,
 // NO Stripe Connect, NO payouts, NO money movement. Generate / store / display
 // only. The platform fee (PLATFORM_FEE_PCT) is record/display only.
@@ -5874,7 +5874,7 @@ function _buildAgreementText({ athlete, deal, deliverables, amount, timeline, te
   return lines.join('\n');
 }
 
-// POST /api/athlete/deals/:id/agreement — generate & store a deal agreement
+// POST /api/athlete/deals/:id/agreement, generate & store a deal agreement
 app.post('/api/athlete/deals/:id/agreement', verifyAthleteToken, async (req, res) => {
   try {
     const cur = await store.pool.query(
@@ -5953,7 +5953,7 @@ function _buildInvoiceText({ athlete, deal, invoiceNumber, issueDate, dueDate, d
   return lines.join('\n');
 }
 
-// POST /api/athlete/deals/:id/invoice — generate & store an invoice
+// POST /api/athlete/deals/:id/invoice, generate & store an invoice
 app.post('/api/athlete/deals/:id/invoice', verifyAthleteToken, async (req, res) => {
   try {
     const cur = await store.pool.query(
@@ -6000,7 +6000,7 @@ app.post('/api/athlete/deals/:id/invoice', verifyAthleteToken, async (req, res) 
   } catch (e) { console.error('[athlete/deals invoice]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/deals/:id/mark-paid — record payment received (no money movement)
+// POST /api/athlete/deals/:id/mark-paid, record payment received (no money movement)
 app.post('/api/athlete/deals/:id/mark-paid', verifyAthleteToken, async (req, res) => {
   try {
     const cur = await store.pool.query(
@@ -6030,7 +6030,7 @@ app.post('/api/athlete/deals/:id/mark-paid', verifyAthleteToken, async (req, res
   } catch (e) { console.error('[athlete/deals mark-paid]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/deals/:id/disclosure — update school-disclosure status
+// POST /api/athlete/deals/:id/disclosure, update school-disclosure status
 app.post('/api/athlete/deals/:id/disclosure', verifyAthleteToken, async (req, res) => {
   try {
     const allowed = ['not_required', 'pending', 'disclosed'];
@@ -6049,7 +6049,7 @@ app.post('/api/athlete/deals/:id/disclosure', verifyAthleteToken, async (req, re
   } catch (e) { console.error('[athlete/deals disclosure]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/athlete/earnings — system-of-record earnings summary (math from deals)
+// GET /api/athlete/earnings, system-of-record earnings summary (math from deals)
 app.get('/api/athlete/earnings', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -6098,7 +6098,7 @@ app.get('/api/athlete/earnings', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[athlete/earnings]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/command — athlete AI command (SSE stream)
+// POST /api/athlete/command, athlete AI command (SSE stream)
 app.post('/api/athlete/command', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const { message } = req.body;
@@ -6284,7 +6284,7 @@ async function _loadShownBrands(athleteId, lane) {
 
 // Brands the agent actually ACTED on (outreach sent, added to pipeline, or
 // dismissed). These are retired permanently. Merely displaying a brand does
-// not retire it — see _loadShownBrands, which is a short rotation window.
+// not retire it, see _loadShownBrands, which is a short rotation window.
 async function _loadWorkedBrands(athleteId, lane) {
   try {
     const r = await store.pool.query('SELECT deal_scan_cache FROM athletes WHERE id=$1', [athleteId]);
@@ -6440,7 +6440,7 @@ async function loadDealScanAthlete(athleteId) {
   return { agentId: ath.agent_id, athleteObj };
 }
 
-// POST /api/athlete/deal-scan — find brand deals for this athlete
+// POST /api/athlete/deal-scan, find brand deals for this athlete
 app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const loaded = await loadDealScanAthlete(req.athlete.id);
@@ -6539,7 +6539,7 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, re
   } catch (e) { console.error('[athlete/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/athlete/deal-scan/cache — hydrate the last persisted scan + rate card
+// GET /api/athlete/deal-scan/cache, hydrate the last persisted scan + rate card
 app.get('/api/athlete/deal-scan/cache', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query('SELECT deal_scan_cache, data->\'tags\' as tags FROM athletes WHERE id = $1', [req.athlete.id]);
@@ -6551,7 +6551,7 @@ app.get('/api/athlete/deal-scan/cache', verifyAthleteToken, async (req, res) => 
   } catch (e) { console.error('[athlete/deal-scan/cache]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/agent/onboarding-complete — mark the signed-in agent's first-run
+// POST /api/agent/onboarding-complete, mark the signed-in agent's first-run
 // onboarding assistant as done so it stops auto-opening. Idempotent.
 app.post('/api/agent/onboarding-complete', requireAuth, async (req, res) => {
   try {
@@ -6560,7 +6560,7 @@ app.post('/api/agent/onboarding-complete', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/agent/deal-scan — agent-side three-lane deal scan for a client athlete
+// POST /api/agent/deal-scan, agent-side three-lane deal scan for a client athlete
 app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
   try {
     const { athleteId, lane, exclude_brands } = req.body;
@@ -6775,6 +6775,27 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     logAthleteActivity(athleteId, req.session.userId, 'deal_scan', `Ran deal scan (${validLane})`, { count: recommendations.length }).catch(() => {});
     _logScanCost(validLane, _meter, Date.now() - _scanT0, false);
     res.json({ opportunities: recommendations, lane: validLane, rateCard, poolExhausted, exhaustedNote });
+
+    // ── Pre-warm the outreach drafts ─────────────────────────────────────────
+    // AFTER res.json, deliberately. The agent's scan is already on screen and
+    // nothing below can add a millisecond to it. Drafting used to happen on the
+    // AI Outreach click, behind two web-search fan-outs, and that wait is where
+    // agents stopped: the most active one ran nine scans and sent zero outreach.
+    //
+    // Not awaited, and its own try/catch, because a scan that already succeeded
+    // must not be able to fail afterwards.
+    try {
+      const _prewarm = require('./services/draftPrewarm');
+      const _agentName = (await store.getUser(req.session.userId).catch(() => null) || {}).name || null;
+      _prewarm.prewarmScan({
+        agentId: req.session.userId,
+        athleteId,
+        athlete: loaded.athleteObj,
+        cards: recommendations,
+        agentName: _agentName,
+        lane: validLane,
+      }).catch((e) => console.error('[prewarm] batch failed:', e.message));
+    } catch (e) { console.error('[prewarm] could not start:', e.message); }
   } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 
@@ -7393,7 +7414,7 @@ function rederiveScanCacheTags(cache, athleteTags) {
   return cache;
 }
 
-// GET /api/agent/deal-scan/cache — hydrate last persisted scan for a client athlete
+// GET /api/agent/deal-scan/cache, hydrate last persisted scan for a client athlete
 app.get('/api/agent/deal-scan/cache', requireAuth, async (req, res) => {
   try {
     const athleteId = req.query.athleteId;
@@ -7413,7 +7434,7 @@ app.get('/api/agent/deal-scan/cache', requireAuth, async (req, res) => {
 });
 
 // Build the athlete's per-deliverable rate card using the SAME model the Rate
-// Calculator uses (benchmarks.nilViewVal + cleanRange) — single source of truth.
+// Calculator uses (benchmarks.nilViewVal + cleanRange), single source of truth.
 // Returns { rates:{deliverable:{low,high}}, dealValueLow, dealValueHigh }.
 // dealValueLow ≈ a single deliverable; dealValueHigh ≈ a multi-deliverable bundle.
 async function _athleteRateCard(athleteId) {
@@ -7552,7 +7573,7 @@ app.post('/api/agent/brand-instagram', requireAuth, async (req, res) => {
 });
 app.post('/api/athlete/brand-contacts', verifyAthleteToken, aiLimiter, _brandContactsBatch);
 
-// POST /api/athlete/deal-pitch — generate a personalized pitch for a brand (preview)
+// POST /api/athlete/deal-pitch, generate a personalized pitch for a brand (preview)
 app.post('/api/athlete/deal-pitch', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const brand = req.body.brand || {};
@@ -7564,7 +7585,7 @@ app.post('/api/athlete/deal-pitch', verifyAthleteToken, aiLimiter, async (req, r
   } catch (e) { console.error('[athlete/deal-pitch]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/athlete/deal-pipeline — list this athlete's pipeline
+// GET /api/athlete/deal-pipeline, list this athlete's pipeline
 app.get('/api/athlete/deal-pipeline', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -7578,7 +7599,7 @@ app.get('/api/athlete/deal-pipeline', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[deal-pipeline GET]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/deal-pipeline — add/save a brand to pipeline
+// POST /api/athlete/deal-pipeline, add/save a brand to pipeline
 app.post('/api/athlete/deal-pipeline', verifyAthleteToken, async (req, res) => {
   try {
     const b = req.body || {};
@@ -7605,7 +7626,7 @@ app.post('/api/athlete/deal-pipeline', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[deal-pipeline POST]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// PUT /api/athlete/deal-pipeline/:id — update status / notes
+// PUT /api/athlete/deal-pipeline/:id, update status / notes
 app.put('/api/athlete/deal-pipeline/:id', verifyAthleteToken, async (req, res) => {
   try {
     const id = req.params.id;
@@ -7628,7 +7649,7 @@ app.put('/api/athlete/deal-pipeline/:id', verifyAthleteToken, async (req, res) =
   } catch (e) { console.error('[deal-pipeline PUT]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/deal-pipeline/:id/followup — generate (and optionally send) a follow-up
+// POST /api/athlete/deal-pipeline/:id/followup, generate (and optionally send) a follow-up
 app.post('/api/athlete/deal-pipeline/:id/followup', verifyAthleteToken, async (req, res) => {
   try {
     const id = req.params.id;
@@ -7650,7 +7671,7 @@ app.post('/api/athlete/deal-pipeline/:id/followup', verifyAthleteToken, async (r
   } catch (e) { console.error('[deal-pipeline followup]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/rate-calculator — calculate athlete's own rates (full benchmarks)
+// POST /api/athlete/rate-calculator, calculate athlete's own rates (full benchmarks)
 app.post('/api/athlete/rate-calculator', verifyAthleteToken, async (req, res) => {
   try {
     const delivType = req.body.deliverable_type || 'ig-reel';
@@ -7658,7 +7679,7 @@ app.post('/api/athlete/rate-calculator', verifyAthleteToken, async (req, res) =>
     if (!row.rows.length) return res.status(404).json({ error: 'Athlete not found' });
     const dbRow = row.rows[0];
     const athleteObj = { id: dbRow.id, agentId: dbRow.agent_id, ...dbRow.data };
-    // Merge dedicated follower columns (self-signup) — nilViewVal reads .instagram/.tiktok/.twitter
+    // Merge dedicated follower columns (self-signup), nilViewVal reads .instagram/.tiktok/.twitter
     // Prefer the data JSON value if present (agent-managed), otherwise use the dedicated column.
     if (athleteObj.instagram == null && dbRow.instagram_followers != null) athleteObj.instagram = dbRow.instagram_followers;
     if (athleteObj.tiktok == null && dbRow.tiktok_followers != null) athleteObj.tiktok = dbRow.tiktok_followers;
@@ -7698,7 +7719,7 @@ app.post('/api/athlete/rate-calculator', verifyAthleteToken, async (req, res) =>
   } catch (e) { console.error('[athlete/rate-calculator]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/rate-talking-points — generate negotiation talking points
+// POST /api/athlete/rate-talking-points, generate negotiation talking points
 app.post('/api/athlete/rate-talking-points', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const { deliverable_type } = req.body;
@@ -7726,7 +7747,7 @@ Be direct and practical. Write in first-person so the athlete can say it directl
   } catch (e) { console.error('[athlete/rate-talking-points]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// NOTE: POST /api/athlete/team-match removed — the athlete-portal Team Match
+// NOTE: POST /api/athlete/team-match removed, the athlete-portal Team Match
 // view was hidden (display:none) and unreachable. The agent-portal Team Match
 // (/api/ai/team-match) remains active and untouched.
 
@@ -7753,7 +7774,7 @@ app.post('/api/athlete/marketing/content-ideas', verifyAthleteToken, aiLimiter, 
   } catch (e) { console.error('[athlete/marketing]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/athlete/marketing/generate-caption — Caption Generator
+// POST /api/athlete/marketing/generate-caption, Caption Generator
 app.post('/api/athlete/marketing/generate-caption', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const { brand, deliverable_type, context } = req.body;
@@ -7784,7 +7805,7 @@ Number them 1, 2, 3.`;
   }
 });
 
-// POST /api/athlete/compliance — NIL compliance check (athlete auth)
+// POST /api/athlete/compliance, NIL compliance check (athlete auth)
 // Mirrors /api/ai/compliance but uses athlete token and auto-resolves state from school
 app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
@@ -7988,7 +8009,7 @@ async function _sendAthleteEmail(athlete, to, subject, body, opts = {}) {
   return { via: gmailRefreshToken ? 'gmail' : 'resend' };
 }
 
-// POST /api/athlete/deal-pitch/send — send a pitch to a brand and record/upsert in pipeline
+// POST /api/athlete/deal-pitch/send, send a pitch to a brand and record/upsert in pipeline
 app.post('/api/athlete/deal-pitch/send', verifyAthleteToken, async (req, res) => {
   try {
     const { to, subject, body, brand } = req.body || {};
@@ -8044,7 +8065,7 @@ app.post('/api/athlete/deal-pitch/send', verifyAthleteToken, async (req, res) =>
   }
 });
 
-// POST /api/athlete/email/send — athlete sends tracked email
+// POST /api/athlete/email/send, athlete sends tracked email
 // • If the athlete has connected their Gmail → sends via Gmail API (from their real address)
 // • Otherwise → falls back to Resend (from noreply@mynildash.com with reply-to set)
 app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
@@ -8063,7 +8084,7 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
   }
 });
 
-// POST /api/athlete/deal-close/analyze — athlete analyzes a deal
+// POST /api/athlete/deal-close/analyze, athlete analyzes a deal
 app.post('/api/athlete/deal-close/analyze', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const { brand, dealScanData } = req.body;
@@ -8209,7 +8230,7 @@ Return ONLY valid JSON (no markdown):
   }
 });
 
-// PUT /api/athlete/profile — athlete updates own editable fields
+// PUT /api/athlete/profile, athlete updates own editable fields
 app.put('/api/athlete/profile', verifyAthleteToken, async (req, res) => {
   try {
     const { phone, instagram_handle, tiktok_handle, twitter_handle, instagram_followers, tiktok_followers, bio, state, name, sport, school, position } = req.body;
@@ -8268,7 +8289,7 @@ app.put('/api/athlete/profile', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[athlete/profile]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/athlete/onboarding — current first-run onboarding state
+// GET /api/athlete/onboarding, current first-run onboarding state
 app.get('/api/athlete/onboarding', verifyAthleteToken, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -8278,7 +8299,7 @@ app.get('/api/athlete/onboarding', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[athlete/onboarding:get]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// PUT /api/athlete/onboarding — shallow-merge a partial state patch
+// PUT /api/athlete/onboarding, shallow-merge a partial state patch
 app.put('/api/athlete/onboarding', verifyAthleteToken, async (req, res) => {
   try {
     const patch = (req.body && typeof req.body === 'object') ? req.body : {};
@@ -8294,7 +8315,7 @@ app.put('/api/athlete/onboarding', verifyAthleteToken, async (req, res) => {
   } catch (e) { console.error('[athlete/onboarding:put]', e.message); res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/agents/athlete-activity — agent sees all athlete activity
+// GET /api/agents/athlete-activity, agent sees all athlete activity
 app.get('/api/agents/athlete-activity', requireAuth, async (req, res) => {
   try {
     const r = await store.pool.query(
@@ -8455,7 +8476,7 @@ app.get('/api/pitch-data/:athleteId', async (req, res) => {
 app.post('/api/athlete-messages', verifyAthleteToken, async (req, res) => {
   try {
     const { toAddress, subject, body } = req.body;
-    // Pull identity from the verified JWT — never trust the frontend for IDs
+    // Pull identity from the verified JWT, never trust the frontend for IDs
     const athleteId   = req.athlete.id;
     const agentId     = req.athlete.agent_id;
     const athleteEmail = req.athlete.email || null;
@@ -8530,9 +8551,9 @@ app.patch('/api/athlete-messages/:id/read', requireAuth, async (req, res) => {
 });
 
 // ── Email Integration ─────────────────────────────────────────────────────────
-// All email routes isolated in server/routes/email.js — no existing logic touched.
+// All email routes isolated in server/routes/email.js, no existing logic touched.
 const emailRoutes = require('./routes/email');
-// OAuth callbacks bypass session auth — identity is verified via the state param.
+// OAuth callbacks bypass session auth, identity is verified via the state param.
 function emailAuthMiddleware(req, res, next) {
   const OAUTH_CALLBACKS = ['/oauth/gmail/callback', '/oauth/outlook/callback'];
   if (OAUTH_CALLBACKS.includes(req.path)) return next();
@@ -8540,7 +8561,7 @@ function emailAuthMiddleware(req, res, next) {
 }
 app.use('/api/email', emailAuthMiddleware, emailRoutes);
 
-// Start background email sync poller (fire-and-forget — never blocks startup)
+// Start background email sync poller (fire-and-forget, never blocks startup)
 try {
   const emailSync = require('./services/emailSync');
   emailSync.startPoller();
@@ -8651,7 +8672,7 @@ try {
 }
 
 // ── Outreach Automation Engine ────────────────────────────────────────────────
-// Isolated route module — zero interference with existing routes above.
+// Isolated route module, zero interference with existing routes above.
 try {
   const outreachRoutes = require('./routes/outreach');
   app.use('/api/outreach', requireAuth, requireAgentSubscription, outreachRoutes);
@@ -8687,7 +8708,7 @@ const NILDirectorService          = require('./services/university/NILDirectorSe
 // Resolves the university_id for the current session user.
 // University-role users have users.university_id set.
 // Admin users may also have it set (e.g. admin linked to Samford for demo).
-// Returns null if no university linked — caller should 400.
+// Returns null if no university linked, caller should 400.
 async function resolveSessionUniversity(userId) {
   try {
     const r = await store.pool.query(
@@ -8701,7 +8722,7 @@ async function resolveSessionUniversity(userId) {
 }
 
 // ── Fetch athletes scoped to a university ──────────────────────────────────
-// UNIVERSITY SIDE ONLY — reads from university_athletes, never from the agent athletes table.
+// UNIVERSITY SIDE ONLY, reads from university_athletes, never from the agent athletes table.
 async function fetchUniversityAthletes(universityId) {
   const rows = await store.pool.query(
     `SELECT * FROM university_athletes
@@ -8713,7 +8734,7 @@ async function fetchUniversityAthletes(universityId) {
 }
 
 // GET /api/university/dashboard
-// Full program overview — scoped to the user's university.
+// Full program overview, scoped to the user's university.
 app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId   = req.session.userId;
@@ -8739,7 +8760,7 @@ app.get('/api/university/dashboard', requireAuth, requireUniversityMode, async (
     } catch (_) {}
 
     // Activity counts from nil_activity_log (university-owned events only)
-    // NOT from outreach_logs — that is agent-mode data
+    // NOT from outreach_logs, that is agent-mode data
     let dealMap = {};
     try {
       const actRows = await store.pool.query(
@@ -8832,7 +8853,7 @@ app.get('/api/university/athlete/:id/readiness', requireAuth, requireUniversityM
       return res.status(400).json({ error: 'No university linked to account', code: 'NO_UNIVERSITY_LINKED' });
     }
 
-    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    // UNIVERSITY SIDE ONLY, reads from university_athletes
     const athleteRow = await store.pool.query(
       `SELECT * FROM university_athletes WHERE id = $1 AND university_id = $2 LIMIT 1`,
       [req.params.id, universityId]
@@ -8873,7 +8894,7 @@ app.get('/api/university/athlete/:id/readiness', requireAuth, requireUniversityM
 });
 
 // GET /api/university/compliance
-// Program-level compliance dashboard — scoped to user's university.
+// Program-level compliance dashboard, scoped to user's university.
 app.get('/api/university/compliance', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId   = req.session.userId;
@@ -8925,7 +8946,7 @@ app.post('/api/university/bulk-import', requireAuth, requireUniversityMode, asyn
     }
 
     // ── Step 1: Parse raw input (validation + normalization from BulkImportService)
-    // Use BulkImportService for parse+validate only — it still writes as fallback
+    // Use BulkImportService for parse+validate only, it still writes as fallback
     // for immediate UI feedback, then ingestion pipeline processes for dedup+sync.
     const parseResult = await BulkImportService.bulkImport(
       store.pool, rawData, format, userId, universityId, userRole
@@ -9042,7 +9063,7 @@ app.get('/api/university/sync/status', requireAuth, requireUniversityMode, async
 });
 
 // GET /api/university/roster/snapshots
-// Version history — list of snapshots for rollback/audit.
+// Version history, list of snapshots for rollback/audit.
 app.get('/api/university/roster/snapshots', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId       = req.session.userId;
@@ -9100,7 +9121,7 @@ app.get('/api/university/roster/state', requireAuth, requireUniversityMode, asyn
       return res.status(400).json({ error: 'No university linked', code: 'NO_UNIVERSITY_LINKED' });
     }
 
-    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    // UNIVERSITY SIDE ONLY, reads from university_athletes
     const rows = await store.pool.query(
       `SELECT a.id, a.data, a.created_at, a.updated_at,
               ars.status, ars.confidence_score, ars.lifecycle_stage,
@@ -9160,7 +9181,7 @@ app.get('/api/university/roster/state', requireAuth, requireUniversityMode, asyn
 
 // POST /api/university/ingestion/ingest
 // Manually submit a single athlete record through the ingestion pipeline.
-// Creates an ingestion event — does NOT write to athletes table directly.
+// Creates an ingestion event, does NOT write to athletes table directly.
 app.post('/api/university/ingestion/ingest', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId       = req.session.userId;
@@ -9352,7 +9373,7 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
       });
     }
 
-    // UNIVERSITY SIDE ONLY — reads from university_athletes
+    // UNIVERSITY SIDE ONLY, reads from university_athletes
     const existingRows = await store.pool.query(
       `SELECT name FROM university_athletes WHERE university_id = $1`,
       [universityId]
@@ -9365,7 +9386,7 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
       const cleanName = (a.name || '').trim();
       if (cleanName.length < 2) { skipped++; skippedNames.push(a.name || '(blank)'); continue; }
 
-      // Skip duplicates — same name already in this university's roster
+      // Skip duplicates, same name already in this university's roster
       if (existingNames.has(cleanName.toLowerCase())) { skipped++; skippedNames.push(cleanName + ' (duplicate)'); continue; }
       existingNames.add(cleanName.toLowerCase()); // prevent dupes within this batch too
 
@@ -9389,7 +9410,7 @@ app.post('/api/university/roster/import-commit', requireAuth, requireUniversityM
         source:       'espn_import',
       };
       try {
-        // UNIVERSITY SIDE ONLY — writes to university_athletes, never to the agent athletes table
+        // UNIVERSITY SIDE ONLY, writes to university_athletes, never to the agent athletes table
         await store.pool.query(
           `INSERT INTO university_athletes (id, university_id, name, sport, position, year, jersey_number, source, data, created_at, updated_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, 'espn_import', $8, NOW(), NOW())`,
@@ -9413,7 +9434,7 @@ app.delete('/api/university/roster/clear', requireAuth, requireUniversityMode, a
   try {
     const universityId = await resolveSessionUniversity(req.session.userId);
     if (!universityId) return res.status(400).json({ error: 'No university linked' });
-    // UNIVERSITY SIDE ONLY — deletes from university_athletes, never from the agent athletes table
+    // UNIVERSITY SIDE ONLY, deletes from university_athletes, never from the agent athletes table
     const result = await store.pool.query(
       `DELETE FROM university_athletes WHERE university_id = $1`,
       [universityId]
@@ -9556,7 +9577,7 @@ app.post('/api/university/roster/confirm', requireAuth, requireUniversityMode, a
       };
 
       try {
-        // UNIVERSITY SIDE ONLY — dedup checks and writes go to university_athletes only
+        // UNIVERSITY SIDE ONLY, dedup checks and writes go to university_athletes only
         let existingId = null;
         if (a.email) {
           const existing = await store.pool.query(
@@ -9618,7 +9639,7 @@ app.delete('/api/university/roster/purge-imports', requireAuth, async (req, res)
     if (user.role !== 'admin' && user.role !== 'university') {
       return res.status(403).json({ error: 'Admin or university role required' });
     }
-    // UNIVERSITY SIDE ONLY — purges from university_athletes table
+    // UNIVERSITY SIDE ONLY, purges from university_athletes table
     const result = await store.pool.query(
       `DELETE FROM university_athletes
        WHERE source IN ('espn_import','csv_import','university_import')
@@ -9632,7 +9653,7 @@ app.delete('/api/university/roster/purge-imports', requireAuth, async (req, res)
 
 // POST /api/university/roster/parse-text
 // Director pastes copied roster text → Claude extracts athletes → preview returned.
-// No scraping, no bot issues — director provides the content directly.
+// No scraping, no bot issues, director provides the content directly.
 app.post('/api/university/roster/parse-text', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const { text, sport = 'Unknown', universityName = 'Unknown University' } = req.body;
@@ -9753,7 +9774,7 @@ app.post('/api/university/roster/discover', requireAuth, requireUniversityMode, 
 });
 
 // GET /api/university/roster/discovery/:jobId
-// Poll job status — returns current status, counters, and source details.
+// Poll job status, returns current status, counters, and source details.
 app.get('/api/university/roster/discovery/:jobId', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const job = await RosterIntelligenceService.getJobStatus(store.pool, req.params.jobId);
@@ -9798,7 +9819,7 @@ app.get('/api/university/roster/review-queue', requireAuth, requireUniversityMod
 });
 
 // POST /api/university/roster/review/:id/approve
-// Approve a queued athlete — imports into CRM.
+// Approve a queued athlete, imports into CRM.
 app.post('/api/university/roster/review/:id/approve', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId = req.session.userId;
@@ -9815,7 +9836,7 @@ app.post('/api/university/roster/review/:id/approve', requireAuth, requireUniver
 });
 
 // POST /api/university/roster/review/:id/reject
-// Reject a queued athlete — marks as rejected, no import.
+// Reject a queued athlete, marks as rejected, no import.
 app.post('/api/university/roster/review/:id/reject', requireAuth, requireUniversityMode, async (req, res) => {
   try {
     const userId = req.session.userId;
@@ -10011,7 +10032,7 @@ app.post('/api/university/athlete-notes/:athleteId', requireAuth, requireUnivers
   }
 });
 
-// ── PWA static assets — explicit routes so catchall doesn't eat them ──
+// ── PWA static assets, explicit routes so catchall doesn't eat them ──
 app.get('/manifest.json', (req, res) => {
   res.setHeader('Content-Type', 'application/manifest+json');
   res.sendFile(path.join(__dirname, '..', 'public', 'manifest.json'));
@@ -10023,11 +10044,11 @@ app.get('/sw.js', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'sw.js'));
 });
 
-// ── PDF Contract Scanner — standalone (no athlete required) ──────────────
+// ── PDF Contract Scanner, standalone (no athlete required) ──────────────
 // POST /api/pdf/analyze
 // Upload any PDF contract → extract text → AI extracts deliverables +
 // runs market rate analysis → returns structured JSON.
-// Does NOT write to DB — purely analytical / read-only.
+// Does NOT write to DB, purely analytical / read-only.
 const pdfScanUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
@@ -10176,7 +10197,7 @@ app.get('/api/agent/calendar', requireAuth, async (req, res) => {
     const eventsResult = await store.pool.query(sql, params);
 
     // Always return ALL athletes under this agent (not just those with events)
-    // FIXED: removed stale espn_import/university_import source filters — isolation is now structural (university_athletes table)
+    // FIXED: removed stale espn_import/university_import source filters, isolation is now structural (university_athletes table)
     const athleteListResult = await store.pool.query(
       `SELECT id, data->>'name' as name FROM athletes WHERE agent_id=$1 ORDER BY (data->>'name') ASC`,
       [agentId]
@@ -10354,14 +10375,14 @@ app.post('/api/pdf/save', requireAuth, async (req, res) => {
 
         const recurrence = d.recurrence && d.recurrence !== 'one-time' ? d.recurrence : null;
         const rrule = toRRule(recurrence, d.contract_duration_months || null);
-        // Normalize date — handles "June 15, 2025", "YYYY-MM-DD", ISO timestamps, etc.
+        // Normalize date, handles "June 15, 2025", "YYYY-MM-DD", ISO timestamps, etc.
         const dueDate = normalizeDateForDB(d.due_date);
         const evBrand = contractBrand;
         const confidence = parseInt(d.confidence_score || d.confidence || 0, 10);
 
         console.log(`[pdf/save] deliverable[${i}]: "${desc.substring(0,40)}" due=${dueDate || 'none'}`);
 
-        // contractId is random per upload so duplicates are impossible — no ON CONFLICT needed
+        // contractId is random per upload so duplicates are impossible, no ON CONFLICT needed
         const dr = await client.query(
           `INSERT INTO athlete_deliverables
              (athlete_id, agent_id, contract_id, deliverable_description, due_date, brand,
@@ -10436,7 +10457,7 @@ app.use('/icons', (req, res, next) => {
 
 // ── Media Kit Routes ──────────────────────────────────────────────────────
 
-// GET /api/athlete/media-kit — load saved media kit (athlete auth)
+// GET /api/athlete/media-kit, load saved media kit (athlete auth)
 app.get('/api/athlete/media-kit', verifyAthleteToken, async (req, res) => {
   try {
     const mkR = await store.pool.query(
@@ -10456,7 +10477,7 @@ app.get('/api/athlete/media-kit', verifyAthleteToken, async (req, res) => {
   }
 });
 
-// POST /api/athlete/media-kit/save — save/update media kit (athlete auth)
+// POST /api/athlete/media-kit/save, save/update media kit (athlete auth)
 // Build a public media-kit slug from the athlete's name. Never build it from the
 // athlete ID: that would leak an internal identifier into a public URL. When
 // there is no usable name, fall back to a random token so the slug stays
@@ -10545,7 +10566,7 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
   }
 });
 
-// POST /api/athlete/generate-bio — AI-generated NIL bio (athlete auth)
+// POST /api/athlete/generate-bio, AI-generated NIL bio (athlete auth)
 app.post('/api/athlete/generate-bio', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const { story } = req.body;
@@ -10758,7 +10779,7 @@ function normalizeRateCardsPayload(body) {
   }).filter((rc) => rc.service_type && rc.price > 0);
 }
 
-// GET /api/media-kit/:slug — public data endpoint (no auth)
+// GET /api/media-kit/:slug, public data endpoint (no auth)
 app.get('/api/media-kit/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
@@ -10818,7 +10839,7 @@ app.get('/api/media-kit/:slug', async (req, res) => {
   }
 });
 
-// GET /api/athletes/media-kit-status — agent: check which athletes have media kits
+// GET /api/athletes/media-kit-status, agent: check which athletes have media kits
 app.get('/api/agents/media-kit-status', requireAuth, async (req, res) => {
   try {
     const athR = await store.pool.query(
@@ -10839,7 +10860,7 @@ app.get('/api/agents/media-kit-status', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/agent/athlete-media-kit/:athleteId — agent loads an athlete's saved media kit
+// GET /api/agent/athlete-media-kit/:athleteId, agent loads an athlete's saved media kit
 app.get('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res) => {
   try {
     const { athleteId } = req.params;
@@ -10878,7 +10899,7 @@ app.get('/api/agent/athlete-media-kit/:athleteId', requireAuth, async (req, res)
   }
 });
 
-// GET /api/agent/home-notices — read-time home feed: kits first viewed today
+// GET /api/agent/home-notices, read-time home feed: kits first viewed today
 // and inbound inquiries from the last 48 hours. No stored notification state.
 app.get('/api/agent/home-notices', requireAuth, async (req, res) => {
   const notices = [];
@@ -10927,7 +10948,7 @@ app.get('/api/agent/home-notices', requireAuth, async (req, res) => {
   res.json({ notices: notices.slice(0, 8) });
 });
 
-// POST /api/agent/athlete-media-kit/:athleteId — agent saves an athlete's media kit
+// POST /api/agent/athlete-media-kit/:athleteId, agent saves an athlete's media kit
 app.post('/api/agent/athlete-media-kit/:athleteId', requireAuth, requireAgentSubscription, async (req, res) => {
   try {
     const { athleteId } = req.params;
@@ -11049,7 +11070,7 @@ app.post('/api/agent/media-kit/:athleteId/variant', requireAuth, requireAgentSub
       return res.json({ ok: true, brandSlug, url, variant: variants[brandSlug], reused: true });
     }
 
-    // Matched tags: only tags actually on the athlete's profile — no inventing.
+    // Matched tags: only tags actually on the athlete's profile, no inventing.
     const athleteTags = Array.isArray(athlete.tags) ? athlete.tags.map(t => String(t).toLowerCase()) : [];
     const requestTags = Array.isArray(req.body.matchedTags) ? req.body.matchedTags.map(t => String(t).toLowerCase()) : [];
     const matchedTags = requestTags.filter(t => athleteTags.includes(t)).slice(0, 5);
@@ -11175,7 +11196,7 @@ app.get('/api/agent/nil-compliance/:athleteId', requireAuth, async (req, res) =>
   }
 });
 
-// POST /api/agent/generate-bio/:athleteId — agent generates AI bio for an athlete
+// POST /api/agent/generate-bio/:athleteId, agent generates AI bio for an athlete
 app.post('/api/agent/generate-bio/:athleteId', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
   try {
     const { athleteId } = req.params;
@@ -11227,7 +11248,7 @@ const INQUIRY_BUDGET_MIDPOINTS = {
   'Not sure': 0,
 };
 
-// POST /api/media-kit/contact — brand inquiry from the public media kit
+// POST /api/media-kit/contact, brand inquiry from the public media kit
 // (no auth). Creates an Inbound deal in the agent's Pipeline and emails the
 // agent. Backward compatible with the old field names.
 app.post('/api/media-kit/contact', async (req, res) => {
@@ -11352,7 +11373,7 @@ app.post('/api/media-kit/contact', async (req, res) => {
 // HOME DATA ROUTES
 // ══════════════════════════════════════════════════════════════════════════
 
-// GET /api/agent/home-data — Agent-wide stats + week deliverables for Home page
+// GET /api/agent/home-data, Agent-wide stats + week deliverables for Home page
 app.get('/api/agent/home-data', requireAuth, async (req, res) => {
   try {
     const agentId = req.session.userId;
@@ -11379,7 +11400,7 @@ app.get('/api/agent/home-data', requireAuth, async (req, res) => {
            AND data->>'stage' = 'Closed'`,
         [agentId]
       ),
-      // Deliverables this week (Mon–Sun)
+      // Deliverables this week (Mon-Sun)
       store.pool.query(
         `SELECT ace.id, ace.title, ace.brand, ace.event_date::text, ace.status,
                 a.data->>'name' AS athlete_name
@@ -11427,7 +11448,7 @@ function _todayDayPhrase(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// GET /api/agent/today — the prioritized "what needs me today" action list for
+// GET /api/agent/today, the prioritized "what needs me today" action list for
 // the home dashboard. Sources, highest urgency first: overdue/today deliverables
 // (red), deals gone stale 30+ days (red), hot signals like kit views, inbound
 // inquiries and replies that never became deals (green), deliverables due this
@@ -11554,7 +11575,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       });
     }
 
-    // GREEN, inbound inquiries (priority 2 — highest-value warm signal)
+    // GREEN, inbound inquiries (priority 2, highest-value warm signal)
     for (const r of inbR.rows) {
       raw.push({
         urgency: 'green', priority: 2, kind: 'inquiry',
@@ -11564,7 +11585,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     }
 
     // GREEN, a brand replied and it never became a deal (priority 2, tied with
-    // inbound inquiries — both are warm and both decay fast)
+    // inbound inquiries, both are warm and both decay fast)
     for (const r of orphanR.rows) {
       const days = Math.floor((now - new Date(r.replied_at).getTime()) / 86400000);
       const when = days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
@@ -11642,7 +11663,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
   }
 });
 
-// GET /api/athlete/home-data — Athlete stats + deliverables + deals for Home page
+// GET /api/athlete/home-data, Athlete stats + deliverables + deals for Home page
 app.get('/api/athlete/home-data', verifyAthleteToken, async (req, res) => {
   try {
     const athleteId = req.athlete.id;
@@ -11690,7 +11711,7 @@ app.get('/api/athlete/home-data', verifyAthleteToken, async (req, res) => {
          WHERE a.id = $1`,
         [athleteId]
       ),
-      // All deliverables for current week (Mon–Sun) — for mini calendar
+      // All deliverables for current week (Mon-Sun), for mini calendar
       store.pool.query(
         `SELECT id, title, brand, event_date::text, status
          FROM athlete_calendar_events
@@ -11726,7 +11747,7 @@ app.get('/api/athlete/home-data', verifyAthleteToken, async (req, res) => {
 // DAILY BRIEF ROUTES
 // ══════════════════════════════════════════════════════════════════════════
 
-// POST /api/agent/daily-brief — AI-generated morning brief for agents
+// POST /api/agent/daily-brief, AI-generated morning brief for agents
 app.post('/api/agent/daily-brief', requireAuth, aiLimiter, async (req, res) => {
   try {
     const agentId = req.session.userId;
@@ -11775,7 +11796,7 @@ app.post('/api/agent/daily-brief', requireAuth, aiLimiter, async (req, res) => {
          ORDER BY updated_at ASC LIMIT 6`,
         [agentId]
       ),
-      // 5. Deliverables due this week — Mon–Sun window, matching the Home
+      // 5. Deliverables due this week, Mon-Sun window, matching the Home
       //    "Deliverables This Week" panel (/api/agent/home-data). Previously this
       //    used a forward-only CURRENT_DATE..+7d window, which dropped items earlier
       //    this week and made the brief say "none" while the panel listed several.
@@ -11897,7 +11918,7 @@ Return only 4 plain sentences, one per line, nothing else.`;
   }
 });
 
-// POST /api/athlete/daily-brief — AI-generated morning brief for athletes (JWT auth)
+// POST /api/athlete/daily-brief, AI-generated morning brief for athletes (JWT auth)
 app.post('/api/athlete/daily-brief', verifyAthleteToken, aiLimiter, async (req, res) => {
   try {
     const athleteId = req.athlete.id;
@@ -12054,7 +12075,7 @@ app.listen(PORT, async () => {
 ╚════════════════════════════════════╝`);
 
   // ── Auto-run idempotent migrations on startup ────────────────────
-  // All SQL statements are IF NOT EXISTS — safe to run every boot.
+  // All SQL statements are IF NOT EXISTS, safe to run every boot.
   // Failure is logged but never crashes the server.
   try {
     const fs   = require('fs');
@@ -12122,7 +12143,7 @@ app.listen(PORT, async () => {
   // ── Fix 2025 deliverable dates → 2026 (one-time data correction) ──
   // Amber Bretton and any other athlete whose dates were extracted with
   // wrong year (2025) due to stale AI prompt examples.  Safe to run
-  // every boot — only rows with year=2025 are touched; subsequent boots
+  // every boot, only rows with year=2025 are touched; subsequent boots
   // find no matching rows and update 0 rows.
   try {
     const delFix = await store.pool.query(
@@ -12143,7 +12164,7 @@ app.listen(PORT, async () => {
   }
 
   // ── Start Roster Automation Scheduler ────────────────────────────
-  // Runs inside this process — resilient across restarts via DB timestamps.
+  // Runs inside this process, resilient across restarts via DB timestamps.
   // Light sync every 6h, deep sync every 24h, tick every 30min.
   try {
     RosterAutomationScheduler.start(store.pool);
@@ -12153,7 +12174,7 @@ app.listen(PORT, async () => {
   }
 
   // ── Data isolation check ──────────────────────────────────────────
-  // University athletes now live in university_athletes — agent athletes table is isolated.
+  // University athletes now live in university_athletes, agent athletes table is isolated.
   try {
     const agentCheck = await store.pool.query(
       `SELECT COUNT(*) AS cnt FROM athletes WHERE data->>'university_id' IS NOT NULL AND data->>'university_id' != ''`

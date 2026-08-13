@@ -30,17 +30,47 @@ function checkEnabled(req, res, next) {
 }
 router.use(checkEnabled);
 
+// Whitelist the fields of a client-supplied contact ladder. This value comes from
+// the browser, and it ends up in brand_contacts, so it is copied field by field
+// rather than passed through: never an email that is not an email, never a name
+// long enough to be a payload, never an extra column smuggled in.
+function _safeKnownContacts(v) {
+  if (!v || typeof v !== 'object') return null;
+  const str = (x, max) => {
+    const s = (x == null) ? '' : String(x).trim();
+    return s && s.length <= max ? s : null;
+  };
+  const email = (x) => {
+    const s = str(x, 200);
+    return s && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s.toLowerCase() : null;
+  };
+  const contacts = (Array.isArray(v.contacts) ? v.contacts : []).slice(0, 10).map((c) => ({
+    name:  str(c && c.name, 120),
+    title: str(c && c.title, 160),
+    email: email(c && c.email),
+    phone: str(c && c.phone, 40),
+    linkedinUrl: (() => { const s = str(c && c.linkedinUrl, 300); return s && /^https?:\/\//i.test(s) ? s : null; })(),
+    sourceUrl:   (() => { const s = str(c && c.sourceUrl, 400);   return s && /^https?:\/\//i.test(s) ? s : null; })(),
+  })).filter((c) => c.name || c.email || c.phone);
+  const out = {
+    contacts,
+    businessPhone: str(v.businessPhone, 40),
+    genericInbox: email(v.genericInbox),
+  };
+  return (out.contacts.length || out.businessPhone) ? out : null;
+}
+
 // ── Workflow ───────────────────────────────────────────────────────────────────
 
 /**
  * POST /api/outreach/run
  * Kick off the full automation workflow for one deal scan result.
  * Body: { athleteId, dealScanResult: { brand, campaign, category, ... } }
- * Returns: { runId } immediately — poll /runs/:runId for status.
+ * Returns: { runId } immediately, poll /runs/:runId for status.
  */
 router.post('/run', async (req, res) => {
   try {
-    const { athleteId, dealScanResult } = req.body;
+    const { athleteId, dealScanResult, knownContacts } = req.body;
     if (!athleteId || !dealScanResult?.brand) {
       return res.status(400).json({ error: 'athleteId and dealScanResult.brand required' });
     }
@@ -58,11 +88,62 @@ router.post('/run', async (req, res) => {
       agentId: req.session.userId,
       athlete,
       dealScanResult,
+      // The contact ladder the card already resolved. Sent by the client so the
+      // workflow does not re-run the same 6-source fan-out the expand just paid
+      // for. Shape-checked rather than trusted: only the three fields the
+      // resolver produces are forwarded, so an odd client payload cannot become
+      // a contact record.
+      knownContacts: _safeKnownContacts(knownContacts),
     });
 
     res.json({ runId, status: 'running', message: 'Outreach workflow started' });
   } catch (e) {
     console.error('[outreach/run]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET /api/outreach/draft?athleteId=&brandKey=&brand=
+ * The pre-warmed draft for one athlete + business, or 404.
+ *
+ * This is what makes AI Outreach instant: the modal asks here FIRST and renders
+ * immediately on a hit. A miss is not an error condition, it is the normal path for
+ * a card whose pre-warm has not finished (or failed the specificity check), and the
+ * modal falls straight through to POST /run exactly as it did before.
+ *
+ * brandKey is preferred; brand name is accepted as a fallback so a card that lost
+ * its key can still find its draft.
+ */
+router.get('/draft', async (req, res) => {
+  try {
+    const athleteId = String(req.query.athleteId || '').trim();
+    const brandKey  = String(req.query.brandKey || '').trim();
+    const brand     = String(req.query.brand || '').trim();
+    if (!athleteId || (!brandKey && !brand)) {
+      return res.status(400).json({ error: 'athleteId and brandKey (or brand) required' });
+    }
+    // Scoped to the signed-in agent as well as the athlete: a draft is an agent's
+    // own work and must not be readable by another agent who happens to know the
+    // athlete id.
+    const r = brandKey
+      ? await pool.query(
+          `SELECT * FROM outreach_logs
+           WHERE agent_id=$1 AND athlete_id=$2 AND brand_key=$3 AND status='draft'
+           ORDER BY created_at DESC LIMIT 1`, [req.session.userId, athleteId, brandKey])
+      : await pool.query(
+          `SELECT * FROM outreach_logs
+           WHERE agent_id=$1 AND athlete_id=$2 AND LOWER(brand_name)=LOWER($3) AND status='draft'
+           ORDER BY created_at DESC LIMIT 1`, [req.session.userId, athleteId, brand]);
+    const row = r.rows[0];
+    if (!row) return res.status(404).json({ error: 'no draft yet' });
+    res.json({
+      id: row.id, subject: row.subject, body_html: row.body_html,
+      brand_name: row.brand_name, brand_key: row.brand_key,
+      source: row.source || null, created_at: row.created_at,
+    });
+  } catch (e) {
+    console.error('[outreach/draft]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -273,7 +354,7 @@ router.post('/logs/:id/send', async (req, res) => {
       return res.status(400).json({ error: 'emailAccountId and toEmail required' });
     }
 
-    // Call the existing /api/email/send endpoint logic (reuse without importing — call via fetch)
+    // Call the existing /api/email/send endpoint logic (reuse without importing, call via fetch)
     // We delegate to the existing email service to avoid any coupling
     const sendResult = await sendViaEmailService(req, emailAccountId, toEmail, log);
 

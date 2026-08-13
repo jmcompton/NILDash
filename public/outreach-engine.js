@@ -1,5 +1,5 @@
 // public/outreach-engine.js
-// NIL Outreach Automation Engine — Deal Scan UI Integration
+// NIL Outreach Automation Engine, Deal Scan UI Integration
 //
 // Adds "Generate Outreach" button to each Deal Scan result card.
 // Shows a full outreach preview modal with:
@@ -11,7 +11,7 @@
 //   - deck download
 //
 // Loaded by index.html after email.js.
-// Uses window.outreachEngine namespace — zero collision with existing code.
+// Uses window.outreachEngine namespace, zero collision with existing code.
 
 'use strict';
 
@@ -87,13 +87,126 @@ async function generateOutreach(athleteId, dealResultJson) {
   // agent should find out while the draft is being written, not after.
   checkMailboxForNotice();
 
+  // ── The pre-warmed draft ───────────────────────────────────────────────────
+  // Drafting now happens in the background when the SCAN finishes, so by the time
+  // a card is opened the message usually already exists. Ask for it first; a hit
+  // renders immediately with no model call and no wait.
+  //
+  // A miss is ordinary, not an error: the pre-warm may still be running, or its
+  // draft may have failed the specificity check and been dropped rather than
+  // stored. Either way this falls straight through to the old /run path, so the
+  // box is never empty.
   try {
-    const { runId } = await outreachAPI.post('/run', { athleteId, dealScanResult: dealResult });
+    const pre = await fetchPrewarmedDraft(athleteId, dealResult);
+    if (pre) {
+      renderPrewarmedDraft(pre, dealResult, athleteId);
+      return;
+    }
+  } catch (e) {
+    console.warn('[outreachEngine] prewarm lookup failed, generating on click:', e && e.message);
+  }
+
+  try {
+    const { runId } = await outreachAPI.post('/run', {
+      athleteId, dealScanResult: dealResult,
+      // The contact ladder this card already resolved. Without it the workflow
+      // re-runs the same 6-source fan-out the card expand already paid for.
+      knownContacts: cardContacts(dealResult),
+    });
     OutreachEngineState.activeRunId = runId;
     startPolling(runId);
   } catch (e) {
     setModalState('error', e.message);
   }
+}
+
+// What the card knows about how to reach this business, in the shape the server's
+// resolver produces. Returns null when the card found nothing, so an empty card
+// never suppresses the real lookup.
+function cardContacts(d) {
+  if (!d) return null;
+  const contacts = (Array.isArray(d.contacts) ? d.contacts : []).map(function (c) {
+    return {
+      name: c.name || null, title: c.title || null, email: c.email || null,
+      phone: c.phone || null, linkedinUrl: c.linkedinUrl || null, sourceUrl: c.sourceUrl || null,
+    };
+  });
+  if (!contacts.length && !d.businessPhone) return null;
+  return { contacts, businessPhone: d.businessPhone || null, genericInbox: d.genericInbox || null };
+}
+
+async function fetchPrewarmedDraft(athleteId, d) {
+  const brandKey = d.brandKey || d.brand_key || '';
+  const brand = d.brand || d.brand_name || '';
+  if (!athleteId || (!brandKey && !brand)) return null;
+  const qs = 'athleteId=' + encodeURIComponent(athleteId)
+    + (brandKey ? '&brandKey=' + encodeURIComponent(brandKey) : '')
+    + (brand ? '&brand=' + encodeURIComponent(brand) : '');
+  const r = await fetch('/api/outreach/draft?' + qs, { credentials: 'include' });
+  if (r.status === 404) return null;
+  if (!r.ok) return null;
+  const j = await r.json().catch(function () { return null; });
+  return (j && j.body_html) ? j : null;
+}
+
+// Render a pre-warmed draft into the same modal the workflow renders into, reusing
+// renderRunResult so there is ONE layout rather than two that drift apart. The
+// pieces the workflow would have produced (enrichment, match score, deck) are
+// absent by design: pre-warming deliberately skips them.
+function renderPrewarmedDraft(pre, dealResult, athleteId) {
+  OutreachEngineState.currentOutreachId = pre.id;
+  OutreachEngineState.activeRunId = null;
+  const contact = pickCardContact(dealResult);
+  renderRunResult({
+    run: { brand_name: pre.brand_name || dealResult.brand, athlete_id: athleteId, status: 'complete' },
+    // Built from the CARD, not invented. category and region are what the scan
+    // actually established; brand_size is genuinely unknown here and stays null so
+    // it renders as a dash rather than a guess. Pre-warming skips the enrichment
+    // step, so there is no researched record to show and none is implied.
+    enrichment: {
+      brand_name: pre.brand_name || dealResult.brand,
+      industry: dealResult.category || null,
+      location: dealResult.region || dealResult.market || null,
+      brand_size: null,
+      website: dealResult.website || null,
+    },
+    contact,
+    matchScore: null,
+    deck: null,
+    outreach: { id: pre.id, subject: pre.subject, body_html: pre.body_html },
+  });
+  // GREETING PERSONALISATION. The draft was written contact-agnostic, because at
+  // scan time the card has a phone and rarely a name. If a name HAS been found
+  // since (the agent expanded the card and ran the ladder), swap the bare "Hi,"
+  // for it here. Only the greeting, and only when the name is a real published
+  // personal contact, so nothing else in the email is rewritten client-side.
+  const named = contact && contact.name && resolvePersonalEmail(contact) ? contact.name : null;
+  if (named) personalizeGreeting(named);
+}
+
+function pickCardContact(d) {
+  const list = (d && Array.isArray(d.contacts)) ? d.contacts : [];
+  const c = list[0];
+  if (!c) return null;
+  return {
+    name: c.name || null, title: c.title || null, email: c.email || null,
+    phone: c.phone || null, confidence_score: c.email ? 0.9 : 0.6,
+  };
+}
+
+// Replace a bare "Hi," on the first line with "Hi <first name},". Deliberately
+// narrow: it touches the greeting line only, never the body, and does nothing if
+// the draft already greets someone.
+function personalizeGreeting(fullName) {
+  const ta = document.getElementById('outreach-body-input');
+  if (!ta) return;
+  const first = String(fullName).trim().split(/\s+/)[0];
+  if (!first) return;
+  const lines = String(ta.value || '').split('\n');
+  if (!lines.length) return;
+  if (!/^\s*hi\s*,?\s*$/i.test(lines[0])) return;
+  lines[0] = 'Hi ' + first + ',';
+  ta.value = lines.join('\n');
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────
@@ -115,7 +228,7 @@ function startPolling(runId) {
         clearInterval(OutreachEngineState.pollInterval);
         setModalState('error', data.run?.error_message || 'Workflow failed');
       } else {
-        // Still running — update progress message
+        // Still running, update progress message
         const steps = data.run?.steps_completed;
         const completedSteps = Array.isArray(steps) ? steps : (typeof steps === 'string' ? JSON.parse(steps || '[]') : []);
         updateLoadingProgress(completedSteps);
@@ -268,7 +381,7 @@ function renderRunResult(data) {
   const outreachId     = outreach?.id;
   OutreachEngineState.currentOutreachId = outreachId || null;
 
-  // Contact info — one shared truth with Deal Scan. A named person is only
+  // Contact info, one shared truth with Deal Scan. A named person is only
   // greeted/emailed by name when they carry a published PERSONAL email; a
   // generic inbox is never attached to a person and never auto-prefilled.
   const rawEmail     = contact?.email || null;
@@ -329,9 +442,9 @@ function renderRunResult(data) {
         <div style="font-size:11px;font-weight:700;color:var(--muted,#888);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
           Company
         </div>
-        <div style="font-size:11px;color:var(--muted,#888)">${escHtml(enrichment.industry || '—')}</div>
-        <div style="font-size:11px;color:var(--muted,#888)">${escHtml(enrichment.location || '—')}</div>
-        <div style="font-size:11px;color:var(--muted,#888);text-transform:capitalize">${escHtml(enrichment.brand_size || '—')}</div>
+        <div style="font-size:11px;color:var(--muted,#888)">${escHtml((enrichment && enrichment.industry) || '—')}</div>
+        <div style="font-size:11px;color:var(--muted,#888)">${escHtml((enrichment && enrichment.location) || '—')}</div>
+        <div style="font-size:11px;color:var(--muted,#888);text-transform:capitalize">${escHtml((enrichment && enrichment.brand_size) || '—')}</div>
       </div>` : ''}
     </div>
 

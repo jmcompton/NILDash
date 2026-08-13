@@ -1,5 +1,5 @@
 // server/services/contactDiscovery.js
-// ContactDiscoveryService — Part 2 of the NIL Outreach Automation Engine.
+// ContactDiscoveryService, Part 2 of the NIL Outreach Automation Engine.
 //
 // Responsibilities:
 //   - discover decision makers from enriched company data
@@ -56,7 +56,18 @@ const PRIORITY_MAP = {
  * Runs AI contact discovery using the enriched company profile.
  * Returns array of ranked contact records (saved to DB).
  */
-async function discoverContacts(agentId, enrichmentRecord) {
+// knownContacts: the ladder the Deal Scan CARD already resolved, in the shape
+// getBrandContacts returns ({ contacts, businessPhone, genericInbox }).
+//
+// THE DOUBLE-SPEND THIS CLOSES. Expanding a card runs the deep contact ladder
+// (POST /api/agent/brand-contacts with deep:true, a 6-source web fan-out plus
+// Hunter). Clicking AI Outreach then ran getBrandContacts AGAIN with
+// enrichEmail:true: the same resolver, the same searches, the same answer. The
+// expand result only ever lived in browser memory, and discoverContacts caches on
+// enrichment_id, which does not exist yet at expand time, so there was nothing to
+// hit. Passing the card's result in skips the second fan-out entirely, which also
+// takes contact discovery off the critical path between the click and the draft.
+async function discoverContacts(agentId, enrichmentRecord, knownContacts) {
   const existing = await getByEnrichmentId(enrichmentRecord.id);
   // Purge cache written by the OLD path that inferred info@ or attached a generic
   // inbox to a named person; otherwise trust the cache.
@@ -73,10 +84,29 @@ async function discoverContacts(agentId, enrichmentRecord) {
   // emails only, generic inboxes never attached to a person, phones locality
   // checked, nothing fabricated. No second implementation, no inferred info@.
   let shared = { contacts: [], businessPhone: null, genericInbox: null };
-  try {
-    shared = await getBrandContacts(enrichmentRecord.brand_name, enrichmentRecord.website || null, enrichmentRecord.location || '', { enrichEmail: true });
-  } catch (e) {
-    console.error('[contactDiscovery] getBrandContacts failed:', e.message);
+  // Only counted as usable when it carries a NAMED person or a phone. A card whose
+  // cheap pass returned nothing must not suppress the real lookup: an empty object
+  // is the absence of an answer, not an answer of "none".
+  const supplied = knownContacts && (
+    (Array.isArray(knownContacts.contacts) && knownContacts.contacts.length > 0)
+    || knownContacts.businessPhone);
+  if (supplied) {
+    shared = {
+      contacts: Array.isArray(knownContacts.contacts) ? knownContacts.contacts : [],
+      businessPhone: knownContacts.businessPhone || null,
+      genericInbox: knownContacts.genericInbox || null,
+    };
+    console.log(`[contactDiscovery] brand="${enrichmentRecord.brand_name}" using the card's ladder `
+      + `(${shared.contacts.length} named, phone=${shared.businessPhone ? 'yes' : 'no'}), skipping the second fan-out`);
+    logEvent(null, agentId, 'contact_discovery_reused_card', {
+      enrichmentId: enrichmentRecord.id, named: shared.contacts.length,
+    });
+  } else {
+    try {
+      shared = await getBrandContacts(enrichmentRecord.brand_name, enrichmentRecord.website || null, enrichmentRecord.location || '', { enrichEmail: true });
+    } catch (e) {
+      console.error('[contactDiscovery] getBrandContacts failed:', e.message);
+    }
   }
 
   // Build ranked rows: named people first (best when they carry a published

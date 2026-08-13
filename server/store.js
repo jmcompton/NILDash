@@ -1,4 +1,4 @@
-// server/store.js — PostgreSQL persistent storage
+// server/store.js, PostgreSQL persistent storage
 const { Pool } = require('pg');
 const scanMeter = require('./scanMeter');
 
@@ -249,7 +249,7 @@ async function init() {
     );
   `).catch(e => console.error('Contract system tables init error:', e.message));
 
-  // Additive column migrations — safe to run on existing DBs
+  // Additive column migrations, safe to run on existing DBs
   const _contractMigrations = [
     `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS file_hash TEXT`,
     `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS raw_text TEXT`,
@@ -261,7 +261,7 @@ async function init() {
     `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS ai_confidence_score INTEGER DEFAULT 0`,
     `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'ai_extracted'`,
     `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS manually_edited BOOLEAN DEFAULT FALSE`,
-    // Google Calendar — track which NILDash events have been pushed to Google Calendar
+    // Google Calendar, track which NILDash events have been pushed to Google Calendar
     `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS google_event_id TEXT`,
     // ── Athlete-created deliverables ──────────────────────────────────────────
     // Self-managed athletes have NULL agent_id, so the calendar events table can
@@ -277,7 +277,7 @@ async function init() {
     await pool.query(sql).catch(() => {});
   }
 
-  // Idempotency: file_hash unique index (partial — skips NULLs from old rows)
+  // Idempotency: file_hash unique index (partial, skips NULLs from old rows)
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_file_hash ON athlete_contracts(file_hash) WHERE file_hash IS NOT NULL`).catch(() => {});
   // Prevent duplicate calendar events per deliverable + date
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cal_events_deliv_date ON athlete_calendar_events(deliverable_id, event_date) WHERE deliverable_id IS NOT NULL`).catch(() => {});
@@ -294,7 +294,7 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_athlete_outreach_agent ON athlete_outreach(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_athlete_outreach_athlete ON athlete_outreach(athlete_id)`).catch(() => {});
 
-  // ── Athlete Auth & Onboarding (additive migrations — safe on existing DBs) ─
+  // ── Athlete Auth & Onboarding (additive migrations, safe on existing DBs) ─
   const _athleteAuthMigrations = [
     // New top-level columns on athletes table for self-serve auth
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS email TEXT`,
@@ -321,7 +321,7 @@ async function init() {
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS instagram_followers INTEGER`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS tiktok_followers INTEGER`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS twitter_followers INTEGER`,
-    // Athlete's home/competition state — drives state-specific NIL compliance.
+    // Athlete's home/competition state, drives state-specific NIL compliance.
     // User-editable in Profile; falls back to school→state auto-detection.
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS state TEXT`,
     // First-run onboarding state (welcome wizard, guided tour, activation
@@ -342,7 +342,7 @@ async function init() {
   // (disclosed-deal precedent) lanes. Keyed by (brand_key, lane) so the same
   // program/deal facts are shared across every athlete and re-used for ~7 days
   // instead of paying a fresh web search per scan. The qualification VERDICT is
-  // NOT stored here — it is derived per-athlete at scan time from this evidence
+  // NOT stored here, it is derived per-athlete at scan time from this evidence
   // plus the athlete's own follower counts, so a stale verdict can never leak.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS brand_evidence_cache (
@@ -366,7 +366,7 @@ async function init() {
 
   // ── User Onboarding (wizard state, Getting Started checklist, tooltips) ─────
   // Backs Parts A/C/E of the onboarding overhaul. user_id is TEXT to match the
-  // users table PK (users.id TEXT). Additive and idempotent — safe on prod.
+  // users table PK (users.id TEXT). Additive and idempotent, safe on prod.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_onboarding (
       user_id TEXT PRIMARY KEY,
@@ -806,7 +806,7 @@ async function init() {
     // ── Money Loop columns (agreement → invoice → paid → earnings) ──────────────
     // All additive + nullable (or defaulted). Existing rows backfill cleanly:
     // fee_pct defaults 0 (fee OFF), disclosure_status defaults 'not_required'.
-    // These are DISPLAY/RECORD ONLY — no payment processing, no money movement.
+    // These are DISPLAY/RECORD ONLY, no payment processing, no money movement.
     `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS deliverables TEXT`,
     `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS timeline TEXT`,
     `ALTER TABLE athlete_self_deals ADD COLUMN IF NOT EXISTS fee_pct NUMERIC DEFAULT 0`,
@@ -944,7 +944,7 @@ async function init() {
     console.error('[init] comp seed skipped:', e.message);
   }
 
-  // ── Email Integration Tables (additive — never modifies existing tables) ──
+  // ── Email Integration Tables (additive, never modifies existing tables) ──
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_accounts (
       id TEXT PRIMARY KEY,
@@ -1037,7 +1037,7 @@ async function init() {
   // Add name column if missing (migration for existing DBs)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT`).catch(() => {});
 
-  // ── Outreach Engine Tables (additive — never modifies existing tables) ──────
+  // ── Outreach Engine Tables (additive, never modifies existing tables) ──────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS company_enrichment (
       id TEXT PRIMARY KEY,
@@ -1168,13 +1168,30 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brand_match_athlete ON brand_match_scores(athlete_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_agent ON outreach_logs(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_athlete ON outreach_logs(athlete_id)`).catch(() => {});
+  // ── Pre-warmed drafts ──────────────────────────────────────────────────────
+  // brand_key is the SAME canonical identity the engagement ledger uses
+  // (ai.resolveBrandKey): place_id for local, root domain otherwise, so the same
+  // chain in three towns is three keys and a name variant is not a fourth.
+  // source records where a draft came from ('prewarm' or null for the click path),
+  // which is the only way to tell later whether pre-warming is actually the thing
+  // the agent sent.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS brand_key TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS source TEXT`).catch(() => {});
+  // PARTIAL, on status='draft' only. One live draft per athlete+business is the
+  // cache rule; a SENT outreach must never block a fresh draft for the same brand,
+  // which a full unique index would do the moment someone follows up.
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_outreach_logs_draft_key
+       ON outreach_logs(athlete_id, brand_key) WHERE status = 'draft' AND brand_key IS NOT NULL`
+  ).catch((e) => console.error('[init] outreach draft key index:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_brand_key ON outreach_logs(brand_key)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_automation_runs_agent ON automation_runs(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_workflow_events_run ON workflow_events(run_id)`).catch(() => {});
 
 
-  // ── University Mode Schema (additive — never breaks agent or athlete tables) ──
+  // ── University Mode Schema (additive, never breaks agent or athlete tables) ──
   // Creates all 18 tables the university services query. Safe to run on existing
-  // DBs — every statement uses CREATE TABLE IF NOT EXISTS.
+  // DBs, every statement uses CREATE TABLE IF NOT EXISTS.
   await pool.query(`
     CREATE TABLE IF NOT EXISTS universities (
       id          TEXT PRIMARY KEY,
@@ -1612,7 +1629,7 @@ async function getAllUsers() {
   return Object.fromEntries(r.rows.map(u => [u.id, u]));
 }
 
-// AGENT SIDE ONLY — do not use in university routes.
+// AGENT SIDE ONLY, do not use in university routes.
 // University athletes live in the university_athletes table. Any code that
 // imports, reads, or writes university roster data must use that table instead.
 async function getAthlete(id) {
@@ -1621,7 +1638,7 @@ async function getAthlete(id) {
   return { id: r.rows[0].id, agentId: r.rows[0].agent_id, ...r.rows[0].data };
 }
 async function getAthletesByAgent(agentId) {
-  // AGENT SIDE ONLY — do not use in university routes
+  // AGENT SIDE ONLY, do not use in university routes
   const r = await pool.query(
     `SELECT * FROM athletes WHERE agent_id=$1`,
     [agentId]
@@ -1629,7 +1646,7 @@ async function getAthletesByAgent(agentId) {
   return r.rows.map(row => ({ id: row.id, agentId: row.agent_id, ...row.data }));
 }
 async function saveAthlete(id, data) {
-  // AGENT SIDE ONLY — do not use in university routes
+  // AGENT SIDE ONLY, do not use in university routes
   const { agentId, ...rest } = data;
   await pool.query(`
     INSERT INTO athletes (id, agent_id, data, updated_at)
@@ -1640,12 +1657,12 @@ async function saveAthlete(id, data) {
   return getAthlete(id);
 }
 async function deleteAthlete(id) {
-  // AGENT SIDE ONLY — do not use in university routes
+  // AGENT SIDE ONLY, do not use in university routes
   await pool.query('DELETE FROM athletes WHERE id=$1', [id]);
 }
 
 // DEALS
-// DEAL COMPS — anonymized closed deals that improve NILViewVal accuracy
+// DEAL COMPS, anonymized closed deals that improve NILViewVal accuracy
 async function saveComp(dealData, athleteData) {
   try {
     await pool.query(`
@@ -2512,7 +2529,7 @@ async function saveDealOutcome(dealId, dealData, athleteData, agentId) {
 }
 
 // Benchmarks across ALL agents. MIN_SAMPLE exists because a "median" computed
-// from two deals is worse than showing nothing — it reads as authoritative and
+// from two deals is worse than showing nothing, it reads as authoritative and
 // it is noise. Below the threshold we return the count and no numbers.
 const MIN_SAMPLE = 5;
 
