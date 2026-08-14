@@ -39,86 +39,247 @@ function naEsc(s) {
 function naBase() { return (typeof API_BASE === 'string') ? API_BASE : ''; }
 
 // ── Shell ────────────────────────────────────────────────────────────────────
+// A DOCKED SIDEBAR, not a floating bubble. The tab is the only control: it opens the
+// panel, it closes it, and it rides along at the panel's left edge so the thing you
+// press to close is where the panel actually is. There is no X anywhere, which is why
+// the tab must never become unreachable.
+//
+// The panel is ALWAYS in the DOM and always display:flex. Open and closed are a
+// transform, because display:none cannot be animated and the slide is the point.
+
+var NA_W = 380;          // panel width, desktop
+var NA_MOBILE = 900;     // below this the panel is full width and content does not shift
+var NA_MS = 280;         // slide duration, both directions
+var NA_EASE = 'cubic-bezier(0.4, 0, 0.2, 1)';
+
+function naStyles() {
+  if (document.getElementById('na-styles')) return;
+  var st = document.createElement('style');
+  st.id = 'na-styles';
+  st.textContent = [
+    // ── the panel ──
+    '#na-panel{position:fixed;top:0;right:0;z-index:9998;width:' + NA_W + 'px;height:100vh;',
+    '  display:flex;flex-direction:column;background:var(--surface,#141929);',
+    '  border-left:1px solid var(--border,rgba(255,255,255,0.08));',
+    '  box-shadow:-8px 0 32px rgba(0,0,0,0.28);',
+    '  transform:translateX(100%);transition:transform ' + NA_MS + 'ms ' + NA_EASE + ';}',
+    'body.na-open #na-panel{transform:translateX(0);}',
+
+    // ── the tab ──
+    // right: 0 closed, right: panel width open. Same duration and easing as the panel,
+    // so they move as one object rather than two things that happen to both animate.
+    '#na-tab{position:fixed;top:58%;right:0;z-index:9999;transform:translateY(-50%);',
+    '  display:flex;align-items:center;gap:8px;padding:10px 10px 10px 11px;',
+    '  background:var(--accent,#84CC16);color:#0b0f0a;border:none;cursor:pointer;',
+    '  border-radius:10px 0 0 10px;box-shadow:-2px 0 10px rgba(0,0,0,0.25);',
+    '  font-family:inherit;font-size:12px;font-weight:700;line-height:1;',
+    '  transition:right ' + NA_MS + 'ms ' + NA_EASE + ';}',
+    'body.na-open #na-tab{right:' + NA_W + 'px;}',
+    '#na-tab:hover{filter:brightness(1.06);}',
+    // The N mark: a small dark square, the app's own brand shape at tab scale.
+    '#na-tab .na-mark{width:20px;height:20px;flex-shrink:0;border-radius:4px;',
+    '  background:#0b0f0a;color:var(--accent,#84CC16);display:flex;align-items:center;',
+    '  justify-content:center;font-size:12px;font-weight:800;}',
+    '#na-tab .na-chev{font-size:13px;line-height:1;transition:transform ' + NA_MS + 'ms ' + NA_EASE + ';}',
+    // Closed the chevron points left (the panel comes in from the right); open it
+    // points right (the panel goes back). One glyph, rotated, so they cannot disagree.
+    'body.na-open #na-tab .na-chev{transform:rotate(180deg);}',
+
+    // ── content shifts, it is not covered ──
+    // MARGIN, NOT WIDTH. .main is flex:1, which means flex-basis:0 plus grow -- the
+    // flex algorithm sizes it and the width property is ignored outright. Setting
+    // width here looked correct in the CSS and did nothing on screen: the cards ran
+    // straight under the panel. Margin is part of the flex item's outer size, so the
+    // algorithm has to honour it.
+    '.main{transition:margin-right ' + NA_MS + 'ms ' + NA_EASE + ';}',
+    '@media (min-width:' + (NA_MOBILE + 1) + 'px){',
+    '  body.na-open .main{margin-right:' + NA_W + 'px;}}',
+
+    // ── header ──
+    '#na-panel .na-head{flex-shrink:0;padding:16px 18px;background:var(--surface2,#1E2540);',
+    '  border-bottom:1px solid var(--border,rgba(255,255,255,0.08));}',
+    '#na-panel .na-title{font-size:14px;font-weight:700;color:var(--text,#F0F4FF);line-height:1.25;}',
+    '#na-panel .na-sub{font-size:11.5px;color:var(--muted,rgba(240,244,255,0.45));line-height:1.4;margin-top:3px;}',
+
+    // ── log ──
+    '#na-log{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px;}',
+
+    // ── messages ──
+    // The squared corner is the tail: bottom-left on the assistant, bottom-right on
+    // the agent, so which side spoke reads without colour.
+    '.na-msg{max-width:88%;padding:10px 13px;font-size:13px;line-height:1.55;',
+    '  white-space:pre-wrap;overflow-wrap:anywhere;}',
+    '.na-msg.na-a{align-self:flex-start;background:var(--surface2,#1E2540);color:var(--text,#F0F4FF);',
+    '  border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:12px 12px 12px 2px;}',
+    '.na-msg.na-u{align-self:flex-end;background:var(--accent,#84CC16);color:#0b0f0a;',
+    '  font-weight:500;border-radius:12px 12px 2px 12px;}',
+
+    // ── the running indicator ──
+    // Three dots AND a line naming the work. "Scanning Tuscaloosa", never "Working".
+    '.na-run{align-self:flex-start;display:flex;align-items:center;gap:10px;padding:10px 13px;',
+    '  background:var(--surface2,#1E2540);border:1px solid var(--border,rgba(255,255,255,0.08));',
+    '  border-radius:12px 12px 12px 2px;}',
+    '.na-run .na-dots{display:flex;gap:4px;flex-shrink:0;}',
+    '.na-run .na-dots i{width:6px;height:6px;border-radius:50%;background:var(--accent,#84CC16);',
+    '  animation:na-pulse 1.2s ease-in-out infinite;}',
+    '.na-run .na-dots i:nth-child(2){animation-delay:0.15s;}',
+    '.na-run .na-dots i:nth-child(3){animation-delay:0.3s;}',
+    '.na-run .na-what{font-size:12.5px;color:var(--muted,rgba(240,244,255,0.45));line-height:1.4;}',
+    '@keyframes na-pulse{0%,80%,100%{opacity:0.25;transform:scale(0.8);}40%{opacity:1;transform:scale(1);}}',
+
+    // ── confirmation card ──
+    // A card, not a sentence: this is the one place the agent is agreeing to something
+    // irreversible, and it should not look like chat.
+    '.na-card{align-self:stretch;background:var(--surface2,#1E2540);',
+    '  border:1px solid var(--border2,rgba(255,255,255,0.14));border-radius:12px;padding:14px;}',
+    '.na-card .na-label{font-size:10px;font-weight:700;letter-spacing:0.09em;text-transform:uppercase;',
+    '  color:var(--muted,rgba(240,244,255,0.45));}',
+    '.na-card .na-what{font-size:13px;line-height:1.5;color:var(--text,#F0F4FF);margin:9px 0 13px;}',
+    '.na-card .na-what strong{font-weight:700;color:var(--text,#F0F4FF);}',
+    '.na-card .na-btns{display:flex;gap:8px;}',
+    '.na-btn{padding:8px 14px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;',
+    '  font-family:inherit;line-height:1;}',
+    '.na-btn.na-primary{background:var(--accent,#84CC16);border:none;color:#0b0f0a;}',
+    '.na-btn.na-ghost{background:transparent;border:1px solid var(--border2,rgba(255,255,255,0.14));',
+    '  color:var(--muted,rgba(240,244,255,0.45));font-weight:600;}',
+    '.na-btn:hover{filter:brightness(1.08);}',
+
+    // ── error ──
+    '.na-err{align-self:stretch;background:var(--surface2,#1E2540);border:1px solid #f87171;',
+    '  border-radius:12px;padding:13px;}',
+    '.na-err .na-what{font-size:13px;color:#f87171;line-height:1.5;}',
+
+    // ── composer ──
+    '#na-panel .na-foot{flex-shrink:0;display:flex;gap:8px;padding:12px;',
+    '  border-top:1px solid var(--border,rgba(255,255,255,0.08));}',
+    '#na-input{flex:1;min-width:0;min-height:40px;padding:9px 12px;font-family:inherit;font-size:13.5px;',
+    '  background:var(--bg,#0A0E1A);border:1px solid var(--border,rgba(255,255,255,0.08));',
+    '  border-radius:9px;color:var(--text,#F0F4FF);outline:none;}',
+    '#na-input:focus{border-color:var(--accent,#84CC16);}',
+
+    // ── mobile ──
+    // Full width, and the page does not shift because there is nowhere to shift to.
+    // The tab stays pinned to the right edge ON TOP of the panel rather than riding to
+    // the far left: it is the only way to close, so it must stay where a thumb is.
+    '@media (max-width:' + NA_MOBILE + 'px){',
+    '  #na-panel{width:100vw;}',
+    '  body.na-open #na-tab{right:0;}',
+    '  body.na-open .main{margin-right:0;}}',
+  ].join('\n');
+  document.head.appendChild(st);
+}
+
 function naBuild() {
   if (document.getElementById('nil-assistant')) return;
+  naStyles();
   var wrap = document.createElement('div');
   wrap.id = 'nil-assistant';
   wrap.innerHTML =
-    // ONE control at a time. The bubble is hidden while the panel is open, so the
-    // panel's own header close button is the only thing to click. Two buttons stacked
-    // in the same corner read as a broken layout.
-    '<button id="na-bubble" type="button" onclick="nilAssistant.toggle()" aria-label="Open the NILDash assistant"' +
-      ' style="position:fixed;right:20px;bottom:20px;z-index:9998;width:54px;height:54px;border-radius:50%;' +
-      'background:var(--accent,#84CC16);border:none;color:#0b0f0a;font-size:22px;font-weight:800;cursor:pointer;' +
-      'box-shadow:0 6px 20px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center">?</button>' +
-    // Anchored to the corner with the same 20px gutter as the bubble, and tall: 70%
-    // of the viewport rather than a 560px box floating mid-air.
-    '<div id="na-panel" role="dialog" aria-label="NILDash assistant" aria-modal="false"' +
-      ' style="display:none;position:fixed;right:20px;bottom:20px;z-index:9999;' +
-      'width:min(400px,calc(100vw - 40px));height:min(70vh,640px);max-height:calc(100vh - 40px);' +
-      'background:var(--surface,#1a1a1a);border:1px solid var(--border,#333);' +
-      'border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,0.55);flex-direction:column;overflow:hidden">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;' +
-        'padding:14px 16px;border-bottom:1px solid var(--border,#333);flex-shrink:0;background:var(--surface2,#222)">' +
-        '<div style="display:flex;align-items:center;gap:9px;min-width:0">' +
-          '<span style="width:26px;height:26px;flex-shrink:0;border-radius:50%;background:var(--accent,#84CC16);' +
-            'color:#0b0f0a;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center">?</span>' +
-          '<div style="min-width:0">' +
-            '<div style="font-size:14px;font-weight:700;color:var(--text,#fff);line-height:1.2">NILDash assistant</div>' +
-            '<div style="font-size:11px;color:var(--muted,#888);line-height:1.3">Ask about the product, or tell me what to do</div>' +
-          '</div>' +
-        '</div>' +
-        '<button type="button" onclick="nilAssistant.dismiss()" aria-label="Close the assistant"' +
-          ' style="background:none;border:none;color:var(--muted,#888);font-size:24px;cursor:pointer;line-height:1;' +
-          'padding:0 4px;flex-shrink:0">&times;</button>' +
-      '</div>' +
-      '<div id="na-log" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px"></div>' +
-      '<div style="padding:10px 12px;border-top:1px solid var(--border,#333);flex-shrink:0;display:flex;gap:8px">' +
-        '<input id="na-input" type="text" placeholder="Ask me anything" autocomplete="off"' +
-          ' onkeydown="if(event.key===\'Enter\'){nilAssistant.send();}"' +
-          ' style="flex:1;min-height:40px;padding:8px 12px;background:var(--surface2,#222);border:1px solid var(--border,#333);' +
-          'border-radius:8px;color:var(--text,#fff);font-size:14px;outline:none;font-family:inherit">' +
-        '<button type="button" onclick="nilAssistant.send()"' +
-          ' style="min-height:40px;padding:8px 14px;background:var(--accent,#84CC16);border:none;border-radius:8px;' +
-          'color:#0b0f0a;font-size:13px;font-weight:700;cursor:pointer">Send</button>' +
-      '</div>' +
-    '</div>';
+    '<button id="na-tab" type="button" onclick="nilAssistant.toggle()"'
+      + ' aria-controls="na-panel" aria-expanded="false" aria-label="Open the NILDash assistant">'
+      + '<span class="na-mark" aria-hidden="true">N</span>'
+      + '<span>Assistant</span>'
+      + '<span class="na-chev" aria-hidden="true">&#10094;</span>'
+    + '</button>'
+    + '<aside id="na-panel" role="complementary" aria-label="NILDash assistant">'
+      + '<div class="na-head">'
+        + '<div class="na-title">NILDash assistant</div>'
+        + '<div class="na-sub">Ask about the product, or tell me what to do</div>'
+      + '</div>'
+      + '<div id="na-log"></div>'
+      + '<div class="na-foot">'
+        + '<input id="na-input" type="text" placeholder="Ask me anything" autocomplete="off"'
+          + ' onkeydown="if(event.key===\'Enter\'){nilAssistant.send();}">'
+        + '<button type="button" class="na-btn na-primary" onclick="nilAssistant.send()">Send</button>'
+      + '</div>'
+    + '</aside>';
   document.body.appendChild(wrap);
   NA.el = wrap;
+}
+
+function naScroll() {
+  var log = document.getElementById('na-log');
+  if (log) log.scrollTop = log.scrollHeight;
 }
 
 function naSay(role, text) {
   var log = document.getElementById('na-log');
   if (!log) return null;
-  var mine = role === 'user';
   var d = document.createElement('div');
-  d.style.cssText = 'max-width:88%;padding:9px 12px;border-radius:10px;font-size:13px;line-height:1.55;white-space:pre-wrap;'
-    + (mine
-      ? 'align-self:flex-end;background:var(--accent,#84CC16);color:#0b0f0a'
-      : 'align-self:flex-start;background:var(--surface2,#222);color:var(--text,#fff);border:1px solid var(--border,#333)');
+  d.className = 'na-msg ' + (role === 'user' ? 'na-u' : 'na-a');
   d.textContent = text;
   log.appendChild(d);
-  log.scrollTop = log.scrollHeight;
+  naScroll();
   return d;
 }
 
-// A confirmation is a BUTTON with the literal consequence on it. The assistant asked;
+// THE INDICATOR NAMES THE WORK. A spinner that says nothing is indistinguishable from
+// a hang, and this app's slow actions are slow enough to matter: a scan is a minute.
+// Callers pass what is actually happening, not a generic word.
+function naRunning(what) {
+  var log = document.getElementById('na-log');
+  if (!log) return null;
+  var d = document.createElement('div');
+  d.className = 'na-run';
+  d.innerHTML = '<span class="na-dots" aria-hidden="true"><i></i><i></i><i></i></span>'
+    + '<span class="na-what"></span>';
+  d.querySelector('.na-what').textContent = what || 'Working on it';
+  d.setAttribute('role', 'status');
+  log.appendChild(d);
+  naScroll();
+  return d;
+}
+
+// "Scanning Tuscaloosa", from the roster the page already has. Falls back through
+// school, then name, then a plain sentence: a wrong specific label would be worse
+// than a general one.
+function naScanLabel(athleteId) {
+  try {
+    var list = window.athletes || [];
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      if (a && a.id === athleteId) {
+        if (a.school) return 'Scanning ' + a.school;
+        if (a.name) return 'Scanning for ' + a.name;
+        break;
+      }
+    }
+  } catch (_) {}
+  return 'Running the deal scan';
+}
+
+// A confirmation is a CARD with the literal consequence on it. The assistant asked;
 // the agent decides. Nothing has happened at this point.
+//
+// The subject is bolded by matching the server's `subject` string inside the ESCAPED
+// sentence, so no markup ever crosses the wire. If it does not match, the sentence
+// renders plain rather than half-marked-up.
 function naConfirm(c) {
   var log = document.getElementById('na-log');
   if (!log) return;
   var d = document.createElement('div');
-  d.style.cssText = 'align-self:flex-start;max-width:88%;padding:11px 12px;border-radius:10px;'
-    + 'background:var(--surface2,#222);border:1px solid #fbbf24';
-  d.innerHTML = '<div style="font-size:13px;color:var(--text,#fff);line-height:1.5;margin-bottom:9px">' + naEsc(c.text) + '</div>'
-    + '<div style="display:flex;gap:8px">'
-    + '<button type="button" data-token="' + naEsc(c.token) + '" class="na-yes"'
-    + ' style="padding:6px 14px;background:var(--accent,#84CC16);border:none;border-radius:6px;color:#0b0f0a;font-size:12px;font-weight:700;cursor:pointer">'
-    + naEsc(c.button || 'Confirm') + '</button>'
-    + '<button type="button" class="na-no"'
-    + ' style="padding:6px 14px;background:transparent;border:1px solid var(--border,#333);border-radius:6px;color:var(--muted,#888);font-size:12px;cursor:pointer">No</button>'
+  d.className = 'na-card';
+
+  var text = naEsc(c.text);
+  if (c.subject) {
+    var subj = naEsc(String(c.subject));
+    var at = text.indexOf(subj);
+    if (at !== -1) {
+      text = text.slice(0, at) + '<strong>' + subj + '</strong>' + text.slice(at + subj.length);
+    }
+  }
+
+  d.innerHTML = '<div class="na-label"></div>'
+    + '<div class="na-what">' + text + '</div>'
+    + '<div class="na-btns">'
+      + '<button type="button" class="na-btn na-primary na-yes"></button>'
+      + '<button type="button" class="na-btn na-ghost na-no">Not now</button>'
     + '</div>';
-  d.querySelector('.na-yes').addEventListener('click', function (e) {
+  d.querySelector('.na-label').textContent = c.label || 'Confirm before continuing';
+  var yes = d.querySelector('.na-yes');
+  yes.textContent = c.button || 'Confirm';
+  yes.setAttribute('data-token', c.token || '');
+  yes.addEventListener('click', function (e) {
     naRunConfirm(e.currentTarget.getAttribute('data-token'), d);
   });
   d.querySelector('.na-no').addEventListener('click', function () {
@@ -126,7 +287,7 @@ function naConfirm(c) {
     naSay('assistant', 'Left it alone.');
   });
   log.appendChild(d);
-  log.scrollTop = log.scrollHeight;
+  naScroll();
 }
 
 async function naRunConfirm(token, node) {
@@ -169,7 +330,11 @@ async function naPerform(directives) {
         // a tool result, and the model wrote a sentence about it. A second line from
         // the client made the assistant say the same thing twice.
         if (typeof window.nilRunDealScanFor === 'function') {
-          window.nilRunDealScanFor(d.athleteId);
+          // AWAITED, so the dots stay up for the whole scan rather than blinking off
+          // while it runs. finally, so a scan that throws still clears them.
+          var run = naRunning(naScanLabel(d.athleteId));
+          try { await window.nilRunDealScanFor(d.athleteId); }
+          finally { if (run) run.remove(); }
         } else {
           if (typeof showView === 'function') showView('deals', null);
           naSay('assistant', 'Deal Scan is open. Press Scan and it will run for them.');
@@ -254,9 +419,9 @@ async function naStart(autoOpenAllowed) {
     try { sessionStorage.setItem(NA_SESSION_KEY, '1'); } catch (_) {}
     naOpen();
   }
-  // Always drawn, even if the panel is shut: an agent who clicks the bubble while the
+  // Always drawn, even if the panel is shut: an agent who opens the tab while the
   // greeting is still in flight finds the indicator rather than an empty log.
-  var thinking = naSay('assistant', '…');
+  var thinking = naRunning('Reading your dashboard');
 
   try {
     var r = await fetch(naBase() + '/api/assistant/session', {
@@ -314,11 +479,10 @@ function naFailed(msg) {
   if (!log) return;
   log.innerHTML = '';
   var d = document.createElement('div');
-  d.style.cssText = 'align-self:flex-start;max-width:92%;padding:11px 12px;border-radius:10px;'
-    + 'background:var(--surface2,#222);border:1px solid #f87171';
-  d.innerHTML = '<div style="font-size:13px;color:#f87171;line-height:1.5">' + naEsc(msg) + '</div>'
-    + '<button type="button" class="na-retry" style="margin-top:8px;padding:5px 12px;background:transparent;'
-    + 'border:1px solid var(--border,#333);border-radius:6px;color:var(--text,#fff);font-size:12px;cursor:pointer">Retry</button>';
+  d.className = 'na-err';
+  d.innerHTML = '<div class="na-what"></div>'
+    + '<button type="button" class="na-btn na-ghost na-retry" style="margin-top:10px">Retry</button>';
+  d.querySelector('.na-what').textContent = msg;
   d.querySelector('.na-retry').addEventListener('click', function () {
     log.innerHTML = '';
     naStart(false);
@@ -326,23 +490,30 @@ function naFailed(msg) {
   log.appendChild(d);
 }
 
+// ONE CLASS DRIVES EVERYTHING. The panel slide, the tab's travel, the chevron flip
+// and the page's width all key off body.na-open, so they cannot get out of step with
+// each other or with NA.open.
 function naOpen() {
-  var p = document.getElementById('na-panel');
-  if (!p) return;
-  p.style.display = 'flex';
-  var b = document.getElementById('na-bubble');
-  if (b) b.style.display = 'none';   // one control at a time
+  if (!document.getElementById('na-panel')) return;
+  document.body.classList.add('na-open');
+  naSyncTab(true);
   NA.open = true;
   var i = document.getElementById('na-input');
-  if (i && window.innerWidth > 700) i.focus();
+  if (i && window.innerWidth > NA_MOBILE) i.focus();
+  naScroll();
 }
 
 function naClose() {
-  var p = document.getElementById('na-panel');
-  if (p) p.style.display = 'none';
-  var b = document.getElementById('na-bubble');
-  if (b) b.style.display = 'flex';
+  document.body.classList.remove('na-open');
+  naSyncTab(false);
   NA.open = false;
+}
+
+function naSyncTab(open) {
+  var t = document.getElementById('na-tab');
+  if (!t) return;
+  t.setAttribute('aria-expanded', open ? 'true' : 'false');
+  t.setAttribute('aria-label', open ? 'Close the NILDash assistant' : 'Open the NILDash assistant');
 }
 
 // Closing without having said anything is a dismissal. Two in a row and the server
@@ -362,7 +533,7 @@ async function naSend() {
   NA.replied = true;
   naSay('user', text);
   NA.busy = true;
-  var thinking = naSay('assistant', '…');
+  var thinking = naRunning('Thinking');
   try {
     var r = await fetch(naBase() + '/api/assistant/message', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -407,6 +578,9 @@ window.nilAssistant = {
   init: naInit, open: naOpen, close: naClose, dismiss: naDismiss,
   send: naSend, toggle: naToggle, perform: naPerform,
   _state: NA, _unsavedOutreach: naUnsavedOutreach,
+  // Render helpers, exposed so the shell can be driven into each visual state
+  // without a server. They only draw; nothing here performs an action.
+  _say: naSay, _running: naRunning, _confirm: naConfirm, _scanLabel: naScanLabel,
 };
 
 // Deliberately NOT auto-initialised. index.html calls nilAssistant.init() from

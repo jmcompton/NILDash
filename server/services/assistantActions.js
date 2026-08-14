@@ -45,6 +45,14 @@ const PENDING_TTL_MS = 10 * 60 * 1000;
 // agent is TOLD when they hit it rather than being silently refused.
 const SCANS_PER_ATHLETE_PER_SESSION = 1;
 
+// Spoken names for the view ids, so the assistant says "Opening Deal Scan" rather
+// than "Opening deals". Keys must stay in step with open_tab's enum.
+const TAB_LABELS = {
+  command: 'Command Center', roster: 'My Roster', deals: 'Deal Scan',
+  pipeline: 'Deal Pipeline', programs: 'Programs', outreach: 'Brand Outreach',
+  'email-inbox': 'Email Inbox', settings: 'Settings',
+};
+
 function _str(v, max) {
   const s = (v == null) ? '' : String(v).trim();
   return (s && s.length <= max) ? s : null;
@@ -123,22 +131,33 @@ const ACTIONS = {
   open_tab: {
     tier: 'direct',
     description: 'Open one of the app\'s tabs.',
+    // THESE ARE REAL VIEW IDS, checked against id="view-..." in index.html. The old
+    // list offered 'dashboard', 'athletes' and 'deal-scan', none of which exist:
+    // showView removes 'active' from every view BEFORE looking the new one up, so
+    // each of those blanked the entire main content area and then threw on
+    // null.classList. Exactly the failure the run_deal_scan hook had, still reachable
+    // here because showView(d.tab) is dynamic and no literal-string check catches it.
     input: {
       type: 'object',
       properties: {
-        tab: { type: 'string', enum: ['dashboard', 'athletes', 'deal-scan', 'programs', 'deals', 'email-inbox', 'settings'] },
+        tab: {
+          type: 'string',
+          enum: ['command', 'roster', 'deals', 'pipeline', 'programs', 'outreach', 'email-inbox', 'settings'],
+          description: 'command = Command Center, roster = My Roster, deals = Deal Scan, '
+            + 'pipeline = Deal Pipeline, outreach = Brand Outreach',
+        },
       },
       required: ['tab'],
     },
     check: (a) => {
-      const allowed = ['dashboard', 'athletes', 'deal-scan', 'programs', 'deals', 'email-inbox', 'settings'];
+      const allowed = ['command', 'roster', 'deals', 'pipeline', 'programs', 'outreach', 'email-inbox', 'settings'];
       if (!allowed.includes(a.tab)) return { error: 'I do not know that tab.' };
       return { args: { tab: a.tab } };
     },
     // The only action with no server side at all, and the only one the client may
     // refuse: it will not navigate away from an outreach draft with unsaved edits.
     directive: (args) => ({ kind: 'open_tab', tab: args.tab }),
-    say: (args) => `Opening ${args.tab.replace(/-/g, ' ')}.`,
+    say: (args) => `Opening ${TAB_LABELS[args.tab] || args.tab}.`,
   },
 
   lookup_program: {
@@ -212,6 +231,11 @@ const ACTIONS = {
       return { args: { outreachId, toEmail: toEmail.toLowerCase() } };
     },
     confirmText: (args) => `Send this email to ${args.toEmail}?`,
+    // The card renders the label above the sentence and bolds the subject inside it.
+    // The subject is sent SEPARATELY and matched against the escaped sentence client
+    // side, so the server never ships markup for the browser to trust.
+    confirmLabel: 'Confirm before sending',
+    confirmSubject: (args) => args.toEmail,
     confirmButton: 'Send it',
     directive: (args) => ({ kind: 'send_outreach', outreachId: args.outreachId, toEmail: args.toEmail }),
   },
@@ -234,6 +258,8 @@ const ACTIONS = {
       return { args: { dealId, stage } };
     },
     confirmText: (args) => `Change that deal to "${args.stage}"?`,
+    confirmLabel: 'Confirm before changing',
+    confirmSubject: (args) => args.stage,
     confirmButton: 'Change it',
     directive: (args) => ({ kind: 'update_deal', dealId: args.dealId, stage: args.stage }),
   },
@@ -253,6 +279,8 @@ const ACTIONS = {
       return { args: { athleteId, name: _str(a.name, 120) || null } };
     },
     confirmText: (args) => `Delete ${args.name || 'that athlete'} and everything attached to them? This cannot be undone.`,
+    confirmLabel: 'Confirm before deleting',
+    confirmSubject: (args) => args.name || null,
     confirmButton: 'Delete',
     directive: (args) => ({ kind: 'delete_athlete', athleteId: args.athleteId }),
   },
@@ -286,7 +314,7 @@ async function _ownsAthlete(agentId, athleteId) {
  *
  * Returns one of:
  *   { ok:true,  directive, say }              a direct action, go ahead
- *   { ok:true,  confirm:{token,text,button} } a confirm action, ask the human
+ *   { ok:true,  confirm:{token,text,button,label,subject} } confirm, ask the human
  *   { ok:false, message }                     refused, and why, in words for the agent
  *
  * Never throws on bad input: a malformed call is a refusal with a reason, because a
@@ -326,7 +354,13 @@ async function resolveCall(name, rawArgs, ctx) {
     const token = await mintPending(agentId, session.id, name, args);
     return {
       ok: true,
-      confirm: { token, text: action.confirmText(args), button: action.confirmButton || 'Confirm' },
+      confirm: {
+        token,
+        text: action.confirmText(args),
+        button: action.confirmButton || 'Confirm',
+        label: action.confirmLabel || 'Confirm before continuing',
+        subject: action.confirmSubject ? action.confirmSubject(args) : null,
+      },
     };
   }
 
