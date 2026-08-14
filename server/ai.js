@@ -52,14 +52,28 @@ function getClient() {
   return client;
 }
 
-// Hard wall-clock cap on any promise. The rejection is what lets a caller log the
-// stall, mark the item, and move on: a job that processes 135 things must never be
-// stoppable by one of them.
+// TWO CAPS, TWO NAMES, AND THE REASON THEY ARE NOT ONE NAME.
+//
+// These were both called withTimeout. Function declarations hoist and the LAST one
+// wins, so the soft version below silently shadowed the hard one for every caller,
+// including the ones written specifically to rely on the rejection. A call written
+// as withTimeout(p, ms, 'fetch for Alabama') was not being given a LABEL; it was
+// being given a FALLBACK VALUE, so on any error or timeout it resolved to the
+// string "fetch for Alabama" instead of throwing. Callers then read .url off a
+// string, got undefined, and reported the wrong reason. The bug is invisible at the
+// call site, which is exactly why the two behaviours now have different names.
+//
+// withDeadline  REJECTS. Use it when a stall must be reported and the item skipped.
+// withTimeout   RESOLVES to a fallback. Use it when a miss is fine and has a default.
+
+// Hard wall-clock cap. The rejection is what lets a caller log the stall, mark the
+// item, and move on: a job that processes 135 things must never be stoppable by one
+// of them.
 //
 // NOTE what this does NOT do: the underlying request keeps running and its result
 // is discarded. That is the right trade for a batch job (bounded wall clock beats
 // a tidy cancellation) but it means a capped call still costs money.
-function withTimeout(promise, ms, label) {
+function withDeadline(promise, ms, label) {
   let timer = null;
   const capped = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`timeout after ${ms}ms: ${label || 'operation'}`)), ms);
@@ -67,6 +81,9 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, capped]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
+// Soft cap. Swallows the error and resolves to fallbackValue, so a caller with a
+// sensible default does not need a try/catch. Two callers in this file pass '' and
+// depend on exactly this, which is why it stays.
 function withTimeout(promise, ms, fallbackValue) {
   return Promise.race([
     Promise.resolve(promise).catch(() => fallbackValue),
@@ -346,7 +363,7 @@ async function toolLoop({ system, messages, tools, model, maxTokens, maxRounds, 
       break;
     }
     scanMeter.bumpAi();
-    const msg = await withTimeout(
+    const msg = await withDeadline(
       client.messages.create({
         model: useModel,
         max_tokens: maxTokens || 1200,
@@ -3383,7 +3400,8 @@ module.exports = {
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder
   MANUAL_SOURCE_ORDER,                         // shared wave order for deep lookups
   runSourceWaves,                              // shared parallel wave engine
-  withTimeout,                                 // hard wall-clock cap, see the note above
+  withTimeout,                                 // SOFT cap: resolves to a fallback value
+  withDeadline,                                // HARD cap: rejects. See the note at the top.
   toolLoop,                                    // bounded client-side tool turn (assistant)
   // Haiku + web_search primitive. UNCAPPED: every caller must wrap it in
   // withTimeout. The contact ladder does so at 15s; discoverStaffUrl did not, and

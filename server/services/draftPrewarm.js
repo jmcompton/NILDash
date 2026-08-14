@@ -213,7 +213,7 @@ async function draftOne({ agentId, athleteId, athlete, card, agentName, lane }) 
     // Sonnet, same as the click path's pitch generation. Explicitly named rather
     // than relying on oneShot's default, so a change to that default cannot
     // silently move this to another model.
-    raw = await ai.withTimeout(
+    raw = await ai.withDeadline(
       ai.oneShot(prompt, SYSTEM, 900, 'claude-sonnet-4-6'),
       DRAFT_TIMEOUT_MS, `prewarm draft for ${brand}`);
   } catch (e) {

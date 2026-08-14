@@ -4648,6 +4648,11 @@ async function bootApp() {
   } catch (e) {}
   // Store agent info for pitch deck contact modal
   try { sessionStorage.setItem('nilAgentInfo', JSON.stringify({name: currentUser.name, email: currentUser.email})); } catch(e){}
+  // The assistant mounts HERE, not on DOMContentLoaded. index.html is served to
+  // everyone signed in or not, so a self-mounting bubble appeared on the logged-out
+  // marketing view and fired a request that 401ed. bootApp only runs once
+  // /api/auth/me has confirmed a session.
+  try { if (window.nilAssistant) window.nilAssistant.init(); } catch (e) { console.warn('[assistant]', e.message); }
   document.getElementById('userRole').textContent = currentUser.role;
   (function(){
     var _nm = (currentUser.name || '').trim();

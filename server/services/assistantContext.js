@@ -43,8 +43,18 @@ async function readContext(agentId) {
   // A few athletes by name, so the assistant can say "Fixture Alvarez" rather than
   // "one of your athletes". Ids come too, because every athlete-scoped action needs
   // one and the model must never be left to invent it.
+  //
+  // READ FROM data JSONB, NOT FROM COLUMNS. athletes has exactly id, agent_id, data,
+  // created_at, updated_at; name, sport and school live inside data, which is why
+  // every other query in the codebase reads data->>'name'. Selecting them as columns
+  // threw "column name does not exist", which rejected readContext, 500ed the
+  // greeting, and left the panel empty.
   const rr = await pool.query(
-    `SELECT id, name, sport, school FROM athletes WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 8`,
+    `SELECT id,
+            data->>'name'   AS name,
+            data->>'sport'  AS sport,
+            data->>'school' AS school
+       FROM athletes WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 8`,
     [agentId]);
 
   const daysSinceSent = c.last_sent_at

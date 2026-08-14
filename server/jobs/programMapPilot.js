@@ -395,7 +395,7 @@ async function run() {
         // bounds itself cooperatively by checking a deadline between candidates, but
         // that cannot see a stall inside something it calls; this can. One school may
         // cost 90 seconds and change. It may never cost the run.
-        r = await ai.withTimeout(
+        r = await ai.withDeadline(
           programMap.sweepStaffUrl(school, store, sweepOpts),
           programMap.SWEEP_SCHOOL_CAP_MS + 15000, `sweep for ${school}`);
       } catch (e) {
@@ -530,7 +530,7 @@ async function run() {
       // real page for this sport at all", asked again with the fixed rule.
       let swept;
       try {
-        swept = await ai.withTimeout(
+        swept = await ai.withDeadline(
           // No special options. The incumbent is already scored as an ordinary
           // candidate, so with the ceiling in place a stored dump now FAILS and the
           // sweep carries on through the known paths by itself.
@@ -547,7 +547,7 @@ async function run() {
         // rows: saveProgramStaff deletes by (school, sport) first.
         let res;
         try {
-          res = await ai.withTimeout(
+          res = await ai.withDeadline(
             programMap.loadFootballStaff(school, store, { sport }), SCHOOL_CAP_MS, `fetch for ${school}`);
         } catch (e) {
           console.log(`  fetch         FAILED (${e.message}); rows left as they were`);
@@ -678,7 +678,7 @@ async function run() {
         // individually, but this bounds the whole school regardless of what stalls
         // inside it, including anything added later. One school can cost 90
         // seconds; it can never cost the run.
-        res = await ai.withTimeout(
+        res = await ai.withDeadline(
           programMap.loadFootballStaff(school, store, { rediscover: args.includes('--rediscover'), sport }),
           SCHOOL_CAP_MS, `fetch for ${school}`);
       } catch (e) {

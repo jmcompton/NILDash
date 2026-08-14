@@ -16,7 +16,8 @@ var NA = {
   sessionId: null,
   open: false,
   busy: false,
-  greeted: false,
+  greeted: false,     // set only on a SUCCESSFUL greeting, so a failure can retry
+  greeting: false,    // a request is in flight
   autoOpen: false,
   replied: false,     // did the agent say anything this open
   el: null,
@@ -37,18 +38,33 @@ function naBuild() {
   var wrap = document.createElement('div');
   wrap.id = 'nil-assistant';
   wrap.innerHTML =
-    '<button id="na-bubble" type="button" onclick="nilAssistant.toggle()" aria-label="NILDash assistant"' +
-      ' style="position:fixed;right:18px;bottom:18px;z-index:9998;width:52px;height:52px;border-radius:50%;' +
+    // ONE control at a time. The bubble is hidden while the panel is open, so the
+    // panel's own header close button is the only thing to click. Two buttons stacked
+    // in the same corner read as a broken layout.
+    '<button id="na-bubble" type="button" onclick="nilAssistant.toggle()" aria-label="Open the NILDash assistant"' +
+      ' style="position:fixed;right:20px;bottom:20px;z-index:9998;width:54px;height:54px;border-radius:50%;' +
       'background:var(--accent,#84CC16);border:none;color:#0b0f0a;font-size:22px;font-weight:800;cursor:pointer;' +
       'box-shadow:0 6px 20px rgba(0,0,0,0.35);display:flex;align-items:center;justify-content:center">?</button>' +
-    '<div id="na-panel" role="dialog" aria-label="NILDash assistant"' +
-      ' style="display:none;position:fixed;right:18px;bottom:80px;z-index:9999;width:min(380px,calc(100vw - 36px));' +
-      'max-height:min(560px,calc(100vh - 120px));background:var(--surface,#1a1a1a);border:1px solid var(--border,#333);' +
-      'border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.5);display:none;flex-direction:column;overflow:hidden">' +
-      '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border,#333);flex-shrink:0">' +
-        '<div style="font-size:13px;font-weight:700;color:var(--text,#fff)">NILDash assistant</div>' +
-        '<button type="button" onclick="nilAssistant.dismiss()" aria-label="Close"' +
-          ' style="background:none;border:none;color:var(--muted,#888);font-size:20px;cursor:pointer;line-height:1">&times;</button>' +
+    // Anchored to the corner with the same 20px gutter as the bubble, and tall: 70%
+    // of the viewport rather than a 560px box floating mid-air.
+    '<div id="na-panel" role="dialog" aria-label="NILDash assistant" aria-modal="false"' +
+      ' style="display:none;position:fixed;right:20px;bottom:20px;z-index:9999;' +
+      'width:min(400px,calc(100vw - 40px));height:min(70vh,640px);max-height:calc(100vh - 40px);' +
+      'background:var(--surface,#1a1a1a);border:1px solid var(--border,#333);' +
+      'border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,0.55);flex-direction:column;overflow:hidden">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;' +
+        'padding:14px 16px;border-bottom:1px solid var(--border,#333);flex-shrink:0;background:var(--surface2,#222)">' +
+        '<div style="display:flex;align-items:center;gap:9px;min-width:0">' +
+          '<span style="width:26px;height:26px;flex-shrink:0;border-radius:50%;background:var(--accent,#84CC16);' +
+            'color:#0b0f0a;font-size:14px;font-weight:800;display:flex;align-items:center;justify-content:center">?</span>' +
+          '<div style="min-width:0">' +
+            '<div style="font-size:14px;font-weight:700;color:var(--text,#fff);line-height:1.2">NILDash assistant</div>' +
+            '<div style="font-size:11px;color:var(--muted,#888);line-height:1.3">Ask about the product, or tell me what to do</div>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" onclick="nilAssistant.dismiss()" aria-label="Close the assistant"' +
+          ' style="background:none;border:none;color:var(--muted,#888);font-size:24px;cursor:pointer;line-height:1;' +
+          'padding:0 4px;flex-shrink:0">&times;</button>' +
       '</div>' +
       '<div id="na-log" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px"></div>' +
       '<div style="padding:10px 12px;border-top:1px solid var(--border,#333);flex-shrink:0;display:flex;gap:8px">' +
@@ -213,34 +229,81 @@ function naUnsavedOutreach() {
 }
 
 // ── Conversation ─────────────────────────────────────────────────────────────
+// NA.greeted is only set on SUCCESS. The first version set it before the request and
+// swallowed every failure with `if (!r.ok) return;`, so one 500 left the panel empty
+// for the rest of the page's life with no retry and nothing on screen: opening the
+// bubble found greeted already true and never asked again. That is the same silent
+// failure as the outreach dropdown stuck on "Loading accounts".
 async function naStart(autoOpenAllowed) {
-  if (NA.greeted) return;
-  NA.greeted = true;
+  if (NA.greeted || NA.greeting) return;
+  NA.greeting = true;
   try {
     var r = await fetch(naBase() + '/api/assistant/session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ sessionId: NA.sessionId }),
     });
-    if (!r.ok) return;
+    NA.greeting = false;
+    if (r.status === 401) {
+      // Not signed in yet. Stay quiet and stay retryable: the portal calls init()
+      // again once it has booted.
+      return;
+    }
+    if (!r.ok) {
+      var e1 = await r.json().catch(function () { return {}; });
+      naFailed((e1 && e1.error) || ('The assistant could not start (error ' + r.status + ').'));
+      return;
+    }
     var j = await r.json();
+    NA.greeted = true;
     NA.sessionId = j.sessionId;
     NA.autoOpen = !!j.autoOpen;
     var log = document.getElementById('na-log');
     if (log) log.innerHTML = '';
-    (j.messages || []).forEach(function (m) { naSay(m.role, m.content); });
+    var msgs = (j.messages || []).filter(function (m) { return m && m.content; });
+    if (!msgs.length) {
+      // The request worked and produced nothing. Say so rather than showing a blank
+      // panel that looks broken.
+      naFailed('The assistant started but had nothing to say. That is a bug worth reporting.');
+      return;
+    }
+    msgs.forEach(function (m) { naSay(m.role, m.content); });
     // Auto-open ONCE per browser session, and only if the server still allows it for
     // this agent. A resumed conversation does not re-open by itself.
     if (autoOpenAllowed && NA.autoOpen && !j.resumed && !sessionStorage.getItem(NA_SESSION_KEY)) {
       try { sessionStorage.setItem(NA_SESSION_KEY, '1'); } catch (_) {}
       naOpen();
     }
-  } catch (e) { /* the bubble stays available; the greeting simply did not load */ }
+  } catch (e) {
+    NA.greeting = false;
+    naFailed('Could not reach the assistant: ' + (e && e.message ? e.message : e));
+  }
+}
+
+// A failed greeting is visible and retryable. greeted stays false so Retry actually
+// re-requests rather than short-circuiting.
+function naFailed(msg) {
+  var log = document.getElementById('na-log');
+  if (!log) return;
+  log.innerHTML = '';
+  var d = document.createElement('div');
+  d.style.cssText = 'align-self:flex-start;max-width:92%;padding:11px 12px;border-radius:10px;'
+    + 'background:var(--surface2,#222);border:1px solid #f87171';
+  d.innerHTML = '<div style="font-size:13px;color:#f87171;line-height:1.5">' + naEsc(msg) + '</div>'
+    + '<button type="button" class="na-retry" style="margin-top:8px;padding:5px 12px;background:transparent;'
+    + 'border:1px solid var(--border,#333);border-radius:6px;color:var(--text,#fff);font-size:12px;cursor:pointer">Retry</button>';
+  d.querySelector('.na-retry').addEventListener('click', function () {
+    log.innerHTML = '';
+    naStart(false);
+  });
+  log.appendChild(d);
 }
 
 function naOpen() {
   var p = document.getElementById('na-panel');
   if (!p) return;
   p.style.display = 'flex';
+  var b = document.getElementById('na-bubble');
+  if (b) b.style.display = 'none';   // one control at a time
   NA.open = true;
   var i = document.getElementById('na-input');
   if (i && window.innerWidth > 700) i.focus();
@@ -249,6 +312,8 @@ function naOpen() {
 function naClose() {
   var p = document.getElementById('na-panel');
   if (p) p.style.display = 'none';
+  var b = document.getElementById('na-bubble');
+  if (b) b.style.display = 'flex';
   NA.open = false;
 }
 
@@ -297,7 +362,10 @@ function naToggle() {
 }
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
-// Agent portal only. The athlete pages and the admin page do not load this file.
+// index.html is served to EVERYONE, signed in or not, and the SPA decides which it
+// is client side. So this cannot mount itself on DOMContentLoaded: on the logged-out
+// page it put a bubble on the marketing view and fired a request that 401ed.
+// bootApp() calls init() once the session is confirmed.
 function naInit() {
   naBuild();
   naStart(true);
@@ -309,7 +377,5 @@ window.nilAssistant = {
   _state: NA, _unsavedOutreach: naUnsavedOutreach,
 };
 
-if (typeof document !== 'undefined') {
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', naInit);
-  else naInit();
-}
+// Deliberately NOT auto-initialised. index.html calls nilAssistant.init() from
+// bootApp(), which only runs after /api/auth/me confirms a session.

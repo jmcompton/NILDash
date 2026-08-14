@@ -762,7 +762,7 @@ Rules:
     // HARD CAP. webSearchJson is uncapped and inherits the SDK's ten-minute default,
     // so without this one school can block a 135-school run forever. That is not a
     // theoretical risk: it is what happened on Minnesota.
-    const r = await ai.withTimeout(
+    const r = await ai.withDeadline(
       ai.webSearchJson(prompt, STAFF_URL_SYS), DISCOVER_TIMEOUT_MS, `staff URL search for ${school}`);
     const o = _parse(r.text) || {};
     const ok = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u)) ? u.trim() : null;
