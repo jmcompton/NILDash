@@ -71,7 +71,9 @@ async function record(sessionId, agentId, role, content) {
 }
 
 // ── The turn ─────────────────────────────────────────────────────────────────
-async function runTurn({ agentId, session, ctx, state, userText, toolsEnabled }) {
+// `msgs` is the session transcript. Pass it when the caller has ALREADY read it, so
+// the same query is not run twice for one request; omit it and this reads it itself.
+async function runTurn({ agentId, session, ctx, state, userText, toolsEnabled, msgs: preMsgs }) {
   const brief = ctxSvc.STATE_BRIEFS[state] || ctxSvc.STATE_BRIEFS.returning;
   const suppressed = Array.isArray(session.suppressed) ? session.suppressed : [];
 
@@ -91,7 +93,8 @@ async function runTurn({ agentId, session, ctx, state, userText, toolsEnabled })
     toolsEnabled,
   });
 
-  const msgs = await history(session.id);
+  // sliced, because the next line pushes onto it and the caller's array is not ours.
+  const msgs = preMsgs ? preMsgs.slice() : await history(session.id);
   if (userText) msgs.push({ role: 'user', content: userText });
   if (!msgs.length) {
     // The greeting: nothing has been said yet, so give the model an explicit opening
@@ -150,17 +153,26 @@ async function runTurn({ agentId, session, ctx, state, userText, toolsEnabled })
 router.post('/session', async (req, res) => {
   try {
     const agentId = req.session.userId;
-    const session = await loadSession(agentId, req.body && req.body.sessionId);
-    const ctx = await ctxSvc.readContext(agentId);
-    const state = ctxSvc.routeState(ctx);
+    const tAll = Date.now();
 
-    const u = await pool.query(
-      'SELECT COALESCE(assistant_dismissals,0) AS d, COALESCE(assistant_autoopen_off,false) AS off FROM users WHERE id=$1',
-      [agentId]);
+    // THREE INDEPENDENT READS, AT ONCE. These were four sequential awaits, and every
+    // one of them was latency the agent watched a blank corner for. Only history()
+    // genuinely depends on another (it needs the session id), so it stays behind.
+    const [session, ctx, u] = await Promise.all([
+      loadSession(agentId, req.body && req.body.sessionId),
+      ctxSvc.readContext(agentId),
+      pool.query(
+        'SELECT COALESCE(assistant_dismissals,0) AS d, COALESCE(assistant_autoopen_off,false) AS off FROM users WHERE id=$1',
+        [agentId]),
+    ]);
+    const tDb = Date.now() - tAll;
+    const state = ctxSvc.routeState(ctx);
     const autoOpen = !(u.rows[0] && u.rows[0].off);
 
     // Resuming: no new greeting, just the transcript.
+    const tH = Date.now();
     const existing = await history(session.id);
+    const tHist = Date.now() - tH;
     if (existing.length) {
       return res.json({
         sessionId: session.id, state, autoOpen,
@@ -169,10 +181,21 @@ router.post('/session', async (req, res) => {
       });
     }
 
-    const turn = await runTurn({ agentId, session, ctx, state, userText: null, toolsEnabled: false });
+    // `existing` is handed straight to runTurn, which used to call history() again
+    // for the same session id and throw the first answer away.
+    const tM = Date.now();
+    const turn = await runTurn({
+      agentId, session, ctx, state, userText: null, toolsEnabled: false, msgs: existing,
+    });
+    const tModel = Date.now() - tM;
     await record(session.id, agentId, 'assistant', turn.text);
     await saveSession(session);
     console.log(`[assistant] agent=${agentId} session=${session.id} greeting state=${state} autoOpen=${autoOpen}`);
+    // THE SPLIT, MEASURED. db is the three parallel reads (ctx is the slowest of the
+    // three, shown separately); model is the Sonnet call. If model dominates, the
+    // next lever is a shorter prompt, not more database work.
+    console.log(`[assistant] TIMING /session agent=${agentId} db=${tDb}ms (ctx=${ctx._ms}ms) `
+      + `history=${tHist}ms model=${tModel}ms total=${Date.now() - tAll}ms`);
     res.json({
       sessionId: session.id, state, autoOpen, resumed: false,
       messages: [{ role: 'assistant', content: turn.text }],
@@ -190,18 +213,28 @@ router.post('/message', async (req, res) => {
     const agentId = req.session.userId;
     const text = String((req.body && req.body.text) || '').trim().slice(0, MAX_INPUT_CHARS);
     if (!text) return res.status(400).json({ error: 'Say something.' });
-    const session = await loadSession(agentId, req.body && req.body.sessionId);
-
+    // Same three-at-once as /session. A reply costs the agent this wait too.
     // They replied, so the dismissal streak resets. Two dismissals IN A ROW without
     // replying is what turns auto-open off; a reply breaks the row.
+    const tAll = Date.now();
+    const [session, ctx] = await Promise.all([
+      loadSession(agentId, req.body && req.body.sessionId),
+      ctxSvc.readContext(agentId),
+      pool.query('UPDATE users SET assistant_dismissals = 0 WHERE id=$1', [agentId]).catch(() => {}),
+    ]);
+    const tDb = Date.now() - tAll;
     session.replied = true;
-    await pool.query('UPDATE users SET assistant_dismissals = 0 WHERE id=$1', [agentId]).catch(() => {});
-
-    const ctx = await ctxSvc.readContext(agentId);
     const state = ctxSvc.routeState(ctx);
+
+    // Written BEFORE the turn, because runTurn reads the transcript back and this
+    // message has to be in it.
     await record(session.id, agentId, 'user', text);
 
+    const tM = Date.now();
     const turn = await runTurn({ agentId, session, ctx, state, userText: text, toolsEnabled: true });
+    const tModel = Date.now() - tM;
+    console.log(`[assistant] TIMING /message agent=${agentId} db=${tDb}ms (ctx=${ctx._ms}ms) `
+      + `model=${tModel}ms total=${Date.now() - tAll}ms`);
     await record(session.id, agentId, 'assistant', turn.text);
     await saveSession(session);
 

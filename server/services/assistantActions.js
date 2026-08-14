@@ -83,11 +83,15 @@ const ACTIONS = {
   run_deal_scan: {
     tier: 'direct',
     description: 'Run a Deal Scan for one athlete on the agent\'s roster.',
+    // NO LANE ARGUMENT. A scan runs every lane, which is what an agent means when
+    // they ask for one, and _dsRunScan never read the lane the assistant passed
+    // anyway: it only branches on opts.deepen. Offering an argument the app ignores
+    // is worse than not offering it, because the model describes what it thinks it
+    // did rather than what happened.
     input: {
       type: 'object',
       properties: {
         athleteId: { type: 'string', description: 'Athlete id from the roster context' },
-        lane: { type: 'string', enum: ['local', 'topnil', 'social'], description: 'Defaults to local' },
       },
       required: ['athleteId'],
     },
@@ -95,8 +99,7 @@ const ACTIONS = {
     check: (a) => {
       const athleteId = _str(a.athleteId, 80);
       if (!athleteId) return { error: 'Which athlete? I need one from the roster.' };
-      const lane = ['local', 'topnil', 'social'].includes(a.lane) ? a.lane : 'local';
-      return { args: { athleteId, lane } };
+      return { args: { athleteId } };
     },
     // Capped per session, and the cap is reported. Enforced here, before the
     // directive is issued, so the ceiling does not depend on the browser obeying it.
@@ -113,7 +116,7 @@ const ACTIONS = {
       session.scans_run = session.scans_run || {};
       session.scans_run[args.athleteId] = (session.scans_run[args.athleteId] || 0) + 1;
     },
-    directive: (args) => ({ kind: 'run_deal_scan', athleteId: args.athleteId, lane: args.lane }),
+    directive: (args) => ({ kind: 'run_deal_scan', athleteId: args.athleteId }),
     say: () => 'Running the scan now. It takes about a minute.',
   },
 

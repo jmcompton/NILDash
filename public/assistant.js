@@ -24,6 +24,18 @@ var NA = {
 };
 
 var NA_SESSION_KEY = 'nildash.assistant.opened';
+// The server owns the auto-open decision, but it arrives WITH the greeting, and
+// waiting for it was the whole delay. So the last answer is cached and used
+// optimistically on the next load; every response rewrites it, and a response that
+// disagrees closes the panel again. The only agent who sees a panel flash is one who
+// just turned auto-open off, and only on the one load after they did.
+var NA_AUTOOPEN_KEY = 'nildash.assistant.autoopen';
+function naAutoOpenCached() {
+  try { return localStorage.getItem(NA_AUTOOPEN_KEY) !== '0'; } catch (_) { return true; }
+}
+function naRememberAutoOpen(v) {
+  try { localStorage.setItem(NA_AUTOOPEN_KEY, v ? '1' : '0'); } catch (_) {}
+}
 
 function naEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -159,11 +171,13 @@ async function naPerform(directives) {
         var back = window.location.pathname + window.location.search + window.location.hash;
         window.location.href = '/api/email/oauth/gmail?returnTo=' + encodeURIComponent(back);
       } else if (d.kind === 'run_deal_scan') {
+        // NOTHING IS SAID HERE. The server already reported the scan to the model as
+        // a tool result, and the model wrote a sentence about it. A second line from
+        // the client made the assistant say the same thing twice.
         if (typeof window.nilRunDealScanFor === 'function') {
-          naSay('assistant', 'Running it now.');
-          window.nilRunDealScanFor(d.athleteId, d.lane);
+          window.nilRunDealScanFor(d.athleteId);
         } else {
-          if (typeof showView === 'function') showView('deal-scan', null);
+          if (typeof showView === 'function') showView('deals', null);
           naSay('assistant', 'Deal Scan is open. Press Scan and it will run for them.');
         }
       } else if (d.kind === 'lookup_program') {
@@ -237,6 +251,19 @@ function naUnsavedOutreach() {
 async function naStart(autoOpenAllowed) {
   if (NA.greeted || NA.greeting) return;
   NA.greeting = true;
+
+  // THE PANEL OPENS NOW, NOT WHEN THE GREETING ARRIVES. naOpen() used to be called
+  // after the round trip, so for the whole time the server was working there was
+  // nothing on screen at all and the assistant read as broken rather than as busy.
+  var eager = autoOpenAllowed && naAutoOpenCached() && !sessionStorage.getItem(NA_SESSION_KEY);
+  if (eager) {
+    try { sessionStorage.setItem(NA_SESSION_KEY, '1'); } catch (_) {}
+    naOpen();
+  }
+  // Always drawn, even if the panel is shut: an agent who clicks the bubble while the
+  // greeting is still in flight finds the indicator rather than an empty log.
+  var thinking = naSay('assistant', '…');
+
   try {
     var r = await fetch(naBase() + '/api/assistant/session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -245,7 +272,14 @@ async function naStart(autoOpenAllowed) {
     NA.greeting = false;
     if (r.status === 401) {
       // Not signed in yet. Stay quiet and stay retryable: the portal calls init()
-      // again once it has booted.
+      // again once it has booted. Undo the optimistic open completely, INCLUDING the
+      // session flag, or the real greeting a moment later would find it already spent
+      // and never open.
+      if (thinking) thinking.remove();
+      if (eager) {
+        naClose();
+        try { sessionStorage.removeItem(NA_SESSION_KEY); } catch (_) {}
+      }
       return;
     }
     if (!r.ok) {
@@ -267,9 +301,17 @@ async function naStart(autoOpenAllowed) {
       return;
     }
     msgs.forEach(function (m) { naSay(m.role, m.content); });
-    // Auto-open ONCE per browser session, and only if the server still allows it for
-    // this agent. A resumed conversation does not re-open by itself.
-    if (autoOpenAllowed && NA.autoOpen && !j.resumed && !sessionStorage.getItem(NA_SESSION_KEY)) {
+
+    // The server has now answered on auto-open, so the cached guess is replaced by
+    // the real thing for next time.
+    naRememberAutoOpen(NA.autoOpen);
+    if (eager) {
+      // Opened on a guess. If the server disagrees, shut it again. naClose, never
+      // naDismiss: the agent did not close this, so it must not count against them.
+      if (!NA.autoOpen || j.resumed) naClose();
+    } else if (autoOpenAllowed && NA.autoOpen && !j.resumed && !sessionStorage.getItem(NA_SESSION_KEY)) {
+      // Auto-open ONCE per browser session. Reached when the cache said no and the
+      // server says yes, which is the load after an agent's dismissals were reset.
       try { sessionStorage.setItem(NA_SESSION_KEY, '1'); } catch (_) {}
       naOpen();
     }

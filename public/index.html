@@ -7968,7 +7968,9 @@ function runDealScan()    { return _dsRunScan(false); }
 // Run a scan for a NAMED athlete. The assistant calls this; it selects the athlete
 // the same way the picker does, then runs the same scan the button runs. No second
 // scan path: the ledger, the cost logging and the draft pre-warm all still apply.
-window.nilRunDealScanFor = async function (athleteId, lane) {
+// No lane argument: a scan runs every lane, and _dsRunScan only ever branched on
+// opts.deepen, so the lane the assistant used to pass was read by nothing.
+window.nilRunDealScanFor = async function (athleteId) {
   if (!athleteId) return;
   var sel = document.getElementById('activeAthlete');
   if (sel && sel.value !== athleteId) {
@@ -7976,8 +7978,19 @@ window.nilRunDealScanFor = async function (athleteId, lane) {
     if (typeof selectAthlete === 'function') { try { await selectAthlete(athleteId); } catch (_) {} }
   }
   selectedAthleteId = athleteId;
-  if (typeof showView === 'function') showView('deal-scan', null);
-  return _dsRunScan(false, lane && lane !== 'local' ? { lane: lane } : undefined);
+  // THE VIEW ID IS 'deals'. There is no view-deal-scan element, and showView
+  // deactivates every view BEFORE it looks the new one up, so a wrong id left the
+  // whole main content area blank and then threw on null.classList. The scan itself
+  // still ran and rendered into a hidden container, which is why it looked like
+  // nothing happened.
+  // AWAITED INSIDE A CATCH. showView is async, so the old unawaited call turned a
+  // render failure into an unhandled rejection that no one saw. Caught rather than
+  // propagated: if the view will not switch, running the scan anyway is still better
+  // than doing nothing, and the results are on the tab when they navigate to it.
+  if (typeof showView === 'function') {
+    try { await showView('deals', null); } catch (e) { console.error('[assistant] showView(deals)', e); }
+  }
+  return _dsRunScan(false);
 };
 function runDealRefresh() { return _dsRunScan(true); }
 // Deal Scan — Add to Pipeline

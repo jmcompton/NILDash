@@ -20,7 +20,11 @@ const NO_REPLY_DAYS = 7;
  * exists; nothing here is estimated.
  */
 async function readContext(agentId) {
-  const q = await pool.query(`
+  const t0 = Date.now();
+  // BOTH QUERIES AT ONCE. They share nothing but the agent id, so running the roster
+  // read after the counts finished was one round trip of latency bought for nothing.
+  const [q, rr] = await Promise.all([
+    pool.query(`
     SELECT
       (SELECT COUNT(*)::int FROM athletes WHERE agent_id = $1) AS athletes,
       (SELECT COUNT(*)::int FROM athlete_activity_log
@@ -37,25 +41,26 @@ async function readContext(agentId) {
         ORDER BY (provider = 'gmail') DESC, created_at LIMIT 1) AS mailbox_address,
       (SELECT last_login FROM users WHERE id = $1) AS last_login,
       (SELECT name FROM users WHERE id = $1) AS agent_name
-  `, [agentId]);
-  const c = q.rows[0] || {};
+  `, [agentId]),
 
-  // A few athletes by name, so the assistant can say "Fixture Alvarez" rather than
-  // "one of your athletes". Ids come too, because every athlete-scoped action needs
-  // one and the model must never be left to invent it.
-  //
-  // READ FROM data JSONB, NOT FROM COLUMNS. athletes has exactly id, agent_id, data,
-  // created_at, updated_at; name, sport and school live inside data, which is why
-  // every other query in the codebase reads data->>'name'. Selecting them as columns
-  // threw "column name does not exist", which rejected readContext, 500ed the
-  // greeting, and left the panel empty.
-  const rr = await pool.query(
-    `SELECT id,
-            data->>'name'   AS name,
-            data->>'sport'  AS sport,
-            data->>'school' AS school
-       FROM athletes WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 8`,
-    [agentId]);
+    // A few athletes by name, so the assistant can say "Fixture Alvarez" rather than
+    // "one of your athletes". Ids come too, because every athlete-scoped action needs
+    // one and the model must never be left to invent it.
+    //
+    // READ FROM data JSONB, NOT FROM COLUMNS. athletes has exactly id, agent_id, data,
+    // created_at, updated_at; name, sport and school live inside data, which is why
+    // every other query in the codebase reads data->>'name'. Selecting them as columns
+    // threw "column name does not exist", which rejected readContext, 500ed the
+    // greeting, and left the panel empty.
+    pool.query(
+      `SELECT id,
+              data->>'name'   AS name,
+              data->>'sport'  AS sport,
+              data->>'school' AS school
+         FROM athletes WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 8`,
+      [agentId]),
+  ]);
+  const c = q.rows[0] || {};
 
   const daysSinceSent = c.last_sent_at
     ? Math.floor((Date.now() - new Date(c.last_sent_at).getTime()) / 86400000)
@@ -74,6 +79,12 @@ async function readContext(agentId) {
     lastSentAt: c.last_sent_at || null,
     daysSinceSent,
     roster: rr.rows.map((a) => ({ id: a.id, name: a.name, sport: a.sport, school: a.school })),
+    // Read by the route's timing line, which is how the greeting's cost gets split
+    // between the database and the model instead of being guessed at. Safe to carry
+    // here: both consumers name the fields they want (contextBlock builds a string
+    // from named fields, the route sends four picked keys), so this reaches neither
+    // the prompt nor the response.
+    _ms: Date.now() - t0,
   };
 }
 
