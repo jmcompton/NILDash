@@ -144,7 +144,14 @@ SELECT
   u.id                                            AS university_id,
   u.name                                          AS university_name,
   u.conference,
-  u.state,
+
+  -- location, NOT state. universities has never had a state column -- not in
+  -- store.js, not in migration 002 which defines the table -- and this line was the
+  -- SECOND phantom column in this view, failing the moment the athletes one was
+  -- fixed. location is the column that actually carries it ('Birmingham, AL'), and
+  -- it is exposed under its own name rather than aliased to state, because a
+  -- city-and-state string is not a state.
+  u.location,
 
   -- Total athletes associated with this university.
   COALESCE(a.athlete_count, 0)                    AS athlete_count,
@@ -165,11 +172,24 @@ SELECT
 FROM universities u
 
 -- Athlete count subquery.
+--
+-- READ FROM THE LINK TABLE, NOT FROM athletes. athletes has no university_id column
+-- and is not going to get one: an athlete relates to a university through
+-- university_athlete_links, so athletes carries no university state. Selecting
+-- athletes.university_id here raised "column university_id does not exist", and
+-- because the runner sent this file as one multi-statement query, that single error
+-- rolled back every CREATE above it on every boot.
+--
+-- status = 'active' is the app's own definition of a university's athlete count --
+-- /api/university/compliance-dashboard reports totalAthletes as exactly the links in
+-- that state -- so the summary agrees with the dashboard rather than quietly counting
+-- pending links too.
 LEFT JOIN (
   SELECT
     university_id,
     COUNT(*)   AS athlete_count
-  FROM athletes
+  FROM university_athlete_links
+  WHERE status = 'active'
   GROUP BY university_id
 ) a ON a.university_id = u.id
 

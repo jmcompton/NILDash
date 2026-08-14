@@ -12097,6 +12097,52 @@ app.listen(PORT, async () => {
   // All SQL statements are IF NOT EXISTS — safe to run every boot.
   // Failure is logged but never crashes the server.
   try {
+    // eslint-disable-next-line no-inner-declarations
+    function firstLineOf(stmt) {
+      const line = stmt.split('\n').map((l) => l.trim())
+        .find((l) => l && !l.startsWith('--')) || stmt.trim();
+      return line.length > 70 ? line.slice(0, 67) + '...' : line;
+    }
+    // Split on semicolons that are REALLY statement terminators. A semicolon inside a
+    // dollar-quoted body is not one: migration 008 wraps ALTER TABLE statements in
+    // DO $$ ... END $$, and a naive split would cut that block into fragments that
+    // each fail. Single quotes and -- comments are skipped for the same reason.
+    // eslint-disable-next-line no-inner-declarations
+    function splitSqlStatements(sql) {
+      const out = [];
+      let buf = '', i = 0, tag = null;
+      while (i < sql.length) {
+        const c = sql[i];
+        if (tag) {                                   // inside $tag$ ... $tag$
+          if (sql.startsWith(tag, i)) { buf += tag; i += tag.length; tag = null; continue; }
+          buf += c; i++; continue;
+        }
+        if (c === '$') {
+          const m = /^\$[A-Za-z_]*\$/.exec(sql.slice(i));
+          if (m) { tag = m[0]; buf += tag; i += tag.length; continue; }
+        }
+        if (c === "'") {                             // string literal, '' escapes
+          buf += c; i++;
+          while (i < sql.length) {
+            buf += sql[i];
+            if (sql[i] === "'") { if (sql[i + 1] === "'") { buf += sql[++i]; i++; continue; } i++; break; }
+            i++;
+          }
+          continue;
+        }
+        if (c === '-' && sql[i + 1] === '-') {       // line comment
+          while (i < sql.length && sql[i] !== '\n') buf += sql[i++];
+          continue;
+        }
+        if (c === ';') { out.push(buf); buf = ''; i++; continue; }
+        buf += c; i++;
+      }
+      out.push(buf);
+      // Anything with no SQL left once comments and whitespace are gone is not a
+      // statement -- trailing text after the final semicolon, or a comment-only tail.
+      return out.filter((s) => s.replace(/--[^\n]*/g, '').trim().length > 0);
+    }
+
     const fs   = require('fs');
     const path = require('path');
     const migDir = path.join(__dirname, 'migrations');
@@ -12104,13 +12150,31 @@ app.listen(PORT, async () => {
     // Continue-on-error: a single failing migration must NEVER abort the loop
     // and block every later migration (this previously hid migrations 007-011
     // behind the is_dismissed index failure).
+    //
+    // STATEMENT BY STATEMENT, not file by file. Sending a whole file as one
+    // multi-statement query puts it in an implicit transaction, so ONE bad statement
+    // rolls back every good statement beside it. Migration 006's view referenced a
+    // column that does not exist, and the cost was not the view: it was the three
+    // CREATE TABLEs above it, discarded on every boot for as long as the view was
+    // wrong. Per statement, a bad line costs only itself.
     for (const file of files) {
+      let ok = 0;
+      const failed = [];
       try {
         const sql = fs.readFileSync(path.join(migDir, file), 'utf8');
-        await store.pool.query(sql);
-        console.log(`[migrations] ✅ ${file}`);
+        for (const stmt of splitSqlStatements(sql)) {
+          try { await store.pool.query(stmt); ok++; } catch (sErr) {
+            failed.push(`${firstLineOf(stmt)} -> ${sErr.message}`);
+          }
+        }
       } catch (mErr) {
-        console.warn(`[migrations] ⚠️  ${file} failed (non-fatal, continuing):`, mErr.message);
+        console.warn(`[migrations] ⚠️  ${file} unreadable (non-fatal, continuing):`, mErr.message);
+        continue;
+      }
+      if (!failed.length) console.log(`[migrations] ✅ ${file} (${ok} statements)`);
+      else {
+        console.warn(`[migrations] ⚠️  ${file}: ${ok} ok, ${failed.length} failed (non-fatal, continuing)`);
+        for (const m of failed) console.warn(`[migrations]      ${m}`);
       }
     }
   } catch (err) {
