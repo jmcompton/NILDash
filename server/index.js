@@ -610,6 +610,11 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     agentAccess: agentHasAccess(user),
     isFounder: isFounderEmail(user.email),
     onboardingCompleted: user.onboarding_completed || false,
+    // Carried HERE so the assistant can decide whether to open the panel without
+    // waiting for the greeting. The decision is the server's, but it used to arrive
+    // WITH the greeting -- the exact round trip the panel is trying not to wait for --
+    // so the client guessed from a cached copy and opened late whenever it guessed no.
+    assistantAutoOpen: !(user.assistant_autoopen_off === true),
   });
 
 // ── Admin seed + university link endpoint ─────────────────────────

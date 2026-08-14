@@ -26,6 +26,9 @@ const MODEL = 'claude-sonnet-4-6';   // Sonnet, named. Never Opus.
 const TURN_TIMEOUT_MS = 45000;
 const MAX_HISTORY = 20;              // messages replayed into a turn
 const MAX_INPUT_CHARS = 4000;
+// Four sentences at the outside, per the prompt. 900 was the reply budget applied to
+// a turn that has never wanted more than a fraction of it.
+const GREETING_MAX_TOKENS = 220;
 // The instruction that really produced the greeting. Not stored in the transcript,
 // so it is replayed whenever the conversation is rebuilt for the model.
 const OPENER = '(The agent has just opened NILDash. Greet them according to the situation above.)';
@@ -96,11 +99,16 @@ async function runTurn({ agentId, session, ctx, state, toolsEnabled, msgs }) {
       + 'Do NOT offer it again. Answer only what they asked.'
     : brief.brief;
 
+  // THE GREETING IS THE LEAN TURN. It is the only turn with no tools, it states no
+  // product facts, and it produces two or three sentences -- so it does not carry the
+  // knowledge base, and it does not get a 900-token ceiling it will never approach.
+  const lean = !toolsEnabled;
   const system = systemPrompt({
     contextBlock: ctxSvc.contextBlock(ctx, state),
     brief: effectiveBrief,
     suppressed,
     toolsEnabled,
+    lean,
   });
 
   // THE CONVERSATION MUST START ON A USER TURN. A session opens with the assistant's
@@ -126,8 +134,8 @@ async function runTurn({ agentId, session, ctx, state, toolsEnabled, msgs }) {
     messages: convo,
     tools: toolsEnabled ? actions.toolDefs() : [],
     model: MODEL,
-    maxTokens: 900,
-    maxRounds: 3,
+    maxTokens: lean ? GREETING_MAX_TOKENS : 900,
+    maxRounds: lean ? 1 : 3,
     timeoutMs: TURN_TIMEOUT_MS,
     runTool: async (name, input) => {
       const res = await actions.resolveCall(name, input, { agentId, session });
@@ -237,7 +245,14 @@ router.post('/message', async (req, res) => {
     const [session, ctx] = await Promise.all([
       loadSession(agentId, req.body && req.body.sessionId),
       ctxSvc.readContext(agentId),
-      pool.query('UPDATE users SET assistant_dismissals = 0 WHERE id=$1', [agentId]).catch(() => {}),
+      // The streak is what turns auto-open off, and a reply breaks the streak -- so it
+      // has to clear the FLAG too, not just the counter. Clearing only the counter made
+      // "two dismissals IN A ROW" mean "two dismissals ever": once off, permanently
+      // off, with no path back short of SQL. Two dismissals while testing was enough
+      // to silence the assistant for that account for good.
+      pool.query(
+        'UPDATE users SET assistant_dismissals = 0, assistant_autoopen_off = FALSE WHERE id=$1',
+        [agentId]).catch(() => {}),
     ]);
     const tDb = Date.now() - tAll;
     session.replied = true;

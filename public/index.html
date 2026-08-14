@@ -4652,7 +4652,10 @@ async function bootApp() {
   // everyone signed in or not, so a self-mounting bubble appeared on the logged-out
   // marketing view and fired a request that 401ed. bootApp only runs once
   // /api/auth/me has confirmed a session.
-  try { if (window.nilAssistant) window.nilAssistant.init(); } catch (e) { console.warn('[assistant]', e.message); }
+  // autoOpen comes from /api/auth/me, which has already resolved by now, so the panel
+  // can open on the true answer rather than on a cached guess.
+  try { if (window.nilAssistant) window.nilAssistant.init({ autoOpen: currentUser.assistantAutoOpen }); }
+  catch (e) { console.warn('[assistant]', e.message); }
   document.getElementById('userRole').textContent = currentUser.role;
   (function(){
     var _nm = (currentUser.name || '').trim();

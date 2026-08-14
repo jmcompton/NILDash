@@ -24,18 +24,12 @@ var NA = {
 };
 
 var NA_SESSION_KEY = 'nildash.assistant.opened';
-// The server owns the auto-open decision, but it arrives WITH the greeting, and
-// waiting for it was the whole delay. So the last answer is cached and used
-// optimistically on the next load; every response rewrites it, and a response that
-// disagrees closes the panel again. The only agent who sees a panel flash is one who
-// just turned auto-open off, and only on the one load after they did.
-var NA_AUTOOPEN_KEY = 'nildash.assistant.autoopen';
-function naAutoOpenCached() {
-  try { return localStorage.getItem(NA_AUTOOPEN_KEY) !== '0'; } catch (_) { return true; }
-}
-function naRememberAutoOpen(v) {
-  try { localStorage.setItem(NA_AUTOOPEN_KEY, v ? '1' : '0'); } catch (_) {}
-}
+// NO CACHED GUESS. This was a localStorage copy of the server's last answer, used
+// optimistically because the real one arrived with the greeting. When the guess said
+// no and the server said yes, the panel fell through to opening AFTER the response --
+// which is the late-open bug it was added to fix, reappearing whenever the cache was
+// stale. The flag now rides on /api/auth/me, which the page already awaits before
+// bootApp, so the true answer is in hand before the decision is made.
 
 function naEsc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -255,7 +249,7 @@ async function naStart(autoOpenAllowed) {
   // THE PANEL OPENS NOW, NOT WHEN THE GREETING ARRIVES. naOpen() used to be called
   // after the round trip, so for the whole time the server was working there was
   // nothing on screen at all and the assistant read as broken rather than as busy.
-  var eager = autoOpenAllowed && naAutoOpenCached() && !sessionStorage.getItem(NA_SESSION_KEY);
+  var eager = autoOpenAllowed && NA.autoOpen && !sessionStorage.getItem(NA_SESSION_KEY);
   if (eager) {
     try { sessionStorage.setItem(NA_SESSION_KEY, '1'); } catch (_) {}
     naOpen();
@@ -302,19 +296,11 @@ async function naStart(autoOpenAllowed) {
     }
     msgs.forEach(function (m) { naSay(m.role, m.content); });
 
-    // The server has now answered on auto-open, so the cached guess is replaced by
-    // the real thing for next time.
-    naRememberAutoOpen(NA.autoOpen);
-    if (eager) {
-      // Opened on a guess. If the server disagrees, shut it again. naClose, never
-      // naDismiss: the agent did not close this, so it must not count against them.
-      if (!NA.autoOpen || j.resumed) naClose();
-    } else if (autoOpenAllowed && NA.autoOpen && !j.resumed && !sessionStorage.getItem(NA_SESSION_KEY)) {
-      // Auto-open ONCE per browser session. Reached when the cache said no and the
-      // server says yes, which is the load after an agent's dismissals were reset.
-      try { sessionStorage.setItem(NA_SESSION_KEY, '1'); } catch (_) {}
-      naOpen();
-    }
+    // A RESUMED conversation does not re-open by itself, and that is the one thing
+    // only the greeting response can tell us. Everything else was decided before the
+    // request went out. naClose, never naDismiss: the agent did not close this, so it
+    // must not count against them.
+    if (eager && j.resumed) naClose();
   } catch (e) {
     NA.greeting = false;
     naFailed('Could not reach the assistant: ' + (e && e.message ? e.message : e));
@@ -408,8 +394,12 @@ function naToggle() {
 // is client side. So this cannot mount itself on DOMContentLoaded: on the logged-out
 // page it put a bubble on the marketing view and fired a request that 401ed.
 // bootApp() calls init() once the session is confirmed.
-function naInit() {
+// opts.autoOpen is the server's real answer, carried on /api/auth/me. Defaults to
+// TRUE when absent so an older cached index.html still greets rather than going
+// silent -- the failure mode of a missing flag should be a panel too many, not none.
+function naInit(opts) {
   naBuild();
+  NA.autoOpen = !(opts && opts.autoOpen === false);
   naStart(true);
 }
 
