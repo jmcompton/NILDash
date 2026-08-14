@@ -137,7 +137,9 @@ operations, player personnel, recruiting, head coach, assistants. Names, titles,
 emails, phones, and a source link to the school's own staff directory so anything can
 be verified.
 
-Coverage is 119 football programs and about 125 men's basketball programs.
+Coverage is 119 football programs and 126 men's basketball programs. Nine
+basketball schools have no entry because their sites publish only a
+department-wide directory.
 
 It shows decision makers only, not the full support staff, and it says how many it
 hid.
