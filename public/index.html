@@ -7959,6 +7959,21 @@ function dsToggleWhy(i) {
 }
 
 function runDealScan()    { return _dsRunScan(false); }
+
+// Run a scan for a NAMED athlete. The assistant calls this; it selects the athlete
+// the same way the picker does, then runs the same scan the button runs. No second
+// scan path: the ledger, the cost logging and the draft pre-warm all still apply.
+window.nilRunDealScanFor = async function (athleteId, lane) {
+  if (!athleteId) return;
+  var sel = document.getElementById('activeAthlete');
+  if (sel && sel.value !== athleteId) {
+    sel.value = athleteId;
+    if (typeof selectAthlete === 'function') { try { await selectAthlete(athleteId); } catch (_) {} }
+  }
+  selectedAthleteId = athleteId;
+  if (typeof showView === 'function') showView('deal-scan', null);
+  return _dsRunScan(false, lane && lane !== 'local' ? { lane: lane } : undefined);
+};
 function runDealRefresh() { return _dsRunScan(true); }
 // Deal Scan — Add to Pipeline
 async function addDealToPipeline(brand, dealType, campaign) {
@@ -12632,6 +12647,8 @@ function exportCommissionCSV() {
 <script src="/nil-extras.js"></script>
 <script src="/email.js"></script>
 <script src="/outreach-engine.js"></script>
+<!-- Agent portal only. The athlete pages and admin.html do not load this. -->
+<script src="/assistant.js"></script>
 <script src="/onboarding.js"></script>
 
 <!-- ── Athlete Emails Module ──────────────────────────────────────────────── -->

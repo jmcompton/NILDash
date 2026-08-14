@@ -1185,6 +1185,52 @@ async function init() {
        ON outreach_logs(athlete_id, brand_key) WHERE status = 'draft' AND brand_key IS NOT NULL`
   ).catch((e) => console.error('[init] outreach draft key index:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_brand_key ON outreach_logs(brand_key)`).catch(() => {});
+
+  // ── Assistant ──────────────────────────────────────────────────────────────
+  // Session state, transcript, and pending confirmations. Deliberately its own
+  // tables: the assistant writes NOTHING to athletes, deals or outreach_logs, so
+  // these three are the whole of its footprint.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS assistant_sessions (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      -- suggestion keys already offered and not taken. Filtered OUT of the next
+      -- prompt, so never-nag does not depend on the model choosing to obey it.
+      suppressed JSONB DEFAULT '[]'::jsonb,
+      -- athleteId -> scans run this session. Deal Scan is the expensive direct
+      -- action, so it has a per-session ceiling and the agent is told when they hit it.
+      scans_run JSONB DEFAULT '{}'::jsonb,
+      replied BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS assistant_messages (
+      id SERIAL PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS assistant_pending_actions (
+      token TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      session_id TEXT,
+      action TEXT NOT NULL,
+      args JSONB NOT NULL,
+      args_hash TEXT NOT NULL,
+      used BOOLEAN DEFAULT FALSE,
+      used_at TIMESTAMPTZ,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `).catch((e) => console.error('[init] assistant tables:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_assistant_messages_session ON assistant_messages(session_id, id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_assistant_sessions_agent ON assistant_sessions(agent_id)`).catch(() => {});
+  // Auto-open policy. Two dismissals in a row without replying turns it off for this
+  // agent permanently; any reply resets the count.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assistant_dismissals INT DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS assistant_autoopen_off BOOLEAN DEFAULT FALSE`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_automation_runs_agent ON automation_runs(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_workflow_events_run ON workflow_events(run_id)`).catch(() => {});
 

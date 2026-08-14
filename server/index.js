@@ -8671,6 +8671,20 @@ try {
   console.warn('[growth] Failed to load growth routes:', e.message);
 }
 
+// ── Assistant ────────────────────────────────────────────────────────────────
+// Its own route module, and its own tables. It writes nothing to athletes, deals or
+// outreach: every action it can take resolves to a directive the BROWSER performs
+// against an endpoint that already existed, with that endpoint's own auth and
+// validation intact. aiLimiter applies, so a chat loop cannot outrun the same cap a
+// scan is held to.
+try {
+  const assistantRoutes = require('./routes/assistant');
+  app.use('/api/assistant', requireAuth, aiLimiter, assistantRoutes);
+  console.log('[assistant] routes loaded');
+} catch (e) {
+  console.warn('[assistant] failed to load:', e.message);
+}
+
 // ── Outreach Automation Engine ────────────────────────────────────────────────
 // Isolated route module — zero interference with existing routes above.
 try {

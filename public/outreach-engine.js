@@ -604,6 +604,15 @@ function renderRunResult(data) {
       }
     })();
 
+  // Snapshot the draft as loaded. The assistant compares against this before it
+  // navigates, so "unsaved edits" means the agent actually typed something rather
+  // than merely having the panel open.
+  try {
+    const _b = document.getElementById('outreach-body-input');
+    const _s = document.getElementById('outreach-subject-input');
+    window._naOutreachSnapshot = String(_b ? _b.value : '') + ' ' + String(_s ? _s.value : '');
+  } catch (e) { window._naOutreachSnapshot = undefined; }
+
   // Load email accounts into the dropdown
   loadEmailAccountsIntoDropdown();
   // Set up the "Attach media kit" button for this athlete + brand.
@@ -1126,6 +1135,8 @@ async function saveDraft(outreachId) {
   try {
     const bodyHtml = editableTextToHtml(bodyText || '');
     await outreachAPI.patch('/logs/' + outreachId, { subject, body_html: bodyHtml });
+    // Re-baseline: what was just saved is no longer unsaved.
+    try { window._naOutreachSnapshot = String(bodyText || '') + ' ' + String(subject || ''); } catch (e) {}
     if (status) { status.style.color = '#84CC16'; status.textContent = 'Edits saved ✓'; }
     showOutreachToast('Draft saved');
   } catch (e) {

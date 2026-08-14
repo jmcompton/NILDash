@@ -319,6 +319,71 @@ async function oneShot(prompt, system, maxTokens, model) {
   }
 }
 
+// ── Bounded tool loop ────────────────────────────────────────────────────────
+// One conversational turn that may call CLIENT-SIDE tools (ours, not Anthropic's).
+// Used by the assistant; nothing else calls this yet.
+//
+// BOUNDED THREE WAYS, because a tool loop is the one shape here that can run away:
+//   maxRounds   how many times the model may call tools before it must answer
+//   timeoutMs   wall clock over the whole turn, not per request
+//   the caller's resolver decides what a tool call MEANS. This function never
+//   executes anything: it hands the call out and puts the answer back.
+//
+// runTool(name, input) -> { result, stop }. `stop` ends the loop immediately, which
+// is how a refusal or a confirmation prompt returns without a second round trip.
+async function toolLoop({ system, messages, tools, model, maxTokens, maxRounds, timeoutMs, runTool }) {
+  const client = getClient();
+  const useModel = model || MODEL_BALANCED;
+  const rounds = Number.isFinite(maxRounds) ? maxRounds : 4;
+  const deadline = Date.now() + (Number.isFinite(timeoutMs) ? timeoutMs : 45000);
+  const convo = messages.slice();
+  const calls = [];
+  let text = '';
+
+  for (let i = 0; i < rounds; i++) {
+    if (Date.now() > deadline) {
+      console.warn('[toolLoop] out of time after', i, 'round(s)');
+      break;
+    }
+    scanMeter.bumpAi();
+    const msg = await withTimeout(
+      client.messages.create({
+        model: useModel,
+        max_tokens: maxTokens || 1200,
+        system,
+        messages: convo,
+        ...(tools && tools.length ? { tools } : {}),
+      }),
+      Math.max(5000, deadline - Date.now()), 'assistant turn');
+
+    const blocks = Array.isArray(msg.content) ? msg.content : [];
+    text = blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n').trim();
+    const toolUses = blocks.filter((b) => b && b.type === 'tool_use');
+    if (!toolUses.length) return { text: stripEmDashes(text), calls, stopped: false };
+
+    convo.push({ role: 'assistant', content: blocks });
+    const results = [];
+    let stopNow = false;
+    for (const u of toolUses) {
+      const out = await runTool(u.name, u.input || {});
+      calls.push({ name: u.name, input: u.input || {}, out });
+      results.push({
+        type: 'tool_result',
+        tool_use_id: u.id,
+        content: typeof out.result === 'string' ? out.result : JSON.stringify(out.result || {}),
+        ...(out.isError ? { is_error: true } : {}),
+      });
+      if (out.stop) stopNow = true;
+    }
+    convo.push({ role: 'user', content: results });
+    // A confirmation or a refusal is the end of the turn: there is nothing useful
+    // for the model to add, and letting it keep going invites it to try again by
+    // another route.
+    if (stopNow) return { text: stripEmDashes(text), calls, stopped: true };
+  }
+  return { text: stripEmDashes(text), calls, stopped: false, exhausted: true };
+}
+
 // Web-search-enabled one-shot. Uses Anthropic's server-side web_search tool so
 // brand discovery returns REAL, verifiable local businesses. Falls back to the
 // caller's error handling on timeout/failure.
@@ -3319,6 +3384,7 @@ module.exports = {
   MANUAL_SOURCE_ORDER,                         // shared wave order for deep lookups
   runSourceWaves,                              // shared parallel wave engine
   withTimeout,                                 // hard wall-clock cap, see the note above
+  toolLoop,                                    // bounded client-side tool turn (assistant)
   // Haiku + web_search primitive. UNCAPPED: every caller must wrap it in
   // withTimeout. The contact ladder does so at 15s; discoverStaffUrl did not, and
   // that is exactly how the 135-school run hung.

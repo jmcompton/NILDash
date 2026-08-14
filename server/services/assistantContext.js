@@ -1,0 +1,143 @@
+'use strict';
+// What the assistant knows about the agent before it says anything, and which of the
+// six situations they are actually in.
+//
+// THE STATE IS COMPUTED IN CODE, NOT BY THE MODEL. The model writes the sentence; it
+// does not decide which situation the agent is in. That matters because the states
+// are not equally important: "scans but nothing sent" is the one worth acting on,
+// and a model left to judge for itself will sometimes call it "returning user" and
+// say nothing useful.
+//
+// One query per assistant session, cached for its lifetime, so the bubble costs one
+// round trip rather than one per message.
+
+const { pool } = require('../store');
+
+const NO_REPLY_DAYS = 7;
+
+/**
+ * Read the agent's real position. Every number comes from a table that already
+ * exists; nothing here is estimated.
+ */
+async function readContext(agentId) {
+  const q = await pool.query(`
+    SELECT
+      (SELECT COUNT(*)::int FROM athletes WHERE agent_id = $1) AS athletes,
+      (SELECT COUNT(*)::int FROM athlete_activity_log
+        WHERE agent_id = $1 AND activity_type = 'deal_scan') AS scans,
+      (SELECT COUNT(*)::int FROM outreach_logs
+        WHERE agent_id = $1 AND status IN ('sent','replied')) AS sent,
+      (SELECT COUNT(*)::int FROM outreach_logs
+        WHERE agent_id = $1 AND replied_at IS NOT NULL) AS replies,
+      (SELECT MAX(sent_at) FROM outreach_logs WHERE agent_id = $1 AND status IN ('sent','replied')) AS last_sent_at,
+      (SELECT COUNT(*)::int FROM deals WHERE agent_id = $1
+        AND COALESCE(data->>'stage','') NOT IN ('Closed','Lost','Dead')) AS pipeline,
+      (SELECT COUNT(*)::int FROM email_accounts WHERE user_id = $1) AS mailboxes,
+      (SELECT email_address FROM email_accounts WHERE user_id = $1
+        ORDER BY (provider = 'gmail') DESC, created_at LIMIT 1) AS mailbox_address,
+      (SELECT last_login FROM users WHERE id = $1) AS last_login,
+      (SELECT name FROM users WHERE id = $1) AS agent_name
+  `, [agentId]);
+  const c = q.rows[0] || {};
+
+  // A few athletes by name, so the assistant can say "Fixture Alvarez" rather than
+  // "one of your athletes". Ids come too, because every athlete-scoped action needs
+  // one and the model must never be left to invent it.
+  const rr = await pool.query(
+    `SELECT id, name, sport, school FROM athletes WHERE agent_id = $1 ORDER BY created_at DESC LIMIT 8`,
+    [agentId]);
+
+  const daysSinceSent = c.last_sent_at
+    ? Math.floor((Date.now() - new Date(c.last_sent_at).getTime()) / 86400000)
+    : null;
+
+  return {
+    agentName: c.agent_name || null,
+    athletes: c.athletes || 0,
+    scans: c.scans || 0,
+    sent: c.sent || 0,
+    replies: c.replies || 0,
+    pipeline: c.pipeline || 0,
+    gmailConnected: (c.mailboxes || 0) > 0,
+    mailboxAddress: c.mailbox_address || null,
+    lastLogin: c.last_login || null,
+    lastSentAt: c.last_sent_at || null,
+    daysSinceSent,
+    roster: rr.rows.map((a) => ({ id: a.id, name: a.name, sport: a.sport, school: a.school })),
+  };
+}
+
+/**
+ * Which of the six situations is this. Ordered, and the order is the point: the
+ * first match wins, and they are arranged so the blocking problem is found before
+ * the pleasant one.
+ */
+function routeState(ctx) {
+  if (!ctx.athletes) return 'no_athletes';
+  if (!ctx.scans) return 'no_scans';
+  // THE IMPORTANT ONE. Scans run and nothing sent means something is in the way, and
+  // if there is no mailbox that is almost certainly it: nothing they wrote could
+  // have gone out.
+  if (!ctx.sent) return ctx.gmailConnected ? 'no_outreach' : 'no_outreach_no_gmail';
+  if (ctx.sent && !ctx.replies && ctx.daysSinceSent != null && ctx.daysSinceSent >= NO_REPLY_DAYS) return 'no_replies';
+  return 'returning';
+}
+
+// What the assistant should DO in each state, written out so the model is choosing
+// words rather than choosing a goal. suggestionKey is what the never-nag rule
+// suppresses once it has been offered and ignored.
+const STATE_BRIEFS = {
+  no_athletes: {
+    suggestionKey: 'add_first_athlete',
+    brief: 'They have no athletes yet. Offer to add their first one, and ask for the name, the sport and the school. '
+      + 'All three: sport drives the fit scoring, so an athlete without one scores wrong rather than not at all.',
+  },
+  no_scans: {
+    suggestionKey: 'first_scan',
+    brief: 'They have athletes but have never run a Deal Scan. Name ONE of their athletes specifically and offer to scan for them.',
+  },
+  no_outreach_no_gmail: {
+    suggestionKey: 'connect_gmail',
+    brief: 'They have run scans and sent nothing, AND they have no mailbox connected. '
+      + 'Say that plainly: without a connected mailbox nothing they write can be sent, so it is almost certainly the reason. '
+      + 'Offer to connect Gmail. Ask if anything else is in the way.',
+  },
+  no_outreach: {
+    suggestionKey: 'why_no_outreach',
+    brief: 'They have run scans and sent nothing, and their mailbox IS connected, so the usual reason does not apply. '
+      + 'Ask what is in the way. Do not guess at the answer and do not lecture. One short question.',
+  },
+  no_replies: {
+    suggestionKey: 'draft_followups',
+    brief: 'They have sent outreach and had no replies for a week or more. Say plainly that this is normal for cold outreach '
+      + 'and offer to draft follow ups. Do not oversell the odds.',
+  },
+  returning: {
+    suggestionKey: null,
+    brief: 'Nothing is pending. Greet them briefly and stop. Do NOT invent a task, do not list features, '
+      + 'do not ask what they are working on. One or two sentences at most.',
+  },
+};
+
+// The context as the model sees it. Every value is labelled and fenced as DATA.
+function contextBlock(ctx, state) {
+  const roster = ctx.roster.length
+    ? ctx.roster.map((a) => `  - id=${a.id} | ${a.name} | ${a.sport || 'sport unknown'} | ${a.school || 'school unknown'}`).join('\n')
+    : '  (none)';
+  return `AGENT SITUATION (read from the database, all of it true right now)
+- Name: ${ctx.agentName || 'unknown'}
+- Athletes on roster: ${ctx.athletes}
+- Deal Scans ever run: ${ctx.scans}
+- Outreach emails sent: ${ctx.sent}
+- Replies received: ${ctx.replies}
+- Deals in pipeline (not closed or lost): ${ctx.pipeline}
+- Gmail / mailbox connected: ${ctx.gmailConnected ? 'YES (' + (ctx.mailboxAddress || 'address unknown') + ')' : 'NO'}
+- Last login: ${ctx.lastLogin ? new Date(ctx.lastLogin).toISOString().slice(0, 10) : 'unknown'}
+- Days since their last send: ${ctx.daysSinceSent == null ? 'never sent' : ctx.daysSinceSent}
+- Situation: ${state}
+
+THEIR ROSTER (use these ids for any athlete action, never invent one):
+${roster}`;
+}
+
+module.exports = { readContext, routeState, STATE_BRIEFS, contextBlock, NO_REPLY_DAYS };
