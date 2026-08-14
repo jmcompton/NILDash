@@ -26,6 +26,9 @@ const MODEL = 'claude-sonnet-4-6';   // Sonnet, named. Never Opus.
 const TURN_TIMEOUT_MS = 45000;
 const MAX_HISTORY = 20;              // messages replayed into a turn
 const MAX_INPUT_CHARS = 4000;
+// The instruction that really produced the greeting. Not stored in the transcript,
+// so it is replayed whenever the conversation is rebuilt for the model.
+const OPENER = '(The agent has just opened NILDash. Greet them according to the situation above.)';
 
 console.log(`[assistant] knowledge base: ${hasKnowledge() ? 'loaded' : 'EMPTY (placeholder only)'}`);
 
@@ -58,6 +61,8 @@ async function history(sessionId) {
   const r = await pool.query(
     `SELECT role, content FROM assistant_messages WHERE session_id=$1 ORDER BY id DESC LIMIT $2`,
     [sessionId, MAX_HISTORY]);
+  // Returned VERBATIM: this is what the browser renders on a resume, so the leading
+  // greeting has to survive. Shaping it for the API is runTurn's job, not this one's.
   return r.rows.reverse()
     .filter((m) => m.content && m.content.trim())
     .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
@@ -71,9 +76,14 @@ async function record(sessionId, agentId, role, content) {
 }
 
 // ── The turn ─────────────────────────────────────────────────────────────────
-// `msgs` is the session transcript. Pass it when the caller has ALREADY read it, so
-// the same query is not run twice for one request; omit it and this reads it itself.
-async function runTurn({ agentId, session, ctx, state, userText, toolsEnabled, msgs: preMsgs }) {
+// `msgs` IS THE WHOLE CONVERSATION, current turn included. The caller records the
+// agent's message and then reads the transcript back, so there is exactly one place
+// a user turn can come from.
+//
+// It used to take a separate `userText` and push it on top of the transcript it had
+// just read -- and /message records that same text BEFORE calling, so it was already
+// in there. The model saw every agent message twice.
+async function runTurn({ agentId, session, ctx, state, toolsEnabled, msgs }) {
   const brief = ctxSvc.STATE_BRIEFS[state] || ctxSvc.STATE_BRIEFS.returning;
   const suppressed = Array.isArray(session.suppressed) ? session.suppressed : [];
 
@@ -93,14 +103,19 @@ async function runTurn({ agentId, session, ctx, state, userText, toolsEnabled, m
     toolsEnabled,
   });
 
-  // sliced, because the next line pushes onto it and the caller's array is not ours.
-  const msgs = preMsgs ? preMsgs.slice() : await history(session.id);
-  if (userText) msgs.push({ role: 'user', content: userText });
-  if (!msgs.length) {
-    // The greeting: nothing has been said yet, so give the model an explicit opening
-    // instruction rather than an empty conversation.
-    msgs.push({ role: 'user', content: '(The agent has just opened NILDash. Greet them according to the situation above.)' });
-  }
+  // THE CONVERSATION MUST START ON A USER TURN. A session opens with the assistant's
+  // greeting, so the stored transcript begins with an assistant message, and the
+  // Messages API rejects a conversation shaped that way.
+  //
+  // PREPENDED, NOT TRIMMED. Dropping the leading assistant message would delete the
+  // greeting from the model's view, and the greeting is exactly what the agent is
+  // answering when they reply "yes" -- the offer would be gone and only the
+  // acceptance left, which is the dead end this design exists to avoid. Prepending
+  // is also the truthful reconstruction: the greeting really was produced from this
+  // instruction, it is simply not stored. Copied rather than shifted in place,
+  // because the caller's array is not ours to edit.
+  const convo = (msgs || []).slice();
+  if (!convo.length || convo[0].role !== 'user') convo.unshift({ role: 'user', content: OPENER });
 
   const directives = [];
   const confirms = [];
@@ -108,7 +123,7 @@ async function runTurn({ agentId, session, ctx, state, userText, toolsEnabled, m
 
   const out = await ai.toolLoop({
     system,
-    messages: msgs,
+    messages: convo,
     tools: toolsEnabled ? actions.toolDefs() : [],
     model: MODEL,
     maxTokens: 900,
@@ -182,10 +197,12 @@ router.post('/session', async (req, res) => {
     }
 
     // `existing` is handed straight to runTurn, which used to call history() again
-    // for the same session id and throw the first answer away.
+    // for the same session id and throw the first answer away. It is empty here by
+    // definition -- a non-empty transcript returned above -- so runTurn supplies the
+    // opening instruction.
     const tM = Date.now();
     const turn = await runTurn({
-      agentId, session, ctx, state, userText: null, toolsEnabled: false, msgs: existing,
+      agentId, session, ctx, state, toolsEnabled: false, msgs: existing,
     });
     const tModel = Date.now() - tM;
     await record(session.id, agentId, 'assistant', turn.text);
@@ -226,15 +243,18 @@ router.post('/message', async (req, res) => {
     session.replied = true;
     const state = ctxSvc.routeState(ctx);
 
-    // Written BEFORE the turn, because runTurn reads the transcript back and this
-    // message has to be in it.
+    // Written BEFORE the transcript is read, so the read returns it and it reaches the
+    // model exactly once. This is the only path a user turn takes now.
     await record(session.id, agentId, 'user', text);
+    const tH = Date.now();
+    const convo = await history(session.id);
+    const tHist = Date.now() - tH;
 
     const tM = Date.now();
-    const turn = await runTurn({ agentId, session, ctx, state, userText: text, toolsEnabled: true });
+    const turn = await runTurn({ agentId, session, ctx, state, toolsEnabled: true, msgs: convo });
     const tModel = Date.now() - tM;
     console.log(`[assistant] TIMING /message agent=${agentId} db=${tDb}ms (ctx=${ctx._ms}ms) `
-      + `model=${tModel}ms total=${Date.now() - tAll}ms`);
+      + `history=${tHist}ms model=${tModel}ms total=${Date.now() - tAll}ms`);
     await record(session.id, agentId, 'assistant', turn.text);
     await saveSession(session);
 
