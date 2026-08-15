@@ -2541,7 +2541,13 @@ async function lookupBusinessCategory(agentId, brand) {
   return null;
 }
 
-async function saveDealOutcome(dealId, dealData, athleteData, agentId) {
+// closedAt is WHEN THE DEAL CLOSED, passed by the caller. It used to be omitted so
+// the column's DEFAULT NOW() supplied insert time -- fine for a live close, wrong for
+// a backfill, which stamped every historical deal with the day the backfill ran and
+// would pile a whole history into one week of any weekly chart. Pass null when the
+// real date is genuinely unknown: the column stores NULL and every dated query
+// excludes it, which is honest. Never let it fall back to today.
+async function saveDealOutcome(dealId, dealData, athleteData, agentId, closedAt) {
   try {
     const value = parseInt(dealData.value) || 0;
     if (value <= 0) return false;
@@ -2559,14 +2565,18 @@ async function saveDealOutcome(dealId, dealData, athleteData, agentId) {
     await pool.query(
       `INSERT INTO deal_outcomes
          (agent_id, athlete_id, deal_id, brand, business_category, school,
-          school_tier, sport, follower_band, deliverable, deal_value, days_to_close)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+          school_tier, sport, follower_band, deliverable, deal_value, days_to_close,
+          closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
       [agentId || null, athleteData.id || null, dealId || null,
        dealData.brand || null, category, athleteData.school || null,
        athleteData.schoolTier || null, athleteData.sport || null,
-       followerBand(followers), dealData.type || null, value, days]
+       followerBand(followers), dealData.type || null, value, days,
+       closedAt || dealData.closedAt || null]
     );
-    console.log(`[outcome] saved brand=${dealData.brand} cat=${category || 'unknown'} $${value} days=${days}`);
+    const stamp = closedAt || dealData.closedAt || null;
+    console.log(`[outcome] saved brand=${dealData.brand} cat=${category || 'unknown'} $${value} `
+      + `days=${days} closed_at=${stamp || 'NULL (date unknown, excluded from dated views)'}`);
     return true;
   } catch (e) {
     console.error('[outcome] save failed:', e.message);

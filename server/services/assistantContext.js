@@ -35,7 +35,10 @@ async function readContext(agentId) {
         WHERE agent_id = $1 AND replied_at IS NOT NULL) AS replies,
       (SELECT MAX(sent_at) FROM outreach_logs WHERE agent_id = $1 AND status IN ('sent','replied')) AS last_sent_at,
       (SELECT COUNT(*)::int FROM deals WHERE agent_id = $1
-        AND COALESCE(data->>'stage','') NOT IN ('Closed','Lost','Dead')) AS pipeline,
+        -- 'Dead' is not a stage. The vocabulary is Prospecting, Contacted,
+        -- Negotiating, Closed, Lost, Signed, and in-flight means NOT IN
+        -- ('Closed','Lost') everywhere, so this agrees with the home page.
+        AND COALESCE(data->>'stage','') NOT IN ('Closed','Lost')) AS pipeline,
       (SELECT COUNT(*)::int FROM email_accounts WHERE user_id = $1) AS mailboxes,
       (SELECT email_address FROM email_accounts WHERE user_id = $1
         ORDER BY (provider = 'gmail') DESC, created_at LIMIT 1) AS mailbox_address,

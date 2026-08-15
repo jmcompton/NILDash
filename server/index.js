@@ -1275,15 +1275,29 @@ app.post('/api/athletes/:id/deals', requireAuth, async (req, res) => {
     // FIXED: verify agent owns this athlete before adding deals
     if (athlete.agentId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
     const id = 'deal-' + Date.now();
-    const deal = await store.saveDeal(id, {
+    const now = new Date().toISOString();
+    // A deal can be CREATED already Closed -- stage comes straight from the body --
+    // and this path never recorded an outcome, so those closes were invisible to
+    // every dated view and to the benchmark pool. Stamped and recorded here, exactly
+    // as the PATCH transition does.
+    const bornClosed = (stage === 'Closed');
+    const payload = {
       id, athleteId: req.params.id,
       agentId: req.session.userId,
       brand: brand || '', campaign: campaign || '',
       stage: stage || 'Prospecting',
       value: parseInt(value) || 0,
       offeredValue: parseInt(offeredValue) || 0,
-      createdAt: new Date().toISOString(),
-    });
+      createdAt: now,
+      ...(bornClosed ? { closedAt: now, status: 'closed' } : {}),
+    };
+    const deal = await store.saveDeal(id, payload);
+    if (bornClosed && payload.value > 0) {
+      try {
+        await store.saveComp(payload, athlete);
+        await store.saveDealOutcome(id, payload, athlete, req.session.userId, now);
+      } catch (e) { console.error('[deals] outcome on create failed:', e.message); }
+    }
     checkOff(req.session.userId, 'log_deal'); // Getting Started checklist
     res.status(201).json(deal);
   } catch(err) {
@@ -1329,6 +1343,11 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
   // Auto-save to deal comps when deal moves to Closed with a real value
   const isNowClosed = (req.body.stage === 'Closed' && existing.stage !== 'Closed') ||
                       (req.body.status === 'closed' && existing.status !== 'closed');
+  // WHEN IT CLOSED, RECORDED AT THE MOMENT IT CLOSES. A deal carried createdAt and
+  // nothing else, so "earned this month" and any weekly figure were uncomputable:
+  // the row's updated_at moves on every edit and is not a close date. Stamped only
+  // on the transition, so re-saving a Closed deal never rewrites its history.
+  if (isNowClosed && !merged.closedAt) merged.closedAt = new Date().toISOString();
   if (isNowClosed && parseInt(merged.value || 0) > 0) {
     const athlete = await store.getAthlete(existing.athleteId);
     if (athlete) {
@@ -1336,7 +1355,7 @@ app.patch('/api/deals/:id', requireAuth, async (req, res) => {
       console.log('Deal comp saved:', athlete.sport, athlete.schoolTier, '$' + (merged.value || 0));
       // Business/market side of the same close. saveComp covers the athlete
       // half; this covers what the business actually paid and how long it took.
-      await store.saveDealOutcome(req.params.id, merged, athlete, req.session.userId);
+      await store.saveDealOutcome(req.params.id, merged, athlete, req.session.userId, merged.closedAt);
     }
   }
   res.json(await store.saveDeal(req.params.id, merged));
@@ -1380,13 +1399,284 @@ app.post('/api/benchmarks/backfill', requireAuth, async (req, res) => {
       const athlete = await store.getAthlete(row.athlete_id);
       if (!athlete) { skipped++; continue; }
       const deal = { ...row.data, id: row.id };
-      const ok = await store.saveDealOutcome(row.id, deal, athlete, row.agent_id);
+      // NULL when the deal has no closedAt, which is every deal closed before the
+      // stamp existed. NULL means "we do not know", and dated views skip it. The
+      // alternative -- letting DEFAULT NOW() fill in -- claimed the whole history
+      // closed on backfill day.
+      const ok = await store.saveDealOutcome(row.id, deal, athlete, row.agent_id, deal.closedAt || null);
       ok ? saved++ : skipped++;
     }
     console.log(`[benchmarks/backfill] candidates=${r.rows.length} saved=${saved} skipped=${skipped}`);
     res.json({ ok: true, candidates: r.rows.length, saved, skipped });
   } catch (e) {
     console.error('[benchmarks/backfill]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/agent/home-metrics — everything the rebuilt home page shows, in one
+// round trip: the hero, the eight-week series, the momentum strip and the roster.
+//
+// WHAT IS AND IS NOT KNOWABLE. All-time earned comes from deals directly and is
+// complete. Everything with a date on it depends on closedAt, which is stamped from
+// now on and does not exist on deals closed earlier -- so dated figures are honest
+// about a short history rather than pretending the past was empty. The eight-week
+// chart is withheld entirely until three separate weeks carry real closes, because a
+// number with no chart reads as intentional and a chart with no data reads as broken.
+const HOME_CHART_MIN_WEEKS = 3;
+
+app.get('/api/agent/home-metrics', requireAuth, async (req, res) => {
+  const agentId = req.session.userId;
+  // Individually guarded: one missing table must not blank the whole page.
+  const soft = (sql, params) => store.pool.query(sql, params).catch((e) => {
+    console.error('[home-metrics] soft query failed:', e.message);
+    return { rows: [] };
+  });
+  // In flight is NOT IN ('Closed','Lost'), and that string is written once.
+  const IN_FLIGHT = `COALESCE(data->>'stage','') NOT IN ('Closed','Lost')`;
+  const CLOSED_AT = `NULLIF(data->>'closedAt','')::timestamptz`;
+  const VALUE = `COALESCE(NULLIF(data->>'value',''),'0')::numeric`;
+
+  try {
+    const [heroR, weeksR, sentR, brandsR, closedR, pipeR, rosterR, trackR] = await Promise.all([
+      // HERO. All-time is every closed deal; this month needs a date, so it counts
+      // only what carries one.
+      soft(
+        `SELECT COALESCE(SUM(${VALUE}),0) AS all_time,
+                COUNT(*)::int AS deal_count,
+                COALESCE(SUM(${VALUE}) FILTER (
+                  WHERE ${CLOSED_AT} >= DATE_TRUNC('month', CURRENT_DATE)),0) AS this_month,
+                COUNT(*) FILTER (
+                  WHERE ${CLOSED_AT} >= DATE_TRUNC('month', CURRENT_DATE))::int AS this_month_count
+           FROM deals
+          WHERE agent_id = $1 AND data->>'stage' = 'Closed'`, [agentId]),
+
+      // EIGHT WEEKS, oldest first. Generated from the calendar so a quiet week is a
+      // zero-height bar rather than a missing one.
+      soft(
+        `WITH weeks AS (
+           SELECT generate_series(
+             DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 weeks',
+             DATE_TRUNC('week', CURRENT_DATE), INTERVAL '1 week') AS wk)
+         SELECT w.wk::date::text AS week_start,
+                COALESCE(SUM(${VALUE}),0) AS earned,
+                COUNT(d.id)::int AS closes
+           FROM weeks w
+           LEFT JOIN deals d
+             ON d.agent_id = $1 AND d.data->>'stage' = 'Closed'
+            AND ${CLOSED_AT} >= w.wk AND ${CLOSED_AT} < w.wk + INTERVAL '1 week'
+          GROUP BY w.wk ORDER BY w.wk ASC`, [agentId]),
+
+      // MOMENTUM: emails sent, this week and last.
+      soft(
+        `SELECT COUNT(*) FILTER (WHERE sent_at >= DATE_TRUNC('week', CURRENT_DATE))::int AS this_week,
+                COUNT(*) FILTER (WHERE sent_at >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
+                             AND sent_at <  DATE_TRUNC('week', CURRENT_DATE))::int AS last_week
+           FROM outreach_logs
+          WHERE agent_id = $1 AND sent_at IS NOT NULL`, [agentId]),
+
+      // BUSINESSES CONTACTED, distinct. Replaces reply rate, which measured what an
+      // agent remembered to tick rather than what happened: markReplied is only ever
+      // called from the manual endpoint, so a rate built on it would be believed and
+      // would be wrong. Ten emails to three businesses is a different week from ten
+      // emails to ten, and this says which.
+      soft(
+        `SELECT COUNT(DISTINCT COALESCE(NULLIF(brand_key,''), LOWER(brand_name)))
+                  FILTER (WHERE sent_at >= DATE_TRUNC('week', CURRENT_DATE))::int AS this_week,
+                COUNT(DISTINCT COALESCE(NULLIF(brand_key,''), LOWER(brand_name)))
+                  FILTER (WHERE sent_at >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
+                            AND sent_at <  DATE_TRUNC('week', CURRENT_DATE))::int AS last_week
+           FROM outreach_logs
+          WHERE agent_id = $1 AND sent_at IS NOT NULL`, [agentId]),
+
+      // CLOSED, this week and last. Dated, so only closes carrying a stamp.
+      soft(
+        `SELECT COUNT(*) FILTER (WHERE ${CLOSED_AT} >= DATE_TRUNC('week', CURRENT_DATE))::int AS this_week,
+                COUNT(*) FILTER (WHERE ${CLOSED_AT} >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
+                             AND ${CLOSED_AT} <  DATE_TRUNC('week', CURRENT_DATE))::int AS last_week
+           FROM deals
+          WHERE agent_id = $1 AND data->>'stage' = 'Closed'`, [agentId]),
+
+      soft(
+        `SELECT COALESCE(SUM(${VALUE}),0) AS value, COUNT(*)::int AS n
+           FROM deals WHERE agent_id = $1 AND ${IN_FLIGHT}`, [agentId]),
+
+      // ROSTER. Earned, deal count, in flight and last activity per athlete, in one
+      // pass rather than a query per athlete.
+      soft(
+        `SELECT a.id,
+                a.data->>'name'  AS name,
+                a.data->>'sport' AS sport,
+                COALESCE(d.earned,0)      AS earned,
+                COALESCE(d.deals,0)::int  AS deals,
+                COALESCE(d.in_flight,0)::int AS in_flight,
+                GREATEST(
+                  COALESCE(act.last_at, 'epoch'::timestamptz),
+                  COALESCE(o.last_at,   'epoch'::timestamptz)
+                ) AS last_activity
+           FROM athletes a
+           LEFT JOIN (
+             SELECT athlete_id,
+                    SUM(${VALUE}) FILTER (WHERE data->>'stage' = 'Closed') AS earned,
+                    COUNT(*)                                               AS deals,
+                    COUNT(*) FILTER (WHERE ${IN_FLIGHT})                   AS in_flight
+               FROM deals WHERE agent_id = $1 GROUP BY athlete_id) d
+             ON d.athlete_id = a.id
+           LEFT JOIN (
+             SELECT athlete_id, MAX(created_at) AS last_at
+               FROM athlete_activity_log WHERE agent_id = $1 GROUP BY athlete_id) act
+             ON act.athlete_id = a.id::text
+           LEFT JOIN (
+             SELECT athlete_id, MAX(sent_at) AS last_at
+               FROM outreach_logs WHERE agent_id = $1 GROUP BY athlete_id) o
+             ON o.athlete_id = a.id::text
+          WHERE a.agent_id = $1
+          ORDER BY COALESCE(d.earned,0) DESC, a.created_at DESC`, [agentId]),
+
+      // When did dated tracking actually begin for this agent? Without it, last
+      // week reads 0 for a brand new stamp and every delta looks like a win.
+      soft(
+        `SELECT MIN(${CLOSED_AT}) AS since FROM deals
+          WHERE agent_id = $1 AND data->>'stage' = 'Closed'`, [agentId]),
+    ]);
+
+    const hero = heroR.rows[0] || {};
+    const weeks = (weeksR.rows || []).map((w) => ({
+      weekStart: w.week_start,
+      earned: Number(w.earned) || 0,
+      closes: w.closes || 0,
+    }));
+
+    // THE GATE. Three distinct weeks carrying real money, or no chart at all.
+    const liveWeeks = weeks.filter((w) => w.earned > 0).length;
+    const showChart = liveWeeks >= HOME_CHART_MIN_WEEKS;
+
+    // A delta is only meaningful if the comparison window is inside the tracked
+    // period. Before that it is not zero, it is unknown, and it renders as neither
+    // up nor down rather than as a fabricated gain.
+    const trackedSince = (trackR.rows[0] || {}).since || null;
+    const lastWeekStart = new Date();
+    lastWeekStart.setHours(0, 0, 0, 0);
+    lastWeekStart.setDate(lastWeekStart.getDate() - ((lastWeekStart.getDay() + 6) % 7) - 7);
+    const closedComparable = !!trackedSince && new Date(trackedSince) <= lastWeekStart;
+
+    const cell = (row, comparable) => {
+      const r = row || {};
+      const now = r.this_week || 0, prev = r.last_week || 0;
+      return { value: now, delta: comparable === false ? null : now - prev, previous: prev };
+    };
+
+    const now = Date.now();
+    const roster = (rosterR.rows || []).map((a) => {
+      const last = a.last_activity && new Date(a.last_activity).getFullYear() > 1971
+        ? new Date(a.last_activity) : null;
+      const days = last ? Math.floor((now - last.getTime()) / 86400000) : null;
+      return {
+        id: a.id, name: a.name || 'Unnamed', sport: a.sport || null,
+        earned: Number(a.earned) || 0,
+        deals: a.deals || 0,
+        inFlight: a.in_flight || 0,
+        lastActivity: last ? last.toISOString() : null,
+        daysSinceActivity: days,
+        // Dormant: nothing has happened for them in a month, or ever.
+        dormant: days === null || days >= 30,
+      };
+    });
+
+    res.json({
+      hero: {
+        allTime: Number(hero.all_time) || 0,
+        thisMonth: Number(hero.this_month) || 0,
+        thisMonthCount: hero.this_month_count || 0,
+        dealCount: hero.deal_count || 0,
+        // The month figure only counts stamped closes. Said out loud so the page can
+        // caveat it instead of quietly under-reporting.
+        datedCoverage: !!trackedSince,
+      },
+      chart: { show: showChart, minWeeks: HOME_CHART_MIN_WEEKS, liveWeeks, weeks: showChart ? weeks : [] },
+      momentum: {
+        sent: cell(sentR.rows[0], true),
+        businesses: cell(brandsR.rows[0], true),
+        closed: cell(closedR.rows[0], closedComparable),
+        pipeline: {
+          value: Number((pipeR.rows[0] || {}).value) || 0,
+          deals: (pipeR.rows[0] || {}).n || 0,
+        },
+      },
+      roster,
+      trackedSince,
+    });
+  } catch (e) {
+    console.error('[agent/home-metrics]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/admin/deal-outcomes-health — is deal_outcomes trustworthy for dated
+// views? The backfill stamps closed_at with the day it RAN (the column defaulted to
+// NOW() and nothing passed a real date), so a history replayed through it collapses
+// onto one day. That is invisible in the numbers and fatal to a weekly chart, and it
+// cannot be judged by reading code: it depends on whether anyone ever ran it.
+//
+// Clustering is the tell. If one calendar day holds most of the rows while the deals
+// themselves were created across months, the dates are manufactured.
+app.get('/api/admin/deal-outcomes-health', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+
+    const [totals, byDay, spread] = await Promise.all([
+      store.pool.query(
+        `SELECT COUNT(*)::int AS rows,
+                COUNT(closed_at)::int AS dated,
+                COUNT(*) FILTER (WHERE closed_at IS NULL)::int AS undated,
+                MIN(closed_at) AS earliest, MAX(closed_at) AS latest,
+                COUNT(DISTINCT deal_id)::int AS distinct_deals
+           FROM deal_outcomes`),
+      store.pool.query(
+        `SELECT closed_at::date::text AS day, COUNT(*)::int AS n
+           FROM deal_outcomes WHERE closed_at IS NOT NULL
+          GROUP BY 1 ORDER BY n DESC LIMIT 5`),
+      // Were the underlying deals created over a long span? A wide creation spread
+      // with a single close day is the signature of a backfill.
+      store.pool.query(
+        `SELECT MIN(created_at)::date::text AS first_deal,
+                MAX(created_at)::date::text AS last_deal,
+                COUNT(*)::int AS n
+           FROM deals WHERE data->>'stage' = 'Closed'`),
+    ]);
+
+    const t = totals.rows[0] || {};
+    const days = byDay.rows || [];
+    const top = days[0] || null;
+    const dated = t.dated || 0;
+    const concentration = (top && dated) ? top.n / dated : 0;
+    const createdSpanDays = (spread.rows[0] && spread.rows[0].first_deal)
+      ? Math.round((new Date(spread.rows[0].last_deal) - new Date(spread.rows[0].first_deal)) / 86400000)
+      : 0;
+
+    // Judged here rather than left to the reader: one day holding 80%+ of dated rows
+    // while the deals span more than a fortnight is a backfill, not a busy Tuesday.
+    const looksBackfilled = dated >= 5 && concentration >= 0.8 && createdSpanDays > 14;
+
+    res.json({
+      rows: t.rows || 0,
+      dated, undated: t.undated || 0,
+      distinctDeals: t.distinct_deals || 0,
+      duplicateRows: (t.rows || 0) - (t.distinct_deals || 0),
+      earliest: t.earliest, latest: t.latest,
+      busiestDays: days,
+      topDayShareOfDated: Number(concentration.toFixed(3)),
+      closedDealsCreatedSpanDays: createdSpanDays,
+      looksBackfilled,
+      verdict: !t.rows
+        ? 'EMPTY. No outcome rows at all, so nothing dated exists yet and the backfill has not been run.'
+        : looksBackfilled
+          ? 'SUSPECT. Most dated rows land on one day while the deals span months. Those dates are the backfill run date, not real closes. Treat every dated view as unusable until they are cleared.'
+          : 'PLAUSIBLE. Dated rows are spread out, consistent with real closes rather than one bulk insert.',
+    });
+  } catch (e) {
+    console.error('[deal-outcomes-health]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -11588,7 +11878,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     for (const { d, days } of staleRows) {
       const dc = extractDealContact(d);
       raw.push({
-        urgency: 'red', priority: 1, kind: 'stale_deal',
+        urgency: 'red', priority: 1, kind: 'stale_deal', days,
         text: `${d.brand} has not heard from you in ${days} days`,
         action: { label: 'Draft follow-up', view: 'outreach', params: { athleteId: d.athleteId, brand: d.brand, athleteName: d.athleteName || null, contactName: dc.contactName, contactEmail: dc.contactEmail, contactTitle: dc.contactTitle } },
       });
@@ -11609,7 +11899,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       const days = Math.floor((now - new Date(r.replied_at).getTime()) / 86400000);
       const when = days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
       raw.push({
-        urgency: 'green', priority: 2, kind: 'replied_orphan',
+        urgency: 'green', priority: 2, kind: 'replied_orphan', days,
         text: `${r.brand_name || 'A brand'} replied ${when} and is not in your pipeline`,
         action: { label: 'Add to pipeline', view: 'pipeline', params: { athleteId: r.athlete_id, brand: r.brand_name || '', athleteName: r.athlete_name || null } },
       });
@@ -11655,7 +11945,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       const days = Math.floor((now - new Date(r.last_scan).getTime()) / 86400000);
       if (days < 30) continue;
       raw.push({
-        urgency: 'amber', priority: 6, kind: 'stale_scan', _days: days,
+        urgency: 'amber', priority: 6, kind: 'stale_scan', _days: days, days,
         text: `${first(r.athlete_name)} has not been scanned in ${days} days`,
         action: { label: 'Run Deal Scan', view: 'deals', params: { athleteId: r.id, athleteName: r.athlete_name || null } },
       });
@@ -11663,7 +11953,11 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
 
     // Within stale_scan, coldest first.
     raw.sort((a, b) => (a.priority - b.priority) || ((b._days || 0) - (a._days || 0)));
-    const actions = raw.slice(0, 5).map(({ _days, ...a }) => a);
+    // Was 5, for a single stacked list. The home page groups these into columns and
+    // has room, so the cap is the caller's: ?limit=N, default 5 for existing callers,
+    // hard ceiling 24 so a runaway roster cannot render a thousand rows.
+    const _lim = Math.min(24, Math.max(1, parseInt(req.query.limit, 10) || 5));
+    const actions = raw.slice(0, _lim).map(({ _days, ...a }) => a);
 
     const movingDeals = parseInt(movingR.rows[0]?.n || 0);
     const nextDate = nextR.rows[0]?.d || null;

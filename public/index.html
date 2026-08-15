@@ -798,6 +798,109 @@ tbody td{padding:11px 14px;vertical-align:middle}
   .ds-lane-head,.ds-lane-sub{display:none}
   .ds-lane-body{max-height:none;overflow:visible}
 }
+/* ══ AGENT HOME ══════════════════════════════════════════════════════════════
+   Written as a stylesheet rather than inline attributes because this page has
+   states -- a withheld chart, a dormant athlete, a delta that is unknown rather
+   than zero -- and states want classes. */
+.hm-card{background:#0D1520;border:.5px solid #1e2a3a;border-radius:12px}
+.hm-quiet{font-size:11px;color:#4B5563;padding:8px 2px}
+.hm-eyebrow{font-size:9px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#4B5563}
+
+/* ── hero ── */
+.hm-hero{display:flex;align-items:center;gap:28px;padding:22px 24px;margin-bottom:10px}
+.hm-hero-fig{min-width:0;flex:0 0 auto}
+/* Full width until the chart earns its place. Not a placeholder: the figure
+   simply owns the row, which is why a missing chart looks deliberate. */
+.hm-hero:not(.hm-has-chart) .hm-hero-fig{flex:1 1 auto}
+.hm-total{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+  font-size:clamp(34px,4.4vw,52px);line-height:1.04;font-weight:600;color:#84CC16;
+  letter-spacing:-.02em;margin:6px 0 7px;font-variant-numeric:tabular-nums}
+.hm-sub{font-size:12px;color:#6B7280;line-height:1.5}
+.hm-sub b{color:#9CA3AF;font-weight:600}
+
+/* ── eight-week bars ── */
+.hm-chart{flex:1 1 auto;min-width:0;display:flex;align-items:flex-end;gap:6px;height:74px}
+.hm-bar{flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:flex-end;
+  height:100%;gap:5px}
+.hm-bar i{display:block;width:100%;background:#1e2a3a;border-radius:3px 3px 0 0;min-height:2px}
+.hm-bar.is-now i{background:#84CC16}
+.hm-bar span{font-size:8.5px;color:#4B5563;text-align:center;letter-spacing:.02em}
+.hm-bar.is-now span{color:#84CC16}
+
+/* ── momentum strip ── */
+.hm-strip{display:grid;grid-template-columns:repeat(4,1fr);margin-bottom:10px;overflow:hidden}
+.hm-cell{padding:13px 16px;min-width:0;border-left:.5px solid #1e2a3a}
+.hm-cell:first-child{border-left:none}
+.hm-cell-v{font-size:19px;font-weight:500;color:#F0EDE6;margin-top:5px;
+  font-variant-numeric:tabular-nums;display:flex;align-items:baseline;gap:7px}
+.hm-delta{font-size:11px;font-weight:600}
+.hm-delta.up{color:#84CC16}
+.hm-delta.flat{color:#4B5563}
+/* Unknown is not flat. Before there is a comparable week the delta is absent
+   entirely rather than rendered as a gain from zero. */
+.hm-delta.unknown{color:#374151;font-weight:400;font-style:italic}
+
+/* ── do this first ── */
+.hm-first{border-left:3px solid #84CC16;border-radius:8px;background:#0D1520;
+  border-top:.5px solid #1e2a3a;border-right:.5px solid #1e2a3a;border-bottom:.5px solid #1e2a3a;
+  padding:15px 18px;margin-bottom:10px}
+.hm-first-label{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#84CC16}
+.hm-first-text{font-size:14.5px;color:#F0EDE6;line-height:1.45;margin:7px 0 3px;font-weight:500}
+.hm-first-why{font-size:11.5px;color:#6B7280;line-height:1.45;margin-bottom:12px}
+.hm-btns{display:flex;gap:8px;flex-wrap:wrap}
+.hm-btn{padding:7px 14px;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer;
+  font-family:inherit;line-height:1}
+.hm-btn.primary{background:#84CC16;border:none;color:#0b0f0a}
+.hm-btn.ghost{background:transparent;border:1px solid #1e2a3a;color:#9CA3AF}
+.hm-btn:hover{filter:brightness(1.08)}
+
+/* ── two columns ── */
+/* align-items:start, or the grid stretches both cards to the taller one and a
+   column holding one sentence becomes a tall empty box -- the exact thing the
+   empty state is supposed to avoid. Each card sizes to its own content. */
+.hm-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;align-items:start}
+.hm-col{padding:16px 18px;min-width:0}
+.hm-col-head{font-size:9px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+  color:#4B5563;margin-bottom:12px}
+
+/* work, grouped by kind rather than one flat list */
+.hm-group{margin-bottom:14px}
+.hm-group:last-child{margin-bottom:0}
+.hm-group-head{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.hm-tag{font-size:8.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 6px;border-radius:4px}
+.hm-tag.cold{background:rgba(251,191,36,.12);color:#FBBF24}
+.hm-tag.due{background:rgba(248,113,113,.12);color:#F87171}
+.hm-tag.routine{background:rgba(156,163,175,.1);color:#9CA3AF}
+.hm-item{display:flex;align-items:baseline;gap:8px;padding:6px 0;border-top:.5px solid #131c28}
+.hm-group .hm-item:first-of-type{border-top:none}
+.hm-item-t{font-size:12.5px;color:#D1D5DB;line-height:1.45;min-width:0;flex:1}
+.hm-days{font-size:10.5px;font-weight:600;color:#FBBF24;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+.hm-go{font-size:11px;color:#84CC16;background:none;border:none;cursor:pointer;
+  padding:0;font-family:inherit;white-space:nowrap}
+.hm-go:hover{text-decoration:underline}
+
+/* roster */
+.hm-ath{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:.5px solid #131c28}
+.hm-roster .hm-ath:first-child{border-top:none}
+.hm-ath-n{flex:1;min-width:0;font-size:13px;color:#E5E7EB;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.hm-ath-m{font-size:10.5px;color:#6B7280;white-space:nowrap}
+.hm-ath-e{font-size:13px;color:#84CC16;font-variant-numeric:tabular-nums;white-space:nowrap;
+  min-width:56px;text-align:right}
+/* Dormant reads as absence, not as zero: greyed, and a dash where money would be. */
+.hm-ath.dormant .hm-ath-n{color:#6B7280}
+.hm-ath.dormant .hm-ath-e{color:#374151}
+
+@media (max-width:900px){
+  .hm-hero{flex-direction:column;align-items:stretch;gap:16px}
+  .hm-chart{height:62px}
+  .hm-strip{grid-template-columns:repeat(2,1fr)}
+  .hm-cell:nth-child(3){border-left:none}
+  .hm-cell:nth-child(n+3){border-top:.5px solid #1e2a3a}
+  .hm-cols{grid-template-columns:1fr}
+}
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1356,67 +1459,41 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <!-- ── Add-client CTA (prominent empty state only; nothing when you have clients) ── -->
         <div id="home-client-cta" style="margin-bottom:12px"></div>
 
-        <!-- ══ TODAY action block — the centerpiece: what needs you today ══ -->
-        <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:12px;padding:16px 18px 14px;margin-bottom:14px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-            <div style="display:flex;align-items:baseline;gap:10px;min-width:0">
-              <span style="font-family:var(--head);font-size:13px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:#F0EDE6">Today</span>
-              <span id="home-today-sub" style="font-size:11px;color:#6B7280">What needs you</span>
-            </div>
-            <button onclick="loadAgentHome()" title="Refresh" style="background:transparent;border:none;color:#4B5563;font-size:14px;cursor:pointer;padding:2px 6px;line-height:1">↻</button>
+        <!-- ══ HERO: what the roster has earned, and the eight-week shape of it ══
+             The chart is NOT in the markup. It is inserted only when the server says
+             three separate weeks carry real closes, because a number standing alone
+             reads as a decision and a chart of empty bars reads as a broken page. -->
+        <div id="hm-hero" class="hm-card hm-hero">
+          <div class="hm-hero-fig">
+            <div class="hm-eyebrow">Earned by your athletes</div>
+            <div id="hm-total" class="hm-total">—</div>
+            <div id="hm-total-sub" class="hm-sub">&nbsp;</div>
           </div>
-          <div id="home-today-list">
-            <div style="font-size:11px;color:#4B5563;padding:8px 2px">Loading…</div>
-          </div>
+          <div id="hm-chart" class="hm-chart" hidden></div>
         </div>
 
-        <!-- ── KPI cards ── -->
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px" id="home-kpis">
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:14px 16px">
-            <div style="font-size:9px;color:#4B5563;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Pipeline Value</div>
-            <div id="hs-pipeline" style="font-size:20px;font-weight:500;color:#84CC16">—</div>
-          </div>
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:14px 16px">
-            <div style="font-size:9px;color:#4B5563;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Active Deals</div>
-            <div id="hs-deals" style="font-size:20px;font-weight:500;color:#84CC16">—</div>
-          </div>
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:14px 16px">
-            <div style="font-size:9px;color:#4B5563;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">Clients</div>
-            <div id="hs-clients" style="font-size:20px;font-weight:500;color:#84CC16">—</div>
-          </div>
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:14px 16px">
-            <div style="font-size:9px;color:#4B5563;letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px">NIL Earned (Closed)</div>
-            <div id="hs-nil" style="font-size:20px;font-weight:500;color:#84CC16">—</div>
-          </div>
-        </div>
+        <!-- ══ MOMENTUM: one bordered row, four cells ══ -->
+        <div id="hm-momentum" class="hm-card hm-strip"></div>
 
-        <!-- ── Two-column: Follow-ups (left) + Deliverables This Week (right) ── -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px" id="home-two-col">
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;min-width:0;overflow:hidden">
-            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Follow-Ups Needed</div>
-            <div id="home-followups-list" style="display:flex;flex-direction:column;gap:0">
-              <div style="font-size:11px;color:#4B5563">Loading…</div>
-            </div>
-          </div>
-          <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;min-width:0;overflow:hidden">
-            <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:10px">Deliverables This Week</div>
-            <div id="home-week-delivs" style="display:flex;flex-direction:column;gap:0">
-              <div style="font-size:11px;color:#4B5563">Loading…</div>
-            </div>
-          </div>
-        </div>
+        <!-- ══ DO THIS FIRST: never empty. With nothing waiting it becomes a
+             suggestion naming a specific athlete. ══ -->
+        <div id="hm-first"></div>
 
-        <!-- ── This Week calendar strip ── -->
-        <div style="background:#0D1520;border:.5px solid #1e2a3a;border-radius:8px;padding:16px;margin-bottom:12px">
-          <div style="font-size:9px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:#4B5563;margin-bottom:12px">This Week</div>
-          <div id="home-mini-cal"></div>
+        <!-- ══ TWO COLUMNS: work grouped by kind, and the roster ══ -->
+        <div class="hm-cols">
+          <div class="hm-card hm-col">
+            <div class="hm-col-head">What needs you</div>
+            <div id="hm-work"><div class="hm-quiet">Loading…</div></div>
+          </div>
+          <div class="hm-card hm-col">
+            <div class="hm-col-head">Roster</div>
+            <div id="hm-roster"><div class="hm-quiet">Loading…</div></div>
+          </div>
         </div>
 
         <!-- ── Getting Started checklist mounts here (bottom, collapsed once underway) ── -->
         <div id="home-checklist-anchor"></div>
       </div>
-
-      <!--  COMMAND  -->
       <div id="view-command" class="view">
 
         <div class="kpi-grid" style="display:none">
@@ -5388,23 +5465,17 @@ function renderHomeClientCta() {
   }
 }
 
+// The home page is now hero + momentum + do-this-first + two columns, all of it
+// rendered by loadAgentHomeV2. The four KPI tiles, the deliverables list and the
+// mini calendar are gone with it -- this used to dereference hs-pipeline with no
+// guard, which after the rebuild would throw straight into its own catch and run
+// the fallback branch on every single load while looking like it worked.
+//
+// renderHomeClientCta stays: with no athletes at all, "add your first client" is
+// still the right prompt, and it renders nothing once there is a roster.
 async function loadAgentHome() {
   renderHomeClientCta();
-  loadTodayBlock(); // the centerpiece: what needs you today
-  try {
-    const data = await fetch(`${API_BASE}/api/agent/home-data`).then(r => r.json());
-    document.getElementById('hs-pipeline').textContent = data.pipeline  || '$0';
-    document.getElementById('hs-deals').textContent    = data.dealCount  != null ? data.dealCount  : '0';
-    document.getElementById('hs-clients').textContent  = data.clientCount != null ? data.clientCount : '0';
-    document.getElementById('hs-nil').textContent      = data.nilEarned  || '$0';
-    renderHomeWeekDelivs(data.weekDeliverables || []);
-    renderHomeMiniCal(data.weekDeliverables || []);
-  } catch(e) {
-    ['hs-pipeline','hs-deals','hs-clients','hs-nil'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '0'; });
-    renderHomeWeekDelivs([]);
-    renderHomeMiniCal([]);
-  }
-  loadHomeFollowUps();
+  await loadAgentHomeV2();
 }
 
 // ── TODAY action block ──────────────────────────────────────────────────────
@@ -15334,6 +15405,252 @@ document.addEventListener('DOMContentLoaded', function() {
     document.body.style.overflow = '';
   });
 });
+
+// ══ AGENT HOME ═══════════════════════════════════════════════════════════════
+// Two calls: /api/agent/home-metrics for the numbers, /api/agent/today for the
+// work. The second is reused rather than reimplemented -- it already ranks,
+// tags by urgency and kind, and carries the action target for each item.
+function hmMoney(n) {
+  n = Number(n) || 0;
+  if (n >= 1000000) return '$' + (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, '') + 'M';
+  if (n >= 1000) return '$' + (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+  return '$' + Math.round(n).toLocaleString();
+}
+function hmEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+async function loadAgentHomeV2() {
+  var m = null, t = null;
+  try {
+    var r = await Promise.all([
+      fetch(API_BASE + '/api/agent/home-metrics').then(function (x) { return x.ok ? x.json() : null; }),
+      fetch(API_BASE + '/api/agent/today?limit=18').then(function (x) { return x.ok ? x.json() : null; }),
+    ]);
+    m = r[0]; t = r[1];
+  } catch (e) { /* rendered as the quiet state below */ }
+
+  hmRenderHero(m);
+  hmRenderMomentum(m);
+  hmRenderWork((t && t.actions) || [], m);
+  hmRenderRoster((m && m.roster) || []);
+}
+
+function hmRenderHero(m) {
+  var hero = (m && m.hero) || {};
+  var el = document.getElementById('hm-total');
+  if (el) el.textContent = hmMoney(hero.allTime);
+
+  var sub = document.getElementById('hm-total-sub');
+  if (sub) {
+    var deals = hero.dealCount || 0;
+    var dealTxt = deals + ' deal' + (deals === 1 ? '' : 's') + ' closed all time';
+    // The month figure only sees closes carrying a date. Before any exist the
+    // clause is dropped rather than printed as $0, which would read as a bad
+    // month instead of as no data.
+    var monthTxt = hero.datedCoverage
+      ? '<b>' + hmEsc(hmMoney(hero.thisMonth)) + '</b> closed this month'
+      : null;
+    sub.innerHTML = (monthTxt ? monthTxt + ' · ' : '') + hmEsc(dealTxt);
+  }
+
+  var chart = document.getElementById('hm-chart');
+  var card = document.getElementById('hm-hero');
+  var c = (m && m.chart) || {};
+  if (!chart || !card) return;
+  if (!c.show) {
+    // Withheld, not emptied. The card loses the class and the figure takes the
+    // full row, so the absence looks like a layout rather than a failure.
+    chart.hidden = true; chart.innerHTML = '';
+    card.classList.remove('hm-has-chart');
+    return;
+  }
+  var weeks = c.weeks || [];
+  var peak = weeks.reduce(function (a, w) { return Math.max(a, w.earned || 0); }, 0) || 1;
+  chart.innerHTML = weeks.map(function (w, i) {
+    var now = i === weeks.length - 1;
+    var pct = Math.max(2, Math.round(((w.earned || 0) / peak) * 100));
+    var label = new Date(w.weekStart + 'T00:00:00').toLocaleDateString('en-US',
+      { month: 'numeric', day: 'numeric' });
+    return '<div class="hm-bar' + (now ? ' is-now' : '') + '" title="'
+      + hmEsc(hmMoney(w.earned) + ' · week of ' + label) + '">'
+      + '<i style="height:' + pct + '%"></i><span>' + hmEsc(label) + '</span></div>';
+  }).join('');
+  chart.hidden = false;
+  card.classList.add('hm-has-chart');
+}
+
+function hmRenderMomentum(m) {
+  var el = document.getElementById('hm-momentum');
+  if (!el) return;
+  var mo = (m && m.momentum) || {};
+  // Reply rate is deliberately absent. markReplied is only ever called from the
+  // manual endpoint, so a rate built on it would measure what someone remembered
+  // to tick. Businesses contacted is counted, not reported.
+  var cells = [
+    { k: 'Sent this week', c: mo.sent },
+    { k: 'Businesses contacted', c: mo.businesses },
+    { k: 'Closed this week', c: mo.closed },
+    { k: 'Pipeline', v: hmMoney((mo.pipeline || {}).value),
+      note: ((mo.pipeline || {}).deals || 0) + ' in flight' },
+  ];
+  el.innerHTML = cells.map(function (x) {
+    var val, delta = '';
+    if (x.v != null) {
+      val = x.v;
+      delta = '<span class="hm-delta flat">' + hmEsc(x.note) + '</span>';
+    } else {
+      var c = x.c || {};
+      val = (c.value == null ? 0 : c.value);
+      if (c.delta === null || c.delta === undefined) {
+        // No comparable week yet. Saying nothing beats inventing a rise.
+        delta = '<span class="hm-delta unknown">no prior week</span>';
+      } else if (c.delta > 0) {
+        delta = '<span class="hm-delta up">+' + c.delta + '</span>';
+      } else {
+        delta = '<span class="hm-delta flat">' + (c.delta === 0 ? 'flat' : String(c.delta)) + '</span>';
+      }
+    }
+    return '<div class="hm-cell"><div class="hm-eyebrow">' + hmEsc(x.k) + '</div>'
+      + '<div class="hm-cell-v">' + hmEsc(String(val)) + delta + '</div></div>';
+  }).join('');
+}
+
+// Which group an action belongs to. Going cold is the decaying set: a deal, a
+// scan or a reply that is ageing. Due today is the dated set. Everything else is
+// routine.
+var HM_COLD = ['stale_deal', 'stale_scan', 'never_scanned', 'replied_orphan'];
+var HM_DUE = ['deliverable_due'];
+
+function hmRenderWork(actions, m) {
+  hmRenderFirst(actions, m);
+  var el = document.getElementById('hm-work');
+  if (!el) return;
+  var rest = actions.slice(1);
+  var groups = [
+    { key: 'cold', label: 'Going cold', items: rest.filter(function (a) { return HM_COLD.indexOf(a.kind) !== -1; }) },
+    { key: 'due', label: 'Due today', items: rest.filter(function (a) { return HM_DUE.indexOf(a.kind) !== -1; }) },
+    { key: 'routine', label: 'Routine', items: rest.filter(function (a) {
+      return HM_COLD.indexOf(a.kind) === -1 && HM_DUE.indexOf(a.kind) === -1; }) },
+  ].filter(function (g) { return g.items.length; });
+
+  if (!groups.length) {
+    el.innerHTML = '<div class="hm-quiet">Nothing else waiting. The card above is the one thing worth doing.</div>';
+    return;
+  }
+  el.innerHTML = groups.map(function (g) {
+    return '<div class="hm-group"><div class="hm-group-head">'
+      + '<span class="hm-tag ' + g.key + '">' + hmEsc(g.label) + '</span></div>'
+      + g.items.map(function (a) {
+        // The day count is its own element, amber, not buried in the sentence.
+        var days = (g.key === 'cold' && a.days != null)
+          ? '<span class="hm-days">' + a.days + 'd</span>' : '';
+        return '<div class="hm-item"><span class="hm-item-t">' + hmEsc(a.text) + '</span>'
+          + days
+          + (a.action ? '<button type="button" class="hm-go" data-view="' + hmEsc(a.action.view)
+              + '">' + hmEsc(a.action.label) + '</button>' : '')
+          + '</div>';
+      }).join('') + '</div>';
+  }).join('');
+  el.querySelectorAll('.hm-go').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (typeof showView === 'function') showView(b.getAttribute('data-view'), null);
+    });
+  });
+}
+
+// NEVER AN EMPTY BOX. With work waiting this is the top-ranked item. With none it
+// becomes a suggestion naming a specific athlete -- the one who has gone longest
+// without a scan, or the roster itself when there is nobody to name.
+function hmRenderFirst(actions, m) {
+  var el = document.getElementById('hm-first');
+  if (!el) return;
+  var top = actions && actions[0];
+  var card;
+
+  if (top) {
+    card = {
+      label: 'Do this first',
+      text: top.text,
+      why: hmWhy(top),
+      primary: (top.action && top.action.label) || 'Open',
+      view: (top.action && top.action.view) || 'command',
+    };
+  } else {
+    var roster = (m && m.roster) || [];
+    // Longest without activity, dormant first: a named athlete beats "add a client".
+    var cold = roster.slice().sort(function (a, b) {
+      return (b.daysSinceActivity == null ? 1e9 : b.daysSinceActivity)
+           - (a.daysSinceActivity == null ? 1e9 : a.daysSinceActivity);
+    })[0];
+    if (cold) {
+      card = {
+        label: 'Nothing waiting',
+        text: 'Run a Deal Scan for ' + cold.name,
+        why: cold.daysSinceActivity == null
+          ? 'They have no activity on record yet, so nothing has been looked for on their behalf.'
+          : 'Nothing has happened for them in ' + cold.daysSinceActivity + ' days, the longest on your roster.',
+        primary: 'Run Deal Scan', view: 'deals',
+      };
+    } else {
+      card = {
+        label: 'Nothing waiting',
+        text: 'Add your first client',
+        why: 'Everything else on this page starts with an athlete on the roster.',
+        primary: 'Add a client', view: 'add-athlete',
+      };
+    }
+  }
+
+  el.innerHTML = '<div class="hm-first">'
+    + '<div class="hm-first-label">' + hmEsc(card.label) + '</div>'
+    + '<div class="hm-first-text">' + hmEsc(card.text) + '</div>'
+    + '<div class="hm-first-why">' + hmEsc(card.why) + '</div>'
+    + '<div class="hm-btns">'
+      + '<button type="button" class="hm-btn primary" data-view="' + hmEsc(card.view) + '">'
+        + hmEsc(card.primary) + '</button>'
+      + '<button type="button" class="hm-btn ghost" data-view="command">See everything</button>'
+    + '</div></div>';
+  el.querySelectorAll('[data-view]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (typeof showView === 'function') showView(b.getAttribute('data-view'), null);
+    });
+  });
+}
+
+// One line saying WHY this is first, rather than repeating the item.
+function hmWhy(a) {
+  if (a.kind === 'replied_orphan') return 'A brand already replied. The hard part happened and it is leaking.';
+  if (a.kind === 'inquiry') return 'Inbound interest is the warmest signal on the page.';
+  if (a.kind === 'deliverable_due') return 'A deliverable is due or overdue, which is the only thing here with a deadline.';
+  if (a.kind === 'stale_deal') return 'A deal in flight goes quiet and then goes away.';
+  if (a.kind === 'stale_scan') return 'The market moves; a stale scan is a stale list of businesses.';
+  if (a.kind === 'never_scanned') return 'They have never been scanned, so no opportunity has ever been looked for.';
+  if (a.kind === 'kit_view') return 'Someone opened the media kit, which means they were interested enough to look.';
+  return 'Highest priority item on your list right now.';
+}
+
+function hmRenderRoster(roster) {
+  var el = document.getElementById('hm-roster');
+  if (!el) return;
+  if (!roster.length) {
+    el.innerHTML = '<div class="hm-quiet">No clients yet. Adding one turns this page on.</div>';
+    return;
+  }
+  el.innerHTML = roster.map(function (a) {
+    var bits = [a.deals + ' deal' + (a.deals === 1 ? '' : 's')];
+    if (a.inFlight) bits.push(a.inFlight + ' in flight');
+    return '<div class="hm-ath' + (a.dormant ? ' dormant' : '') + '">'
+      + '<span class="hm-ath-n">' + hmEsc(a.name) + '</span>'
+      + '<span class="hm-ath-m">' + hmEsc(bits.join(' · ')) + '</span>'
+      // A dash, not $0: dormant means nothing is known to be happening, and $0
+      // reads as a verdict on the athlete.
+      + '<span class="hm-ath-e">' + (a.dormant && !a.earned ? '—' : hmEsc(hmMoney(a.earned))) + '</span>'
+      + '</div>';
+  }).join('');
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
