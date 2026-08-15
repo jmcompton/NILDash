@@ -11856,7 +11856,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       const overdue = parseInt(r.overdue_n) > 0;
       const noun = n === 1 ? 'deliverable' : 'deliverables';
       raw.push({
-        urgency: 'red', priority: 0, kind: 'deliverable_due',
+        urgency: 'red', priority: 1, kind: 'deliverable_due',
         text: `${n} ${noun} ${overdue ? 'overdue' : 'due today'} for ${r.athlete_name || 'a client'}${r.brand ? ` (${r.brand})` : ''}`,
         action: { label: 'View calendar', view: 'calendar' },
       });
@@ -11877,8 +11877,16 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     staleRows.sort((a, b) => b.days - a.days);
     for (const { d, days } of staleRows) {
       const dc = extractDealContact(d);
+      // PRIORITY DEPENDS ON WHETHER THERE IS ANYONE TO WRITE TO. A cold deal with a
+      // real contact outranks an overdue deliverable, because a follow-up can be
+      // drafted and sent from here while a deliverable overdue for months is a
+      // record to tidy, not an action. With no contact it drops below the dated
+      // work: it is still true, but nothing on this card would do anything.
+      const reachable = !!dc.contactEmail;
       raw.push({
-        urgency: 'red', priority: 1, kind: 'stale_deal', days,
+        urgency: 'red', priority: reachable ? 0 : 2, kind: 'stale_deal', days,
+        title: d.brand,
+        subtitle: d.athleteName || null,
         text: `${d.brand} has not heard from you in ${days} days`,
         action: { label: 'Draft follow-up', view: 'outreach', params: { athleteId: d.athleteId, brand: d.brand, athleteName: d.athleteName || null, contactName: dc.contactName, contactEmail: dc.contactEmail, contactTitle: dc.contactTitle } },
       });
@@ -11887,7 +11895,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     // GREEN, inbound inquiries (priority 2 — highest-value warm signal)
     for (const r of inbR.rows) {
       raw.push({
-        urgency: 'green', priority: 2, kind: 'inquiry',
+        urgency: 'green', priority: 3, kind: 'inquiry',
         text: `${r.brand || 'A brand'} asked about ${first(r.athlete_name)}`,
         action: { label: 'Follow up now', view: 'outreach', params: { athleteId: r.athlete_id, brand: r.brand || '', athleteName: r.athlete_name || null } },
       });
@@ -11899,7 +11907,8 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       const days = Math.floor((now - new Date(r.replied_at).getTime()) / 86400000);
       const when = days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
       raw.push({
-        urgency: 'green', priority: 2, kind: 'replied_orphan', days,
+        urgency: 'green', priority: 3, kind: 'replied_orphan', days,
+        title: r.brand_name || 'A brand', subtitle: r.athlete_name || null,
         text: `${r.brand_name || 'A brand'} replied ${when} and is not in your pipeline`,
         action: { label: 'Add to pipeline', view: 'pipeline', params: { athleteId: r.athlete_id, brand: r.brand_name || '', athleteName: r.athlete_name || null } },
       });
@@ -11909,7 +11918,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     for (const r of viewsR.rows) {
       const n = parseInt(r.n) || 0; if (!n) continue;
       raw.push({
-        urgency: 'green', priority: 3, kind: 'kit_view',
+        urgency: 'green', priority: 4, kind: 'kit_view',
         text: r.brand
           ? `${r.brand} opened ${first(r.athlete_name)}'s media kit`
           : `${first(r.athlete_name)}'s media kit was viewed ${n} ${n === 1 ? 'time' : 'times'} in the last 2 days`,
@@ -11922,7 +11931,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       const n = parseInt(r.n) || 0; if (!n) continue;
       const noun = n === 1 ? 'deliverable' : 'deliverables';
       raw.push({
-        urgency: 'amber', priority: 4, kind: 'deliverables_week',
+        urgency: 'amber', priority: 5, kind: 'deliverables_week',
         text: `${n} ${noun} due ${_todayDayPhrase(r.earliest)} for ${r.athlete_name || 'a client'}${r.brand ? ` (${r.brand})` : ''}`,
         action: { label: 'View calendar', view: 'calendar' },
       });
@@ -11933,7 +11942,8 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     const neverScanned = scanR.rows.filter(r => !r.last_scan);
     for (const r of neverScanned.slice(0, 3)) {
       raw.push({
-        urgency: 'amber', priority: 5, kind: 'never_scanned',
+        urgency: 'amber', priority: 6, kind: 'never_scanned',
+        title: r.athlete_name || 'A client', subtitle: 'Never scanned',
         text: `${first(r.athlete_name)} has never been scanned for local deals`,
         action: { label: 'Run Deal Scan', view: 'deals', params: { athleteId: r.id, athleteName: r.athlete_name || null } },
       });
@@ -11945,24 +11955,26 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       const days = Math.floor((now - new Date(r.last_scan).getTime()) / 86400000);
       if (days < 30) continue;
       raw.push({
-        urgency: 'amber', priority: 6, kind: 'stale_scan', _days: days, days,
+        urgency: 'amber', priority: 7, kind: 'stale_scan', days,
+        title: r.athlete_name || 'A client', subtitle: 'Last scan',
         text: `${first(r.athlete_name)} has not been scanned in ${days} days`,
         action: { label: 'Run Deal Scan', view: 'deals', params: { athleteId: r.id, athleteName: r.athlete_name || null } },
       });
     }
 
     // Within stale_scan, coldest first.
-    raw.sort((a, b) => (a.priority - b.priority) || ((b._days || 0) - (a._days || 0)));
+    raw.sort((a, b) => (a.priority - b.priority) || ((b.days || 0) - (a.days || 0)));
     // Was 5, for a single stacked list. The home page groups these into columns and
     // has room, so the cap is the caller's: ?limit=N, default 5 for existing callers,
     // hard ceiling 24 so a runaway roster cannot render a thousand rows.
     const _lim = Math.min(24, Math.max(1, parseInt(req.query.limit, 10) || 5));
-    const actions = raw.slice(0, _lim).map(({ _days, ...a }) => a);
+    const actions = raw.slice(0, _lim);
 
     const movingDeals = parseInt(movingR.rows[0]?.n || 0);
     const nextDate = nextR.rows[0]?.d || null;
     res.json({
       actions,
+      total: raw.length,
       summary: {
         movingDeals,
         nextDeadline: nextDate ? _todayDayPhrase(nextDate) : null,

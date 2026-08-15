@@ -314,6 +314,16 @@
   function doneSeenKey() { var u = curUser() || {}; return 'nil-gs-complete-seen-' + (u.id || ''); }
 
   function renderChecklist() {
+    // REMOVED FROM HOME. The Getting Started checklist is gone from the dashboard:
+    // the Do-this-first card is the single next action now, and two competing
+    // "start here" blocks on one page is one too many. Returning at the top rather
+    // than deleting the anchor alone, because the mount FELL BACK to appending onto
+    // the home view when no anchor was found -- removing the div by itself would
+    // have moved the card, not removed it. Existing cards are cleaned up on the way
+    // out so an agent mid-session does not keep a stale one.
+    document.querySelectorAll('#nil-getting-started').forEach(function (n) { n.remove(); });
+    return;
+    // eslint-disable-next-line no-unreachable
     var home = document.getElementById('view-home');
     if (!home || !isAgent()) return;
 
