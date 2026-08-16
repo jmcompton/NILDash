@@ -68,7 +68,11 @@ function naStyles() {
     // ── the tab ──
     // right: 0 closed, right: panel width open. Same duration and easing as the panel,
     // so they move as one object rather than two things that happen to both animate.
-    '#na-tab{position:fixed;top:58%;right:0;z-index:9999;transform:translateY(-50%);',
+    // LOW AND RIGHT, not centred. Anchored to the bottom rather than to a
+    // percentage of the viewport: at 58% it floated over the middle of whatever
+    // card happened to be there, and on a long page that is content, not margin.
+    // Above the fold on any normal window, and out of the way of the columns.
+    '#na-tab{position:fixed;bottom:76px;right:0;z-index:9999;',
     '  display:flex;align-items:center;gap:8px;padding:10px 10px 10px 11px;',
     '  background:var(--accent,#84CC16);color:#0b0f0a;border:none;cursor:pointer;',
     '  border-radius:10px 0 0 10px;box-shadow:-2px 0 10px rgba(0,0,0,0.25);',

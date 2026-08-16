@@ -809,9 +809,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
 /* ── hero ── */
 .hm-hero{display:flex;align-items:center;gap:28px;padding:22px 24px;margin-bottom:10px}
 .hm-hero-fig{min-width:0;flex:0 0 auto}
-/* Full width until the chart earns its place. Not a placeholder: the figure
-   simply owns the row, which is why a missing chart looks deliberate. */
-.hm-hero:not(.hm-has-chart) .hm-hero-fig{flex:1 1 auto}
+/* NO CHART, NO ROOM RESERVED FOR ONE. Stretching the card full width left a
+   large empty rectangle beside the number, which reads as a chart that failed to
+   load rather than one deliberately held back. The card sizes to its content
+   instead, so what is there looks finished and what is absent is not implied. */
+.hm-hero:not(.hm-has-chart){width:max-content;max-width:100%;padding:18px 24px}
 .hm-total{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   font-size:clamp(34px,4.4vw,52px);line-height:1.04;font-weight:600;color:#84CC16;
   letter-spacing:-.02em;margin:6px 0 7px;font-variant-numeric:tabular-nums}
@@ -15701,12 +15703,14 @@ function hmRenderRoster(roster) {
     // another described the same state two ways, and $0 reads as a verdict on the
     // athlete rather than as an absence of closes.
     var money = a.earned > 0 ? hmMoney(a.earned) : '—';
-    // "21 deals · 21 in flight" is the same number twice. When every deal is in
-    // flight, that is the only thing worth saying.
-    var meta;
-    if (a.inFlight && a.inFlight === a.deals) meta = a.inFlight + ' in flight';
-    else if (a.inFlight) meta = a.deals + ' deal' + (a.deals === 1 ? '' : 's') + ' · ' + a.inFlight + ' in flight';
-    else meta = a.deals + ' deal' + (a.deals === 1 ? '' : 's');
+    // ONE FORMAT FOR EVERY ROW. Three shapes -- "0 deals", "1 in flight",
+    // "9 deals · 2 in flight" -- made a column of rows that could not be compared
+    // down its length; the eye had to re-read each one to work out which number
+    // was which. Every row that has deals now reads "N deals, M in flight", and a
+    // row with none says so in words rather than printing a zero.
+    var meta = a.deals
+      ? a.deals + ' deal' + (a.deals === 1 ? '' : 's') + ', ' + a.inFlight + ' in flight'
+      : 'No deals yet';
     return '<div class="hm-ath' + (a.dormant ? ' dormant' : '') + '">'
       + '<span class="hm-ath-n">' + hmEsc(a.name) + '</span>'
       + '<span class="hm-ath-m">' + hmEsc(meta) + '</span>'

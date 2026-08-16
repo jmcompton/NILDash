@@ -11780,7 +11780,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
         console.error('[agent/today] soft query failed:', e.message);
         return { rows: [] };
       });
-    const [dueR, weekR, viewsR, inbR, deals, nextR, movingR, scanR, orphanR] = await Promise.all([
+    const [dueR, weekR, viewsR, inbR, deals, nextR, movingR, scanR, reachR, orphanR] = await Promise.all([
       // RED: deliverables due today or overdue (pending), grouped by athlete + brand
       store.pool.query(
         `SELECT ace.athlete_id, a.data->>'name' AS athlete_name, ace.brand,
@@ -11833,6 +11833,16 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
           WHERE a.agent_id = $1
           GROUP BY a.id, a.data->>'name'
           ORDER BY last_scan ASC NULLS FIRST`, [agentId]),
+      // Which brands this agent can actually write to. THE DEAL JSON IS NOT THE
+      // ANSWER: extractDealContact reads deal.contacts / deal.contactEmail, and
+      // nothing anywhere in the app ever writes those -- deals are created with
+      // brand, campaign, stage, value and dates only. Reachability keyed on that
+      // was a gate that could never open. Contacts live in brand_contacts, keyed
+      // by agent and brand name, filled by the discovery ladder.
+      softQuery(
+        `SELECT DISTINCT LOWER(brand_name) AS brand
+           FROM brand_contacts
+          WHERE agent_id = $1 AND COALESCE(email,'') <> ''`, [agentId]),
       // A brand replied and the reply never became a deal. Highest-value miss
       // on the whole page: the hard part already happened and it is leaking.
       softQuery(
@@ -11847,6 +11857,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
           ORDER BY o.replied_at DESC`, [agentId]),
     ]);
 
+    const REACHABLE_BRANDS = new Set((reachR.rows || []).map((r) => r.brand).filter(Boolean));
     const first = (name) => (String(name || 'A client').trim().split(/\s+/)[0] || 'A client');
     const raw = [];
 
@@ -11882,7 +11893,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
       // drafted and sent from here while a deliverable overdue for months is a
       // record to tidy, not an action. With no contact it drops below the dated
       // work: it is still true, but nothing on this card would do anything.
-      const reachable = !!dc.contactEmail;
+      const reachable = !!dc.contactEmail || REACHABLE_BRANDS.has(String(d.brand || '').toLowerCase());
       raw.push({
         urgency: 'red', priority: reachable ? 0 : 2, kind: 'stale_deal', days,
         title: d.brand,
