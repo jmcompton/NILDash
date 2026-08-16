@@ -11888,14 +11888,15 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     staleRows.sort((a, b) => b.days - a.days);
     for (const { d, days } of staleRows) {
       const dc = extractDealContact(d);
-      // PRIORITY DEPENDS ON WHETHER THERE IS ANYONE TO WRITE TO. A cold deal with a
-      // real contact outranks an overdue deliverable, because a follow-up can be
-      // drafted and sent from here while a deliverable overdue for months is a
-      // record to tidy, not an action. With no contact it drops below the dated
-      // work: it is still true, but nothing on this card would do anything.
+      // REACHABILITY CHOOSES THE CARD, IT DOES NOT REORDER THE LIST. Splitting
+      // stale deals into two priority tiers put every overdue deliverable between
+      // them, so a deal cold for 118 days sorted behind one cold for 64 and fell
+      // off the end of a six-row list entirely. Coldness is the ranking; whether
+      // there is someone to write to only decides which of them is worth putting
+      // on the card. Every stale deal now shares one tier.
       const reachable = !!dc.contactEmail || REACHABLE_BRANDS.has(String(d.brand || '').toLowerCase());
       raw.push({
-        urgency: 'red', priority: reachable ? 0 : 2, kind: 'stale_deal', days,
+        urgency: 'red', priority: 0, kind: 'stale_deal', days, reachable,
         title: d.brand,
         subtitle: d.athleteName || null,
         text: `${d.brand} has not heard from you in ${days} days`,
@@ -11975,6 +11976,14 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
 
     // Within stale_scan, coldest first.
     raw.sort((a, b) => (a.priority - b.priority) || ((b.days || 0) - (a.days || 0)));
+
+    // THE LEAD. The card wants the coldest deal it can actually act on -- its button
+    // drafts a follow-up, which needs somewhere to send it. Promoting that one item
+    // to the front leaves everything behind it in coldness order, so the coldest
+    // deal on the board is always the first row of the list even when a warmer one
+    // takes the card. Nothing is dropped and nothing is re-ranked; one item moves.
+    const leadIdx = raw.findIndex((a) => a.kind === 'stale_deal' && a.reachable);
+    if (leadIdx > 0) raw.unshift(raw.splice(leadIdx, 1)[0]);
     // Was 5, for a single stacked list. The home page groups these into columns and
     // has room, so the cap is the caller's: ?limit=N, default 5 for existing callers,
     // hard ceiling 24 so a runaway roster cannot render a thousand rows.
