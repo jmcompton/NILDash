@@ -958,11 +958,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
 #mktLanding .hero::before{content:"";position:absolute;inset:0;background:radial-gradient(900px 520px at 18% 8%, rgba(200,241,53,.10), transparent 60%);pointer-events:none}
 #mktLanding .hero .grid{display:grid;grid-template-columns:1.05fr 1fr;gap:48px;align-items:center;position:relative}
 #mktLanding .h1{font-family:'Syne';font-weight:800;letter-spacing:-.02em;line-height:1.0;font-size:clamp(40px,6vw,68px);text-transform:uppercase}
-/* The headline is now a sentence rather than four words, so it is set a step
-   smaller and a touch tighter. Same type, same case, same accent split -- this
-   keeps the hero the height it was instead of pushing the audience cards under
-   the fold, which a 68px setting of this line does. */
-#mktLanding .hero .h1{font-size:clamp(34px,4.4vw,52px);line-height:1.04}
+/* The headline is a sentence now rather than four words, and the whole hero has
+   to clear the fold: eyebrow, headline, sub, buttons and all three audience
+   cards, on the laptops people actually use. 1280x720 is the tightest of those
+   and it is what these numbers are set against, measured in the page rather than
+   guessed at. Same type, same case, same accent split as the base rule above --
+   only the scale changes, because a 68px setting of this line ran to seven. */
+#mktLanding .hero{padding:40px 0 32px}
+#mktLanding .hero .h1{font-size:clamp(26px,2.6vw,35px);line-height:1.08}
+#mktLanding .hero .sub{font-size:15.5px;line-height:1.55;margin-top:12px;max-width:600px}
+#mktLanding .hero .cta-row{margin-top:18px}
+#mktLanding .hero .btn{padding:11px 20px;font-size:14px}
+#mktLanding .audcards{margin-top:18px}
+#mktLanding .audcard{padding:13px 15px 12px}
+#mktLanding .audcard .who{font-size:15px}
+#mktLanding .audcard .what{font-size:12.5px;margin-top:5px;min-height:48px}
+#mktLanding .audcard .cost{font-size:19px;margin-top:8px}
+#mktLanding .tinynote{margin-top:10px}
 #mktLanding .h1 .a{color:var(--accent)}
 #mktLanding .sub{color:var(--muted);font-size:clamp(16px,2vw,19px);margin-top:22px;max-width:560px}
 #mktLanding .cta-row{display:flex;gap:12px;margin-top:30px;flex-wrap:wrap}
@@ -1093,7 +1105,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
   <div>
     <span class="eyebrow">The AI command center for NIL</span>
     <h1 class="h1">Find the local business.<br><span class="a">And the person who can say yes.</span></h1>
-    <p class="sub">Any tool can list brands. NILDash searches seven sources to find the owner or manager behind one, with a direct email, a phone number, and where the name came from. Then it writes the outreach and tracks the deal.</p>
+    <p class="sub">Any tool can list brands. NILDash searches seven sources to find the owner or manager behind one, tells you how to reach them, and is honest when there is no direct line. Then it writes the outreach and tracks the deal.</p>
     <div class="cta-row">
       <a class="btn primary" href="#signin">Get started &#8594;</a>
       <a class="btn ghost" href="#features">See how it works</a>
