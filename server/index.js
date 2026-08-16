@@ -1438,7 +1438,7 @@ app.get('/api/agent/home-metrics', requireAuth, async (req, res) => {
   const VALUE = `COALESCE(NULLIF(data->>'value',''),'0')::numeric`;
 
   try {
-    const [heroR, weeksR, sentR, brandsR, closedR, pipeR, rosterR, trackR] = await Promise.all([
+    const [heroR, weeksR, sentR, brandsR, closedR, pipeR, mailboxR, rosterR, trackR] = await Promise.all([
       // HERO. All-time is every closed deal; this month needs a date, so it counts
       // only what carries one.
       soft(
@@ -1500,6 +1500,10 @@ app.get('/api/agent/home-metrics', requireAuth, async (req, res) => {
       soft(
         `SELECT COALESCE(SUM(${VALUE}),0) AS value, COUNT(*)::int AS n
            FROM deals WHERE agent_id = $1 AND ${IN_FLIGHT}`, [agentId]),
+
+      // Zero sent has two very different explanations -- a quiet week, or nothing
+      // to send from. The strip cannot tell them apart without this.
+      soft(`SELECT COUNT(*)::int AS n FROM email_accounts WHERE user_id = $1`, [agentId]),
 
       // ROSTER. Earned, deal count, in flight and last activity per athlete, in one
       // pass rather than a query per athlete.
@@ -1605,6 +1609,7 @@ app.get('/api/agent/home-metrics', requireAuth, async (req, res) => {
       },
       roster,
       trackedSince,
+      mailboxConnected: (((mailboxR.rows || [])[0] || {}).n || 0) > 0,
     });
   } catch (e) {
     console.error('[agent/home-metrics]', e.message);
@@ -11780,7 +11785,7 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
         console.error('[agent/today] soft query failed:', e.message);
         return { rows: [] };
       });
-    const [dueR, weekR, viewsR, inbR, deals, nextR, movingR, scanR, reachR, orphanR] = await Promise.all([
+    const [dueR, weekR, viewsR, inbR, deals, nextR, movingR, scanR, mailR, reachR, orphanR] = await Promise.all([
       // RED: deliverables due today or overdue (pending), grouped by athlete + brand
       store.pool.query(
         `SELECT ace.athlete_id, a.data->>'name' AS athlete_name, ace.brand,
@@ -11833,6 +11838,9 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
           WHERE a.agent_id = $1
           GROUP BY a.id, a.data->>'name'
           ORDER BY last_scan ASC NULLS FIRST`, [agentId]),
+      // Does a mailbox exist at all. Cheap, and it gates the one item that
+      // outranks everything else on the page.
+      softQuery(`SELECT COUNT(*)::int AS n FROM email_accounts WHERE user_id = $1`, [agentId]),
       // Which brands this agent can actually write to. THE DEAL JSON IS NOT THE
       // ANSWER: extractDealContact reads deal.contacts / deal.contactEmail, and
       // nothing anywhere in the app ever writes those -- deals are created with
@@ -11860,6 +11868,23 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     const REACHABLE_BRANDS = new Set((reachR.rows || []).map((r) => r.brand).filter(Boolean));
     const first = (name) => (String(name || 'A client').trim().split(/\s+/)[0] || 'A client');
     const raw = [];
+
+    // ABOVE EVERYTHING. An agent who has run scans with no mailbox connected is
+    // doing work that cannot leave the building: every opportunity found leads to
+    // an email that has nowhere to send from. Gated on having scanned, because
+    // before that it is advice rather than a blocked pipeline -- and priority -1,
+    // because there is genuinely nothing on this page worth doing first.
+    const hasScanned = (scanR.rows || []).some((r) => r.last_scan);
+    const mailboxes = ((mailR.rows || [])[0] || {}).n || 0;
+    if (hasScanned && !mailboxes) {
+      raw.push({
+        urgency: 'red', priority: -1, kind: 'no_mailbox',
+        text: 'Connect Gmail so your outreach can actually go out',
+        // connect, not view: this leaves for OAuth rather than opening a tab, and
+        // the browser supplies returnTo so the agent lands back where they were.
+        action: { label: 'Connect Gmail', view: 'settings', connect: 'gmail' },
+      });
+    }
 
     // RED, overdue or due today (priority 0)
     for (const r of dueR.rows) {
@@ -11982,8 +12007,11 @@ app.get('/api/agent/today', requireAuth, async (req, res) => {
     // to the front leaves everything behind it in coldness order, so the coldest
     // deal on the board is always the first row of the list even when a warmer one
     // takes the card. Nothing is dropped and nothing is re-ranked; one item moves.
+    // Only reshuffles when a stale deal ALREADY leads. Without this guard the
+    // promotion would lift a deal over the no-mailbox item, which outranks it by
+    // design: a follow-up you cannot send is not the first thing to do.
     const leadIdx = raw.findIndex((a) => a.kind === 'stale_deal' && a.reachable);
-    if (leadIdx > 0) raw.unshift(raw.splice(leadIdx, 1)[0]);
+    if (leadIdx > 0 && raw[0] && raw[0].kind === 'stale_deal') raw.unshift(raw.splice(leadIdx, 1)[0]);
     // Was 5, for a single stacked list. The home page groups these into columns and
     // has room, so the cap is the caller's: ?limit=N, default 5 for existing callers,
     // hard ceiling 24 so a runaway roster cannot render a thousand rows.

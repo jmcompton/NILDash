@@ -1608,6 +1608,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div id="ds-progress-steps" style="display:flex;flex-direction:column;gap:11px"></div>
           </div>
         </div>
+        <!-- ONE LINE, NOT A BANNER, NOT DISMISSIBLE. Every opportunity below leads
+             to an email, and without a mailbox none of them can be sent. It sits
+             here on every scan until they connect, and says nothing once they have. -->
+        <div id="ds-mailbox-line" style="display:none;font-size:12px;color:#fbbf24;line-height:1.5;margin-bottom:12px">
+          Outreach sends from your own email.
+          <a href="#" onclick="dsConnectGmail(); return false;"
+             style="color:#84CC16;font-weight:600;text-decoration:underline;text-underline-offset:2px">Connect Gmail</a>
+        </div>
         <div id="scan-ranked-label" style="display:none;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px">Ranked Opportunities</div>
         <!-- Mobile lane switcher (segmented control; visible < 900px via CSS) -->
         <div id="ds-lane-tabs" class="ds-lane-tabs" style="display:none">
@@ -5984,7 +5992,7 @@ async function showView(id, btn) {
   if (id === 'roster') renderRoster();
   if (id === 'athlete-portals') { loadAthletePortals(); setTimeout(loadAgentOutreach, 400); }
   if (id === 'contract') prefillContract();
-  if (id === 'deals') { if (selectedAthleteId) loadDealScanCache(); }
+  if (id === 'deals') { if (selectedAthleteId) loadDealScanCache(); dsCheckMailboxLine(); }
   // Warm the school list so the first keystroke in the search box is instant.
   if (id === 'programs') { try { progRenderSportToggle(); progLoadSchools(); } catch (e) {} }
   if (id === 'compliance') { try { loadNilComplianceRef(); } catch(e) {} }
@@ -6486,6 +6494,9 @@ async function _dsRunScan(isRefresh, opts) {
     _dsStopRotation();
     lanes.forEach(function(l){ _dsLaneBusy[l] = false; });
     _dsRenderAll();
+    // Re-checked after every scan, not just on tab open: an agent who scans twice
+    // in a session sees it both times, and one who connects mid-session sees it go.
+    dsCheckMailboxLine();
     if (btn)  { btn.disabled  = false; btn.textContent  = 'Scan Deals with AI'; }
     if (rbtn) { rbtn.disabled = false; rbtn.textContent = 'Refresh'; }
     // The Find more button is re-rendered by _dsRenderAll from _dsLaneExhausted,
@@ -8057,6 +8068,26 @@ function runDealScan()    { return _dsRunScan(false); }
 // Run a scan for a NAMED athlete. The assistant calls this; it selects the athlete
 // the same way the picker does, then runs the same scan the button runs. No second
 // scan path: the ledger, the cost logging and the draft pre-warm all still apply.
+// ── The mailbox line on Deal Scan ────────────────────────────────────────────
+// Checked on every visit to the tab and again after every scan, so it appears the
+// moment a scan finishes rather than only on a reload. Never hidden by a dismiss:
+// the only thing that removes it is connecting a mailbox.
+async function dsCheckMailboxLine() {
+  var el = document.getElementById('ds-mailbox-line');
+  if (!el) return;
+  try {
+    var r = await fetch(API_BASE + '/api/email/accounts');
+    if (!r.ok) { el.style.display = 'none'; return; }   // unknown: say nothing rather than nag wrongly
+    var list = await r.json();
+    el.style.display = (Array.isArray(list) && list.length) ? 'none' : 'block';
+  } catch (e) { el.style.display = 'none'; }
+}
+
+function dsConnectGmail() {
+  var back = window.location.pathname + window.location.search + window.location.hash;
+  window.location.href = API_BASE + '/api/email/oauth/gmail?returnTo=' + encodeURIComponent(back);
+}
+
 // No lane argument: a scan runs every lane, and _dsRunScan only ever branched on
 // opts.deepen, so the lane the assistant used to pass was read by nothing.
 window.nilRunDealScanFor = async function (athleteId) {
@@ -15501,6 +15532,13 @@ function hmRenderHero(m) {
   card.classList.add('hm-has-chart');
 }
 
+// Leaves for OAuth with a returnTo, so the agent lands back on the page they were
+// reading rather than on Settings.
+function hmConnectGmail() {
+  var back = window.location.pathname + window.location.search + window.location.hash;
+  window.location.href = API_BASE + '/api/email/oauth/gmail?returnTo=' + encodeURIComponent(back);
+}
+
 function hmRenderMomentum(m) {
   var el = document.getElementById('hm-momentum');
   if (!el) return;
@@ -15546,6 +15584,24 @@ function hmRenderMomentum(m) {
   var pipe = (mo.pipeline || {}).value || 0;
   var note = document.getElementById('hm-strip-note');
   if (note) note.remove();
+
+  // WHEN THE REASON IS KNOWN, GIVE THE REASON. Zero sent has two explanations and
+  // they call for opposite responses: a quiet week means go and send something, no
+  // mailbox means nothing you write can leave. Saying "nothing sent yet" to an
+  // agent with no mailbox is technically true and useless.
+  if (!sent && m && m.mailboxConnected === false) {
+    var why0 = document.createElement('div');
+    why0.id = 'hm-strip-note';
+    why0.className = 'hm-strip-note';
+    why0.innerHTML = 'No mailbox connected, so nothing can be sent. Outreach goes out from your own email. '
+      + '<a href="#" class="hm-connect" style="color:#84CC16;font-weight:600">Connect Gmail</a>';
+    why0.querySelector('.hm-connect').addEventListener('click', function (e) {
+      e.preventDefault(); hmConnectGmail();
+    });
+    el.parentNode.insertBefore(why0, el.nextSibling);
+    return;
+  }
+
   if (!sent && !biz && !closed && !pipe) {
     var why = document.createElement('div');
     why.id = 'hm-strip-note';
@@ -15604,6 +15660,7 @@ function hmRenderWork(actions, m, total) {
           : '<span class="hm-item-t">' + hmEsc(a.text) + '</span>';
         return '<div class="hm-item">' + body + days
           + (a.action ? '<button type="button" class="hm-go" data-view="' + hmEsc(a.action.view)
+              + (a.action.connect ? '" data-connect="' + hmEsc(a.action.connect) : '')
               + '">' + hmEsc(a.action.label) + '</button>' : '')
           + '</div>';
       }).join('') + '</div>';
@@ -15615,6 +15672,7 @@ function hmRenderWork(actions, m, total) {
       : '');
   el.querySelectorAll('.hm-go, .hm-more').forEach(function (b) {
     b.addEventListener('click', function () {
+      if (b.getAttribute('data-connect') === 'gmail') { hmConnectGmail(); return; }
       if (typeof showView === 'function') showView(b.getAttribute('data-view'), null);
     });
   });
@@ -15636,6 +15694,7 @@ function hmRenderFirst(actions, m) {
       why: hmWhy(top),
       primary: (top.action && top.action.label) || 'Open',
       view: (top.action && top.action.view) || 'command',
+      connect: (top.action && top.action.connect) || null,
     };
   } else {
     var roster = (m && m.roster) || [];
@@ -15668,12 +15727,15 @@ function hmRenderFirst(actions, m) {
     + '<div class="hm-first-text">' + hmEsc(card.text) + '</div>'
     + '<div class="hm-first-why">' + hmEsc(card.why) + '</div>'
     + '<div class="hm-btns">'
-      + '<button type="button" class="hm-btn primary" data-view="' + hmEsc(card.view) + '">'
+      + '<button type="button" class="hm-btn primary" data-view="' + hmEsc(card.view) + '"'
+        + (card.connect ? ' data-connect="' + hmEsc(card.connect) + '"' : '') + '>'
         + hmEsc(card.primary) + '</button>'
       + '<button type="button" class="hm-btn ghost" data-view="command">See everything</button>'
     + '</div></div>';
   el.querySelectorAll('[data-view]').forEach(function (b) {
     b.addEventListener('click', function () {
+      // connect wins over view: this one leaves the app for OAuth.
+      if (b.getAttribute('data-connect') === 'gmail') { hmConnectGmail(); return; }
       if (typeof showView === 'function') showView(b.getAttribute('data-view'), null);
     });
   });
@@ -15681,6 +15743,7 @@ function hmRenderFirst(actions, m) {
 
 // One line saying WHY this is first, rather than repeating the item.
 function hmWhy(a) {
+  if (a.kind === 'no_mailbox') return 'Every opportunity below turns into an email, and none of them can be sent until there is a mailbox to send from.';
   if (a.kind === 'replied_orphan') return 'A brand already replied. The hard part happened and it is leaking.';
   if (a.kind === 'inquiry') return 'Inbound interest is the warmest signal on the page.';
   if (a.kind === 'deliverable_due') return 'A deliverable is due or overdue, which is the only thing here with a deadline.';
