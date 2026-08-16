@@ -57,6 +57,14 @@ function naStyles() {
   var st = document.createElement('style');
   st.id = 'na-styles';
   st.textContent = [
+    // ── NEVER ON A PUBLIC PAGE ──
+    // body.app-active is added by bootApp and removed by showMarketingLanding, so
+    // it means exactly "inside the logged-in portal". Signing out returns to the
+    // marketing overlay WITHOUT a reload, which left the tab sitting on top of the
+    // public site at z-index 9999 over the overlay's 700. A structural rule beats
+    // remembering to tear the widget down on every exit path.
+    'body:not(.app-active) #nil-assistant{display:none !important;}',
+
     // ── the panel ──
     '#na-panel{position:fixed;top:0;right:0;z-index:9998;width:' + NA_W + 'px;height:100vh;',
     '  display:flex;flex-direction:column;background:var(--surface,#141929);',
