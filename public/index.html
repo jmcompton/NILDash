@@ -5164,7 +5164,11 @@ async function renderAthleteHero() {
   var total   = document.getElementById('hm-total');
   var sub     = document.getElementById('hm-total-sub');
   if (!total) return;
-  if (eyebrow) eyebrow.textContent = 'Your NIL value';
+  // "Your NIL value" read as an appraisal of her worth. It is not: home-data's
+  // nilValue is SUM(value) over the deals she has logged, and nothing in it touches
+  // the valuation model. An athlete with nothing logged saw $0 under a heading
+  // implying she was worth nothing.
+  if (eyebrow) eyebrow.textContent = 'Tracked deal value';
   try {
     var r = await fetch(API_BASE + '/api/athlete/home-data', {
       headers: { 'Authorization': 'Bearer ' + NIL_ACTOR.token },
@@ -13723,13 +13727,23 @@ async function runMarketingScores() {
         ['Marketability', sc.marketabilityScore || 0],
         ['Sponsorship Readiness', sc.sponsorshipReadiness || 0],
         ['Audience Quality', sc.audienceQuality || 0],
-        ['Data Confidence', sc.confidenceScore || 0]
+        // null means WITHHELD, not zero. `|| 0` rendered a withheld score as a red
+        // 0/100 bar, which claims no confidence just as falsely as the old 94
+        // claimed high confidence on a guessed input.
+        ['Data Confidence', sc.confidenceScore == null ? null : sc.confidenceScore]
       ];
       var html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px">';
       scoreCards.forEach(function(item) {
-        var label = item[0], val = item[1] || 0;
+        var label = item[0], raw = item[1];
         html += '<div style="background:var(--surface2);border-radius:var(--r);padding:14px">';
         html += '<div style="font-size:11px;color:var(--muted)">' + label + '</div>';
+        if (raw == null) {
+          // Withheld: a dash and the reason, no bar. A bar of any length is a score.
+          html += '<div style="font-size:28px;font-weight:800;color:var(--muted);margin-top:4px">&mdash;</div>';
+          html += '<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.4">Not scored &mdash; engagement rate not on file</div></div>';
+          return;
+        }
+        var val = raw || 0;
         html += '<div style="font-size:28px;font-weight:800;color:' + scoreColor(val) + ';margin-top:4px">' + val + '<span style="font-size:13px;color:var(--muted)">/100</span></div>';
         html += bar(val) + '</div>';
       });
