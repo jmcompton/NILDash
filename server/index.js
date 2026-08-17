@@ -7920,7 +7920,10 @@ function _reqSport(req, res) {
   return s;
 }
 
-app.get('/api/programs/schools', requireAuth, async (req, res) => {
+// Programs is a read-only lookup keyed by sport, with nothing agent-specific in it,
+// so athletes get the SAME handler rather than a parallel copy that drifts. The
+// handler is named and registered twice below, once per auth model.
+const _programsSchoolsHandler = async (req, res) => {
   try {
     const sport = _reqSport(req, res);
     if (!sport) return;
@@ -7942,7 +7945,7 @@ app.get('/api/programs/schools', requireAuth, async (req, res) => {
     console.error('[programs/schools]', e.message);
     res.status(500).json({ error: e.message });
   }
-});
+};
 
 // One school. Key contacts in the fixed order the agent asked for, then everyone
 // else. Nothing is synthesised: a missing email is absent, never a guess.
@@ -7955,7 +7958,7 @@ function _keyOrderFor(sport) {
   return (_sportsTable.SPORTS[sport].roles || []).map((r) => r.key).filter((k) => k !== 'collective_director');
 }
 
-app.get('/api/programs/:school', requireAuth, async (req, res) => {
+const _programsSchoolHandler = async (req, res) => {
   try {
     const school = String(req.params.school || '').trim();
     if (!school) return res.status(400).json({ error: 'school required' });
@@ -8031,7 +8034,16 @@ app.get('/api/programs/:school', requireAuth, async (req, res) => {
     console.error('[programs/school]', e.message);
     res.status(500).json({ error: e.message });
   }
-});
+};
+
+// Both handlers, registered once per auth model. The agent registrations are
+// unchanged; the athlete ones are additive, so nothing an agent hits is altered.
+// 'schools' is registered before ':school' in each pair, or it would be swallowed
+// as a school named "schools".
+app.get('/api/programs/schools', requireAuth, _programsSchoolsHandler);
+app.get('/api/programs/:school', requireAuth, _programsSchoolHandler);
+app.get('/api/athlete/programs/schools', verifyAthleteToken, requireAthleteSubscription, _programsSchoolsHandler);
+app.get('/api/athlete/programs/:school', verifyAthleteToken, requireAthleteSubscription, _programsSchoolHandler);
 
 // Read-only ledger stats: COUNT(*) from brand_engagement, broken down by state and
 // by lane. Admin-gated, writes nothing (SELECT only). Session-cookie auth, so it
