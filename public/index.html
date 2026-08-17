@@ -5069,6 +5069,11 @@ var ATHLETE_ROUTE_MAP = [
 // came back "Not authenticated", which is what an athlete saw when she opened it.
 var ATHLETE_AUTH_PASSTHROUGH = [
   /^\/api\/assistant\//,
+  // Any direct call to an athlete route. These need no rewrite -- they are already
+  // the right URL -- but they DO need the token and, more importantly, they need
+  // credentials:'omit'. Handled here so a hand-rolled fetch elsewhere cannot
+  // reintroduce the cookie by forgetting.
+  /^\/api\/athlete\//,
 ];
 function needsAthleteAuth(path) {
   return ATHLETE_AUTH_PASSTHROUGH.some(function (rx) { return rx.test(path); });
@@ -5104,6 +5109,37 @@ var ATHLETE_ADAPTERS = {
       passwordResetRequired: false, isFounder: false,
     };
   },
+  // Home's two calls both map to /api/athlete/home-data, whose shape is nothing
+  // like what hmRenderWork and hmRenderHero read. These translate it.
+  '/api/agent/today': function (h) {
+    // Deliverables become the work list. kind drives the grouping: HM_DUE for
+    // anything dated today or earlier, routine otherwise.
+    var today = new Date().toISOString().slice(0, 10);
+    var actions = (h.upcomingDelivs || []).map(function (d) {
+      var date = d.event_date ? String(d.event_date).slice(0, 10) : null;
+      var overdue = date && date < today;
+      return {
+        kind: overdue ? 'overdue_deliverable' : 'due_deliverable',
+        text: (d.title || 'Deliverable') + (d.brand ? ' for ' + d.brand : ''),
+        days: 0,
+        action: { label: 'Open pipeline', view: 'pipeline' },
+      };
+    });
+    return { actions: actions, total: actions.length };
+  },
+  '/api/agent/home-metrics': function (h) {
+    // The hero reads .hero.allTime; nilValue arrives pre-formatted ("$14K"), so the
+    // digits are recovered rather than re-deriving a number the server already made.
+    var n = parseFloat(String(h.nilValue || '0').replace(/[^0-9.]/g, '')) || 0;
+    if (/K/i.test(h.nilValue || '')) n *= 1000;
+    if (/M/i.test(h.nilValue || '')) n *= 1000000;
+    return {
+      hero: { allTime: n, weeks: [] },
+      // Empty ON PURPOSE: an athlete has no roster, and the panel is removed below.
+      roster: [],
+      momentum: null,
+    };
+  },
   '/api/athletes': function (me) {
     // The SPA expects a roster array. An athlete's roster is exactly themselves,
     // which is what pins them as the active client with no selector.
@@ -5136,8 +5172,12 @@ var ATHLETE_ADAPTERS = {
     opts.headers = Object.assign({}, (init && init.headers) || {}, {
       'Authorization': 'Bearer ' + NIL_ACTOR.token,
     });
-    // Session cookies mean nothing to a JWT route and only invite CORS trouble.
-    delete opts.credentials;
+    // 'omit', not delete. Deleting the property does NOT stop cookies -- it restores
+    // fetch's same-origin default, which SENDS them. So every athlete request was
+    // carrying whatever agent session the browser happened to hold, alongside the
+    // bearer token, and the server picked the cookie. That is how an athlete was
+    // greeted by the agent's name. This sends the token and nothing else.
+    opts.credentials = 'omit';
 
     var res = await _fetch(mapped + qs, opts);
     var adapt = ATHLETE_ADAPTERS[path];
@@ -5172,6 +5212,7 @@ async function renderAthleteHero() {
   try {
     var r = await fetch(API_BASE + '/api/athlete/home-data', {
       headers: { 'Authorization': 'Bearer ' + NIL_ACTOR.token },
+      credentials: 'omit',   // never carry an agent session on an athlete request
     });
     if (!r.ok) throw new Error('home-data ' + r.status);
     var d = await r.json();
@@ -5215,6 +5256,15 @@ function applyAthleteChrome() {
   if (label) label.textContent = 'Athlete Portal';
   var sub = document.getElementById('agentSubscribeBtn');
   if (sub) sub.style.display = 'none';
+
+  // The Roster column is an agent's list of clients. An athlete has no roster, so
+  // the whole card goes and "What needs you" takes the full width -- an empty card
+  // headed "Roster" on your own home page is worse than no card.
+  var rosterEl = document.getElementById('hm-roster');
+  var rosterCard = rosterEl && rosterEl.closest ? rosterEl.closest('.hm-col') : null;
+  if (rosterCard) rosterCard.style.display = 'none';
+  var cols = document.querySelector('.hm-cols');
+  if (cols) cols.style.gridTemplateColumns = '1fr';
 
   // Rate Calculator and Compliance are full views (#view-rate, #view-compliance)
   // that the agent app never gave a nav button -- an agent reaches them from cards
@@ -5265,7 +5315,6 @@ function applyAthleteChrome() {
     });
   }
 
-  renderAthleteHero();
 }
 
 async function doLogout() {
@@ -5344,6 +5393,14 @@ async function bootApp() {
     // value, and keep the nine views they are entitled to. applyAthleteChrome()
     // above has already hidden the five they are not.
     showView('home', document.getElementById('homeNavBtn'));
+    // ...and actually LOAD it. This call sat in the agent-only branch below, so an
+    // athlete landed on Home and the panels never fetched anything -- "What needs
+    // you" and "Roster" sat on their static Loading placeholder indefinitely.
+    //
+    // renderAthleteHero runs AFTER, not inside applyAthleteChrome: hmRenderHero
+    // writes the same two nodes, so whichever ran second won, and that was the
+    // agent's phrasing ("0 deals closed all time") on an athlete's page.
+    loadAgentHome().then(renderAthleteHero);
     // The client bar is an agent control; the athlete is pinned to themselves.
     var clientBar = document.querySelector('.client-bar');
     if (clientBar) clientBar.style.display = 'none';

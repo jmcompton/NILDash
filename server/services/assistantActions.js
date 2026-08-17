@@ -359,7 +359,23 @@ async function resolveCall(name, rawArgs, ctx) {
     return { ok: false, message: 'That is not something I can do from your account.' };
   }
   const action = ACTIONS[name];
-  const args0 = (rawArgs && typeof rawArgs === 'object') ? rawArgs : {};
+  let args0 = (rawArgs && typeof rawArgs === 'object') ? rawArgs : {};
+
+  // AN ATHLETE IS THE SUBJECT, NEVER A PARAMETER. Every ownership-checked action
+  // takes an athleteId, and the model was asking "which athlete?" because the tool
+  // schema demands one -- a question with exactly one possible answer, put to the
+  // person who is that answer.
+  //
+  // Her id is FORCED here, overwriting anything the model supplied. That is both the
+  // fix for the question and a second lock on isolation: even a model that names
+  // another athlete's id has it replaced before the ownership check, so the check
+  // now has nothing left to catch on this path.
+  if (principal.kind === 'athlete' && action.ownsAthlete) {
+    if (args0.athleteId && String(args0.athleteId) !== String(principal.id)) {
+      console.warn(`[assistant] athlete=${principal.id} action=${name}: model supplied athleteId ${args0.athleteId}, overridden with the caller's own id`);
+    }
+    args0 = Object.assign({}, args0, { athleteId: principal.id });
+  }
 
   const checked = action.check(args0);
   if (checked.error) return { ok: false, message: checked.error };

@@ -9488,19 +9488,34 @@ try {
   //
   // The session is checked FIRST and wins, which keeps agent behavior byte-for-byte
   // what it was: an agent request never reaches the athlete branch.
+  // AN EXPLICIT BEARER TOKEN WINS OVER AN AMBIENT COOKIE. This used to check the
+  // session FIRST, which I justified as "agent behavior is unchanged". It was a data
+  // leak. A browser that has ever signed in as an agent keeps that session cookie,
+  // and cookies are sent on same-origin requests whether or not anyone intended it --
+  // so an ATHLETE opening the assistant in that browser presented both credentials,
+  // the session won, and she was served the agent's name and the agent's pipeline.
+  //
+  // A bearer token is a deliberate act: it is attached by code that means "act as
+  // this athlete". A cookie is ambient. When both arrive, the deliberate one is the
+  // caller's actual intent, so it decides. An agent, whose browser sends no athlete
+  // bearer token, is unaffected.
   function assistantAuth(req, res, next) {
-    if (req.session && req.session.userId) {
-      return requireAgentSubscription(req, res, next);
-    }
     const auth = req.headers.authorization || '';
     if (auth.startsWith('Bearer ')) {
       return verifyAthleteToken(req, res, function () {
-        // req.athlete is set by verifyAthleteToken from the signed token. Handing the
-        // id to the route through its own field keeps the principal's origin explicit.
         req.athletePrincipalId = req.athlete && req.athlete.id;
         if (!req.athletePrincipalId) return res.status(401).json({ error: 'Not authenticated' });
+        // Belt and braces: an athlete request must not carry an agent session into
+        // anything downstream that still reads req.session directly.
+        if (req.session && req.session.userId) {
+          console.warn(`[assistant] athlete ${req.athletePrincipalId} presented a bearer token alongside an agent session; the session is ignored for this request`);
+          req.session = Object.assign(Object.create(Object.getPrototypeOf(req.session) || null), req.session, { userId: null });
+        }
         return requireAthleteSubscription(req, res, next);
       });
+    }
+    if (req.session && req.session.userId) {
+      return requireAgentSubscription(req, res, next);
     }
     return res.status(401).json({ error: 'Not authenticated' });
   }
