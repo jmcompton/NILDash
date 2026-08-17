@@ -198,7 +198,27 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
     } catch (e) {
       console.error('[stripe-webhook] user subscription sync failed:', e.message);
     }
-    // Preserve the existing athlete behavior: only a cancel/pause deactivates.
+    // Athletes get the SAME full lifecycle, keyed by customer id like the users
+    // query above. Previously only a delete touched an athlete row, so a card that
+    // started failing moved the subscription to past_due at Stripe and the athlete
+    // stayed 'active' here forever. athleteHasAccess grants on active/trialing
+    // only, so every other status now blocks once BILLING_ENABLED is on.
+    // free_before_billing and comped are deliberately NOT cleared: a grandfathered
+    // athlete who later subscribes and cancels goes back to being grandfathered
+    // rather than being locked out of something they were promised for free.
+    try {
+      await store.pool.query(
+        `UPDATE athletes SET subscription_status = $1,
+           stripe_subscription_id = COALESCE(stripe_subscription_id, $2)
+         WHERE stripe_customer_id = $3`,
+        [status, sub.id, sub.customer]
+      );
+      console.log('[stripe-webhook] athlete subscription', sub.id, '->', status);
+    } catch (e) {
+      console.error('[stripe-webhook] athlete subscription sync failed:', e.message);
+    }
+    // Kept: the original delete path also matches on subscription id, which covers
+    // any athlete row that has a subscription but never got a customer id written.
     if (event.type === 'customer.subscription.deleted') {
       await store.pool.query(
         `UPDATE athletes SET subscription_status = 'inactive' WHERE stripe_subscription_id = $1`,
@@ -383,6 +403,249 @@ app.use('/api/ai', requireAgentSubscription);
 app.use('/api/deal-close', requireAgentSubscription);
 app.use('/api/intelligence', requireAgentSubscription);
 app.use('/api/reports', requireAgentSubscription);
+
+// ── Athlete access ────────────────────────────────────────────────────────────
+// DORMANT until BILLING_ENABLED=true. Every branch below is written and tested,
+// but the first line of athleteHasAccess short-circuits while the flag is off, so
+// nothing about athlete access changes on the deploy that ships this.
+//
+// Who is exempt even after the flag is on:
+//   · agent_managed athletes. They are a client on somebody's roster and that
+//     agent is already paying $99 for them. Charging the athlete $25 as well
+//     would bill the same person twice for the same seat.
+//   · anyone stamped free_before_billing, i.e. every athlete who signed up while
+//     the portal was advertised as free. They were told "no card required" and
+//     that promise outlives the flag.
+//   · comped, the manual override, same as users.comped on the agent side.
+function athleteHasAccess(athlete) {
+  if (!BILLING_ENABLED) return true;          // dormant: today's behavior, exactly
+  if (!athlete) return false;
+  if (athlete.athlete_type !== 'self_managed') return true;  // the agent pays
+  if (athlete.comped === true) return true;
+  if (athlete.free_before_billing) return true;              // grandfathered
+  const s = athlete.subscription_status;
+  // 'free' is what the pre-billing path wrote before free_before_billing existed.
+  // Kept so a row stamped by the older code is not locked out by the newer.
+  return s === 'active' || s === 'trialing' || s === 'free';
+}
+
+// Mirrors requireAgentSubscription, including the self-heal. Reads the athlete
+// from the DATABASE rather than trusting the JWT: athlete tokens last 30 days, so
+// a cancelled athlete would otherwise keep access for a month.
+async function requireAthleteSubscription(req, res, next) {
+  if (!BILLING_ENABLED) return next();        // dormant
+  try {
+    if (!req.athlete || !req.athlete.id) return next();   // verifyAthleteToken handles auth
+    const r = await store.pool.query(
+      `SELECT id, email, athlete_type, comped, free_before_billing,
+              subscription_status, stripe_customer_id
+         FROM athletes WHERE id = $1`,
+      [req.athlete.id]
+    );
+    const athlete = r.rows[0];
+    if (!athlete) return next();
+    if (athleteHasAccess(athlete)) return next();
+
+    // Self-heal, same reasoning as the agent side: the webhook and the checkout
+    // return can both miss (bad webhook secret, closed tab), and locking out
+    // somebody who actually paid is worse than one extra Stripe call on a request
+    // that was about to be refused anyway.
+    if (athlete.stripe_customer_id && (process.env.STRIPE_SECRET_KEY || '').trim()) {
+      try {
+        const stripe = require('stripe')((process.env.STRIPE_SECRET_KEY || '').trim());
+        const subs = await stripe.subscriptions.list({
+          customer: athlete.stripe_customer_id, status: 'all', limit: 10,
+        });
+        const live = (subs && subs.data ? subs.data : []).find(
+          (s) => s.status === 'active' || s.status === 'trialing'
+        );
+        if (live) {
+          await store.pool.query(
+            `UPDATE athletes SET subscription_status = $1,
+               stripe_subscription_id = COALESCE(stripe_subscription_id, $2)
+             WHERE id = $3`,
+            [live.status, live.id, athlete.id]
+          );
+          console.log('[requireAthleteSubscription] self-healed access for', athlete.email, '->', live.status);
+          return next();
+        }
+      } catch (e) {
+        console.error('[requireAthleteSubscription] Stripe verify failed:', e.message);
+      }
+    }
+
+    return res.status(402).json({ error: 'subscription_required', message: 'Subscribe to unlock your NILDash tools.' });
+  } catch (e) {
+    console.error('[requireAthleteSubscription] error:', e.message);
+    return next();   // fail open, same as the agent gate
+  }
+}
+
+// GET /api/admin/athlete-billing-preview — answers two questions without guessing:
+// what STRIPE_PRICE_ID actually points at, and who would lose access if
+// BILLING_ENABLED were turned on right now. Read-only; safe to call any time.
+app.get('/api/admin/athlete-billing-preview', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const key = (process.env.STRIPE_SECRET_KEY || '').trim();
+    const priceId = (process.env.STRIPE_PRICE_ID || '').trim();
+    const env = {
+      BILLING_ENABLED,
+      stripe_key_set: !!key,
+      stripe_key_mode: !key ? 'missing' : key.startsWith('sk_live_') ? 'LIVE'
+        : key.startsWith('sk_test_') ? 'TEST' : 'unrecognized-prefix',
+      STRIPE_PRICE_ID: priceId || null,
+      STRIPE_AGENT_PRICE_ID_set: !!(process.env.STRIPE_AGENT_PRICE_ID || '').trim(),
+      STRIPE_WEBHOOK_SECRET_set: !!(process.env.STRIPE_WEBHOOK_SECRET || '').trim(),
+      athlete_trial_days: ATHLETE_TRIAL_DAYS,
+    };
+
+    // What the athlete price actually is, read from Stripe rather than assumed.
+    let price = { checked: false };
+    if (key && priceId) {
+      try {
+        const stripe = require('stripe')(key);
+        const p = await stripe.prices.retrieve(priceId, { expand: ['product'] });
+        price = {
+          checked: true,
+          found: true,
+          livemode: p.livemode,
+          active: p.active,
+          type: p.type,                                   // 'recurring' | 'one_time'
+          interval: p.recurring ? p.recurring.interval : null,
+          interval_count: p.recurring ? p.recurring.interval_count : null,
+          unit_amount: p.unit_amount,
+          amount_readable: p.unit_amount != null
+            ? '$' + (p.unit_amount / 100).toFixed(2) + (p.currency || '').toUpperCase().replace(/^USD$/, '')
+            : null,
+          currency: p.currency,
+          product_name: p.product && p.product.name ? p.product.name : null,
+          product_active: p.product ? p.product.active : null,
+        };
+        // The checks that decide whether this price can back a $25/mo athlete plan.
+        price.problems = [
+          p.type !== 'recurring' && 'NOT a subscription price (type=' + p.type + '); checkout mode=subscription will fail',
+          p.recurring && p.recurring.interval !== 'month' && 'interval is ' + p.recurring.interval + ', not month',
+          p.active === false && 'price is archived/inactive in Stripe',
+          p.livemode === false && key.startsWith('sk_live_') && 'TEST-mode price with a LIVE key: Stripe will reject it',
+          p.livemode === true && key.startsWith('sk_test_') && 'LIVE price with a TEST key: Stripe will reject it',
+        ].filter(Boolean);
+      } catch (e) {
+        price = { checked: true, found: false, error: e.message, code: e.code || null };
+      }
+    }
+
+    // Who is affected by the flip. Mirrors athleteHasAccess exactly.
+    const rows = (await store.pool.query(
+      `SELECT id, email, athlete_type, comped, free_before_billing,
+              subscription_status, stripe_customer_id, stripe_subscription_id
+         FROM athletes ORDER BY created_at NULLS LAST`
+    )).rows;
+    const verdict = (a) => {
+      if (a.athlete_type !== 'self_managed') return 'keeps (agent pays)';
+      if (a.comped === true) return 'keeps (comped)';
+      if (a.free_before_billing) return 'keeps (grandfathered)';
+      if (['active', 'trialing', 'free'].includes(a.subscription_status)) {
+        return a.subscription_status === 'free' ? 'keeps (legacy free status)' : 'keeps (' + a.subscription_status + ')';
+      }
+      return 'LOCKED OUT';
+    };
+    const athletes = rows.map((a) => ({
+      id: a.id,
+      email: a.email,
+      type: a.athlete_type,
+      status: a.subscription_status,
+      comped: a.comped === true,
+      grandfathered: !!a.free_before_billing,
+      has_stripe_customer: !!a.stripe_customer_id,
+      if_billing_on: verdict(a),
+    }));
+
+    res.json({
+      env,
+      athlete_price: price,
+      totals: {
+        athletes: athletes.length,
+        self_managed: athletes.filter((a) => a.type === 'self_managed').length,
+        would_keep_access: athletes.filter((a) => a.if_billing_on !== 'LOCKED OUT').length,
+        would_be_locked_out: athletes.filter((a) => a.if_billing_on === 'LOCKED OUT').length,
+      },
+      athletes,
+    });
+  } catch (e) {
+    console.error('[athlete-billing-preview]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Athlete subscription checkout ─────────────────────────────────────────────
+// The athlete counterpart of createAgentCheckoutSession. Reuses (rather than
+// duplicates) the customer if one already exists, so a second attempt after a
+// failed card does not create a second Stripe customer for the same athlete.
+// DORMANT: nothing calls this while BILLING_ENABLED is off.
+function athleteBillingConfigured() {
+  return !!((process.env.STRIPE_SECRET_KEY || '').trim() && (process.env.STRIPE_PRICE_ID || '').trim());
+}
+const ATHLETE_TRIAL_DAYS = parseInt(process.env.STRIPE_ATHLETE_TRIAL_DAYS, 10) || 0;
+async function createAthleteCheckoutSession(athlete) {
+  const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim();
+  const price = (process.env.STRIPE_PRICE_ID || '').trim();
+  if (!stripeKey || !price) throw new Error('Stripe is not configured: set STRIPE_SECRET_KEY and STRIPE_PRICE_ID.');
+  const stripe = require('stripe')(stripeKey);
+  const appUrl = process.env.APP_URL || 'https://mynildash.com';
+
+  let customerId = athlete.stripe_customer_id;
+  if (!customerId) {
+    const customer = await stripe.customers.create({
+      email: athlete.email,
+      name: (athlete.data && athlete.data.name) ? athlete.data.name : '',
+      metadata: { athlete_id: athlete.id },
+    });
+    customerId = customer.id;
+    await store.pool.query('UPDATE athletes SET stripe_customer_id = $1 WHERE id = $2', [customerId, athlete.id]);
+    console.log('[athlete-checkout] stripe customer created', customerId, 'for', athlete.id);
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    customer: customerId,
+    payment_method_types: ['card'],
+    mode: 'subscription',
+    line_items: [{ price, quantity: 1 }],
+    // Trial length is env-driven and defaults to NONE. The old hardcoded
+    // trial_period_days: 30 handed out a free month that nothing in the product
+    // mentions, and the agent side deliberately runs with no trial. Set
+    // STRIPE_ATHLETE_TRIAL_DAYS to bring one back.
+    ...(ATHLETE_TRIAL_DAYS > 0 ? { subscription_data: { trial_period_days: ATHLETE_TRIAL_DAYS } } : {}),
+    payment_method_collection: 'always',
+    success_url: `${appUrl}/api/athlete/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${appUrl}/athlete-dashboard.html?subscribe=cancelled`,
+    metadata: { athlete_id: athlete.id },
+  });
+  return session.url;
+}
+
+// POST /api/athlete/create-checkout — what a 402'd athlete calls to start paying.
+// Without this the gate would be a dead end: refused, with no way to fix it.
+app.post('/api/athlete/create-checkout', verifyAthleteToken, async (req, res) => {
+  try {
+    if (!BILLING_ENABLED) return res.status(400).json({ error: 'Billing is not enabled.' });
+    if (!athleteBillingConfigured()) {
+      return res.status(400).json({ error: 'Stripe is not configured. Set STRIPE_SECRET_KEY and STRIPE_PRICE_ID.' });
+    }
+    const r = await store.pool.query('SELECT * FROM athletes WHERE id = $1', [req.athlete.id]);
+    const athlete = r.rows[0];
+    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
+    const url = await createAthleteCheckoutSession(athlete);
+    res.json({ url });
+  } catch (e) {
+    console.error('[athlete-checkout] failed:', e.type || '', e.code || '', e.message);
+    res.status(500).json({ error: 'Could not start checkout. ' + e.message });
+  }
+});
 
 // ── Agent subscription checkout ──────────────────────────────
 // $99/mo agent plan (price set in Stripe via STRIPE_AGENT_PRICE_ID so it can be
@@ -4927,8 +5190,16 @@ app.get('/api/athlete/verify-email', async (req, res) => {
 
     // Helper: issue JWT and redirect directly to dashboard (bypassing Stripe)
     const _issueJwtAndRedirect = async (status) => {
+      // free_before_billing is stamped ONCE, only on the free path, and is never
+      // written again. It is what grandfathers this athlete when BILLING_ENABLED is
+      // turned on: subscription_status alone cannot do that job, because the first
+      // Stripe webhook overwrites it and the history is lost.
       await store.pool.query(
-        'UPDATE athletes SET subscription_status = $1, onboarding_complete = TRUE WHERE id = $2',
+        `UPDATE athletes SET subscription_status = $1, onboarding_complete = TRUE,
+           free_before_billing = CASE
+             WHEN $1 = 'free' THEN COALESCE(free_before_billing, NOW())
+             ELSE free_before_billing END
+         WHERE id = $2`,
         [status, athlete.id]
       );
       const jwtLib = require('jsonwebtoken');
@@ -4954,60 +5225,27 @@ app.get('/api/athlete/verify-email', async (req, res) => {
       return await _issueJwtAndRedirect('free');
     }
 
-    // ── 3. Stripe checkout — only attempted with a confirmed live key ─────────────
-    // ANY other condition (test key, missing key, missing price, connection error)
-    // falls through to the bypass and gets the athlete into the portal immediately.
-    const stripeKey = process.env.STRIPE_SECRET_KEY || '';
-    const stripePrice = process.env.STRIPE_PRICE_ID || '';
-    const isLiveKey = stripeKey.startsWith('sk_live_');
-
-    console.log(`[verify] stripe key type=${isLiveKey ? 'live' : 'test/missing'} price=${stripePrice || 'missing'}`);
-
+    // ── 3. Stripe checkout ────────────────────────────────────────────────────
+    // This is only reached with BILLING_ENABLED on; the free path above returns
+    // first otherwise.
+    //
+    // The old bypass granted 'trialing' whenever Stripe failed for ANY reason --
+    // test key, missing price, network blip. That was safe while billing was off
+    // and unreachable, but with the flag on it is a free-account leak: an outage
+    // would mint permanent free accounts, which is the same hole the agent side
+    // removed when it deleted its local trial. So a failure here no longer grants
+    // anything. The athlete keeps their verified account at 'inactive', lands in
+    // the portal, and the gate offers them checkout via /api/athlete/create-checkout.
+    // Nothing is lost and nothing is given away.
+    console.log(`[verify] billing on — opening checkout for athlete=${athlete.id}`);
     let checkoutUrl = null;
     try {
-      if (!isLiveKey || !stripePrice) {
-        // Not a live key or no price ID — throw immediately to hit the bypass
-        throw new Error('TEST_MODE_BYPASS');
-      }
-
-      const stripe = require('stripe')(stripeKey);
-      const appUrl = process.env.APP_URL || 'https://mynildash.com';
-
-      const customer = await stripe.customers.create({
-        email: athlete.email,
-        name: (athlete.data && athlete.data.name) ? athlete.data.name : '',
-        metadata: { athlete_id: athlete.id },
-      });
-      console.log(`[verify] stripe customer created id=${customer.id}`);
-
-      await store.pool.query(
-        'UPDATE athletes SET stripe_customer_id = $1 WHERE id = $2',
-        [customer.id, athlete.id]
-      );
-
-      const checkoutSession = await stripe.checkout.sessions.create({
-        customer: customer.id,
-        payment_method_types: ['card'],
-        mode: 'subscription',
-        line_items: [{ price: stripePrice, quantity: 1 }],
-        subscription_data: { trial_period_days: 30 },
-        success_url: `${appUrl}/api/athlete/stripe-complete?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${appUrl}/athletes?cancelled=1`,
-        metadata: { athlete_id: athlete.id },
-      });
-
-      checkoutUrl = checkoutSession.url;
-      console.log(`[verify] stripe checkout session created id=${checkoutSession.id}`);
-
+      checkoutUrl = await createAthleteCheckoutSession(athlete);
     } catch (stripeErr) {
-      // Log everything — connection errors, test-mode throws, invalid price IDs, etc.
-      if (stripeErr.message !== 'TEST_MODE_BYPASS') {
-        console.error('[verify] Stripe error — full:', JSON.stringify(stripeErr, Object.getOwnPropertyNames(stripeErr)));
-        console.error('[verify] Stripe error message:', stripeErr.message);
-      }
-      // Bypass: activate the athlete directly regardless of why Stripe failed
-      console.log('[verify] bypassing Stripe — activating athlete directly');
-      return await _issueJwtAndRedirect('trialing');
+      console.error('[verify] Stripe error — full:', JSON.stringify(stripeErr, Object.getOwnPropertyNames(stripeErr)));
+      console.error('[verify] Stripe error message:', stripeErr.message);
+      console.log('[verify] checkout could not be opened — landing athlete unsubscribed, NOT granting access');
+      return await _issueJwtAndRedirect('inactive');
     }
 
     // ── 4. Redirect to Stripe checkout (live path only) ───────────────────────
@@ -5216,7 +5454,7 @@ app.post('/api/athlete/outreach', verifyAthleteToken, async (req, res) => {
 });
 
 // POST /api/athlete/write-outreach — AI generates 3-channel outreach (email, IG DM, LinkedIn)
-app.post('/api/athlete/write-outreach', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/write-outreach', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const { brand, category, contact, goal } = req.body;
     if (!brand) return res.status(400).json({ error: 'brand is required' });
@@ -5315,7 +5553,7 @@ app.put('/api/agents/athlete-outreach/:id/reject', requireAuth, async (req, res)
 });
 
 // POST /api/athlete/ai-draft-outreach — AI drafts outreach email
-app.post('/api/athlete/ai-draft-outreach', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/ai-draft-outreach', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const { brand_name, brand_website, sport_relevance } = req.body;
     if (!brand_name) return res.status(400).json({ error: 'brand_name required' });
@@ -6415,7 +6653,7 @@ app.get('/api/athlete/earnings', verifyAthleteToken, async (req, res) => {
 });
 
 // POST /api/athlete/command — athlete AI command (SSE stream)
-app.post('/api/athlete/command', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/command', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const { message } = req.body;
     if (!message) return res.status(400).json({ error: 'message required' });
@@ -6757,7 +6995,7 @@ async function loadDealScanAthlete(athleteId) {
 }
 
 // POST /api/athlete/deal-scan — find brand deals for this athlete
-app.post('/api/athlete/deal-scan', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/deal-scan', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const loaded = await loadDealScanAthlete(req.athlete.id);
     if (!loaded) return res.status(404).json({ error: 'Athlete not found' });
@@ -7887,10 +8125,10 @@ app.post('/api/agent/brand-instagram', requireAuth, async (req, res) => {
     res.json({ handle: handle || null });
   } catch (e) { res.json({ handle: null }); }
 });
-app.post('/api/athlete/brand-contacts', verifyAthleteToken, aiLimiter, _brandContactsBatch);
+app.post('/api/athlete/brand-contacts', verifyAthleteToken, requireAthleteSubscription, aiLimiter, _brandContactsBatch);
 
 // POST /api/athlete/deal-pitch — generate a personalized pitch for a brand (preview)
-app.post('/api/athlete/deal-pitch', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/deal-pitch', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const brand = req.body.brand || {};
     if (!brand.brand && !brand.brand_name) return res.status(400).json({ error: 'brand required' });
@@ -8036,7 +8274,7 @@ app.post('/api/athlete/rate-calculator', verifyAthleteToken, async (req, res) =>
 });
 
 // POST /api/athlete/rate-talking-points — generate negotiation talking points
-app.post('/api/athlete/rate-talking-points', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/rate-talking-points', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const { deliverable_type } = req.body;
     // Canonical loader merges dedicated follower columns (self-signup athletes).
@@ -8068,7 +8306,7 @@ Be direct and practical. Write in first-person so the athlete can say it directl
 // (/api/ai/team-match) remains active and untouched.
 
 // POST /api/athlete/marketing/content-ideas
-app.post('/api/athlete/marketing/content-ideas', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/marketing/content-ideas', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const athR = await store.pool.query(
       `SELECT a.data->>'name' as name, a.data->>'sport' as sport, a.data->>'school' as school,
@@ -8091,7 +8329,7 @@ app.post('/api/athlete/marketing/content-ideas', verifyAthleteToken, aiLimiter, 
 });
 
 // POST /api/athlete/marketing/generate-caption — Caption Generator
-app.post('/api/athlete/marketing/generate-caption', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/marketing/generate-caption', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const { brand, deliverable_type, context } = req.body;
     if (!brand) return res.status(400).json({ error: 'brand is required' });
@@ -8123,7 +8361,7 @@ Number them 1, 2, 3.`;
 
 // POST /api/athlete/compliance — NIL compliance check (athlete auth)
 // Mirrors /api/ai/compliance but uses athlete token and auto-resolves state from school
-app.post('/api/athlete/compliance', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/compliance', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const { dealType, brand, value, description, signingDate, universityNotified } = req.body;
 
@@ -8401,7 +8639,7 @@ app.post('/api/athlete/email/send', verifyAthleteToken, async (req, res) => {
 });
 
 // POST /api/athlete/deal-close/analyze — athlete analyzes a deal
-app.post('/api/athlete/deal-close/analyze', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/deal-close/analyze', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const { brand, dealScanData } = req.body;
     if (!brand) return res.status(400).json({ error: 'brand required' });
@@ -10904,7 +11142,7 @@ app.post('/api/athlete/media-kit/save', verifyAthleteToken, async (req, res) => 
 });
 
 // POST /api/athlete/generate-bio — AI-generated NIL bio (athlete auth)
-app.post('/api/athlete/generate-bio', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/generate-bio', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const { story } = req.body;
     const storyText = (story || '').trim();
@@ -12320,7 +12558,7 @@ Return only 4 plain sentences, one per line, nothing else.`;
 });
 
 // POST /api/athlete/daily-brief — AI-generated morning brief for athletes (JWT auth)
-app.post('/api/athlete/daily-brief', verifyAthleteToken, aiLimiter, async (req, res) => {
+app.post('/api/athlete/daily-brief', verifyAthleteToken, requireAthleteSubscription, aiLimiter, async (req, res) => {
   try {
     const athleteId = req.athlete.id;
 

@@ -318,6 +318,15 @@ async function init() {
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'inactive'`,
+    // Athlete comp, mirroring users.comped: free access, no card, set by hand.
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS comped BOOLEAN DEFAULT FALSE`,
+    // Stamped the first time an athlete is granted access while BILLING_ENABLED is
+    // off. subscription_status='free' already records that, but status is a column
+    // Stripe writes to -- one webhook moves it to 'active' or 'inactive' and the
+    // fact that this athlete predates billing is gone. This is write-once and
+    // Stripe never touches it, so it survives to answer "was this account free
+    // before we started charging" after the switch is flipped.
+    `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS free_before_billing TIMESTAMPTZ`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS instagram_followers INTEGER`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS tiktok_followers INTEGER`,
     `ALTER TABLE athletes ADD COLUMN IF NOT EXISTS twitter_followers INTEGER`,
