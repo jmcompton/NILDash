@@ -5019,7 +5019,7 @@ app.get('/api/athlete/verify-email', async (req, res) => {
     console.error('[verify-email-error] Unhandled exception:', err);
     console.error('[verify-email-error] message:', err.message);
     console.error('[verify-email-error] stack:', err.stack);
-    res.status(500).send('Something went wrong. Please try again or contact support@mynildash.com');
+    res.status(500).send('Something went wrong. Please try again or email contact@mynildash.com');
   }
 });
 
