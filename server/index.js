@@ -4227,6 +4227,73 @@ app.post('/api/admin/set-comp', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// The athlete counterpart of /api/admin/set-comp, deliberately the same shape:
+// same admin check, same body, same response. Writes ONLY the comped column, so
+// it can never collide with subscription_status -- Stripe owns that one and would
+// overwrite anything parked there, which is the same reasoning behind
+// free_before_billing.
+app.post('/api/admin/set-athlete-comp', async (req, res) => {
+  try {
+    const { athleteId, comped } = req.body;
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
+    const r = await store.pool.query(
+      'UPDATE athletes SET comped = $1 WHERE id = $2 RETURNING id',
+      [comped === true, athleteId]
+    );
+    // The agent version cannot miss, because the UI only ever passes ids it just
+    // rendered. Search can go stale between typing and clicking, so a miss is
+    // reported rather than answered with a cheerful ok:true.
+    if (!r.rowCount) return res.status(404).json({ error: 'No athlete with that id' });
+    console.log(`[admin] athlete ${athleteId} comped=${comped === true} by ${user.email}`);
+    res.json({ ok: true, athleteId, comped: comped === true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Athlete search for the comp tool. The agent list (/api/admin/users) returns
+// everyone unfiltered, which is fine for a handful of agents; athletes are the
+// larger table and the ask was to find one by name or email, so this takes a query
+// and caps the result. An empty query returns the most recent athletes, so the
+// panel is useful before anything is typed.
+app.get('/api/admin/athletes', async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const q = (req.query.q || '').trim();
+    // Name lives in the data JSON, email in its own column; both are searched
+    // because an admin will have whichever one the athlete gave them.
+    const params = [];
+    let where = '';
+    if (q) {
+      params.push('%' + q.toLowerCase() + '%');
+      where = `WHERE LOWER(COALESCE(email,'')) LIKE $1
+                  OR LOWER(COALESCE(data->>'name','')) LIKE $1`;
+    }
+    const r = await store.pool.query(
+      `SELECT id, email, comped, subscription_status, athlete_type,
+              free_before_billing, stripe_customer_id, created_at,
+              data->>'name' AS name, data->>'school' AS school, data->>'sport' AS sport
+         FROM athletes ${where}
+        ORDER BY comped DESC NULLS LAST, created_at DESC NULLS LAST
+        LIMIT 50`,
+      params
+    );
+    // comped DESC puts comped athletes at the top, so "who is comped" is answerable
+    // at a glance without searching for it.
+    res.json({
+      query: q,
+      count: r.rows.length,
+      capped: r.rows.length === 50,
+      comped_total: (await store.pool.query('SELECT COUNT(*)::int AS n FROM athletes WHERE comped IS TRUE')).rows[0].n,
+      athletes: r.rows,
+    });
+  } catch (e) {
+    console.error('[admin/athletes]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Admin-only: create a comped agent account directly, with NO card and NO Stripe
 // checkout. Comped agents cannot be made through signup (signup always forces a
 // card), so this is their only onboarding path. The account gets full access

@@ -82,6 +82,31 @@ a.back:hover{color:#C8F135}
     </thead>
     <tbody id="users-table"><tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3);font-size:12px">Loading...</td></tr></tbody>
   </table>
+
+  <!-- ── Athlete comps ─────────────────────────────────────────────────────
+       The athlete mirror of the comp control above. Agents are few enough to
+       list unfiltered; athletes are not, so this one searches. Comped athletes
+       sort to the top so "who is comped" is answerable without searching. -->
+  <div style="margin-top:32px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+      <div style="font-size:14px;font-weight:600;color:#f0ede6">Athlete Comps</div>
+      <span id="ath-comp-count" style="font-size:10px;padding:2px 8px;border-radius:4px;background:#a78bfa20;color:#a78bfa;font-weight:700;text-transform:uppercase"></span>
+      <input id="ath-search" oninput="loadAthleteComps()" placeholder="Search name or email"
+        style="flex:1;min-width:200px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;font-size:12px;padding:6px 10px">
+      <button onclick="loadAthleteComps()" style="font-size:11px;padding:6px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:4px;color:#f0ede6;cursor:pointer">&#8635; Refresh</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="color:rgba(240,237,230,0.4);text-align:left;border-bottom:1px solid rgba(255,255,255,0.08)">
+        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">Athlete</th>
+        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">Email</th>
+        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">Type</th>
+        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">Access</th>
+        <th style="padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.08em">Comp</th>
+      </tr></thead>
+      <tbody id="athlete-comp-table"><tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Loading...</td></tr></tbody>
+    </table>
+    <div id="ath-comp-note" style="margin-top:6px;font-size:11px;color:rgba(240,237,230,0.4);line-height:1.6"></div>
+  </div>
   <div style="margin-top:32px"><div style="font-size:14px;font-weight:600;color:#f0ede6;margin-bottom:8px">Agent Activity<label style="font-size:11px;font-weight:400;color:rgba(240,237,230,0.5);margin-left:12px"><input type="checkbox" id="show-archived" onchange="loadAgentActivity()" style="vertical-align:middle"> Show archived</label></div>
   <table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:rgba(240,237,230,0.4);text-align:left">
   <th style="padding:6px 8px">Agent</th><th style="padding:6px 8px">Plan</th><th style="padding:6px 8px">Last login</th><th style="padding:6px 8px">Scans</th><th style="padding:6px 8px">Athletes</th><th style="padding:6px 8px">Outreach</th><th style="padding:6px 8px" title="Whether this agent has a connected mailbox to send from, and when they first connected one. A dash means no mailbox NOW: disconnecting deletes the row, so it cannot distinguish never-connected from later-disconnected.">Mailbox</th><th style="padding:6px 8px">Last active</th><th style="padding:6px 8px">Actions</th>
@@ -252,6 +277,115 @@ async function setComp(userId, comped) {
     if (u && row) { u.comped = comped; row.outerHTML = userRowHtml(u); }
   } else {
     showToast('Error: ' + (data.error || 'comp update failed'));
+  }
+}
+
+// ── Athlete comps ────────────────────────────────────────────────────────────
+// Mirrors userRowHtml / setComp / loadUsers above: same purple COMPED pill, same
+// button that flips label, same in-place row re-render after a toggle.
+var _athletesById = {};
+var _athSearchTimer = null;
+
+function athleteRowHtml(a) {
+  var comped = a.comped === true;
+  var sub = a.subscription_status || 'inactive';
+  // What the athlete's access actually rests on, in the same order athleteHasAccess
+  // checks it, so the column explains WHY rather than just showing a status.
+  // When comped, show what the athlete would fall back TO rather than the word
+  // "comped" -- the badge beside it already says that, and printing both gave
+  // every comped row a redundant "COMPED  Comped". This way the column answers
+  // "what happens if I un-comp them", which is the question you have while
+  // looking at an un-comp button.
+  var basis = comped ? [(a.athlete_type !== 'self_managed' ? 'their agent pays'
+      : a.free_before_billing ? 'grandfathered' : sub), '#a78bfa']
+    : a.athlete_type !== 'self_managed' ? ['their agent pays', '#60a5fa']
+    : a.free_before_billing ? ['grandfathered', '#4ade80']
+    : (sub === 'active' || sub === 'trialing' || sub === 'free') ? [sub, '#4ade80']
+    : [sub, '#6b7280'];
+  return '<tr id="arow-' + refEsc(a.id) + '" style="border-bottom:1px solid rgba(255,255,255,0.06)">' +
+    '<td style="padding:8px;color:#f0ede6">' + refEsc(a.name || '—') +
+      (a.school ? '<div style="font-size:10px;color:rgba(240,237,230,0.4)">' + refEsc(a.school) + (a.sport ? ' · ' + refEsc(a.sport) : '') + '</div>' : '') +
+    '</td>' +
+    '<td style="padding:8px;color:rgba(240,237,230,0.5)">' + refEsc(a.email || '—') + '</td>' +
+    '<td style="padding:8px;font-size:10px;color:rgba(240,237,230,0.5);text-transform:uppercase;letter-spacing:0.05em">' +
+      refEsc((a.athlete_type || 'unknown').replace('_', ' ')) + '</td>' +
+    '<td style="padding:8px">' +
+      '<span style="font-size:9px;color:' + basis[1] + ';text-transform:uppercase;letter-spacing:0.05em">' + refEsc(basis[0]) + '</span>' +
+      (comped ? '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:#a78bfa20;color:#a78bfa;font-weight:700;margin-left:6px;text-transform:uppercase">Comped</span>' : '') +
+    '</td>' +
+    '<td style="padding:8px">' +
+      '<button onclick="setAthleteComp(\'' + refEsc(a.id) + '\', ' + (comped ? 'false' : 'true') + ')" ' +
+      'style="background:' + (comped ? '#a78bfa30' : '#1a1a18') + ';border:1px solid ' + (comped ? '#a78bfa' : 'rgba(255,255,255,0.1)') +
+      ';border-radius:4px;color:' + (comped ? '#a78bfa' : '#f0ede6') + ';font-size:11px;padding:4px 8px;cursor:pointer">' +
+      (comped ? 'Un-comp' : 'Comp') + '</button>' +
+    '</td>' +
+  '</tr>';
+}
+
+async function setAthleteComp(athleteId, comped) {
+  try {
+    var r = await fetch('/api/admin/set-athlete-comp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: athleteId, comped: comped })
+    });
+    var data = await r.json();
+    if (data.ok) {
+      showToast(comped ? 'Athlete comped (free access, no card)' : 'Comp removed');
+      var a = _athletesById[athleteId];
+      var row = document.getElementById('arow-' + athleteId);
+      if (a && row) { a.comped = comped; row.outerHTML = athleteRowHtml(a); }
+      // The header count is now stale; refresh just that number.
+      var el = document.getElementById('ath-comp-count');
+      if (el) {
+        var n = Object.keys(_athletesById).filter(function (k) { return _athletesById[k].comped; }).length;
+        el.textContent = n + ' comped';
+      }
+    } else {
+      showToast('Error: ' + (data.error || 'comp update failed'));
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+async function loadAthleteComps() {
+  // Debounced: this runs on every keystroke in the search box.
+  clearTimeout(_athSearchTimer);
+  _athSearchTimer = setTimeout(_loadAthleteCompsNow, 200);
+}
+
+async function _loadAthleteCompsNow() {
+  var el = document.getElementById('athlete-comp-table');
+  if (!el) return;
+  var q = (document.getElementById('ath-search') || {}).value || '';
+  try {
+    var r = await fetch('/api/admin/athletes?q=' + encodeURIComponent(q.trim()));
+    if (!r.ok) { el.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">Failed to load</td></tr>'; return; }
+    var data = await r.json();
+    var list = data.athletes || [];
+    _athletesById = {};
+    list.forEach(function (a) { _athletesById[a.id] = a; });
+
+    var badge = document.getElementById('ath-comp-count');
+    if (badge) badge.textContent = (data.comped_total || 0) + ' comped';
+
+    var note = document.getElementById('ath-comp-note');
+    if (note) {
+      note.innerHTML = data.capped
+        ? 'Showing the first 50 matches. Narrow the search to see the rest.'
+        : (q.trim() ? list.length + ' match' + (list.length === 1 ? '' : 'es') + '.' : 'Most recent athletes, comped first. Search to find a specific one.')
+          + ' A comp grants full access with no card and survives anything Stripe writes.';
+    }
+
+    if (!list.length) {
+      el.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">'
+        + (q.trim() ? 'No athlete matches &ldquo;' + refEsc(q.trim()) + '&rdquo;' : 'No athletes yet') + '</td></tr>';
+      return;
+    }
+    el.innerHTML = list.map(athleteRowHtml).join('');
+  } catch (e) {
+    el.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:rgba(240,237,230,0.3)">' + refEsc(e.message) + '</td></tr>';
   }
 }
 
@@ -433,6 +567,8 @@ function showToast(msg) {
 setTimeout(loadUsers, 500);
 setTimeout(loadAgentActivity, 700);
 setTimeout(loadFunnel, 900);
+// Straight to the loader, not the debounced wrapper: nothing has been typed yet.
+setTimeout(_loadAthleteCompsNow, 1100);
 
 var _funnelOpen = null;
 function esc(s) {
