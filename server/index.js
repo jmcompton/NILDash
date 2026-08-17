@@ -149,9 +149,25 @@ app.post('/api/athlete/stripe-webhook', express.raw({ type: 'application/json' }
     const agentUserId = session.metadata && session.metadata.user_id;
     if (agentUserId) {
       try {
-        // Agent signups start in a trial, so land as 'trialing'. The
-        // customer.subscription.* events below keep the status in sync afterward
-        // (trialing -> active -> past_due -> canceled).
+        // KNOWN DEFECT (deliberately left in place, 2026-08) — writes 'trialing'
+        // for a subscription that has no trial. createAgentCheckoutSession passes
+        // no trial_period_days (see the comment at that call), so an agent who
+        // checks out is 'active' at Stripe from the first minute. Stripe does not
+        // guarantee event order, so when this event lands after
+        // customer.subscription.created it overwrites a correct 'active' with
+        // 'trialing'.
+        //
+        // Not an access bug: agentHasAccess grants on trialing AND active, and both
+        // the stripe-complete redirect and the requireAgentSubscription self-heal
+        // re-read the real status from Stripe, so it usually corrects itself. It IS
+        // a reporting bug -- the admin list and any revenue read can show a paying
+        // agent as trialing.
+        //
+        // The fix is to read the real status here the way stripe-complete does
+        // (retrieve the subscription, use sub.status) rather than hardcoding, or to
+        // drop this write entirely and let customer.subscription.* own the column.
+        // STRIPE_AGENT_TRIAL_DAYS / AGENT_TRIAL_DAYS is dead alongside this: it now
+        // feeds only the Stripe-not-configured dev fallback in /api/auth/signup.
         await store.pool.query(
           `UPDATE users SET stripe_subscription_id = $1, subscription_status = 'trialing' WHERE id = $2`,
           [session.subscription || null, agentUserId]
@@ -8979,7 +8995,12 @@ try {
 // scan is held to.
 try {
   const assistantRoutes = require('./routes/assistant');
-  app.use('/api/assistant', requireAuth, aiLimiter, assistantRoutes);
+  // Subscription-gated like every other model-spending route. The assistant runs a
+  // full conversation per session and is the most expensive thing an agent can
+  // touch, so it was the largest hole in the paywall while it sat on requireAuth
+  // alone. requireAgentSubscription comes AFTER requireAuth because it defers to it
+  // when there is no session.
+  app.use('/api/assistant', requireAuth, requireAgentSubscription, aiLimiter, assistantRoutes);
   console.log('[assistant] routes loaded');
 } catch (e) {
   console.warn('[assistant] failed to load:', e.message);
@@ -10374,7 +10395,9 @@ const pdfScanUpload = multer({
   },
 });
 
-app.post('/api/pdf/analyze', requireAuth, aiLimiter, pdfScanUpload.single('pdf'), async (req, res) => {
+// Gated: this sends the whole uploaded document to Opus, so it spends real tokens
+// per call and belongs behind the same check as the other AI routes.
+app.post('/api/pdf/analyze', requireAuth, requireAgentSubscription, aiLimiter, pdfScanUpload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const { buffer, mimetype, originalname } = req.file;
@@ -12121,7 +12144,12 @@ app.get('/api/athlete/home-data', verifyAthleteToken, async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════
 
 // POST /api/agent/daily-brief — AI-generated morning brief for agents
-app.post('/api/agent/daily-brief', requireAuth, aiLimiter, async (req, res) => {
+// Gated: calls ai.oneShot, so it spends tokens per request like the rest. It sat on
+// requireAuth alone under the ungated /api/agent prefix, and the home page calls it
+// on every load, so an unsubscribed agent generated a brief every time they opened
+// the app. Found by the paywall invariant test alongside /api/assistant and
+// /api/pdf/analyze -- same defect, same fix.
+app.post('/api/agent/daily-brief', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
   try {
     const agentId = req.session.userId;
 

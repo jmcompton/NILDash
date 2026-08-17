@@ -1064,7 +1064,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
 #mktLanding .acards{max-width:680px;margin:34px auto 0;display:flex;flex-direction:column;gap:14px}
 #mktLanding .ac{display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;transition:.15s}
 #mktLanding .ac:hover{border-color:var(--accent);transform:translateY(-1px)}
-#mktLanding .ac .ico{width:42px;height:42px;border-radius:10px;background:rgba(200,241,53,.1);color:var(--accent);display:flex;align-items:center;justify-content:center;font-family:'Syne';font-weight:800;flex:0 0 auto}
+/* Two-letter monograms now that there are three audiences and Agent/Athlete both
+   start with A. Sized down and tracked out so the pair reads as a deliberate mark
+   rather than a single letter that overflowed its tile. */
+#mktLanding .ac .ico{width:42px;height:42px;border-radius:10px;background:rgba(200,241,53,.1);color:var(--accent);display:flex;align-items:center;justify-content:center;font-family:'Syne';font-weight:800;font-size:13px;letter-spacing:.06em;flex:0 0 auto}
 #mktLanding .ac .t{font-family:'Syne';font-weight:700;font-size:18px}
 #mktLanding .ac .d{color:var(--muted);font-size:14px;margin-top:3px}
 #mktLanding .ac .arr{margin-left:auto;color:var(--accent);font-size:20px}
@@ -1119,10 +1122,16 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div class="what">Run a roster of clients. Find brands, find the decision maker, send the pitch, track the deal.</div>
         <div class="cost">$99<span>/month</span></div>
       </a>
-      <a class="audcard" id="for-athletes" href="/athlete-signup">
+      <!-- Free, and /athletes rather than /athlete-signup. The athlete portal has
+           no paywall: BILLING_ENABLED is off, so verify-email hands out permanent
+           free access, and athletes.html has always said "no card required". The
+           $25 here was the only place claiming otherwise. /athlete-signup is the
+           INVITE page and dead-ends without a ?token from an agent; /athletes is
+           the self-serve one. -->
+      <a class="audcard" id="for-athletes" href="/athletes">
         <div class="who">Athletes</div>
         <div class="what">Represent yourself. Your own deal scans, media kit, and outreach, without an agent taking a cut.</div>
-        <div class="cost">$25<span>/month</span></div>
+        <div class="cost">Free<span>no card required</span></div>
       </a>
       <a class="audcard" id="for-teams" href="#contact-teams">
         <div class="who">Teams and leagues</div>
@@ -1294,8 +1303,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
     </div>
     <div class="pcard">
       <div class="ptag">Athlete</div>
-      <div class="price">$25<span>/month</span></div>
-      <div class="mono" style="color:var(--accent);font-size:13px;margin-top:8px">Cancel anytime. No contract.</div>
+      <div class="price">Free<span>no card required</span></div>
+      <div class="mono" style="color:var(--accent);font-size:13px;margin-top:8px">Free while you are in college.</div>
       <ul>
         <li><span class="ck">&#10003;</span> Your own deal scans and contact lookups</li>
         <li><span class="ck">&#10003;</span> AI outreach in your own voice</li>
@@ -1303,7 +1312,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <li><span class="ck">&#10003;</span> Your deals tracked end to end</li>
         <li><span class="ck">&#10003;</span> No agent, and no cut of what you close</li>
       </ul>
-      <a class="btn ghost" href="/athlete-signup" style="width:100%;justify-content:center">Start as an athlete &#8594;</a>
+      <a class="btn ghost" href="/athletes" style="width:100%;justify-content:center">Start as an athlete &#8594;</a>
     </div>
     <div class="pcard">
       <div class="ptag">Teams and leagues</div>
@@ -1332,15 +1341,31 @@ tbody td{padding:11px 14px;vertical-align:middle}
   <p>Team and league pricing depends on roster size and what you need visibility into, so it is a conversation rather than a number on a page. Email <a href="mailto:hello@mynildash.com?subject=Team%20pricing" style="color:var(--accent);text-decoration:underline">hello@mynildash.com</a> and tell us how many athletes you cover.</p>
 </div></section>
 
+<!-- Three ways in, matching the three audience cards in the hero. This section
+     said "Built for sports agents" and offered only the agent card, which was
+     left from when the site spoke to agents alone. Each row goes where that
+     audience actually signs up: agents into the in-page auth panel, athletes to
+     the self-serve /athletes portal, teams to the contact section (there is no
+     team product to check out, so "talk to us" is the honest destination). -->
 <section id="signin"><div class="wrap">
   <div class="sechead">
     <span class="eyebrow">Get started</span>
-    <h2>Built for sports agents.</h2>
+    <h2>Pick the one that is you.</h2>
   </div>
   <div class="acards">
     <a class="ac" href="#" onclick="mktOpenAuth('agent');return false">
-      <span class="ico">A</span>
-      <div><div class="t">Agent</div><div class="d">Manage your client roster, deals, and commissions. Get started today.</div></div>
+      <span class="ico">AG</span>
+      <div><div class="t">Agent</div><div class="d">Run a roster of clients. Find brands, reach the decision maker, track every deal. $99/month.</div></div>
+      <span class="arr">&#8594;</span>
+    </a>
+    <a class="ac" href="/athletes">
+      <span class="ico">AT</span>
+      <div><div class="t">Athlete</div><div class="d">Represent yourself, with your own scans, media kit, and outreach. Free, no card required.</div></div>
+      <span class="arr">&#8594;</span>
+    </a>
+    <a class="ac" href="#contact-teams">
+      <span class="ico">TM</span>
+      <div><div class="t">Team or league</div><div class="d">Cover a whole roster, with program contacts and compliance visibility across every athlete.</div></div>
       <span class="arr">&#8594;</span>
     </a>
   </div>
