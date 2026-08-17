@@ -127,7 +127,11 @@ body::before{display:none}
 .auth-wordmark{font-family:'DM Sans',sans-serif;font-size:18px;font-weight:900;letter-spacing:-0.02em;color:#ffffff;margin-bottom:16px}
 .auth-wordmark span{color:#16a34a}
 .auth-wordmark-sep{width:40px;height:2px;background:#16a34a;margin-bottom:44px}
-.auth-headline{font-family:'DM Sans',sans-serif;font-size:clamp(48px,5.2vw,78px);font-weight:900;line-height:0.93;color:#ffffff;letter-spacing:-0.04em;margin-bottom:28px}
+/* Set for a sentence, not four words. At the old 78px the hero line ran to seven
+   in this 520px column, the same way it did in the landing hero. The accent green
+   is this screen's (#16a34a), not the landing's lime -- same split, local palette. */
+.auth-headline{font-family:'DM Sans',sans-serif;font-size:clamp(30px,3.1vw,42px);font-weight:900;line-height:1.05;color:#ffffff;letter-spacing:-0.03em;margin-bottom:24px}
+.auth-headline .a{color:#16a34a}
 .auth-tagline{font-size:15px;color:#9ca3af;line-height:1.7;max-width:420px;margin-bottom:52px}
 .auth-stats{display:flex;gap:40px;margin-bottom:52px}
 .auth-stat-val{font-family:'DM Sans',sans-serif;font-size:21px;font-weight:800;color:#ffffff;letter-spacing:-0.02em;margin-bottom:5px}
@@ -1421,23 +1425,32 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="auth-left-inner">
       <div class="auth-wordmark"><img src="/images/nildash-logo-header.png" alt="NILDash" style="height:48px;width:auto;"></div>
       <div class="auth-wordmark-sep"></div>
-      <h1 class="auth-headline">NIL IS A<br>BUSINESS.<br>RUN IT<br>LIKE ONE.</h1>
-      <p class="auth-tagline">The only platform built for athletes, parents, and agents to price, track, negotiate, and close NIL deals — all in one place.</p>
+      <!-- This is one click from Get started, so it says what the hero said. It
+           used to carry the category headline ("NIL IS A BUSINESS"), the industry
+           stat ($2.3B market size) and an "only platform" claim -- all of which the
+           landing page dropped, and all of which contradicted the page the visitor
+           had just read. Headline, sub and the three numbers are the hero's, and
+           the numbers are ours: counted from _CONTACT_SOURCES and the program map,
+           not from an industry report about somebody else's market. -->
+      <h1 class="auth-headline">Find the local business.<br><span class="a">And the person who can say yes.</span></h1>
+      <p class="auth-tagline">Any tool can list brands. NILDash searches seven sources to find the owner or manager behind one, tells you how to reach them, and is honest when there is no direct line. Then it writes the outreach and tracks the deal.</p>
       <div class="auth-stats">
         <div class="auth-stat">
-          <div class="auth-stat-val">$2.3B+</div>
-          <div class="auth-stat-label">NIL Market Size</div>
+          <div class="auth-stat-val">7</div>
+          <div class="auth-stat-label">Sources per contact lookup</div>
         </div>
         <div class="auth-stat">
-          <div class="auth-stat-val">AI-Powered</div>
-          <div class="auth-stat-label">Deal Valuations</div>
+          <div class="auth-stat-val">119</div>
+          <div class="auth-stat-label">Football programs mapped</div>
         </div>
         <div class="auth-stat">
-          <div class="auth-stat-val">All-in-One</div>
-          <div class="auth-stat-label">Deal Management</div>
+          <div class="auth-stat-val">126</div>
+          <div class="auth-stat-label">Men&rsquo;s basketball programs mapped</div>
         </div>
       </div>
-      <div class="auth-trust">Trusted by sports agents and athletes nationwide</div>
+      <!-- "Trusted by sports agents and athletes nationwide" was an unverifiable
+           claim of the same family as the ones above. This one is checkable. -->
+      <div class="auth-trust">Cancel the agent plan anytime. No contract.</div>
     </div>
   </div>
 
