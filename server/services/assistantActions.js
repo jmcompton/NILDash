@@ -304,10 +304,34 @@ function toolDefs() {
 
 function isKnownAction(name) { return Object.prototype.hasOwnProperty.call(ACTIONS, name); }
 
-async function _ownsAthlete(agentId, athleteId) {
+// THE ownership control. An agent owns the athletes on their roster; an athlete
+// owns exactly one row -- themselves -- and the check is identity, not a query, so
+// there is no filter to get subtly wrong and no way for another id to satisfy it.
+//
+// A self-managed athlete has agent_id NULL, so running the agent query for an
+// athlete principal would never match anything; without this branch the assistant
+// would refuse every action she took on her own data.
+async function _ownsAthlete(principal, athleteId) {
+  if (principal && principal.kind === 'athlete') return String(athleteId) === String(principal.id);
+  const agentId = principal && principal.id;
   const r = await pool.query('SELECT 1 FROM athletes WHERE id=$1 AND agent_id=$2', [athleteId, agentId]);
   return r.rowCount > 0;
 }
+
+// What an athlete may ask the assistant to do. DEFAULT DENY: anything not named
+// here is refused for an athlete even if the model asks for it, so a new action
+// added later is closed to athletes until someone decides otherwise.
+//
+// add_athlete and delete_athlete are absent because an athlete has no roster;
+// update_deal is absent because it edits agent-side deal records.
+const ATHLETE_ALLOWED_ACTIONS = new Set([
+  'run_deal_scan',    // her own scan, scoped by the ownership check above
+  'open_tab',         // navigation only
+  'lookup_program',   // read-only, keyed by sport and school
+  'build_media_kit',  // her own kit
+  'send_outreach',    // her own outreach, confirm-tier
+  'connect_gmail',    // her own mailbox
+]);
 
 /**
  * Resolve one tool call from the model into something the browser may do.
@@ -322,9 +346,17 @@ async function _ownsAthlete(agentId, athleteId) {
  */
 async function resolveCall(name, rawArgs, ctx) {
   const { agentId, session } = ctx;
+  // An older caller that passes no principal is treated as an agent, which is what
+  // it was before principals existed. Athlete scope is never assumed by default.
+  const principal = ctx.principal || { kind: 'agent', id: agentId };
   if (!isKnownAction(name)) {
-    console.warn(`[assistant] agent=${agentId} UNKNOWN action "${name}" dropped`);
+    console.warn(`[assistant] ${principal.kind}=${agentId} UNKNOWN action "${name}" dropped`);
     return { ok: false, message: 'That is not something I can do.' };
+  }
+  // Default deny for athletes, checked before anything else runs.
+  if (principal.kind === 'athlete' && !ATHLETE_ALLOWED_ACTIONS.has(name)) {
+    console.warn(`[assistant] athlete=${principal.id} action=${name} REFUSED: not available to athletes`);
+    return { ok: false, message: 'That is not something I can do from your account.' };
   }
   const action = ACTIONS[name];
   const args0 = (rawArgs && typeof rawArgs === 'object') ? rawArgs : {};
@@ -335,10 +367,12 @@ async function resolveCall(name, rawArgs, ctx) {
 
   // Ownership is re-derived from the session, never trusted from the model.
   if (action.ownsAthlete) {
-    const owns = await _ownsAthlete(agentId, args.athleteId);
+    const owns = await _ownsAthlete(principal, args.athleteId);
     if (!owns) {
-      console.warn(`[assistant] agent=${agentId} action=${name} REFUSED: athlete ${args.athleteId} is not theirs`);
-      return { ok: false, message: 'I cannot find that athlete on your roster.' };
+      console.warn(`[assistant] ${principal.kind}=${principal.id} action=${name} REFUSED: athlete ${args.athleteId} is not theirs`);
+      return { ok: false, message: principal.kind === 'athlete'
+        ? 'I can only work with your own account.'
+        : 'I cannot find that athlete on your roster.' };
     }
   }
 
@@ -393,7 +427,13 @@ async function mintPending(agentId, sessionId, name, args) {
  * against their own hash so a row edited between mint and redeem cannot change what
  * gets done.
  */
-async function redeemPending(agentId, token) {
+// principal is threaded here too. The token row is already bound to the owner id,
+// so redemption is scoped correctly either way -- but the ownership RECHECK below
+// runs at execution time, and passing a bare id where a principal is expected would
+// make principal.kind undefined and send an athlete down the agent query, refusing
+// her own confirmed action.
+async function redeemPending(agentId, token, principal) {
+  principal = principal || { kind: 'agent', id: agentId };
   if (!token || typeof token !== 'string') return { ok: false, message: 'Nothing to confirm.' };
   const r = await pool.query(
     `UPDATE assistant_pending_actions
@@ -417,8 +457,10 @@ async function redeemPending(agentId, token) {
   }
   // Ownership is checked AGAIN at execution, not only at mint time: the roster can
   // change in the ten minutes a token is alive.
-  if (action.ownsAthlete && !(await _ownsAthlete(agentId, args.athleteId))) {
-    return { ok: false, message: 'I cannot find that athlete on your roster any more.' };
+  if (action.ownsAthlete && !(await _ownsAthlete(principal, args.athleteId))) {
+    return { ok: false, message: principal.kind === 'athlete'
+      ? 'I can only work with your own account.'
+      : 'I cannot find that athlete on your roster any more.' };
   }
   console.log(`[assistant] agent=${agentId} action=${row.action} CONFIRMED by the agent, executing`);
   return { ok: true, action: row.action, directive: action.directive(args) };

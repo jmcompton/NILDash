@@ -5113,10 +5113,56 @@ app.get('/api/athlete/me', verifyAthleteToken, async (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 
 // POST /api/athlete/self-signup — public, creates unverified athlete + sends verification email
+// POST /api/athlete/social-preview — the signup-time Instagram lookup.
+//
+// PUBLIC BY NECESSITY: this runs on the signup form, before the athlete has an
+// account, so there is no session and no JWT to check. That shapes it:
+//
+//   · LANE 1 ONLY. The agent route falls back to an AI web search when the direct
+//     page fetch misses. That search costs money per call, and an unauthenticated
+//     endpoint that spends money on demand is a bill waiting to happen. The free,
+//     exact Instagram page lookup is offered here; the paid lane stays behind auth.
+//   · NOTHING IS WRITTEN. No athlete row exists yet, so this only reads and returns.
+//   · Rate limited by IP, same limiter the agent lookup uses.
+//
+// It returns the same field names as the agent route so the two forms can render
+// identical helper text, including engagement_suggestion -- which is the whole point
+// here, because lane 1 never yields an engagement rate and the form must say so
+// rather than leaving the field silently empty.
+app.post('/api/athlete/social-preview', authLimiter, statsLimiter, async (req, res) => {
+  try {
+    const handle = normalizeHandle(req.body.instagramHandle);
+    if (!handle) return res.status(400).json({ error: 'instagramHandle required' });
+    const page = await fetchInstagramPageMeta(handle);
+    const followers = page && page.followers !== null ? page.followers : null;
+    const posts = page && page.posts != null ? page.posts : null;
+    console.log(`[social-preview] @${handle} -> ${followers === null ? 'miss' : followers + ' followers'}`);
+    res.json({
+      handle,
+      followers,
+      posts,
+      // Always null on this route: the Instagram page carries followers, following
+      // and posts, and no engagement figure at all. Stated explicitly rather than
+      // omitted so the caller does not read an absent key as "not looked up".
+      engagement_rate: null,
+      followers_source: followers === null ? null : 'instagram_page',
+      engagement_source: null,
+      engagement_suggestion: engagementSuggestion(followers === null ? NaN : followers),
+      source: followers === null ? null : 'Instagram profile page metadata',
+      confidence: followers === null ? 'low' : 'high',
+      found: followers !== null,
+    });
+  } catch (e) {
+    console.error('[social-preview]', e.message);
+    res.status(500).json({ error: 'Lookup failed. You can enter your numbers by hand.' });
+  }
+});
+
 app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
   try {
     const { name, email, password, school, sport, position,
-            instagram_followers, tiktok_followers, twitter_followers } = req.body;
+            instagram_followers, tiktok_followers, twitter_followers,
+            instagram_handle, engagement } = req.body;
 
     if (!name || !email || !password || !school || !sport)
       return res.status(400).json({ error: 'Name, email, password, school, and sport are required.' });
@@ -5168,7 +5214,16 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
                  'inactive', $7, $8, $9, FALSE, NOW(), NOW())`,
         [
           athleteId,
-          JSON.stringify({ name, sport, school, position: position || null }),
+          // engagement lives in the data JSON because that is where nilViewVal reads
+          // it from (athlete.engagement). Stored only when a real number was given:
+          // a null here means "not provided", which is what the Rate Calculator's
+          // 3% assumption is standing in for, and writing 0 would be a claim.
+          JSON.stringify({
+            name, sport, school, position: position || null,
+            instagramHandle: instagram_handle || null,
+            engagement: (Number.isFinite(parseFloat(engagement)) && parseFloat(engagement) > 0)
+              ? parseFloat(engagement) : null,
+          }),
           normalizedEmail,
           passwordHash,
           verifyToken,
@@ -9425,7 +9480,31 @@ try {
   // touch, so it was the largest hole in the paywall while it sat on requireAuth
   // alone. requireAgentSubscription comes AFTER requireAuth because it defers to it
   // when there is no session.
-  app.use('/api/assistant', requireAuth, requireAgentSubscription, aiLimiter, assistantRoutes);
+  // TWO DOORS, ONE ASSISTANT. An agent arrives with a session cookie and is held to
+  // requireAgentSubscription; an athlete arrives with the same JWT the rest of her
+  // portal uses and is held to requireAthleteSubscription. Whichever credential was
+  // presented decides the scope, and the route module reads req.principal rather
+  // than the session, so an athlete can never be mistaken for an agent.
+  //
+  // The session is checked FIRST and wins, which keeps agent behavior byte-for-byte
+  // what it was: an agent request never reaches the athlete branch.
+  function assistantAuth(req, res, next) {
+    if (req.session && req.session.userId) {
+      return requireAgentSubscription(req, res, next);
+    }
+    const auth = req.headers.authorization || '';
+    if (auth.startsWith('Bearer ')) {
+      return verifyAthleteToken(req, res, function () {
+        // req.athlete is set by verifyAthleteToken from the signed token. Handing the
+        // id to the route through its own field keeps the principal's origin explicit.
+        req.athletePrincipalId = req.athlete && req.athlete.id;
+        if (!req.athletePrincipalId) return res.status(401).json({ error: 'Not authenticated' });
+        return requireAthleteSubscription(req, res, next);
+      });
+    }
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  app.use('/api/assistant', assistantAuth, aiLimiter, assistantRoutes);
   console.log('[assistant] routes loaded');
 } catch (e) {
   console.warn('[assistant] failed to load:', e.message);

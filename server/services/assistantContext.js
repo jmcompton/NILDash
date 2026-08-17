@@ -19,8 +19,59 @@ const NO_REPLY_DAYS = 7;
  * Read the agent's real position. Every number comes from a table that already
  * exists; nothing here is estimated.
  */
-async function readContext(agentId) {
+
+// The athlete-shaped context. Same field names as the agent one so contextBlock and
+// the state briefs need no athlete branch -- only the meanings differ: `athletes` is
+// 1 (herself), and the counts are her own.
+async function readAthleteContext(athleteId, t0) {
+  const [q, me] = await Promise.all([
+    pool.query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM athlete_activity_log
+          WHERE athlete_id = $1 AND activity_type = 'deal_scan') AS scans,
+        (SELECT COUNT(*)::int FROM athlete_brand_outreach WHERE athlete_id = $1) AS sent,
+        (SELECT MAX(created_at) FROM athlete_brand_outreach WHERE athlete_id = $1) AS last_sent_at,
+        (SELECT COUNT(*)::int FROM athlete_self_deals
+          WHERE athlete_id = $1 AND stage NOT IN ('Completed','Lost')) AS pipeline
+    `, [athleteId]).catch(() => ({ rows: [{}] })),
+    // An athlete's mailbox is columns ON the athletes row (gmail_refresh_token /
+    // gmail_address), NOT a row in email_accounts -- that table keys on user_id and
+    // has no athlete_id at all, so the obvious subquery throws and the catch below
+    // would have swallowed her name and sport with it.
+    pool.query(
+      `SELECT id, data->>'name' AS name, data->>'sport' AS sport, data->>'school' AS school,
+              gmail_refresh_token IS NOT NULL AS gmail_connected, gmail_address
+         FROM athletes WHERE id = $1`, [athleteId]).catch(() => ({ rows: [] })),
+  ]);
+  const c = q.rows[0] || {};
+  const m = me.rows[0] || {};
+  const daysSinceSent = c.last_sent_at
+    ? Math.floor((Date.now() - new Date(c.last_sent_at).getTime()) / 86400000)
+    : null;
+  return {
+    agentName: m.name || null,          // her own name; the prompt addresses the caller
+    athletes: m.id ? 1 : 0,
+    scans: c.scans || 0,
+    sent: c.sent || 0,
+    replies: 0,                          // athlete outreach has no reply tracking yet
+    pipeline: c.pipeline || 0,
+    gmailConnected: m.gmail_connected === true,
+    mailboxAddress: m.gmail_address || null,
+    daysSinceSent,
+    roster: m.id ? [{ id: m.id, name: m.name, sport: m.sport, school: m.school }] : [],
+    isAthlete: true,
+    _ms: Date.now() - t0,
+  };
+}
+
+async function readContext(agentId, principal) {
   const t0 = Date.now();
+  // An athlete is not an agent with a roster of one. Every query below keys on
+  // agent_id, and a self-managed athlete's agent_id is NULL -- so running them for
+  // an athlete returns zeroes across the board and the assistant greets her with
+  // "0 athletes, 0 scans, no mailbox", which is wrong about her account rather than
+  // merely unhelpful. Her context is read from her own rows instead.
+  if (principal && principal.kind === 'athlete') return readAthleteContext(principal.id, t0);
   // BOTH QUERIES AT ONCE. They share nothing but the agent id, so running the roster
   // read after the counts finished was one round trip of latency bought for nothing.
   const [q, rr] = await Promise.all([

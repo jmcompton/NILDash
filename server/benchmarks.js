@@ -342,7 +342,19 @@ function nilViewVal(athlete, deliverableType) {
   const ig  = athlete.instagram || 0;
   const tt  = athlete.tiktok || 0;
   const totalReach = ig + tt;
-  const er  = parseFloat(athlete.engagement) || 3.0;
+  // ENGAGEMENT IS NOT GUESSED. This used to read `|| 3.0`, which silently invented
+  // a rate whenever one was not on file -- and 3.0 is not a neutral stand-in: the
+  // multiplier band is scaled against a 4.8 platform average, so 3.0 lands on 0.80
+  // and produced a quote about a THIRD lower than the same athlete at average
+  // engagement. The number came out low, said nothing about why, and still reported
+  // a 94 confidence score because the data-completeness tally counted the invented
+  // value as real data.
+  //
+  // Now: unknown means unknown. No multiplier is applied, the range widens, the
+  // confidence score is withheld, and a limitation line says so.
+  const erRaw = parseFloat(athlete.engagement);
+  const erKnown = Number.isFinite(erRaw) && erRaw > 0;
+  const er  = erKnown ? erRaw : null;
   const sport = (athlete.sport || 'basketball').toLowerCase();
   const tier  = athlete.schoolTier || 'mid-mid';
   const position = athlete.position || '';
@@ -363,7 +375,8 @@ function nilViewVal(athlete, deliverableType) {
       const statsMul   = MARKET_RATES.statsMultiplier(athlete);
       const posMult    = MARKET_RATES.getPositionMultiplier(position);
       const acadMul    = MARKET_RATES.academicMultiplier(athlete.gpa);
-      const erMult     = MARKET_RATES.engagementMultiplier(er);
+      // 1.0 is the identity, i.e. NO adjustment either way -- not an assumed rate.
+      const erMult     = erKnown ? MARKET_RATES.engagementMultiplier(er) : 1.0;
       const marketMult = MARKET_RATES.getMarketMultiplier(school);
 
       // For flat fee, only use the performance-related mults (not reach-based)
@@ -376,7 +389,9 @@ function nilViewVal(athlete, deliverableType) {
 
       const dataScore = (ig > 0 ? 18 : 0) + (tier && tier !== 'mid-mid' ? 22 : 10) +
         (position ? 16 : 0) + (school ? 12 : 0) + (athlete.ppg ? 8 : 0) + (athlete.gpa ? 5 : 0) + 5;
-      const confidenceScore = Math.max(42, Math.min(95, dataScore));
+      // Withheld entirely when engagement is unknown. Reporting a reduced number
+      // would still be asserting a confidence in an estimate built on a hole.
+      const confidenceScore = erKnown ? Math.max(42, Math.min(95, dataScore)) : null;
 
       const sponsorCategories = getSponsorshipCategories(athlete, sport, totalReach, er, tier, posMult);
       const brandPartnershipTypes = getBrandPartnershipTypes(totalReach, er, tier, sport);
@@ -390,7 +405,8 @@ function nilViewVal(athlete, deliverableType) {
         draftMult: draftMul, statsMult: statsMul,
         valuePerView: '0.00000', accuracyScore: confidenceScore,
         marketabilityScore: mkt, sponsorshipReadiness: spr, audienceQuality: aq,
-        confidenceScore, sponsorCategories, brandPartnershipTypes,
+        confidenceScore, engagementKnown: erKnown,
+        sponsorCategories, brandPartnershipTypes,
         breakdown: {
           reach: totalReach, sportMult: sportMult.toFixed(2),
           schoolMult: MARKET_RATES.schoolMultiplier[tier]?.toFixed(2) || '0.83',
@@ -409,7 +425,7 @@ function nilViewVal(athlete, deliverableType) {
 
   // ── SOCIAL / CPM PATH ────────────────────────────────────────────────────
   const cpm        = MARKET_RATES.seasonalCPM(sport);
-  const erMult     = MARKET_RATES.engagementMultiplier(er);
+  const erMult     = erKnown ? MARKET_RATES.engagementMultiplier(er) : 1.0;   // identity, not an assumption
   const schoolMult = MARKET_RATES.schoolMultiplier[tier] || 0.75;
   const sportMult  = MARKET_RATES.sportMultiplier[sport] || 1.0;
   const posMult    = MARKET_RATES.getPositionMultiplier(position);
@@ -461,10 +477,11 @@ function nilViewVal(athlete, deliverableType) {
   const valuePerPost = valuePerView * avgViews;
 
   const dataScore =
-    (ig > 0 ? 24 : 0) + (tt > 0 ? 15 : 0) + (er > 0 ? 20 : 0) +
+    (ig > 0 ? 24 : 0) + (tt > 0 ? 15 : 0) + (erKnown ? 20 : 0) +
     (tier && tier !== 'mid-mid' ? 18 : 8) + (position ? 14 : 0) +
     (school ? 10 : 0) + (athlete.ppg ? 8 : 0) + (athlete.gpa ? 5 : 0) + 3;
   const confidenceScore = Math.max(42, Math.min(97, dataScore));
+  const reportedConfidence = erKnown ? confidenceScore : null;   // withheld, see above
 
   // ── Social floor rates anchored to real market data ──────────────────────
   // Source: TrueBlueTV: 1K-10K=$50-250/post, 10K-100K=$250-2500, 100K+=$2500-25K+
@@ -491,7 +508,12 @@ function nilViewVal(athlete, deliverableType) {
   const floorMid  = Math.round(floor.mid  * delivMult);
   const floorHigh = Math.round(floor.high * delivMult);
 
-  const rangeFactor = confidenceScore >= 80 ? 0.70 : confidenceScore >= 60 ? 0.65 : 0.55;
+  // A missing engagement rate widens the range rather than moving it. rangeFactor
+  // is the fraction of the midpoint the low end sits at, so SUBTRACTING widens both
+  // ends symmetrically: the quote stays centred on what the known inputs support and
+  // simply admits to being less certain.
+  const baseRangeFactor = confidenceScore >= 80 ? 0.70 : confidenceScore >= 60 ? 0.65 : 0.55;
+  const rangeFactor = erKnown ? baseRangeFactor : Math.max(0.40, baseRangeFactor - 0.18);
   const rawLow  = Math.round(valuePerPost * rangeFactor);
   const rawMid  = Math.round(valuePerPost);
   const rawHigh = Math.round(valuePerPost * (2.0 - rangeFactor));
@@ -520,9 +542,10 @@ function nilViewVal(athlete, deliverableType) {
     low: finalLow, mid: finalMid, high: finalHigh,
     floorApplied, recommendation, archetypeScore,
     draftMult: draftMul, statsMult: statsMul,
-    valuePerView: valuePerView.toFixed(5), accuracyScore: confidenceScore,
+    valuePerView: valuePerView.toFixed(5), accuracyScore: reportedConfidence,
     marketabilityScore: mkt, sponsorshipReadiness: spr, audienceQuality: aq,
-    confidenceScore, sponsorCategories, brandPartnershipTypes,
+    confidenceScore: reportedConfidence, engagementKnown: erKnown,
+    sponsorCategories, brandPartnershipTypes,
     breakdown: {
       reach: totalReach, cpm: cpm.toFixed(2),
       sportMult: sportMult.toFixed(2), schoolMult: schoolMult.toFixed(2),
@@ -549,7 +572,12 @@ function calcCompositeScores(ig, tt, totalReach, er, sport, sportMult, posMult, 
   else if (totalReach >= 50000)   mkt += 16; else if (totalReach >= 25000)   mkt += 11;
   else if (totalReach >= 10000)   mkt += 7;  else if (totalReach >= 5000)    mkt += 4;
   else mkt += 1;
-  if (er >= 15) mkt += 20; else if (er >= 10) mkt += 16; else if (er >= 7) mkt += 12;
+  // er is null when not on file. Falling through this chain would land on the
+  // lowest band and score her as if her engagement were poor, which is the same
+  // fault as assuming it was fine, just pointed the other way. An unknown gets the
+  // mid band: no reward, no penalty. The RATE itself applies no multiplier at all.
+  if (er === null || er === undefined) mkt += 5;
+  else if (er >= 15) mkt += 20; else if (er >= 10) mkt += 16; else if (er >= 7) mkt += 12;
   else if (er >= 5) mkt += 8; else if (er >= 3) mkt += 5; else mkt += 2;
   if (ig > 0 && tt > 0) mkt += 5; else if (ig > 0 || tt > 0) mkt += 2;
   if (sportMult >= 1.50) mkt += 12; else if (sportMult >= 1.38) mkt += 9;
@@ -837,6 +865,10 @@ function generateRateLimitations(athlete, rate, compCount) {
   if (reach < 10000)                          limits.push('Building social reach — local partnerships most accessible');
   else if (reach < 25000 && er < 5)          limits.push('Growing audience tier — micro-market most viable');
   if (er < 3 && er > 0)                      limits.push('Engagement trending below platform average');
+  // THE DISCLOSURE. Stated first-class, not implied by the absence of a number:
+  // without it, a range built with no engagement input looked exactly like one
+  // built with a measured rate.
+  if (!er)                                    limits.push('Engagement rate not on file — no engagement adjustment applied, and the range is widened to reflect that');
   if (!ig)                                    limits.push('Instagram data not yet on file');
   if (!tt)                                    limits.push('Single-platform presence — TikTok data not on file');
   if (tier && !tier.startsWith('p4') && !tier.startsWith('highmajor'))

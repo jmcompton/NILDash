@@ -5062,6 +5062,18 @@ var ATHLETE_ROUTE_MAP = [
   [/^\/api\/programs\//,                      '/api/athlete/programs/'],
 ];
 
+// Paths that keep their URL but still need the athlete's bearer token. The
+// assistant is the case: /api/assistant/* is the same route for both callers and
+// the server decides scope from the credential, so there is nothing to rewrite --
+// but without this the request went out with no Authorization header at all and
+// came back "Not authenticated", which is what an athlete saw when she opened it.
+var ATHLETE_AUTH_PASSTHROUGH = [
+  /^\/api\/assistant\//,
+];
+function needsAthleteAuth(path) {
+  return ATHLETE_AUTH_PASSTHROUGH.some(function (rx) { return rx.test(path); });
+}
+
 function mapAthletePath(path) {
   for (var i = 0; i < ATHLETE_ROUTE_MAP.length; i++) {
     var rx = ATHLETE_ROUTE_MAP[i][0], to = ATHLETE_ROUTE_MAP[i][1];
@@ -5115,7 +5127,9 @@ var ATHLETE_ADAPTERS = {
     var url = typeof input === 'string' ? input : (input && input.url) || '';
     var path = url.replace(/^https?:\/\/[^/]+/, '').split('?')[0];
     var mapped = mapAthletePath(path);
-    if (!mapped) return _fetch(input, init);
+    // Not rewritten and not an authed passthrough: leave it entirely alone.
+    if (!mapped && !needsAthleteAuth(path)) return _fetch(input, init);
+    if (!mapped) mapped = path;   // same URL, but the token still has to go with it
 
     var qs = url.indexOf('?') >= 0 ? url.slice(url.indexOf('?')) : '';
     var opts = Object.assign({}, init || {});
@@ -5150,7 +5164,11 @@ async function renderAthleteHero() {
   var total   = document.getElementById('hm-total');
   var sub     = document.getElementById('hm-total-sub');
   if (!total) return;
-  if (eyebrow) eyebrow.textContent = 'Your NIL value';
+  // "Your NIL value" read as an appraisal of her worth. It is not: home-data's
+  // nilValue is SUM(value) over the deals she has logged, and nothing in it touches
+  // the valuation model. An athlete with nothing logged saw $0 under a heading
+  // implying she was worth nothing.
+  if (eyebrow) eyebrow.textContent = 'Tracked deal value';
   try {
     var r = await fetch(API_BASE + '/api/athlete/home-data', {
       headers: { 'Authorization': 'Bearer ' + NIL_ACTOR.token },
@@ -5216,6 +5234,36 @@ function applyAthleteChrome() {
       afterEl = b;
     }
   });
+
+  // AI Command is written for an agent talking about a client. In athlete mode it
+  // is her talking about herself, so the prompts move to second person -- otherwise
+  // she is invited to ask "the 10 best deals for my client", which is nobody.
+  var cmdLabel = document.getElementById('cmdClientLabel');
+  if (cmdLabel) cmdLabel.textContent = 'you';
+  var cmdInput = document.getElementById('commandInput');
+  if (cmdInput) {
+    cmdInput.placeholder = "e.g. 'What are my best deals right now?' or 'What should I charge?' "
+      + "or 'Give me negotiation leverage for a call today'";
+  }
+  var QUICK = [
+    ['My Best Deals',      'What are my best NIL deals right now and what should I charge?'],
+    ['What To Charge',     'What should I charge for an Instagram reel deal?'],
+    ['Get Leverage',       'Give me word-for-word negotiation leverage for a call today'],
+    ['Walk Away Analysis', 'Which deals should I walk away from and why?'],
+  ];
+  var quickWrap = document.getElementById('dynamic-prompts');
+  if (quickWrap) {
+    quickWrap.innerHTML = '';
+    QUICK.forEach(function (q) {
+      var el = document.createElement('span');
+      el.className = 'qb';
+      el.textContent = q[0];
+      // addEventListener rather than an inline onclick string: the prompt text
+      // contains apostrophes and would need escaping to survive as an attribute.
+      el.addEventListener('click', function () { setPrompt(q[1]); });
+      quickWrap.appendChild(el);
+    });
+  }
 
   renderAthleteHero();
 }
@@ -5494,7 +5542,7 @@ async function onAthleteChange() {
   selectedAthleteId = document.getElementById('activeAthlete').value;
   const ath = athletes.find(a => a.id === selectedAthleteId);
   if (ath) {
-    document.getElementById('cmdClientLabel').textContent = ath.name;
+    document.getElementById('cmdClientLabel').textContent = isAthleteMode() ? 'you' : ath.name;
     loadKPIs();
     clearAllResults();
     // If Home is the active view, refresh the brief now that a client is confirmed
@@ -5589,7 +5637,7 @@ async function selectAthlete(id) {
   selectedAthleteId = id;
   document.getElementById('activeAthlete').value = id;
   const ath = athletes.find(a => a.id === id);
-  if (ath) document.getElementById('cmdClientLabel').textContent = ath.name;
+  if (ath) document.getElementById('cmdClientLabel').textContent = isAthleteMode() ? 'you' : ath.name;
   renderRoster();
   onAthleteChange();
   showToast(ath.name + ' selected as active client');
@@ -6483,7 +6531,11 @@ async function showView(id, btn) {
     marketing:'Media Kit',
     negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
-  const showBar = ['command','deals','rate','negotiate'].includes(id);
+  // An athlete has one client -- herself -- so the ACTIVE CLIENT bar never applies.
+  // Checked HERE as well as at boot because this line runs on every view change and
+  // would otherwise put the selector back the moment she opened AI Command.
+  const showBar = ['command','deals','rate','negotiate'].includes(id)
+    && !(typeof isAthleteMode === 'function' && isAthleteMode());
   document.getElementById('athleteBar').style.display = showBar ? 'flex' : 'none';
   if (id === 'pipeline') loadPipeline();
   if (id === 'calendar') { if (window.NILCal) NILCal.initLabel(); loadCalendar(); initAgentGCalStatus(); }
@@ -13675,13 +13727,23 @@ async function runMarketingScores() {
         ['Marketability', sc.marketabilityScore || 0],
         ['Sponsorship Readiness', sc.sponsorshipReadiness || 0],
         ['Audience Quality', sc.audienceQuality || 0],
-        ['Data Confidence', sc.confidenceScore || 0]
+        // null means WITHHELD, not zero. `|| 0` rendered a withheld score as a red
+        // 0/100 bar, which claims no confidence just as falsely as the old 94
+        // claimed high confidence on a guessed input.
+        ['Data Confidence', sc.confidenceScore == null ? null : sc.confidenceScore]
       ];
       var html = '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px">';
       scoreCards.forEach(function(item) {
-        var label = item[0], val = item[1] || 0;
+        var label = item[0], raw = item[1];
         html += '<div style="background:var(--surface2);border-radius:var(--r);padding:14px">';
         html += '<div style="font-size:11px;color:var(--muted)">' + label + '</div>';
+        if (raw == null) {
+          // Withheld: a dash and the reason, no bar. A bar of any length is a score.
+          html += '<div style="font-size:28px;font-weight:800;color:var(--muted);margin-top:4px">&mdash;</div>';
+          html += '<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.4">Not scored &mdash; engagement rate not on file</div></div>';
+          return;
+        }
+        var val = raw || 0;
         html += '<div style="font-size:28px;font-weight:800;color:' + scoreColor(val) + ';margin-top:4px">' + val + '<span style="font-size:13px;color:var(--muted)">/100</span></div>';
         html += bar(val) + '</div>';
       });
