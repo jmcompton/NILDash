@@ -522,6 +522,22 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
       </div>
 
       <div class="section-label">Social Following <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;opacity:0.6">— helps calculate your NIL value</span></div>
+
+      <!-- Instagram lookup, the same one the agent Add Client form uses. It reads the
+           public Instagram page and fills the follower count exactly. It does NOT
+           return an engagement rate -- that page carries followers, following and
+           posts and nothing else -- so the engagement field below stays manual and
+           says what a typical rate looks like instead of sitting empty. -->
+      <div class="field">
+        <label>Instagram Handle <span class="opt">(optional — we can look up your followers)</span></label>
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <input type="text" id="s-ig-handle" placeholder="yourhandle" style="flex:1" autocomplete="off">
+          <button type="button" id="s-ig-fetch" onclick="fetchMyStats()"
+            style="flex-shrink:0;padding:10px 14px;background:rgba(200,255,0,0.12);border:1px solid rgba(200,255,0,0.35);border-radius:8px;color:#C8FF00;font-size:12px;font-weight:600;cursor:pointer">Look up</button>
+        </div>
+        <div id="s-ig-status" style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:6px;line-height:1.5"></div>
+      </div>
+
       <div class="form-row">
         <div class="field">
           <label>Instagram Followers <span class="opt">(opt)</span></label>
@@ -535,6 +551,18 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
       <div class="field">
         <label>Twitter/X Followers <span class="opt">(optional)</span></label>
         <input type="number" id="s-tw" placeholder="e.g. 3000" min="0">
+      </div>
+
+      <!-- Engagement is entered by hand ON PURPOSE. It is not published anywhere the
+           lookup can read, and the Rate Calculator quietly assumes 3% when it is
+           blank -- which is BELOW the 4.8% platform average, so leaving it empty
+           does not produce a neutral number, it produces a low one. The helper text
+           says what accounts of this size typically run so the number entered is a
+           considered estimate rather than a shrug. -->
+      <div class="field">
+        <label>Engagement Rate <span class="opt">(optional, %)</span></label>
+        <input type="number" id="s-eng" step="0.1" min="0" max="100" placeholder="e.g. 4.5">
+        <div id="s-eng-help" style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:6px;line-height:1.5">Not published anywhere public. Typical range is 1 to 5 percent.</div>
       </div>
 
       <button class="submit-btn" id="signupSubmitBtn" onclick="submitSignup()">Create Free Account</button>
@@ -601,6 +629,49 @@ document.getElementById('s-pass').addEventListener('input', function() {
   fill.style.width = lvl.w; fill.style.background = lvl.bg;
   text.textContent = lvl.label; text.style.color = lvl.bg;
 });
+
+// Instagram lookup at signup. Same server pipeline the agent Add Client form uses,
+// through a public endpoint that runs only the free, exact Instagram page read --
+// the paid web-search fallback stays behind auth, because an unauthenticated
+// endpoint that spends money per call is a bill waiting to happen.
+//
+// It fills the follower count and NEVER fills engagement: the Instagram page does
+// not publish one. Instead the suggestion the server computed for this follower
+// tier is shown under the manual engagement field, so the athlete has a number to
+// judge against rather than an empty box.
+async function fetchMyStats() {
+  var handleEl = document.getElementById('s-ig-handle');
+  var status = document.getElementById('s-ig-status');
+  var btn = document.getElementById('s-ig-fetch');
+  var handle = (handleEl.value || '').trim().replace(/^@/, '');
+  if (!handle) { status.textContent = 'Enter your Instagram handle first.'; return; }
+  btn.disabled = true; var label = btn.textContent; btn.textContent = 'Looking up…';
+  status.textContent = 'Checking your public Instagram profile…';
+  try {
+    var r = await fetch('/api/athlete/social-preview', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instagramHandle: handle })
+    });
+    var d = await r.json();
+    if (!r.ok) { status.textContent = d.error || 'Lookup failed. Enter your numbers by hand.'; return; }
+    if (d.found && d.followers !== null) {
+      document.getElementById('s-ig').value = d.followers;
+      status.textContent = 'Found ' + Number(d.followers).toLocaleString() + ' followers on Instagram.'
+        + ' Engagement is not published there, so enter it below if you know it.';
+    } else {
+      status.textContent = 'No public numbers found for @' + handle
+        + '. That is normal for private accounts — enter your counts by hand.';
+    }
+    // The suggestion is tier-specific and worth showing either way: with followers
+    // it narrows the range, without them it is still the honest general answer.
+    var help = document.getElementById('s-eng-help');
+    if (help && d.engagement_suggestion) help.textContent = d.engagement_suggestion;
+  } catch (e) {
+    status.textContent = 'Could not reach the lookup. Enter your numbers by hand.';
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+}
 
 // Show a form-level signup error under the submit button.
 //
@@ -669,7 +740,10 @@ async function submitSignup() {
     var r = await fetch('/api/athlete/self-signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password: pass, school, sport, position, instagram_followers: ig || null, tiktok_followers: tt || null, twitter_followers: tw || null })
+      body: JSON.stringify({ name, email, password: pass, school, sport, position,
+        instagram_followers: ig || null, tiktok_followers: tt || null, twitter_followers: tw || null,
+        instagram_handle: (document.getElementById('s-ig-handle').value || '').trim().replace(/^@/, '') || null,
+        engagement: parseFloat(document.getElementById('s-eng').value) || null })
     });
     var data = await r.json();
     if (!r.ok || data.error) {
