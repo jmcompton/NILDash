@@ -131,8 +131,33 @@ function cardContacts(d) {
       phone: c.phone || null, linkedinUrl: c.linkedinUrl || null, sourceUrl: c.sourceUrl || null,
     };
   });
-  if (!contacts.length && !d.businessPhone) return null;
-  return { contacts, businessPhone: d.businessPhone || null, genericInbox: d.genericInbox || null };
+  // IN LADDER ORDER. The server keeps whatever order it receives (discoverContacts
+  // assigns priority by array index) and the workflow then drafts to contacts[0].
+  // Sending the raw fan-out order meant the pitch was addressed to whoever a search
+  // returned first, which is not the person the card told the agent to call.
+  const ranked = _rankLikeLadder(contacts, d.contactLadder);
+  if (!ranked.length && !d.businessPhone) return null;
+  return { contacts: ranked, businessPhone: d.businessPhone || null, genericInbox: d.genericInbox || null };
+}
+
+// Reorder the flat contact list to match the ladder's tiers. Names the ladder held
+// back (front-desk staff) or could not reach at all keep their place at the end
+// rather than being dropped: the server may still make use of them, and silently
+// discarding research is how the ladder got ignored in the first place.
+function _rankLikeLadder(contacts, ladder) {
+  if (!ladder || !Array.isArray(ladder.tiers)) return contacts;
+  const order = [];
+  ladder.tiers.forEach(function (t) {
+    (t.rows || []).forEach(function (r) { if (r.name && order.indexOf(r.name) === -1) order.push(r.name); });
+  });
+  if (!order.length) return contacts;
+  return contacts.slice().map(function (c, i) { return { c: c, i: i }; }).sort(function (a, b) {
+    const ai = a.c.name ? order.indexOf(a.c.name) : -1;
+    const bi = b.c.name ? order.indexOf(b.c.name) : -1;
+    const ar = ai === -1 ? order.length + a.i : ai;
+    const br = bi === -1 ? order.length + b.i : bi;
+    return ar - br;
+  }).map(function (x) { return x.c; });
 }
 
 async function fetchPrewarmedDraft(athleteId, d) {
@@ -193,13 +218,39 @@ function renderPrewarmedDraft(pre, dealResult, athleteId) {
   ensureDeepContact(dealResult);
 }
 
+// The one contact the "How to reach them" panel leads with, and the name the
+// greeting is personalised to. LADDER FIRST: d.contacts is the raw fan-out list in
+// source order, so taking list[0] led with whoever a search happened to return
+// first -- often a manager with no address at all, while the owner sat second.
 function pickCardContact(d) {
   const list = (d && Array.isArray(d.contacts)) ? d.contacts : [];
+  const L = d && d.contactLadder;
+  if (L && Array.isArray(L.tiers)) {
+    // Best named row that has some way through, tier order, most senior first.
+    for (const t of L.tiers) {
+      for (const r of (t.rows || [])) {
+        if (!r.name) continue;
+        // Match back to the raw contact so the phone the card knows is not lost:
+        // a ladder row deliberately drops a number that is only the main line.
+        const raw = list.find((c) => c && c.name === r.name) || {};
+        return {
+          name: r.name, title: r.title || raw.title || null, email: r.email || raw.email || null,
+          phone: r.phone || raw.phone || d.businessPhone || null,
+          confidence_score: r.confidence === 'Confident' ? 0.9 : (r.confidence === 'Likely' ? 0.7 : 0.3),
+        };
+      }
+    }
+  }
   const c = list[0];
-  if (!c) return null;
+  // No named person is not the same as nothing. The panel's own copy says "the main
+  // line above is the way in" -- but returning null here meant no phone rendered, so
+  // it pointed at a number that was not on screen.
+  if (!c) return (d && d.businessPhone)
+    ? { name: null, title: null, email: null, phone: d.businessPhone, confidence_score: 0.3 }
+    : null;
   return {
     name: c.name || null, title: c.title || null, email: c.email || null,
-    phone: c.phone || null, confidence_score: c.email ? 0.9 : 0.6,
+    phone: c.phone || d.businessPhone || null, confidence_score: c.email ? 0.9 : 0.6,
   };
 }
 
@@ -403,12 +454,18 @@ function renderRunResult(data) {
   // inbox. resolvePersonalEmail is the one shared rule (also used by the
   // dashboard "Draft follow-up" composer) so both resolve the recipient the same.
   const personalEmail = resolvePersonalEmail(contact);
-  const confidence   = contact ? Math.round((contact.confidence_score || 0) * 100) : 0;
-  // Rule 5: only prefill To with a trustworthy personal email (confidence >= 60).
-  // A generic inbox or a low-confidence contact never auto-populates the recipient.
-  const prefillTo    = (personalEmail && confidence >= 60) ? personalEmail : '';
-  // Rule 6: when there is a phone and no personal email, calling is the primary move.
-  const phoneFirst   = !!(contactPhone && !prefillTo);
+  // THE RECIPIENTS. Off the card's contact ladder, merged with whatever the server
+  // resolved, ranked by confidence. This used to be a single address gated on
+  // `confidence >= 60` against contact.confidence_score -- a 0-1 number that a
+  // ladder row does not carry, so a ladder row scored 0 and never prefilled
+  // anything. Now the ladder's own labels decide, and everything emailable is
+  // offered rather than silently discarded.
+  const recipients   = outreachRecipients(OutreachEngineState.currentDealResult, contact);
+  const prefillTo    = recipients.length ? recipients[0].email : '';
+  // Rule 6: when there is a phone and no personal email, calling is the primary
+  // move. Still keyed on a PERSONAL email: a general inbox is now pre-filled, but
+  // it is not a reason to stop leading with the phone.
+  const phoneFirst   = !!(contactPhone && !personalEmail);
 
   // Deck
   const hasDeck   = !!(deck?.id);
@@ -520,12 +577,20 @@ function renderRunResult(data) {
         </div>
         <div style="flex:1;min-width:180px">
           <label style="font-size:10px;color:var(--muted,#888);text-transform:uppercase">To (Contact Email)</label>
+          <!-- The picker only appears when there is a genuine choice. Every option
+               carries its confidence label, because picking a recipient is picking
+               how sure you are that it reaches a decision maker. -->
+          <select id="outreach-to-pick" style="width:100%;margin-top:4px;padding:8px 10px;
+                  background:var(--surface,#111);border:1px solid var(--border,#333);border-radius:6px;
+                  color:var(--text,#fff);font-size:12px;outline:none;${recipients.length > 1 ? '' : 'display:none'}">
+            ${recipients.length > 1 ? recipients.map((r) => `<option value="${escHtml(r.email)}">${escHtml(r.optionLabel)}</option>`).join('') : ''}
+          </select>
           <input id="outreach-to-email" value="${escHtml(prefillTo)}"
                  placeholder="${prefillTo ? '' : 'Add a verified recipient before sending'}"
                  style="width:100%;margin-top:4px;padding:8px 10px;background:var(--surface,#111);
                         border:1px solid var(--border,#333);border-radius:6px;
                         color:var(--text,#fff);font-size:12px;outline:none;box-sizing:border-box">
-          ${!prefillTo ? `<div style="font-size:10px;color:var(--muted,#888);margin-top:4px;line-height:1.4">Add the recipient once you confirm who to reach — the name and phone above are your starting point.</div>` : ''}
+          <div id="outreach-to-note" style="font-size:10px;color:var(--muted,#888);margin-top:4px;line-height:1.4">${escHtml(recipientNote(recipients[0] || null))}</div>
         </div>
       </div>
     </div>
@@ -613,6 +678,13 @@ function renderRunResult(data) {
     window._naOutreachSnapshot = String(_b ? _b.value : '') + ' ' + String(_s ? _s.value : '');
   } catch (e) { window._naOutreachSnapshot = undefined; }
 
+  // Recipient picker: select the pre-filled one and wire the two-way link between
+  // the dropdown and the free-text box, which stays the single source of truth for
+  // send so sendOutreach is unchanged.
+  const _sel = document.getElementById('outreach-to-pick');
+  if (_sel && recipients.length > 1) _sel.value = prefillTo;
+  wireRecipientControls(recipients);
+
   // Load email accounts into the dropdown
   loadEmailAccountsIntoDropdown();
   // Set up the "Attach media kit" button for this athlete + brand.
@@ -680,7 +752,7 @@ function reachPanelInner(contact, state) {
 // ONLY ON THE PRE-WARMED PATH. When there is no pre-warmed draft the modal falls
 // through to POST /run, and that workflow does its own contact discovery. Firing
 // this as well would re-open the double-spend that was just closed.
-async function ensureDeepContact(d) {
+async function ensureDeepContact(d, force) {
   if (!d) return;
   const brand = d.brand || d.brand_name;
   if (!brand) return;
@@ -689,11 +761,15 @@ async function ensureDeepContact(d) {
   // the card before clicking has already paid for this. _deepLoaded is the explicit
   // marker; the other two cover cards expanded before that flag existed and the
   // Add-a-Business path, which also builds a ladder.
-  const alreadyDeep = !!(d._deepLoaded || d.contactLadder
+  const alreadyDeep = !force && !!(d._deepLoaded || d.contactLadder
     || (Array.isArray(d.contacts) && d.contacts.some((c) => c && c.name)));
   if (alreadyDeep) {
     console.log('[outreachEngine] contact ladder already resolved for', brand, '- reusing');
     refreshReachPanel(d, null);
+    // Apply it as well as show it. The modal body is normally rendered from the same
+    // ladder a moment earlier, so this is usually a no-op -- but when it is not, the
+    // agent was looking at a contact panel naming someone the To field did not have.
+    applyFoundContact(pickCardContact(d), brand);
     return;
   }
   if (d._deepLoading) return;
@@ -771,23 +847,34 @@ function refreshReachPanel(d, state, forBrand) {
 
 // A found person changes two more things besides the panel: the greeting, and the
 // recipient box if it is still empty. Nothing else in the draft is touched.
+// NOT gated on finding a NAMED person. A business whose only route is its published
+// general inbox has no named contact, so this used to return immediately and the
+// recipient the lookup had just found was thrown away.
 function applyFoundContact(found, forBrand) {
-  if (!found || !stillShowing(forBrand)) return;
-  const personal = resolvePersonalEmail(found);
-  if (found.name) personalizeGreeting(found.name);
-  if (personal) {
-    const to = document.getElementById('outreach-to-email');
-    // Only when empty: an address the agent typed themselves wins over a found one.
-    if (to && !to.value) to.value = personal;
+  if (!stillShowing(forBrand)) return;
+  if (found && found.name) personalizeGreeting(found.name);
+  // Repaint the whole picker, not just the box. The lookup that just landed is the
+  // one that produced the ladder, so it usually brings MORE than one address; the
+  // old version set a single value and only when the box was empty, which meant a
+  // modal opened before the lookup returned never offered the alternatives at all.
+  // renderRecipientOptions keeps the "typed by hand wins" guard.
+  const recipients = outreachRecipients(OutreachEngineState.currentDealResult, null);
+  if (recipients.length) {
+    renderRecipientOptions(recipients);
+    wireRecipientControls(recipients);
   }
 }
 
+// "Try again" after a failed lookup. It cleared _deepLoaded only, but the
+// alreadyDeep guard above also short-circuits on d.contactLadder and on any named
+// contact -- and a failed deep call still leaves a ladder behind (the server builds
+// the main-line floor even when the fan-out throws). So the retry link found the
+// card "already deep", returned immediately, and never re-ran anything.
 function retryContact() {
   const d = OutreachEngineState.currentDealResult;
   if (!d) return;
   d._deepLoading = false;
-  d._deepLoaded = false;
-  ensureDeepContact(d);
+  ensureDeepContact(d, true);
 }
 
 // API_BASE is defined by index.html; fall back to same-origin when this file is
@@ -1202,6 +1289,203 @@ function resolvePersonalEmail(contact) {
   if (!rawEmail || _isGenericInboxFE(rawEmail)) return null;
   var hasName = !!(contact && contact.name && String(contact.name).trim());
   return hasName ? rawEmail : null;
+}
+
+// ── Who can actually be emailed ──────────────────────────────────────────────
+//
+// THE HANDOFF THAT WAS BROKEN. "Find the decision maker" writes a ranked contact
+// ladder onto the card (d.contactLadder): tiered, deduped, staff held back, and a
+// confidence label on every row. It had exactly ONE consumer -- the renderer that
+// draws it on the card. Every path into this modal read d.contacts instead, which
+// is the raw fan-out list: source order rather than authority order, and with the
+// general and named mailboxes missing entirely because getBrandContacts returns
+// those as separate fields. So a business whose owner's published address was on
+// screen behind the modal opened with an empty To field, because the first entry
+// in the raw list happened to be a manager reachable only through the main line.
+//
+// This reads the ladder, which is the thing that did the ranking.
+
+var _CONF_RANK = { Confident: 0, Likely: 1, Fallback: 2 };
+
+// Mirror of confidenceLabel in server/services/contactLadder.js, used only for
+// cards that carry no ladder (cached from before it existed, or the cheap Places
+// pass). A card WITH a ladder uses the label the server already assigned.
+function _confidenceLabelFE(c) {
+  if (!c || !c.name || !String(c.name).trim()) return 'Fallback';
+  return (c.confidence === 'high' && c.sourceUrl) ? 'Confident' : 'Likely';
+}
+
+function _recipient(email, name, title, confidence, tier, note) {
+  var e = String(email || '').trim();
+  if (!e || e.indexOf('@') === -1) return null;
+  var generic = _isGenericInboxFE(e);
+  var who = (name && String(name).trim()) ? String(name).trim() : null;
+  var role = (title && String(title).trim()) ? String(title).trim() : null;
+  return {
+    email: e,
+    name: who,
+    title: role,
+    confidence: confidence || 'Fallback',
+    tier: tier || 3,
+    isGeneric: generic,
+    note: note || null,
+    // What the agent reads in the dropdown. The confidence label is part of the
+    // option, not a tooltip: choosing a recipient is choosing how sure you are.
+    // It leads, because a collapsed <select> truncates from the right and a label
+    // at the end is a label you cannot see without opening the list.
+    optionLabel: (confidence || 'Fallback') + ' · '
+                 + (who ? who + (role ? ' · ' + role : '') + ' — ' + e
+                        : (role || (generic ? 'General inbox' : 'Mailbox')) + ' — ' + e),
+  };
+}
+
+// Every emailable row on the card's ladder, best first.
+function ladderRecipients(d) {
+  var out = [];
+  var L = d && d.contactLadder;
+  if (L && Array.isArray(L.tiers)) {
+    L.tiers.forEach(function (t) {
+      (t.rows || []).forEach(function (r) {
+        // A name is not a recipient. A row whose only route is the shared main
+        // line, a LinkedIn profile or a DM cannot be emailed, so it is not offered
+        // here -- it is still on the card, where it can be acted on.
+        var rec = _recipient(r.email, r.name, r.title, r.confidence, t.tier,
+          r.emailDomainNote || r.sourceNote || null);
+        if (rec) out.push(rec);
+      });
+    });
+  } else {
+    // No ladder: fall back to the flat list plus the mailboxes that live beside it.
+    (Array.isArray(d && d.contacts) ? d.contacts : []).forEach(function (c) {
+      var rec = _recipient(c.email, c.name, c.title, _confidenceLabelFE(c), c.name ? 1 : 3, null);
+      if (rec) out.push(rec);
+    });
+    if (d && d.genericInbox) {
+      var g = _recipient(d.genericInbox, null, 'General inbox', 'Fallback', 3,
+        'Published general inbox, not a named person');
+      if (g) out.push(g);
+    }
+  }
+  return out;
+}
+
+// The contact the SERVER resolved on the /run path. It may know someone the card
+// does not, so it is merged in rather than replacing the ladder. Its confidence is
+// a 0-1 score, which is translated into the ladder's vocabulary here: the two
+// halves of the product used two different scales and nothing converted between
+// them, which is its own reason the To field came back empty.
+function serverContactRecipient(contact) {
+  if (!contact || !contact.email) return null;
+  var s = Number(contact.confidence_score);
+  var label = isNaN(s) ? 'Fallback' : (s >= 0.85 ? 'Confident' : (s >= 0.5 ? 'Likely' : 'Fallback'));
+  if (_isGenericInboxFE(contact.email)) label = 'Fallback';
+  return _recipient(contact.email, contact.name, contact.title, label, contact.name ? 1 : 3, null);
+}
+
+// The ordered recipient list the modal offers. Highest confidence first, tier as
+// the tiebreak, deduplicated by address.
+function outreachRecipients(d, serverContact) {
+  var all = ladderRecipients(d);
+  var fromServer = serverContactRecipient(serverContact);
+  if (fromServer) all.push(fromServer);
+  var seen = {}, uniq = [];
+  all.forEach(function (r, i) {
+    var k = r.email.toLowerCase();
+    if (seen[k] !== undefined) {
+      // Keep the better-attributed copy of the same address.
+      var prev = uniq[seen[k]];
+      if (_CONF_RANK[r.confidence] < _CONF_RANK[prev.confidence] || (!prev.name && r.name)) uniq[seen[k]] = r;
+      return;
+    }
+    r._i = i;
+    seen[k] = uniq.length;
+    uniq.push(r);
+  });
+  uniq.sort(function (a, b) {
+    var c = (_CONF_RANK[a.confidence] === undefined ? 2 : _CONF_RANK[a.confidence])
+          - (_CONF_RANK[b.confidence] === undefined ? 2 : _CONF_RANK[b.confidence]);
+    if (c) return c;
+    if (a.tier !== b.tier) return a.tier - b.tier;
+    return a._i - b._i;
+  });
+  return uniq;
+}
+
+// The line under the To field. A general inbox IS pre-filled -- an agent with no
+// other way in should not have to retype an address the card already found -- but
+// it is never allowed to read as a person.
+function recipientNote(r) {
+  if (!r) return 'Add the recipient once you confirm who to reach — the name and phone above are your starting point.';
+  if (r.isGeneric || (!r.name && r.confidence === 'Fallback')) {
+    return 'General inbox — not a named person. No named decision maker was found for this business, so this goes to whoever reads the shop mailbox.';
+  }
+  if (!r.name) return (r.title || 'Mailbox') + ' — ' + r.confidence + '. Not attributed to a named person.';
+  return r.name + (r.title ? ' · ' + r.title : '') + ' — ' + r.confidence
+    + (r.note ? '. ' + r.note : '');
+}
+
+// Paint the To column: the picker (only when there is a real choice), the address,
+// and the line that says what kind of address it is.
+function renderRecipientOptions(recipients) {
+  var sel = document.getElementById('outreach-to-pick');
+  var to = document.getElementById('outreach-to-email');
+  var note = document.getElementById('outreach-to-note');
+  if (!to) return;
+  // An address the agent typed themselves always wins over a resolved one.
+  var touched = to.dataset && to.dataset.touched === '1';
+  if (sel) {
+    if (recipients.length > 1) {
+      sel.innerHTML = recipients.map(function (r) {
+        return '<option value="' + escHtml(r.email) + '">' + escHtml(r.optionLabel) + '</option>';
+      }).join('');
+      sel.style.display = '';
+    } else {
+      sel.innerHTML = '';
+      sel.style.display = 'none';
+    }
+  }
+  if (!touched && recipients.length) {
+    to.value = recipients[0].email;
+    if (sel) sel.value = recipients[0].email;
+  }
+  if (note) {
+    if (!touched) note.textContent = recipientNote(recipients[0]);
+    else {
+      var m = _matchRecipient(recipients, to.value);
+      // A typed address the ladder does not know is not "no recipient". Saying so
+      // plainly beats reverting to the empty-state prompt underneath an address the
+      // agent can see they just entered.
+      note.textContent = m ? recipientNote(m) : 'Typed by hand — not from the contact ladder.';
+    }
+  }
+}
+
+function _matchRecipient(recipients, email) {
+  var e = String(email || '').trim().toLowerCase();
+  for (var i = 0; i < recipients.length; i++) if (recipients[i].email.toLowerCase() === e) return recipients[i];
+  return null;
+}
+
+// Wired once per render of the modal body.
+function wireRecipientControls(recipients) {
+  var sel = document.getElementById('outreach-to-pick');
+  var to = document.getElementById('outreach-to-email');
+  var note = document.getElementById('outreach-to-note');
+  if (!to) return;
+  if (sel) {
+    sel.onchange = function () {
+      to.value = sel.value;
+      // Choosing from the list is not typing: a later lookup may still improve it.
+      if (to.dataset) to.dataset.touched = '';
+      if (note) note.textContent = recipientNote(_matchRecipient(recipients, sel.value));
+    };
+  }
+  to.oninput = function () {
+    if (to.dataset) to.dataset.touched = '1';
+    var m = _matchRecipient(recipients, to.value);
+    if (sel) { if (m) sel.value = m.email; else sel.selectedIndex = -1; }
+    if (note) note.textContent = m ? recipientNote(m) : 'Typed by hand — not from the contact ladder.';
+  };
 }
 
 // ── Export ────────────────────────────────────────────────────────────────────
