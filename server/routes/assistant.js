@@ -35,11 +35,25 @@ const OPENER = '(The agent has just opened NILDash. Greet them according to the 
 
 console.log(`[assistant] knowledge base: ${hasKnowledge() ? 'loaded' : 'EMPTY (placeholder only)'}`);
 
-function requireAgent(req, res, next) {
-  if (req.session && req.session.userId) return next();
+// Two kinds of caller, one assistant. An agent arrives with a session cookie; an
+// athlete arrives with the same JWT the rest of their portal uses. Everything
+// downstream reads req.principal rather than the session, so nothing can quietly
+// assume "the caller is an agent" the way req.session.userId did.
+//
+// principal.kind is the ONLY thing that decides scope, and it comes from which
+// credential was presented -- never from the request body and never from the model.
+function requirePrincipal(req, res, next) {
+  if (req.session && req.session.userId) {
+    req.principal = { kind: 'agent', id: req.session.userId };
+    return next();
+  }
+  if (req.athletePrincipalId) {
+    req.principal = { kind: 'athlete', id: req.athletePrincipalId };
+    return next();
+  }
   res.status(401).json({ error: 'Not authenticated' });
 }
-router.use(requireAgent);
+router.use(requirePrincipal);
 
 // ── Session state ────────────────────────────────────────────────────────────
 async function loadSession(agentId, sessionId) {
@@ -86,7 +100,7 @@ async function record(sessionId, agentId, role, content) {
 // It used to take a separate `userText` and push it on top of the transcript it had
 // just read -- and /message records that same text BEFORE calling, so it was already
 // in there. The model saw every agent message twice.
-async function runTurn({ agentId, session, ctx, state, toolsEnabled, msgs }) {
+async function runTurn({ agentId, principal, session, ctx, state, toolsEnabled, msgs }) {
   const brief = ctxSvc.STATE_BRIEFS[state] || ctxSvc.STATE_BRIEFS.returning;
   const suppressed = Array.isArray(session.suppressed) ? session.suppressed : [];
 
@@ -138,7 +152,7 @@ async function runTurn({ agentId, session, ctx, state, toolsEnabled, msgs }) {
     maxRounds: lean ? 1 : 3,
     timeoutMs: TURN_TIMEOUT_MS,
     runTool: async (name, input) => {
-      const res = await actions.resolveCall(name, input, { agentId, session });
+      const res = await actions.resolveCall(name, input, { agentId, principal, session });
       if (!res.ok) {
         // A refusal is reported back to the model so it can explain it in its own
         // words, and it ends the turn: letting it retry invites another route.
@@ -175,7 +189,8 @@ async function runTurn({ agentId, session, ctx, state, toolsEnabled, msgs }) {
 // ── POST /session ────────────────────────────────────────────────────────────
 router.post('/session', async (req, res) => {
   try {
-    const agentId = req.session.userId;
+    const agentId = req.principal.id;          // owner id: an agent or an athlete
+    const principal = req.principal;
     const tAll = Date.now();
 
     // THREE INDEPENDENT READS, AT ONCE. These were four sequential awaits, and every
@@ -183,7 +198,7 @@ router.post('/session', async (req, res) => {
     // genuinely depends on another (it needs the session id), so it stays behind.
     const [session, ctx, u] = await Promise.all([
       loadSession(agentId, req.body && req.body.sessionId),
-      ctxSvc.readContext(agentId),
+      ctxSvc.readContext(agentId, principal),
       pool.query(
         'SELECT COALESCE(assistant_dismissals,0) AS d, COALESCE(assistant_autoopen_off,false) AS off FROM users WHERE id=$1',
         [agentId]),
@@ -210,7 +225,7 @@ router.post('/session', async (req, res) => {
     // opening instruction.
     const tM = Date.now();
     const turn = await runTurn({
-      agentId, session, ctx, state, toolsEnabled: false, msgs: existing,
+      agentId, principal, session, ctx, state, toolsEnabled: false, msgs: existing,
     });
     const tModel = Date.now() - tM;
     await record(session.id, agentId, 'assistant', turn.text);
@@ -235,7 +250,8 @@ router.post('/session', async (req, res) => {
 // ── POST /message ────────────────────────────────────────────────────────────
 router.post('/message', async (req, res) => {
   try {
-    const agentId = req.session.userId;
+    const agentId = req.principal.id;          // owner id: an agent or an athlete
+    const principal = req.principal;
     const text = String((req.body && req.body.text) || '').trim().slice(0, MAX_INPUT_CHARS);
     if (!text) return res.status(400).json({ error: 'Say something.' });
     // Same three-at-once as /session. A reply costs the agent this wait too.
@@ -244,7 +260,7 @@ router.post('/message', async (req, res) => {
     const tAll = Date.now();
     const [session, ctx] = await Promise.all([
       loadSession(agentId, req.body && req.body.sessionId),
-      ctxSvc.readContext(agentId),
+      ctxSvc.readContext(agentId, principal),
       // The streak is what turns auto-open off, and a reply breaks the streak -- so it
       // has to clear the FLAG too, not just the counter. Clearing only the counter made
       // "two dismissals IN A ROW" mean "two dismissals ever": once off, permanently
@@ -266,7 +282,7 @@ router.post('/message', async (req, res) => {
     const tHist = Date.now() - tH;
 
     const tM = Date.now();
-    const turn = await runTurn({ agentId, session, ctx, state, toolsEnabled: true, msgs: convo });
+    const turn = await runTurn({ agentId, principal, session, ctx, state, toolsEnabled: true, msgs: convo });
     const tModel = Date.now() - tM;
     console.log(`[assistant] TIMING /message agent=${agentId} db=${tDb}ms (ctx=${ctx._ms}ms) `
       + `history=${tHist}ms model=${tModel}ms total=${Date.now() - tAll}ms`);
@@ -290,8 +306,9 @@ router.post('/message', async (req, res) => {
 // request the browser makes after a human clicks. The model cannot make it.
 router.post('/confirm', async (req, res) => {
   try {
-    const agentId = req.session.userId;
-    const out = await actions.redeemPending(agentId, req.body && req.body.token);
+    const agentId = req.principal.id;          // owner id: an agent or an athlete
+    const principal = req.principal;
+    const out = await actions.redeemPending(agentId, req.body && req.body.token, principal);
     if (!out.ok) return res.status(400).json({ error: out.message });
     const sessionId = (req.body && req.body.sessionId) || null;
     if (sessionId) await record(sessionId, agentId, 'user', '(confirmed: ' + out.action + ')');
@@ -306,7 +323,8 @@ router.post('/confirm', async (req, res) => {
 // Closed without replying. Two in a row and auto-open is off for this agent for good.
 router.post('/dismiss', async (req, res) => {
   try {
-    const agentId = req.session.userId;
+    const agentId = req.principal.id;          // owner id: an agent or an athlete
+    const principal = req.principal;
     const r = await pool.query(
       `UPDATE users SET assistant_dismissals = COALESCE(assistant_dismissals,0) + 1,
                         assistant_autoopen_off = (COALESCE(assistant_dismissals,0) + 1) >= 2

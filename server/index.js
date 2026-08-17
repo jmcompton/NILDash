@@ -9425,7 +9425,31 @@ try {
   // touch, so it was the largest hole in the paywall while it sat on requireAuth
   // alone. requireAgentSubscription comes AFTER requireAuth because it defers to it
   // when there is no session.
-  app.use('/api/assistant', requireAuth, requireAgentSubscription, aiLimiter, assistantRoutes);
+  // TWO DOORS, ONE ASSISTANT. An agent arrives with a session cookie and is held to
+  // requireAgentSubscription; an athlete arrives with the same JWT the rest of her
+  // portal uses and is held to requireAthleteSubscription. Whichever credential was
+  // presented decides the scope, and the route module reads req.principal rather
+  // than the session, so an athlete can never be mistaken for an agent.
+  //
+  // The session is checked FIRST and wins, which keeps agent behavior byte-for-byte
+  // what it was: an agent request never reaches the athlete branch.
+  function assistantAuth(req, res, next) {
+    if (req.session && req.session.userId) {
+      return requireAgentSubscription(req, res, next);
+    }
+    const auth = req.headers.authorization || '';
+    if (auth.startsWith('Bearer ')) {
+      return verifyAthleteToken(req, res, function () {
+        // req.athlete is set by verifyAthleteToken from the signed token. Handing the
+        // id to the route through its own field keeps the principal's origin explicit.
+        req.athletePrincipalId = req.athlete && req.athlete.id;
+        if (!req.athletePrincipalId) return res.status(401).json({ error: 'Not authenticated' });
+        return requireAthleteSubscription(req, res, next);
+      });
+    }
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  app.use('/api/assistant', assistantAuth, aiLimiter, assistantRoutes);
   console.log('[assistant] routes loaded');
 } catch (e) {
   console.warn('[assistant] failed to load:', e.message);
