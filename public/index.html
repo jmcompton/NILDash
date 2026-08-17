@@ -4996,6 +4996,230 @@ function showSubscribeModal() {
   };
 })();
 
+// ══ ATHLETE MODE ═════════════════════════════════════════════════════════════
+// The athlete portal is this app, not a second one. athlete-dashboard.html was a
+// separate, older implementation of the same features, so it drifted -- and a
+// $25 product that is a stale copy of the $99 one does not hold anybody.
+//
+// Athletes authenticate with a JWT against a parallel /api/athlete/* API, while
+// this SPA is written against the session-auth /api/agent/* API. Rather than
+// change ~40 routes the paying agent product depends on, the translation happens
+// HERE: one wrapper round window.fetch that, in athlete mode only, rewrites the
+// path, attaches the bearer token, and reshapes the response to what the SPA
+// already expects. In agent mode every request is passed through untouched, so
+// nothing about the agent app changes.
+var NIL_ACTOR = { role: 'agent', athleteId: null, token: null, me: null };
+
+(function detectActor() {
+  // A JWT arrives either in the URL (straight from verify-email or login) or in
+  // localStorage from a previous visit. The URL copy wins and is then stashed, so
+  // a refresh does not drop the athlete back to the marketing page.
+  var qs = new URLSearchParams(window.location.search);
+  var fromUrl = qs.get('jwt');
+  if (fromUrl) { try { localStorage.setItem('athlete_token', fromUrl); } catch (e) {} }
+  var tok = fromUrl || (function () { try { return localStorage.getItem('athlete_token'); } catch (e) { return null; } })();
+  if (!tok) return;
+  NIL_ACTOR.role = 'athlete';
+  NIL_ACTOR.token = tok;
+})();
+function isAthleteMode() { return NIL_ACTOR.role === 'athlete'; }
+
+// The endpoint map. Ordered: the FIRST pattern that matches wins, so more specific
+// paths are listed above the prefixes that would also match them.
+var ATHLETE_ROUTE_MAP = [
+  // identity + roster. An athlete is their own only client.
+  [/^\/api\/auth\/me$/,                       '/api/athlete/me'],
+  [/^\/api\/athletes$/,                       '/api/athlete/me'],
+  // home
+  [/^\/api\/agent\/home-metrics$/,            '/api/athlete/home-data'],
+  [/^\/api\/agent\/today$/,                   '/api/athlete/home-data'],
+  [/^\/api\/agent\/daily-brief$/,             '/api/athlete/daily-brief'],
+  // deal scan
+  [/^\/api\/agent\/deal-scan\/cache/,         '/api/athlete/deal-scan/cache'],
+  [/^\/api\/agent\/deal-scan$/,               '/api/athlete/deal-scan'],
+  [/^\/api\/agent\/brand-contacts$/,          '/api/athlete/brand-contacts'],
+  // pipeline
+  [/^\/api\/deals$/,                          '/api/athlete/deal-pipeline'],
+  [/^\/api\/deals\//,                         '/api/athlete/deal-pipeline/'],
+  // rate calculator
+  [/^\/api\/ai\/rate$/,                       '/api/athlete/rate-calculator'],
+  // compliance
+  [/^\/api\/ai\/compliance$/,                 '/api/athlete/compliance'],
+  // AI Assistant. /api/assistant/* is session + agent-subscription gated with no
+  // athlete equivalent, so the assistant an athlete gets is the Command view,
+  // which does have one.
+  [/^\/api\/ai\/command$/,                    '/api/athlete/command'],
+  // outreach + email
+  [/^\/api\/ai\/outreach$/,                   '/api/athlete/write-outreach'],
+  [/^\/api\/ai\/generate-outreach$/,          '/api/athlete/ai-draft-outreach'],
+  [/^\/api\/outreach\/logs/,                  '/api/athlete/outreach'],
+  [/^\/api\/email\/accounts$/,                '/api/athlete/gmail/status'],
+  // media kit
+  [/^\/api\/agent\/media-kit\//,              '/api/athlete/media-kit'],
+  [/^\/api\/agent\/athlete-media-kit\//,      '/api/athlete/media-kit/save'],
+  // programs — added server-side for athletes, same handler as the agent route
+  [/^\/api\/programs\/schools/,               '/api/athlete/programs/schools'],
+  [/^\/api\/programs\//,                      '/api/athlete/programs/'],
+];
+
+function mapAthletePath(path) {
+  for (var i = 0; i < ATHLETE_ROUTE_MAP.length; i++) {
+    var rx = ATHLETE_ROUTE_MAP[i][0], to = ATHLETE_ROUTE_MAP[i][1];
+    if (rx.test(path)) {
+      // A trailing slash in the target means "keep whatever followed the match",
+      // so /api/deals/123 becomes /api/athlete/deal-pipeline/123.
+      if (to.slice(-1) === '/') return path.replace(rx, to);
+      return to;
+    }
+  }
+  return null;
+}
+
+// Response reshaping, only where the athlete API answers a different shape than
+// the SPA reads. Each adapter is named for the SPA-side path it is satisfying.
+var ATHLETE_ADAPTERS = {
+  '/api/auth/me': function (me) {
+    NIL_ACTOR.athleteId = me.id;
+    NIL_ACTOR.me = me;
+    return {
+      id: me.id, name: me.name, email: me.email, role: 'athlete',
+      athleteId: me.id, agentId: me.agent_id || null,
+      // Access is decided server-side by requireAthleteSubscription; the SPA only
+      // uses this to decide whether to show the agent subscribe button, which an
+      // athlete never should see.
+      agentAccess: true, subscription_status: 'active',
+      onboardingCompleted: true, assistantAutoOpen: false,
+      passwordResetRequired: false, isFounder: false,
+    };
+  },
+  '/api/athletes': function (me) {
+    // The SPA expects a roster array. An athlete's roster is exactly themselves,
+    // which is what pins them as the active client with no selector.
+    return [{
+      id: me.id, name: me.name, sport: me.sport, school: me.school,
+      position: me.position, state: me.state,
+      instagram_followers: me.instagram_followers,
+      tiktok_followers: me.tiktok_followers,
+      twitter_followers: me.twitter_followers,
+      media_kit_slug: me.media_kit_slug || null,
+    }];
+  },
+};
+
+(function installAthleteApiShim() {
+  if (window.__nilAthleteShim) return;
+  window.__nilAthleteShim = true;
+  var _fetch = window.fetch.bind(window);
+  window.fetch = async function (input, init) {
+    if (!isAthleteMode()) return _fetch(input, init);
+    var url = typeof input === 'string' ? input : (input && input.url) || '';
+    var path = url.replace(/^https?:\/\/[^/]+/, '').split('?')[0];
+    var mapped = mapAthletePath(path);
+    if (!mapped) return _fetch(input, init);
+
+    var qs = url.indexOf('?') >= 0 ? url.slice(url.indexOf('?')) : '';
+    var opts = Object.assign({}, init || {});
+    opts.headers = Object.assign({}, (init && init.headers) || {}, {
+      'Authorization': 'Bearer ' + NIL_ACTOR.token,
+    });
+    // Session cookies mean nothing to a JWT route and only invite CORS trouble.
+    delete opts.credentials;
+
+    var res = await _fetch(mapped + qs, opts);
+    var adapt = ATHLETE_ADAPTERS[path];
+    if (!adapt || !res.ok) return res;
+    var body;
+    try { body = await res.clone().json(); } catch (e) { return res; }
+    var shaped;
+    try { shaped = adapt(body); } catch (e) { return res; }
+    return new Response(JSON.stringify(shaped), {
+      status: res.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+})();
+
+// The home hero. For an agent it reads "Earned by your athletes" over the roster
+// total. For an athlete that framing is wrong -- there is no roster, it is their own
+// money -- so the same panel is relabelled and fed their real NIL value from
+// /api/athlete/home-data. Nothing here is hardcoded: an athlete with no deals sees
+// $0 and a line telling them so, not an invented figure.
+async function renderAthleteHero() {
+  if (!isAthleteMode()) return;
+  var eyebrow = document.querySelector('#hm-hero .hm-eyebrow');
+  var total   = document.getElementById('hm-total');
+  var sub     = document.getElementById('hm-total-sub');
+  if (!total) return;
+  if (eyebrow) eyebrow.textContent = 'Your NIL value';
+  try {
+    var r = await fetch(API_BASE + '/api/athlete/home-data', {
+      headers: { 'Authorization': 'Bearer ' + NIL_ACTOR.token },
+    });
+    if (!r.ok) throw new Error('home-data ' + r.status);
+    var d = await r.json();
+    total.textContent = d.nilValue || '$0';
+    var active = (d.activeDeals || []).length;
+    var due    = parseInt(d.upcomingCount || 0, 10);
+    if (sub) {
+      sub.textContent = active
+        ? active + ' active deal' + (active === 1 ? '' : 's')
+          + (due ? ' · ' + due + ' deliverable' + (due === 1 ? '' : 's') + ' coming up' : '')
+        : 'No deals tracked yet. Run a Deal Scan to find brands near you.';
+    }
+  } catch (e) {
+    // A failed load must not leave the em dash placeholder looking like a value.
+    total.textContent = '$0';
+    if (sub) sub.textContent = 'Could not load your NIL value just now.';
+  }
+}
+
+// Nav items an athlete never sees. Roster and Add Client are meaningless when the
+// roster is you; Commission is the agent's cut of your deals; Contract Generator
+// and Growth are agent tooling.
+var ATHLETE_HIDDEN_VIEWS = ['roster', 'add-athlete', 'commission', 'contract', 'growth'];
+
+function applyAthleteChrome() {
+  if (!isAthleteMode()) return;
+  document.body.classList.add('athlete-mode');
+  // Hide by the view each button opens, rather than by id, because most of these
+  // buttons have no id at all.
+  ATHLETE_HIDDEN_VIEWS.forEach(function (view) {
+    document.querySelectorAll('.nav-item').forEach(function (btn) {
+      var oc = btn.getAttribute('onclick') || '';
+      if (oc.indexOf("showView('" + view + "'") >= 0) btn.style.display = 'none';
+    });
+  });
+  // The client selector: an athlete has exactly one client and cannot change it,
+  // so the whole bar goes rather than showing a one-option dropdown.
+  var bar = document.getElementById('athleteBar');
+  if (bar) bar.style.display = 'none';
+  var label = document.getElementById('sidebarRoleLabel');
+  if (label) label.textContent = 'Athlete Portal';
+  var sub = document.getElementById('agentSubscribeBtn');
+  if (sub) sub.style.display = 'none';
+
+  // Rate Calculator and Compliance are full views (#view-rate, #view-compliance)
+  // that the agent app never gave a nav button -- an agent reaches them from cards
+  // on the home page. An athlete has no such card path and these were asked for by
+  // name, so athlete mode adds the two buttons rather than leaving the views
+  // unreachable. Inserted after Programs to sit with the other research tools.
+  var afterEl = document.querySelector('.nav-item[onclick*="showView(\'programs\'"]');
+  [['rate', 'Rate Calculator'], ['compliance', 'Compliance']].forEach(function (pair) {
+    if (document.querySelector('.nav-item[data-athlete-nav="' + pair[0] + '"]')) return;
+    var b = document.createElement('button');
+    b.className = 'nav-item';
+    b.setAttribute('data-athlete-nav', pair[0]);
+    b.setAttribute('onclick', "showView('" + pair[0] + "',this)");
+    b.textContent = pair[1];
+    if (afterEl && afterEl.parentNode) {
+      afterEl.parentNode.insertBefore(b, afterEl.nextSibling);
+      afterEl = b;
+    }
+  });
+
+  renderAthleteHero();
+}
+
 async function doLogout() {
   await fetch(`${API_BASE}/api/auth/logout`, { method:'POST' });
   currentUser = null; athletes = []; selectedAthleteId = null;
@@ -5056,27 +5280,23 @@ async function bootApp() {
   if (currentUser.role === 'athlete') {
     document.getElementById('addAthleteNavBtn').style.display = 'none';
   }
+  // Everything else an athlete must not see: the rest of the hidden nav, the client
+  // selector, the agent subscribe button. Runs after the role-specific blocks above
+  // so it has the last word on anything they set.
+  applyAthleteChrome();
 
   await loadAthletes();
   loadKPIs();
   loadFollowUps();
   if (currentUser.role === 'athlete') {
-    showView('athlete-dashboard', null);
-    loadAthleteDashboard();
-    loadAthleteCalendarPortal();
-    loadAthleteOutreachHistory();
-    // Hide entire agent nav for athletes
-    const agentOnlyEls = ['view-home','view-command','view-deals','view-rate','view-negotiate','view-outreach','view-marketing','view-calendar','view-compliance','view-contract','view-pdf-scan','view-analytics','view-commission','view-pipeline','view-roster','view-add-athlete','view-athlete-portals','view-university-dashboard'];
-    agentOnlyEls.forEach(function(id) {
-      var el = document.getElementById(id);
-      if (el) el.style.display = 'none';
-    });
-    // Hide sidebar nav sections
-    var navSections = document.querySelectorAll('.nav-section-label');
-    navSections.forEach(function(el) { el.style.display = 'none'; });
-    var navItems = document.querySelectorAll('.nav-item');
-    navItems.forEach(function(el) { el.style.display = 'none'; });
-    // Hide active client dropdown
+    // REPLACED. This branch used to boot athletes into 'athlete-dashboard' -- a
+    // third, in-SPA copy of the portal -- and then hide EVERY agent view and EVERY
+    // nav item, which is the opposite of sharing the pages. Athletes now land on
+    // the same Home the agent sees, with the hero relabelled to their own NIL
+    // value, and keep the nine views they are entitled to. applyAthleteChrome()
+    // above has already hidden the five they are not.
+    showView('home', document.getElementById('homeNavBtn'));
+    // The client bar is an agent control; the athlete is pinned to themselves.
     var clientBar = document.querySelector('.client-bar');
     if (clientBar) clientBar.style.display = 'none';
     var activeClientRow = document.querySelector('[style*="ACTIVE CLIENT"]');
@@ -5152,8 +5372,16 @@ async function bootApp() {
 //  SESSION CHECK
 async function checkSession() {
   try {
+    // In athlete mode the shim turns this into /api/athlete/me with the bearer
+    // token and reshapes the reply, so the boot path below is shared.
     const r = await fetch(`${API_BASE}/api/auth/me`);
-    if (r.ok) { currentUser = await r.json(); bootApp(); }
+    if (r.ok) { currentUser = await r.json(); bootApp(); return; }
+    // An expired athlete token would otherwise drop them on the marketing page
+    // with no way to tell why. Clear it and send them to the athlete login.
+    if (isAthleteMode()) {
+      try { localStorage.removeItem('athlete_token'); } catch (e) {}
+      window.location.href = '/athlete-login.html';
+    }
   } catch {}
 }
 
@@ -12782,6 +13010,11 @@ window.addEventListener('DOMContentLoaded', checkSession);
     // athletes never see the wizard after this deploy, while a user mid-flow
     // resumes at the right step even after saving their first athlete.
     async function checkOnboarding() {
+      // The wizard's first step is "Add your first athlete", which an athlete
+      // neither can nor should do -- and /api/onboarding is a session route that
+      // an athlete's JWT cannot reach anyway, so its unauthenticated reply would
+      // otherwise be read as "brand new user, start the wizard".
+      if (typeof isAthleteMode === 'function' && isAthleteMode()) return;
       try {
         let state = null;
         try { state = await fetch(`${API_BASE}/api/onboarding`).then(r => r.ok ? r.json() : null); } catch(_) {}

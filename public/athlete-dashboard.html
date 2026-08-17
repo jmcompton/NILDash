@@ -4,6 +4,21 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NILDash — Athlete Portal</title>
+<!-- SUPERSEDED. The athlete portal is now the main app (index.html) in athlete
+     mode, so athletes and agents run the same code instead of two copies that
+     drift apart. Everything below this redirect is the old implementation, kept
+     in place for one release so a bad deploy can be reverted by deleting these
+     five lines rather than by restoring a file.
+     The token is carried across: it arrives here as ?jwt= from verify-email or in
+     localStorage from a previous visit, and index.html reads both. -->
+<script>
+(function () {
+  var qs = new URLSearchParams(window.location.search);
+  var jwt = qs.get('jwt') || (function () { try { return localStorage.getItem('athlete_token'); } catch (e) { return null; } })();
+  var carry = qs.get('new') === '1' || qs.get('welcome') === '1' ? '&welcome=1' : '';
+  window.location.replace(jwt ? '/?jwt=' + encodeURIComponent(jwt) + carry : '/athlete-login.html');
+})();
+</script>
 <link rel="icon" type="image/png" href="/images/nildash-icon-120x120.png">
 <link rel="apple-touch-icon" href="/images/nildash-icon-120x120.png">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
