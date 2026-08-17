@@ -5131,7 +5131,25 @@ app.post('/api/athlete/self-signup', authLimiter, async (req, res) => {
     // Check if email already registered (case-insensitive)
     const existing = await store.pool.query('SELECT id FROM athletes WHERE LOWER(email) = $1', [normalizedEmail]);
     if (existing.rows.length)
-      return res.status(400).json({ error: 'An account with this email already exists. Try logging in.' });
+      return res.status(400).json({
+        error: 'An account with this email already exists. Try logging in.',
+        code: 'athlete_exists',
+        signinUrl: '/athlete-login.html',
+      });
+
+    // An AGENT account on this email is a different problem with a different
+    // answer, and it was not being checked at all: the signup would succeed and
+    // create an athlete sharing an agent's address. That breaks password reset,
+    // which resolves users before athletes, so the athlete's reset link would set
+    // the AGENT's password. Told apart from the athlete case because "you already
+    // have an account" is confusing to someone who has never made an athlete one,
+    // and because the two send you to different sign-in pages.
+    if (await store.getUserByEmail(normalizedEmail))
+      return res.status(400).json({
+        error: 'That email is already registered as a NILDash agent account. Sign in with it instead, or sign up with a different email.',
+        code: 'agent_exists',
+        signinUrl: '/',
+      });
 
     const crypto = require('crypto');
     const bcrypt = require('bcryptjs');

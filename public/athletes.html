@@ -175,7 +175,11 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
 .field input:focus,.field select:focus{border-color:var(--lime);box-shadow:0 0 0 3px rgba(200,255,0,0.08)}
 .field input::placeholder{color:rgba(255,255,255,0.2)}
 .field-error{font-size:11px;color:#F87171;margin-top:4px}
-.form-error-box{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#F87171;margin-bottom:16px;display:none}
+/* Spacing follows the box: it now sits UNDER the submit button, so the margin
+   moved from bottom to top. line-height because the agent-account message runs to
+   two lines and carries a link. */
+.form-error-box{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:10px 14px;font-size:13px;line-height:1.5;color:#F87171;margin:14px 0 0;display:none}
+.form-error-box a{color:#F87171;font-weight:700;text-decoration:underline}
 .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:var(--lime);opacity:0.7;margin:20px 0 14px;padding-bottom:8px;border-bottom:1px solid rgba(200,255,0,0.1)}
 .submit-btn{width:100%;background:var(--lime);color:#0A0E1A;font-size:15px;font-weight:800;padding:16px;border-radius:8px;border:none;cursor:pointer;font-family:'DM Sans',sans-serif;letter-spacing:0.02em;transition:all 0.15s;margin-top:8px}
 .submit-btn:hover{background:#d4ff26}
@@ -447,8 +451,6 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
 
     <!-- Form body -->
     <div class="modal-body" id="signupFormBody">
-      <div class="form-error-box" id="signupError"></div>
-
       <div class="section-label">Your Info</div>
       <div class="field">
         <label>Full Name *</label>
@@ -536,6 +538,12 @@ footer{padding:36px 5%;border-top:1px solid var(--border);display:flex;align-ite
       </div>
 
       <button class="submit-btn" id="signupSubmitBtn" onclick="submitSignup()">Create Free Account</button>
+      <!-- Under the button, not above the form. This box used to sit at the top of
+           the modal body, above "Your Info". The handler filled it in correctly, but
+           by the time you have scrolled through name, email, password, school, sport
+           and three follower fields to reach the button, the top of the modal is off
+           screen -- so a rejected signup looked like a button that did nothing. -->
+      <div class="form-error-box" id="signupError" role="alert" aria-live="assertive"></div>
       <div class="signin-note">Already have an account? <a href="/athlete-login.html">Sign in →</a></div>
     </div>
   </div>
@@ -594,6 +602,35 @@ document.getElementById('s-pass').addEventListener('input', function() {
   text.textContent = lvl.label; text.style.color = lvl.bg;
 });
 
+// Show a form-level signup error under the submit button.
+//
+// The box is scrolled into view because the form is taller than the modal: on a
+// laptop the button sits well below the fold, and simply setting display:block was
+// how a rejected signup ended up looking like a button that did nothing.
+//
+// The message is inserted as TEXT, never HTML. The sign-in link, when the server
+// sends one, is built as a real element with its href taken from a fixed map of
+// known paths -- so a server response can never inject markup or point the link
+// somewhere off-site.
+var SIGNIN_LINKS = {
+  '/athlete-login.html': 'Sign in',
+  '/': 'Go to sign in',
+};
+function showSignupError(message, signinUrl) {
+  var box = document.getElementById('signupError');
+  if (!box) return;
+  box.textContent = message || 'Signup failed. Please try again.';
+  if (signinUrl && SIGNIN_LINKS[signinUrl]) {
+    box.appendChild(document.createTextNode(' '));
+    var a = document.createElement('a');
+    a.href = signinUrl;
+    a.textContent = SIGNIN_LINKS[signinUrl] + ' →';
+    box.appendChild(a);
+  }
+  box.style.display = 'block';
+  try { box.scrollIntoView({ block: 'nearest' }); } catch (e) { box.scrollIntoView(); }
+}
+
 // ── Signup submit ─────────────────────────────────────────────────
 async function submitSignup() {
   var name     = document.getElementById('s-name').value.trim();
@@ -611,6 +648,7 @@ async function submitSignup() {
   ['e-name','e-email','e-pass','e-pass2','e-school','e-sport'].forEach(function(id){
     document.getElementById(id).textContent = '';
   });
+  // textContent = '' also drops any sign-in link appended by a previous attempt.
   var errBox = document.getElementById('signupError');
   errBox.style.display = 'none'; errBox.textContent = '';
 
@@ -635,8 +673,7 @@ async function submitSignup() {
     });
     var data = await r.json();
     if (!r.ok || data.error) {
-      errBox.textContent = data.error || 'Signup failed. Please try again.';
-      errBox.style.display = 'block';
+      showSignupError(data.error, data.signinUrl);
       btn.disabled = false; btn.textContent = 'Create Free Account';
       return;
     }
@@ -646,8 +683,7 @@ async function submitSignup() {
     document.getElementById('signupSuccess').style.display = 'block';
     document.querySelector('.modal-header').style.display = 'none';
   } catch(e) {
-    errBox.textContent = 'Network error. Please check your connection and try again.';
-    errBox.style.display = 'block';
+    showSignupError('Network error. Please check your connection and try again.');
     btn.disabled = false; btn.textContent = 'Create Free Account';
   }
 }
