@@ -3888,10 +3888,31 @@ app.post('/api/auth/reset-password', async (req, res) => {
     const { email } = r.rows[0];
     const hash = await bcrypt.hash(password, 10);
     const user = await store.getUserByEmail(email);
-    if (!user) return res.status(400).json({ error: 'User not found' });
-    await store.pool.query('UPDATE users SET password=$1, password_reset_required=FALSE, updated_at=NOW() WHERE id=$2', [hash, user.id]);
+    if (user) {
+      await store.pool.query('UPDATE users SET password=$1, password_reset_required=FALSE, updated_at=NOW() WHERE id=$2', [hash, user.id]);
+      await store.pool.query('UPDATE password_resets SET used=TRUE WHERE token=$1', [token]);
+      return res.json({ ok: true, role: 'agent' });
+    }
+
+    // Fall back to the athletes table. Athletes keep their credentials there, not
+    // in users, so this route used to answer "User not found" for every one of
+    // them -- which meant athletes had no password reset at all, and the set-
+    // password link a comped athlete needs could not work. Agents are still
+    // matched FIRST, so an email present in both tables behaves exactly as before.
+    // athlete/login requires onboarding_complete, so it is set here: an athlete who
+    // has just chosen a password has finished onboarding by any useful definition.
+    const ath = await store.pool.query(
+      'SELECT id FROM athletes WHERE LOWER(email) = LOWER($1) LIMIT 1', [email]
+    );
+    if (!ath.rows.length) return res.status(400).json({ error: 'User not found' });
+    await store.pool.query(
+      `UPDATE athletes SET password_hash=$1, onboarding_complete=TRUE,
+         email_verified=TRUE, updated_at=NOW() WHERE id=$2`,
+      [hash, ath.rows[0].id]
+    );
     await store.pool.query('UPDATE password_resets SET used=TRUE WHERE token=$1', [token]);
-    res.json({ ok: true });
+    console.log('[reset-password] athlete', ath.rows[0].id, 'set a password');
+    res.json({ ok: true, role: 'athlete' });
   } catch(e) { console.error('Reset password error:', e.message); res.status(500).json({ error: 'Failed to reset password' }); }
 });
 
@@ -4348,6 +4369,75 @@ app.post('/api/admin/create-comped-agent', async (req, res) => {
     console.log('[admin] created comped agent', id, email, 'emailed=' + emailed);
     res.json({ ok: true, userId: id, name, email, resetUrl, emailed });
   } catch (e) { console.error('[create-comped-agent]', e.message); res.status(500).json({ error: e.message }); }
+});
+
+// Admin-only: create a comped ATHLETE account, the mirror of the route above.
+// For handing someone free access BEFORE they sign up -- comping an existing
+// athlete cannot help if there is no athlete yet.
+//
+// The account is created the way a verified self-signup ends up: self_managed,
+// email_verified, onboarding_complete, with an unguessable random password the
+// athlete replaces via the set-password link. comped=TRUE is what grants access,
+// and it is independent of subscription_status, so turning BILLING_ENABLED on
+// later does not touch them.
+app.post('/api/admin/create-comped-athlete', async (req, res) => {
+  try {
+    const admin = await store.getUser(req.session.userId);
+    if (!admin || admin.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+
+    const name = String(req.body.name || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const school = String(req.body.school || '').trim();
+    const sport = String(req.body.sport || '').trim();
+    if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+
+    // Both tables are checked. An email already in users would take priority in
+    // the reset route, so the set-password link would set the WRONG account's
+    // password -- better to refuse than to hand over a broken link.
+    const dupe = await store.pool.query('SELECT id FROM athletes WHERE LOWER(email) = $1 LIMIT 1', [email]);
+    if (dupe.rows.length) return res.status(400).json({ error: 'That email already has an athlete account' });
+    if (await store.getUserByEmail(email)) return res.status(400).json({ error: 'That email is already registered as an agent account' });
+
+    const crypto = require('crypto');
+    const hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+    const id = 'self-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex');
+    await store.pool.query(
+      `INSERT INTO athletes (id, agent_id, data, email, password_hash, athlete_type,
+         email_verified, onboarding_complete, comped, subscription_status, created_at, updated_at)
+       VALUES ($1, NULL, $2, $3, $4, 'self_managed', TRUE, TRUE, TRUE, 'inactive', NOW(), NOW())`,
+      [id, JSON.stringify({ name, school: school || null, sport: sport || null }), email, hash]
+    );
+
+    // Same set-password flow the agent version uses, which now reaches athletes.
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 7 * 86400000).toISOString();
+    await store.pool.query('INSERT INTO password_resets (email, token, expires_at) VALUES ($1,$2,$3)', [email, token, expires]);
+    const resetUrl = (process.env.APP_URL || 'https://mynildash.com') + '/reset?token=' + token;
+
+    const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+    let emailed = false;
+    try {
+      await resend.emails.send({
+        from: 'NILDash <noreply@mynildash.com>',
+        to: email,
+        subject: 'Your NILDash account is ready',
+        html: '<div style="font-family:system-ui,Arial,sans-serif;max-width:520px;margin:0 auto;padding:40px">' +
+          '<h2 style="color:#C8F135">NILDash</h2>' +
+          '<p>Hi ' + esc(name) + ',</p>' +
+          '<p>Your NILDash athlete account is set up with full, complimentary access. No credit card is needed.</p>' +
+          '<p>Set your password to log in:</p>' +
+          '<a href="' + resetUrl + '" style="display:inline-block;margin:20px 0;padding:12px 24px;background:#C8F135;color:#000;text-decoration:none;border-radius:40px;font-weight:700">Set your password</a>' +
+          '<p style="color:#666;font-size:12px">This link expires in 7 days. Afterwards sign in at ' +
+            (process.env.APP_URL || 'https://mynildash.com') + '/athlete-login.html</p>' +
+          '</div>'
+      });
+      emailed = true;
+    } catch (e) { console.error('[create-comped-athlete] email failed (link still returned):', e.message); }
+
+    console.log('[admin] created comped athlete', id, email, 'emailed=' + emailed);
+    res.json({ ok: true, athleteId: id, name, email, resetUrl, emailed });
+  } catch (e) { console.error('[create-comped-athlete]', e.message); res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/admin/users', async (req, res) => {

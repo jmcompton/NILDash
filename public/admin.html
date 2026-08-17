@@ -65,6 +65,26 @@ a.back:hover{color:#C8F135}
   <div id="cca-result" style="padding:0 20px 16px;font-size:12px;color:#f0ede6;display:none"></div>
 </div>
 
+<!-- ── Create comped athlete ─────────────────────────────────────
+     The mirror of the panel above, for handing an athlete free access before
+     they have signed up. School and sport are optional: they are the only two
+     fields the athlete portal shows that cannot be derived, and leaving them
+     blank still produces a working account. -->
+<div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
+  <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08)">
+    <div style="font-size:14px;font-weight:600;color:#f0ede6">Create comped athlete</div>
+    <div style="font-size:11px;color:rgba(240,237,230,0.4);margin-top:4px">Creates a self-managed athlete account with full free access, no card. Use this for someone who has not signed up yet; to comp an existing athlete, use Athlete Comps below.</div>
+  </div>
+  <div style="padding:16px 20px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start">
+    <input id="ccath-name" type="text" placeholder="Full name" style="flex:1;min-width:150px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="ccath-email" type="email" placeholder="email@example.com" style="flex:1;min-width:190px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="ccath-school" type="text" placeholder="School (optional)" style="flex:1;min-width:130px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <input id="ccath-sport" type="text" placeholder="Sport (optional)" style="flex:1;min-width:110px;padding:8px 12px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:12px;outline:none">
+    <button id="ccath-btn" onclick="createCompedAthlete()" style="padding:8px 16px;background:#a78bfa;color:#000;border:none;border-radius:6px;cursor:pointer;font-weight:700;font-size:12px">Create comped athlete</button>
+  </div>
+  <div id="ccath-result" style="padding:0 20px 16px;font-size:12px;color:#f0ede6;display:none"></div>
+</div>
+
 <div style="margin:24px 0;background:#111110;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between">
     <div style="font-size:14px;font-weight:600;color:#f0ede6">User Plans</div>
@@ -277,6 +297,57 @@ async function setComp(userId, comped) {
     if (u && row) { u.comped = comped; row.outerHTML = userRowHtml(u); }
   } else {
     showToast('Error: ' + (data.error || 'comp update failed'));
+  }
+}
+
+// Mirrors createCompedAgent, with one difference: the name is run through refEsc
+// before being put in innerHTML. The agent version interpolates it raw.
+async function createCompedAthlete() {
+  var nameEl = document.getElementById('ccath-name');
+  var emailEl = document.getElementById('ccath-email');
+  var schoolEl = document.getElementById('ccath-school');
+  var sportEl = document.getElementById('ccath-sport');
+  var btn = document.getElementById('ccath-btn');
+  var out = document.getElementById('ccath-result');
+  var name = (nameEl.value || '').trim();
+  var email = (emailEl.value || '').trim();
+  if (!name || !email) { showToast('Name and email are required'); return; }
+  btn.disabled = true; var label = btn.textContent; btn.textContent = 'Creating...';
+  try {
+    var r = await fetch('/api/admin/create-comped-athlete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: name, email: email,
+        school: (schoolEl.value || '').trim(),
+        sport: (sportEl.value || '').trim()
+      })
+    });
+    var data = await r.json();
+    if (!r.ok || !data.ok) { showToast('Error: ' + (data.error || 'could not create account')); return; }
+    showToast('Comped athlete created' + (data.emailed ? ' and emailed' : ''));
+    var escAttr = function (s) { return String(s).replace(/"/g, '&quot;'); };
+    out.style.display = 'block';
+    out.innerHTML =
+      '<div style="background:#0f130a;border:1px solid rgba(167,139,250,0.4);border-radius:8px;padding:12px 14px">' +
+        '<div style="color:#a78bfa;font-weight:700;margin-bottom:6px">' + refEsc(data.name || name) + ' is ready (comped, full access, no card)</div>' +
+        '<div style="color:rgba(240,237,230,0.6);margin-bottom:8px">' +
+          (data.emailed
+            ? 'A set-password link was emailed to ' + refEsc(data.email) + '. You can also copy it below.'
+            : 'Email was not sent (delivery not configured). Copy this set-password link and send it to them:') +
+        '</div>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<input id="ccath-link" readonly value="' + escAttr(data.resetUrl) + '" style="flex:1;padding:7px 10px;background:#1a1a18;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;outline:none">' +
+          '<button onclick="(function(){var i=document.getElementById(\'ccath-link\');i.select();document.execCommand(\'copy\');showToast(\'Link copied\');})()" style="padding:7px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#f0ede6;font-size:11px;cursor:pointer">Copy</button>' +
+        '</div>' +
+        '<div style="color:rgba(240,237,230,0.35);font-size:10px;margin-top:6px">Link expires in 7 days. After setting a password they sign in at /athlete-login.html</div>' +
+      '</div>';
+    nameEl.value = ''; emailEl.value = ''; schoolEl.value = ''; sportEl.value = '';
+    if (typeof _loadAthleteCompsNow === 'function') _loadAthleteCompsNow();
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = label;
   }
 }
 
