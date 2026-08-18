@@ -914,12 +914,20 @@ function renderRunResult(data) {
       // Try to resolve the exact handle from the business website for a direct link.
       const site = enrichment && enrichment.website;
       if (site) {
-        fetch('/api/agent/brand-instagram', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ website: site }) })
+        // brand and region are sent so the server can check the handle belongs to
+        // THIS business. Without them it took the first instagram.com link on the
+        // page, which is how a web designer's account became the DM target.
+        fetch('/api/agent/brand-instagram', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ website: site, brand: brand, region: (enrichment && enrichment.location) || '' }),
+        })
           .then(function (r) { return r.json(); })
           .then(function (d) {
             if (d && d.handle) {
               openLink.href = 'https://www.instagram.com/' + d.handle;
-              openLink.textContent = 'Open @' + d.handle;
+              // Say when it is the brand's account rather than this location's, so
+              // an agent is not surprised that corporate answers.
+              openLink.textContent = (d.scope === 'brand' ? 'Open brand @' : 'Open @') + d.handle;
             }
           }).catch(function () {});
       }

@@ -2037,7 +2037,12 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   if (_deep && effectiveWebsite) {
     try {
       const { findInstagram } = require('./services/instagramLookup');
-      _igPromise = findInstagram(effectiveWebsite).catch(() => null);
+      // brand + loc drive the ownership test on the scraped handle AND the
+      // search fallback, which only runs when the scrape misses. webSearch is
+      // injected rather than imported so instagramLookup never depends on ai.js.
+      _igPromise = findInstagram(effectiveWebsite, {
+        brand, loc: locationHint, webSearch: _contactWebSearchRaw,
+      }).catch(() => null);
     } catch (_) { _igPromise = null; }
   }
   // Manual "Add a Business" passes sourceOrder (site first) and stopAtTier1, so the
@@ -2076,9 +2081,39 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   if (_igPromise) {
     const _igT0 = Date.now();
     try {
-      const handle = await Promise.race([_igPromise, new Promise((res2) => setTimeout(() => res2('__late__'), SIDE_LOOKUP_GRACE_MS))]);
-      if (handle === '__late__') console.log(`[brand-contacts] instagram still running after fan-out, dropped after ${SIDE_LOOKUP_GRACE_MS}ms`);
-      else if (handle) res.instagram = handle;
+      const ig = await Promise.race([_igPromise, new Promise((res2) => setTimeout(() => res2('__late__'), SIDE_LOOKUP_GRACE_MS))]);
+      // A late result is dropped for THIS call but the promise is not aborted, so
+      // it still finishes and writes its cache row. The search path routinely
+      // outlives the grace, and that is how the next lookup gets it for free --
+      // which is also why the scan-time ladder warm matters more now.
+      if (ig === '__late__') console.log(`[brand-contacts] instagram still running after fan-out, dropped after ${SIDE_LOOKUP_GRACE_MS}ms`);
+      else if (ig && ig.handle) {
+        res.instagram = ig.handle;
+        res.instagramScope = ig.scope || 'business';
+        // A person named in the bio of an account we have CITATION-verified as this
+        // business's. Honest about what it is: scope 'unclear' keeps them out of
+        // Tier 1, and emailSource 'bio' stops the address ever reading as published
+        // on the business website.
+        if (ig.ownerName) {
+          const _bioEmail = ig.bookingEmail && !_isGenericInbox(ig.bookingEmail) ? _validEmail(ig.bookingEmail) : null;
+          res.contacts = res.contacts || [];
+          const _known = res.contacts.some((c) => c && c.name && _mergeNameKey(c.name) === _mergeNameKey(ig.ownerName));
+          if (!_known) {
+            res.contacts.push({
+              name: ig.ownerName, title: 'Owner (Instagram bio)',
+              email: _bioEmail, emailSource: _bioEmail ? 'bio' : null,
+              phone: null, linkedinUrl: null,
+              sourceUrl: 'https://www.instagram.com/' + ig.handle,
+              confidence: 'medium', source: 'instagram',
+              affiliationScope: 'unclear',
+              affiliationEvidence: ig.bioText || null,
+            });
+          }
+        }
+        if (ig.bookingEmail && _isGenericInbox(ig.bookingEmail) && !res.genericInbox) {
+          res.genericInbox = _validEmail(ig.bookingEmail);
+        }
+      }
     } catch (e) { console.warn('[dealScan] instagram lookup failed:', e.message); }
     _igMs = Date.now() - _igT0;
   }
@@ -2101,7 +2136,7 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(brand + (loc ? ' ' + loc : ''))
     : null);
   const approach = _contactApproach(ctx || {}, res.contacts[0] || null, res);
-  return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, businessPhone: res.businessPhone, approach, mapsUrl, website: (places && places.website) || website || null };
+  return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, instagramScope: res.instagramScope || null, businessPhone: res.businessPhone, approach, mapsUrl, website: (places && places.website) || website || null };
 }
 
 // Build the "Approach" line. References the real person, else the honest phone

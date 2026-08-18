@@ -8373,11 +8373,19 @@ app.post('/api/agent/brand-contacts', requireAuth, requireAgentSubscription, aiL
 
 app.post('/api/agent/brand-instagram', requireAuth, async (req, res) => {
   try {
-    const { website } = req.body || {};
+    const { website, brand, region } = req.body || {};
     if (!website) return res.json({ handle: null });
     const { findInstagram } = require('./services/instagramLookup');
-    const handle = await findInstagram(website);
-    res.json({ handle: handle || null });
+    // brand + region enable the ownership test and the search fallback. Without a
+    // brand this endpoint used to accept whatever instagram.com link appeared
+    // first in the HTML, which for a site crediting its web designer was the
+    // designer's account -- and the DM button pointed straight at it.
+    const out = await findInstagram(website, brand
+      ? { brand, loc: region || '', webSearch: ai.webSearchJson }
+      : {});
+    // A STRING, as the client has always expected. findInstagram returns a record
+    // now; handing that back whole rendered "instagram.com/[object Object]".
+    res.json({ handle: (out && out.handle) || null, scope: (out && out.scope) || null });
   } catch (e) { res.json({ handle: null }); }
 });
 app.post('/api/athlete/brand-contacts', verifyAthleteToken, requireAthleteSubscription, aiLimiter, _brandContactsBatch);

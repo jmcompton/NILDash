@@ -179,8 +179,16 @@ function buildContactLadder(res, opts = {}) {
   // belongs to that person's row and rides their tier. Otherwise it is the business
   // account and becomes its own business-channel row.
   const bizHandle = r.instagram || opts.instagram || null;
+  // 'brand' means the handle belongs to the national brand rather than this store
+  // -- Rally House Fayetteville resolves to @rally_house, 135k followers and no
+  // idea this location exists. Absent scope means a row cached before the check,
+  // and is treated exactly as before.
+  const handleScope = r.instagramScope || opts.instagramScope || null;
+  const brandHandle = handleScope === 'brand';
   let personalHandleOwner = null;
-  if (bizHandle) {
+  // A corporate account is never somebody's personal DM, so it must not be pinned
+  // to a named row even if the letters happen to line up.
+  if (bizHandle && !brandHandle) {
     personalHandleOwner = named.find((c) => _handleMatchesName(bizHandle, c.name)) || null;
   }
   const askFor = [];      // names to say on the main line, collected for one row
@@ -285,13 +293,17 @@ function buildContactLadder(res, opts = {}) {
   if (bizHandle && !personalHandleOwner) {
     t3.push({
       name: null,
-      title: 'Business Instagram',
+      title: brandHandle ? 'National brand Instagram' : 'Business Instagram',
       instagram: bizHandle,
       channel: 'instagram',
       phone: null,
       email: null,
-      confidence: 'Likely',
-      sourceNote: 'Instagram link found on the business website. DM the account, owners usually read these.',
+      // A brand account is a real channel and is offered, but it is not a route to
+      // this location and must never read as one.
+      confidence: brandHandle ? 'Fallback' : 'Likely',
+      sourceNote: brandHandle
+        ? 'The national brand account, not this location. A DM here reaches corporate social, not the store.'
+        : 'Instagram link found on the business website. DM the account, owners usually read these.',
       callWindow: null,
     });
   }
