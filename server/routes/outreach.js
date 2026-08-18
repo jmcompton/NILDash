@@ -30,6 +30,42 @@ function checkEnabled(req, res, next) {
 }
 router.use(checkEnabled);
 
+// Who is calling. An agent arrives with a session cookie; a self-managed athlete
+// arrives with the same JWT the rest of her portal uses. Everything below reads
+// req.principal rather than req.session.userId, so no handler can quietly assume
+// the caller is an agent -- which is exactly what /run did.
+function requirePrincipal(req, res, next) {
+  if (req.session && req.session.userId) {
+    req.principal = { kind: 'agent', id: req.session.userId };
+    return next();
+  }
+  if (req.athletePrincipalId) {
+    req.principal = { kind: 'athlete', id: req.athletePrincipalId };
+    return next();
+  }
+  res.status(401).json({ error: 'Not authenticated' });
+}
+router.use(requirePrincipal);
+
+// Resolve the athlete this request is about.
+//
+// AN ATHLETE IS THE SUBJECT, NOT A PARAMETER. When the caller is an athlete she is
+// the athlete, whatever the body says: a body athleteId naming someone else is
+// ignored, and omitting it is fine. An agent must still name one, and must still
+// own it -- that isolation is unchanged.
+async function resolveAthleteFor(principal, bodyAthleteId) {
+  if (principal.kind === 'athlete') {
+    if (bodyAthleteId && String(bodyAthleteId) !== String(principal.id)) {
+      console.warn(`[outreach] athlete=${principal.id}: body named athleteId ${bodyAthleteId}, using the caller's own id`);
+    }
+    const r = await pool.query('SELECT * FROM athletes WHERE id=$1', [principal.id]);
+    return r.rows[0] || null;
+  }
+  if (!bodyAthleteId) return null;
+  const r = await pool.query('SELECT * FROM athletes WHERE id=$1 AND agent_id=$2', [bodyAthleteId, principal.id]);
+  return r.rows[0] || null;
+}
+
 // Whitelist the fields of a client-supplied contact ladder. This value comes from
 // the browser, and it ends up in brand_contacts, so it is copied field by field
 // rather than passed through: never an email that is not an email, never a name
@@ -71,21 +107,25 @@ function _safeKnownContacts(v) {
 router.post('/run', async (req, res) => {
   try {
     const { athleteId, dealScanResult, knownContacts } = req.body;
-    if (!athleteId || !dealScanResult?.brand) {
+    if (!dealScanResult?.brand) {
+      return res.status(400).json({ error: 'dealScanResult.brand required' });
+    }
+    // An agent still has to say who this is for; an athlete is already the answer.
+    if (req.principal.kind === 'agent' && !athleteId) {
       return res.status(400).json({ error: 'athleteId and dealScanResult.brand required' });
     }
 
-    // Load athlete
-    const ar = await pool.query(
-      'SELECT * FROM athletes WHERE id=$1 AND agent_id=$2',
-      [athleteId, req.session.userId]
-    );
-    if (!ar.rows[0]) return res.status(404).json({ error: 'Athlete not found' });
+    const row = await resolveAthleteFor(req.principal, athleteId);
+    if (!row) return res.status(404).json({ error: 'Athlete not found' });
 
-    const athlete = { ...ar.rows[0], ...ar.rows[0].data };
+    const athlete = { ...row, ...row.data };
 
     const { runId } = await orchestrator.runOutreachWorkflow({
-      agentId: req.session.userId,
+      // The OWNER key for everything this run writes. For an agent it is his user
+      // id, exactly as before; for a self-managed athlete it is her own id, so her
+      // runs, contacts and drafts are scoped to her and no agent can read them.
+      agentId: req.principal.id,
+      owner: req.principal,
       athlete,
       dealScanResult,
       // The contact ladder the card already resolved. Sent by the client so the
@@ -130,11 +170,11 @@ router.get('/draft', async (req, res) => {
       ? await pool.query(
           `SELECT * FROM outreach_logs
            WHERE agent_id=$1 AND athlete_id=$2 AND brand_key=$3 AND status='draft'
-           ORDER BY created_at DESC LIMIT 1`, [req.session.userId, athleteId, brandKey])
+           ORDER BY created_at DESC LIMIT 1`, [req.principal.id, athleteId, brandKey])
       : await pool.query(
           `SELECT * FROM outreach_logs
            WHERE agent_id=$1 AND athlete_id=$2 AND LOWER(brand_name)=LOWER($3) AND status='draft'
-           ORDER BY created_at DESC LIMIT 1`, [req.session.userId, athleteId, brand]);
+           ORDER BY created_at DESC LIMIT 1`, [req.principal.id, athleteId, brand]);
     const row = r.rows[0];
     if (!row) return res.status(404).json({ error: 'no draft yet' });
     res.json({
@@ -156,7 +196,7 @@ router.get('/runs/:runId', async (req, res) => {
   try {
     const data = await orchestrator.getRunStatus(req.params.runId);
     if (!data) return res.status(404).json({ error: 'Run not found' });
-    if (data.run.agent_id !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (data.run.agent_id !== req.principal.id) return res.status(403).json({ error: 'Forbidden' });
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -169,7 +209,7 @@ router.get('/runs/:runId', async (req, res) => {
  */
 router.get('/runs', async (req, res) => {
   try {
-    const runs = await orchestrator.listRunsForAgent(req.session.userId, 20);
+    const runs = await orchestrator.listRunsForAgent(req.principal.id, 20);
     res.json(runs);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -186,7 +226,7 @@ router.post('/enrich', async (req, res) => {
   try {
     const { brandName, hintData } = req.body;
     if (!brandName) return res.status(400).json({ error: 'brandName required' });
-    const result = await enrichmentSvc.enrich(req.session.userId, brandName, hintData || {});
+    const result = await enrichmentSvc.enrich(req.principal.id, brandName, hintData || {});
     res.json(result);
   } catch (e) {
     console.error('[outreach/enrich]', e.message);
@@ -200,7 +240,7 @@ router.post('/enrich', async (req, res) => {
  */
 router.get('/enrichments', async (req, res) => {
   try {
-    const results = await enrichmentSvc.listForAgent(req.session.userId);
+    const results = await enrichmentSvc.listForAgent(req.principal.id);
     res.json(results);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -216,7 +256,7 @@ router.get('/enrichments', async (req, res) => {
 router.get('/contacts/:enrichmentId', async (req, res) => {
   try {
     const enrichment = await enrichmentSvc.getById(req.params.enrichmentId);
-    if (!enrichment || enrichment.agent_id !== req.session.userId) {
+    if (!enrichment || enrichment.agent_id !== req.principal.id) {
       return res.status(404).json({ error: 'Enrichment not found' });
     }
     const contacts = await contactSvc.getByEnrichmentId(req.params.enrichmentId);
@@ -239,19 +279,22 @@ router.post('/pitch', async (req, res) => {
     if (!athleteId || !enrichmentId) return res.status(400).json({ error: 'athleteId and enrichmentId required' });
 
     const [ar, enrichment] = await Promise.all([
-      pool.query('SELECT * FROM athletes WHERE id=$1 AND agent_id=$2', [athleteId, req.session.userId]),
+      resolveAthleteFor(req.principal, athleteId),
       enrichmentSvc.getById(enrichmentId),
     ]);
-    if (!ar.rows[0]) return res.status(404).json({ error: 'Athlete not found' });
-    if (!enrichment || enrichment.agent_id !== req.session.userId) return res.status(404).json({ error: 'Enrichment not found' });
+    if (!ar) return res.status(404).json({ error: 'Athlete not found' });
+    if (!enrichment || enrichment.agent_id !== req.principal.id) return res.status(404).json({ error: 'Enrichment not found' });
 
-    const athlete = ar.rows[0];
-    const matchScore = await matchSvc.matchAthleteToBrand(req.session.userId, athlete, enrichment);
-    const contact = contactId ? await contactSvc.getById(contactId) : await contactSvc.getBestContact(req.session.userId, enrichmentId);
+    const athlete = ar;
+    const matchScore = await matchSvc.matchAthleteToBrand(req.principal.id, athlete, enrichment);
+    const contact = contactId ? await contactSvc.getById(contactId) : await contactSvc.getBestContact(req.principal.id, enrichmentId);
 
-    const agentRow = await pool.query('SELECT name, email FROM users WHERE id=$1', [req.session.userId]);
-    const agentName  = agentRow.rows[0]?.name  || null;
-    const agentEmail = agentRow.rows[0]?.email || null;
+    // An athlete pitching for herself is not in the users table; she signs it.
+    const senderRow = req.principal.kind === 'athlete'
+      ? await pool.query(`SELECT data->>'name' AS name, email FROM athletes WHERE id=$1`, [req.principal.id])
+      : await pool.query('SELECT name, email FROM users WHERE id=$1', [req.principal.id]);
+    const agentName  = senderRow.rows[0]?.name  || null;
+    const agentEmail = senderRow.rows[0]?.email || null;
 
     const pitch = await pitchSvc.generatePitch({ athlete, enrichment, matchScore, contact, dealScanData: {}, agentName, agentEmail });
 
@@ -287,7 +330,7 @@ router.post('/pitch', async (req, res) => {
 router.get('/decks/:deckId/download', async (req, res) => {
   try {
     const deck = await deckSvc.getDeckById(req.params.deckId);
-    if (!deck || deck.agent_id !== req.session.userId) {
+    if (!deck || deck.agent_id !== req.principal.id) {
       return res.status(404).json({ error: 'Deck not found' });
     }
     if (!deck.file_path || !fs.existsSync(deck.file_path)) {
@@ -316,7 +359,7 @@ router.get('/logs', async (req, res) => {
        LEFT JOIN brand_contacts bc ON ol.contact_id = bc.id
        WHERE ol.agent_id=$1
        ORDER BY ol.created_at DESC LIMIT 50`,
-      [req.session.userId]
+      [req.principal.id]
     );
     res.json(r.rows);
   } catch (e) {
@@ -329,7 +372,7 @@ router.get('/logs', async (req, res) => {
  */
 router.get('/logs/:id', async (req, res) => {
   try {
-    const r = await pool.query('SELECT * FROM outreach_logs WHERE id=$1 AND agent_id=$2', [req.params.id, req.session.userId]);
+    const r = await pool.query('SELECT * FROM outreach_logs WHERE id=$1 AND agent_id=$2', [req.params.id, req.principal.id]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Not found' });
     res.json(r.rows[0]);
   } catch (e) {
@@ -345,7 +388,7 @@ router.get('/logs/:id', async (req, res) => {
 router.post('/logs/:id/send', async (req, res) => {
   try {
     const { emailAccountId, toEmail } = req.body;
-    const r = await pool.query('SELECT * FROM outreach_logs WHERE id=$1 AND agent_id=$2', [req.params.id, req.session.userId]);
+    const r = await pool.query('SELECT * FROM outreach_logs WHERE id=$1 AND agent_id=$2', [req.params.id, req.principal.id]);
     const log = r.rows[0];
     if (!log) return res.status(404).json({ error: 'Outreach log not found' });
     if (log.status === 'sent') return res.status(400).json({ error: 'Already sent' });
@@ -369,11 +412,12 @@ router.post('/logs/:id/send', async (req, res) => {
     // Log workflow event
     pool.query(
       `INSERT INTO workflow_events (run_id, agent_id, event_type, payload) VALUES (NULL,$1,$2,$3)`,
-      [req.session.userId, 'email_sent', JSON.stringify({ outreachId: log.id, brand: log.brand_name, to: toEmail })]
+      [req.principal.id, 'email_sent', JSON.stringify({ outreachId: log.id, brand: log.brand_name, to: toEmail })]
     ).catch(() => {});
 
     // Getting Started checklist: first AI outreach email sent
-    markChecklistItem(req.session.userId, 'ai_outreach').catch(() => {});
+    // The onboarding checklist is an agent artefact; an athlete has no row in it.
+    if (req.principal.kind === 'agent') markChecklistItem(req.principal.id, 'ai_outreach').catch(() => {});
 
     res.json({ ok: true, message: 'Email sent successfully' });
   } catch (e) {
@@ -393,7 +437,7 @@ router.patch('/logs/:id', async (req, res) => {
       `UPDATE outreach_logs SET subject=$1, body_html=$2, updated_at=NOW()
        WHERE id=$3 AND agent_id=$4 AND status='draft'
        RETURNING *`,
-      [subject, body_html, req.params.id, req.session.userId]
+      [subject, body_html, req.params.id, req.principal.id]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Draft not found or already sent' });
     res.json(r.rows[0]);
@@ -416,7 +460,7 @@ router.post('/logs/:id/replied', async (req, res) => {
     // Ownership + must already be sent.
     const r = await pool.query(
       'SELECT id, status FROM outreach_logs WHERE id=$1 AND agent_id=$2',
-      [req.params.id, req.session.userId]
+      [req.params.id, req.principal.id]
     );
     const log = r.rows[0];
     if (!log) return res.status(404).json({ error: 'Outreach not found' });
@@ -427,7 +471,7 @@ router.post('/logs/:id/replied', async (req, res) => {
       // Undo: clear the reply and return the row to sent so the agent can track it again.
       await pool.query(
         `UPDATE outreach_logs SET replied_at=NULL, status='sent', updated_at=NOW() WHERE id=$1 AND agent_id=$2`,
-        [log.id, req.session.userId]
+        [log.id, req.principal.id]
       );
     }
     const out = await pool.query('SELECT * FROM outreach_logs WHERE id=$1', [log.id]);
@@ -446,7 +490,7 @@ router.post('/logs/:id/replied', async (req, res) => {
  */
 router.get('/follow-ups', async (req, res) => {
   try {
-    const due = await followUpSvc.getFollowUpsDue(req.session.userId);
+    const due = await followUpSvc.getFollowUpsDue(req.principal.id);
     res.json(due);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -456,9 +500,16 @@ router.get('/follow-ups', async (req, res) => {
 // ── Internal helper: delegate email send to existing service ──────────────────
 
 async function sendViaEmailService(req, emailAccountId, toEmail, log) {
+  // KNOWN GAP, stated rather than hidden. An athlete's mailbox is gmail_refresh_token
+  // ON HER athletes row, not a row in email_accounts (that table keys on user_id).
+  // Generating and drafting now work for her; SENDING through this route does not
+  // yet, and would otherwise fail as a confusing "Email account not found".
+  if (req.principal.kind === 'athlete') {
+    throw new Error('Sending from the outreach engine is not wired to athlete mailboxes yet. Copy the draft and send it from your own email, or use the Instagram DM above.');
+  }
   const emailStore = require('../services/emailStore');
   const account = await emailStore.getEmailAccountWithTokens(emailAccountId);
-  if (!account || account.user_id !== req.session.userId) throw new Error('Email account not found');
+  if (!account || account.user_id !== req.principal.id) throw new Error('Email account not found');
 
   const accessToken  = account.accessToken  || null;
   const refreshToken = account.refreshToken || null;

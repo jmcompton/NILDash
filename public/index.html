@@ -5135,6 +5135,13 @@ var ATHLETE_AUTH_PASSTHROUGH = [
   // credentials:'omit'. Handled here so a hand-rolled fetch elsewhere cannot
   // reintroduce the cookie by forgetting.
   /^\/api\/athlete\//,
+  // The outreach engine. /api/outreach/* is now principal-aware server-side, so
+  // there is nothing to rewrite -- but without the token these went out as bare
+  // agent-API calls, and in a browser that also held an agent session they were
+  // answered as the AGENT. /run then looked her up with `agent_id = <the agent>`,
+  // found nothing, and returned "Athlete not found". The /logs mapping above is
+  // checked first and still wins, so it is unaffected.
+  /^\/api\/outreach\//,
 ];
 function needsAthleteAuth(path) {
   return ATHLETE_AUTH_PASSTHROUGH.some(function (rx) { return rx.test(path); });

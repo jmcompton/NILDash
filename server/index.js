@@ -9529,7 +9529,31 @@ try {
 // Isolated route module — zero interference with existing routes above.
 try {
   const outreachRoutes = require('./routes/outreach');
-  app.use('/api/outreach', requireAuth, requireAgentSubscription, outreachRoutes);
+  // Two kinds of caller, one engine. Same rule as the assistant: a bearer token is
+  // a deliberate act and beats an ambient session cookie. This mount used to be
+  // agent-session-only, so a self-managed athlete clicking AI Outreach fell through
+  // to the agent API -- with the agent's cookie if the browser had one -- and /run
+  // resolved her with `WHERE id=$1 AND agent_id=$2`. She has no agent, so there was
+  // no row: "Athlete not found".
+  function outreachAuth(req, res, next) {
+    const auth = req.headers.authorization || '';
+    if (auth.startsWith('Bearer ')) {
+      return verifyAthleteToken(req, res, function () {
+        req.athletePrincipalId = req.athlete && req.athlete.id;
+        if (!req.athletePrincipalId) return res.status(401).json({ error: 'Not authenticated' });
+        if (req.session && req.session.userId) {
+          console.warn(`[outreach] athlete ${req.athletePrincipalId} presented a bearer token alongside an agent session; the session is ignored for this request`);
+          req.session = Object.assign(Object.create(Object.getPrototypeOf(req.session) || null), req.session, { userId: null });
+        }
+        return requireAthleteSubscription(req, res, next);
+      });
+    }
+    if (req.session && req.session.userId) {
+      return requireAgentSubscription(req, res, next);
+    }
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+  app.use('/api/outreach', outreachAuth, outreachRoutes);
 
   // Start follow-up automation poller (fire-and-forget)
   const followUpSvc = require('./services/followUpAutomation');

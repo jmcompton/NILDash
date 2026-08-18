@@ -40,6 +40,11 @@ const deckSvc        = require('./deckGeneration');
  */
 async function runOutreachWorkflow(params) {
   const { agentId, athlete, dealScanResult, knownContacts } = params;
+  // agentId is the OWNER key for everything this run writes, and it is now either an
+  // agent's user id or a self-managed athlete's own id. owner says which, for the
+  // two places that mean "the human sending this" rather than "who owns the row":
+  // the signature on the pitch, and where the resulting deal is filed.
+  const owner = params.owner || { kind: 'agent', id: agentId };
   const brandName = dealScanResult.brand;
   const athleteId = athlete.id;
 
@@ -52,7 +57,7 @@ async function runOutreachWorkflow(params) {
   );
 
   // Run workflow in background — return runId immediately
-  setImmediate(() => executeWorkflow(runId, agentId, athlete, dealScanResult, knownContacts).catch(e => {
+  setImmediate(() => executeWorkflow(runId, agentId, athlete, dealScanResult, knownContacts, owner).catch(e => {
     console.error('[workflowOrchestrator] Unhandled error in run', runId, e.message);
     markRunFailed(runId, e.message);
   }));
@@ -95,20 +100,17 @@ async function listRunsForAgent(agentId, limit = 20) {
 
 // ── Workflow Execution ────────────────────────────────────────────────────────
 
-async function executeWorkflow(runId, agentId, athlete, dealScanResult, knownContacts) {
+async function executeWorkflow(runId, agentId, athlete, dealScanResult, knownContacts, owner) {
   const brandName = dealScanResult.brand;
   const athleteId = athlete.id;
   const completedSteps = [];
   const failedSteps = [];
+  const senderIsAthlete = !!(owner && owner.kind === 'athlete');
 
-  // Load agent profile so pitches are signed with a real name
-  let agentName = null;
-  let agentEmail = null;
-  try {
-    const agentRow = await pool.query('SELECT name, email FROM users WHERE id=$1', [agentId]);
-    agentName  = agentRow.rows[0]?.name  || null;
-    agentEmail = agentRow.rows[0]?.email || null;
-  } catch (e) { /* non-fatal — pitch will use fallback */ }
+  // Who signs the pitch. A self-managed athlete has no agent, and her id is not in
+  // the users table -- looking her up there returned nothing and the email went out
+  // unsigned. She signs it herself, which is the whole point of self-management.
+  const { agentName, agentEmail } = await loadSenderIdentity(agentId, senderIsAthlete, athlete);
 
   async function step(name, fn) {
     try {
@@ -185,7 +187,7 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult, knownCon
 
   // ── Step 6: Build Email Draft ──────────────────────────────────────────────
   const outreach = await step('email_draft', () =>
-    buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment, bestContact, pitch, deck, dealScanResult)
+    buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment, bestContact, pitch, deck, dealScanResult, senderIsAthlete)
   );
   if (outreach) {
     await pool.query('UPDATE automation_runs SET outreach_id=$1 WHERE id=$2', [outreach.id, runId]);
@@ -193,7 +195,7 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult, knownCon
 
   // ── Step 7: CRM Update ────────────────────────────────────────────────────
   await step('crm_update', () =>
-    createCRMDeal(agentId, athleteId, athlete, dealScanResult, enrichment, outreach)
+    createCRMDeal(agentId, athleteId, athlete, dealScanResult, enrichment, outreach, senderIsAthlete)
   );
 
   // ── Mark Complete ──────────────────────────────────────────────────────────
@@ -264,19 +266,32 @@ ${attachNote}
 
 // ── Step Implementations ──────────────────────────────────────────────────────
 
-async function buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment, contact, pitch, deck, dealScanResult) {
+// The name and address the outreach is signed with. An agent is a users row; a
+// self-managed athlete is an athletes row and signs as herself.
+async function loadSenderIdentity(ownerId, isAthlete, athleteRow) {
+  try {
+    if (isAthlete) {
+      const r = await pool.query(`SELECT email, data->>'name' AS name FROM athletes WHERE id=$1`, [ownerId]);
+      const row = r.rows[0] || {};
+      const data = (athleteRow && (athleteRow.data || athleteRow)) || {};
+      return { agentName: row.name || data.name || null, agentEmail: row.email || null };
+    }
+    const r = await pool.query('SELECT name, email FROM users WHERE id=$1', [ownerId]);
+    return { agentName: r.rows[0]?.name || null, agentEmail: r.rows[0]?.email || null };
+  } catch (e) {
+    return { agentName: null, agentEmail: null };   // non-fatal: the pitch falls back
+  }
+}
+
+async function buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment, contact, pitch, deck, dealScanResult, senderIsAthlete) {
   if (!pitch) return null;
 
   const id = 'out_' + crypto.randomBytes(8).toString('hex');
   const athleteData = athlete.data || athlete;
 
-  // Load agent info for the signature block
-  let agentName = null, agentEmail = null;
-  try {
-    const ar = await pool.query('SELECT name, email FROM users WHERE id=$1', [agentId]);
-    agentName  = ar.rows[0]?.name  || null;
-    agentEmail = ar.rows[0]?.email || null;
-  } catch (_) {}
+  // Load the sender's info for the signature block. Same rule as the pitch: an
+  // athlete running this for herself is not in the users table and signs as herself.
+  const { agentName, agentEmail } = await loadSenderIdentity(agentId, senderIsAthlete, athlete);
 
   // Build professional HTML email body
   const bodyHtml = renderProfessionalEmail(pitch.full_email_body || '', agentName, agentEmail, deck, athleteData, enrichment);
@@ -298,7 +313,13 @@ async function buildOutreachDraft(runId, agentId, athleteId, athlete, enrichment
   return r.rows[0];
 }
 
-async function createCRMDeal(agentId, athleteId, athlete, dealScanResult, enrichment, outreach) {
+async function createCRMDeal(agentId, athleteId, athlete, dealScanResult, enrichment, outreach, senderIsAthlete) {
+  // A SELF-MANAGED ATHLETE'S PIPELINE IS NOT THE AGENT DEALS TABLE. Her portal reads
+  // athlete_deal_pipeline; writing her a `deals` row keyed on her own id as agent_id
+  // would file it where nothing looks, so the brand she just pitched would never
+  // appear in her pipeline.
+  if (senderIsAthlete) return createAthletePipelineEntry(athleteId, dealScanResult, enrichment, outreach);
+
   // Only create if no existing Prospecting deal for this brand+athlete
   const existing = await pool.query(
     `SELECT id FROM deals
@@ -330,6 +351,31 @@ async function createCRMDeal(agentId, athleteId, athlete, dealScanResult, enrich
     dealId, brand: dealScanResult.brand, athleteId,
   });
 
+  return r.rows[0];
+}
+
+// The athlete-side equivalent of createCRMDeal. Same shape of guarantee: one entry
+// per brand, never a duplicate, and it lands where her Pipeline view reads.
+async function createAthletePipelineEntry(athleteId, dealScanResult, enrichment, outreach) {
+  const brand = enrichment.brand_name || dealScanResult.brand;
+  const existing = await pool.query(
+    `SELECT id FROM athlete_deal_pipeline WHERE athlete_id=$1 AND brand_name=$2 LIMIT 1`,
+    [athleteId, brand]
+  );
+  if (existing.rows.length > 0) return existing.rows[0];
+  const r = await pool.query(
+    `INSERT INTO athlete_deal_pipeline
+       (athlete_id, agent_id, brand_name, brand_category, status, pitch_subject, pitch_body, notes, created_at, updated_at)
+     VALUES ($1, NULL, $2, $3, 'pitched', $4, $5, $6, NOW(), NOW())
+     RETURNING *`,
+    [
+      athleteId, brand, dealScanResult.category || enrichment.industry || null,
+      outreach?.subject || null,
+      outreach?.body_html || null,
+      `Auto-created by the outreach engine. Fit score: ${dealScanResult.fitScore || 'N/A'}.`,
+    ]
+  );
+  logWorkflowEvent(null, athleteId, 'athlete_pipeline_entry_created', { brand, athleteId });
   return r.rows[0];
 }
 
