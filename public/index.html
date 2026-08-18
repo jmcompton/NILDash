@@ -16487,19 +16487,42 @@ function hqIsAdmin() {
   return !!(currentUser && (currentUser.isFounder === true || currentUser.role === 'admin'));
 }
 
+// STATE LIVES OUTSIDE THE DOM, because the DOM does not survive.
+//
+// renderOutreachQueue replaces the whole section's innerHTML, and hqFillPoll
+// calls it the moment a run finishes. When a run finishes INSTANTLY -- which is
+// the common case, "no un-contacted businesses on their scan" or "all three slots
+// already full" -- the first poll tick wrote the reason and the re-render
+// destroyed it in the same breath, along with the select's value. What an admin
+// saw was the picker snapping back to the first athlete and nothing else, which
+// is indistinguishable from a dead button.
+var _hqFillAthlete = null;   // the chosen athlete, held here rather than read off the select
+var _hqFillMsg = '';         // the last thing we said, so a re-render can say it again
+var _hqFillRunning = false;  // so a re-render mid-run does not re-enable the button
+
 function hqFillUi() {
   if (!hqIsAdmin()) return '';
-  var opts = (athletes || []).map(function (a) {
-    return '<option value="' + hqEsc(a.id) + '">' + hqEsc(a.name || a.id) + '</option>';
+  var list = athletes || [];
+  if (!list.length) return '';
+  // Default to the first athlete only when nothing has been chosen yet; after
+  // that the choice is sticky across every re-render.
+  if (!_hqFillAthlete || !list.some(function (a) { return a.id === _hqFillAthlete; })) {
+    _hqFillAthlete = list[0].id;
+  }
+  var opts = list.map(function (a) {
+    return '<option value="' + hqEsc(a.id) + '"' + (a.id === _hqFillAthlete ? ' selected' : '') + '>'
+      + hqEsc(a.name || a.id) + '</option>';
   }).join('');
-  if (!opts) return '';
   return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;'
     + 'padding-bottom:12px;border-bottom:.5px solid #141d29">'
     + '<span style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#4B5563">Admin</span>'
-    + '<select id="hq-fill-ath" style="background:#0a0f16;border:1px solid #1e2a3a;color:#D6D3CC;'
-    + 'border-radius:7px;padding:6px 9px;font-size:12px;font-family:inherit">' + opts + '</select>'
-    + '<button class="hm-btn ghost" id="hq-fill-btn" onclick="hqFillNow()">Fill queue now</button>'
-    + '<span id="hq-fill-status" style="font-size:11.5px;color:#6B7280"></span></div>';
+    + '<select id="hq-fill-ath" onchange="_hqFillAthlete=this.value" style="background:#0a0f16;'
+    + 'border:1px solid #1e2a3a;color:#D6D3CC;border-radius:7px;padding:6px 9px;font-size:12px;'
+    + 'font-family:inherit">' + opts + '</select>'
+    + '<button class="hm-btn ghost" id="hq-fill-btn" onclick="hqFillNow()"'
+    + (_hqFillRunning ? ' disabled style="opacity:0.5"' : '') + '>'
+    + (_hqFillRunning ? 'Filling…' : 'Fill queue now') + '</button>'
+    + '<span id="hq-fill-status" style="font-size:11.5px;color:#6B7280">' + hqEsc(_hqFillMsg) + '</span></div>';
 }
 
 function hqFillNow() {
@@ -16510,16 +16533,19 @@ function hqFillNow() {
   console.log('[queue/fill] clicked');
   var sel = document.getElementById('hq-fill-ath');
   var btn = document.getElementById('hq-fill-btn');
-  if (!sel) { console.error('[queue/fill] picker #hq-fill-ath missing'); hqFillSay('Picker missing — reload the page.'); return; }
-  if (!sel.value) { console.warn('[queue/fill] no athlete selected'); hqFillSay('Pick an athlete first.'); return; }
-  console.log('[queue/fill] athleteId=' + sel.value);
+  // Read the variable, not the select. The select can be replaced under us
+  // between the click and the request landing.
+  var athleteId = _hqFillAthlete || (sel && sel.value) || '';
+  if (!athleteId) { console.warn('[queue/fill] no athlete selected'); hqFillSay('Pick an athlete first.'); return; }
+  console.log('[queue/fill] athleteId=' + athleteId);
+  _hqFillRunning = true;
   // Disabled for the whole run: three deep ladders is 45s to 2min, and a second
   // click would start a second budget against the same slots.
   if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; btn.textContent = 'Filling…'; }
   hqFillSay('Starting…');
   fetch(API_BASE + '/api/agent/outreach-queue/fill', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    credentials: 'include', body: JSON.stringify({ athleteId: sel.value }),
+    credentials: 'include', body: JSON.stringify({ athleteId: athleteId }),
   }).then(function (r) {
     console.log('[queue/fill] POST status ' + r.status);
     // A 404 or a proxy error returns HTML, and r.json() then throws
@@ -16548,9 +16574,10 @@ function hqFillNow() {
 // the section, every later update went to a node no longer in the document --
 // which looks exactly like nothing happening.
 function hqFillSay(msg) {
+  _hqFillMsg = msg || '';          // remembered, so the next render can reprint it
   var out = document.getElementById('hq-fill-status');
-  if (out) out.textContent = msg;
-  else console.log('[queue/fill] ' + msg);
+  if (out) out.textContent = _hqFillMsg;
+  else console.log('[queue/fill] ' + _hqFillMsg);
 }
 
 // Progress is the point: a deep ladder takes 15-40s a business, so a silent
@@ -16566,7 +16593,10 @@ function hqFillPoll(runId) {
         if (d.done) {
           console.log('[queue/fill] done, filled=' + d.filled + ' spent=$' + d.spent);
           hqFillDone(d.error ? 'Failed: ' + d.error : last);
-          loadOutreachQueue();          // the new cards land here
+          // Only reload when cards actually landed. A run that placed nothing has
+          // nothing new to show, and re-rendering would only throw away the
+          // sentence explaining why -- which is the whole answer in that case.
+          if (d.filled > 0) loadOutreachQueue();
           return;
         }
         setTimeout(tick, 1500);
@@ -16581,6 +16611,7 @@ function hqFillPoll(runId) {
 }
 
 function hqFillDone(msg) {
+  _hqFillRunning = false;
   var btn = document.getElementById('hq-fill-btn');
   if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.textContent = 'Fill queue now'; }
   hqFillSay(msg || '');
