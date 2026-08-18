@@ -340,13 +340,28 @@ function pickCardContact(d) {
   };
 }
 
+// How to address someone, client side. Mirror of salutationName in
+// server/services/greetingGuard.js and askName in contactLadder.js. Taking the
+// first whitespace token turned "Dr. Dawn Mercer" into "Hi Dr.," -- a greeting
+// addressed to a title and nobody.
+var _HONORIFIC_ONLY_FE = /^(dr|mr|mrs|ms|miss|prof|professor|doctor|coach)\.?$/i;
+function salutationNameFE(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  if (parts.length > 1 && _HONORIFIC_ONLY_FE.test(parts[0])) {
+    const h = parts[0].replace(/\.?$/, '.');
+    return h.charAt(0).toUpperCase() + h.slice(1) + ' ' + parts[parts.length - 1];
+  }
+  return parts[0];
+}
+
 // Replace a bare "Hi," on the first line with "Hi <first name},". Deliberately
 // narrow: it touches the greeting line only, never the body, and does nothing if
 // the draft already greets someone.
 function personalizeGreeting(fullName) {
   const ta = document.getElementById('outreach-body-input');
   if (!ta) return;
-  const first = String(fullName).trim().split(/\s+/)[0];
+  const first = salutationNameFE(fullName);
   if (!first) return;
   const lines = String(ta.value || '').split('\n');
   if (!lines.length) return;

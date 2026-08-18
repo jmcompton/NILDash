@@ -27,6 +27,14 @@ const SALUTATIONS = ['hi', 'hello', 'hey', 'dear', 'good morning', 'good afterno
 // Honorifics stripped before comparing, so a verified "Dawn Whitfield" still matches
 // a greeting of "Dr. Dawn".
 const HONORIFICS = /^(dr|mr|mrs|ms|miss|prof|professor|doctor|coach)\.?\s+/i;
+// The same words on their own. A greeting addressed to a bare title -- "Dr.," --
+// names nobody, and it is what you get when a name is split on whitespace and the
+// first token happens to be the honorific.
+const HONORIFIC_ONLY = /^(dr|mr|mrs|ms|miss|prof|professor|doctor|coach)\.?$/i;
+
+function isHonorificOnly(s) {
+  return HONORIFIC_ONLY.test(String(s || '').trim());
+}
 
 function _norm(s) {
   return String(s || '').trim().toLowerCase().replace(/[‘’ʼ]/g, "'");
@@ -45,8 +53,12 @@ function allowedGreetingNames(contacts) {
     for (const n of [full, bare]) {
       add(n);
       const parts = n.split(/\s+/).filter(Boolean);
-      if (parts.length > 1) { add(parts[0]); add(parts[parts.length - 1]); }
-      else if (parts.length === 1) add(parts[0]);
+      // A bare honorific is never a name. Adding parts[0] of "Dr. Dawn Mercer" put
+      // "dr." in the allowed set, so a greeting of "Dr.," -- which names nobody --
+      // was accepted as if it addressed her.
+      const nameParts = parts.filter((x) => !isHonorificOnly(x));
+      if (nameParts.length > 1) { add(nameParts[0]); add(nameParts[nameParts.length - 1]); }
+      else if (nameParts.length === 1) add(nameParts[0]);
     }
   }
   return out;
@@ -69,6 +81,9 @@ function addresseeOf(line) {
     if (lower.startsWith(sal + ' ')) { rest = s.slice(sal.length).trim(); break; }
   }
   if (rest === null) {
+    // A line that is ONLY an honorific is a greeting fragment whatever its
+    // punctuation. No sentence of prose is the single word "Dr."
+    if (isHonorificOnly(s)) return s;
     // No salutation word. Only treat it as a greeting when it is a bare name
     // followed by a comma -- "Dawn," -- which is exactly the observed failure.
     if (!hadComma) return null;
@@ -91,8 +106,10 @@ function enforceGreeting(body, contacts) {
   const who = addresseeOf(lines[i]);
   if (who === null || who === '') return { body: text, changed: false, removedName: null };
 
+  // A title with no name is always wrong, whoever is on file. "Dr.," is not a
+  // greeting, it is the wreckage of one.
   const allowed = allowedGreetingNames(contacts);
-  if (allowed.has(_norm(who))) return { body: text, changed: false, removedName: null };
+  if (!isHonorificOnly(who) && allowed.has(_norm(who))) return { body: text, changed: false, removedName: null };
 
   lines[i] = 'Hi,';
   return { body: lines.join('\n'), changed: true, removedName: who };
@@ -117,14 +134,14 @@ function enforceGreetingHtml(html, contacts) {
     const who2 = addresseeOf(inner);
     if (who2 === null || who2 === '') return { html: s, changed: false, removedName: null };
     const allowed2 = allowedGreetingNames(contacts);
-    if (allowed2.has(_norm(who2))) return { html: s, changed: false, removedName: null };
+    if (!isHonorificOnly(who2) && allowed2.has(_norm(who2))) return { html: s, changed: false, removedName: null };
     return {
       html: s.replace(first[0], first[0].replace(first[2], 'Hi,')),
       changed: true, removedName: who2,
     };
   }
   const allowed = allowedGreetingNames(contacts);
-  if (allowed.has(_norm(who))) return { html: s, changed: false, removedName: null };
+  if (!isHonorificOnly(who) && allowed.has(_norm(who))) return { html: s, changed: false, removedName: null };
   return { html: s.replace(head, head.replace(stripped, 'Hi,')), changed: true, removedName: who };
 }
 
@@ -136,4 +153,20 @@ function greetableContacts(contacts) {
   return (Array.isArray(contacts) ? contacts : []).filter((c) => c && c.name && c.email);
 }
 
-module.exports = { enforceGreeting, enforceGreetingHtml, allowedGreetingNames, addresseeOf, greetableContacts };
+// HOW TO ADDRESS THIS PERSON, for the prompt.
+//
+// pitchGeneration used `name.split(' ')[0]`, which for "Dr. Dawn Mercer" is "Dr." --
+// so the prompt instructed the model, in words, to write `Greeting: "Dr.,"`. The
+// model obeyed. Same rule as askName() in contactLadder.js: keep an honorific and
+// pair it with the surname, otherwise use the first name.
+function salutationName(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '';
+  if (parts.length > 1 && isHonorificOnly(parts[0])) {
+    const h = parts[0].replace(/\.?$/, '.');
+    return h.charAt(0).toUpperCase() + h.slice(1) + ' ' + parts[parts.length - 1];
+  }
+  return parts[0];
+}
+
+module.exports = { enforceGreeting, enforceGreetingHtml, allowedGreetingNames, addresseeOf, greetableContacts, salutationName, isHonorificOnly };
