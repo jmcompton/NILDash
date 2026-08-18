@@ -31,7 +31,6 @@ const SOURCE_NOTES = {
   registry: 'Named in a state business filing',
   news: 'Named in a news article',
   chamber: 'Listed in a chamber of commerce directory',
-  hunter: 'Email matched to the company domain',
   linkedin: 'Public LinkedIn profile naming this business',
 };
 
@@ -65,7 +64,6 @@ function sourceNote(contact) {
   if (base && host) return `${base} (${host})`;
   if (base) return base;
   if (host) return `Found on ${host}`;
-  if (c.emailSource === 'hunter') return SOURCE_NOTES.hunter;
   if (c.emailSource === 'published') return 'Published contact address';
   return 'Source not recorded, treat as unverified';
 }
@@ -207,7 +205,11 @@ function buildContactLadder(res, opts = {}) {
       name: c.name,
       title: c.title || null,
       email: c.email || null,
-      emailKind: c.email ? (c.emailSource === 'hunter' ? 'pattern' : 'published') : null,
+      // Always 'published'. The only thing that ever produced anything else was a
+      // paid domain lookup that returned an address for the COMPANY and pinned it
+      // to a person; the field stays so the card and the sampler keep reading one
+      // name for the same idea.
+      emailKind: c.email ? 'published' : null,
       emailDomainNote: c.email ? _xdom(c.email) : null,
       phone: isOwnLine ? c.phone : null,
       phoneKind: isOwnLine ? 'direct' : null,

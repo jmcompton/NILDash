@@ -11,7 +11,6 @@ const scanMeter = require('./scanMeter');
 const { lookupPlace } = require('./services/placesLookup');
 const { buildMarketPoolFromPlaces } = require('./services/placesMarket');
 const { isNoLocalAuthority, businessTier } = require('./services/dealScanRanking');
-const { findDomainEmails: lookupDomain } = require('./services/hunterLookup');
 
 // Cost guard: build a given market from Places at most once per 24h (a full build
 // is ~30 types x up to 3 pages of paid calls). In-memory; resets on restart, which
@@ -1257,18 +1256,17 @@ function _foreignSchoolIn(text, athleteSchool) {
 const _TIER1_RANKS = [0, 1, 2, 4, 5];
 
 // Resolve a contact's email. TODAY: return ONLY an email literally published for
-// this person (and never a generic inbox). The name/domain arguments exist so a
-// verification provider (e.g. Hunter.io) can be dropped in here LATER, returning
-// { email, emailSource: 'verified' } — without a rewrite. NEVER guess an email
-// from a pattern like firstname@domain, not even labeled as a guess.
+// this person (and never a generic inbox). A paid domain-lookup provider was wired
+// in here once and has been removed: what it returned was an address for the
+// COMPANY, and pinning that to a person made an unverified name read as verified.
+// Anything dropped in here later must verify the address belongs to THAT person.
+// NEVER guess an email from a pattern like firstname@domain, not even as a guess.
 async function resolveEmail(name, domain, publishedEmail) {
   const em = _validEmail(publishedEmail);
   if (em && !_isGenericInbox(em)) return { email: em, emailSource: 'published' };
-  // Future hook (intentionally inert now — no paid API is integrated):
-  //   if (!em && process.env.HUNTER_API_KEY) {
-  //     const v = await hunterFindEmail(name, domain);
-  //     if (v && v.verified) return { email: v.email, emailSource: 'verified' };
-  //   }
+  // No fallback, deliberately. A paid lookup lived here and was removed: what it
+  // returned was an address for the DOMAIN, and attaching it to a person made an
+  // unverified name look verified. Published for that person, or nothing.
   return { email: null, emailSource: null };
 }
 
@@ -1437,8 +1435,12 @@ function _extractCitationUrls(blocks) {
 // (SEQUENTIAL within the turn, so max_uses=2 means two round trips before any text
 // is generated), and the output tokens Haiku then generates. Both are env-tunable so
 // they can be A/B'd without a code change. Defaults are unchanged from before.
-// How long we will still wait for Hunter / Instagram once the source fan-out is
-// done. Both start upfront and overlap the fan-out, so this is only the tail.
+// How long we will still wait for the Instagram lookup once the source fan-out is
+// done. It starts upfront and overlaps the fan-out, so this is only the tail.
+// NOTE: this used to be the tail for a paid email lookup as well, and that lookup
+// was raced FIRST -- so Instagram inherited its wait on top of this grace. With it
+// gone Instagram gets this window and nothing more, which is a real, small
+// reduction in the handle hit rate. Raise this if that matters more than latency.
 const SIDE_LOOKUP_GRACE_MS = parseInt(process.env.SIDE_LOOKUP_GRACE_MS, 10) || 2500;
 const CONTACT_SEARCH_MAX_USES = parseInt(process.env.CONTACT_SEARCH_MAX_USES, 10) || 2;
 const CONTACT_SEARCH_MAX_TOKENS = parseInt(process.env.CONTACT_SEARCH_MAX_TOKENS, 10) || 900;
@@ -1943,18 +1945,15 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // phone/website only — cheap, and phone is the actionable contact anyway.
   const _deep = !!(ctx && ctx.enrichEmail);
   // Kick the two INDEPENDENT lookups off now so they overlap the contact fan-out
-  // instead of running after it. Neither needs the contact list to start, and
-  // serially they were adding up to ~8s (Instagram) and ~20s+retry (Hunter) to the
-  // wall time of a deep call. Both are failure-tolerant and resolve to null.
+  // instead of running after it. It does not need the contact list to start, and
+  // serially it was adding ~8s to the wall time of a deep call. Failure-tolerant:
+  // resolves to null.
   let _igPromise = null;
-  let _hunterPromise = null;
   if (_deep && effectiveWebsite) {
     try {
       const { findInstagram } = require('./services/instagramLookup');
       _igPromise = findInstagram(effectiveWebsite).catch(() => null);
     } catch (_) { _igPromise = null; }
-    const _dom = _domainFromUrl(effectiveWebsite);
-    if (_dom) { try { _hunterPromise = lookupDomain(_dom).catch(() => null); } catch (_) { _hunterPromise = null; } }
   }
   // Manual "Add a Business" passes sourceOrder (site first) and stopAtTier1, so the
   // ladder keeps searching past a Tier 2 manager. Scans pass neither and are unchanged.
@@ -1971,51 +1970,20 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // Places phone is authoritative for this exact business location, so it
   // overrides the web-searched number and bypasses the locality gate.
   if (places && places.phone) { res.businessPhone = places.phone; res.phoneUnconfirmed = false; }
-  // Hunter domain search: fill an email so the card is NEVER a dead end. Ladder:
-  // (1) a personal email matched to a named contact = the decision-maker; else
-  // (2) the best personal email as an honestly labeled company contact; else
-  // (3) a REAL generic inbox from Hunter. Phone from Places is the guaranteed
-  // floor. Gated on ctx.enrichEmail (AI Outreach path only). Never guesses.
-  let _hunterMs = 0, _igMs = 0;
-  if (_hunterPromise) {
-    // These started BEFORE the fan-out, so by now they have had the whole fan-out to
-    // finish. Give them only a short grace after it: a straggler must not become the
-    // dominant cost of the call (a 20s Hunter timeout was adding ~15s of dead wait
-    // after a 5.8s fan-out). Dropping it costs at most an email, never a contact.
-    const _sideT0 = Date.now();
-    let _hunter = null;
-    try {
-      _hunter = await Promise.race([_hunterPromise, new Promise((res) => setTimeout(() => res('__late__'), SIDE_LOOKUP_GRACE_MS))]);
-      if (_hunter === '__late__') { console.log(`[brand-contacts] hunter still running after fan-out, dropped after ${SIDE_LOOKUP_GRACE_MS}ms`); _hunter = null; }
-    } catch (_) { _hunter = null; }
-    _hunterMs = Date.now() - _sideT0;
-    const _emails = (_hunter && Array.isArray(_hunter.emails)) ? _hunter.emails.filter((e) => e && e.email) : [];
-    if (_emails.length) {
-      const _personal = _emails.filter((e) => e.type === 'personal').sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-      const _generic = _emails.filter((e) => e.type === 'generic').sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-      let _filled = false;
-      for (const c of res.contacts) {
-        if (c.email) continue;
-        const _last = String(c.name || '').trim().toLowerCase().split(/\s+/).pop();
-        const _m = _last && _personal.find((e) => e.lastName && e.lastName.toLowerCase() === _last);
-        if (_m) { c.email = _m.email; c.emailSource = 'hunter'; c.emailScore = _m.confidence; _filled = true; break; }
-      }
-      if (!_filled && _personal.length) {
-        const _b = _personal[0];
-        const _nm = [_b.firstName, _b.lastName].filter(Boolean).join(' ').trim();
-        res.contacts.unshift({
-          name: _nm || null,
-          title: _b.position || 'Company contact (not confirmed owner)',
-          email: _b.email, phone: null, source: 'hunter',
-          emailSource: 'hunter', emailScore: _b.confidence,
-        });
-        _filled = true;
-      }
-      if (!_filled && _generic.length && !res.genericInbox) {
-        res.genericInbox = _generic[0].email;
-      }
-    }
-  }
+  // NO EMAIL IS INVENTED, GUESSED, OR BOUGHT. Hunter.io used to run here and do
+  // three things: fill an address onto a fan-out contact by surname match, CREATE
+  // a contact out of its best personal address titled "Company contact (not
+  // confirmed owner)", and backfill a generic inbox. It is gone.
+  //
+  // The second one is why. A Hunter contact carried a name AND an email, which is
+  // exactly the test greetableContacts applies, so the greeting guard approved
+  // addressing that person by first name -- on an address whose own title said
+  // they might not work there. That is the invented-recipient failure with an
+  // extra step. Measured yield across 20 Birmingham businesses: 3 such people and
+  // not one published address, against a 50-call monthly ceiling.
+  //
+  // Every email on the ladder is now one a source found published for that person.
+  let _igMs = 0;
   // Instagram: for a local business the owner's DM is often a better channel than
   // the phone, and it is a genuinely DIFFERENT contact rather than another copy of
   // the same number. Site-scraped only (no AI, one fetch, cached 30 days), gated on
@@ -2030,7 +1998,7 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     _igMs = Date.now() - _igT0;
   }
   // Phase breakdown, so time spent OUTSIDE the fan-out is never unexplained again.
-  if (_deep) console.log(`[brand-contacts] deep brand=${brand} placesMs=${_placesMs} hunterWaitMs=${_hunterMs} igWaitMs=${_igMs}`);
+  if (_deep) console.log(`[brand-contacts] deep brand=${brand} placesMs=${_placesMs} igWaitMs=${_igMs}`);
   // Make the card actionable: hand the top named contact the business line as a
   // callable number when they have none of their own. "Ask for Bryan" plus the
   // shop's number is the real local play; a name with no number is a dead end.

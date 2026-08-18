@@ -4,7 +4,7 @@
 //
 // WHY. The ladder is the only step that produces a decision maker, and it is the
 // slowest thing on the AI Outreach path: Places, then up to three waves of web
-// search, then Hunter. Running it when the modal opens means the agent waits ~30s
+// search. Running it when the modal opens means the agent waits ~30s
 // for the one thing they actually came for -- and an agent can find a local owner
 // on Google in thirty seconds, so a slower wait for a worse answer is worth less
 // than nothing.

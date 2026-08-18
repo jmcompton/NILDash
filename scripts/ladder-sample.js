@@ -40,9 +40,9 @@
 // searches per source that is 6 to 14 searches per business -- $0.06 to $0.14 in
 // search fees alone before a single token.
 //
-// Two costs here are NOT Anthropic's and are not in the total: one Google Places
-// lookup per business, and one Hunter domain search per business that has a
-// website. The Instagram lookup is a plain fetch of the site and is free.
+// One cost here is NOT Anthropic's and is not in the total: one Google Places
+// lookup per business. The Instagram lookup is a plain fetch of the site and is
+// free. (A paid email-lookup API used to run here too; it was removed.)
 //
 // SIDE EFFECT, stated plainly: this is read-only with respect to product CODE, but
 // the shipped lookup writes what it finds to brand_evidence_cache, exactly as a
@@ -100,10 +100,12 @@ function classify(brand, res, ladder, meta) {
   // in Tier 3 with no name and is never counted here, per the brief.
   const emailRows = rows.filter((x) => x.email);
   const personalEmail = emailRows.length > 0;
-  // Hunter fills an address by matching a surname against a domain pattern. That
-  // is a real lead but it is not a published address, and folding the two together
-  // would overstate the bar. Counted, and counted separately.
-  const personalEmailPublished = emailRows.some((x) => x.emailKind === 'published');
+  // INVARIANT, not a metric. Since the paid domain lookup was removed, every
+  // address on a named row is one a source found published for that person, so
+  // this always equals personalEmail. It is kept and asserted rather than dropped:
+  // if it ever diverges, something has started attaching unpublished addresses to
+  // names again, which is the exact failure the removal was for.
+  const personalEmailPublished = emailRows.length > 0 && emailRows.every((x) => x.emailKind === 'published');
 
   // "Only a general inbox": a published shop mailbox is the single email route.
   const genericInbox = r.genericInbox || null;
@@ -112,9 +114,8 @@ function classify(brand, res, ladder, meta) {
   const phone = !!(ladder && ladder.mainLine) || rows.some((x) => x.phone);
   const direct = rows.filter(hasDirectChannel);
 
-  // Which of the seven sources produced each person. Hunter and Places are not
-  // sources in the fan-out sense but they do produce contacts, so they are named
-  // too rather than being lumped in with the searches that did the work.
+  // Which of the seven sources produced each person, named individually rather
+  // than lumped together, so a source that never yields anybody is visible.
   const bySource = {};
   for (const c of (r.contacts || [])) {
     if (!c || !c.name) continue;
@@ -161,7 +162,6 @@ function summarize(rows) {
     metrics: [
       metric('Named person found', c((r) => r.named)),
       metric('Personal email found', c((r) => r.personalEmail)),
-      metric('  of those, published (not a Hunter pattern)', c((r) => r.personalEmailPublished)),
       metric('General inbox only', c((r) => r.generalInboxOnly)),
       metric('Instagram found', c((r) => !!r.instagram)),
       metric('Phone found', c((r) => r.phone)),
@@ -266,7 +266,8 @@ function renderSummary(sum, spend, opts) {
     L.push(pad(m.label, 46) + pad(String(m.count) + '/' + m.of, 9) + String(m.pct) + '%');
   }
   L.push('');
-  L.push('  "Personal email" never counts a general inbox.');
+  L.push('  "Personal email" never counts a general inbox, and is always an address');
+  L.push('  a source found published for that person -- nothing is guessed or bought.');
   L.push('  "Direct channel" never counts a name reachable only via the main line.');
   L.push('');
   L.push('SOURCE YIELD  (which of the seven earned their place)');
@@ -289,8 +290,7 @@ function renderSummary(sum, spend, opts) {
   L.push('  TOTAL                         $' + spend.total.toFixed(2)
     + (spend.cached ? '   (' + spend.cached + ' served from cache, $0)' : ''));
   L.push('');
-  L.push('  Not included, not billed by Anthropic: ' + spend.priced + ' Google Places lookups,');
-  L.push('  ' + spend.hunter + ' Hunter domain searches (1 credit each).');
+  L.push('  Not included, not billed by Anthropic: ' + spend.priced + ' Google Places lookups.');
   return L.join('\n');
 }
 
@@ -375,7 +375,7 @@ async function main() {
   const { buildContactLadder } = require('../server/services/contactLadder');
 
   const rows = [];
-  const spend = { search: 0, output: 0, input: 0, total: 0, searches: 0, outTokens: 0, inTok: 0, cached: 0, priced: 0, hunter: 0 };
+  const spend = { search: 0, output: 0, input: 0, total: 0, searches: 0, outTokens: 0, inTok: 0, cached: 0, priced: 0 };
   const skipped = [];
 
   for (let i = 0; i < run.length; i++) {
@@ -427,7 +427,6 @@ async function main() {
       spend.outTokens += meter.outTokens; spend.inTok += cost.inTok;
     }
     spend.priced++;
-    if (res.website) spend.hunter++;
 
     // Live progress. A twenty-business run takes minutes; silence would read as a hang.
     console.log(pad(String(i + 1) + '.', 4) + pad(trunc(brand, 26), 27)

@@ -7547,7 +7547,7 @@ function _dsLadderHtml(d) {
       var bits = [];
       if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:' + (r.emailDomainNote ? '#f59e0b' : '#84CC16') + ';text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>' +
         (r.emailDomainNote ? ' <span style="font-size:8px;font-weight:700;color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">other domain</span>' : '') +
-        (r.emailKind === 'pattern' ? ' <span style="font-size:8px;color:var(--muted)">(pattern match)</span>' : ''));
+        '');
       // Channel order matches the ladder's priority: LinkedIn and a personal DM
       // reach the PERSON, the shared number does not, so the phone comes last.
       if (r.linkedinUrl) bits.push('<a href="' + esc(r.linkedinUrl) + '" target="_blank" rel="noopener" style="color:#0a66c2;text-decoration:none;font-weight:600">LinkedIn</a>' +

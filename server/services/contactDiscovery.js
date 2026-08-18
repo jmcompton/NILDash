@@ -60,8 +60,8 @@ const PRIORITY_MAP = {
 // getBrandContacts returns ({ contacts, businessPhone, genericInbox }).
 //
 // THE DOUBLE-SPEND THIS CLOSES. Expanding a card runs the deep contact ladder
-// (POST /api/agent/brand-contacts with deep:true, a 6-source web fan-out plus
-// Hunter). Clicking AI Outreach then ran getBrandContacts AGAIN with
+// (POST /api/agent/brand-contacts with deep:true, a 6-source web fan-out).
+// Clicking AI Outreach then ran getBrandContacts AGAIN with
 // enrichEmail:true: the same resolver, the same searches, the same answer. The
 // expand result only ever lived in browser memory, and discoverContacts caches on
 // enrichment_id, which does not exist yet at expand time, so there was nothing to

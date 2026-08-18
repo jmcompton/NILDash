@@ -8301,7 +8301,7 @@ async function _contactsMapLimit(items, limit, fn) {
 // warm brands come back instantly). Batched per lane to keep it to one request.
 async function _brandContactsBatch(req, res) {
   try {
-    // DEEP mode: the full contact ladder (6-source web fan-out + Hunter), the same
+    // DEEP mode: the full contact ladder (6-source web fan-out), the same
     // path Add a Business uses. It is roughly 2-3 Haiku web-search calls per brand,
     // so it is NOT run for all 10 cards on every scan (that turned a ~$0.01 warm scan
     // into ~$0.75 and added ~40s of latency). It runs LAZILY, on the one business an
