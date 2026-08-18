@@ -8403,6 +8403,76 @@ app.get('/api/agent/outreach-queue', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/agent/outreach-queue/fill — ADMIN ONLY. Runs the nightly job's filler
+// for one athlete, on demand, so seeding a demo never needs a terminal.
+//
+// THIS IS THE ONE ROUTE THAT SPENDS, and it is deliberate. Every other queue
+// route is inert: an ordinary agent marking cards sent or skipped still triggers
+// zero lookups, which is the guarantee that made the nightly claim worth having.
+// This one is gated on founder/admin, named per athlete, and held to the SAME
+// per-agent cap as the job.
+//
+// Returns a runId immediately. A deep ladder is 15-40s a business and three of
+// them would blow any sane request timeout, so the work continues in the
+// background and the page polls.
+const _qFillRuns = new Map();   // runId -> { lines, done, filled, spent, error }
+setInterval(() => {            // an admin tool must not become a memory leak
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [k, v] of _qFillRuns) if (v.startedAt < cutoff) _qFillRuns.delete(k);
+}, 5 * 60 * 1000).unref?.();
+
+app.post('/api/agent/outreach-queue/fill', requireAuth, async (req, res) => {
+  try {
+    const _ru = await store.getUser(req.session.userId);
+    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email) || _ru.email === ADMIN_EMAIL);
+    if (!_isAdmin) return res.status(403).json({ error: 'Admin only' });
+
+    const athleteId = String(req.body.athleteId || '');
+    if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
+    const a = await store.pool.query(
+      `SELECT id, agent_id, data->>'name' AS name, data->>'school' AS school FROM athletes WHERE id = $1`,
+      [athleteId]);
+    const ath = a.rows[0];
+    if (!ath) return res.status(404).json({ error: 'Athlete not found' });
+
+    const job = require('./jobs/outreachQueue');
+    const OQsvc = require('./services/outreachQueue');
+    // crypto is required inline throughout this file rather than bound at module
+    // scope; `crypto.randomBytes` here would have been a ReferenceError per request.
+    const runId = 'qf_' + require('crypto').randomBytes(6).toString('hex');
+    const run = { lines: [], done: false, filled: 0, spent: 0, error: null, startedAt: Date.now() };
+    _qFillRuns.set(runId, run);
+
+    // The same budget object the nightly job uses, so the button cannot spend
+    // more per agent than the schedule would.
+    const budget = OQsvc.newBudget(job.CAP_USD);
+    setImmediate(() => {
+      job.fillAthlete(store.pool, {
+        agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
+        budget, region: ath.school || '',
+        onProgress: (m) => { run.lines.push(m); console.log('[queue/fill] ' + m); },
+      }).then((r) => {
+        run.filled = r.filled; run.spent = budget.spent(); run.done = true;
+        run.lines.push(`Done. ${r.filled} card${r.filled === 1 ? '' : 's'} placed, $${budget.spent().toFixed(2)} spent.`);
+      }).catch((e) => {
+        run.error = e.message; run.done = true;
+        run.lines.push('Failed: ' + e.message);
+      });
+    });
+    res.json({ runId, athleteName: ath.name });
+  } catch (e) {
+    console.error('[outreach-queue/fill]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/agent/outreach-queue/fill/:runId — progress for the button above.
+app.get('/api/agent/outreach-queue/fill/:runId', requireAuth, async (req, res) => {
+  const run = _qFillRuns.get(req.params.runId);
+  if (!run) return res.status(404).json({ error: 'Run not found' });
+  res.json({ lines: run.lines, done: run.done, filled: run.filled, spent: run.spent, error: run.error });
+});
+
 // PATCH /api/agent/outreach-queue/:id — edit the DM before sending it.
 app.patch('/api/agent/outreach-queue/:id', requireAuth, async (req, res) => {
   try {

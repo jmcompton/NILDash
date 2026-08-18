@@ -84,6 +84,89 @@ async function rationaleFor(pool, agentId, athleteId, brandName) {
   return (r.rows[0] && r.rows[0].reasoning) || null;
 }
 
+// ONE FILLER, shared by the nightly job and the admin "fill now" button. If the
+// button had its own copy, the card an admin sees and the card the job writes
+// would drift apart, and the button is exactly where that drift gets noticed last.
+//
+// onProgress is called with plain sentences so a UI can print them verbatim; the
+// job passes console.log and the endpoint pushes them to a poller.
+async function fillAthlete(pool, ctx) {
+  const { agentId, athleteId, athleteName, budget, region } = ctx;
+  const say = ctx.onProgress || (() => {});
+  const dry = !!ctx.dryRun;
+
+  const open = Q.slotsToFill((await pool.query(
+    `SELECT slot, state FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
+    [athleteId])).rows);
+  if (!open.length) { say(`${athleteName}: all three slots already full`); return { filled: 0, open: 0 }; }
+  say(`${athleteName}: ${open.length} slot${open.length > 1 ? 's' : ''} to fill`);
+
+  const cands = await candidatesFor(pool, athleteId, open.length * Q.MAX_ATTEMPTS_PER_SLOT);
+  if (!cands.length) {
+    say(`${athleteName}: no un-contacted businesses on their scan. Run a Deal Scan first.`);
+    return { filled: 0, open: open.length };
+  }
+  let ci = 0, filled = 0;
+
+  for (const slot of open) {
+    let placed = false;
+    for (let attempt = 0; attempt < Q.MAX_ATTEMPTS_PER_SLOT && ci < cands.length; attempt++) {
+      const cand = cands[ci++];
+      // BEFORE the money, priced at the CEILING. A lookup that would breach the
+      // cap is never started, so the cap cannot be overshot by one business.
+      if (!budget.canSpend(LOOKUP_CEILING_USD)) {
+        const why = Q.slotSkipReason(budget, LOOKUP_CEILING_USD);
+        say(`slot ${slot} ${why}`);
+        return { filled, open: open.length, cappedOut: true };
+      }
+      say(`looking up ${cand.brand_name}…`);
+      let out = null;
+      try {
+        out = await ai.getBrandContacts(cand.brand_name || cand.brand_key, null,
+          region || '', ai.deepContactCtx({ market: null }));
+      } catch (e) {
+        say(`${cand.brand_name}: lookup failed (${e.message})`);
+        continue;
+      }
+      if (!out.cached) budget.spend(LOOKUP_CEILING_USD);
+
+      const ladder = buildContactLadder(out, {
+        rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain,
+        category: null, brand: cand.brand_name, instagramScope: out.instagramScope || null,
+      });
+      const ig = { instagram: out.instagram || null, instagramScope: out.instagramScope || null };
+      const bar = Q.passesBar(ladder, ig);
+      if (!bar.ok) { say(`${cand.brand_name}: skipped, ${bar.reason}`); continue; }
+
+      const card = Q.buildCard({
+        brandKey: cand.brand_key, brand: cand.brand_name,
+        rationale: await rationaleFor(pool, agentId, athleteId, cand.brand_name),
+        athleteName,
+      }, ladder, ig);
+
+      if (dry) { say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; break; }
+      const ins = await pool.query(
+        `INSERT INTO outreach_queue
+           (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
+            source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
+            dm_text, channel, state)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued')
+         ON CONFLICT DO NOTHING RETURNING id`,
+        [agentId, athleteId, slot, card.brandKey, card.brandName, card.why, card.contactName,
+         card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
+         card.instagramScope, card.phone, card.phoneAskFor, card.dmText, card.channel]);
+      if ((ins.rowCount || 0) > 0) {
+        placed = true; filled++;
+        say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
+          + (card.contactName ? `, ${card.contactName}` : ''));
+      }
+      break;
+    }
+    if (!placed) say(`slot ${slot}: nothing passed the bar in ${Q.MAX_ATTEMPTS_PER_SLOT} attempts`);
+  }
+  return { filled, open: open.length };
+}
+
 async function fillAgent(pool, agent, opts) {
   const runDate = opts.runDate || today();
   const dry = !!opts.dryRun;
@@ -96,90 +179,21 @@ async function fillAgent(pool, agent, opts) {
     `SELECT id, data->>'name' AS name FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`,
     [agent.id])).rows;
   let filled = 0;
-  const notes = [];
 
   for (const ath of athletes) {
-    const existing = (await pool.query(
-      `SELECT slot, state FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
-      [ath.id])).rows;
-    const open = Q.slotsToFill(existing);
-    if (!open.length) continue;
-
-    const pool_ = await candidatesFor(pool, ath.id, open.length * Q.MAX_ATTEMPTS_PER_SLOT);
-    let ci = 0;
-
-    for (const slot of open) {
-      let placed = false;
-      for (let attempt = 0; attempt < Q.MAX_ATTEMPTS_PER_SLOT && ci < pool_.length; attempt++) {
-        const cand = pool_[ci++];
-        // BEFORE the money. A lookup that would breach the cap is not started.
-        if (!budget.canSpend(LOOKUP_CEILING_USD)) {
-          const why = Q.slotSkipReason(budget, LOOKUP_CEILING_USD);
-          console.log(`[queue] agent=${agent.id} athlete=${ath.id} slot=${slot} ${why}`);
-          notes.push(`slot ${slot}: ${why}`);
-          attempt = Q.MAX_ATTEMPTS_PER_SLOT;
-          break;
-        }
-        let out = null;
-        try {
-          out = await ai.getBrandContacts(cand.brand_name || cand.brand_key, null,
-            opts.region || '', ai.deepContactCtx({ market: null }));
-        } catch (e) {
-          console.warn(`[queue] lookup failed brand="${cand.brand_name}": ${e.message}`);
-          continue;
-        }
-        // A cache hit costs nothing and must not be charged against the cap.
-        if (!out.cached) budget.spend(LOOKUP_CEILING_USD);
-
-        const ladder = buildContactLadder(out, {
-          rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain,
-          category: null, brand: cand.brand_name,
-        });
-        const ig = { instagram: out.instagram || null, instagramScope: out.instagramScope || null };
-        const bar = Q.passesBar(ladder, ig);
-        if (!bar.ok) {
-          console.log(`[queue] agent=${agent.id} athlete=${ath.id} brand="${cand.brand_name}" not queued: ${bar.reason}`);
-          continue;
-        }
-        const card = Q.buildCard({
-          brandKey: cand.brand_key, brand: cand.brand_name,
-          rationale: await rationaleFor(pool, agent.id, ath.id, cand.brand_name),
-          athleteName: ath.name,
-        }, ladder, ig);
-
-        if (dry) {
-          console.log(`[queue] DRY agent=${agent.id} athlete=${ath.name} slot=${slot} `
-            + `${card.brandName} via ${card.channel} (${card.contactName || 'no name'})`);
-          placed = true; filled++;
-          break;
-        }
-        // ON CONFLICT DO NOTHING against the partial unique index: a racing run
-        // loses here rather than producing a second card for the same slot.
-        const ins = await pool.query(
-          `INSERT INTO outreach_queue
-             (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
-              source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
-              dm_text, channel, state)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued')
-           ON CONFLICT DO NOTHING RETURNING id`,
-          [agent.id, ath.id, slot, card.brandKey, card.brandName, card.why, card.contactName,
-           card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
-           card.instagramScope, card.phone, card.phoneAskFor, card.dmText, card.channel]);
-        if ((ins.rowCount || 0) > 0) { placed = true; filled++; }
-        break;
-      }
-      if (!placed && budget.canSpend(LOOKUP_CEILING_USD)) {
-        console.log(`[queue] agent=${agent.id} athlete=${ath.id} slot=${slot} left empty: `
-          + `no candidate passed the bar in ${Q.MAX_ATTEMPTS_PER_SLOT} attempts`);
-      }
-    }
+    const r = await fillAthlete(pool, {
+      agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
+      budget, region: opts.region, dryRun: dry,
+      onProgress: (m) => console.log('[queue] ' + m),
+    });
+    filled += r.filled;
+    if (r.cappedOut) break;   // the cap is per agent, so one athlete exhausting it stops the rest
   }
 
   if (!dry) {
     await pool.query(
-      `UPDATE outreach_queue_runs SET filled = $3, spent_usd = $4, note = $5
-        WHERE agent_id = $1 AND run_date = $2`,
-      [agent.id, runDate, filled, budget.spent(), notes.join('; ') || null]).catch(() => {});
+      `UPDATE outreach_queue_runs SET filled = $3, spent_usd = $4 WHERE agent_id = $1 AND run_date = $2`,
+      [agent.id, runDate, filled, budget.spent()]).catch(() => {});
   }
   console.log(`[queue] agent=${agent.id} filled=${filled} spent=$${budget.spent().toFixed(2)} of $${CAP_USD.toFixed(2)}`);
   return { filled, spent: budget.spent(), claimed: true };
@@ -210,7 +224,7 @@ async function status(pool) {
   return r.rows;
 }
 
-module.exports = { run, fillAgent, claimNight, candidatesFor, ENABLED, CAP_USD, LOOKUP_CEILING_USD };
+module.exports = { run, fillAgent, fillAthlete, claimNight, candidatesFor, ENABLED, CAP_USD, LOOKUP_CEILING_USD };
 
 if (require.main === module) {
   const argv = process.argv.slice(2);

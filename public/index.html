@@ -16414,9 +16414,12 @@ function renderOutreachQueue(data) {
   if (!el) return;
   var groups = (data && data.groups) || [];
   var waiting = (data && data.waiting) || [];
-  if (!groups.length && !waiting.length) { el.innerHTML = ''; return; }
+  // An admin with an empty queue still needs somewhere to put the fill button,
+  // which is the exact state this feature exists to get out of.
+  if (!groups.length && !waiting.length && !hqIsAdmin()) { el.innerHTML = ''; return; }
 
   var h = ['<div class="hm-card hq-wrap"><div class="hm-col-head">This morning</div>'];
+  h.push(hqFillUi());
   if (!groups.length) {
     h.push('<div class="hm-quiet">Nothing queued. Tonight\'s run will fill any empty slots.</div>');
   }
@@ -16474,6 +16477,76 @@ function hqOutcome(id, outcome) {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ outcome: outcome }),
   }).then(function () { loadOutreachQueue(); }).catch(function () {});
+}
+
+// ── ADMIN: fill the queue on demand ──────────────────────────────────────────
+// The nightly job's filler, triggered from the page. Admin only, and the ONLY
+// thing on this page that spends: every other queue action is inert, which is
+// what keeps an ordinary agent's skips free.
+function hqIsAdmin() {
+  return !!(currentUser && (currentUser.isFounder === true || currentUser.role === 'admin'));
+}
+
+function hqFillUi() {
+  if (!hqIsAdmin()) return '';
+  var opts = (athletes || []).map(function (a) {
+    return '<option value="' + hqEsc(a.id) + '">' + hqEsc(a.name || a.id) + '</option>';
+  }).join('');
+  if (!opts) return '';
+  return '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;'
+    + 'padding-bottom:12px;border-bottom:.5px solid #141d29">'
+    + '<span style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#4B5563">Admin</span>'
+    + '<select id="hq-fill-ath" style="background:#0a0f16;border:1px solid #1e2a3a;color:#D6D3CC;'
+    + 'border-radius:7px;padding:6px 9px;font-size:12px;font-family:inherit">' + opts + '</select>'
+    + '<button class="hm-btn ghost" id="hq-fill-btn" onclick="hqFillNow()">Fill queue now</button>'
+    + '<span id="hq-fill-status" style="font-size:11.5px;color:#6B7280"></span></div>';
+}
+
+function hqFillNow() {
+  var sel = document.getElementById('hq-fill-ath');
+  var btn = document.getElementById('hq-fill-btn');
+  var out = document.getElementById('hq-fill-status');
+  if (!sel || !sel.value) return;
+  // Disabled for the whole run: three deep ladders is 45s to 2min, and a second
+  // click would start a second budget against the same slots.
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; btn.textContent = 'Filling…'; }
+  if (out) out.textContent = 'Starting…';
+  fetch('/api/agent/outreach-queue/fill', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    credentials: 'include', body: JSON.stringify({ athleteId: sel.value }),
+  }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    .then(function (x) {
+      if (!x.ok) { hqFillDone(x.d.error || 'Failed'); return; }
+      hqFillPoll(x.d.runId);
+    }).catch(function (e) { hqFillDone(e.message); });
+}
+
+// Progress is the point: a deep ladder takes 15-40s a business, so a silent
+// button reads as broken long before it reads as slow.
+function hqFillPoll(runId) {
+  var out = document.getElementById('hq-fill-status');
+  var tick = function () {
+    fetch('/api/agent/outreach-queue/fill/' + runId, { credentials: 'include' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var last = (d.lines || [])[(d.lines || []).length - 1] || 'Working…';
+        if (out) out.textContent = last;
+        if (d.done) {
+          hqFillDone(d.error ? 'Failed: ' + d.error : last);
+          loadOutreachQueue();          // the new cards land here
+          return;
+        }
+        setTimeout(tick, 1500);
+      }).catch(function () { setTimeout(tick, 3000); });
+  };
+  tick();
+}
+
+function hqFillDone(msg) {
+  var btn = document.getElementById('hq-fill-btn');
+  var out = document.getElementById('hq-fill-status');
+  if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.textContent = 'Fill queue now'; }
+  if (out) out.textContent = msg || '';
 }
 
 function loadOutreachQueue() {
