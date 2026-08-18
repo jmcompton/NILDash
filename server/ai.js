@@ -1343,14 +1343,17 @@ function deepContactCtx(opts) {
 // v4: the evidence shape gained personalInbox, and the generic-inbox test changed,
 // so v3 rows would keep serving a real person's mailbox labeled as a general inbox.
 // The version gate treats them as a miss and re-runs once per brand.
-const _CONTACTS_CACHE_VERSION = 4;
+// v5: contacts carry affiliationScope, and a parent-or-brand person is no longer
+// a contact at all. A v4 row was written before any of that existed, so serving
+// one would keep handing back the parent's executives for another seven days.
+const _CONTACTS_CACHE_VERSION = 5;
 
 // Test seam (see _searchContactSource). Production leaves this null.
 let _contactSearchImpl = null;
 
 // Shared JSON contract + rules appended to every source prompt.
 const _CONTACT_JSON_TAIL = `After you finish searching, respond with ONLY a single JSON object and NOTHING else: no prose, no explanation, no citation text, no markdown code fences. If your web search surfaced any named people, you MUST extract EVERY one of them into the contacts array. Do not answer in sentences.
-{"contacts":[{"name":"Full Name","title":"their role","email":null,"phone":null,"linkedinUrl":null,"sourceUrl":null,"confidence":"high|medium"}],"businessEmail":null,"businessPhone":null,"city":null,"state":null}
+{"contacts":[{"name":"Full Name","title":"their role","email":null,"phone":null,"linkedinUrl":null,"sourceUrl":null,"confidence":"high|medium","affiliationScope":"this-location|parent-or-brand|unclear","affiliationEvidence":"the exact phrase from the source that ties them to the business"}],"businessEmail":null,"businessPhone":null,"city":null,"state":null}
 Rules:
 - name is REQUIRED for every contact and must be a real person's name your search actually found. title is their role as the source states it (or a short honest descriptor); a registered agent is not an owner, a manager is not an owner, never upgrade a title.
 - email ONLY if literally published for THAT person; never guess from a pattern; else null. phone ONLY if a real published number; else null.
@@ -1358,7 +1361,9 @@ Rules:
 - sourceUrl: the page you found them on if you have it, else null. A missing URL is fine; still include the person.
 - businessEmail: a published business inbox (not a person), else null. businessPhone: the business main published line, else null.
 - confidence "high" from an official government or business-owned page, "medium" from a directory, social page, or news article.
-- NEVER invent a name, title, email, phone, or URL. Return {"contacts":[]} only if your search genuinely found no named person.`;
+- NEVER invent a name, title, email, phone, or URL. Return {"contacts":[]} only if your search genuinely found no named person.
+- affiliationScope says WHO this person works for, and it is required for every contact. Use "this-location" only when the source ties them to THIS business at THIS address or city. Use "parent-or-brand" when they belong to a parent company, franchisor, operator, national brand, clinic network, or corporate head office rather than this location -- a Chief Executive, Chief Marketing Officer, VP, regional or corporate director almost always belongs here. Use "unclear" when the source names them for this business but states no tie to the location, which is normal for a chamber or directory listing.
+- affiliationEvidence is the EXACT phrase from the source that supports the scope you chose, copied verbatim, not paraphrased. Never write a phrase the source does not contain. A person you cannot evidence is "unclear", never "this-location".`;
 
 function _sourceLead(source, brand, loc, domain, regionState) {
   const stateFull = stateName(regionState);
@@ -1385,6 +1390,60 @@ function _sourceLead(source, brand, loc, domain, regionState) {
 // Ensure an honest provenance label is present for filings and news, matching the
 // spec examples ("Registered Agent (state filing)", "Owner (local news)"). Never
 // changes the role itself, only appends where the source is known.
+// WHO DOES THIS PERSON ACTUALLY WORK FOR, decided in code and able to overrule the
+// model. Hog Heaven Team Store is run by Follett, so the site source searched
+// follett.com and returned Follett's CEO; Rally House Fayetteville is one of 135
+// stores, so its own domain returned the national CMO. Phones were locality-
+// checked and people were not checked at all, so both went straight to Tier 1.
+//
+// Three scopes, and the two that are not "this-location" are treated very
+// differently on purpose:
+//   parent-or-brand  REJECTED. Not a contact, surfaced separately so the research
+//                    is visible rather than silently binned.
+//   unclear          KEPT, demoted out of Tier 1 by the ladder. Chamber and
+//                    directory listings name a real owner without ever stating a
+//                    street address; that is the highest-yield source there is and
+//                    failing closed on it would delete what works to fix a problem
+//                    that only occurs on chains.
+//   this-location    unchanged.
+//
+// A model that ignores the new fields entirely degrades to "unclear" -- kept and
+// demoted -- never to "rejected". Losing a real owner is worse than ranking one low.
+const _CORPORATE_TITLE = /\b(chief\s+\w+|c[emofit]o|president|vice[- ]president|vp|regional|national|corporate|global|head\s+of|group\s+\w+|division)\b/i;
+const _LOCATION_WORD = /\b(of|at|in|the)\b/gi;
+
+function _nameTokens(s) {
+  return String(s || '').toLowerCase().replace(_LOCATION_WORD, ' ')
+    .replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter((t) => t.length > 2);
+}
+
+// Does the business name carry a place that the brand itself does not? "Rally
+// House Fayetteville" does; "Pack Rat Outdoor Center" does not. A store of a
+// larger brand cannot have a C-suite officer as its local contact.
+function _hasLocationQualifier(brand, loc) {
+  const place = _nameTokens(String(loc || '').split(',')[0]);
+  if (!place.length) return false;
+  const b = _nameTokens(brand);
+  return place.some((p) => b.indexOf(p) !== -1);
+}
+
+function _scopeOf(rawScope, title, brand, sourceUrl, loc) {
+  const claimed = String(rawScope || '').trim().toLowerCase();
+  const scope = (claimed === 'this-location' || claimed === 'parent-or-brand' || claimed === 'unclear')
+    ? claimed : 'unclear';
+  if (scope === 'parent-or-brand') return scope;
+  if (!_CORPORATE_TITLE.test(String(title || ''))) return scope;
+  // A corporate title is only overruled when something else says the entity is
+  // bigger than this location: the evidence page belongs to a differently-named
+  // company, or the business name is a branch of a brand. A sole trader who calls
+  // herself President of her own salon keeps her scope.
+  const host = _nameTokens(String(sourceUrl || '').replace(/^https?:\/\//, '').split('/')[0].replace(/^www\./, '').split('.')[0]);
+  const b = _nameTokens(brand);
+  const hostMismatch = host.length > 0 && b.length > 0 && !host.some((h) => b.indexOf(h) !== -1);
+  if (hostMismatch || _hasLocationQualifier(brand, loc)) return 'parent-or-brand';
+  return scope;
+}
+
 function _labelTitle(source, title) {
   const t = _cleanStr(title);
   if (!t) return t;
@@ -1633,7 +1692,7 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
   }
   const parsedN = rawContacts.length;
 
-  const contacts = []; let inbox = null, businessPhone = null, state = null;
+  const contacts = []; const notAffiliated = []; let inbox = null, businessPhone = null, state = null;
   let dropReason = '';
   for (const c of rawContacts) {
     const name = _cleanStr(c && c.name);
@@ -1647,7 +1706,19 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
     const { email, emailSource } = await resolveEmail(name, domain, rawEmail);
     if (!email && _isGenericInbox(rawEmail) && !inbox) inbox = _validEmail(rawEmail);
     const _li = (c && typeof c.linkedinUrl === 'string' && /linkedin\.com\/(in|company)\//i.test(c.linkedinUrl)) ? c.linkedinUrl.trim() : null;
-    contacts.push({ name, title, email, emailSource, phone: _normalizePhone(c && c.phone), linkedinUrl: _li, sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium', source });
+    // WHO DO THEY WORK FOR. Decided here, before the person can be merged, ranked
+    // and served -- there was no check on a person at any later point.
+    const affiliationScope = _scopeOf(c && c.affiliationScope, title, brand, sourceUrl, loc);
+    const affiliationEvidence = _cleanStr(c && c.affiliationEvidence);
+    const row = { name, title, email, emailSource, phone: _normalizePhone(c && c.phone), linkedinUrl: _li, sourceUrl, confidence: (c && c.confidence) === 'high' ? 'high' : 'medium', source, affiliationScope, affiliationEvidence };
+    if (affiliationScope === 'parent-or-brand') {
+      // Not a contact, and not thrown away either: an agent who can see WHY the
+      // parent's CEO was set aside will not go looking for him by hand.
+      notAffiliated.push(row);
+      dropReason = dropReason || 'parent-or-brand';
+      continue;
+    }
+    contacts.push(row);
   }
   const be = _validEmail(payload && payload.businessEmail);
   if (!inbox && be) inbox = be;
@@ -1656,7 +1727,7 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
   if (!contacts.length && parsedN) dropReason = dropReason || 'validation';
 
   return {
-    source, contacts, inbox, businessPhone, state, status,
+    source, contacts, notAffiliated, inbox, businessPhone, state, status,
     ms: Date.now() - t0, rawLen: text.length, parsed: parsedN, kept: contacts.length,
     searches, outTokens, apiMs,
     dropReason: dropReason || (status === 'error' ? 'error:' + errMsg : ''), usedProse,
@@ -1741,7 +1812,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
       cphone = null; cunconf = true;
     }
     if (via) console.log(`[dealScan] contacts brand=${brand} served from the DEEP row (${(ev.contacts || []).length} named)`);
-    return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, personalInbox: ev.personalInbox || null, businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
+    return { contacts: ev.contacts || [], notAffiliated: ev.notAffiliated || [], genericInbox: ev.genericInbox || null, personalInbox: ev.personalInbox || null, businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
   };
 
   if (!force) {
@@ -1789,7 +1860,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   // Card path returns empty here; getBrandContacts still attaches the Places phone.
   if (opts && opts.allowSearch === false) {
     console.log(`[dealScan] contacts brand=${brand} search skipped (card path, no fan-out)`);
-    return { contacts: [], genericInbox: null, personalInbox: null, businessPhone: null, phoneUnconfirmed: false, outcome: 'SKIPPED', cached: false };
+    return { contacts: [], notAffiliated: [], genericInbox: null, personalInbox: null, businessPhone: null, phoneUnconfirmed: false, outcome: 'SKIPPED', cached: false };
   }
   // Manual adds get a longer wall budget: the agent is waiting on ONE business they
   // chose, not ten they are skimming, so it is worth spending the extra seconds.
@@ -1819,6 +1890,12 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
       wallBudgetMs: CONTACT_WALL_BUDGET_MS,
       label: `brand=${brand}`,
       // A wave may cut its straggler once this is true of any settled result.
+      // r.contacts can no longer contain a parent-or-brand person (they are held
+      // back at extraction), so a parent's CEO -- who ranks 0 and used to satisfy
+      // this instantly -- can no longer stop the search on the wrong person. An
+      // "unclear" local owner still counts: the ladder demotes them out of Tier 1,
+      // but making the fan-out keep searching past a chamber owner would run all
+      // seven sources on almost every business and roughly double the bill.
       hasWin: (r) => (r.contacts || []).some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1),
       onResult: (r) => {
         const _t1hit = (r.contacts || []).some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1);
@@ -1845,6 +1922,14 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   const bySource = {};
   for (const r of results) bySource[r.source] = r;
 
+  // Everyone a source found but held back as the parent's, deduped. Reported, never
+  // silently dropped: an agent who can see that Follett's CEO was set aside does not
+  // go looking for him by hand.
+  const notAffiliated = _mergeContacts(results.flatMap((r) => r.notAffiliated || []));
+  if (notAffiliated.length) {
+    console.log(`[brand-contacts] brand=${brand} held back ${notAffiliated.length} parent/brand contact(s): `
+      + notAffiliated.map((c) => `${c.name} (${c.title || 'no title'})`).join(', '));
+  }
   // Merge named contacts across sources, then locality-check every phone.
   let named = _mergeContacts(results.flatMap((r) => r.contacts));
   for (const c of named) {
@@ -1905,7 +1990,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   const anyTimeout = results.some((r) => r.status === 'timeout');
   const anyError = results.some((r) => r.status === 'error');
 
-  const evidence = { kind: 'contacts', v: _CONTACTS_CACHE_VERSION, contacts: named, genericInbox, personalInbox, businessPhone, phoneUnconfirmed };
+  const evidence = { kind: 'contacts', v: _CONTACTS_CACHE_VERSION, contacts: named, notAffiliated, genericInbox, personalInbox, businessPhone, phoneUnconfirmed };
   // Cache whenever we have a usable affordance OR a definitive empty (all sources
   // ran and found nothing). Never cache a pure transient failure.
   let outcome;
@@ -1918,7 +2003,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   if (hasAffordance || outcome === 'NONE') {
     await store.saveBrandEvidence(cacheKey, 'contacts', brand, website, evidence, outcome);
   }
-  return { contacts: named, genericInbox, personalInbox, businessPhone, phoneUnconfirmed, outcome, cached: false };
+  return { contacts: named, notAffiliated, genericInbox, personalInbox, businessPhone, phoneUnconfirmed, outcome, cached: false };
 }
 
 // Public wrapper used by the lazy per-brand contacts endpoint. Fetches (cache
@@ -2016,7 +2101,7 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(brand + (loc ? ' ' + loc : ''))
     : null);
   const approach = _contactApproach(ctx || {}, res.contacts[0] || null, res);
-  return { contacts: res.contacts, genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, businessPhone: res.businessPhone, approach, mapsUrl, website: (places && places.website) || website || null };
+  return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, businessPhone: res.businessPhone, approach, mapsUrl, website: (places && places.website) || website || null };
 }
 
 // Build the "Approach" line. References the real person, else the honest phone

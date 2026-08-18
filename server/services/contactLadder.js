@@ -59,13 +59,18 @@ function _hostOf(url) {
 // Always returns a non-empty string so a name can never render bare.
 function sourceNote(contact) {
   const c = contact || {};
+  // Said in words on the row, because "why is the owner in Tier 2" has to be
+  // answerable from the card without reading the code.
+  const scopeNote = c.affiliationScope === 'unclear'
+    ? '. Named for this business but the source states no tie to this location, so not confirmed as the local decision maker'
+    : '';
   const base = SOURCE_NOTES[c.source] || null;
   const host = _hostOf(c.sourceUrl);
-  if (base && host) return `${base} (${host})`;
-  if (base) return base;
-  if (host) return `Found on ${host}`;
-  if (c.emailSource === 'published') return 'Published contact address';
-  return 'Source not recorded, treat as unverified';
+  if (base && host) return `${base} (${host})` + scopeNote;
+  if (base) return base + scopeNote;
+  if (host) return `Found on ${host}` + scopeNote;
+  if (c.emailSource === 'published') return 'Published contact address' + scopeNote;
+  return 'Source not recorded, treat as unverified' + scopeNote;
 }
 
 // Confidence label for the NAME ATTRIBUTION only, i.e. how sure we are that this
@@ -231,10 +236,20 @@ function buildContactLadder(res, opts = {}) {
       // Name attribution only. Rendered as "Name: Confident", never as a claim
       // about the phone or email.
       confidence: confidenceLabel(c),
+      affiliationScope: c.affiliationScope || null,
+      affiliationEvidence: c.affiliationEvidence || null,
       sourceNote: sourceNote(c) + (igHandle && personalHandleOwner === c ? '. Instagram handle matches this name, so it is likely their personal account' : ''),
     };
+    // TIER 1 MEANS "CAN APPROVE A DEAL AT THIS LOCATION", so it needs both an
+    // authoritative title AND a source that tied them to this location. A chamber
+    // listing names a real owner without ever stating an address; that is scope
+    // 'unclear', and it is DEMOTED rather than rejected -- it is the highest-yield
+    // source there is, and dropping it would delete what works to fix a problem
+    // that only occurs on chains. A contact with no scope at all predates the
+    // check (a cached row) and is treated exactly as before.
+    const unconfirmed = c.affiliationScope === 'unclear';
     if (isStaff) staffPool.push(row);
-    else if (TIER1_RANKS.indexOf(rank) !== -1) t1.push(row);
+    else if (TIER1_RANKS.indexOf(rank) !== -1 && !unconfirmed) t1.push(row);
     else t2.push(row);
   }
   // Staff surface ONLY when there is no decision maker and no manager to show.
