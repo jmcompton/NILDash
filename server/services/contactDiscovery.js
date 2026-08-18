@@ -19,7 +19,7 @@
 
 const crypto = require('crypto');
 const { pool } = require('../store');
-const { oneShot, oneShotWebSearch, getBrandContacts } = require('../ai');
+const { oneShot, oneShotWebSearch, getBrandContacts, deepContactCtx } = require('../ai');
 
 // A generic mailbox local-part must never be presented as a named person's
 // address (mirror of the shared rule in ai.js). Used to purge stale cache rows
@@ -122,7 +122,16 @@ async function discoverContacts(agentId, enrichmentRecord, knownContacts) {
         + `person, so the fan-out RUNS (a main line is not a decision maker)`);
     }
     try {
-      shared = await getBrandContacts(enrichmentRecord.brand_name, enrichmentRecord.website || null, enrichmentRecord.location || '', { enrichEmail: true });
+      // THE SAME deep lookup the card runs. This used to pass `{ enrichEmail: true }`
+      // alone, which quietly made it a different search: registry-first instead of
+      // site-first, a 22s budget instead of 40s, a cache key without "| manual", and
+      // an exit rule satisfied by any named person rather than a decision maker. The
+      // fan-out stopped after wave 1 with nobody who could approve a deal.
+      shared = await getBrandContacts(
+        enrichmentRecord.brand_name,
+        enrichmentRecord.website || null,
+        enrichmentRecord.location || '',
+        deepContactCtx({ market: null }));
     } catch (e) {
       console.error('[contactDiscovery] getBrandContacts failed:', e.message);
     }

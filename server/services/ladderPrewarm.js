@@ -34,18 +34,16 @@ const TOP_N = parseInt(process.env.LADDER_PREWARM_TOP_N, 10) || 3;
 // reading, and each member is itself a multi-source fan-out.
 const CONCURRENCY = 2;
 
-// EXACTLY the ctx the deep route builds. Kept in one function, and asserted against
-// the route in the tests, because a drift here does not fail -- it just quietly
-// warms a key nothing reads.
+// The shared deep ctx from ai.js. This used to be a local copy that happened to
+// match the route; it is now the same builder every caller uses, so it cannot drift
+// out of alignment. A drift here does not fail -- it quietly warms a key nothing
+// reads.
 function deepCtx(card) {
-  return {
+  return ai.deepContactCtx({
     market: card.market || null,
     isFranchise: card.isFranchise === true,
     contactApproach: card.contactApproach || card.approach || null,
-    enrichEmail: true,
-    sourceOrder: ai.MANUAL_SOURCE_ORDER,
-    stopAtTier1: true,
-  };
+  });
 }
 
 // One card. Never throws: a scan that has already been sent must not be able to

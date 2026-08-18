@@ -6,6 +6,7 @@ const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal } = require('./bench
 const store = require('./store');
 const { getSeeds } = require('./dealScanSeeds');
 const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
+const { canonicalRegion } = require('./services/regionKey');
 const scanMeter = require('./scanMeter');
 const { lookupPlace } = require('./services/placesLookup');
 const { buildMarketPoolFromPlaces } = require('./services/placesMarket');
@@ -1307,6 +1308,37 @@ const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'si
 // Single source of truth: every deep caller uses this instead of its own literal.
 const MANUAL_SOURCE_ORDER = ['site', 'facebook', 'chamber', 'linkedin', 'maps', 'news', 'registry'];
 
+// THE DEEP CONTACT LOOKUP, STATED ONCE.
+//
+// Four callers run the contact fan-out and each built this object itself. Three set
+// stopAtTier1; contactDiscovery -- the one on the AI Outreach workflow path -- did
+// not, and that single omission changed three things at once:
+//
+//   - the exit rule became `bestRank < 9`, which is satisfied by ANY named person
+//     with an unrecognised title (rank 7). One receptionist in wave 1 ended the
+//     search: "[waves] satisfied after wave 1 (3 source(s))" with every source
+//     reporting tier1=no.
+//   - the source order fell back to registry-first, so site and linkedin -- the two
+//     that actually find an owner at a small practice -- sat in wave 2 and never ran.
+//   - the cache key lost its "| manual" suffix, so it read a different row from the
+//     card path and from the scan-time warm.
+//
+// One builder, so a caller cannot get three of the four settings right.
+function deepContactCtx(opts) {
+  const o = opts || {};
+  return {
+    market: o.market === undefined ? null : o.market,
+    isFranchise: o.isFranchise === true,
+    contactApproach: o.contactApproach || null,
+    enrichEmail: true,
+    sourceOrder: MANUAL_SOURCE_ORDER,
+    // The ladder keeps searching until it finds someone who can actually approve a
+    // deal. Anything less is what produced "no named contact" for businesses whose
+    // owner is on their own about page.
+    stopAtTier1: true,
+  };
+}
+
 // Bump when the contacts pipeline changes shape (widened sources, locality fix,
 // ...). A cached row stamped with an older version is treated as a miss so the
 // current search runs once per brand instead of serving stale pre-change data.
@@ -1669,7 +1701,13 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   const manualLadder = !!(opts && opts.stopAtTier1);
   // Franchise contacts are location-specific (Planet Smoothie Marietta is not
   // Planet Smoothie Atlanta), so the cache key includes the region when known.
-  const cacheKey = (loc ? `${brand} | ${loc}` : brand) + (manualLadder ? ' | manual' : '');
+  // CANONICAL region in the key, never the caller's spelling. The card says
+  // "Fayetteville, AR", the outreach workflow says "Fayetteville, Arkansas" and Add
+  // a Business passes a full street address -- three keys for one business, so every
+  // deep lookup re-paid for work already cached and the scan-time warm wrote a row
+  // the click could never read.
+  const _locKey = canonicalRegion(loc);
+  const cacheKey = (_locKey ? `${brand} | ${_locKey}` : brand) + (manualLadder ? ' | manual' : '');
   const domain = _domainFromUrl(website);
   const regionState = normalizeState((loc.split(',').pop() || '').trim());
   const localityRequired = !!(opts && opts.localityRequired);
@@ -3399,6 +3437,7 @@ module.exports = {
   brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder
   MANUAL_SOURCE_ORDER,                         // shared wave order for deep lookups
+  deepContactCtx,                              // the one deep-lookup ctx, shared by every caller
   runSourceWaves,                              // shared parallel wave engine
   withTimeout,                                 // SOFT cap: resolves to a fallback value
   withDeadline,                                // HARD cap: rejects. See the note at the top.

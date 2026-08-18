@@ -7743,11 +7743,7 @@ app.post('/api/agent/deal-scan/add-business', requireAuth, requireAgentSubscript
           message: `Already on this athlete's list (${existingSocial.state}).` });
       }
       const site = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw.replace(/^\/+/, '');
-      const contacts = await ai.getBrandContacts(raw, site, '', {
-        enrichEmail: true, market: null,
-        sourceOrder: ai.MANUAL_SOURCE_ORDER,
-        stopAtTier1: true,
-      });
+      const contacts = await ai.getBrandContacts(raw, site, '', ai.deepContactCtx({ market: null }));
       const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, category: null, brand: raw });
       await store.insertManualBrand(loaded.agentId || req.session.userId, athleteId, 'social', brandKey, raw);
       _manualAddRateRecord(_rlKey);
@@ -7784,11 +7780,8 @@ app.post('/api/agent/deal-scan/add-business', requireAuth, requireAgentSubscript
     if (!card) return res.status(502).json({ error: 'scoring_failed', message: 'Could not score that business. Try again.' });
 
     // 4. Contact ladder, site-first and searching past a Tier 2 manager.
-    const contacts = await ai.getBrandContacts(place.name, place.website || null, place.address || region, {
-      enrichEmail: true, market: 'school', isFranchise: card.isFranchise === true,
-      sourceOrder: ai.MANUAL_SOURCE_ORDER,
-      stopAtTier1: true,
-    });
+    const contacts = await ai.getBrandContacts(place.name, place.website || null, place.address || region,
+      ai.deepContactCtx({ market: 'school', isFranchise: card.isFranchise === true }));
     const ladder = buildContactLadder(contacts, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, category: card.category, brand: place.name });
 
     // 5. Ledger write: lane='local', source='manual', state='shown'.
@@ -8321,15 +8314,12 @@ async function _brandContactsBatch(req, res) {
     const { buildContactLadder } = require('./services/contactLadder');
     const _t0 = Date.now();
     const results = await _contactsMapLimit(brands, deep ? 2 : 6, async (b) => {
-      const ctx = { market: b.market || null, isFranchise: b.isFranchise === true, contactApproach: b.approach || null };
-      if (deep) {
-        // Same ladder settings as Add a Business: site first (the agent already knows
-        // the business, so its own pages are the highest-yield place to find an owner)
-        // and keep searching past a Tier 2 manager.
-        ctx.enrichEmail = true;
-        ctx.sourceOrder = ai.MANUAL_SOURCE_ORDER;
-        ctx.stopAtTier1 = true;
-      }
+      // The deep ctx comes from ONE builder (ai.deepContactCtx) so this route, the
+      // outreach workflow, the scan-time warm and Add a Business cannot drift into
+      // four slightly different searches with four different cache keys.
+      const ctx = deep
+        ? ai.deepContactCtx({ market: b.market || null, isFranchise: b.isFranchise === true, contactApproach: b.approach || null })
+        : { market: b.market || null, isFranchise: b.isFranchise === true, contactApproach: b.approach || null };
       if (!deep) {
         const out = await ai.getBrandContacts(String(b.brand || ''), b.website || null, b.region || '', ctx);
         return { brand: b.brand, ...out };

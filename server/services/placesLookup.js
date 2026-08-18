@@ -4,6 +4,7 @@
 // failure (no key, network, bad response) returns null so callers fall back
 // to the existing web-search behavior.
 const store = require('../store');
+const { canonicalRegion } = require('./regionKey');
 
 const PLACES_URL = 'https://places.googleapis.com/v1/places:searchText';
 const AUTOCOMPLETE_URL = 'https://places.googleapis.com/v1/places:autocomplete';
@@ -21,9 +22,13 @@ const CACHE_DAYS = 30;
 // instead of serving a place_id-less blob the ledger cannot key on.
 const CACHE_V = 'v2';
 
+// The region is canonicalised, never taken as the caller spelled it. The card path
+// says "Fayetteville, AR" and the outreach workflow says "Fayetteville, Arkansas",
+// which cached the same business twice and made every deep lookup re-pay for a
+// Places call it already had.
 function _key(brand, loc) {
-  const b = String(brand || '').trim();
-  const l = String(loc || '').trim();
+  const b = String(brand || '').trim().toLowerCase();
+  const l = canonicalRegion(loc);
   return (l ? `${b} | ${l}` : b) + ` | ${CACHE_V}`;
 }
 
