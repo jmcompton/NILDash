@@ -84,29 +84,51 @@ async function discoverContacts(agentId, enrichmentRecord, knownContacts) {
   // emails only, generic inboxes never attached to a person, phones locality
   // checked, nothing fabricated. No second implementation, no inferred info@.
   let shared = { contacts: [], businessPhone: null, genericInbox: null };
-  // Only counted as usable when it carries a NAMED person or a phone. A card whose
-  // cheap pass returned nothing must not suppress the real lookup: an empty object
-  // is the absence of an answer, not an answer of "none".
-  const supplied = knownContacts && (
-    (Array.isArray(knownContacts.contacts) && knownContacts.contacts.length > 0)
-    || knownContacts.businessPhone);
+  // A BUSINESS PHONE IS NOT A DECISION MAKER.
+  //
+  // This used to accept `|| knownContacts.businessPhone` as proof that the card had
+  // already done the work. It hadn't. The CHEAP Places pass sets a business phone on
+  // nearly every card, so `supplied` was true almost always, the six-source fan-out
+  // was skipped, and the workflow built one row: {name: null, title: 'Business line'}.
+  // The agent waited out the whole pipeline -- enrichment, match, pitch, deck -- and
+  // got a main line, because the only step that could have found a person never ran.
+  //
+  // The reuse this exists for is real: expanding a card runs the deep ladder, and
+  // re-running it here would pay twice for the same searches. But that reuse is only
+  // valid when the card actually carries the ladder's OUTPUT, which means a NAMED
+  // person. A phone alone is the absence of an answer, not an answer of "none".
+  const suppliedNamed = knownContacts && Array.isArray(knownContacts.contacts)
+    ? knownContacts.contacts.filter((c) => c && c.name && String(c.name).trim()).length
+    : 0;
+  const supplied = suppliedNamed > 0;
   if (supplied) {
     shared = {
-      contacts: Array.isArray(knownContacts.contacts) ? knownContacts.contacts : [],
+      contacts: knownContacts.contacts,
       businessPhone: knownContacts.businessPhone || null,
       genericInbox: knownContacts.genericInbox || null,
     };
     console.log(`[contactDiscovery] brand="${enrichmentRecord.brand_name}" using the card's ladder `
-      + `(${shared.contacts.length} named, phone=${shared.businessPhone ? 'yes' : 'no'}), skipping the second fan-out`);
+      + `(${suppliedNamed} named, phone=${shared.businessPhone ? 'yes' : 'no'}), skipping the second fan-out`);
     logEvent(null, agentId, 'contact_discovery_reused_card', {
-      enrichmentId: enrichmentRecord.id, named: shared.contacts.length,
+      enrichmentId: enrichmentRecord.id, named: suppliedNamed,
     });
   } else {
+    // The card knew a phone but nobody's name: run the real lookup, and keep the
+    // phone so a fan-out that finds no one still leaves the main line on the record.
+    const carriedPhone = (knownContacts && knownContacts.businessPhone) || null;
+    const carriedInbox = (knownContacts && knownContacts.genericInbox) || null;
+    if (carriedPhone) {
+      console.log(`[contactDiscovery] brand="${enrichmentRecord.brand_name}" card had a phone but no named `
+        + `person, so the fan-out RUNS (a main line is not a decision maker)`);
+    }
     try {
       shared = await getBrandContacts(enrichmentRecord.brand_name, enrichmentRecord.website || null, enrichmentRecord.location || '', { enrichEmail: true });
     } catch (e) {
       console.error('[contactDiscovery] getBrandContacts failed:', e.message);
     }
+    shared = shared || { contacts: [], businessPhone: null, genericInbox: null };
+    if (!shared.businessPhone && carriedPhone) shared.businessPhone = carriedPhone;
+    if (!shared.genericInbox && carriedInbox) shared.genericInbox = carriedInbox;
   }
 
   // Build ranked rows: named people first (best when they carry a published
