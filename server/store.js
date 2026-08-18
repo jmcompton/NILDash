@@ -631,6 +631,64 @@ async function init() {
     )
   `).then(() => console.log('[init] brand_engagement table ready'))
     .catch(e => console.error('[init] brand_engagement:', e.message));
+  // ── Morning outreach queue ────────────────────────────────────────────────
+  // Three slots an athlete, filled by the nightly job and emptied by the agent.
+  // Sent and skipped rows STAY: they are the outcome record, and they are what
+  // makes "waiting on you" possible. Only a 'queued' row holds its slot.
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS outreach_queue (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      athlete_id TEXT NOT NULL,
+      slot INT NOT NULL,
+      brand_key TEXT NOT NULL,
+      brand_name TEXT,
+      why TEXT,
+      contact_name TEXT,
+      contact_title TEXT,
+      source_note TEXT,
+      affiliation_scope TEXT,
+      instagram TEXT,
+      instagram_scope TEXT,
+      phone TEXT,
+      phone_ask_for TEXT,
+      dm_text TEXT,
+      channel TEXT NOT NULL DEFAULT 'call',
+      state TEXT NOT NULL DEFAULT 'queued',
+      sent_at TIMESTAMPTZ,
+      sent_via TEXT,
+      outcome TEXT,
+      outcome_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(async () => {
+    // THE DOUBLE-FILL GUARD, at the database rather than in application logic.
+    // Two job runs, or two Railway instances, racing the same athlete get a
+    // rejection instead of six cards in three slots.
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_outreach_queue_open
+      ON outreach_queue (athlete_id, slot) WHERE state = 'queued'`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_queue_agent
+      ON outreach_queue (agent_id, state)`).catch(() => {});
+    console.log('[init] outreach_queue table ready');
+  }).catch(e => console.error('[init] outreach_queue:', e.message));
+
+  // One claim per agent per night. A slot freed at 10am must wait for the next
+  // run rather than refilling on the spot, so an agent skipping three cards in
+  // one sitting triggers zero lookups.
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS outreach_queue_runs (
+      agent_id TEXT NOT NULL,
+      run_date DATE NOT NULL,
+      filled INT DEFAULT 0,
+      spent_usd NUMERIC(10,4) DEFAULT 0,
+      note TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (agent_id, run_date)
+    )
+  `).then(() => console.log('[init] outreach_queue_runs table ready'))
+    .catch(e => console.error('[init] outreach_queue_runs:', e.message));
+
   // ── Weekly digest sends ───────────────────────────────────────────────────
   // The double-send guard. Recurring work in this app runs on in-process
   // setInterval timers, so a restart or a second Railway instance can fire the same

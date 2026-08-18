@@ -8371,6 +8371,105 @@ async function _brandContactsBatch(req, res) {
 }
 app.post('/api/agent/brand-contacts', requireAuth, requireAgentSubscription, aiLimiter, _brandContactsBatch);
 
+// ── Morning outreach queue ───────────────────────────────────────────────────
+// READ AND ACT ONLY. Nothing in here fills a slot: filling costs a deep contact
+// lookup, and if the request path could do it, an agent skipping three cards in
+// one sitting would trigger three lookups. The nightly job is the only filler.
+const OQ = require('./services/outreachQueue');
+
+// GET /api/agent/outreach-queue — the three slots per athlete, plus what is late.
+app.get('/api/agent/outreach-queue', requireAuth, async (req, res) => {
+  try {
+    const agentId = req.session.userId;
+    const r = await store.pool.query(
+      `SELECT q.*, a.data->>'name' AS athlete_name
+         FROM outreach_queue q
+         JOIN athletes a ON a.id = q.athlete_id
+        WHERE q.agent_id = $1 AND (q.state = 'queued' OR (q.state = 'sent' AND q.outcome IS NULL))
+        ORDER BY q.athlete_id, q.slot`, [agentId]);
+    const rows = r.rows || [];
+    const queued = rows.filter((x) => x.state === 'queued');
+    // Grouped by athlete, DM-able first inside each group.
+    const byAthlete = {};
+    for (const q of queued) {
+      const k = q.athlete_id;
+      (byAthlete[k] = byAthlete[k] || { athleteId: k, athleteName: q.athlete_name, cards: [] }).cards.push(q);
+    }
+    const groups = Object.values(byAthlete).map((g) => ({ ...g, cards: OQ.sortCards(g.cards) }));
+    res.json({ groups, waiting: OQ.waitingOnYou(rows), outcomes: OQ.OUTCOMES });
+  } catch (e) {
+    console.error('[outreach-queue]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /api/agent/outreach-queue/:id — edit the DM before sending it.
+app.patch('/api/agent/outreach-queue/:id', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `UPDATE outreach_queue SET dm_text = $3, updated_at = NOW()
+        WHERE id = $1 AND agent_id = $2 AND state = 'queued' RETURNING *`,
+      [req.params.id, req.session.userId, String(req.body.dmText || '').slice(0, 4000)]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Card not found' });
+    res.json(r.rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/agent/outreach-queue/:id/sent — logs it and frees the slot. The slot
+// stays empty until tonight's run.
+app.post('/api/agent/outreach-queue/:id/sent', requireAuth, async (req, res) => {
+  try {
+    const via = req.body.via === 'dm' ? 'dm' : 'call';
+    const r = await store.pool.query(
+      `UPDATE outreach_queue SET state = 'sent', sent_at = NOW(), sent_via = $3, updated_at = NOW()
+        WHERE id = $1 AND agent_id = $2 AND state = 'queued' RETURNING *`,
+      [req.params.id, req.session.userId, via]);
+    const card = r.rows[0];
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    // The ledger records the contact for THIS athlete only; the table is keyed
+    // (athlete_id, brand_key), so another athlete can still be shown this brand.
+    await store.pool.query(
+      `UPDATE brand_engagement SET state = 'contacted', contacted_at = NOW(), contacted_via = $3, updated_at = NOW()
+        WHERE athlete_id = $1 AND brand_key = $2`, [card.athlete_id, card.brand_key, 'queue_' + via]).catch(() => {});
+    res.json(card);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/agent/outreach-queue/:id/skip — frees the slot and retires the brand
+// FOR THIS ATHLETE. Another athlete on the roster can still be shown it.
+app.post('/api/agent/outreach-queue/:id/skip', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `UPDATE outreach_queue SET state = 'skipped', updated_at = NOW()
+        WHERE id = $1 AND agent_id = $2 AND state = 'queued' RETURNING *`,
+      [req.params.id, req.session.userId]);
+    const card = r.rows[0];
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    await store.pool.query(
+      `UPDATE brand_engagement SET state = 'retired', updated_at = NOW()
+        WHERE athlete_id = $1 AND brand_key = $2`, [card.athlete_id, card.brand_key]).catch(() => {});
+    res.json(card);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/agent/outreach-queue/:id/outcome — no_reply | replied | closed.
+app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) => {
+  try {
+    const outcome = String(req.body.outcome || '');
+    if (OQ.OUTCOMES.indexOf(outcome) === -1) return res.status(400).json({ error: 'Unknown outcome' });
+    const r = await store.pool.query(
+      `UPDATE outreach_queue SET outcome = $3, outcome_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND agent_id = $2 AND state = 'sent' RETURNING *`,
+      [req.params.id, req.session.userId, outcome]);
+    const card = r.rows[0];
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    await store.pool.query(
+      `UPDATE brand_engagement SET outcome = $3, outcome_at = NOW(), updated_at = NOW()
+        WHERE athlete_id = $1 AND brand_key = $2`, [card.athlete_id, card.brand_key, outcome]).catch(() => {});
+    res.json(card);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/agent/brand-instagram', requireAuth, async (req, res) => {
   try {
     const { website, brand, region } = req.body || {};

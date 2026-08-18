@@ -868,6 +868,31 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hm-btn.ghost{background:transparent;border:1px solid #1e2a3a;color:#9CA3AF}
 .hm-btn:hover{filter:brightness(1.08)}
 
+/* ── morning outreach queue ── */
+.hq-wrap{margin-bottom:10px}
+.hq-athlete{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:#4B5563;margin:14px 2px 8px}
+.hq-card{border-radius:8px;background:#0D1520;border:.5px solid #1e2a3a;
+  padding:14px 16px;margin-bottom:8px}
+.hq-card.dm{border-left:3px solid #84CC16}
+.hq-card.call{border-left:3px solid #3f4c5e}
+.hq-brand{font-size:14.5px;color:#F0EDE6;font-weight:600;line-height:1.35}
+.hq-why{font-size:11.5px;color:#6B7280;line-height:1.5;margin:5px 0 9px}
+.hq-who{font-size:12px;color:#9CA3AF;line-height:1.6}
+.hq-who b{color:#F0EDE6;font-weight:600}
+.hq-note{font-size:10.5px;color:#6B7280;line-height:1.5;margin-top:4px}
+.hq-tag{font-size:8.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:1px}
+.hq-tag.brandacct{color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32)}
+.hq-dm{width:100%;box-sizing:border-box;margin:10px 0 9px;padding:9px 11px;border-radius:7px;
+  background:#0a0f16;border:1px solid #1e2a3a;color:#D6D3CC;font-size:12px;line-height:1.55;
+  font-family:inherit;resize:vertical;min-height:70px}
+.hq-waiting{border-radius:8px;background:#0D1520;border:.5px solid #1e2a3a;
+  border-left:3px solid #f59e0b;padding:13px 16px;margin-top:12px}
+.hq-wrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;
+  color:#9CA3AF;padding:6px 0;border-bottom:.5px solid #141d29}
+.hq-wrow:last-child{border-bottom:none}
+
 /* ── two columns ── */
 /* align-items:start, or the grid stretches both cards to the taller one and a
    column holding one sentence becomes a tall empty box -- the exact thing the
@@ -1767,6 +1792,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <!-- ══ DO THIS FIRST: never empty. With nothing waiting it becomes a
              suggestion naming a specific athlete. ══ -->
         <div id="hm-first"></div>
+
+        <!-- ══ MORNING QUEUE: three slots an athlete, filled nightly. Below
+             "do this first", above "what needs you". ══ -->
+        <div id="hm-queue"></div>
 
         <!-- ══ TWO COLUMNS: work grouped by kind, and the roster ══ -->
         <div class="hm-cols">
@@ -16183,6 +16212,9 @@ async function loadAgentHomeV2() {
 
   hmRenderHero(m);
   hmRenderMomentum(m);
+  // Fetched separately rather than in the Promise.all above: the queue is the
+  // one section that reloads on its own after every action, so it owns its call.
+  loadOutreachQueue();
   hmRenderWork((t && t.actions) || [], m, (t && t.total) || 0);
   hmRenderRoster((m && m.roster) || []);
 }
@@ -16315,6 +16347,140 @@ function hmRenderMomentum(m) {
     why2.textContent = 'Nothing sent yet this week.';
     el.parentNode.insertBefore(why2, el.nextSibling);
   }
+}
+
+// ── MORNING OUTREACH QUEUE ───────────────────────────────────────────────────
+// Three slots an athlete, filled by the nightly job. NOTHING here fills a slot:
+// acting on a card frees it and the next run refills it, which is what keeps an
+// agent who skips three cards from triggering three deep lookups.
+//
+// The card is shaped by what the ladder actually returns: a named owner nearly
+// always, a handle about nine times in ten, a phone almost always the shop line,
+// and a personal email approximately never. So there is NO EMAIL FIELD ANYWHERE
+// in here -- an empty box on every card teaches an agent to ignore the card.
+function hqEsc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function hqIgLink(h) { return 'https://www.instagram.com/' + String(h || '').replace(/^@/, ''); }
+
+function hqCard(c) {
+  var isDm = c.channel === 'dm';
+  var brandAcct = c.instagram_scope === 'brand';
+  var bits = [];
+  bits.push('<div class="hq-card ' + (isDm ? 'dm' : 'call') + '" data-id="' + hqEsc(c.id) + '">');
+  bits.push('<div class="hq-brand">' + hqEsc(c.brand_name) + '</div>');
+  if (c.why) bits.push('<div class="hq-why">' + hqEsc(c.why) + '</div>');
+
+  if (c.contact_name) {
+    bits.push('<div class="hq-who"><b>' + hqEsc(c.contact_name) + '</b>'
+      + (c.contact_title ? ' &middot; ' + hqEsc(c.contact_title) : '') + '</div>');
+  }
+  if (c.instagram) {
+    // A brand account is shown and LABELLED. It is a real channel; it is just not
+    // this location, so it never becomes the DM.
+    bits.push('<div class="hq-who">@' + hqEsc(c.instagram)
+      + (brandAcct ? '<span class="hq-tag brandacct">national brand, not this store</span>' : '') + '</div>');
+  }
+  if (c.phone) {
+    bits.push('<div class="hq-who">' + hqEsc(c.phone)
+      + (c.phone_ask_for ? ' &middot; ask for ' + hqEsc(c.phone_ask_for) : '') + '</div>');
+  }
+  // Says in words why an owner is only Tier 2, rather than leaving the agent to
+  // wonder why a confident-looking card is ranked low.
+  if (c.affiliation_scope === 'unclear' && c.source_note) {
+    bits.push('<div class="hq-note">' + hqEsc(c.source_note) + '</div>');
+  }
+
+  if (isDm && c.dm_text) {
+    bits.push('<textarea class="hq-dm" id="hq-dm-' + hqEsc(c.id) + '">' + hqEsc(c.dm_text) + '</textarea>');
+  }
+  bits.push('<div class="hm-btns">');
+  if (isDm && c.dm_text) {
+    bits.push('<button class="hm-btn primary" onclick="hqCopyAndOpen(' + hqEsc(c.id) + ',\'' + hqEsc(c.instagram) + '\')">Copy DM &amp; open Instagram</button>');
+  }
+  if (c.phone) {
+    bits.push('<a class="hm-btn ghost" style="text-decoration:none" href="tel:' + hqEsc(String(c.phone).replace(/[^0-9+]/g, '')) + '">Call</a>');
+  }
+  bits.push('<button class="hm-btn ghost" onclick="hqMark(' + hqEsc(c.id) + ',\'sent\',\'' + (isDm ? 'dm' : 'call') + '\')">Mark sent</button>');
+  bits.push('<button class="hm-btn ghost" onclick="hqMark(' + hqEsc(c.id) + ',\'skip\')">Skip</button>');
+  bits.push('</div></div>');
+  return bits.join('');
+}
+
+function renderOutreachQueue(data) {
+  var el = document.getElementById('hm-queue');
+  if (!el) return;
+  var groups = (data && data.groups) || [];
+  var waiting = (data && data.waiting) || [];
+  if (!groups.length && !waiting.length) { el.innerHTML = ''; return; }
+
+  var h = ['<div class="hm-card hq-wrap"><div class="hm-col-head">This morning</div>'];
+  if (!groups.length) {
+    h.push('<div class="hm-quiet">Nothing queued. Tonight\'s run will fill any empty slots.</div>');
+  }
+  groups.forEach(function (g) {
+    h.push('<div class="hq-athlete">' + hqEsc(g.athleteName) + '</div>');
+    (g.cards || []).forEach(function (c) { h.push(hqCard(c)); });
+  });
+
+  if (waiting.length) {
+    h.push('<div class="hq-waiting"><div class="hm-col-head" style="margin-bottom:8px">Waiting on you</div>');
+    waiting.forEach(function (w) {
+      var days = Math.floor((Date.now() - Date.parse(w.sent_at)) / 86400000);
+      h.push('<div class="hq-wrow"><span style="flex:1;min-width:140px">'
+        + hqEsc(w.brand_name) + ' &middot; sent ' + days + 'd ago</span>'
+        + '<span style="color:#6B7280">Any reply?</span>'
+        + '<button class="hm-btn ghost" onclick="hqOutcome(' + hqEsc(w.id) + ',\'no_reply\')">No reply</button>'
+        + '<button class="hm-btn ghost" onclick="hqOutcome(' + hqEsc(w.id) + ',\'replied\')">Replied</button>'
+        + '<button class="hm-btn ghost" onclick="hqOutcome(' + hqEsc(w.id) + ',\'closed\')">Closed</button></div>');
+    });
+    h.push('</div>');
+  }
+  h.push('</div>');
+  el.innerHTML = h.join('');
+}
+
+function hqCopyAndOpen(id, handle) {
+  var ta = document.getElementById('hq-dm-' + id);
+  var text = ta ? ta.value : '';
+  var done = function () {
+    if (typeof showToast === 'function') showToast('DM copied');
+    if (handle) window.open(hqIgLink(handle), '_blank', 'noopener');
+  };
+  // Save the edit first, so "copy" and "what is stored" can never disagree.
+  fetch('/api/agent/outreach-queue/' + id, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dmText: text }),
+  }).catch(function () {});
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, done);
+  else { if (ta) { ta.select(); try { document.execCommand('copy'); } catch (e) {} } done(); }
+}
+
+function hqMark(id, what, via) {
+  fetch('/api/agent/outreach-queue/' + id + '/' + (what === 'skip' ? 'skip' : 'sent'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ via: via || 'call' }),
+  }).then(function (r) { return r.json(); }).then(function () {
+    // The slot is now free and STAYS free until tonight. Refilling here would
+    // mean three skips cost three deep lookups.
+    loadOutreachQueue();
+  }).catch(function () {});
+}
+
+function hqOutcome(id, outcome) {
+  fetch('/api/agent/outreach-queue/' + id + '/outcome', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ outcome: outcome }),
+  }).then(function () { loadOutreachQueue(); }).catch(function () {});
+}
+
+function loadOutreachQueue() {
+  fetch('/api/agent/outreach-queue', { credentials: 'include' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { if (d) renderOutreachQueue(d); })
+    .catch(function () {});
 }
 
 // Which group an action belongs to. Going cold is the decaying set: a deal, a
