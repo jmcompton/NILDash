@@ -106,6 +106,20 @@ async function generateOutreach(athleteId, dealResultJson) {
     console.warn('[outreachEngine] prewarm lookup failed, generating on click:', e && e.message);
   }
 
+  // ── NO PRE-WARMED DRAFT: RENDER ANYWAY, DO NOT WAIT ────────────────────────
+  //
+  // This used to sit on a spinner until the seven-step workflow finished --
+  // enrichment, contact discovery, brand match, pitch, deck -- which is up to two
+  // minutes of an agent looking at "AI is working on this…". An agent can find a
+  // local owner on Google in thirty seconds, so a slower wait for a worse answer
+  // is worth less than nothing.
+  //
+  // The card already knows everything the modal's frame needs: the business, the
+  // category, the region, the fit reasoning, the phone, and the contact ladder if
+  // it has been expanded. So the modal is built from the card NOW, with the email
+  // body streaming in behind it. Same pattern ensureDeepContact already uses for
+  // contacts: put the frame on screen, fill the slow parts in as they land.
+  renderFromCard(dealResult, athleteId);
   try {
     const { runId } = await outreachAPI.post('/run', {
       athleteId, dealScanResult: dealResult,
@@ -116,8 +130,76 @@ async function generateOutreach(athleteId, dealResultJson) {
     OutreachEngineState.activeRunId = runId;
     startPolling(runId);
   } catch (e) {
-    setModalState('error', e.message);
+    // The draft cannot be written. The modal stays: the recipient, the phone and
+    // the Instagram DM are all still usable, and they came from the card.
+    setDraftStatus('failed', e.message);
   }
+}
+
+// The modal, built entirely from the Deal Scan card, with no server round trip.
+// Everything here is already in the browser.
+function renderFromCard(d, athleteId) {
+  const brand = d.brand || d.brand_name || 'this business';
+  renderRunResult({
+    run: { brand_name: brand, athlete_id: athleteId, status: 'running' },
+    enrichment: {
+      brand_name: brand,
+      industry: d.category || null,
+      location: d.region || d.market || null,
+      brand_size: null,
+      website: d.website || null,
+    },
+    contact: pickCardContact(d),
+    matchScore: null,
+    deck: null,
+    // No body yet. The textarea renders empty with a status line above it rather
+    // than a spinner over the whole modal, so everything else is usable meanwhile.
+    outreach: { id: null, subject: `NIL Partnership — ${brand}`, body_html: '' },
+  });
+  setDraftStatus('writing');
+  // NOT ensureDeepContact. The /run workflow about to be posted does its own contact
+  // discovery -- and since a bare business phone stopped counting as "already
+  // supplied", it really does run the fan-out now. Firing the client lookup as well
+  // would pay twice for the same six searches, which is the double-spend the
+  // pre-warm path exists to avoid.
+  //
+  // So the panel says it is still looking, which is true: the workflow is. It
+  // settles in applyCompletedRun when the run comes back with a contact.
+  const known = pickCardContact(d);
+  if (!known || !known.name) refreshReachPanel(d, 'looking');
+}
+
+// The one line that says what the email is doing. Sits directly above the body so
+// an empty textarea is never mistaken for a finished draft.
+function setDraftStatus(state, message) {
+  const el = document.getElementById('outreach-draft-status');
+  const ta = document.getElementById('outreach-body-input');
+  const send = document.getElementById('outreach-send-btn');
+  if (!el) return;
+  if (state === 'writing') {
+    el.style.display = '';
+    el.innerHTML = '<span style="display:inline-block;width:9px;height:9px;margin-right:7px;vertical-align:middle;'
+      + 'border:2px solid var(--border,#333);border-top-color:var(--accent,#84CC16);border-radius:50%;'
+      + 'animation:outreachspin 0.8s linear infinite"></span>Writing the email. Everything else below is ready now.'
+      + '<span id="outreach-draft-steps"></span>'
+      + '<style>@keyframes outreachspin{to{transform:rotate(360deg)}}</style>';
+    if (ta) ta.placeholder = 'The draft is being written…';
+    // Nothing to send until there is a body.
+    if (send) { send.disabled = true; send.style.opacity = '0.5'; send.style.cursor = 'not-allowed'; }
+    return;
+  }
+  if (state === 'failed') {
+    el.style.display = '';
+    el.innerHTML = '<span style="color:#f87171">The draft could not be written'
+      + (message ? ': ' + escHtml(message) : '') + '. '
+      + 'The contact and the DM below still work, or write the email yourself.</span>';
+    if (ta) ta.placeholder = 'Write the email here.';
+    if (send) { send.disabled = false; send.style.opacity = ''; send.style.cursor = 'pointer'; }
+    return;
+  }
+  el.style.display = 'none';
+  el.innerHTML = '';
+  if (send) { send.disabled = false; send.style.opacity = ''; send.style.cursor = 'pointer'; }
 }
 
 // What the card knows about how to reach this business, in the shape the server's
@@ -283,10 +365,16 @@ function startPolling(runId) {
         clearInterval(OutreachEngineState.pollInterval);
         OutreachEngineState.pollInterval = null;
         OutreachEngineState.currentRunData = data;
-        renderRunResult(data);
+        // FILL IN PLACE, do not repaint. The modal has been on screen and usable
+        // since the click; a full re-render here would throw away anything the
+        // agent typed into the body or the recipient while waiting.
+        applyCompletedRun(data);
       } else if (status === 'failed') {
         clearInterval(OutreachEngineState.pollInterval);
-        setModalState('error', data.run?.error_message || 'Workflow failed');
+        OutreachEngineState.pollInterval = null;
+        // Not setModalState('error'): that replaces the whole body with an error
+        // panel, taking away the contact and the DM, which are still good.
+        setDraftStatus('failed', data.run?.error_message || 'Workflow failed');
       } else {
         // Still running — update progress message
         const steps = data.run?.steps_completed;
@@ -297,6 +385,46 @@ function startPolling(runId) {
       console.error('[outreachEngine] Poll error:', e.message);
     }
   }, 3000);
+}
+
+// The workflow finished behind a modal that has been usable the whole time. Put
+// the parts it produced into the boxes that are already on screen, and leave
+// everything the agent has touched alone.
+function applyCompletedRun(data) {
+  const outreach = data && data.outreach;
+  const subj = document.getElementById('outreach-subject-input');
+  const ta = document.getElementById('outreach-body-input');
+  if (!ta) { renderRunResult(data); return; }   // modal was replaced: fall back to a repaint
+
+  OutreachEngineState.currentOutreachId = (outreach && outreach.id) || OutreachEngineState.currentOutreachId;
+  // Only fill what the agent has not written over. An empty box is ours to fill;
+  // anything in it is theirs.
+  if (outreach && outreach.body_html && !ta.value.trim()) {
+    ta.value = htmlToEditableText(outreach.body_html);
+    // The greeting personalisation the pre-warmed path does, for the same reason.
+    const c = data.contact;
+    if (c && c.name && resolvePersonalEmail(c)) personalizeGreeting(c.name);
+  }
+  // Only overwrite the placeholder renderFromCard put there. Anything else is the
+  // agent's, whether they typed it or the pre-warm wrote it.
+  const brandNow = (data.run && data.run.brand_name) || '';
+  const placeholder = `NIL Partnership — ${brandNow}`;
+  if (subj && outreach && outreach.subject && (!subj.value.trim() || subj.value === placeholder)) {
+    subj.value = outreach.subject;
+  }
+
+  // The workflow may have found a contact the card did not have.
+  const recipients = outreachRecipients(OutreachEngineState.currentDealResult, data.contact);
+  if (recipients.length) { renderRecipientOptions(recipients); wireRecipientControls(recipients); }
+  if (data.contact) refreshReachPanel(OutreachEngineState.currentDealResult, null);
+
+  // The send button targets an outreach id, which only exists now.
+  const send = document.getElementById('outreach-send-btn');
+  if (send && OutreachEngineState.currentOutreachId) {
+    send.setAttribute('onclick', `window.outreachEngine.sendOutreach('${OutreachEngineState.currentOutreachId}')`);
+  }
+  setDraftStatus(null);
+  window._naOutreachSnapshot = String(ta.value || '') + ' ' + String(subj ? subj.value : '');
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
@@ -397,7 +525,16 @@ function setModalState(state, message) {
 
 function updateLoadingProgress(completedSteps) {
   const el = document.getElementById('outreach-progress-steps');
-  if (!el) return;
+  if (!el) {
+    // The modal is rendered from the card and already usable, so there is no
+    // spinner panel to fill. Report progress on its own node inside the status
+    // line, which leaves the spinner and the message untouched.
+    const count = document.getElementById('outreach-draft-steps');
+    if (count && Array.isArray(completedSteps)) {
+      count.textContent = completedSteps.length ? ` (${completedSteps.length} of 7 steps done)` : '';
+    }
+    return;
+  }
   const stepLabels = {
     enrichment:        '✅ Company enrichment complete',
     contact_discovery: '✅ Decision makers identified',
@@ -526,6 +663,9 @@ function renderRunResult(data) {
       </div>
       <div>
         <label style="font-size:10px;color:var(--muted,#888);text-transform:uppercase">Email Body</label>
+        <!-- Set by setDraftStatus. Directly above the textarea so an empty box is
+             never mistaken for a finished draft. -->
+        <div id="outreach-draft-status" style="display:none;font-size:11px;color:var(--muted,#888);margin:4px 0 2px;line-height:1.5"></div>
         <textarea id="outreach-body-input" rows="10"
                   style="width:100%;margin-top:4px;padding:8px 10px;background:var(--surface,#111);
                          border:1px solid var(--border,#333);border-radius:6px;
