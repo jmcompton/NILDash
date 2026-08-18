@@ -2,24 +2,31 @@
 # The city and state come from --city / --state, not from this file, so the same
 # list can be re-run against a different market.
 #
-# Replace these with the 20 you actually want measured.
-Pack Rat Outdoor Center
-Natural State Aesthetics
-Millennium Chiropractic and Rehab
-Rally House Fayetteville
-Hog Heaven Team Store
-Onyx Coffee Lab
-Fayetteville Athletic Club
-Arsaga's at the Depot
-Blue Moose Burgers
-Mama Carmen's Espresso Cafe
-Fossil Cove Brewing Company
-Ozark Beer Company
-Tacos 4 Life
-Slim Chickens
-Herman's Ribhouse
-Hugo's
-Damgoode Pies
-Wright's Barbecue
-Trailside Cyclery
-Lewis Automotive Group
+# VERIFY THESE BEFORE SPENDING. A name that no longer trades, or that never
+# existed under this spelling, does not measure the contact ladder -- it measures
+# the list, and it costs a full deep lookup to tell you nothing. Check them
+# against Google Maps for the market first; every wrong line is ~$0.11-$0.26 of
+# search fees buying a guaranteed "no named contact".
+#
+# Birmingham, AL. Local independents across food, drink, fitness and retail --
+# the categories Deal Scan actually surfaces for an athlete.
+Saw's BBQ
+Full Moon Bar-B-Que
+Milo's Hamburgers
+Hero Doughnuts & Buns
+Big Spoon Creamery
+Steel City Pops
+Seeds Coffee Co
+O'Henry's Coffees
+Church Street Coffee & Books
+Good People Brewing Company
+Avondale Brewing Company
+Cahaba Brewing Company
+TrimTab Brewing Company
+Iron Tribe Fitness Homewood
+The Trak Shak
+Alabama Outdoors
+Mountain High Outfitters
+Homewood Cycle & Fitness
+Slice Pizza & Brew
+Post Office Pies
