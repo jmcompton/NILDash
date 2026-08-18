@@ -8322,6 +8322,18 @@ async function _brandContactsBatch(req, res) {
         : { market: b.market || null, isFranchise: b.isFranchise === true, contactApproach: b.approach || null };
       if (!deep) {
         const out = await ai.getBrandContacts(String(b.brand || ''), b.website || null, b.region || '', ctx);
+        // The cheap pass now serves a DEEP row when one is cached (from the
+        // scan-time ladder warm, or from a previous Find-the-decision-maker on this
+        // business). When it does, build the ladder here too -- it is a pure
+        // function with no network -- so the card renders the same "WHO TO CALL"
+        // block it would have shown after a deep run, instead of a flat list.
+        const named = Array.isArray(out.contacts) ? out.contacts.filter((c) => c && c.name).length : 0;
+        if (named) {
+          return {
+            brand: b.brand, ...out,
+            contactLadder: buildContactLadder(out, { rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain, category: b.category || null, brand: b.brand }),
+          };
+        }
         return { brand: b.brand, ...out };
       }
       // DEEP: a throw here used to be swallowed by _contactsMapLimit into a null,

@@ -1720,24 +1720,57 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
     return localityRequired ? { ok: false, reason: 'no-region (local, unverifiable)' } : { ok: true, reason: 'no-region' };
   };
 
+  // Shape a cached row into the return value. Extracted so the own-key read and the
+  // deep-row read below cannot drift apart.
+  const _fromCache = (cached, via) => {
+    const ev = (cached && cached.evidence) || {};
+    // A row stamped with an older pipeline version (or none) is treated as a miss so
+    // the widened multi-source search re-runs once for this brand.
+    if (ev.v !== _CONTACTS_CACHE_VERSION) {
+      console.log(`[dealScan] contacts brand=${brand} cache version miss (had v=${ev.v || 'none'}), re-running widened search`);
+      return null;
+    }
+    let cphone = ev.businessPhone || null;
+    let cunconf = !!ev.phoneUnconfirmed;
+    // Re-validate the cached phone against the CURRENT region. A stale wrong-state
+    // number (cached before the locality fix) must not survive.
+    if (cphone && !_localityCheck(cphone, null).ok) {
+      console.log(`[dealScan] contacts brand=${brand} cached phone rejected on read region=${regionState || 'n/a'}`);
+      cphone = null; cunconf = true;
+    }
+    if (via) console.log(`[dealScan] contacts brand=${brand} served from the DEEP row (${(ev.contacts || []).length} named)`);
+    return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, personalInbox: ev.personalInbox || null, businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
+  };
+
   if (!force) {
     const cached = await store.getBrandEvidence(cacheKey, 'contacts', 30);
     if (cached) {
-      const ev = cached.evidence || {};
-      // Fix 2: a row stamped with an older pipeline version (or none) is treated
-      // as a miss so the widened multi-source search re-runs once for this brand.
-      if (ev.v === _CONTACTS_CACHE_VERSION) {
-        let cphone = ev.businessPhone || null;
-        let cunconf = !!ev.phoneUnconfirmed;
-        // Fix 1: re-validate the cached phone against the CURRENT region. A stale
-        // wrong-state number (cached before the locality fix) must not survive.
-        if (cphone && !_localityCheck(cphone, null).ok) {
-          console.log(`[dealScan] contacts brand=${brand} cached phone rejected on read region=${regionState || 'n/a'}`);
-          cphone = null; cunconf = true;
-        }
-        return { contacts: ev.contacts || [], genericInbox: ev.genericInbox || null, personalInbox: ev.personalInbox || null, businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
-      }
-      console.log(`[dealScan] contacts brand=${brand} cache version miss (had v=${ev.v || 'none'}), re-running widened search`);
+      const out = _fromCache(cached, null);
+      if (out) return out;
+    }
+  }
+
+  // THE CHEAP CARD PASS CAN SERVE A DEEP ROW.
+  //
+  // The two paths deliberately use different keys so a scan's shallow result is
+  // never served to a manual add. But the asymmetry only makes sense in ONE
+  // direction: a deep result is a superset of anything this path could produce, so
+  // refusing to read it means the card shows "No named contact found" for a
+  // business whose owner is sitting in the cache.
+  //
+  // That is exactly what happened to Pack Rat Outdoor Center. The fan-out ran, found
+  // four contacts including a Tier 1, and wrote them under "... | manual". The card
+  // then asked for "..." without the suffix, got nothing -- because the cheap path
+  // returns an empty list by design -- and rendered "No named contact found. Call
+  // (479) 521-6340." The contacts were never lost; nothing ever asked for them.
+  //
+  // This is also what makes the scan-time ladder warm visible: the card's own lazy
+  // contact fill now picks it up with no extra request and no second fan-out.
+  if (!force && !manualLadder) {
+    const deepRow = await store.getBrandEvidence(cacheKey + ' | manual', 'contacts', 30);
+    if (deepRow) {
+      const out = _fromCache(deepRow, 'deep');
+      if (out) return out;
     }
   }
 
