@@ -4907,6 +4907,10 @@ async function doLogin() {
     });
     const data = await r.json();
     if (!r.ok) { err.textContent = data.error; return; }
+    // This browser now holds an agent session. Any athlete token still in
+    // localStorage is stale by definition, and leaving it there is what put the
+    // paying product into athlete mode on the agent's own machine.
+    exitAthleteMode('signed in as an agent');
     if (data.passwordResetRequired) {
       document.getElementById('authAgentPanel').style.display = 'none';
       document.getElementById('authResetPanel').style.display = 'block';
@@ -4939,6 +4943,9 @@ async function doSignup() {
     });
     const data = await r.json();
     if (!r.ok) { err.textContent = data.error; return; }
+    // Same as sign-in: this browser is an agent's now, so an athlete token left
+    // over from testing the portal must not survive into the session.
+    exitAthleteMode('created an agent account');
     // Agent signup returns a Stripe Checkout URL: send them there to enter a card
     // and start their trial. Access is withheld until the subscription exists.
     if (data.checkoutUrl) { window.location.href = data.checkoutUrl; return; }
@@ -5010,19 +5017,73 @@ function showSubscribeModal() {
 // nothing about the agent app changes.
 var NIL_ACTOR = { role: 'agent', athleteId: null, token: null, me: null };
 
+// Leave athlete mode and forget the token. Exposed on window so it is reachable
+// from the console by anyone who is stuck, because being stuck is exactly what
+// happened: an agent who had signed into the athlete portal to test it kept her
+// JWT in localStorage, and from then on every page load ran the whole paying
+// product in athlete mode. /api/email/accounts is mapped to the athlete mailbox
+// endpoint, so his Gmail read as disconnected while his tokens sat untouched.
+function exitAthleteMode(why) {
+  try { localStorage.removeItem('athlete_token'); } catch (e) {}
+  NIL_ACTOR.role = 'agent';
+  NIL_ACTOR.token = null;
+  NIL_ACTOR.athleteId = null;
+  NIL_ACTOR.me = null;
+  NIL_ACTOR.tokenFromUrl = false;
+  try { console.warn('[actor] leaving athlete mode: ' + (why || 'requested')); } catch (e) {}
+}
+if (typeof window !== 'undefined') window.exitAthleteMode = exitAthleteMode;
+
 (function detectActor() {
   // A JWT arrives either in the URL (straight from verify-email or login) or in
   // localStorage from a previous visit. The URL copy wins and is then stashed, so
   // a refresh does not drop the athlete back to the marketing page.
   var qs = new URLSearchParams(window.location.search);
+  // THE ESCAPE HATCH. It must NOT depend on the athlete token being invalid: a
+  // perfectly valid 30-day token is what trapped an agent in athlete mode, and the
+  // old exit only fired when /api/auth/me failed. This leaves immediately, with no
+  // request, no server, and nothing to be answered by the wrong credential.
+  if (qs.get('actor') === 'agent') { exitAthleteMode('?actor=agent'); return; }
   var fromUrl = qs.get('jwt');
   if (fromUrl) { try { localStorage.setItem('athlete_token', fromUrl); } catch (e) {} }
   var tok = fromUrl || (function () { try { return localStorage.getItem('athlete_token'); } catch (e) { return null; } })();
   if (!tok) return;
   NIL_ACTOR.role = 'athlete';
   NIL_ACTOR.token = tok;
+  // A token that arrived in the URL is someone deliberately signing in, and it
+  // beats an agent session that merely happens to be open in the same browser. A
+  // token sitting in localStorage is not that; resolveActor checks those.
+  NIL_ACTOR.tokenFromUrl = !!fromUrl;
 })();
 function isAthleteMode() { return NIL_ACTOR.role === 'athlete'; }
+
+// Decide who this browser really is, BEFORE the app boots.
+//
+// detectActor sets the role from a token in localStorage, which is an assumption,
+// not a fact. This verifies it. A live agent session wins: a token left behind by
+// testing the athlete portal must not quietly turn the paying product into the
+// athlete one.
+//
+// The probe deliberately uses the PRE-SHIM fetch, with the cookie and without the
+// bearer token. Going through the shim would rewrite it to /api/athlete/me and
+// answer with the very credential under question -- which is how the old escape
+// hatch ended up confirming athlete mode using the token that caused it.
+async function resolveActor() {
+  if (!isAthleteMode()) return;         // an agent pays nothing for this
+  if (NIL_ACTOR.tokenFromUrl) return;   // an explicit sign-in is not stale
+  var raw = (typeof window !== 'undefined' && window.__nilRawFetch) || fetch;
+  try {
+    var r = await raw(API_BASE + '/api/auth/me', { credentials: 'include' });
+    if (!r || !r.ok) return;            // no agent session here: she stays an athlete
+    var me = await r.json();
+    if (!me || !me.id || me.role === 'athlete') return;
+    exitAthleteMode('an agent session is signed in on this browser (' + (me.email || me.id) + ')');
+  } catch (e) {
+    // Offline, or the server is down. Leaving her in athlete mode is the safe
+    // answer: the alternative locks a real athlete out of her own portal because
+    // a request failed.
+  }
+}
 
 // The endpoint map. Ordered: the FIRST pattern that matches wins, so more specific
 // paths are listed above the prefixes that would also match them.
@@ -5158,6 +5219,9 @@ var ATHLETE_ADAPTERS = {
   if (window.__nilAthleteShim) return;
   window.__nilAthleteShim = true;
   var _fetch = window.fetch.bind(window);
+  // The un-rewritten fetch, kept so resolveActor can ask the server who this
+  // browser is without the shim answering on the athlete's behalf.
+  window.__nilRawFetch = _fetch;
   window.fetch = async function (input, init) {
     if (!isAthleteMode()) return _fetch(input, init);
     var url = typeof input === 'string' ? input : (input && input.url) || '';
@@ -5477,6 +5541,10 @@ async function bootApp() {
 //  SESSION CHECK
 async function checkSession() {
   try {
+    // Who is this browser, really? A leftover athlete token would otherwise decide
+    // it on its own, and the call below would then confirm that answer using the
+    // same token. Resolve first, ask second.
+    await resolveActor();
     // In athlete mode the shim turns this into /api/athlete/me with the bearer
     // token and reshapes the reply, so the boot path below is shared.
     const r = await fetch(`${API_BASE}/api/auth/me`);
