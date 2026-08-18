@@ -1,0 +1,25 @@
+# One business per line. Blank lines and lines starting with # are ignored.
+# The city and state come from --city / --state, not from this file, so the same
+# list can be re-run against a different market.
+#
+# Replace these with the 20 you actually want measured.
+Pack Rat Outdoor Center
+Natural State Aesthetics
+Millennium Chiropractic and Rehab
+Rally House Fayetteville
+Hog Heaven Team Store
+Onyx Coffee Lab
+Fayetteville Athletic Club
+Arsaga's at the Depot
+Blue Moose Burgers
+Mama Carmen's Espresso Cafe
+Fossil Cove Brewing Company
+Ozark Beer Company
+Tacos 4 Life
+Slim Chickens
+Herman's Ribhouse
+Hugo's
+Damgoode Pies
+Wright's Barbecue
+Trailside Cyclery
+Lewis Automotive Group
