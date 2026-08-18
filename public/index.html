@@ -16453,7 +16453,7 @@ function hqCopyAndOpen(id, handle) {
     if (handle) window.open(hqIgLink(handle), '_blank', 'noopener');
   };
   // Save the edit first, so "copy" and "what is stored" can never disagree.
-  fetch('/api/agent/outreach-queue/' + id, {
+  fetch(API_BASE + '/api/agent/outreach-queue/' + id, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dmText: text }),
   }).catch(function () {});
@@ -16462,7 +16462,7 @@ function hqCopyAndOpen(id, handle) {
 }
 
 function hqMark(id, what, via) {
-  fetch('/api/agent/outreach-queue/' + id + '/' + (what === 'skip' ? 'skip' : 'sent'), {
+  fetch(API_BASE + '/api/agent/outreach-queue/' + id + '/' + (what === 'skip' ? 'skip' : 'sent'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ via: via || 'call' }),
   }).then(function (r) { return r.json(); }).then(function () {
@@ -16473,7 +16473,7 @@ function hqMark(id, what, via) {
 }
 
 function hqOutcome(id, outcome) {
-  fetch('/api/agent/outreach-queue/' + id + '/outcome', {
+  fetch(API_BASE + '/api/agent/outreach-queue/' + id + '/outcome', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ outcome: outcome }),
   }).then(function () { loadOutreachQueue(); }).catch(function () {});
@@ -16503,54 +16503,91 @@ function hqFillUi() {
 }
 
 function hqFillNow() {
+  // NOTHING HERE MAY FAIL QUIETLY. A click that produces no console line, no
+  // network entry and no on-screen change is undebuggable from a bug report, and
+  // that is exactly what the first version did when the select had no value: it
+  // hit `if (!sel.value) return` and vanished.
+  console.log('[queue/fill] clicked');
   var sel = document.getElementById('hq-fill-ath');
   var btn = document.getElementById('hq-fill-btn');
-  var out = document.getElementById('hq-fill-status');
-  if (!sel || !sel.value) return;
+  if (!sel) { console.error('[queue/fill] picker #hq-fill-ath missing'); hqFillSay('Picker missing — reload the page.'); return; }
+  if (!sel.value) { console.warn('[queue/fill] no athlete selected'); hqFillSay('Pick an athlete first.'); return; }
+  console.log('[queue/fill] athleteId=' + sel.value);
   // Disabled for the whole run: three deep ladders is 45s to 2min, and a second
   // click would start a second budget against the same slots.
   if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; btn.textContent = 'Filling…'; }
-  if (out) out.textContent = 'Starting…';
-  fetch('/api/agent/outreach-queue/fill', {
+  hqFillSay('Starting…');
+  fetch(API_BASE + '/api/agent/outreach-queue/fill', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     credentials: 'include', body: JSON.stringify({ athleteId: sel.value }),
-  }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-    .then(function (x) {
-      if (!x.ok) { hqFillDone(x.d.error || 'Failed'); return; }
-      hqFillPoll(x.d.runId);
-    }).catch(function (e) { hqFillDone(e.message); });
+  }).then(function (r) {
+    console.log('[queue/fill] POST status ' + r.status);
+    // A 404 or a proxy error returns HTML, and r.json() then throws
+    // "Unexpected token <", which tells nobody anything. Read the text and
+    // report the STATUS, which is the fact that identifies the problem.
+    return r.text().then(function (t) {
+      var d = null;
+      try { d = JSON.parse(t); } catch (e) { /* not JSON */ }
+      if (!r.ok || !d) {
+        console.error('[queue/fill] HTTP ' + r.status + ' body: ' + t.slice(0, 300));
+        throw new Error('HTTP ' + r.status + (d && d.error ? ' — ' + d.error : ' — see console'));
+      }
+      return d;
+    });
+  }).then(function (d) {
+    console.log('[queue/fill] runId=' + d.runId);
+    hqFillPoll(d.runId);
+  }).catch(function (e) {
+    console.error('[queue/fill] failed', e);
+    hqFillDone(e.message || 'Failed');
+  });
+}
+
+// One place that writes the status line, and it re-queries the node every time.
+// hqFillPoll used to capture the element once; the moment anything re-rendered
+// the section, every later update went to a node no longer in the document --
+// which looks exactly like nothing happening.
+function hqFillSay(msg) {
+  var out = document.getElementById('hq-fill-status');
+  if (out) out.textContent = msg;
+  else console.log('[queue/fill] ' + msg);
 }
 
 // Progress is the point: a deep ladder takes 15-40s a business, so a silent
 // button reads as broken long before it reads as slow.
 function hqFillPoll(runId) {
-  var out = document.getElementById('hq-fill-status');
+  var tries = 0;
   var tick = function () {
-    fetch('/api/agent/outreach-queue/fill/' + runId, { credentials: 'include' })
-      .then(function (r) { return r.json(); })
+    fetch(API_BASE + '/api/agent/outreach-queue/fill/' + runId, { credentials: 'include' })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
       .then(function (d) {
         var last = (d.lines || [])[(d.lines || []).length - 1] || 'Working…';
-        if (out) out.textContent = last;
+        hqFillSay(last);
         if (d.done) {
+          console.log('[queue/fill] done, filled=' + d.filled + ' spent=$' + d.spent);
           hqFillDone(d.error ? 'Failed: ' + d.error : last);
           loadOutreachQueue();          // the new cards land here
           return;
         }
         setTimeout(tick, 1500);
-      }).catch(function () { setTimeout(tick, 3000); });
+      }).catch(function (e) {
+        // A poll that fails forever must not spin in silence.
+        if (++tries > 8) { console.error('[queue/fill] poll gave up', e); hqFillDone('Lost contact with the run — check the server logs.'); return; }
+        console.warn('[queue/fill] poll retry ' + tries + ': ' + e.message);
+        setTimeout(tick, 3000);
+      });
   };
   tick();
 }
 
 function hqFillDone(msg) {
   var btn = document.getElementById('hq-fill-btn');
-  var out = document.getElementById('hq-fill-status');
   if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.textContent = 'Fill queue now'; }
-  if (out) out.textContent = msg || '';
+  hqFillSay(msg || '');
 }
 
 function loadOutreachQueue() {
-  fetch('/api/agent/outreach-queue', { credentials: 'include' })
+  fetch(API_BASE + '/api/agent/outreach-queue', { credentials: 'include' })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (d) { if (d) renderOutreachQueue(d); })
     .catch(function () {});
