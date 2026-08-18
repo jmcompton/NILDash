@@ -91,7 +91,11 @@ Return ONLY a valid JSON object. No markdown code blocks, no explanation.`;
   const contactTitle = contact?.title || 'Brand Partnerships Team';
   // Only greet by name when we have a personal email for that named person.
   // A named contact with only a generic inbox (or no email) must NOT open "Michael,".
-  const contactName = (contact?.name && contact?.email) ? contact.name.split(' ')[0] : null;
+  // salutationName, not split(' ')[0]. For "Dr. Dawn Mercer" the first token is the
+  // HONORIFIC, so the prompt literally instructed the model to write
+  // `Greeting: "Dr.,"` -- and it obeyed. The rule keeps a title with the surname
+  // ("Dr. Mercer") and otherwise uses the first name.
+  const contactName = (contact?.name && contact?.email) ? greetingGuard.salutationName(contact.name) : null;
 
   // ── Email body instruction — v2 vs legacy ─────────────────────
   const emailBodyInstruction = FEATURE_EMAIL_V2
