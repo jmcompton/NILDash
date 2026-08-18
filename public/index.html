@@ -870,8 +870,15 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
 /* ── morning outreach queue ── */
 .hq-wrap{margin-bottom:10px}
-.hq-athlete{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
-  color:#4B5563;margin:14px 2px 8px}
+.hq-tabs{display:flex;gap:6px;overflow-x:auto;margin:2px 0 14px;padding-bottom:2px}
+.hq-tab{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:7px 12px;
+  border-radius:20px;background:#0D1520;border:.5px solid #1e2a3a;color:#9CA3AF;
+  font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;white-space:nowrap}
+.hq-tab:hover{filter:brightness(1.15)}
+.hq-tab.active{background:rgba(132,204,22,0.12);border-color:#84CC16;color:#F0EDE6}
+.hq-tab-count{font-size:10.5px;font-weight:700;color:#6B7280;background:#0a0f16;
+  border-radius:10px;padding:1px 7px;line-height:1.5}
+.hq-tab.active .hq-tab-count{color:#84CC16;background:rgba(132,204,22,0.16)}
 .hq-card{border-radius:8px;background:#0D1520;border:.5px solid #1e2a3a;
   padding:14px 16px;margin-bottom:8px}
 .hq-card.dm{border-left:3px solid #84CC16}
@@ -16412,9 +16419,18 @@ function hqCard(c) {
   return bits.join('');
 }
 
+var _hqLastData = null;          // last fetched payload, so a tab click can re-render with no fetch
+var _hqSelectedAthlete = null;   // persists across re-renders, same pattern as _hqFillAthlete
+
+function hqSelectAthlete(id) {
+  _hqSelectedAthlete = id;
+  renderOutreachQueue(_hqLastData);
+}
+
 function renderOutreachQueue(data) {
   var el = document.getElementById('hm-queue');
   if (!el) return;
+  _hqLastData = data;
   var groups = (data && data.groups) || [];
   var waiting = (data && data.waiting) || [];
   var lastRun = (data && data.lastRun) || null;
@@ -16422,10 +16438,9 @@ function renderOutreachQueue(data) {
 
   // THE FULL ROSTER, not just athletes with a queued row. outreach_queue only
   // ever holds a business that PASSED the bar, so an athlete the nightly run
-  // tried and found nothing for left no row anywhere -- their section was
-  // simply absent, which reads exactly like the page failing to load. Every
-  // roster athlete now gets a line: cards if there are any, otherwise the real
-  // reason from the last run.
+  // tried and found nothing for left no row anywhere -- their tab would have
+  // no trace anywhere otherwise. Every roster athlete gets a tab: cards if
+  // there are any, otherwise the real reason from the last run.
   var roster = athletes || [];
   if (!roster.length && !waiting.length && !hqIsAdmin()) { el.innerHTML = ''; return; }
 
@@ -16434,37 +16449,53 @@ function renderOutreachQueue(data) {
   var detailByAthlete = {};
   lastRunDetails.forEach(function (d) { detailByAthlete[d.athleteId] = d; });
 
+  // The selected tab persists across every re-render -- a poll tick, a
+  // mark-sent refresh, an admin fill completion -- the same way the admin fill
+  // picker's selection survives a re-render. Without this every fetch would
+  // snap back to the first athlete and undo whatever the agent was looking at.
+  if (!_hqSelectedAthlete || !roster.some(function (a) { return a.id === _hqSelectedAthlete; })) {
+    _hqSelectedAthlete = roster.length ? roster[0].id : null;
+  }
+
   var h = ['<div class="hm-card hq-wrap"><div class="hm-col-head">This morning</div>'];
   h.push(hqFillUi());
   if (!roster.length) {
     h.push('<div class="hm-quiet">No athletes on your roster yet.</div>');
-  }
-  roster.forEach(function (a) {
-    h.push('<div class="hq-athlete">' + hqEsc(a.name || a.id) + '</div>');
-    var cards = cardsByAthlete[a.id] || [];
+  } else {
+    h.push('<div class="hq-tabs">' + roster.map(function (a) {
+      var n = (cardsByAthlete[a.id] || []).length;
+      var active = a.id === _hqSelectedAthlete;
+      return '<button type="button" class="hq-tab' + (active ? ' active' : '') + '" '
+        + 'onclick="hqSelectAthlete(\'' + hqEsc(a.id) + '\')">'
+        + hqEsc(a.name || a.id) + '<span class="hq-tab-count">' + n + '</span></button>';
+    }).join('') + '</div>');
+
+    // ONE ATHLETE AT A TIME. cards or the empty state, scoped to whichever tab
+    // is selected -- not repeated once per athlete on the roster.
+    var cards = cardsByAthlete[_hqSelectedAthlete] || [];
     if (cards.length) {
       cards.forEach(function (c) { h.push(hqCard(c)); });
-      return;
+    } else {
+      // NEVER A BLANK SPACE. detail.note is the actual reason from the last
+      // nightly (or button) run; detail.tried is every business it considered
+      // and why each one failed the bar -- printed right here, so "which
+      // businesses and why" is answered on the page, not by asking.
+      var detail = detailByAthlete[_hqSelectedAthlete];
+      var note = detail && detail.note
+        ? detail.note.charAt(0).toUpperCase() + detail.note.slice(1) + '.'
+        : (lastRun
+          ? 'Nothing queued in the ' + hqEsc(lastRun.date) + ' run.'
+          : 'Nothing queued yet. Tonight\'s run will try to fill these three slots.');
+      h.push('<div class="hq-card call"><div class="hq-why" style="margin:0">' + note + '</div>');
+      if (detail && detail.tried && detail.tried.length) {
+        h.push('<div class="hq-log" style="margin-top:8px">' + detail.tried.map(function (t) {
+          return '<div class="hq-logline">' + hqEsc(t.brand)
+            + (t.reason ? ' — ' + hqEsc(t.reason) : ' — queued') + '</div>';
+        }).join('') + '</div>');
+      }
+      h.push('</div>');
     }
-    // NEVER A BLANK SPACE UNDER A NAME. detail.note is the actual reason from
-    // the last nightly (or button) run; detail.tried is every business it
-    // considered and why each one failed the bar -- printed right here, so
-    // "which businesses and why" is answered on the page, not by asking.
-    var detail = detailByAthlete[a.id];
-    var note = detail && detail.note
-      ? detail.note.charAt(0).toUpperCase() + detail.note.slice(1) + '.'
-      : (lastRun
-        ? 'Nothing queued in the ' + hqEsc(lastRun.date) + ' run.'
-        : 'Nothing queued yet. Tonight\'s run will try to fill these three slots.');
-    h.push('<div class="hq-card call"><div class="hq-why" style="margin:0">' + note + '</div>');
-    if (detail && detail.tried && detail.tried.length) {
-      h.push('<div class="hq-log" style="margin-top:8px">' + detail.tried.map(function (t) {
-        return '<div class="hq-logline">' + hqEsc(t.brand)
-          + (t.reason ? ' — ' + hqEsc(t.reason) : ' — queued') + '</div>';
-      }).join('') + '</div>');
-    }
-    h.push('</div>');
-  });
+  }
 
   if (waiting.length) {
     h.push('<div class="hq-waiting"><div class="hm-col-head" style="margin-bottom:8px">Waiting on you</div>');
