@@ -11,6 +11,7 @@
 'use strict';
 
 const { oneShot, FEATURE_EMAIL_V2 } = require('../ai');
+const greetingGuard = require('./greetingGuard');
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -206,6 +207,18 @@ function parsePitch(raw, athleteData, enrichment, contact, dealScanData) {
   try {
     const clean = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const parsed = JSON.parse(clean);
+    // THE GREETING IS ENFORCED, NOT REQUESTED. The prompt already sets the greeting
+    // to "Hi," when there is no verified contact, but full_email_body used to be
+    // taken verbatim -- which is how an email opened "Dawn," for a business whose
+    // contact panel said no named contact was found. A name nobody discovered is
+    // the worst thing this product can put in front of a real local business.
+    const greetable = greetingGuard.greetableContacts([contact]);
+    const body = strNull(parsed.full_email_body) || '';
+    const g = greetingGuard.enforceGreeting(body, greetable);
+    if (g.changed) {
+      console.warn(`[pitchGeneration] brand="${enrichment.brand_name}" model greeted "${g.removedName}", `
+        + `who is not a verified contact. Greeting replaced with "Hi,".`);
+    }
     return {
       subject_line:          strNull(parsed.subject_line) || `NIL Partnership — ${athleteData.name} × ${enrichment.brand_name}`,
       personalized_intro:    strNull(parsed.personalized_intro) || '',
@@ -216,7 +229,7 @@ function parsePitch(raw, athleteData, enrichment, contact, dealScanData) {
       partnership_structure: strNull(parsed.partnership_structure) || '',
       roi_messaging:         strNull(parsed.roi_messaging) || '',
       cta:                   strNull(parsed.cta) || 'Would you be open to a brief call this week?',
-      full_email_body:       strNull(parsed.full_email_body) || '',
+      full_email_body:       g.body,
       deck_talking_points:   Array.isArray(parsed.deck_talking_points) ? parsed.deck_talking_points.slice(0, 5) : [],
     };
   } catch (e) {

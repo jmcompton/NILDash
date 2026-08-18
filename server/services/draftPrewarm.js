@@ -33,6 +33,7 @@
 const crypto = require('crypto');
 const { pool } = require('../store');
 const ai = require('../ai');
+const greetingGuard = require('./greetingGuard');
 
 // Three at a time. This runs in the background off a scan the agent is already
 // looking at, so there is no reason to hammer the same rate limiter the scan uses.
@@ -170,6 +171,12 @@ function checkDraft(text, card) {
   if (brand && !lower.includes(brand.toLowerCase().split(/\s+/)[0])) {
     return { ok: false, why: 'never names the business' };
   }
+  // A NAME NOBODY DISCOVERED. The prompt says "Do NOT invent a name" in capitals
+  // and this is the enforcement of it. Pre-warming runs BEFORE any contact is
+  // known, so there is never a verified name to greet at this point -- any
+  // addressee at all is invented, by definition.
+  const who = greetingGuard.addresseeOf(String(body).split('\n')[0]);
+  if (who) return { ok: false, why: `greets "${who}", who has not been discovered` };
   // Four sentences was the instruction. Ten means it ignored the shape.
   const sentences = body.replace(/^hi,?\s*/i, '').split(/[.!?]+\s/).filter((s) => s.trim().length > 12);
   if (sentences.length > 7) return { ok: false, why: `${sentences.length} sentences, asked for 3-4` };

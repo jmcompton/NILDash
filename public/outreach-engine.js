@@ -22,6 +22,9 @@ const OutreachEngineState = {
   currentRunData: null,
   currentDealResult: null,
   athleteId:      null,
+  // Resolved once per athlete by athleteDisplayName, so the Instagram DM never has
+  // to reverse-engineer a name out of the subject line.
+  athleteName:    null,
   // Which draft is on screen. connectGmail needs it to save the edits before it
   // navigates away, and sendOutreach already had it only as a closure argument.
   currentOutreachId: null,
@@ -79,6 +82,7 @@ async function generateOutreach(athleteId, dealResultJson) {
   }
 
   OutreachEngineState.currentDealResult = dealResult;
+  if (OutreachEngineState.athleteId !== athleteId) OutreachEngineState.athleteName = null;
   OutreachEngineState.athleteId = athleteId;
   OutreachEngineState.currentOutreachId = null;
   showOutreachModal();
@@ -385,6 +389,37 @@ function startPolling(runId) {
       console.error('[outreachEngine] Poll error:', e.message);
     }
   }, 3000);
+}
+
+// The athlete's name, for the Instagram DM.
+//
+// This used to be REVERSE-ENGINEERED out of the email subject by splitting on
+// " x ", which works only while the subject happens to read "Amari Allen x Iron
+// Tribe". The moment a subject has no " x " in it -- as the placeholder
+// renderFromCard writes does not -- the split returns the WHOLE subject, and the
+// DM introduced the athlete as "NIL Partnership — Millennium Chiropractic and
+// Rehab". A name should be read, not parsed back out of a sentence that contains
+// it, so this asks the app for it and only falls back to the subject when the
+// subject genuinely has the two-part shape.
+function athleteDisplayName(subject) {
+  const state = OutreachEngineState;
+  if (state.athleteName) return state.athleteName;
+  // The SPA owns the roster; the engine is loaded into it.
+  try {
+    const id = state.athleteId;
+    const list = (typeof window !== 'undefined' && window.athletes) || (typeof athletes !== 'undefined' ? athletes : null);
+    if (id && Array.isArray(list)) {
+      const a = list.find((x) => x && String(x.id) === String(id));
+      if (a && a.name) { state.athleteName = a.name; return a.name; }
+    }
+  } catch (_) { /* not running inside the SPA */ }
+  const s = String(subject || '');
+  // Only when the subject really is "<athlete> x <brand>". Never the whole string.
+  if (/\s+[x×]\s+/.test(s)) {
+    const left = s.split(/\s+[x×]\s+/)[0].trim();
+    if (left && left.length <= 60) return left;
+  }
+  return 'my athlete';
 }
 
 // The workflow finished behind a modal that has been usable the whole time. Put
@@ -779,7 +814,7 @@ function renderRunResult(data) {
       const copyBtn = document.getElementById('outreach-ig-copy');
       const statusEl = document.getElementById('outreach-ig-status');
       if (!ta || !openLink) return;
-      const athleteName = ((currentSubject || '').split(/\s+[x×]\s+/)[0] || '').trim() || 'my athlete';
+      const athleteName = athleteDisplayName(currentSubject);
       const idea = (campaignIdeas && campaignIdeas[0]) ? (typeof campaignIdeas[0] === 'string' ? campaignIdeas[0] : (campaignIdeas[0].description || '')) : '';
       ta.value = `Hi! I work on the NIL side with ${athleteName}, a college athlete here in your area. I had an idea for a quick partnership with ${brand}${idea ? ' — ' + String(idea).charAt(0).toLowerCase() + String(idea).slice(1) : ''}. Would love to share a short overview if you're open to it!`;
       // Fallback link: Instagram/Google search for the business. Swapped for a
