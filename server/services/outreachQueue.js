@@ -51,13 +51,45 @@ function namedRows(ladder) {
 
 // Can we name someone AND reach them? The two halves are separate: a name with no
 // channel is research, not a card, and a channel with no name is a cold inbox.
+// A REASON, NOT A COUNT. "no named person" tells an agent nothing about whether
+// the business is a dead end or simply has an owner who is not published
+// anywhere. Every rejection says what the lookup DID come back with, because
+// that is the difference between "try a different business" and "this ledger is
+// stale".
+function _whatWeGot(ladder, ig) {
+  const bits = [];
+  const t3 = ((ladder && ladder.tiers) || []).find((t) => t.tier === 3);
+  const has = (title) => (t3 && (t3.rows || []).some((r) => new RegExp(title, 'i').test(r.title || '')));
+  if (ladder && ladder.mainLine && ladder.mainLine.phone) bits.push('a main line');
+  if (has('general inbox')) bits.push('a general inbox');
+  if (has('named mailbox')) bits.push('a named mailbox');
+  if (ig && ig.instagram) bits.push('an Instagram handle (' + ig.instagramScope + ')');
+  const unreachable = (ladder && ladder.unreachable) || [];
+  if (unreachable.length) bits.push('names with no way through (' + unreachable.join(', ') + ')');
+  return bits;
+}
+
 function passesBar(ladder, ig) {
   const rows = namedRows(ladder);
-  if (!rows.length) return { ok: false, reason: 'no named person' };
+  const got = _whatWeGot(ladder, ig);
+  if (!rows.length) {
+    return {
+      ok: false,
+      reason: got.length
+        ? 'no named decision maker — found ' + got.join(', ')
+        : 'nothing found at all: no name, no phone, no inbox, no handle',
+    };
+  }
   const handle = ig && ig.instagram ? ig.instagram : null;
   const phone = (ladder && ladder.mainLine && ladder.mainLine.phone)
     || rows.map((r) => r.phone).find(Boolean) || null;
-  if (!handle && !phone) return { ok: false, reason: 'named person but no channel, unreachable' };
+  if (!handle && !phone) {
+    return {
+      ok: false,
+      reason: 'found ' + rows.map((r) => r.name).join(', ') + ' but no way to reach '
+        + (rows.length > 1 ? 'them' : 'them') + ' — no phone, no handle',
+    };
+  }
   return { ok: true, reason: null };
 }
 
@@ -168,7 +200,7 @@ function waitingOnYou(rows, nowMs) {
 }
 
 module.exports = {
-  passesBar, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
+  passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
   waitingOnYou, writeDm, askFirstName, namedRows,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,
   WAITING_AFTER_DAYS, OUTCOMES,

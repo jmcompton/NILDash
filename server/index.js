@@ -8396,7 +8396,19 @@ app.get('/api/agent/outreach-queue', requireAuth, async (req, res) => {
       (byAthlete[k] = byAthlete[k] || { athleteId: k, athleteName: q.athlete_name, cards: [] }).cards.push(q);
     }
     const groups = Object.values(byAthlete).map((g) => ({ ...g, cards: OQ.sortCards(g.cards) }));
-    res.json({ groups, waiting: OQ.waitingOnYou(rows), outcomes: OQ.OUTCOMES });
+
+    // THE MOST RECENT NIGHT'S PER-ATHLETE OUTCOME, so an athlete with no cards is
+    // never just blank. outreach_queue only ever holds a row for a business that
+    // PASSED the bar; an athlete the job tried and found nothing for leaves no
+    // row there at all, so without this the page has nothing to say for them.
+    const lastRunRow = await store.pool.query(
+      `SELECT run_date, details FROM outreach_queue_runs
+        WHERE agent_id = $1 ORDER BY run_date DESC LIMIT 1`, [agentId]).catch(() => ({ rows: [] }));
+    const lastRun = lastRunRow.rows[0]
+      ? { date: lastRunRow.rows[0].run_date, details: lastRunRow.rows[0].details || [] }
+      : null;
+
+    res.json({ groups, waiting: OQ.waitingOnYou(rows), outcomes: OQ.OUTCOMES, lastRun });
   } catch (e) {
     console.error('[outreach-queue]', e.message);
     res.status(500).json({ error: e.message });
@@ -8430,8 +8442,9 @@ app.post('/api/agent/outreach-queue/fill', requireAuth, async (req, res) => {
     const athleteId = String(req.body.athleteId || '');
     if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
     const a = await store.pool.query(
-      `SELECT id, agent_id, data->>'name' AS name, data->>'school' AS school FROM athletes WHERE id = $1`,
-      [athleteId]);
+      `SELECT id, agent_id, data->>'name' AS name, data->>'school' AS school,
+              data->>'hometown' AS hometown
+         FROM athletes WHERE id = $1`, [athleteId]);
     const ath = a.rows[0];
     if (!ath) return res.status(404).json({ error: 'Athlete not found' });
 
@@ -8449,7 +8462,9 @@ app.post('/api/agent/outreach-queue/fill', requireAuth, async (req, res) => {
     setImmediate(() => {
       job.fillAthlete(store.pool, {
         agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
-        budget, region: ath.school || '',
+        // The athlete's MARKET, not their school's name. Sending "University of
+        // Arkansas" as a location hint is why lookups resolved badly.
+        budget, region: job.regionForAthlete(ath),
         onProgress: (m) => { run.lines.push(m); console.log('[queue/fill] ' + m); },
       }).then((r) => {
         run.filled = r.filled; run.spent = budget.spent(); run.done = true;

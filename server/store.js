@@ -683,11 +683,19 @@ async function init() {
       filled INT DEFAULT 0,
       spent_usd NUMERIC(10,4) DEFAULT 0,
       note TEXT,
+      -- Per-athlete outcome for this run: [{athleteId, athleteName, filled, open,
+      -- note}]. Without this, an athlete the job found zero candidates for left
+      -- no row anywhere -- not in outreach_queue, not explained here -- so the
+      -- page could not say why that athlete's section is empty. It could only
+      -- be silent, which reads exactly like the page not having loaded.
+      details JSONB DEFAULT '[]'::jsonb,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       PRIMARY KEY (agent_id, run_date)
     )
-  `).then(() => console.log('[init] outreach_queue_runs table ready'))
-    .catch(e => console.error('[init] outreach_queue_runs:', e.message));
+  `).then(async () => {
+    await pool.query(`ALTER TABLE outreach_queue_runs ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '[]'::jsonb`).catch(() => {});
+    console.log('[init] outreach_queue_runs table ready');
+  }).catch(e => console.error('[init] outreach_queue_runs:', e.message));
 
   // ── Weekly digest sends ───────────────────────────────────────────────────
   // The double-send guard. Recurring work in this app runs on in-process

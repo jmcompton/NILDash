@@ -74,6 +74,26 @@ async function candidatesFor(pool, athleteId, limit) {
   return r.rows;
 }
 
+// WHERE THIS ATHLETE'S LOCAL MARKET IS.
+//
+// This was the expensive bug. fillAgent passed `opts.region`, which run() never
+// set, so every nightly lookup got an EMPTY location hint -- Places resolved on
+// the brand name alone and could return a same-name business in another state,
+// and the source prompts searched with no city in them. The admin button was no
+// better: it passed the SCHOOL NAME ("University of Arkansas"), which is not a
+// place a business directory understands.
+//
+// Hometown first, because that is the market the athlete actually sells into,
+// then the school's real city and state. Never the school's name.
+function regionForAthlete(athlete) {
+  const d = (athlete && athlete.data) || athlete || {};
+  const home = String(d.hometown || '').trim();
+  if (home) return home;
+  const loc = ai.lookupSchoolLocation(String(d.school || '').trim());
+  if (loc && loc.city) return loc.city + (loc.state ? ', ' + loc.state : '');
+  return '';
+}
+
 // The rationale the scan already wrote, which is the same sentence that justifies
 // the message. No extra model call.
 async function rationaleFor(pool, agentId, athleteId, brandName) {
@@ -94,17 +114,25 @@ async function fillAthlete(pool, ctx) {
   const { agentId, athleteId, athleteName, budget, region } = ctx;
   const say = ctx.onProgress || (() => {});
   const dry = !!ctx.dryRun;
+  // Every business actually tried, with the real reason it was or was not
+  // queued. This is the answer to "which businesses and why" -- built once,
+  // here, rather than reconstructed later from a log line nobody kept.
+  const tried = [];
 
   const open = Q.slotsToFill((await pool.query(
     `SELECT slot, state FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
     [athleteId])).rows);
-  if (!open.length) { say(`${athleteName}: all three slots already full`); return { filled: 0, open: 0 }; }
+  if (!open.length) {
+    say(`${athleteName}: all three slots already full`);
+    return { filled: 0, open: 0, tried, note: 'all three slots already full' };
+  }
   say(`${athleteName}: ${open.length} slot${open.length > 1 ? 's' : ''} to fill`);
 
   const cands = await candidatesFor(pool, athleteId, open.length * Q.MAX_ATTEMPTS_PER_SLOT);
   if (!cands.length) {
-    say(`${athleteName}: no un-contacted businesses on their scan. Run a Deal Scan first.`);
-    return { filled: 0, open: open.length };
+    const note = 'no un-contacted businesses on their scan — run a Deal Scan first';
+    say(`${athleteName}: ${note}.`);
+    return { filled: 0, open: open.length, tried, note };
   }
   let ci = 0, filled = 0;
 
@@ -117,7 +145,7 @@ async function fillAthlete(pool, ctx) {
       if (!budget.canSpend(LOOKUP_CEILING_USD)) {
         const why = Q.slotSkipReason(budget, LOOKUP_CEILING_USD);
         say(`slot ${slot} ${why}`);
-        return { filled, open: open.length, cappedOut: true };
+        return { filled, open: open.length, cappedOut: true, tried, note: why };
       }
       say(`looking up ${cand.brand_name}…`);
       let out = null;
@@ -126,6 +154,7 @@ async function fillAthlete(pool, ctx) {
           region || '', ai.deepContactCtx({ market: null }));
       } catch (e) {
         say(`${cand.brand_name}: lookup failed (${e.message})`);
+        tried.push({ brand: cand.brand_name, result: 'error', reason: e.message });
         continue;
       }
       if (!out.cached) budget.spend(LOOKUP_CEILING_USD);
@@ -136,7 +165,12 @@ async function fillAthlete(pool, ctx) {
       });
       const ig = { instagram: out.instagram || null, instagramScope: out.instagramScope || null };
       const bar = Q.passesBar(ladder, ig);
-      if (!bar.ok) { say(`${cand.brand_name}: skipped, ${bar.reason}`); continue; }
+      if (!bar.ok) {
+        say(`${cand.brand_name}: skipped, ${bar.reason}`);
+        tried.push({ brand: cand.brand_name, result: 'rejected', reason: bar.reason });
+        continue;
+      }
+      tried.push({ brand: cand.brand_name, result: 'queued', reason: null });
 
       const card = Q.buildCard({
         brandKey: cand.brand_key, brand: cand.brand_name,
@@ -164,7 +198,11 @@ async function fillAthlete(pool, ctx) {
     }
     if (!placed) say(`slot ${slot}: nothing passed the bar in ${Q.MAX_ATTEMPTS_PER_SLOT} attempts`);
   }
-  return { filled, open: open.length };
+  const note = filled > 0 ? null
+    : tried.length
+      ? `${tried.length} business${tried.length > 1 ? 'es' : ''} tried, none passed the bar`
+      : 'no candidates were tried';
+  return { filled, open: open.length, tried, note };
 }
 
 async function fillAgent(pool, agent, opts) {
@@ -176,27 +214,40 @@ async function fillAgent(pool, agent, opts) {
   }
   const budget = Q.newBudget(CAP_USD);
   const athletes = (await pool.query(
-    `SELECT id, data->>'name' AS name FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`,
+    `SELECT id, data->>'name' AS name, data->>'hometown' AS hometown, data->>'school' AS school
+       FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`,
     [agent.id])).rows;
   let filled = 0;
+  // ONE ROW PER ATHLETE, even the ones that got nothing. Without this an athlete
+  // the job found zero candidates for left no trace anywhere -- not a queued
+  // card, not a reason -- so the page had nothing to show but blank space, which
+  // reads exactly like the page failing to load rather than like an honest answer.
+  const details = [];
 
   for (const ath of athletes) {
     const r = await fillAthlete(pool, {
       agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
-      budget, region: opts.region, dryRun: dry,
+      // Resolved per athlete. Passing opts.region here meant passing undefined.
+      budget, region: regionForAthlete(ath), dryRun: dry,
       onProgress: (m) => console.log('[queue] ' + m),
     });
     filled += r.filled;
+    details.push({
+      athleteId: ath.id, athleteName: ath.name, filled: r.filled, open: r.open,
+      note: r.note || null, tried: r.tried || [],
+    });
     if (r.cappedOut) break;   // the cap is per agent, so one athlete exhausting it stops the rest
   }
 
   if (!dry) {
     await pool.query(
-      `UPDATE outreach_queue_runs SET filled = $3, spent_usd = $4 WHERE agent_id = $1 AND run_date = $2`,
-      [agent.id, runDate, filled, budget.spent()]).catch(() => {});
+      `UPDATE outreach_queue_runs SET filled = $3, spent_usd = $4, details = $5
+        WHERE agent_id = $1 AND run_date = $2`,
+      [agent.id, runDate, filled, budget.spent(), JSON.stringify(details)]).catch((e) =>
+        console.error('[queue] failed to persist run details:', e.message));
   }
   console.log(`[queue] agent=${agent.id} filled=${filled} spent=$${budget.spent().toFixed(2)} of $${CAP_USD.toFixed(2)}`);
-  return { filled, spent: budget.spent(), claimed: true };
+  return { filled, spent: budget.spent(), claimed: true, details };
 }
 
 async function run(opts = {}) {
@@ -224,7 +275,7 @@ async function status(pool) {
   return r.rows;
 }
 
-module.exports = { run, fillAgent, fillAthlete, claimNight, candidatesFor, ENABLED, CAP_USD, LOOKUP_CEILING_USD };
+module.exports = { run, fillAgent, fillAthlete, regionForAthlete, claimNight, candidatesFor, ENABLED, CAP_USD, LOOKUP_CEILING_USD };
 
 if (require.main === module) {
   const argv = process.argv.slice(2);
