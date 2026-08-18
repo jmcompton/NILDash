@@ -7580,6 +7580,17 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
         lane: validLane,
       }).catch((e) => console.error('[prewarm] batch failed:', e.message));
     } catch (e) { console.error('[prewarm] could not start:', e.message); }
+
+    // ── Pre-warm the contact ladder for the top cards ────────────────────────
+    // Also after res.json, for the same reason. The ladder is the only step that
+    // produces a decision maker and the slowest thing on the AI Outreach path, so
+    // it must not be something the agent waits on. This warms the same cache key
+    // the click reads, which turns a ~30s deep lookup into a cache hit.
+    try {
+      const _ladders = require('./services/ladderPrewarm');
+      _ladders.prewarmLadders({ cards: recommendations })
+        .catch((e) => console.error('[ladder-prewarm] batch failed:', e.message));
+    } catch (e) { console.error('[ladder-prewarm] could not start:', e.message); }
   } catch (e) { console.error('[agent/deal-scan]', e.message); res.status(500).json({ error: e.message }); }
 });
 
