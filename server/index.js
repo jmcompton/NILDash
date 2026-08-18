@@ -270,6 +270,11 @@ const mkImageJson = express.json({ limit: '12mb' });
 app.use('/api/agent/athlete-media-kit', mkImageJson);
 app.use('/api/athlete/media-kit/save', mkImageJson);
 
+// ── Resend inbound reply webhook — raw body MUST come before express.json() ──
+// Same reason as the Stripe webhook above: signature verification needs the
+// exact bytes Resend signed, which JSON parsing does not preserve.
+app.use('/api/webhooks/resend-inbound', express.raw({ type: 'application/json' }), require('./routes/resendInbound'));
+
 app.use(express.json({ limit: '50kb' }));
 
 // ── Referral first-touch capture ─────────────────────────────────────────────

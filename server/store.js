@@ -1261,6 +1261,19 @@ async function init() {
   ).catch((e) => console.error('[init] outreach draft key index:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_brand_key ON outreach_logs(brand_key)`).catch(() => {});
 
+  // ── Reply capture (Resend Inbound) ────────────────────────────────────────
+  // Set on EVERY inbound event the webhook sees for this row, including bounces
+  // and auto-replies -- the diagnostic trail for "did the webhook even fire" is
+  // worth keeping regardless of classification. reply_text/html/from/subject are
+  // only populated for a genuine reply (never for a bounce or auto-reply), which
+  // is also what markReplied gates on.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS reply_text TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS reply_html TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS reply_from TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS reply_subject TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS last_inbound_kind TEXT`).catch(() => {});
+
   // ── Assistant ──────────────────────────────────────────────────────────────
   // Session state, transcript, and pending confirmations. Deliberately its own
   // tables: the assistant writes NOTHING to athletes, deals or outreach_logs, so

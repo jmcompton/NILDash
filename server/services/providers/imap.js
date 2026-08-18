@@ -150,7 +150,7 @@ async function fetchMessages(emailAddress, password, imapConfig, cursor, maxResu
 /**
  * Send via SMTP (Nodemailer).
  */
-async function sendEmail(emailAddress, password, smtpConfig, { to, cc, subject, bodyHtml, threadId }) {
+async function sendEmail(emailAddress, password, smtpConfig, { to, cc, subject, bodyHtml, threadId, replyTo }) {
   if (!nodemailer) throw new Error('nodemailer not installed');
 
   const preset = getPreset(emailAddress);
@@ -174,6 +174,7 @@ async function sendEmail(emailAddress, password, smtpConfig, { to, cc, subject, 
     cc: Array.isArray(cc) ? cc.join(', ') : cc,
     subject: subject || '',
     html: bodyHtml || '',
+    ...(replyTo ? { replyTo } : {}),
   });
 
   return { providerMessageId: info.messageId, providerThreadId: null };

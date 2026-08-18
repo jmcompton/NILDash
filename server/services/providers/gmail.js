@@ -143,7 +143,7 @@ async function fetchMessages(accessToken, refreshToken, cursor, maxResults = 50)
  * Send an email via Gmail API.
  * attachments: [{ filename, mimeType, data }] where data is base64-encoded string
  */
-async function sendEmail(accessToken, refreshToken, { to, cc, subject, bodyHtml, threadId, attachments }) {
+async function sendEmail(accessToken, refreshToken, { to, cc, subject, bodyHtml, threadId, attachments, replyTo }) {
   const client = createOAuth2Client();
   client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
   const gmail = google.gmail({ version: 'v1', auth: client });
@@ -151,7 +151,7 @@ async function sendEmail(accessToken, refreshToken, { to, cc, subject, bodyHtml,
   // Do NOT call gmail.users.getProfile here — it requires gmail.readonly/modify,
   // which we no longer request. On messages.send with userId:'me', Gmail sets the
   // From header to the authenticated account automatically, so we omit it.
-  const mime = buildMimeMessage({ to, cc, subject, bodyHtml, threadId, attachments: attachments || [] });
+  const mime = buildMimeMessage({ to, cc, subject, bodyHtml, threadId, attachments: attachments || [], replyTo });
   const encoded = Buffer.from(mime).toString('base64url');
 
   const res = await gmail.users.messages.send({
@@ -233,11 +233,12 @@ function encodeHeaderValue(value) {
   return s;
 }
 
-function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachments }) {
+function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachments, replyTo }) {
   const toStr = Array.isArray(to) ? to.join(', ') : (to || '');
   const ccStr = cc && cc.length ? `Cc: ${Array.isArray(cc) ? cc.join(', ') : cc}` : '';
   // From is optional — Gmail sets it to the authenticated account on send.
   const fromLines = from ? [`From: ${from}`] : [];
+  const replyToLines = replyTo ? [`Reply-To: ${replyTo}`] : [];
 
   if (!attachments || attachments.length === 0) {
     // Simple email — multipart/alternative (existing behaviour)
@@ -246,6 +247,7 @@ function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachmen
       ...fromLines,
       `To: ${toStr}`,
       ...(ccStr ? [ccStr] : []),
+      ...replyToLines,
       `Subject: ${encodeHeaderValue(subject)}`,
       'MIME-Version: 1.0',
       `Content-Type: multipart/alternative; boundary="${boundary}"`,
@@ -266,6 +268,7 @@ function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachmen
     ...fromLines,
     `To: ${toStr}`,
     ...(ccStr ? [ccStr] : []),
+    ...replyToLines,
     `Subject: ${encodeHeaderValue(subject)}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${outerB}"`,

@@ -18,6 +18,7 @@ const matchSvc     = require('../services/athleteBrandMatch');
 const pitchSvc     = require('../services/pitchGeneration');
 const deckSvc      = require('../services/deckGeneration');
 const followUpSvc  = require('../services/followUpAutomation');
+const replyCapture = require('../services/replyCapture');
 const path         = require('path');
 const fs           = require('fs');
 
@@ -533,22 +534,28 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
     }
   }
 
+  // Reply-To routes the business's answer to us, not into the agent's own
+  // mailbox, regardless of which provider actually sent this -- that's what lets
+  // one webhook cover Gmail, Outlook and IMAP sends alike. null when reply
+  // capture is off, so this is a no-op until the DNS/webhook side is verified.
+  const replyTo = replyCapture.replyToAddressFor(log.id);
+
   let result;
   if (account.provider === 'gmail') {
     const gmail = require('../services/providers/gmail');
     result = await gmail.sendEmail(accessToken, refreshToken, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments,
+      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments, replyTo,
     });
   } else if (account.provider === 'outlook' || account.provider === 'microsoft365') {
     const outlook = require('../services/providers/outlook');
     result = await outlook.sendEmail(accessToken, refreshToken, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments,
+      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments, replyTo,
     });
   } else {
     const imapProvider = require('../services/providers/imap');
     const imapConfig = refreshToken ? JSON.parse(refreshToken) : {};
     result = await imapProvider.sendEmail(account.email_address, accessToken, imapConfig, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html,
+      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, replyTo,
     });
   }
   return result;

@@ -99,7 +99,7 @@ async function fetchMessages(accessToken, _refreshToken, cursor, maxResults = 50
   return { messages: normalized, nextCursor };
 }
 
-async function sendEmail(accessToken, _refreshToken, { to, cc, subject, bodyHtml, threadId, attachments }) {
+async function sendEmail(accessToken, _refreshToken, { to, cc, subject, bodyHtml, threadId, attachments, replyTo }) {
   if (!MicrosoftGraph) throw new Error('@microsoft/microsoft-graph-client not installed');
   const client = getGraphClient(accessToken);
 
@@ -108,6 +108,7 @@ async function sendEmail(accessToken, _refreshToken, { to, cc, subject, bodyHtml
     body: { contentType: 'HTML', content: bodyHtml || '' },
     toRecipients: toAddressList(to),
     ccRecipients: toAddressList(cc),
+    ...(replyTo ? { replyTo: [{ emailAddress: { address: replyTo } }] } : {}),
   };
 
   // Attach PDF if provided (Graph API inline attachment format)
