@@ -22,6 +22,9 @@
 //   --json            emit the rows as JSON instead of a table
 //   --in-tok <n>      input tokens assumed per web search, for the cost model
 //                     (default 6000 -- see COST below)
+//   --carrier <name>  classify each number as mobile / landline / voip.
+//                     Only 'numverify' today; needs NUMVERIFY_API_KEY. OFF by
+//                     default, so a run never spends on this by accident.
 //
 // COST. Measured where it can be, estimated where it cannot, and the two are
 // never added up silently:
@@ -91,7 +94,7 @@ function hasDirectChannel(row) {
 
 // One measured business. `res` is the getBrandContacts return, `ladder` the
 // buildContactLadder return, `meta` the metered facts about the call itself.
-function classify(brand, res, ladder, meta) {
+function classify(brand, res, ladder, meta, lineTypes) {
   const r = res || {};
   const rows = namedRows(ladder);
   const top = rows.length ? rows[0] : null;
@@ -113,6 +116,23 @@ function classify(brand, res, ladder, meta) {
 
   const phone = !!(ladder && ladder.mainLine) || rows.some((x) => x.phone);
   const direct = rows.filter(hasDirectChannel);
+
+  // WHAT KIND OF NUMBER. The ladder already decided this and it costs nothing:
+  // phoneKind 'direct' is set only when a contact's own digits differ from the
+  // business main line. A named person handed the shared number is "ask for
+  // Bryan", not a direct line, and must not be counted as one.
+  const directRow = rows.find((x) => x.phoneKind === 'direct' && x.phone) || null;
+  const mainLinePhone = (ladder && ladder.mainLine && ladder.mainLine.phone) || null;
+  const directPhone = directRow ? directRow.phone : null;
+  const phoneKind = directPhone ? 'direct' : (mainLinePhone ? 'mainline' : null);
+
+  // WHETHER IT IS TEXTABLE. Only known when a carrier lookup ran; null means not
+  // looked up, which is deliberately different from 'landline'.
+  const L = lineTypes || {};
+  const typeOf = (p) => (p && Object.prototype.hasOwnProperty.call(L, p) ? L[p] : null);
+  const directLineType = typeOf(directPhone);
+  const mainLineType = typeOf(mainLinePhone);
+  const mobile = directLineType === 'mobile' || mainLineType === 'mobile';
 
   // Which of the seven sources produced each person, named individually rather
   // than lumped together, so a source that never yields anybody is visible.
@@ -138,7 +158,20 @@ function classify(brand, res, ladder, meta) {
     genericInbox,
     instagram: r.instagram || null,
     phone,
-    mainLine: (ladder && ladder.mainLine && ladder.mainLine.phone) || null,
+    phoneKind,
+    mainLinePhone,
+    directPhone,
+    directName: directRow ? directRow.name : null,
+    mainLineType,
+    directLineType,
+    mobile,
+    // THE TEXT LANE: someone to name and a number that accepts a text.
+    namedPlusMobile: rows.length > 0 && mobile,
+    // Split out, because her own cell and a shop line that happens to be a mobile
+    // are not equally good. The second still reaches her; it also reaches whoever
+    // else answers.
+    namedPlusOwnMobile: rows.length > 0 && directLineType === 'mobile',
+    mainLine: mainLinePhone,
     directChannel: direct.length > 0,
     namedPlusDirect: rows.length > 0 && direct.length > 0,
     // Named people found but reachable by nothing at all. Shown so the research is
@@ -149,6 +182,21 @@ function classify(brand, res, ladder, meta) {
     bySource,
     ...meta,
   };
+}
+
+// The shop line and the best direct line, deduped. Never more than two numbers a
+// business, because every one of them is a billable lookup.
+function _numbersToClassify(ladder) {
+  const out = [];
+  const main = (ladder && ladder.mainLine && ladder.mainLine.phone) || null;
+  if (main) out.push(main);
+  for (const t of (ladder && ladder.tiers) || []) {
+    if (t.tier === 3) continue;
+    for (const r of t.rows || []) {
+      if (r && r.phoneKind === 'direct' && r.phone && out.indexOf(r.phone) === -1) { out.push(r.phone); return out; }
+    }
+  }
+  return out;
 }
 
 function pct(n, d) { return d ? Math.round((n / d) * 1000) / 10 : 0; }
@@ -165,7 +213,12 @@ function summarize(rows) {
       metric('General inbox only', c((r) => r.generalInboxOnly)),
       metric('Instagram found', c((r) => !!r.instagram)),
       metric('Phone found', c((r) => r.phone)),
+      metric('Main line', c((r) => !!r.mainLinePhone)),
+      metric('Direct line to a named person', c((r) => !!r.directPhone)),
+      metric('Mobile number', c((r) => r.mobile)),
       metric('NAMED PERSON + at least one direct channel', c((r) => r.namedPlusDirect)),
+      metric('NAMED PERSON + MOBILE (the text lane)', c((r) => r.namedPlusMobile)),
+      metric('  of those, their own number', c((r) => r.namedPlusOwnMobile)),
     ],
     // Which of the seven are earning their place. A source that never produces a
     // person on any business is paying for searches and returning nothing.
@@ -243,6 +296,8 @@ const COLS = [
   ['INBOX', 5, (r) => yn(r.generalInboxOnly)],
   ['IG', 4, (r) => yn(!!r.instagram)],
   ['PHONE', 5, (r) => yn(r.phone)],
+  ['PHKIND', 8, (r) => (r.phoneKind || '-')],
+  ['LINE', 8, (r) => (r.directLineType || r.mainLineType || '-')],
   ['CONF', 9, (r) => trunc(r.topConfidence || '-', 9)],
   ['CHANNEL', 9, (r) => trunc(r.topChannel || '-', 9)],
   ['SOURCES', 22, (r) => trunc(Object.keys(r.bySource || {}).join(',') || '-', 22)],
@@ -268,6 +323,16 @@ function renderSummary(sum, spend, opts) {
   L.push('');
   L.push('  "Personal email" never counts a general inbox, and is always an address');
   L.push('  a source found published for that person -- nothing is guessed or bought.');
+  L.push('  "Direct line" means digits that differ from the shop number. A named');
+  L.push('  person handed the main line is "ask for them", not a direct line.');
+  if (opts.carrier) {
+    L.push('  Line type is from a live ' + opts.carrier + ' lookup: US number portability');
+    L.push('  means a prefix table cannot tell mobile from landline.');
+  } else {
+    L.push('  NO CARRIER LOOKUP RAN, so every line type is unknown and the mobile');
+    L.push('  counts above are 0 by default, NOT because no mobiles exist. Pass');
+    L.push('  --carrier numverify with NUMVERIFY_API_KEY set to measure them.');
+  }
   L.push('  "Direct channel" never counts a name reachable only via the main line.');
   L.push('');
   L.push('SOURCE YIELD  (which of the seven earned their place)');
@@ -290,7 +355,8 @@ function renderSummary(sum, spend, opts) {
   L.push('  TOTAL                         $' + spend.total.toFixed(2)
     + (spend.cached ? '   (' + spend.cached + ' served from cache, $0)' : ''));
   L.push('');
-  L.push('  Not included, not billed by Anthropic: ' + spend.priced + ' Google Places lookups.');
+  L.push('  Not included, not billed by Anthropic: ' + spend.priced + ' Google Places lookups'
+    + (spend.lineTypeLookups ? ', ' + spend.lineTypeLookups + ' line-type lookups' : '') + '.');
   return L.join('\n');
 }
 
@@ -300,7 +366,7 @@ function parseArgs(argv) {
   const o = {
     file: path.join(__dirname, 'sample-businesses.txt'),
     city: null, state: null, limit: 20, budget: 5.0,
-    dryRun: false, json: false, inTok: 6000,
+    dryRun: false, json: false, inTok: 6000, carrier: null,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
@@ -312,6 +378,7 @@ function parseArgs(argv) {
     else if (a === '--limit') o.limit = parseInt(argv[++i], 10);
     else if (a === '--budget') o.budget = parseFloat(argv[++i]);
     else if (a === '--in-tok') o.inTok = parseInt(argv[++i], 10);
+    else if (a === '--carrier') o.carrier = argv[++i];
     else { console.error('unknown argument: ' + a); process.exit(2); }
   }
   return o;
@@ -353,6 +420,9 @@ async function main() {
   console.log('            3 to 7 source calls each, 2 web searches per source at $'
     + WEB_SEARCH_USD_PER_1K.toFixed(2) + '/1k, plus Haiku 4.5 tokens.');
   console.log('  budget    $' + opts.budget.toFixed(2) + ' hard cap, checked before each business');
+  console.log('  carrier   ' + (opts.carrier
+    ? opts.carrier + ', up to 2 numbers per business, cached by number'
+    : 'off. Line types will be blank; pass --carrier numverify to measure them'));
   console.log('');
 
   if (opts.dryRun) {
@@ -373,9 +443,14 @@ async function main() {
   // Required lazily so --dry-run and the unit tests never need pg or an API key.
   const ai = require('../server/ai');
   const { buildContactLadder } = require('../server/services/contactLadder');
+  const lineTypeLib = require('./line-type');
+  // Inert unless --carrier was passed: classify() then returns null for every
+  // number and the summary says so rather than reporting zero mobiles as a fact.
+  const { provider, label } = lineTypeLib.providerFor(opts.carrier);
+  const lookup = lineTypeLib.newLookup({ provider });
 
   const rows = [];
-  const spend = { search: 0, output: 0, input: 0, total: 0, searches: 0, outTokens: 0, inTok: 0, cached: 0, priced: 0 };
+  const spend = { search: 0, output: 0, input: 0, total: 0, searches: 0, outTokens: 0, inTok: 0, cached: 0, priced: 0, lineTypeLookups: 0 };
   const skipped = [];
 
   for (let i = 0; i < run.length; i++) {
@@ -405,7 +480,7 @@ async function main() {
 
     if (err) {
       console.log(pad(String(i + 1) + '.', 4) + pad(trunc(brand, 26), 27) + 'FAILED: ' + err.message);
-      rows.push(classify(brand, {}, buildContactLadder({}, {}), { ms, served: 'ERROR', error: err.message, cost: costOf({}, opts.inTok) }));
+      rows.push(classify(brand, {}, buildContactLadder({}, {}), { ms, served: 'ERROR', error: err.message, cost: costOf({}, opts.inTok) }, {}));
       continue;
     }
 
@@ -413,11 +488,18 @@ async function main() {
       rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain,
       category: null, brand,
     });
+    // At most two numbers per business -- the shop line and any one direct line --
+    // and each is cached by number, so a re-run of this market buys nothing.
+    const lineTypes = {};
+    for (const p of _numbersToClassify(ladder)) {
+      const t = await lookup.classify(p);
+      if (t !== null) lineTypes[p] = t;
+    }
     const cost = meter.served === 'cache' ? costOf({}, opts.inTok) : costOf(meter, opts.inTok);
     const row = classify(brand, res, ladder, {
       ms, served: meter.served, cost, perSource: meter.perSource,
       sourcesRun: meter.sources, searches: meter.searches,
-    });
+    }, lineTypes);
     rows.push(row);
 
     if (meter.served === 'cache') spend.cached++;
@@ -435,6 +517,9 @@ async function main() {
       + pad(Math.round(ms / 100) / 10 + 's', 7)
       + (meter.served === 'cache' ? '' : '$' + cost.total.toFixed(3)));
   }
+
+  spend.lineTypeLookups = lookup.count();
+  lookup.save();
 
   console.log('');
   if (opts.json) {
