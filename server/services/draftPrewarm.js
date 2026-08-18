@@ -119,8 +119,14 @@ function athleteFacts(athlete) {
   return lines.join('\n');
 }
 
-function buildPrompt(athlete, card, agentName) {
-  return `Write ONE short outreach email from ${_s(agentName) || 'an agent'} to the owner or manager of this business, proposing an NIL partnership with this athlete.
+function buildPrompt(athlete, card, agentName, retryBecause) {
+  // On a retry, the FIRST thing the model reads is what it just got wrong. A bare
+  // "try again" with an unchanged prompt mostly reproduces the same draft, which is
+  // why the old behaviour of dropping the card outright was not obviously worse.
+  const retryHead = retryBecause
+    ? `YOUR PREVIOUS ATTEMPT WAS REJECTED: ${retryBecause}.\nFix exactly that and keep everything else. Do not restate the rejection.\n\n`
+    : '';
+  return retryHead + `Write ONE short outreach email from ${_s(agentName) || 'an agent'} to the owner or manager of this business, proposing an NIL partnership with this athlete.
 
 THE ATHLETE
 ${athleteFacts(athlete)}
@@ -207,23 +213,30 @@ async function draftOne({ agentId, athleteId, athlete, card, agentName, lane }) 
     [athleteId, brandKey]);
   if (existing.rows[0]) return { skipped: 'cached', id: existing.rows[0].id };
 
-  const prompt = buildPrompt(athlete, card, agentName);
-  let raw;
-  try {
-    // Sonnet, same as the click path's pitch generation. Explicitly named rather
-    // than relying on oneShot's default, so a change to that default cannot
-    // silently move this to another model.
-    raw = await ai.withDeadline(
-      ai.oneShot(prompt, SYSTEM, 900, 'claude-sonnet-4-6'),
-      DRAFT_TIMEOUT_MS, `prewarm draft for ${brand}`);
-  } catch (e) {
-    return { failed: e.message };
+  // ONE RETRY, AND IT SAYS WHAT WENT WRONG.
+  //
+  // A draft that trips checkDraft used to be discarded and never revisited: that
+  // card stayed a permanent miss until the next scan, so one "great fit" cost the
+  // agent the whole two-minute click path for that business. The retry names the
+  // exact phrase or rule that failed, because "try again" with the same prompt
+  // mostly reproduces the same draft.
+  //
+  // Only ONE retry, and only for a draft that came back and failed the check. A
+  // timeout or an unparseable response is not retried: those are not the model
+  // choosing bad words, and doubling the wait is the thing this feature exists to
+  // avoid.
+  let parsed = null;
+  let lastWhy = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await _attemptDraft({ athlete, card, agentName, brand, retryBecause: lastWhy });
+    if (r.parsed) { parsed = r.parsed; break; }
+    if (r.hard) return { failed: r.hard };        // timeout / unparseable: do not retry
+    lastWhy = r.why;
+    if (attempt === 0) {
+      console.log(`[prewarm] retry brand="${brand}": ${r.why}`);
+    }
   }
-
-  const parsed = parse(raw);
-  if (!parsed) return { failed: 'unparseable response' };
-  const check = checkDraft(parsed.body, card);
-  if (!check.ok) return { failed: check.why };
+  if (!parsed) return { failed: lastWhy + ' (after retry)' };
 
   const id = 'out_' + crypto.randomBytes(8).toString('hex');
   try {
@@ -236,7 +249,49 @@ async function draftOne({ agentId, athleteId, athlete, card, agentName, lane }) 
   } catch (e) {
     return { failed: 'store: ' + e.message };
   }
-  return { drafted: true, id, brandKey };
+  return { drafted: true, id, brandKey, retried: !!lastWhy };
+}
+
+// One model call plus the check. Returns { parsed } on success, { why } for a
+// retryable content failure, or { hard } for one that retrying cannot fix.
+async function _attemptDraft({ athlete, card, agentName, brand, retryBecause }) {
+  const prompt = buildPrompt(athlete, card, agentName, retryBecause);
+  let raw;
+  try {
+    // Sonnet, same as the click path's pitch generation. Explicitly named rather
+    // than relying on oneShot's default, so a change to that default cannot
+    // silently move this to another model.
+    raw = await ai.withDeadline(
+      ai.oneShot(prompt, SYSTEM, 900, 'claude-sonnet-4-6'),
+      DRAFT_TIMEOUT_MS, `prewarm draft for ${brand}`);
+  } catch (e) {
+    return { hard: e.message };            // timed out: retrying doubles the wait
+  }
+
+  const parsed = parse(raw);
+  if (!parsed) return { hard: 'unparseable response' };
+  const check = checkDraft(parsed.body, card);
+  if (!check.ok) return { why: check.why };  // the model chose bad words: worth one retry
+  return { parsed };
+}
+
+// The order the cards get drafted in: the agent's own reading order. `rank` when
+// the scan set one, then fitScore descending, then the array order it arrived in.
+// Stable, so two cards with the same score keep their relative positions.
+function orderForPrewarm(cards) {
+  const list = (Array.isArray(cards) ? cards : []).filter(Boolean);
+  return list
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => {
+      const ar = Number(a.c.rank), br = Number(b.c.rank);
+      const aHas = Number.isFinite(ar), bHas = Number.isFinite(br);
+      if (aHas && bHas && ar !== br) return ar - br;
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      const af = Number(a.c.fitScore) || 0, bf = Number(b.c.fitScore) || 0;
+      if (af !== bf) return bf - af;
+      return a.i - b.i;
+    })
+    .map((x) => x.c);
 }
 
 // ── The batch ────────────────────────────────────────────────────────────────
@@ -244,7 +299,19 @@ async function draftOne({ agentId, athleteId, athlete, card, agentName, lane }) 
 // every failure is contained: this cannot fail a scan, because by the time it runs
 // the scan is already on the agent's screen.
 async function prewarmScan({ agentId, athleteId, athlete, cards, agentName, lane }) {
-  const list = (Array.isArray(cards) ? cards : []).slice(0, MAX_CARDS);
+  // TOP CARDS FIRST, and in the order the agent sees them.
+  //
+  // The workers pull off one shared list, so whatever is at the front is drafted
+  // first. That was already the scan's own order -- but the scan sorts by rank and
+  // the agent reads top-down, so the cards most likely to be clicked in the first
+  // few seconds are exactly the ones worth having ready first. Sorting explicitly
+  // by rank/fitScore makes that a property of this function rather than an accident
+  // of what the caller happened to pass.
+  //
+  // This does not make the batch faster. It makes the RACE winnable: an agent who
+  // clicks the top card five seconds after the scan lands now finds a draft, where
+  // before the answer depended on where that card sat in an unordered array.
+  const list = orderForPrewarm(cards).slice(0, MAX_CARDS);
   if (!list.length) return { drafted: 0, cached: 0, failed: 0, skipped: 0 };
   const t0 = Date.now();
 
@@ -264,18 +331,19 @@ async function prewarmScan({ agentId, athleteId, athlete, cards, agentName, lane
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, list.length) }, worker));
 
   const drafted = results.filter((r) => r && r.drafted).length;
+  const retried = results.filter((r) => r && r.retried).length;
   const cached  = results.filter((r) => r && r.skipped === 'cached').length;
   const failed  = results.filter((r) => r && r.failed).length;
   const skipped = results.filter((r) => r && r.skipped && r.skipped !== 'cached').length;
   // One line per scan, with the failures named. A silent pre-warm that quietly
   // drafts nothing would look exactly like a fast one.
   console.log(`[prewarm] athlete=${athleteId} lane=${lane || '?'} cards=${list.length} `
-    + `drafted=${drafted} cached=${cached} failed=${failed} skipped=${skipped} ms=${Date.now() - t0}`);
+    + `drafted=${drafted} cached=${cached} failed=${failed} skipped=${skipped} retried=${retried} ms=${Date.now() - t0}`);
   for (const r of results) if (r && r.failed) console.warn(`[prewarm]   failed: ${r.failed}`);
-  return { drafted, cached, failed, skipped };
+  return { drafted, cached, failed, skipped, retried };
 }
 
 module.exports = {
-  prewarmScan, draftOne, buildPrompt, checkDraft, parse, toHtml, cardFacts, athleteFacts,
+  prewarmScan, draftOne, buildPrompt, checkDraft, parse, toHtml, cardFacts, athleteFacts, orderForPrewarm,
   BANNED, CONCURRENCY, MAX_CARDS, DRAFT_TIMEOUT_MS,
 };
