@@ -28,6 +28,10 @@ const OutreachEngineState = {
   // Which draft is on screen. connectGmail needs it to save the edits before it
   // navigates away, and sendOutreach already had it only as a closure argument.
   currentOutreachId: null,
+  // Which contact the poll loop has already applied. The run returns the same one
+  // on every poll; applying it more than once would reset a recipient the agent
+  // chose. Cleared whenever a new run starts or the modal closes.
+  appliedContactKey: null,
 };
 
 // ── API ───────────────────────────────────────────────────────────────────────
@@ -374,6 +378,8 @@ function personalizeGreeting(fullName) {
 
 function startPolling(runId) {
   if (OutreachEngineState.pollInterval) clearInterval(OutreachEngineState.pollInterval);
+  // A new run's contact has not been applied yet, whatever the last one's was.
+  OutreachEngineState.appliedContactKey = null;
 
   OutreachEngineState.pollInterval = setInterval(async () => {
     try {
@@ -395,7 +401,11 @@ function startPolling(runId) {
         // panel, taking away the contact and the DM, which are still good.
         setDraftStatus('failed', data.run?.error_message || 'Workflow failed');
       } else {
-        // Still running — update progress message
+        // STILL RUNNING, WHICH DOES NOT MEAN EMPTY-HANDED. contact_discovery is step
+        // 2 of 7 and this response already carries what it found. Take it now rather
+        // than at step 7: on a cold card it is the only thing standing between an
+        // empty To field and a usable modal.
+        applyRunContact(data);
         const steps = data.run?.steps_completed;
         const completedSteps = Array.isArray(steps) ? steps : (typeof steps === 'string' ? JSON.parse(steps || '[]') : []);
         updateLoadingProgress(completedSteps);
@@ -437,6 +447,60 @@ function athleteDisplayName(subject) {
   return 'my athlete';
 }
 
+// THE CONTACT ARRIVES AT STEP 2 OF 7, NOT AT THE END.
+//
+// executeWorkflow writes automation_runs.contact_id the moment contact_discovery
+// finishes, and getRunStatus returns that contact on every poll from then on. The
+// poll loop only read data.contact inside `if (status === 'complete')`, so a
+// contact that was already sitting in the browser went unused through brand_match,
+// pitch_generation, deck_generation, email_draft and crm_update -- five steps the
+// To field does not depend on. On a cold card, where the card itself found nobody,
+// that gap is the entire difference between a modal that is on SCREEN (under a
+// second) and a modal that is USABLE (ninety-odd).
+//
+// Applied once per contact, in place, and never over anything the agent has done.
+// Returns true when it changed something.
+function applyRunContact(data) {
+  const c = data && data.contact;
+  if (!c) return false;
+  // The agent may have closed this modal and opened another business's while the
+  // run was still in flight. Same guard the deep contact lookup already uses.
+  const forBrand = (data.run && data.run.brand_name) || null;
+  if (!stillShowing(forBrand)) return false;
+  // ONCE. The same contact comes back on every poll, and re-rendering the picker
+  // every three seconds would drag the selection back to the top of the list under
+  // an agent who had deliberately chosen a different address. Picking from the
+  // list clears `touched` on purpose, so the typed-by-hand guard does not cover it.
+  const key = String(c.id || c.email || c.name || '');
+  if (!key || OutreachEngineState.appliedContactKey === key) return false;
+  OutreachEngineState.appliedContactKey = key;
+
+  // Onto the CARD, not only into the boxes. The reach panel renders from
+  // pickCardContact(d), so a contact that reached the To field and nowhere else
+  // left the panel reading "No named contact found" directly beside her own
+  // address -- which is what it did, even after the run completed.
+  const d = OutreachEngineState.currentDealResult;
+  if (d) {
+    if (!Array.isArray(d.contacts)) d.contacts = [];
+    const same = (x) => x && (
+      (c.email && x.email && String(x.email).toLowerCase() === String(c.email).toLowerCase())
+      || (c.name && x.name && String(x.name) === String(c.name)));
+    if (!d.contacts.some(same)) {
+      const s = Number(c.confidence_score);
+      d.contacts.push({
+        name: c.name || null, title: c.title || null, email: c.email || null,
+        phone: c.phone || null, sourceUrl: c.source_url || null,
+        confidence: (!isNaN(s) && s >= 0.85) ? 'high' : 'medium',
+      });
+    }
+  }
+
+  const recipients = outreachRecipients(d, c);
+  if (recipients.length) { renderRecipientOptions(recipients); wireRecipientControls(recipients); }
+  refreshReachPanel(d, null, forBrand);
+  return true;
+}
+
 // The workflow finished behind a modal that has been usable the whole time. Put
 // the parts it produced into the boxes that are already on screen, and leave
 // everything the agent has touched alone.
@@ -463,10 +527,11 @@ function applyCompletedRun(data) {
     subj.value = outreach.subject;
   }
 
-  // The workflow may have found a contact the card did not have.
-  const recipients = outreachRecipients(OutreachEngineState.currentDealResult, data.contact);
-  if (recipients.length) { renderRecipientOptions(recipients); wireRecipientControls(recipients); }
-  if (data.contact) refreshReachPanel(OutreachEngineState.currentDealResult, null);
+  // The workflow may have found a contact the card did not have. One implementation,
+  // shared with the poll loop: usually this is a no-op because the same contact was
+  // applied five steps ago, and when it is a no-op it must stay one -- re-rendering
+  // the picker here would reset a recipient the agent picked while waiting.
+  applyRunContact(data);
 
   // The send button targets an outreach id, which only exists now.
   const send = document.getElementById('outreach-send-btn');
@@ -497,6 +562,7 @@ function closeOutreachModal() {
   }
   OutreachEngineState.activeRunId = null;
   OutreachEngineState.currentOutreachId = null;
+  OutreachEngineState.appliedContactKey = null;
   const notice = document.getElementById('outreach-mailbox-notice');
   if (notice) { notice.style.display = 'none'; notice.innerHTML = ''; }
   OutreachEngineState.currentRunData = null;
