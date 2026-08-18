@@ -40,7 +40,44 @@ const CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_AGENT_CAP_USD) || Q.DEFAUL
 // the worst case rather than the average is what makes the cap a cap.
 const LOOKUP_CEILING_USD = parseFloat(process.env.OUTREACH_QUEUE_LOOKUP_USD) || 0.26;
 
-function today() { return new Date().toISOString().slice(0, 10); }
+// ── Time, in Central, without a timezone library ─────────────────────────────
+// Same trick as server/services/weeklyDigest.js: the server runs UTC and Central
+// shifts with DST, so the offset cannot be hardcoded. Intl knows the rules; this
+// reads the wall-clock parts back out.
+const CENTRAL_TZ = 'America/Chicago';
+// The overnight window the scheduler is allowed to fire in. Wide enough that a
+// missed tick still catches the window, narrow enough that a daytime deploy or
+// restart can never trigger a same-day fill -- "log in tomorrow morning and the
+// cards are already there" means the run has to be well before anyone is awake.
+const WINDOW_START_HOUR = 1;   // 1am Central
+const WINDOW_END_HOUR = 5;     // up to (not including) 5am Central
+function centralParts(ms) {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: CENTRAL_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const p = {};
+  for (const part of fmt.formatToParts(new Date(ms))) p[part.type] = part.value;
+  return {
+    year: Number(p.year), month: Number(p.month), day: Number(p.day),
+    hour: Number(p.hour === '24' ? '0' : p.hour), minute: Number(p.minute),
+  };
+}
+// Today's date in CENTRAL, not UTC -- this is the claimNight() dedupe key, and an
+// agent near midnight Central (which can already be tomorrow in UTC) must get the
+// same run_date whether the fill comes from the nightly job or the admin button.
+function today(ms) {
+  const p = centralParts(ms == null ? Date.now() : ms);
+  return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+}
+// Is it currently the overnight window in Central? The scheduler ticks every 15
+// min regardless; this is the only gate on whether a given tick actually runs
+// anything. Double-fire safety inside the window is claimNight()'s job, not this
+// function's -- see the scheduler comment in server/index.js.
+function nightlyWindowOpen(ms) {
+  const h = centralParts(ms == null ? Date.now() : ms).hour;
+  return h >= WINDOW_START_HOUR && h < WINDOW_END_HOUR;
+}
 
 // Claim the night. Returns false when this agent has already been filled today,
 // which is what stops a freed slot refilling on the spot.
@@ -275,7 +312,11 @@ async function status(pool) {
   return r.rows;
 }
 
-module.exports = { run, fillAgent, fillAthlete, regionForAthlete, claimNight, candidatesFor, ENABLED, CAP_USD, LOOKUP_CEILING_USD };
+module.exports = {
+  run, fillAgent, fillAthlete, regionForAthlete, claimNight, candidatesFor,
+  ENABLED, CAP_USD, LOOKUP_CEILING_USD,
+  today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
+};
 
 if (require.main === module) {
   const argv = process.argv.slice(2);

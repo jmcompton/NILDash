@@ -9597,6 +9597,38 @@ try {
   console.warn('[digest] scheduler failed to start:', e.message);
 }
 
+// ── Morning outreach queue scheduler ──────────────────────────────────────────
+// Same in-process poller pattern as the weekly digest above -- there is no
+// Railway cron in this project. Ticks every 15 min; nightlyWindowOpen() is the
+// only gate on whether a given tick actually runs anything (1am-5am Central), so
+// a daytime deploy or restart can never trigger a same-day fill and spend money
+// at a random hour. Safety against a double fire WITHIN the window is not the
+// timer's job: outreach_queue_runs has PRIMARY KEY (agent_id, run_date) and
+// claimNight() claims the row before any lookup runs, so once the window's first
+// tick claims an agent for the night, every later tick that same window is a
+// no-op for that agent -- exactly the digest's "restart at 7:03 still sends, does
+// not skip the week" logic, mirrored for "restart at 2am still queues tonight".
+//
+// Off unless OUTREACH_QUEUE_ENABLED=1 (see server/jobs/outreachQueue.js), so a
+// deploy cannot start spending by surprise.
+try {
+  const queueJob = require('./jobs/outreachQueue');
+  if (!queueJob.ENABLED) {
+    console.log('[queue] nightly outreach queue scheduler is OFF (set OUTREACH_QUEUE_ENABLED=1 to enable)');
+  } else {
+    const QUEUE_TICK_MS = 15 * 60 * 1000;
+    const queueTick = () => {
+      if (!queueJob.nightlyWindowOpen()) return;
+      queueJob.run({}).catch((e) => console.error('[queue] nightly tick failed:', e.message));
+    };
+    setTimeout(queueTick, 2 * 60 * 1000);   // let the server finish booting
+    setInterval(queueTick, QUEUE_TICK_MS);
+    console.log(`[queue] nightly outreach queue scheduler started, tick every 15 min, runs ${queueJob.WINDOW_START_HOUR}am-${queueJob.WINDOW_END_HOUR}am Central`);
+  }
+} catch (e) {
+  console.warn('[queue] scheduler failed to start:', e.message);
+}
+
 // GET /api/digest/unsubscribe: public, no auth. The link in the email.
 // A token, not an email address, so a link cannot be forged from a known address.
 app.get('/api/digest/unsubscribe', async (req, res) => {
