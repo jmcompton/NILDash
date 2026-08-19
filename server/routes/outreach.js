@@ -405,13 +405,15 @@ router.post('/logs/:id/send', async (req, res) => {
     await pool.query(
       `UPDATE outreach_logs
        SET status='sent', sent_at=NOW(), email_account_id=$1,
-           email_message_id=$2, sent_to_email=$4, message_id=$5, updated_at=NOW()
+           email_message_id=$2, sent_to_email=$4, message_id=$5,
+           reply_to=$6, updated_at=NOW()
        WHERE id=$3`,
       // sent_to_email is what the named-address matcher joins on. message_id is
       // the RFC822 id we put on the wire, which a reply echoes in In-Reply-To --
       // the only exact anchor left now that the address carries no token.
       [emailAccountId, sendResult?.providerMessageId || null, log.id,
-       String(toEmail).trim().toLowerCase(), sendResult?.messageId || null]
+       String(toEmail).trim().toLowerCase(), sendResult?.messageId || null,
+       sendResult?.replyTo || null]
     );
 
     // Log workflow event
@@ -605,7 +607,8 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
     });
   }
   // messageId travels back so the caller stores exactly what went on the wire.
-  return { ...(result || {}), messageId };
+  // replyTo travels back too, so the caller records what actually went out.
+  return { ...(result || {}), messageId, replyTo };
 }
 
 module.exports = router;

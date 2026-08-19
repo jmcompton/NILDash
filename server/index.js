@@ -9464,6 +9464,22 @@ app.get('/admin/inbound', async (req, res) => {
          FROM inbound_messages ORDER BY received_at DESC LIMIT 20`)).rows;
   } catch (e) { err = e.message; }
 
+  // WHAT THIS BUILD IS ACTUALLY DOING, so "is the running code still writing
+  // token reply addresses" is read off a page instead of argued about. The
+  // commit is the same one /api/health reports; the sends below show the
+  // address each email really carried, recorded at send time.
+  const _rc = require('./services/replyCapture');
+  const _commit = process.env.RAILWAY_GIT_COMMIT_SHA || process.env.SOURCE_COMMIT
+    || process.env.GIT_COMMIT || process.env.COMMIT_SHA || 'unknown';
+  let sends = [];
+  let sendsErr = null;
+  try {
+    sends = (await store.pool.query(
+      `SELECT id, brand_name, sent_at, reply_to, message_id, sent_to_email
+         FROM outreach_logs WHERE sent_at IS NOT NULL
+        ORDER BY sent_at DESC LIMIT 10`)).rows;
+  } catch (e) { sendsErr = e.message; }
+
   const esc = (s) => String(s == null ? '' : s)
     .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const body = err
@@ -9508,9 +9524,36 @@ app.get('/admin/inbound', async (req, res) => {
  .noterow td{border-bottom:.5px solid #131c28;padding-top:0;font-size:11.5px}
  .empty{color:#9CA3AF;background:#0D1520;border:.5px solid #1e2a3a;border-left:3px solid #f59e0b;
         padding:14px 16px;border-radius:8px}
+ .cfg{background:#0D1520;border:.5px solid #1e2a3a;border-left:3px solid #84CC16;
+      padding:12px 14px;border-radius:8px;font-size:12.5px}
+ tr.no td:nth-child(4){color:#f59e0b}
 </style></head><body>
 <h1>Inbound webhook — last 20</h1>
 <div class="sub">Every message Resend delivered to this domain, matched or not. Reload to refresh.</div>
+
+<div class="cfg">
+  <b>Deployed commit</b> <span class="mono">${esc(String(_commit).slice(0, 12))}</span>
+  &nbsp;·&nbsp; <b>reply domain</b> <span class="mono">${esc(_rc.REPLY_DOMAIN)}</span>
+  &nbsp;·&nbsp; <b>capture</b> <span class="mono">${_rc.ENABLED ? 'on' : 'OFF'}</span>
+  <div class="dim" style="margin-top:6px">If a send below shows <span class="mono">r&lt;hex&gt;@reply.…</span>
+  this build predates the named-address change; if it shows a name, it is current.</div>
+</div>
+
+<h1 style="margin-top:22px">Last 10 sends — the Reply-To that actually went out</h1>
+<div class="sub">Recorded at send time, per message. Rows sent before this column existed show blank.</div>
+${sendsErr
+  ? `<p class="empty">Could not read outreach_logs: ${esc(sendsErr)}</p>`
+  : (!sends.length ? '<p class="empty">No sends recorded yet.</p>'
+    : `<table><thead><tr><th>Sent</th><th>Brand</th><th>To</th><th>Reply-To used</th><th>Message-ID</th></tr></thead><tbody>`
+      + sends.map((s) => {
+        const legacy = s.reply_to && /^r[0-9a-f]{16}@/i.test(s.reply_to);
+        return `<tr class="${legacy ? 'no' : 'ok'}">
+          <td class="mono dim">${esc(s.sent_at ? new Date(s.sent_at).toISOString().replace('T', ' ').slice(0, 19) : '')}</td>
+          <td>${esc(s.brand_name)}</td>
+          <td class="mono dim">${esc(s.sent_to_email || '')}</td>
+          <td class="mono">${s.reply_to ? esc(s.reply_to) + (legacy ? ' <span class="badge">TOKEN</span>' : '') : '<span class="dim">(not recorded)</span>'}</td>
+          <td class="mono dim">${esc(s.message_id || '')}</td></tr>`;
+      }).join('') + '</tbody></table>')}
 ${body}
 </body></html>`);
 });

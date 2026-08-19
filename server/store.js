@@ -1291,6 +1291,13 @@ async function init() {
   // only field that can tie a reply to one exact outreach now that the address
   // no longer carries a token.
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS message_id TEXT`).catch(() => {});
+  // THE ADDRESS THAT ACTUALLY WENT ON THE WIRE, recorded per send. Which
+  // Reply-To a given email carried is otherwise unknowable after the fact --
+  // it has to be read out of the sent message, which nobody has. With this,
+  // "is the running build still writing token addresses" is a row in a table
+  // rather than an argument, and it is answered per message rather than per
+  // guess about which commit is deployed.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS reply_to TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_message_id ON outreach_logs (message_id)`).catch(() => {});
 
   // ── Every inbound webhook payload, matched or not ─────────────────────────
