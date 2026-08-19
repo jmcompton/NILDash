@@ -7700,6 +7700,107 @@ app.get('/api/agent/places/autocomplete', requireAuth, requireAgentSubscription,
   } catch (e) { console.error('[places/autocomplete]', e.message); res.status(500).json({ error: e.message }); }
 });
 
+// POST /api/agent/deal-scan/add-national — the NATIONAL lane's own search box.
+//
+// WHY THIS EXISTS SEPARATELY. Typing "Red Bull" into the local "Add a Business"
+// box sends it through placesLookup, which is the local lane: it resolves the
+// name to a nearby storefront and hands back a gas station that stocks Red Bull.
+// This route NEVER calls placesLookup. The lane is chosen by which box you type
+// in, so nothing has to guess what you meant.
+//
+// 1. The verified index (social_brands) first -- program page, deal terms,
+//    whether they sign athletes, tier band.
+// 2. Not indexed? Run the SAME evaluation a newly discovered national brand
+//    gets in the nightly job: find the program page, verify it, summarise it,
+//    insert it. A national brand we have not indexed yet gets researched, not
+//    resolved to a storefront.
+// 3. Either way the card is scored against the selected athlete.
+app.post('/api/agent/deal-scan/add-national', requireAuth, requireAgentSubscription, aiLimiter, async (req, res) => {
+  const _t0 = Date.now();
+  try {
+    const brand = String((req.body && req.body.brand) || '').trim();
+    const athleteId = String((req.body && req.body.athleteId) || '').trim();
+    if (!brand) return res.status(400).json({ error: 'brand required' });
+    if (brand.length > 120) return res.status(400).json({ error: 'brand name is too long' });
+    if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
+
+    // Same loader the rest of Deal Scan uses, so the fit score reads follower
+    // counts and sport from exactly the fields the Social lane matches on.
+    const loaded = await loadDealScanAthlete(athleteId);
+    if (!loaded) return res.status(404).json({ error: 'Athlete not found' });
+    const _ru = await store.getUser(req.session.userId);
+    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email));
+    if (loaded.agentId !== req.session.userId && !_isAdmin) return res.status(403).json({ error: 'Forbidden' });
+    const athlete = loaded.athleteObj;
+
+    // 1. Already in the verified index? Free -- a DB read, no model call, so the
+    //    rate backstop below is only spent on brands we actually have to research.
+    const known = await store.findNationalBrand(brand);
+    if (known) {
+      const fit = store.scoreNationalBrandFit(known, athlete);
+      console.log(`[addNational] athlete=${athleteId} INDEX HIT "${brand}" -> "${known.brand}" fit=${fit.fitScore} ms=${Date.now() - _t0}`);
+      return res.json({ found: true, source: 'index', card: { ...known, ...fit, lane: 'social' } });
+    }
+
+    // Researching costs a web search plus a summarise call. Same 25-per-agent-per-day
+    // backstop the local Add a Business box uses, and the same counter.
+    const mrl = _manualAddRateCheck('agent:' + req.session.userId);
+    if (!mrl.ok) {
+      return res.status(429).json({ error: 'rate_limited', scope: mrl.scope, limit: mrl.limit,
+        message: `You have added ${mrl.limit} businesses today. Add more tomorrow.` });
+    }
+
+    // 2. Not indexed. Research it the same way the discovery job does.
+    const { findProgramUrl, summarizeProgram } = require('./services/socialProof');
+    // The official site, from a web search -- NOT from Places, which is the
+    // local lane and the whole reason this route exists.
+    let site = null;
+    try {
+      const raw = await ai.oneShotWebSearch(
+        `What is the official website homepage URL for the company "${brand}"? `
+        + 'Reply with ONLY the URL, nothing else. If you cannot find one, reply NONE.',
+        'You return a single URL and nothing else.', 200, 2, ai.MODEL_FAST);
+      const m = String(raw || '').match(/https?:\/\/[^\s"'<>)]+/);
+      if (m) site = m[0];
+    } catch (e) { console.warn('[addNational] site lookup failed:', e.message); }
+
+    if (!site) {
+      console.log(`[addNational] athlete=${athleteId} NO SITE for "${brand}" ms=${Date.now() - _t0}`);
+      return res.json({ found: false, reason: 'no-website',
+        message: `Could not find an official website for "${brand}", so there is nothing to verify. Check the spelling, or add it as a local business if it is a storefront.` });
+    }
+
+    const found = await findProgramUrl(site);
+    if (!found) {
+      console.log(`[addNational] athlete=${athleteId} NO PROGRAM PAGE for "${brand}" site=${site} ms=${Date.now() - _t0}`);
+      return res.json({ found: false, reason: 'no-program', website: site,
+        message: `${brand} has a website but no athlete or creator program page we could verify, so it is not added. Nothing is indexed on the strength of a name alone.` });
+    }
+
+    const { summary: offerSummary, size: brandSize } = await summarizeProgram(found.pageText);
+    // Same insert shape and same defaults the discovery job uses.
+    await store.pool.query(
+      `INSERT INTO social_brands
+         (brand, category, website, sports, tier_min, tier_max, deal_structure,
+          est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated,
+          offer_summary, brand_size, proof_date, active)
+       VALUES ($1,'unknown',$2,ARRAY['all']::text[],0,0,'affiliate',NULL,NULL,NULL,$3,$4,$5,$6,$7,CURRENT_DATE,true)
+       ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE,
+         proof_url = EXCLUDED.proof_url, proof_snippet = EXCLUDED.proof_snippet,
+         tier_stated = EXCLUDED.tier_stated, offer_summary = EXCLUDED.offer_summary,
+         brand_size = EXCLUDED.brand_size, active = true, updated_at = NOW()`,
+      [brand, site, found.url, found.snippet || null, !!found.tierStated, offerSummary, brandSize]);
+
+    const row = await store.findNationalBrand(brand);
+    const fit = row ? store.scoreNationalBrandFit(row, athlete) : { fitScore: 50, fitWhy: [] };
+    console.log(`[addNational] athlete=${athleteId} RESEARCHED "${brand}" site=${site} program=${found.url} fit=${fit.fitScore} ms=${Date.now() - _t0}`);
+    res.json({ found: true, source: 'researched', card: { ...(row || {}), ...fit, lane: 'social' } });
+  } catch (e) {
+    console.error('[addNational]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Add a Business: resolve, score, build the contact ladder, write the ledger ──
 // Reuses the Deal Scan pipeline end to end: the resolved Places business is injected
 // into ai.getDealRecommendations via opts.manualCandidate, so it passes through the

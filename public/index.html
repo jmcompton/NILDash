@@ -1966,6 +1966,18 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
             <div class="ds-lane" data-lane="topnil">
               <div class="ds-lane-sub">Big NIL brands that sign athletes like them</div>
+              <!-- The NATIONAL lane's own search box. Separate from the local
+                   "Add a Business" box on purpose: the lane is chosen by which
+                   box you type in, so "Red Bull" here is never resolved through
+                   Places to a nearby storefront. -->
+              <div style="position:relative;margin-bottom:10px">
+                <input id="ds-addnat-input" type="text" autocomplete="off"
+                  placeholder="Know a national brand? Search it."
+                  onkeydown="_dsAddNatKey(event)"
+                  style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:13px;font-family:inherit;box-sizing:border-box">
+                <div id="ds-addnat-status" style="display:none;font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5"></div>
+                <div id="ds-addnat-result"></div>
+              </div>
               <div class="ds-lane-body" id="scan-results-topnil"></div>
             </div>
           </div>
@@ -7501,6 +7513,92 @@ function _dsAddBizKey(ev) {
     if (q.length >= 3) _dsAddBizPost({ athleteId: selectedAthleteId, query: q });
   }
 }
+// ── National brand search (National tab) ─────────────────────────────────────
+// Deliberately its own handler and its own endpoint. The local box guesses a
+// storefront through Places; this one never can, because the route it calls
+// does not touch placesLookup at all.
+var _dsAddNatBusy = false;
+function _dsAddNatStatus(msg, kind) {
+  var el = document.getElementById('ds-addnat-status');
+  if (!el) return;
+  el.style.display = msg ? '' : 'none';
+  el.style.color = kind === 'err' ? '#f59e0b' : 'var(--muted)';
+  el.textContent = msg || '';
+}
+function _dsAddNatKey(ev) {
+  if (ev.key !== 'Enter') return;
+  ev.preventDefault();
+  var el = document.getElementById('ds-addnat-input');
+  var q = el ? String(el.value || '').trim() : '';
+  if (!q) return;
+  _dsAddNatGo(q);
+}
+async function _dsAddNatGo(brand) {
+  if (_dsAddNatBusy) return;
+  if (!selectedAthleteId) { _dsAddNatStatus('Select a client first.', 'err'); return; }
+  _dsAddNatBusy = true;
+  var out = document.getElementById('ds-addnat-result');
+  if (out) out.innerHTML = '';
+  _dsAddNatStatus('Checking the national brand index\u2026');
+  // An index hit answers instantly. If it does not, we are researching the brand
+  // from scratch, which takes a while -- say so instead of sitting silent.
+  var _slow = setTimeout(function () {
+    _dsAddNatStatus('Not in the index. Looking for their athlete program page\u2026');
+  }, 2500);
+  try {
+    var r = await fetch(API_BASE + '/api/agent/deal-scan/add-national', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ athleteId: selectedAthleteId, brand: brand }),
+    });
+    var d = await r.json().catch(function () { return {}; });
+    clearTimeout(_slow);
+    if (!r.ok) { _dsAddNatStatus(d.message || d.error || ('Search failed (HTTP ' + r.status + ')'), 'err'); return; }
+    if (!d.found) { _dsAddNatStatus(d.message || 'Nothing found.', 'err'); return; }
+    _dsAddNatStatus(d.source === 'index'
+      ? 'Already in the verified index.'
+      : 'Not indexed \u2014 researched and added just now.');
+    if (out) out.innerHTML = _dsNatCard(d.card);
+    var el = document.getElementById('ds-addnat-input');
+    if (el) el.value = '';
+  } catch (e) {
+    clearTimeout(_slow);
+    _dsAddNatStatus('Search failed: ' + e.message, 'err');
+  } finally { clearTimeout(_slow); _dsAddNatBusy = false; }
+}
+function _dsNatCard(c) {
+  if (!c) return '';
+  var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (x) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[x]; }); };
+  var tier = (c.tier_min || c.tier_max)
+    ? (Number(c.tier_min || 0).toLocaleString() + (c.tier_max ? '\u2013' + Number(c.tier_max).toLocaleString() : '+') + ' followers')
+    : 'Not stated';
+  var bits = [];
+  // Being in the verified index MEANS a program page passed the same gate the
+  // nightly discovery job uses, so say that in words rather than implying it.
+  bits.push('<div style="font-size:11px;color:#4ade80;margin-top:6px">✓ Signs athletes — verified from their own program page</div>');
+  if (c.est_low || c.est_high) {
+    bits.push('<div style="font-size:11px;color:var(--muted);margin-top:4px">Typical deal: $'
+      + Number(c.est_low || 0).toLocaleString() + (c.est_high ? '–$' + Number(c.est_high).toLocaleString() : '+') + '</div>');
+  }
+  if (c.offer_summary) bits.push('<div style="font-size:11.5px;color:var(--text);line-height:1.5;margin-top:6px">' + esc(c.offer_summary) + '</div>');
+  if (c.whyFits) bits.push('<div style="font-size:11px;color:var(--muted);margin-top:5px">' + esc(c.whyFits) + '</div>');
+  if (Array.isArray(c.fitWhy) && c.fitWhy.length) {
+    bits.push('<div style="font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5">' + esc(c.fitWhy.join('; ')) + '.</div>');
+  }
+  return '<div style="margin-top:10px;padding:12px 14px;border:1px solid var(--border);border-left:3px solid #60a5fa;border-radius:9px;background:var(--surface2)">'
+    + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
+    + '<span style="font-size:14px;font-weight:600;color:var(--text)">' + esc(c.brand) + '</span>'
+    + '<span style="font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#60a5fa;background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.32);border-radius:4px;padding:1px 6px">national</span>'
+    + (c.fitScore ? '<span style="font-size:11px;color:var(--muted)">Fit ' + esc(c.fitScore) + '</span>' : '')
+    + '</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-top:4px">Tier: ' + esc(tier)
+    + (c.deal_structure ? ' &middot; ' + esc(String(c.deal_structure).replace(/_/g, ' ')) : '')
+    + (c.freshness ? ' &middot; program page ' + esc(c.freshness) : '') + '</div>'
+    + bits.join('')
+    + (c.proof_url ? '<div style="margin-top:8px"><a href="' + esc(c.proof_url) + '" target="_blank" rel="noopener" style="font-size:11px;color:#60a5fa">Program page</a></div>' : '')
+    + '</div>';
+}
+
 function _dsAddBizPick(i) {
   var s = _dsAddBizSuggestions[i];
   if (!s) return;

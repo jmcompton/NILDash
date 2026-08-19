@@ -3065,6 +3065,64 @@ function _decorateSocialBrand(row) {
   return { ...row, proofAge, freshness: proofAge <= 12 ? 'current' : 'aging', whyFits, lane: 'social' };
 }
 
+// ── National brand search, by name ───────────────────────────────────────────
+// THE VERIFIED INDEX, LOOKED UP DIRECTLY. Typing "Red Bull" into the national
+// box must never reach placesLookup: that is the local lane, and it is what
+// resolves a national brand to a nearby storefront. Exact match first, then a
+// prefix/contains match so "red bull" finds "Red Bull" and "gymshark" finds
+// "Gymshark". Inactive rows are included so a de-activated brand reports as
+// known-but-inactive rather than being silently re-researched.
+async function findNationalBrand(name) {
+  const q = String(name || '').trim().toLowerCase();
+  if (!q) return null;
+  try {
+    const r = await pool.query(
+      `SELECT * FROM social_brands
+        WHERE lower(brand) = $1
+           OR lower(brand) LIKE $2
+           OR $1 LIKE lower(brand) || '%'
+        ORDER BY (lower(brand) = $1) DESC, active DESC, length(brand) ASC
+        LIMIT 1`, [q, q + '%']);
+    return r.rows[0] ? _decorateSocialBrand(r.rows[0]) : null;
+  } catch (e) {
+    console.error('[findNationalBrand]', e.message);
+    return null;
+  }
+}
+
+// FIT AGAINST THE SELECTED ATHLETE, same inputs the Social lane matches on:
+// combined reach against the brand's tier band, and sport against its list.
+// Returned as a score plus the reason, so the card can say why rather than
+// showing a bare number.
+function scoreNationalBrandFit(row, athlete) {
+  const reach = (Number(athlete && athlete.instagram) || 0) + (Number(athlete && athlete.tiktok) || 0);
+  const sport = String((athlete && athlete.sport) || '').trim().toLowerCase();
+  const sports = Array.isArray(row.sports) ? row.sports.map((x) => String(x).toLowerCase()) : [];
+  const tierMin = Number(row.tier_min) || 0;
+  const tierMax = Number(row.tier_max) || 0;
+
+  const sportOk = !sports.length || sports.includes('all') || sports.includes(sport);
+  const inBand = reach > 0 && tierMin <= reach && (tierMax === 0 || tierMax >= reach);
+  const nearBand = reach > 0 && !inBand && tierMin <= reach * 1.5 && (tierMax === 0 || tierMax >= reach * 0.5);
+
+  let score = 50;
+  const why = [];
+  // Naming the sport counts even when the row ALSO carries 'all'. A program page
+  // that lists softball by name is a stronger match than a blanket "all sports",
+  // and rows commonly carry both.
+  if (sportOk) { score += 15; if (sport && sports.includes(sport)) { score += 10; why.push(`works with ${sport} athletes specifically`); } }
+  else { score -= 25; why.push(`their program lists ${sports.join(', ')}, not ${sport || 'this sport'}`); }
+  if (inBand) { score += 20; why.push(`${reach.toLocaleString()} combined followers sits inside their stated tier`); }
+  else if (nearBand) { score += 5; why.push(`${reach.toLocaleString()} followers is near their stated tier`); }
+  else if (reach > 0 && tierMin > reach) { score -= 15; why.push(`their program starts around ${tierMin.toLocaleString()} followers`); }
+  else if (!reach) why.push('no follower counts on file for this athlete yet');
+  if (row.freshness === 'current') score += 5;
+  else why.push(`program page last verified ${row.proofAge} months ago`);
+
+  score = Math.max(1, Math.min(99, score));
+  return { fitScore: score, fitWhy: why };
+}
+
 // Serve the Social lane straight from the curated social_brands index, matched to
 // the athlete's combined IG+TikTok reach and sport. Pure DB read: no web search,
 // no AI, no cache write. Returns [] on any error so the lane degrades to empty
@@ -3198,5 +3256,6 @@ module.exports = {
   ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
   ensureFeedbackColumns, logScanShown, getScanSignal, applyScanSignal,
   ensureMarketSightings, markMarketNewcomers, NEW_WINDOW_DAYS,
+  findNationalBrand, scoreNationalBrandFit,
   pool
 };
