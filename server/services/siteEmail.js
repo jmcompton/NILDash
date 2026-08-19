@@ -415,3 +415,66 @@ module.exports = {
   extractMailtos, extractPlainEmails, contactLinks, hasContactForm,
   MAX_PAGES, REJECT_LOCALS, ROLE_LOCALS, corporateDomainsFrom,
 };
+
+// ── Does this website plausibly belong to this business? ─────────────────────
+// SIZING A PROBLEM, NOT FIXING IT. Places sometimes returns an unrelated
+// national site for a local business -- Agua Plus pointed at rotoplas.com.mx,
+// David Protein at a Vitamin Shoppe locator. Two consequences: the shared-domain
+// chain heuristic mislabels those as corporate, and any address scraped from
+// them belongs to the wrong company.
+//
+// The test is deliberately CONSERVATIVE -- it only reports a mismatch when the
+// business name and the domain share nothing at all. That means it catches the
+// Agua Plus class and MISSES the Barstool class, where "Barstool Athletics"
+// points at barstoolsports.com: the token overlaps, so this cannot tell that it
+// is the wrong entity at the right brand. Undercounting is the right direction
+// for a number used to decide whether to act.
+const NAME_STOPWORDS = new Set([
+  'the', 'of', 'and', 'a', 'an', 'at', 'in', 'on', 'for', 'llc', 'inc', 'co',
+  'corp', 'ltd', 'company', 'group', 'holdings', 'enterprises', 'services',
+  'restaurant', 'cafe', 'coffee', 'bar', 'grill', 'kitchen', 'shop', 'store',
+  'salon', 'studio', 'gym', 'fitness', 'center', 'centre', 'clinic', 'auto',
+  'motors', 'plus', 'pro', 'best', 'new', 'my', 'us',
+]);
+
+function nameTokens(brand) {
+  return String(brand || '').toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/).filter((t) => t.length >= 3 && !NAME_STOPWORDS.has(t));
+}
+
+// { plausible, reason, matchedOn }
+function domainMatchesBusiness(brand, website) {
+  const root = rootDomain(website);
+  if (!root) return { plausible: false, reason: 'no resolvable domain', matchedOn: null };
+  const label = root.split('.')[0];                   // "rotoplas" from rotoplas.com.mx
+  const flat = label.replace(/[^a-z0-9]/g, '');
+  const toks = nameTokens(brand);
+  const collapsed = String(brand || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  if (!toks.length) return { plausible: true, reason: 'business name is all generic words, cannot judge', matchedOn: null };
+
+  // A significant name token inside the domain label, or the domain label
+  // inside the collapsed name ("onyxcoffeelab" vs "Onyx Coffee Lab").
+  const hit = toks.find((t) => flat.includes(t));
+  if (hit) return { plausible: true, reason: null, matchedOn: hit };
+  if (collapsed && flat.length >= 4 && collapsed.includes(flat)) {
+    return { plausible: true, reason: null, matchedOn: flat };
+  }
+  // Acronym: "David Protein Bar" -> "dpb"
+  const acr = toks.map((t) => t[0]).join('');
+  if (acr.length >= 3 && flat.includes(acr)) return { plausible: true, reason: null, matchedOn: acr + ' (acronym)' };
+
+  const foreign = /\.(mx|uk|ca|au|de|fr|es|it|nl|br|in|cn|jp)$/.test(root)
+    || /\.com\.[a-z]{2}$/.test(root);
+  return {
+    plausible: false,
+    matchedOn: null,
+    reason: 'no word of "' + String(brand).trim() + '" appears in ' + root
+      + (foreign ? ' (and it is a foreign domain)' : ''),
+    foreign,
+  };
+}
+
+module.exports.nameTokens = nameTokens;
+module.exports.domainMatchesBusiness = domainMatchesBusiness;

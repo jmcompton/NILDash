@@ -9741,7 +9741,7 @@ app.get('/admin/local-coverage', async (req, res) => {
   const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : 0);
 
   let places = null, ledger = null, site = null, err = null;
-  let split = null, chains = [], named = [], dedup = null, ig = null;
+  let split = null, chains = [], named = [], dedup = null, ig = null, mismatch = null;
   try {
     places = (await store.pool.query(`
       SELECT COUNT(*)::int AS looked_up,
@@ -9813,6 +9813,28 @@ app.get('/admin/local-coverage', async (req, res) => {
                               AND evidence->>'bioText' ~* '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}')::int AS bio_has_email,
              COUNT(*) FILTER (WHERE NULLIF(evidence->>'ownerName','') IS NOT NULL)::int AS with_owner
         FROM brand_evidence_cache WHERE lane='instagram'`)).rows[0];
+
+    // WEBSITE↔BUSINESS MISMATCH, over every distinct website. Read-only,
+    // measured in JS rather than SQL because the test is a name/token
+    // comparison, not something a query can express.
+    const { domainMatchesBusiness } = require('./services/siteEmail');
+    const sites = (await store.pool.query(`
+      SELECT DISTINCT ON (website) brand, website
+        FROM brand_evidence_cache
+       WHERE lane='places' AND website IS NOT NULL AND website <> ''
+       ORDER BY website, refreshed_at DESC`)).rows;
+    mismatch = { total: sites.length, bad: 0, foreign: 0, unjudged: 0, examples: [] };
+    for (const s of sites) {
+      const v = domainMatchesBusiness(s.brand, s.website);
+      if (v.reason && /cannot judge/.test(v.reason)) { mismatch.unjudged++; continue; }
+      if (!v.plausible) {
+        mismatch.bad++;
+        if (v.foreign) mismatch.foreign++;
+        if (mismatch.examples.length < 25) {
+          mismatch.examples.push({ brand: s.brand, website: s.website, reason: v.reason });
+        }
+      }
+    }
   } catch (e) { err = e.message; }
 
   const bar = (n, d, colour) => {
@@ -9931,6 +9953,23 @@ ${!named || !named.length
         <td class="dim">${esc(r.via || (r.shared ? r.shared + ' businesses on this domain' : ''))}</td>
       </tr>`).join('') + '</tbody></table>'}
 
+<h2>3b — Websites that do not match the business</h2>
+${!mismatch ? '' : `<table><tbody>
+  <tr><td>Distinct websites checked</td><td class="mono">${mismatch.total}</td></tr>
+  <tr><td><b>Domain shares NO word with the business name</b></td>
+      <td>${bar(mismatch.bad, mismatch.total, '#f59e0b')}</td></tr>
+  <tr><td>&nbsp;&nbsp;of those, on a foreign TLD</td><td class="mono">${mismatch.foreign}</td></tr>
+  <tr><td>Name too generic to judge <span class="dim">(not counted either way)</span></td>
+      <td class="mono">${mismatch.unjudged}</td></tr>
+</tbody></table>
+<p class="note">This is a <b>floor, not a total</b>. The test only fires when the name and the
+domain share nothing at all, which catches the Agua Plus → rotoplas.com.mx class. It does NOT
+catch Barstool Athletics → barstoolsports.com: the token overlaps, so a wrong-entity-at-the-right-brand
+match looks fine to it. The real mismatch rate is higher than the number above.</p>
+${!mismatch.examples.length ? '' : `<table><thead><tr><th>Business</th><th>Website</th></tr></thead><tbody>`
+  + mismatch.examples.map((e) => `<tr class="no"><td>${esc(e.brand)}</td>
+      <td class="mono dim">${esc(e.website)}</td></tr>`).join('') + '</tbody></table>'}`}
+
 <h2>4 — Instagram lane: what are we already holding?</h2>
 ${!ig ? '' : `<table><tbody>
   <tr><td>Instagram rows cached</td><td class="mono">${ig.rows}</td></tr>
@@ -9949,11 +9988,13 @@ a booking/contact-field address is published by the account, a bio-prose one is 
 exactly what <span class="mono">evidenceKind</span> exists to record.</p>`}
 
 <div class="runbox" style="border-left-color:#f59e0b;margin-top:14px">
-  <button id="recl" onclick="reclassify()">Reclassify corporate flags</button>
+  <button id="recl" onclick="reclassify()" disabled style="opacity:.5">Reclassify corporate flags — HELD</button>
   <div class="dim" style="margin-top:8px">
-    Free and instant — no refetching. corporate is derived, not scraped, so it can be
-    recomputed from data already on disk using the shared-domain chain count plus any
-    cached parent-or-brand contacts. This is what the first backfill ran without.
+    <b style="color:#f59e0b">Held deliberately.</b> The chain signal counts businesses sharing a
+    domain — but section 3b shows some of those shared domains are <i>mismatches</i>, not chains
+    (several unrelated locals all wrongly pointed at one national site would look identical to a
+    franchise). Running this now would stamp <span class="mono">corporate</span> on businesses whose
+    only crime is a bad website match. Re-enable once website matching is understood.
   </div>
   <div id="reclout" class="prog"></div>
 </div>
@@ -9971,30 +10012,62 @@ function reclassify(){
 }
 </script>
 <script>
+// NOTHING HERE MAY RENDER AN ERROR AS DATA. The previous version did
+// r.json() with no status check, so a 404 {"error":"Not found"}, a 401
+// {"error":"Not authenticated"} and a 403 {"error":"Forbidden"} all rendered
+// as "undefined / undefined" -- three different faults, one meaningless
+// symptom, and no way to tell which. Every response is now status-checked
+// first and the status is shown.
+function say(html){ document.getElementById('prog').innerHTML = html; }
+function fail(msg){
+  var btn=document.getElementById('run'); btn.disabled=false; btn.textContent='Run backfill';
+  console.error('[site-email-backfill] ' + msg);
+  say('<div style="color:#f59e0b">'+msg+'</div>');
+}
+function readJson(r){
+  return r.text().then(function(t){
+    var body; try { body = JSON.parse(t); } catch(e){ body = null; }
+    if(!r.ok){
+      var detail = body && body.error ? body.error : (t||'').slice(0,140);
+      var hint = r.status===404 ? ' — this route is not on the running build, so the deploy is behind.'
+        : (r.status===401 ? ' — the session is not being sent; sign in again.'
+        : (r.status===403 ? ' — signed in, but not as an admin account.' : ''));
+      throw new Error('HTTP '+r.status+': '+detail+hint);
+    }
+    if(!body) throw new Error('HTTP '+r.status+' but the body was not JSON: '+(t||'').slice(0,140));
+    return body;
+  });
+}
 function startBackfill(){
   var btn=document.getElementById('run');
   btn.disabled=true; btn.textContent='Starting…';
+  say('<span class="dim">Starting…</span>');
   fetch('/api/admin/site-email-backfill',{method:'POST',headers:{'Content-Type':'application/json'},
+    credentials:'same-origin',
     body:JSON.stringify({force:document.getElementById('force').checked})})
-   .then(function(r){return r.json();})
-   .then(function(){ poll(); })
-   .catch(function(e){ btn.disabled=false; btn.textContent='Run backfill';
-     document.getElementById('prog').textContent='Failed to start: '+e.message; });
+   .then(readJson)
+   .then(function(d){ console.log('[site-email-backfill] started', d); poll(); })
+   .catch(function(e){ fail('Could not start: '+e.message); });
 }
 function poll(){
-  fetch('/api/admin/site-email-backfill').then(function(r){return r.json();}).then(function(s){
+  fetch('/api/admin/site-email-backfill',{credentials:'same-origin'})
+   .then(readJson).then(function(s){
     var btn=document.getElementById('run');
+    // A well-formed response always carries these. If it does not, say so
+    // rather than printing undefined.
+    if(typeof s.total!=='number'||typeof s.done!=='number'){
+      return fail('Unexpected response shape (no done/total): '+JSON.stringify(s).slice(0,200));
+    }
     var pct=s.total?Math.round(s.done/s.total*100):0;
-    document.getElementById('prog').innerHTML =
-      '<div class="barwrap" style="width:100%"><div class="bar" style="width:'+pct+'%;background:#84CC16"></div></div>'+
+    say('<div class="barwrap" style="width:100%"><div class="bar" style="width:'+pct+'%;background:#84CC16"></div></div>'+
       '<div class="mono" style="margin-top:6px">'+s.done+' / '+s.total+' ('+pct+'%) &nbsp;·&nbsp; '+
       'email '+s.ok+' &nbsp;form '+s.form+' &nbsp;none '+s.none+' &nbsp;corporate '+s.corporate+
       (s.errors?' &nbsp;errors '+s.errors:'')+'</div>'+
-      (s.lastBrand?'<div class="dim mono" style="margin-top:4px">'+String(s.lastBrand).slice(0,80)+'</div>':'');
+      (s.lastBrand?'<div class="dim mono" style="margin-top:4px">'+String(s.lastBrand).slice(0,80)+'</div>':''));
     if(s.running){ btn.textContent='Running…'; setTimeout(poll,1500); }
     else { btn.disabled=false; btn.textContent='Run backfill';
-      if(s.total) document.getElementById('prog').innerHTML+='<div style="margin-top:8px;color:#84CC16">Finished. Reload to update the table below.</div>'; }
-  }).catch(function(){ setTimeout(poll,3000); });
+      if(s.done) document.getElementById('prog').innerHTML+='<div style="margin-top:8px;color:#84CC16">Finished. Reload to update the tables.</div>'; }
+  }).catch(function(e){ fail(e.message); });
 }
 poll();
 </script>
