@@ -9573,7 +9573,9 @@ app.post('/api/admin/website-validate', requireAuth, async (req, res) => {
     }
     const { validateWebsite } = require('./services/websiteValidation');
     const rows = (await store.pool.query(
-      `SELECT DISTINCT ON (website) brand, website, evidence->>'name' AS google_name
+      `SELECT DISTINCT ON (website) brand, website,
+              evidence->>'name' AS google_name,
+              evidence->>'address' AS address
          FROM brand_evidence_cache
         WHERE lane='places' AND website IS NOT NULL AND website <> ''
         ORDER BY website, refreshed_at DESC`)).rows;
@@ -9581,7 +9583,9 @@ app.post('/api/admin/website-validate', requireAuth, async (req, res) => {
     const counts = { total: rows.length, pass: 0, social: 0, platform: 0,
       rejectName: 0, rejectDomain: 0, borderline: 0, byRule: {} };
     for (const r of rows) {
-      const v = validateWebsite(r.brand, r.google_name, r.website);
+      // The address lets a dropped word be recognised as a LOCATION without a
+      // gazetteer: any city or street in the listing's own address counts.
+      const v = validateWebsite(r.brand, r.google_name, r.website, { address: r.address });
       if (v.verdict === 'pass') counts.pass++;
       else if (v.verdict === 'social') counts.social++;
       else if (v.verdict === 'platform') counts.platform++;
@@ -9602,6 +9606,8 @@ app.post('/api/admin/website-validate', requireAuth, async (req, res) => {
           returned: r.google_name || null,
           coverage: typeof v.coverage === 'number' ? v.coverage : null,
           missing: v.missing || [],
+          added: v.added || [],
+          note: v.verdict === 'pass' ? (v.nameNote || null) : null,
           unverified: v.verdict === 'reject-name' ? 'unverified-website' : null,
         },
         v.verdict === 'pass' ? 'OK' : v.verdict.toUpperCase()

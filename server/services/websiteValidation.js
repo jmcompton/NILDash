@@ -92,55 +92,111 @@ function hostOf(url) {
 }
 
 // ── Layer 1: name agreement ──────────────────────────────────────────────────
-// EVERY DISTINCTIVE WORD OF THE NAME WE ASKED FOR MUST SURVIVE in the name
-// Places returned. Deliberately asymmetric: Places adding words is fine
-// ("Ourisman Chevrolet of Bowie" -> "... Service Center" keeps every asked
-// word), Places DROPPING a distinctive word is not ("Charleston Battery" ->
-// "The Battery" loses "charleston", the only word that identified it).
+// A DROPPED LOCATION OR QUALIFIER IS NOT A DIFFERENT BUSINESS. Places routinely
+// returns a shorter form of the same listing:
+//   "Genesis Health Clubs - Manhattan West" -> "... - Manhattan"   (drops west)
+//   "National Land Realty, Tuscaloosa Office" -> "... - Tuscaloosa" (drops office)
+//   "Infinity Med-I-Spa of Homewood" -> "Infinity Med-I-Spa"        (drops homewood)
+//   "Rick Hendrick BMW Charleston" -> "Rick Hendrick BMW"           (drops charleston)
+// All four are the same business. So a drop is forgiven -- but only under three
+// conditions together, because two of the failure cases have drop signatures
+// IDENTICAL to the good ones.
 //
-// A dropped word cannot be judged safe from the strings alone -- "Rally House
-// Fayetteville" -> "Rally House" drops a city and is probably right, while
-// "Charleston Battery" -> "The Battery" drops a city and is wrong. So anything
-// with partial coverage is REJECTED but flagged borderline, and the borderline
-// list is meant to be read before this runs at scale.
-function verifyPlaceName(asked, returned) {
+//   A. EVERY dropped word is a location or a generic qualifier. Dropping a real
+//      distinctive word is a different business.
+//   B. At least two distinctive words survive. This is what still fails
+//      "Charleston Battery" -> "The Battery": its drop signature is identical to
+//      Rick Hendrick's (one location word, nothing added), and the ONLY thing
+//      separating them is what is left -- three identifying words there, one
+//      common noun here. One survivor cannot identify a business.
+//   C. The returned name introduces no location or qualifier the asked name
+//      lacked. SUBSTITUTION IS NOT DROPPING: "Lincoln Family YMCA Phoenix" ->
+//      "Lincoln Family Downtown YMCA" swapped one branch for another.
+//
+// Location words are not guessed from a gazetteer. A dropped word counts as a
+// location when it appears in the place's own formattedAddress, which Places
+// already stored -- so any city, suburb or street name is recognised without a
+// list to maintain.
+const QUALIFIER_WORDS = new Set([
+  'office', 'center', 'centre', 'branch', 'location', 'store', 'shop', 'outlet',
+  'west', 'east', 'north', 'south', 'northwest', 'northeast', 'southwest',
+  'southeast', 'nw', 'ne', 'sw', 'se', 'downtown', 'uptown', 'midtown',
+  'central', 'main', 'plaza', 'mall', 'campus', 'annex', 'suite', 'unit',
+  'service', 'sales', 'parts', 'collision', 'express', 'drive', 'thru',
+  'sports', 'athletics', 'club', 'clubs', 'gym', 'fitness', 'spa', 'salon',
+  'dealership', 'showroom', 'depot', 'market', 'station', 'lot', 'yard',
+]);
+
+function addressTokens(address) {
+  return new Set(String(address || '').toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((t) => t.length >= 3));
+}
+
+// opts.address -- the place's formattedAddress, used to recognise location words.
+function verifyPlaceName(asked, returned, opts = {}) {
   const a = nameTokens(asked);
   const r = nameTokens(returned);
   if (!asked || !returned) {
     return { ok: false, coverage: 0, missing: [], borderline: false, reason: 'no name to compare' };
   }
   if (!a.length) {
-    // Nothing distinctive to check against -- do not claim a disagreement.
     return { ok: true, coverage: 1, missing: [], borderline: false, reason: 'asked name is all generic words' };
   }
-  const rFlat = r.join(' ');
-  const rRaw = String(returned).toLowerCase().replace(/[^a-z0-9]/g, '');
-  const present = (t) => r.includes(t) || rFlat.includes(t) || rRaw.includes(t);
-  const missing = a.filter((t) => !present(t));
+  const addr = addressTokens(opts.address);
+  const isLoose = (t) => QUALIFIER_WORDS.has(t) || addr.has(t);
+
+  const near = (list, t) => list.some((x) => x === t || x.includes(t) || t.includes(x));
+  const missing = a.filter((t) => !near(r, t));
+  const added = r.filter((t) => !near(a, t));
   const coverage = (a.length - missing.length) / a.length;
+  if (!missing.length && !added.filter(isLoose).length) {
+    return { ok: true, coverage: 1, missing: [], borderline: false, reason: null };
+  }
+
+  // C. Substitution: the returned name brought in a location/qualifier of its own.
+  const addedLoose = added.filter(isLoose);
+  if (missing.length && addedLoose.length) {
+    return {
+      ok: false, coverage, missing, added: addedLoose, borderline: true,
+      reason: `Places swapped "${missing.join(', ')}" for "${addedLoose.join(', ')}" — a different branch`,
+    };
+  }
   if (!missing.length) return { ok: true, coverage: 1, missing: [], borderline: false, reason: null };
+
+  // A. Every dropped word must be a location or qualifier.
+  const hardDrops = missing.filter((t) => !isLoose(t));
+  if (hardDrops.length) {
+    return {
+      ok: false, coverage, missing, borderline: coverage > 0,
+      reason: `Places dropped ${hardDrops.map((m) => '"' + m + '"').join(', ')}, which is not a location or qualifier`,
+    };
+  }
+
+  // B. Enough must survive to still identify the business.
+  const survivors = a.filter((t) => near(r, t) && !isLoose(t));
+  if (survivors.length < 2) {
+    return {
+      ok: false, coverage, missing, borderline: true,
+      reason: `only "${survivors.join(', ') || '(nothing)'}" survives after dropping ${missing.map((m) => '"' + m + '"').join(', ')}`
+        + ' — too little left to identify the business',
+    };
+  }
   return {
-    ok: false,
-    coverage,
-    missing,
-    // Partial overlap is the ambiguous zone a human should look at; zero
-    // overlap is unambiguously a different business.
-    borderline: coverage > 0,
-    reason: coverage > 0
-      ? `Places dropped ${missing.map((m) => '"' + m + '"').join(', ')} from the name`
-      : 'no word of the name survived',
+    ok: true, coverage, missing, borderline: false,
+    reason: `dropped ${missing.map((m) => '"' + m + '"').join(', ')} (location/qualifier), `
+      + `${survivors.length} distinctive words survive`,
   };
 }
 
 // ── Layer 2 + the whole verdict ──────────────────────────────────────────────
 // verdict: pass | social | platform | reject-name | reject-domain
-function validateWebsite(brand, googleName, website) {
+function validateWebsite(brand, googleName, website, opts = {}) {
   const host = hostOf(website);
   const root = rootDomain(website);
   if (!root) return { verdict: 'reject-domain', rule: 'no-domain', detail: 'not a resolvable URL', borderline: false };
 
   // 1. NAME FIRST. A wrong-entity match makes every later question moot.
-  const nameCheck = verifyPlaceName(brand, googleName);
+  const nameCheck = verifyPlaceName(brand, googleName, { address: opts.address });
   if (!nameCheck.ok) {
     return {
       verdict: 'reject-name',
@@ -150,6 +206,7 @@ function validateWebsite(brand, googleName, website) {
       returned: googleName,
       coverage: nameCheck.coverage,
       missing: nameCheck.missing,
+      added: nameCheck.added || [],
       borderline: nameCheck.borderline,
     };
   }
@@ -188,10 +245,12 @@ function validateWebsite(brand, googleName, website) {
       return { verdict: 'reject-domain', rule: 'store-locator-page', detail: host, borderline: false };
     }
   }
-  return { verdict: 'pass', rule: null, detail: root, borderline: false };
+  return { verdict: 'pass', rule: null, detail: root, borderline: false,
+    // When a location/qualifier drop was forgiven, say so on the row.
+    nameNote: nameCheck.reason || null };
 }
 
 module.exports = {
-  validateWebsite, verifyPlaceName, hostOf, hostMatches,
+  validateWebsite, verifyPlaceName, hostOf, hostMatches, QUALIFIER_WORDS,
   DIRECTORY_HOSTS, RETAILER_HOSTS, MLM_HOSTS, SOCIAL_HOSTS, PLATFORM_HOSTS,
 };
