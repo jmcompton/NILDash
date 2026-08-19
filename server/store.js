@@ -1,5 +1,8 @@
 // server/store.js — PostgreSQL persistent storage
 const { Pool } = require('pg');
+// When THIS process started. Used to tell a job left running by a previous
+// process from one this process is running right now.
+const BOOT_AT = new Date();
 const scanMeter = require('./scanMeter');
 
 const pool = new Pool({
@@ -1359,6 +1362,48 @@ async function init() {
     )
   `).then(() => console.log('[init] outreach_queue_ondemand table ready'))
     .catch(e => console.error('[init] outreach_queue_ondemand:', e.message));
+
+  // ── Site-email backfill jobs ──────────────────────────────────────────────
+  // PROGRESS LIVES IN THE DATABASE, NOT IN A MODULE VARIABLE. A run over
+  // hundreds of sites takes many minutes; if the process restarts partway --
+  // a deploy, an OOM, an unhandled rejection -- in-memory counters vanish and
+  // the page has nothing to show, which is indistinguishable from "never
+  // started". A row survives the restart and says exactly how far it got.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS site_email_jobs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'running',
+      total INT DEFAULT 0,
+      done INT DEFAULT 0,
+      ok INT DEFAULT 0,
+      form INT DEFAULT 0,
+      none INT DEFAULT 0,
+      corporate INT DEFAULT 0,
+      fetch_failed INT DEFAULT 0,
+      js_rendered INT DEFAULT 0,
+      fetched_empty INT DEFAULT 0,
+      errors INT DEFAULT 0,
+      collapsed INT DEFAULT 0,
+      reasons JSONB DEFAULT '{}'::jsonb,
+      last_brand TEXT,
+      error TEXT,
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      finished_at TIMESTAMPTZ
+    )
+  `).then(() => console.log('[init] site_email_jobs table ready'))
+    .catch(e => console.error('[init] site_email_jobs:', e.message));
+  // A job left 'running' by a process that died is not running. Anything still
+  // marked running at boot is stale by definition, since the only writer is
+  // this process.
+  // SCOPED TO JOBS OLDER THAN THIS PROCESS. init() is async and the server is
+  // already listening while it runs, so an unscoped UPDATE can land AFTER a job
+  // this process just started and mark a live run as interrupted.
+  await pool.query(
+    `UPDATE site_email_jobs SET status='interrupted', error='process restarted mid-run', finished_at=NOW()
+      WHERE status='running' AND started_at < $1`, [BOOT_AT]
+  ).then((r) => { if (r.rowCount) console.log(`[init] marked ${r.rowCount} interrupted site-email job(s)`); })
+    .catch(() => {});
 
   // ── Reply capture (Resend Inbound) ────────────────────────────────────────
   // Set on EVERY inbound event the webhook sees for this row, including bounces

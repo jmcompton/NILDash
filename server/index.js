@@ -9480,6 +9480,7 @@ app.get('/admin/inbound', async (req, res) => {
         ORDER BY sent_at DESC LIMIT 10`)).rows;
   } catch (e) { sendsErr = e.message; }
 
+  if (errs.length) err = errs.join(' | ');
   const esc = (s) => String(s == null ? '' : s)
     .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const body = err
@@ -9567,93 +9568,145 @@ ${body}
 // call -- the LLM fallback is injected and this route does not inject it, so a
 // backfill cannot spend anything on Anthropic. Businesses already cached are
 // skipped outright unless force is set.
-const _seBackfill = { running: false, done: 0, total: 0, ok: 0, form: 0, none: 0, corporate: 0,
-  fetchFailed: 0, jsRendered: 0, fetchedEmpty: 0, collapsed: 0, businessesCovered: 0,
-  reasons: {}, errors: 0, startedAt: null, finishedAt: null, lastBrand: null };
+// ── Site-email backfill, admin only ───────────────────────────────────────────
+// A BACKGROUND JOB, NOT A LONG REQUEST. Hundreds of sites at up to 6s each is
+// tens of minutes of work; doing it inside the request is what made Railway's
+// edge give up and return 502 with no response from the app. The POST now
+// creates a job row, returns its id immediately, and the worker runs detached.
+//
+// Progress is written to site_email_jobs, not a module variable, so a restart
+// mid-run leaves a row saying how far it got instead of silently losing
+// everything. Every await in the worker is inside a try, and the worker itself
+// is wrapped, because an unhandled rejection in a detached async function
+// takes the whole process down -- which is the other way this returns 502.
+//
+// COST: plain HTTP, max 3 fetches a business, cached by domain, no model call.
+const SE_CONCURRENCY = 4;   // polite, and finishes 500 sites in minutes not an hour
 
-app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
-  const user = await store.getUser(req.session.userId);
-  if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  if (_seBackfill.running) return res.json({ alreadyRunning: true, ...(_seBackfill) });
+async function _seRunJob(jobId, rows, force) {
+  const { findSiteEmail } = require('./services/siteEmail');
+  const tally = { done: 0, ok: 0, form: 0, none: 0, corporate: 0,
+    fetchFailed: 0, jsRendered: 0, fetchedEmpty: 0, errors: 0, reasons: {}, lastBrand: null };
+  let cursor = 0;
+  let lastFlush = 0;
 
-  const force = req.body && req.body.force === true;
-  // DISTINCT ON (website) is deliberate -- the siteEmail cache is keyed by
-  // DOMAIN, so fetching the same site once per location would be pure waste.
-  // But the count of businesses collapsed into each row is not waste, it is the
-  // chain signal: a website serving several DISTINCT businesses belongs to a
-  // chain, and a one-location business never shares its domain. That count is
-  // carried through as sharedSites so the franchise check works without needing
-  // a deep contact lookup that a local scan almost never runs.
-  const rows = (await store.pool.query(
-    `SELECT DISTINCT ON (website) brand, website,
-            COUNT(DISTINCT LOWER(brand)) OVER (PARTITION BY website)::int AS shared_sites,
-            COUNT(*) OVER (PARTITION BY website)::int AS rows_on_site
-       FROM brand_evidence_cache
-      WHERE lane = 'places' AND website IS NOT NULL AND website <> ''
-      ORDER BY website, refreshed_at DESC`)).rows;
-  const _collapsed = rows.reduce((n, r) => n + (r.rows_on_site - 1), 0);
-  console.log(`[site-email-backfill] ${rows.length} distinct websites `
-    + `covering ${rows.length + _collapsed} business rows (${_collapsed} share a domain with another)`);
+  const flush = async (final) => {
+    try {
+      await store.pool.query(
+        `UPDATE site_email_jobs SET done=$2, ok=$3, form=$4, none=$5, corporate=$6,
+           fetch_failed=$7, js_rendered=$8, fetched_empty=$9, errors=$10,
+           reasons=$11::jsonb, last_brand=$12, updated_at=NOW()
+           ${final ? ", status='done', finished_at=NOW()" : ''}
+         WHERE id=$1`,
+        [jobId, tally.done, tally.ok, tally.form, tally.none, tally.corporate,
+         tally.fetchFailed, tally.jsRendered, tally.fetchedEmpty, tally.errors,
+         JSON.stringify(tally.reasons), tally.lastBrand]);
+    } catch (e) { console.error('[site-email-backfill] flush failed:', e.message); }
+  };
 
-  Object.assign(_seBackfill, {
-    running: true, done: 0, total: rows.length, ok: 0, form: 0, none: 0,
-    corporate: 0, fetchFailed: 0, jsRendered: 0, fetchedEmpty: 0,
-    collapsed: _collapsed, businessesCovered: rows.length + _collapsed,
-    reasons: {}, errors: 0, startedAt: Date.now(), finishedAt: null, lastBrand: null,
-  });
-
-  setImmediate(async () => {
-    const { findSiteEmail } = require('./services/siteEmail');
-    for (const r of rows) {
-      _seBackfill.lastBrand = r.brand || r.website;
+  const worker = async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= rows.length) return;
+      const r = rows[i];
+      tally.lastBrand = r.brand || r.website;
       try {
-        // notAffiliated comes from whatever the contacts lane already cached for
-        // this business, so the franchise check uses real evidence rather than a
-        // list. Absent for a business never deep-looked-up; that is fine.
         const ev = (await store.pool.query(
-          `SELECT evidence FROM brand_evidence_cache
-            WHERE lane = 'contacts' AND brand = $1 LIMIT 1`, [r.brand]).catch(() => ({ rows: [] }))).rows[0];
+          `SELECT evidence FROM brand_evidence_cache WHERE lane='contacts' AND brand=$1 LIMIT 1`,
+          [r.brand]).catch(() => ({ rows: [] }))).rows[0];
         const notAffiliated = (ev && ev.evidence && ev.evidence.notAffiliated) || [];
         const out = await findSiteEmail(r.website, {
-          brand: r.brand, notAffiliated, force,
-          // The chain signal, from the dedup count above.
-          sharedSites: r.shared_sites || 1,
+          brand: r.brand, notAffiliated, force, sharedSites: r.shared_sites || 1,
         });
-        if (!out) _seBackfill.errors++;
-        else if (out.email) { _seBackfill.ok++; if (out.corporate) _seBackfill.corporate++; }
-        else if (out.formUrl) _seBackfill.form++;
+        if (!out) tally.errors++;
+        else if (out.email) { tally.ok++; if (out.corporate) tally.corporate++; }
+        else if (out.formUrl) tally.form++;
         else {
-          _seBackfill.none++;
-          // WHY nothing, not just that nothing. A scraper problem and a genuine
-          // miss look identical in a single count, and they call for opposite
-          // responses -- fix the fetcher, or accept the lane is thinner.
+          tally.none++;
           if (out.outcomeKind === 'fetch-failed') {
-            _seBackfill.fetchFailed++;
+            tally.fetchFailed++;
             const k = out.failureReason || 'unknown';
-            _seBackfill.reasons[k] = (_seBackfill.reasons[k] || 0) + 1;
+            tally.reasons[k] = (tally.reasons[k] || 0) + 1;
           } else if (out.outcomeKind === 'js-rendered') {
-            _seBackfill.jsRendered++;
+            tally.jsRendered++;
             const k = 'js-rendered (no static text)';
-            _seBackfill.reasons[k] = (_seBackfill.reasons[k] || 0) + 1;
-          } else {
-            _seBackfill.fetchedEmpty++;
-          }
+            tally.reasons[k] = (tally.reasons[k] || 0) + 1;
+          } else tally.fetchedEmpty++;
         }
       } catch (e) {
-        _seBackfill.errors++;
+        tally.errors++;
         console.error('[site-email-backfill]', r.website, e.message);
       }
-      _seBackfill.done++;
+      tally.done++;
+      if (Date.now() - lastFlush > 2000) { lastFlush = Date.now(); await flush(false); }
     }
-    _seBackfill.running = false;
-    _seBackfill.finishedAt = Date.now();
-    console.log(`[site-email-backfill] done ${_seBackfill.done}/${_seBackfill.total} `
-      + `email=${_seBackfill.ok} form=${_seBackfill.form} none=${_seBackfill.none} errors=${_seBackfill.errors}`);
-  });
+  };
 
-  res.json({ started: true, total: rows.length });
+  try {
+    await Promise.all(Array.from({ length: Math.min(SE_CONCURRENCY, rows.length || 1) }, worker));
+    await flush(true);
+    console.log(`[site-email-backfill] job=${jobId} done ${tally.done}/${rows.length} `
+      + `email=${tally.ok} form=${tally.form} none=${tally.none} errors=${tally.errors}`);
+  } catch (e) {
+    // A detached async function that rejects kills the process. Never.
+    console.error('[site-email-backfill] job=' + jobId + ' FAILED:', e.message);
+    await store.pool.query(
+      `UPDATE site_email_jobs SET status='failed', error=$2, finished_at=NOW() WHERE id=$1`,
+      [jobId, String(e.message).slice(0, 400)]).catch(() => {});
+  }
+}
+
+app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const running = (await store.pool.query(
+      `SELECT id FROM site_email_jobs WHERE status='running' LIMIT 1`)).rows[0];
+    if (running) return res.json({ alreadyRunning: true, jobId: running.id });
+
+    const force = req.body && req.body.force === true;
+    // DISTINCT ON (website): the siteEmail cache is keyed by DOMAIN, so fetching
+    // one site once per location would be waste. The collapsed count rides along
+    // as the chain signal.
+    // COUNT(DISTINCT x) OVER (...) is NOT valid Postgres -- "DISTINCT is not
+    // implemented for window functions". It threw on every call, and an async
+    // Express 4 handler that rejects sends NO response, which is what Railway's
+    // edge reported as a 502. Aggregated in a CTE instead, where COUNT(DISTINCT)
+    // is fine, then joined back.
+    const rows = (await store.pool.query(
+      `WITH per_site AS (
+         SELECT website,
+                COUNT(DISTINCT LOWER(brand))::int AS shared_sites,
+                COUNT(*)::int AS rows_on_site
+           FROM brand_evidence_cache
+          WHERE lane = 'places' AND website IS NOT NULL AND website <> ''
+          GROUP BY website
+       )
+       SELECT DISTINCT ON (b.website) b.brand, b.website, p.shared_sites, p.rows_on_site
+         FROM brand_evidence_cache b
+         JOIN per_site p ON p.website = b.website
+        WHERE b.lane = 'places' AND b.website IS NOT NULL AND b.website <> ''
+        ORDER BY b.website, b.refreshed_at DESC`)).rows;
+    const collapsed = rows.reduce((n, r) => n + (r.rows_on_site - 1), 0);
+
+    const jobId = 'seb_' + require('crypto').randomBytes(6).toString('hex');
+    await store.pool.query(
+      `INSERT INTO site_email_jobs (id, total, collapsed) VALUES ($1,$2,$3)`,
+      [jobId, rows.length, collapsed]);
+
+    // Detached. The response goes out now; nothing below it can delay it.
+    setImmediate(() => {
+      _seRunJob(jobId, rows, force).catch((e) =>
+        console.error('[site-email-backfill] unhandled:', e && e.message));
+    });
+    console.log(`[site-email-backfill] job=${jobId} started over ${rows.length} websites`);
+    res.json({ started: true, jobId, total: rows.length, collapsed });
+  } catch (e) {
+    console.error('[site-email-backfill/start]', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // POST /api/admin/site-email-reclassify — FREE, no refetch.
@@ -9711,11 +9764,26 @@ app.post('/api/admin/site-email-reclassify', requireAuth, async (req, res) => {
 });
 
 app.get('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
-  const user = await store.getUser(req.session.userId);
-  if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
-    return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const j = (await store.pool.query(
+      `SELECT * FROM site_email_jobs ORDER BY started_at DESC LIMIT 1`)).rows[0];
+    if (!j) return res.json({ running: false, done: 0, total: 0, ok: 0, form: 0, none: 0, corporate: 0, errors: 0, never: true });
+    res.json({
+      jobId: j.id, running: j.status === 'running', status: j.status,
+      done: j.done, total: j.total, ok: j.ok, form: j.form, none: j.none,
+      corporate: j.corporate, errors: j.errors, collapsed: j.collapsed,
+      fetchFailed: j.fetch_failed, jsRendered: j.js_rendered, fetchedEmpty: j.fetched_empty,
+      reasons: j.reasons || {}, lastBrand: j.last_brand, error: j.error,
+      startedAt: j.started_at, finishedAt: j.finished_at,
+    });
+  } catch (e) {
+    console.error('[site-email-backfill/status]', e.message);
+    res.status(500).json({ error: e.message });
   }
-  res.json(_seBackfill);
 });
 
 // ── /admin/local-coverage ─────────────────────────────────────────────────────
@@ -9742,52 +9810,59 @@ app.get('/admin/local-coverage', async (req, res) => {
 
   let places = null, ledger = null, site = null, err = null;
   let split = null, chains = [], named = [], dedup = null, ig = null, mismatch = null;
-  try {
-    places = (await store.pool.query(`
+  // EACH SECTION FAILS ALONE. These nine queries used to share one try/catch,
+  // so a single failure blanked every section computed after it -- which is
+  // why 3b, computed last, rendered nothing at all while the page looked fine.
+  const errs = [];
+  const safe = async (label, fn) => {
+    try { return await fn(); }
+    catch (e) { errs.push(label + ': ' + e.message); console.error('[local-coverage] ' + label, e.message); return null; }
+  };
+  places = await safe('places', async () => (await store.pool.query(`
       SELECT COUNT(*)::int AS looked_up,
              COUNT(*) FILTER (WHERE COALESCE(evidence->>'found','true') <> 'false')::int AS found,
              COUNT(*) FILTER (WHERE website IS NOT NULL AND website <> '')::int AS with_site
-        FROM brand_evidence_cache WHERE lane = 'places'`)).rows[0];
-    ledger = (await store.pool.query(`
+        FROM brand_evidence_cache WHERE lane = 'places'`)).rows[0]);
+  ledger = await safe('ledger', async () => (await store.pool.query(`
       SELECT COUNT(*)::int AS total,
              COUNT(*) FILTER (WHERE state = 'shown')::int AS shown
-        FROM brand_engagement WHERE lane = 'local'`)).rows[0];
-    site = (await store.pool.query(`
+        FROM brand_engagement WHERE lane = 'local'`)).rows[0]);
+  site = await safe('site', async () => (await store.pool.query(`
       SELECT COUNT(*)::int AS n,
              COUNT(*) FILTER (WHERE evidence->>'type' = 'personal')::int AS personal,
              COUNT(*) FILTER (WHERE evidence->>'type' = 'role')::int     AS role,
              COUNT(*) FILTER (WHERE evidence->>'type' = 'form')::int     AS form,
              COUNT(*) FILTER (WHERE evidence->>'type' IS NULL)::int      AS none,
              COUNT(*) FILTER (WHERE evidence->>'corporate' = 'true')::int AS corporate
-        FROM brand_evidence_cache WHERE lane = 'siteemail'`)).rows[0];
+        FROM brand_evidence_cache WHERE lane = 'siteemail'`)).rows[0]);
 
     // Q2: WHY nothing was found, split by cause.
-    split = (await store.pool.query(`
+  split = (await safe('split', async () => (await store.pool.query(`
       SELECT COALESCE(evidence->>'outcomeKind','(not recorded)') AS kind,
              COALESCE(evidence->>'failureReason','—') AS reason,
              COUNT(*)::int AS n
         FROM brand_evidence_cache
        WHERE lane='siteemail' AND evidence->>'email' IS NULL AND evidence->>'formUrl' IS NULL
-       GROUP BY 1,2 ORDER BY n DESC`)).rows;
+       GROUP BY 1,2 ORDER BY n DESC`)).rows)) || [];
 
     // Q3: where the businesses went. One row per website, N businesses behind it.
-    dedup = (await store.pool.query(`
+  dedup = await safe('dedup', async () => (await store.pool.query(`
       SELECT COUNT(*)::int AS business_rows,
              COUNT(DISTINCT website)::int AS distinct_sites
         FROM brand_evidence_cache
-       WHERE lane='places' AND website IS NOT NULL AND website <> ''`)).rows[0];
+       WHERE lane='places' AND website IS NOT NULL AND website <> ''`)).rows[0]);
 
     // Q1 + Q3: the websites shared by more than one business = the chains.
-    chains = (await store.pool.query(`
+  chains = (await safe('chains', async () => (await store.pool.query(`
       SELECT website, COUNT(DISTINCT LOWER(brand))::int AS businesses,
              MIN(brand) AS example
         FROM brand_evidence_cache
        WHERE lane='places' AND website IS NOT NULL AND website <> ''
        GROUP BY website HAVING COUNT(DISTINCT LOWER(brand)) > 1
-       ORDER BY businesses DESC LIMIT 15`)).rows;
+       ORDER BY businesses DESC LIMIT 15`)).rows)) || [];
 
     // Q1: the three you named, whatever their current state.
-    named = (await store.pool.query(`
+  named = (await safe('named', async () => (await store.pool.query(`
       SELECT p.brand, p.website,
              s.evidence->>'email' AS email, s.evidence->>'type' AS type,
              s.evidence->>'corporate' AS corporate, s.evidence->>'corporateVia' AS via,
@@ -9799,12 +9874,12 @@ app.get('/admin/local-coverage', async (req, res) => {
          AND p.website ILIKE '%' || (s.evidence->>'siteRoot') || '%'
        WHERE p.lane='places'
          AND (p.brand ILIKE '%cane%' OR p.brand ILIKE '%wingstop%' OR p.brand ILIKE '%planet fitness%')
-       ORDER BY p.brand LIMIT 30`)).rows;
+       ORDER BY p.brand LIMIT 30`)).rows)) || [];
 
     // INSTAGRAM LANE, read-only. What are we already holding but not using?
     // bookingEmail is captured today; bioText is captured today and never
     // parsed for an address. Both are already on disk, so this costs nothing.
-    ig = (await store.pool.query(`
+  ig = await safe('ig', async () => (await store.pool.query(`
       SELECT COUNT(*)::int AS rows,
              COUNT(*) FILTER (WHERE evidence->>'handle' IS NOT NULL)::int AS with_handle,
              COUNT(*) FILTER (WHERE NULLIF(evidence->>'bookingEmail','') IS NOT NULL)::int AS with_booking,
@@ -9812,19 +9887,19 @@ app.get('/admin/local-coverage', async (req, res) => {
              COUNT(*) FILTER (WHERE NULLIF(evidence->>'bookingEmail','') IS NULL
                               AND evidence->>'bioText' ~* '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}')::int AS bio_has_email,
              COUNT(*) FILTER (WHERE NULLIF(evidence->>'ownerName','') IS NOT NULL)::int AS with_owner
-        FROM brand_evidence_cache WHERE lane='instagram'`)).rows[0];
+        FROM brand_evidence_cache WHERE lane='instagram'`)).rows[0]);
 
     // WEBSITE↔BUSINESS MISMATCH, over every distinct website. Read-only,
     // measured in JS rather than SQL because the test is a name/token
     // comparison, not something a query can express.
-    const { domainMatchesBusiness } = require('./services/siteEmail');
-    const sites = (await store.pool.query(`
+  const { domainMatchesBusiness } = require('./services/siteEmail');
+  const sites = (await safe('mismatch-sites', async () => (await store.pool.query(`
       SELECT DISTINCT ON (website) brand, website
         FROM brand_evidence_cache
        WHERE lane='places' AND website IS NOT NULL AND website <> ''
-       ORDER BY website, refreshed_at DESC`)).rows;
-    mismatch = { total: sites.length, bad: 0, foreign: 0, unjudged: 0, examples: [] };
-    for (const s of sites) {
+       ORDER BY website, refreshed_at DESC`)).rows)) || [];
+  mismatch = { total: sites.length, bad: 0, foreign: 0, unjudged: 0, examples: [] };
+  for (const s of sites) {
       const v = domainMatchesBusiness(s.brand, s.website);
       if (v.reason && /cannot judge/.test(v.reason)) { mismatch.unjudged++; continue; }
       if (!v.plausible) {
@@ -9835,7 +9910,7 @@ app.get('/admin/local-coverage', async (req, res) => {
         }
       }
     }
-  } catch (e) { err = e.message; }
+
 
   const bar = (n, d, colour) => {
     const p = pct(n, d);
@@ -9843,7 +9918,7 @@ app.get('/admin/local-coverage', async (req, res) => {
             <span class="mono">${n} / ${d} &nbsp;<b>${p}%</b></span>`;
   };
 
-  const q1 = err ? `<p class="empty">Could not read: ${esc(err)}</p>` : `
+  const q1 = (!places || !ledger) ? `<p class="empty">Could not read section 1: ${esc(err || 'unknown')}</p>` : `
     <table><tbody>
       <tr><td>Local businesses in the engagement ledger</td><td class="mono">${ledger.total} (${ledger.shown} still in 'shown')</td></tr>
       <tr><td>Businesses Places has been asked about</td><td class="mono">${places.looked_up}</td></tr>
@@ -9855,7 +9930,7 @@ app.get('/admin/local-coverage', async (req, res) => {
     resolve has no website field either way. Every one of these already has its URL stored in
     <span class="mono">brand_evidence_cache.website</span> — nothing needed capturing.</p>`;
 
-  const q2 = err ? '' : (site.n === 0
+  const q2 = !site ? '<p class="empty">Could not read section 2.</p>' : (site.n === 0
     ? `<p class="empty">No website email capture has run yet.<br>
        <span class="dim">This section fills in once the capture step is wired and a scan has run.
        It reads <span class="mono">brand_evidence_cache</span> lane <span class="mono">siteemail</span>.</span></p>`
@@ -10046,7 +10121,9 @@ function startBackfill(){
     credentials:'same-origin',
     body:JSON.stringify({force:document.getElementById('force').checked})})
    .then(readJson)
-   .then(function(d){ console.log('[site-email-backfill] started', d); poll(); })
+   .then(function(d){ console.log('[site-email-backfill] started', d);
+     if(d.alreadyRunning) say('<span class="dim">A run is already in progress, attaching to it…</span>');
+     poll(); })
    .catch(function(e){ fail('Could not start: '+e.message); });
 }
 function poll(){
@@ -10064,9 +10141,13 @@ function poll(){
       'email '+s.ok+' &nbsp;form '+s.form+' &nbsp;none '+s.none+' &nbsp;corporate '+s.corporate+
       (s.errors?' &nbsp;errors '+s.errors:'')+'</div>'+
       (s.lastBrand?'<div class="dim mono" style="margin-top:4px">'+String(s.lastBrand).slice(0,80)+'</div>':''));
-    if(s.running){ btn.textContent='Running…'; setTimeout(poll,1500); }
+    if(s.running){ btn.textContent='Running…'; setTimeout(poll,2000); }
     else { btn.disabled=false; btn.textContent='Run backfill';
-      if(s.done) document.getElementById('prog').innerHTML+='<div style="margin-top:8px;color:#84CC16">Finished. Reload to update the tables.</div>'; }
+      var tail='';
+      if(s.status==='failed') tail='<div style="margin-top:8px;color:#f59e0b">Job failed: '+(s.error||'unknown')+'</div>';
+      else if(s.status==='interrupted') tail='<div style="margin-top:8px;color:#f59e0b">The process restarted mid-run — '+s.done+' of '+s.total+' were completed and saved. Run again to finish the rest (cached ones are free).</div>';
+      else if(s.done) tail='<div style="margin-top:8px;color:#84CC16">Finished. Reload to update the tables.</div>';
+      if(tail) document.getElementById('prog').innerHTML+=tail; }
   }).catch(function(e){ fail(e.message); });
 }
 poll();
