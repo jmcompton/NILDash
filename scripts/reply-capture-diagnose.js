@@ -23,7 +23,44 @@
 //   DATABASE_URL="postgres://..." node scripts/reply-capture-diagnose.js [--limit 20]
 
 const { Pool } = require('pg');
+const dns = require('dns').promises;
 const replyCapture = require('../server/services/replyCapture');
+
+// Resend Inbound is SES-backed; this is the documented MX target.
+const EXPECTED_MX = 'inbound-smtp.us-east-1.amazonaws.com';
+
+// The DNS half. An MX that resolves proves the record exists -- it does NOT
+// prove the domain is registered as a RECEIVING DOMAIN in Resend, which is a
+// separate step and the usual reason mail vanishes with no bounce and no log
+// entry: it reaches the shared SES endpoint, matches no receipt rule for that
+// recipient domain, and is dropped before Resend ever ingests it.
+async function checkDns(domain) {
+  console.log(`\n=== 1b. DNS for ${domain} ===`);
+  let mx = [];
+  try { mx = await dns.resolveMx(domain); } catch (e) {
+    console.log(`  MX -> NONE (${e.code}). Mail to this domain cannot reach Resend at all.`);
+    return;
+  }
+  for (const r of mx) console.log(`  MX -> ${r.exchange} (priority ${r.priority})`);
+  const hit = mx.find((r) => r.exchange.toLowerCase() === EXPECTED_MX);
+  if (!hit) {
+    console.log(`  *** No MX points at ${EXPECTED_MX}. Copy the exact MX value from`);
+    console.log('      the Resend dashboard for this domain.');
+  } else if (mx.some((r) => r.priority < hit.priority)) {
+    console.log('  *** Resend is NOT the lowest-priority MX, so mail goes elsewhere first.');
+  } else {
+    console.log('  -> MX is correct and lowest priority.');
+  }
+  try {
+    const txt = await dns.resolveTxt(domain);
+    console.log(`  TXT -> ${JSON.stringify(txt.map((t) => t.join('')))}`);
+  } catch (_) {
+    console.log('  TXT -> none. Worth noting: adding a domain in Resend normally issues');
+    console.log('      TXT records for it. A host with an MX but no TXT at all is often a');
+    console.log('      hand-created MX on a subdomain that was never added as a Resend');
+    console.log('      domain -- in which case Resend will never receive its mail.');
+  }
+}
 
 function arg(name, dflt) {
   const i = process.argv.indexOf(name);
@@ -48,6 +85,8 @@ async function main() {
   console.log(`  RESEND_API_KEY                 = ${process.env.RESEND_API_KEY ? 'set' : '*** NOT SET -- body fetch would fail ***'}`);
   console.log(`  effective reply domain         = ${replyCapture.REPLY_DOMAIN}`);
   console.log(`  module-level ENABLED           = ${replyCapture.ENABLED}`);
+
+  await checkDns(replyCapture.REPLY_DOMAIN);
 
   if (!process.env.DATABASE_URL) {
     console.log('\nDATABASE_URL is not set, so the ledger half of this report is skipped.');
