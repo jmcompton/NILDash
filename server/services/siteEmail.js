@@ -49,16 +49,30 @@ const ROLE_LOCALS = new Set([
   'shop', 'store', 'studio', 'clinic', 'desk', 'ask', 'connect',
 ]);
 
-// Seeds for the franchise case. Not exhaustive by design -- the authoritative
-// signal is the isFranchise flag the scan already produces; this only catches
-// the common national brands when that flag is missing.
-const CORPORATE_DOMAINS = new Set([
-  'raisingcanes.com', 'wingstop.com', 'planetfitness.com', 'subway.com',
-  'chick-fil-a.com', 'mcdonalds.com', 'dominos.com', 'papajohns.com',
-  'jimmyjohns.com', 'tropicalsmoothiecafe.com', 'smoothieking.com',
-  'anytimefitness.com', 'orangetheory.com', 'crunch.com', 'goldsgym.com',
-  'statefarm.com', 'allstate.com', 'edwardjones.com', 'greatclips.com',
-]);
+// FRANCHISE DETECTION IS NOT REIMPLEMENTED HERE. The contacts lane already
+// works it out per business and caches the answer: every contact whose
+// affiliationScope resolved to 'parent-or-brand' is kept in
+// evidence.notAffiliated (ai.js:1735) precisely because they belong to the
+// franchisor, the operator or corporate head office rather than this location.
+//
+// That is a better signal than any hardcoded brand list could be -- it is
+// evidence about THIS business, gathered when we looked it up, rather than a
+// list somebody has to remember to extend when a new chain shows up. So the
+// corporate domains are derived from those held-back people: wherever the
+// parent's staff live is, by definition, the corporate domain.
+function corporateDomainsFrom(notAffiliated) {
+  const out = new Set();
+  for (const row of (notAffiliated || [])) {
+    if (!row) continue;
+    const fromEmail = row.email ? rootDomain(emailDomain(row.email)) : null;
+    if (fromEmail) out.add(fromEmail);
+    // sourceUrl is where the parent-or-brand person was PUBLISHED, which for a
+    // franchisor is the corporate site even when no address was found.
+    const fromSource = row.sourceUrl ? rootDomain(row.sourceUrl) : null;
+    if (fromSource) out.add(fromSource);
+  }
+  return out;
+}
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|svg|webp|bmp|ico|tiff?|avif)$/i;
 
@@ -297,9 +311,18 @@ async function findSiteEmail(website, opts = {}) {
 
   // FRANCHISE: a corporate address is useless for a local deal. Flagged rather
   // than dropped, so the card can say what it is instead of showing nothing.
-  const corporate = !!best && (
-    opts.isFranchise === true || CORPORATE_DOMAINS.has(best.domain)
-  );
+  //
+  // The domains come from the contacts lane's own cached notAffiliated rows --
+  // people we already established work for the parent, not this location. If
+  // the address we just scraped lives at the same domain as the franchisor's
+  // staff, it is the franchisor's address. isFranchise stays as a secondary
+  // signal because the scan already computes it upstream; it is read, not
+  // re-derived.
+  const corpDomains = corporateDomainsFrom(opts.notAffiliated);
+  const corporate = !!best && (corpDomains.has(best.domain) || opts.isFranchise === true);
+  const corporateVia = !best ? null
+    : (corpDomains.has(best.domain) ? 'parent-or-brand contact at the same domain'
+      : (opts.isFranchise === true ? 'scan flagged this as a franchise location' : null));
 
   const out = {
     v: CACHE_V,
@@ -308,6 +331,7 @@ async function findSiteEmail(website, opts = {}) {
     formUrl,
     corporate,
     corporateDomain: corporate && best ? best.domain : null,
+    corporateVia,
     free: best ? !!best.free : false,
     sourceUrl: best ? best.sourceUrl : formUrl,
     how: best ? best.how : (formUrl ? 'form' : null),
@@ -331,5 +355,5 @@ module.exports = {
   findSiteEmail,
   rootDomain, emailDomain, localPart, screenEmail, classifyEmail, rankEmail,
   extractMailtos, extractPlainEmails, contactLinks, hasContactForm,
-  MAX_PAGES, REJECT_LOCALS, ROLE_LOCALS, CORPORATE_DOMAINS,
+  MAX_PAGES, REJECT_LOCALS, ROLE_LOCALS, corporateDomainsFrom,
 };
