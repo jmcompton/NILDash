@@ -9558,6 +9558,110 @@ ${body}
 </body></html>`);
 });
 
+// ── /admin/local-coverage ─────────────────────────────────────────────────────
+// SIZING THE LOCAL EMAIL LANE, before anything is built on top of it.
+//
+// Two questions, one page, because both need production data and the Railway
+// database is not reachable from a laptop:
+//   1. What share of local businesses we have looked up actually HAVE a website?
+//      That is the ceiling on website-based email capture -- no site, no email.
+//   2. Once capture runs, how do those split into personal / role / form / none?
+//      Section 2 stays empty until the capture step is wired and has run.
+//
+// The website is already stored: brand_evidence_cache.website, lane 'places',
+// written by placesLookup on every lookup. Nothing had to be captured for
+// question 1 -- it has been recorded all along, just never read back.
+app.get('/admin/local-coverage', async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+    return res.status(403).send('Forbidden');
+  }
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : 0);
+
+  let places = null, ledger = null, site = null, err = null;
+  try {
+    places = (await store.pool.query(`
+      SELECT COUNT(*)::int AS looked_up,
+             COUNT(*) FILTER (WHERE COALESCE(evidence->>'found','true') <> 'false')::int AS found,
+             COUNT(*) FILTER (WHERE website IS NOT NULL AND website <> '')::int AS with_site
+        FROM brand_evidence_cache WHERE lane = 'places'`)).rows[0];
+    ledger = (await store.pool.query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE state = 'shown')::int AS shown
+        FROM brand_engagement WHERE lane = 'local'`)).rows[0];
+    site = (await store.pool.query(`
+      SELECT COUNT(*)::int AS n,
+             COUNT(*) FILTER (WHERE evidence->>'type' = 'personal')::int AS personal,
+             COUNT(*) FILTER (WHERE evidence->>'type' = 'role')::int     AS role,
+             COUNT(*) FILTER (WHERE evidence->>'type' = 'form')::int     AS form,
+             COUNT(*) FILTER (WHERE evidence->>'type' IS NULL)::int      AS none,
+             COUNT(*) FILTER (WHERE evidence->>'corporate' = 'true')::int AS corporate
+        FROM brand_evidence_cache WHERE lane = 'siteemail'`)).rows[0];
+  } catch (e) { err = e.message; }
+
+  const bar = (n, d, colour) => {
+    const p = pct(n, d);
+    return `<div class="barwrap"><div class="bar" style="width:${Math.min(100, p)}%;background:${colour}"></div></div>
+            <span class="mono">${n} / ${d} &nbsp;<b>${p}%</b></span>`;
+  };
+
+  const q1 = err ? `<p class="empty">Could not read: ${esc(err)}</p>` : `
+    <table><tbody>
+      <tr><td>Local businesses in the engagement ledger</td><td class="mono">${ledger.total} (${ledger.shown} still in 'shown')</td></tr>
+      <tr><td>Businesses Places has been asked about</td><td class="mono">${places.looked_up}</td></tr>
+      <tr><td>&nbsp;&nbsp;of those, Places actually found</td><td class="mono">${places.found}</td></tr>
+      <tr><td><b>Have a website — the ceiling on email capture</b></td>
+          <td>${bar(places.with_site, places.found, '#84CC16')}</td></tr>
+    </tbody></table>
+    <p class="note">The denominator is businesses Places <i>found</i>, since a business it could not
+    resolve has no website field either way. Every one of these already has its URL stored in
+    <span class="mono">brand_evidence_cache.website</span> — nothing needed capturing.</p>`;
+
+  const q2 = err ? '' : (site.n === 0
+    ? `<p class="empty">No website email capture has run yet.<br>
+       <span class="dim">This section fills in once the capture step is wired and a scan has run.
+       It reads <span class="mono">brand_evidence_cache</span> lane <span class="mono">siteemail</span>.</span></p>`
+    : `<table><tbody>
+        <tr><td>Businesses with a site that were checked</td><td class="mono">${site.n}</td></tr>
+        <tr><td>Personal email <span class="tag ok">best</span></td><td>${bar(site.personal, site.n, '#84CC16')}</td></tr>
+        <tr><td>Role email (info@, marketing@…)</td><td>${bar(site.role, site.n, '#3b82f6')}</td></tr>
+        <tr><td>Contact form only</td><td>${bar(site.form, site.n, '#f59e0b')}</td></tr>
+        <tr><td>Nothing found</td><td>${bar(site.none, site.n, '#4b5563')}</td></tr>
+        <tr><td>Flagged corporate / franchise <span class="dim">(not a local contact)</span></td>
+            <td class="mono">${site.corporate}</td></tr>
+      </tbody></table>`);
+
+  res.send(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Local coverage — NILDash admin</title>
+<style>
+ body{margin:0;background:#0b0f14;color:#D6D3CC;font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif;padding:24px;max-width:820px}
+ h1{font-size:17px;margin:0 0 4px} h2{font-size:13px;margin:26px 0 8px;color:#9CA3AF}
+ .sub{color:#6B7280;font-size:12.5px;margin-bottom:16px}
+ table{border-collapse:collapse;width:100%;font-size:13px}
+ td{padding:9px 10px;border-bottom:.5px solid #131c28;vertical-align:middle}
+ td:first-child{color:#9CA3AF} td:last-child{text-align:right;white-space:nowrap}
+ .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+ .dim{color:#6B7280}
+ .barwrap{display:inline-block;width:160px;height:7px;background:#131c28;border-radius:4px;
+          overflow:hidden;vertical-align:middle;margin-right:9px}
+ .bar{height:100%;border-radius:4px}
+ .note{color:#6B7280;font-size:12px;line-height:1.6;margin-top:10px}
+ .empty{color:#9CA3AF;background:#0D1520;border:.5px solid #1e2a3a;border-left:3px solid #f59e0b;
+        padding:14px 16px;border-radius:8px;font-size:13px}
+ .tag{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:4px;padding:1px 5px}
+ .tag.ok{color:#84CC16;background:rgba(132,204,22,.14)}
+</style></head><body>
+<h1>Local lane coverage</h1>
+<div class="sub">Reload to refresh. Read-only.</div>
+<h2>1 — Do local businesses have a website?</h2>
+${q1}
+<h2>2 — What email did we find on those sites?</h2>
+${q2}
+</body></html>`);
+});
+
 app.get('/api/admin/requests', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
