@@ -22,8 +22,12 @@
 //   railway run node scripts/reply-capture-diagnose.js
 //   DATABASE_URL="postgres://..." node scripts/reply-capture-diagnose.js [--limit 20]
 
-const { Pool } = require('pg');
+// pg is required LAZILY so the DNS half runs with no database, no
+// DATABASE_URL, and no node_modules:
+//   node scripts/reply-capture-diagnose.js --dns-only
+//   node scripts/reply-capture-diagnose.js --dns-only mynildash.com
 const dns = require('dns').promises;
+const { Resolver } = require('dns').promises;
 const replyCapture = require('../server/services/replyCapture');
 
 // Resend Inbound is SES-backed; this is the documented MX target.
@@ -34,14 +38,33 @@ const EXPECTED_MX = 'inbound-smtp.us-east-1.amazonaws.com';
 // separate step and the usual reason mail vanishes with no bounce and no log
 // entry: it reaches the shared SES endpoint, matches no receipt rule for that
 // recipient domain, and is dropped before Resend ever ingests it.
+// Public resolvers, so "it resolves for me" is never mistaken for "it resolves
+// for the internet". A record that is right at the registrar but not yet
+// propagated looks identical from inside the deploy.
+const PUBLIC_RESOLVERS = [
+  ['Google', '8.8.8.8'], ['Cloudflare', '1.1.1.1'],
+  ['Quad9', '9.9.9.9'], ['OpenDNS', '208.67.222.222'],
+];
+
 async function checkDns(domain) {
-  console.log(`\n=== 1b. DNS for ${domain} ===`);
+  console.log(`\n=== DNS for ${domain} ===`);
   let mx = [];
   try { mx = await dns.resolveMx(domain); } catch (e) {
     console.log(`  MX -> NONE (${e.code}). Mail to this domain cannot reach Resend at all.`);
     return;
   }
+
+  // RFC 7505: priority 0 with target "." is an explicit "this domain accepts no
+  // mail". Senders reject immediately, which reads to a human exactly like
+  // "address not valid" -- worth ruling out first, because it is the one record
+  // that makes a correct-looking setup undeliverable by design.
+  const nullMx = mx.find((r) => r.priority === 0 && (r.exchange === '.' || r.exchange === ''));
+  if (nullMx) {
+    console.log('  *** NULL MX (RFC 7505) present: this domain publicly declares that it');
+    console.log('      accepts NO mail. Every sender will reject. Remove it.');
+  }
   for (const r of mx) console.log(`  MX -> ${r.exchange} (priority ${r.priority})`);
+
   const hit = mx.find((r) => r.exchange.toLowerCase() === EXPECTED_MX);
   if (!hit) {
     console.log(`  *** No MX points at ${EXPECTED_MX}. Copy the exact MX value from`);
@@ -51,14 +74,67 @@ async function checkDns(domain) {
   } else {
     console.log('  -> MX is correct and lowest priority.');
   }
-  try {
-    const txt = await dns.resolveTxt(domain);
-    console.log(`  TXT -> ${JSON.stringify(txt.map((t) => t.join('')))}`);
-  } catch (_) {
-    console.log('  TXT -> none. Worth noting: adding a domain in Resend normally issues');
-    console.log('      TXT records for it. A host with an MX but no TXT at all is often a');
-    console.log('      hand-created MX on a subdomain that was never added as a Resend');
-    console.log('      domain -- in which case Resend will never receive its mail.');
+
+  // An MX naming a host with no address is an unroutable destination; senders
+  // report it as undeliverable without the domain ever being "wrong".
+  if (hit) {
+    try {
+      const ips = await dns.resolve4(hit.exchange);
+      console.log(`  -> MX target resolves (${ips.length} A record(s)).`);
+    } catch (e) {
+      console.log(`  *** MX target ${hit.exchange} does not resolve (${e.code}) -- unroutable.`);
+    }
+  }
+
+  // Cross-check from outside this network.
+  console.log('  Public resolvers:');
+  for (const [name, ip] of PUBLIC_RESOLVERS) {
+    const r = new Resolver({ timeout: 4000, tries: 2 });
+    r.setServers([ip]);
+    try {
+      const got = await r.resolveMx(domain);
+      console.log(`    ${name.padEnd(11)} ${got.map((m) => m.priority + ' ' + m.exchange).join(' | ')}`);
+    } catch (e) { console.log(`    ${name.padEnd(11)} ERROR ${e.code}`); }
+  }
+
+  let txt = [];
+  try { txt = (await dns.resolveTxt(domain)).map((t) => t.join('')); } catch (_) { txt = []; }
+  if (!txt.length) {
+    console.log('  TXT -> none. Adding a domain in Resend normally issues TXT records for');
+    console.log('      it; an MX with no TXT at all is often a hand-created MX on a host');
+    console.log('      that was never added as a Resend receiving domain.');
+  } else {
+    console.log('  TXT ->');
+    for (const t of txt) console.log('    ' + t);
+  }
+
+  // THE TRAP THIS CHECK EXISTS FOR. A domain claimed in a Microsoft 365 tenant
+  // is an "Accepted Domain" there, and Exchange Online resolves recipients on
+  // it against the TENANT DIRECTORY -- it never consults public MX for them. If
+  // the domain is Authoritative (the default) and no such mailbox exists,
+  // Outlook rejects at send time as "not a valid recipient"
+  // (550 5.1.10 RESOLVER.ADR.RecipientNotFound). Public DNS is perfect and
+  // irrelevant: the message never leaves Microsoft, so nothing ever reaches
+  // Resend and no internet bounce is generated.
+  if (txt.some((t) => /^MS=ms\d+/i.test(t))) {
+    console.log('\n  *** MICROSOFT 365 CLAIM DETECTED (MS=ms######## TXT).');
+    console.log('      This domain is claimed in a Microsoft 365 / Entra tenant. Mail sent');
+    console.log('      to it FROM INSIDE that tenant (Outlook / Exchange Online) is routed');
+    console.log('      internally against the tenant directory and NEVER uses the MX above.');
+    console.log('      With no mailbox of that name, Outlook reports "not valid" and the');
+    console.log('      send is undeliverable -- while senders OUTSIDE the tenant deliver');
+    console.log('      fine. This is the single most likely cause of "Resend says');
+    console.log('      configured, Outlook says the domain does not take mail".');
+    console.log('      TEST: send the same message from Gmail. If it arrives, this is it.');
+    console.log('      FIX:  in the M365 admin centre either remove this domain from the');
+    console.log('            tenant, or set its Accepted Domain type to Internal Relay so');
+    console.log('            unknown recipients are relayed out over public MX.');
+    console.log('      NOTE: deleting the MS= TXT alone does NOT fix it -- the tenant claim');
+    console.log('            is what routes the mail, the TXT is only the ownership proof.');
+  }
+  if (txt.some((t) => /^v=spf1/i.test(t))) {
+    console.log('  (SPF present on this host. SPF governs SENDING only and never affects');
+    console.log('   whether a domain can receive.)');
   }
 }
 
@@ -68,6 +144,18 @@ function arg(name, dflt) {
 }
 
 async function main() {
+  // DNS ONLY. No database, no DATABASE_URL, no env vars, no node_modules --
+  // this half is pure DNS and is the fastest way to answer "can this domain
+  // receive mail at all". Optionally takes a domain to check instead of the
+  // configured one.
+  if (process.argv.includes('--dns-only')) {
+    const i = process.argv.indexOf('--dns-only');
+    const next = process.argv[i + 1];
+    const domain = (next && !next.startsWith('--')) ? next : replyCapture.REPLY_DOMAIN;
+    await checkDns(domain);
+    return;
+  }
+
   console.log('=== 1. Environment (as this process sees it) ===');
   const raw = process.env.OUTREACH_REPLY_CAPTURE_ENABLED;
   const on = raw === '1';
@@ -80,7 +168,7 @@ async function main() {
   } else {
     console.log('  -> outbound capture is ON; a token Reply-To will be written.');
   }
-  console.log(`  OUTREACH_REPLY_DOMAIN          = ${process.env.OUTREACH_REPLY_DOMAIN || '(unset -> reply.mynildash.com)'}`);
+  console.log(`  OUTREACH_REPLY_DOMAIN          = ${process.env.OUTREACH_REPLY_DOMAIN || '(unset -> ' + replyCapture.REPLY_DOMAIN + ')'}`);
   console.log(`  RESEND_WEBHOOK_SECRET          = ${process.env.RESEND_WEBHOOK_SECRET ? 'set (' + process.env.RESEND_WEBHOOK_SECRET.slice(0, 6) + '…)' : '*** NOT SET -- the webhook route 503s every request ***'}`);
   console.log(`  RESEND_API_KEY                 = ${process.env.RESEND_API_KEY ? 'set' : '*** NOT SET -- body fetch would fail ***'}`);
   console.log(`  effective reply domain         = ${replyCapture.REPLY_DOMAIN}`);
@@ -94,6 +182,7 @@ async function main() {
     return;
   }
 
+  const { Pool } = require('pg');   // lazy: --dns-only must not need node_modules
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: /localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL) ? false : { rejectUnauthorized: false },
