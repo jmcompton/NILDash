@@ -405,9 +405,11 @@ router.post('/logs/:id/send', async (req, res) => {
     await pool.query(
       `UPDATE outreach_logs
        SET status='sent', sent_at=NOW(), email_account_id=$1,
-           email_message_id=$2, updated_at=NOW()
+           email_message_id=$2, sent_to_email=$4, updated_at=NOW()
        WHERE id=$3`,
-      [emailAccountId, sendResult?.providerMessageId || null, log.id]
+      // sent_to_email is what the named-address matcher joins on. Without it an
+      // inbound reply has nothing to be matched against at all.
+      [emailAccountId, sendResult?.providerMessageId || null, log.id, String(toEmail).trim().toLowerCase()]
     );
 
     // Log workflow event
@@ -500,6 +502,40 @@ router.get('/follow-ups', async (req, res) => {
 
 // ── Internal helper: delegate email send to existing service ──────────────────
 
+// The agent's public reply address, assigned once and then never changed --
+// it is printed on every email already sent, so a changed local part orphans
+// every reply still in flight.
+//
+// The ladder (johnmark -> johnmarkc -> johnmarkcompton -> johnmark2) is walked
+// against a UNIQUE index rather than a pre-flight "is it taken" SELECT, which
+// would race two simultaneous signups into the same address. A duplicate-key
+// error is the loop's normal exit, not an exception.
+async function ensureReplyLocalPart(agentId) {
+  const cur = await pool.query('SELECT name, email, reply_local_part FROM users WHERE id=$1', [agentId]);
+  const u = cur.rows[0];
+  if (!u) return null;
+  if (u.reply_local_part) return u.reply_local_part;
+
+  for (const cand of replyCapture.localPartCandidates(u.name, u.email)) {
+    const r = await pool.query(
+      `UPDATE users SET reply_local_part=$2, updated_at=NOW()
+        WHERE id=$1 AND reply_local_part IS NULL RETURNING reply_local_part`,
+      [agentId, cand]
+    ).catch((e) => (e.code === '23505' ? null : Promise.reject(e)));
+    if (r && r.rows[0]) {
+      console.log(`[reply-capture] agent=${agentId} assigned ${r.rows[0].reply_local_part}@${replyCapture.REPLY_DOMAIN}`);
+      return r.rows[0].reply_local_part;
+    }
+    if (r && !r.rows[0]) {
+      // The row was set by a concurrent request between our SELECT and UPDATE.
+      const again = await pool.query('SELECT reply_local_part FROM users WHERE id=$1', [agentId]);
+      if (again.rows[0] && again.rows[0].reply_local_part) return again.rows[0].reply_local_part;
+    }
+  }
+  console.error(`[reply-capture] agent=${agentId} could not be assigned a reply address`);
+  return null;
+}
+
 async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   // KNOWN GAP, stated rather than hidden. An athlete's mailbox is gmail_refresh_token
   // ON HER athletes row, not a row in email_accounts (that table keys on user_id).
@@ -538,7 +574,12 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   // mailbox, regardless of which provider actually sent this -- that's what lets
   // one webhook cover Gmail, Outlook and IMAP sends alike. null when reply
   // capture is off, so this is a no-op until the DNS/webhook side is verified.
-  const replyTo = replyCapture.replyToAddressFor(log.id);
+  //
+  // The agent's OWN named address, not a token: this is printed on a cold pitch
+  // to a business owner and has to read like a person.
+  const replyTo = replyCapture.ENABLED
+    ? replyCapture.agentReplyAddress(await ensureReplyLocalPart(req.principal.id))
+    : null;
 
   let result;
   if (account.provider === 'gmail') {

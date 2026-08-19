@@ -1261,6 +1261,29 @@ async function init() {
   ).catch((e) => console.error('[init] outreach draft key index:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_brand_key ON outreach_logs(brand_key)`).catch(() => {});
 
+  // ── Reply capture: the agent's own public reply address ───────────────────
+  // A cold pitch that replies to r8b3e030aceadf56c@ looks like a machine wrote
+  // it. Each agent gets johnmark@mynildash.com instead, derived from their name.
+  //
+  // PERSISTED AND UNIQUE, and once assigned it must NEVER change: it is printed
+  // on every email already sent, so a changed local part orphans every reply
+  // still in flight. The unique index is what makes the collision ladder in
+  // replyCapture.assignReplyLocalPart safe under concurrent signups.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS reply_local_part TEXT`).catch(() => {});
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_users_reply_local_part
+       ON users (reply_local_part) WHERE reply_local_part IS NOT NULL`
+  ).catch((e) => console.error('[init] users reply_local_part index:', e.message));
+
+  // WHO WE ACTUALLY EMAILED. Without a token in the address, the only way to tie
+  // an inbound reply back to an outreach is the sender -- so the recipient has
+  // to be recorded at send time. It never was: the send route took toEmail and
+  // threw it away after handing it to the provider.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS sent_to_email TEXT`).catch(() => {});
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_outreach_logs_sent_to ON outreach_logs (agent_id, sent_to_email)`
+  ).catch(() => {});
+
   // ── Outreach queue: backoff, and the on-demand day claim ──────────────────
   // WHY BACKOFF EXISTS. slotsToFill returns every empty slot every night, so an
   // athlete whose businesses keep failing the quality bar was re-attempted

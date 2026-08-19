@@ -69,20 +69,52 @@ async function processEvent(event) {
   }
   const data = event.data || {};
   const toList = Array.isArray(data.to) ? data.to : [data.to].filter(Boolean);
-  const match = toList.map((addr) => ({ addr, logId: replyCapture.logIdForReplyAddress(addr) }))
-    .find((x) => x.logId);
-  if (!match) {
-    console.log('[resend-inbound] no reply-token address in to=' + JSON.stringify(toList));
+  const rcpt = toList.map((addr) => replyCapture.classifyRecipient(addr)).find(Boolean);
+  if (!rcpt) {
+    console.log('[resend-inbound] no address we own in to=' + JSON.stringify(toList));
     return;
   }
 
-  const logRow = (await pool.query(
-    `SELECT ol.*, a.data->>'name' AS athlete_name
-       FROM outreach_logs ol LEFT JOIN athletes a ON a.id = ol.athlete_id
-      WHERE ol.id = $1`, [match.logId])).rows[0];
-  if (!logRow) {
-    console.log('[resend-inbound] token decoded to id=' + match.logId + ' but no outreach_logs row exists');
-    return;
+  // The domain is catch-all, so this webhook sees EVERY message to every
+  // address on it -- including mail to noreply@ and to humans. Anything that
+  // does not resolve to an agent is not ours and is dropped quietly.
+  let logRow = null;
+  let match = { precision: 'token', ambiguous: false, reason: null };
+
+  if (rcpt.kind === 'token') {
+    // Legacy: exact by construction. Kept so replies to already-sent token
+    // addresses keep working.
+    logRow = (await pool.query(
+      `SELECT ol.*, a.data->>'name' AS athlete_name
+         FROM outreach_logs ol LEFT JOIN athletes a ON a.id = ol.athlete_id
+        WHERE ol.id = $1`, [rcpt.logId])).rows[0] || null;
+    if (!logRow) {
+      console.log('[resend-inbound] token decoded to id=' + rcpt.logId + ' but no outreach_logs row exists');
+      return;
+    }
+  } else {
+    const agent = (await pool.query(
+      'SELECT id, email FROM users WHERE reply_local_part = $1', [rcpt.localPart])).rows[0];
+    if (!agent) {
+      console.log(`[resend-inbound] "${rcpt.localPart}@" is not an agent address — not ours, ignoring`);
+      return;
+    }
+    // Every outreach this agent has sent. The matcher, not SQL, decides which
+    // one this reply belongs to, so the precision ladder lives in one testable
+    // place rather than in a WHERE clause.
+    const rows = (await pool.query(
+      `SELECT ol.*, a.data->>'name' AS athlete_name
+         FROM outreach_logs ol LEFT JOIN athletes a ON a.id = ol.athlete_id
+        WHERE ol.agent_id = $1 AND ol.sent_to_email IS NOT NULL AND ol.status IN ('sent','replied')`,
+      [agent.id])).rows;
+    match = replyCapture.matchOutreach(rows, data.from);
+    logRow = match.row;
+    if (!logRow) {
+      console.log(`[resend-inbound] agent=${agent.id} got a reply from ${data.from} but ${match.reason}`);
+      return;
+    }
+    console.log(`[resend-inbound] matched by ${match.precision} from=${data.from} -> ${logRow.id}`
+      + (match.ambiguous ? ` [AMBIGUOUS: ${match.reason}]` : ''));
   }
 
   // Metadata only in the webhook payload -- headers and body require the
@@ -122,10 +154,10 @@ async function processEvent(event) {
 
   // A notification, not a forward -- see replyCapture.js for why. Best-effort:
   // a failed notify must never undo the markReplied above.
-  notifyAgentOfReply(logRow, text).catch((e) => console.error('[resend-inbound] notify failed:', e.message));
+  notifyAgentOfReply(logRow, text, match).catch((e) => console.error('[resend-inbound] notify failed:', e.message));
 }
 
-async function notifyAgentOfReply(logRow, text) {
+async function notifyAgentOfReply(logRow, text, match) {
   const agentRow = (await pool.query('SELECT email FROM users WHERE id = $1', [logRow.agent_id])).rows[0];
   if (!agentRow || !agentRow.email) return;
 
@@ -141,6 +173,14 @@ async function notifyAgentOfReply(logRow, text) {
       + (snippet
         ? `<p style="color:#555;border-left:3px solid #ddd;padding-left:10px;margin:14px 0">`
           + `${escapeHtml(snippet)}${text.length > 240 ? '…' : ''}</p>`
+        : '')
+      // AN AMBIGUOUS MATCH MUST NOT READ AS A CERTAIN ONE. Without a token in
+      // the address, a business that has been pitched twice by the same agent
+      // sends a reply that genuinely cannot be attributed from its content --
+      // so the agent is told, rather than shown a confident wrong answer.
+      + (match && match.ambiguous
+        ? `<p style="color:#92400e;background:#fef3c7;padding:9px 11px;border-radius:6px;font-size:13px">`
+          + `Heads up: ${escapeHtml(match.reason)}. Check which pitch this answers before replying.</p>`
         : '')
       + `<p><a href="${appUrl}/">Open NILDash</a> to see the full reply.</p>`,
   });
