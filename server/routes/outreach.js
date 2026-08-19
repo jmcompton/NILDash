@@ -405,11 +405,13 @@ router.post('/logs/:id/send', async (req, res) => {
     await pool.query(
       `UPDATE outreach_logs
        SET status='sent', sent_at=NOW(), email_account_id=$1,
-           email_message_id=$2, sent_to_email=$4, updated_at=NOW()
+           email_message_id=$2, sent_to_email=$4, message_id=$5, updated_at=NOW()
        WHERE id=$3`,
-      // sent_to_email is what the named-address matcher joins on. Without it an
-      // inbound reply has nothing to be matched against at all.
-      [emailAccountId, sendResult?.providerMessageId || null, log.id, String(toEmail).trim().toLowerCase()]
+      // sent_to_email is what the named-address matcher joins on. message_id is
+      // the RFC822 id we put on the wire, which a reply echoes in In-Reply-To --
+      // the only exact anchor left now that the address carries no token.
+      [emailAccountId, sendResult?.providerMessageId || null, log.id,
+       String(toEmail).trim().toLowerCase(), sendResult?.messageId || null]
     );
 
     // Log workflow event
@@ -580,26 +582,30 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   const replyTo = replyCapture.ENABLED
     ? replyCapture.agentReplyAddress(await ensureReplyLocalPart(req.principal.id))
     : null;
+  // Minted here, put on the wire below, and returned so the caller can store it.
+  // This is the exact anchor the named address no longer provides.
+  const messageId = replyCapture.ENABLED ? replyCapture.buildMessageId(log.id) : null;
 
   let result;
   if (account.provider === 'gmail') {
     const gmail = require('../services/providers/gmail');
     result = await gmail.sendEmail(accessToken, refreshToken, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments, replyTo,
+      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments, replyTo, messageId,
     });
   } else if (account.provider === 'outlook' || account.provider === 'microsoft365') {
     const outlook = require('../services/providers/outlook');
     result = await outlook.sendEmail(accessToken, refreshToken, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments, replyTo,
+      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, attachments, replyTo, messageId,
     });
   } else {
     const imapProvider = require('../services/providers/imap');
     const imapConfig = refreshToken ? JSON.parse(refreshToken) : {};
     result = await imapProvider.sendEmail(account.email_address, accessToken, imapConfig, {
-      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, replyTo,
+      to: [toEmail], subject: log.subject, bodyHtml: log.body_html, replyTo, messageId,
     });
   }
-  return result;
+  // messageId travels back so the caller stores exactly what went on the wire.
+  return { ...(result || {}), messageId };
 }
 
 module.exports = router;

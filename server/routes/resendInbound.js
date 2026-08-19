@@ -72,53 +72,15 @@ async function processEvent(event) {
   const rcpt = toList.map((addr) => replyCapture.classifyRecipient(addr)).find(Boolean);
   if (!rcpt) {
     console.log('[resend-inbound] no address we own in to=' + JSON.stringify(toList));
+    // Still recorded: the domain is catch-all, and "why did nothing arrive" is
+    // unanswerable if the messages that DID arrive left no trace.
+    await recordInbound(data, { matchMethod: 'not-ours', note: 'recipient is not an agent address' });
     return;
   }
 
-  // The domain is catch-all, so this webhook sees EVERY message to every
-  // address on it -- including mail to noreply@ and to humans. Anything that
-  // does not resolve to an agent is not ours and is dropped quietly.
-  let logRow = null;
-  let match = { precision: 'token', ambiguous: false, reason: null };
-
-  if (rcpt.kind === 'token') {
-    // Legacy: exact by construction. Kept so replies to already-sent token
-    // addresses keep working.
-    logRow = (await pool.query(
-      `SELECT ol.*, a.data->>'name' AS athlete_name
-         FROM outreach_logs ol LEFT JOIN athletes a ON a.id = ol.athlete_id
-        WHERE ol.id = $1`, [rcpt.logId])).rows[0] || null;
-    if (!logRow) {
-      console.log('[resend-inbound] token decoded to id=' + rcpt.logId + ' but no outreach_logs row exists');
-      return;
-    }
-  } else {
-    const agent = (await pool.query(
-      'SELECT id, email FROM users WHERE reply_local_part = $1', [rcpt.localPart])).rows[0];
-    if (!agent) {
-      console.log(`[resend-inbound] "${rcpt.localPart}@" is not an agent address — not ours, ignoring`);
-      return;
-    }
-    // Every outreach this agent has sent. The matcher, not SQL, decides which
-    // one this reply belongs to, so the precision ladder lives in one testable
-    // place rather than in a WHERE clause.
-    const rows = (await pool.query(
-      `SELECT ol.*, a.data->>'name' AS athlete_name
-         FROM outreach_logs ol LEFT JOIN athletes a ON a.id = ol.athlete_id
-        WHERE ol.agent_id = $1 AND ol.sent_to_email IS NOT NULL AND ol.status IN ('sent','replied')`,
-      [agent.id])).rows;
-    match = replyCapture.matchOutreach(rows, data.from);
-    logRow = match.row;
-    if (!logRow) {
-      console.log(`[resend-inbound] agent=${agent.id} got a reply from ${data.from} but ${match.reason}`);
-      return;
-    }
-    console.log(`[resend-inbound] matched by ${match.precision} from=${data.from} -> ${logRow.id}`
-      + (match.ambiguous ? ` [AMBIGUOUS: ${match.reason}]` : ''));
-  }
-
-  // Metadata only in the webhook payload -- headers and body require the
-  // separate Receiving API call.
+  // FETCH THE FULL MESSAGE FIRST. The webhook payload is metadata only, and
+  // header matching needs In-Reply-To / References -- so the body fetch has to
+  // happen before matching, not after it.
   let full = null;
   try {
     const got = await resend.emails.receiving.get(data.email_id);
@@ -129,8 +91,88 @@ async function processEvent(event) {
   const headers = (full && full.headers) || null;
   const text = (full && full.text) || '';
   const html = (full && full.html) || '';
+  const hdr = replyCapture.normalizeHeaders(headers);
+
+  // ── MATCH, in strict order of certainty ───────────────────────────────────
+  //   a. In-Reply-To / References against the Message-ID we set at send time.
+  //      EXACT: it identifies one outreach even when the same business has been
+  //      pitched twice by the same agent, which is the case (b) cannot resolve.
+  //   b. sender From against outreach_logs.sent_to_email (exact, then domain).
+  //   c. neither -> stored unmatched. Never discarded.
+  let logRow = null;
+  let match = { precision: null, ambiguous: false, reason: null };
+  let matchMethod = null;
+  let agentId = null;
+
+  if (rcpt.kind === 'token') {
+    // Legacy token address: exact by construction. Kept so replies to mail
+    // already sent under that scheme keep working.
+    logRow = (await pool.query(
+      `SELECT ol.*, a.data->>'name' AS athlete_name
+         FROM outreach_logs ol LEFT JOIN athletes a ON a.id = ol.athlete_id
+        WHERE ol.id = $1`, [rcpt.logId])).rows[0] || null;
+    matchMethod = logRow ? 'legacy-token' : null;
+    match = { precision: 'token', ambiguous: false, reason: null };
+  } else {
+    const agent = (await pool.query(
+      'SELECT id, email FROM users WHERE reply_local_part = $1', [rcpt.localPart])).rows[0];
+    if (!agent) {
+      console.log(`[resend-inbound] "${rcpt.localPart}@" is not an agent address — not ours`);
+      await recordInbound(data, { matchMethod: 'not-ours', hdr, note: `no agent owns "${rcpt.localPart}"` });
+      return;
+    }
+    agentId = agent.id;
+
+    // (a) header match -- exact, and immune to the two-pitches ambiguity.
+    const refs = replyCapture.referencedMessageIds(headers);
+    if (refs.length) {
+      const r = await pool.query(
+        `SELECT ol.*, a.data->>'name' AS athlete_name
+           FROM outreach_logs ol LEFT JOIN athletes a ON a.id = ol.athlete_id
+          WHERE ol.agent_id = $1 AND ol.message_id = ANY($2::text[]) LIMIT 1`,
+        [agent.id, refs]);
+      if (r.rows[0]) {
+        logRow = r.rows[0];
+        matchMethod = 'in-reply-to';
+        match = { precision: 'message-id', ambiguous: false, reason: null };
+        console.log(`[resend-inbound] matched by In-Reply-To -> ${logRow.id}`);
+      }
+    }
+
+    // (b) sender match -- the fallback, with its own precision ladder.
+    if (!logRow) {
+      const rows = (await pool.query(
+        `SELECT ol.*, a.data->>'name' AS athlete_name
+           FROM outreach_logs ol LEFT JOIN athletes a ON a.id = ol.athlete_id
+          WHERE ol.agent_id = $1 AND ol.sent_to_email IS NOT NULL AND ol.status IN ('sent','replied')`,
+        [agent.id])).rows;
+      match = replyCapture.matchOutreach(rows, data.from);
+      logRow = match.row;
+      if (logRow) {
+        matchMethod = 'from-' + match.precision;
+        console.log(`[resend-inbound] matched by ${match.precision} from=${data.from} -> ${logRow.id}`
+          + (match.ambiguous ? ` [AMBIGUOUS: ${match.reason}]` : ''));
+      }
+    }
+  }
 
   const classification = replyCapture.classifyInbound({ headers, subject: data.subject, from: data.from });
+
+  // (c) EVERY inbound is recorded, matched or not. An unmatched reply is not
+  // noise -- it is a customer whose answer we would otherwise have thrown away.
+  await recordInbound(data, {
+    matchMethod: matchMethod || 'unmatched',
+    matchedId: logRow ? logRow.id : null,
+    classification: classification.kind,
+    hdr,
+    note: logRow ? (match.ambiguous ? match.reason : null) : (match.reason || 'no outreach matched this sender'),
+  });
+
+  if (!logRow) {
+    console.log(`[resend-inbound] UNMATCHED from=${data.from} agent=${agentId || '?'} — stored for review at /admin/inbound`);
+    return;
+  }
+
   console.log(`[resend-inbound] outreach=${logRow.id} brand="${logRow.brand_name}" from=${data.from} `
     + `classified=${classification.kind}${classification.reason ? ' (' + classification.reason + ')' : ''}`);
 
@@ -155,6 +197,24 @@ async function processEvent(event) {
   // A notification, not a forward -- see replyCapture.js for why. Best-effort:
   // a failed notify must never undo the markReplied above.
   notifyAgentOfReply(logRow, text, match).catch((e) => console.error('[resend-inbound] notify failed:', e.message));
+}
+
+// Every accepted inbound, matched or not. This is the table /admin/inbound
+// reads, and it is the only reason an unmatched reply is recoverable at all.
+// Best-effort by design: a logging failure must never cost us a real reply.
+async function recordInbound(data, opts = {}) {
+  const hdr = opts.hdr || {};
+  const to = Array.isArray(data.to) ? data.to.join(', ') : (data.to || null);
+  await pool.query(
+    `INSERT INTO inbound_messages
+       (email_id, from_addr, to_addr, subject, message_id, in_reply_to,
+        matched_outreach_id, match_method, classification, note, payload)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [data.email_id || null, data.from || null, to, data.subject || null,
+     hdr['message-id'] || null, hdr['in-reply-to'] || null,
+     opts.matchedId || null, opts.matchMethod || null,
+     opts.classification || null, opts.note || null, JSON.stringify(data || {})]
+  ).catch((e) => console.error('[resend-inbound] failed to record inbound:', e.message));
 }
 
 async function notifyAgentOfReply(logRow, text, match) {

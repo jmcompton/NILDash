@@ -1284,6 +1284,40 @@ async function init() {
     `CREATE INDEX IF NOT EXISTS idx_outreach_logs_sent_to ON outreach_logs (agent_id, sent_to_email)`
   ).catch(() => {});
 
+  // THE RFC822 MESSAGE-ID WE SET ON THE OUTGOING MAIL. Distinct from
+  // email_message_id, which holds the PROVIDER's own id (a Gmail API id, or
+  // null from Graph) and is not what a replying client echoes back. A reply
+  // echoes the RFC822 Message-ID in In-Reply-To / References, so this is the
+  // only field that can tie a reply to one exact outreach now that the address
+  // no longer carries a token.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS message_id TEXT`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_message_id ON outreach_logs (message_id)`).catch(() => {});
+
+  // ── Every inbound webhook payload, matched or not ─────────────────────────
+  // AN UNMATCHED REPLY IS NOT NOISE, IT IS A LOST CUSTOMER. The webhook used to
+  // return early and forget anything it could not attribute, so a real reply
+  // that failed to match left no trace anywhere. Every accepted inbound now
+  // lands here first, and matching decorates the row afterwards.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS inbound_messages (
+      id SERIAL PRIMARY KEY,
+      received_at TIMESTAMPTZ DEFAULT NOW(),
+      email_id TEXT,
+      from_addr TEXT,
+      to_addr TEXT,
+      subject TEXT,
+      message_id TEXT,
+      in_reply_to TEXT,
+      matched_outreach_id TEXT,
+      match_method TEXT,
+      classification TEXT,
+      note TEXT,
+      payload JSONB
+    )
+  `).then(() => console.log('[init] inbound_messages table ready'))
+    .catch(e => console.error('[init] inbound_messages:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_inbound_messages_received ON inbound_messages (received_at DESC)`).catch(() => {});
+
   // ── Outreach queue: backoff, and the on-demand day claim ──────────────────
   // WHY BACKOFF EXISTS. slotsToFill returns every empty slot every night, so an
   // athlete whose businesses keep failing the quality bar was re-attempted

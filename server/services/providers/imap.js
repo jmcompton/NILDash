@@ -150,7 +150,7 @@ async function fetchMessages(emailAddress, password, imapConfig, cursor, maxResu
 /**
  * Send via SMTP (Nodemailer).
  */
-async function sendEmail(emailAddress, password, smtpConfig, { to, cc, subject, bodyHtml, threadId, replyTo }) {
+async function sendEmail(emailAddress, password, smtpConfig, { to, cc, subject, bodyHtml, threadId, replyTo, messageId }) {
   if (!nodemailer) throw new Error('nodemailer not installed');
 
   const preset = getPreset(emailAddress);
@@ -175,6 +175,9 @@ async function sendEmail(emailAddress, password, smtpConfig, { to, cc, subject, 
     subject: subject || '',
     html: bodyHtml || '',
     ...(replyTo ? { replyTo } : {}),
+    // nodemailer honours this verbatim, so SMTP sends carry the exact
+    // Message-ID we stored and reply matching on it is reliable here.
+    ...(messageId ? { messageId } : {}),
   });
 
   return { providerMessageId: info.messageId, providerThreadId: null };

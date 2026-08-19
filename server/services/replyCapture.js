@@ -74,6 +74,39 @@ function localPartCandidates(name, email) {
 function agentReplyAddress(localPart) {
   return localPart ? `${localPart}@${REPLY_DOMAIN}` : null;
 }
+
+// ── Message-ID: the only exact anchor left ───────────────────────────────────
+// Dropping the token from the address bought professionalism and cost
+// certainty. The RFC822 Message-ID buys the certainty back for every client
+// that threads properly: a reply echoes it in In-Reply-To and References, so
+// matching on it is exact even when the same business has been pitched twice by
+// the same agent -- the case sender-matching cannot resolve.
+//
+// SET BY US, NOT THE PROVIDER. email_message_id holds the provider's own id (a
+// Gmail API id; null from Graph), which is not what gets echoed. We mint this
+// one, put it on the wire, and store it.
+function buildMessageId(logId) {
+  const rand = crypto.randomBytes(8).toString('hex');
+  return `<${String(logId || 'out')}.${rand}@${REPLY_DOMAIN}>`;
+}
+
+// Every message-id referenced by a reply, newest-intent first: In-Reply-To names
+// the direct parent, References carries the whole thread. Both are checked
+// because clients vary in which they populate.
+function referencedMessageIds(headers) {
+  const h = normalizeHeaders(headers);
+  const ids = [];
+  const grab = (v) => {
+    const m = String(v || '').match(/<[^<>\s]+>/g);
+    if (m) for (const one of m) if (ids.indexOf(one) === -1) ids.push(one);
+  };
+  grab(h['in-reply-to']);
+  // References is oldest-first; reverse so the most recent ancestor is tried
+  // before the root of a long thread.
+  const refs = String(h['references'] || '').match(/<[^<>\s]+>/g) || [];
+  for (const one of refs.reverse()) if (ids.indexOf(one) === -1) ids.push(one);
+  return ids;
+}
 // Off by default -- flipping this on rewrites Reply-To on every outreach send,
 // which must not happen before the DNS/webhook side is actually verified working.
 const ENABLED = process.env.OUTREACH_REPLY_CAPTURE_ENABLED === '1';
@@ -270,6 +303,7 @@ module.exports = {
   REPLY_DOMAIN, LEGACY_TOKEN_DOMAIN, ENABLED, RESERVED_LOCAL_PARTS,
   tokenForLogId, logIdForToken, replyToAddressFor, logIdForReplyAddress,
   localPartFrom, localPartCandidates, agentReplyAddress,
+  buildMessageId, referencedMessageIds,
   classifyRecipient, emailDomain, matchOutreach,
   normalizeHeaders, classifyInbound, verifyResendSignature,
 };

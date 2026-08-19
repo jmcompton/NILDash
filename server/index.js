@@ -9442,6 +9442,79 @@ app.get('/admin', async (req, res) => {
   if (!user || user.email !== ADMIN_EMAIL) return res.status(403).send('Forbidden');
   res.sendFile(path.join(__dirname, '..', 'public', 'admin.html'));
 });
+// ── /admin/inbound ────────────────────────────────────────────────────────────
+// The last 20 inbound webhook payloads, matched or not. This exists because the
+// Railway database is not reachable from a laptop: without a page, "did the
+// webhook fire, and what did it decide" is unanswerable outside the container.
+// Self-contained HTML on purpose -- no build step, no bundle, no dependency on
+// the SPA loading correctly, since this is a tool for when things are broken.
+function _inboundAdminOk(user) {
+  return !!user && (user.email === ADMIN_EMAIL || isFounderEmail(user.email));
+}
+
+app.get('/admin/inbound', async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!_inboundAdminOk(user)) return res.status(403).send('Forbidden');
+  let rows = [];
+  let err = null;
+  try {
+    rows = (await store.pool.query(
+      `SELECT id, received_at, from_addr, to_addr, subject, matched_outreach_id,
+              match_method, classification, note
+         FROM inbound_messages ORDER BY received_at DESC LIMIT 20`)).rows;
+  } catch (e) { err = e.message; }
+
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const body = err
+    ? `<p class="empty">Could not read inbound_messages: ${esc(err)}<br>
+       <span class="dim">If this says the relation does not exist, the deploy predates the table.</span></p>`
+    : (!rows.length
+      ? `<p class="empty">No inbound messages recorded yet.<br>
+         <span class="dim">Every message Resend delivers to this domain is logged here, matched or not —
+         so an empty table means nothing has reached the webhook at all.</span></p>`
+      : `<table><thead><tr>
+          <th>Received</th><th>From</th><th>To</th><th>Subject</th>
+          <th>Matched outreach</th><th>How</th><th>Kind</th></tr></thead><tbody>`
+        + rows.map((r) => {
+          const matched = !!r.matched_outreach_id;
+          return `<tr class="${matched ? 'ok' : 'no'}">
+            <td class="mono dim">${esc(new Date(r.received_at).toISOString().replace('T', ' ').slice(0, 19))}</td>
+            <td class="mono">${esc(r.from_addr)}</td>
+            <td class="mono dim">${esc(r.to_addr)}</td>
+            <td>${esc(r.subject)}</td>
+            <td class="mono">${matched ? esc(r.matched_outreach_id) : '<span class="badge">UNMATCHED</span>'}</td>
+            <td class="mono dim">${esc(r.match_method || '')}</td>
+            <td class="mono dim">${esc(r.classification || '')}</td>
+          </tr>${r.note ? `<tr class="noterow"><td></td><td colspan="6" class="dim">${esc(r.note)}</td></tr>` : ''}`;
+        }).join('')
+        + '</tbody></table>');
+
+  res.send(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Inbound — NILDash admin</title>
+<style>
+ body{margin:0;background:#0b0f14;color:#D6D3CC;font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:24px}
+ h1{font-size:17px;margin:0 0 4px}
+ .sub{color:#6B7280;font-size:12.5px;margin-bottom:18px}
+ table{border-collapse:collapse;width:100%;font-size:12.5px}
+ th{text-align:left;color:#4B5563;font-size:9px;letter-spacing:.14em;text-transform:uppercase;
+    padding:0 10px 8px;border-bottom:1px solid #1e2a3a}
+ td{padding:8px 10px;border-bottom:.5px solid #131c28;vertical-align:top}
+ tr.ok td:nth-child(5){color:#84CC16}
+ .badge{background:rgba(245,158,11,.16);color:#f59e0b;border:1px solid rgba(245,158,11,.32);
+        border-radius:4px;padding:1px 6px;font-size:9.5px;font-weight:700;letter-spacing:.06em}
+ .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+ .dim{color:#6B7280}
+ .noterow td{border-bottom:.5px solid #131c28;padding-top:0;font-size:11.5px}
+ .empty{color:#9CA3AF;background:#0D1520;border:.5px solid #1e2a3a;border-left:3px solid #f59e0b;
+        padding:14px 16px;border-radius:8px}
+</style></head><body>
+<h1>Inbound webhook — last 20</h1>
+<div class="sub">Every message Resend delivered to this domain, matched or not. Reload to refresh.</div>
+${body}
+</body></html>`);
+});
+
 app.get('/api/admin/requests', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
