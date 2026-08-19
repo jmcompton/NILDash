@@ -321,6 +321,52 @@ function buildContactLadder(res, opts = {}) {
       callWindow: null,
     });
   }
+  // ── The address found on the business's own website ───────────────────────
+  // Placed ABOVE the generic inbox because it is better evidence: it was
+  // published by the business itself on its own site, not inferred. A personal
+  // address here outranks a role one, which is why the type travels with it.
+  if (r.siteEmail && r.siteEmail.email) {
+    const se = r.siteEmail;
+    const personal = se.type === 'personal';
+    t3.push({
+      name: null,
+      title: se.corporate ? 'Corporate email (not this location)'
+        : (personal ? 'Email from their website' : 'Role email from their website'),
+      email: se.email,
+      emailKind: 'published',
+      emailType: se.type,
+      // A corporate address on a franchise is a real address and a dead end for a
+      // local deal, so it is shown and labelled rather than hidden.
+      corporate: !!se.corporate,
+      emailDomainNote: _xdom(se.email),
+      channel: 'email',
+      phone: null,
+      confidence: se.corporate ? 'Fallback' : (personal ? 'Likely' : 'Fallback'),
+      sourceNote: se.corporate
+        ? `This address belongs to the national brand, not this location${se.corporateVia ? ' (' + se.corporateVia + ')' : ''}. Corporate cannot approve a local deal.`
+        : (personal
+          ? 'Published on the business website and addressed to a person, not a general desk.'
+          : 'Published on the business website. A role inbox, so it reaches a desk rather than a named person.'),
+      sourceUrl: se.sourceUrl || null,
+      callWindow: null,
+    });
+  } else if (r.siteEmail && r.siteEmail.formUrl) {
+    // No address anywhere on the site, but a working contact form is still a
+    // channel -- and a better one than nothing at all.
+    t3.push({
+      name: null,
+      title: 'Contact form',
+      email: null,
+      emailType: 'form',
+      channel: 'form',
+      formUrl: r.siteEmail.formUrl,
+      phone: null,
+      confidence: 'Fallback',
+      sourceNote: 'No email published, but the site has a working contact form.',
+      sourceUrl: r.siteEmail.formUrl,
+      callWindow: null,
+    });
+  }
   if (r.genericInbox) {
     t3.push({
       name: null,

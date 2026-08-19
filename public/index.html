@@ -7586,9 +7586,27 @@ function _dsLadderHtml(d) {
     (t.rows || []).forEach(function(r){
       var conf = _DS_CONF_STYLE[r.confidence] || _DS_CONF_STYLE.Fallback;
       var bits = [];
-      if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:' + (r.emailDomainNote ? '#f59e0b' : '#84CC16') + ';text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>' +
+      // WHAT KIND OF ADDRESS THIS IS, next to the address itself. An agent writes
+      // a different email to a named person than to info@, and a corporate one on
+      // a franchise is a dead end -- so the type is on the card, not inferred.
+      var _typeBadge = '';
+      if (r.email && r.emailType) {
+        var _tb = r.corporate
+          ? { t: 'corporate', c: '#f59e0b', bg: 'rgba(245,158,11,0.14)', bd: 'rgba(245,158,11,0.32)' }
+          : (r.emailType === 'personal'
+            ? { t: 'personal', c: '#84CC16', bg: 'rgba(132,204,22,0.14)', bd: 'rgba(132,204,22,0.32)' }
+            : { t: 'role', c: '#60a5fa', bg: 'rgba(96,165,250,0.14)', bd: 'rgba(96,165,250,0.32)' });
+        _typeBadge = ' <span title="personal = a named person. role = a shared desk such as info@. corporate = the national brand, not this location."'
+          + ' style="font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:' + _tb.c
+          + ';background:' + _tb.bg + ';border:1px solid ' + _tb.bd + ';border-radius:4px;padding:0 5px">' + _tb.t + '</span>';
+      }
+      if (r.email) bits.push('<a href="mailto:' + esc(r.email) + '" style="color:' + (r.corporate ? '#f59e0b' : (r.emailDomainNote ? '#f59e0b' : '#84CC16')) + ';text-decoration:none;word-break:break-all">' + esc(r.email) + '</a>' +
+        _typeBadge +
         (r.emailDomainNote ? ' <span style="font-size:8px;font-weight:700;color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32);border-radius:4px;padding:0 5px">other domain</span>' : '') +
         '');
+      // No address anywhere, but a working form is still a channel.
+      if (!r.email && r.formUrl) bits.push('<a href="' + esc(r.formUrl) + '" target="_blank" rel="noopener" style="color:#84CC16;text-decoration:none">Contact form</a>' +
+        ' <span style="font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#84CC16;background:rgba(132,204,22,0.14);border:1px solid rgba(132,204,22,0.32);border-radius:4px;padding:0 5px">form</span>');
       // Channel order matches the ladder's priority: LinkedIn and a personal DM
       // reach the PERSON, the shared number does not, so the phone comes last.
       if (r.linkedinUrl) bits.push('<a href="' + esc(r.linkedinUrl) + '" target="_blank" rel="noopener" style="color:#0a66c2;text-decoration:none;font-weight:600">LinkedIn</a>' +

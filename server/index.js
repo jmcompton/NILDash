@@ -9558,6 +9558,76 @@ ${body}
 </body></html>`);
 });
 
+// ── Site-email backfill, admin only ───────────────────────────────────────────
+// Runs findSiteEmail over every local business that already has a website
+// stored. A button rather than a terminal command because the Railway database
+// is not reachable from a laptop.
+//
+// COST: plain HTTP, at most 3 fetches a business, cached by domain. No model
+// call -- the LLM fallback is injected and this route does not inject it, so a
+// backfill cannot spend anything on Anthropic. Businesses already cached are
+// skipped outright unless force is set.
+const _seBackfill = { running: false, done: 0, total: 0, ok: 0, form: 0, none: 0, corporate: 0, errors: 0, startedAt: null, finishedAt: null, lastBrand: null };
+
+app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  if (_seBackfill.running) return res.json({ alreadyRunning: true, ...(_seBackfill) });
+
+  const force = req.body && req.body.force === true;
+  const rows = (await store.pool.query(
+    `SELECT DISTINCT ON (website) brand, website
+       FROM brand_evidence_cache
+      WHERE lane = 'places' AND website IS NOT NULL AND website <> ''
+      ORDER BY website, refreshed_at DESC`)).rows;
+
+  Object.assign(_seBackfill, {
+    running: true, done: 0, total: rows.length, ok: 0, form: 0, none: 0,
+    corporate: 0, errors: 0, startedAt: Date.now(), finishedAt: null, lastBrand: null,
+  });
+
+  setImmediate(async () => {
+    const { findSiteEmail } = require('./services/siteEmail');
+    for (const r of rows) {
+      _seBackfill.lastBrand = r.brand || r.website;
+      try {
+        // notAffiliated comes from whatever the contacts lane already cached for
+        // this business, so the franchise check uses real evidence rather than a
+        // list. Absent for a business never deep-looked-up; that is fine.
+        const ev = (await store.pool.query(
+          `SELECT evidence FROM brand_evidence_cache
+            WHERE lane = 'contacts' AND brand = $1 LIMIT 1`, [r.brand]).catch(() => ({ rows: [] }))).rows[0];
+        const notAffiliated = (ev && ev.evidence && ev.evidence.notAffiliated) || [];
+        const out = await findSiteEmail(r.website, { brand: r.brand, notAffiliated, force });
+        if (!out) _seBackfill.errors++;
+        else if (out.email) { _seBackfill.ok++; if (out.corporate) _seBackfill.corporate++; }
+        else if (out.formUrl) _seBackfill.form++;
+        else _seBackfill.none++;
+      } catch (e) {
+        _seBackfill.errors++;
+        console.error('[site-email-backfill]', r.website, e.message);
+      }
+      _seBackfill.done++;
+    }
+    _seBackfill.running = false;
+    _seBackfill.finishedAt = Date.now();
+    console.log(`[site-email-backfill] done ${_seBackfill.done}/${_seBackfill.total} `
+      + `email=${_seBackfill.ok} form=${_seBackfill.form} none=${_seBackfill.none} errors=${_seBackfill.errors}`);
+  });
+
+  res.json({ started: true, total: rows.length });
+});
+
+app.get('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  res.json(_seBackfill);
+});
+
 // ── /admin/local-coverage ─────────────────────────────────────────────────────
 // SIZING THE LOCAL EMAIL LANE, before anything is built on top of it.
 //
@@ -9652,13 +9722,57 @@ app.get('/admin/local-coverage', async (req, res) => {
         padding:14px 16px;border-radius:8px;font-size:13px}
  .tag{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:4px;padding:1px 5px}
  .tag.ok{color:#84CC16;background:rgba(132,204,22,.14)}
+ .runbox{background:#0D1520;border:.5px solid #1e2a3a;border-left:3px solid #84CC16;
+         padding:14px 16px;border-radius:8px;margin-bottom:14px;font-size:12.5px}
+ button{background:#84CC16;border:none;color:#0b0f0a;font:600 13px/1 inherit;
+        padding:9px 16px;border-radius:7px;cursor:pointer}
+ button:disabled{opacity:.55;cursor:default}
+ .runbox label{margin-left:10px;font-size:12px}
+ .prog{margin-top:10px}
 </style></head><body>
 <h1>Local lane coverage</h1>
 <div class="sub">Reload to refresh. Read-only.</div>
 <h2>1 — Do local businesses have a website?</h2>
 ${q1}
 <h2>2 — What email did we find on those sites?</h2>
+<div class="runbox">
+  <button id="run" onclick="startBackfill()">Run backfill</button>
+  <label class="dim"><input type="checkbox" id="force"> re-check already-cached businesses</label>
+  <div class="dim" style="margin-top:8px">
+    Plain HTTP, max 3 pages per business, cached by domain, no model call —
+    an Anthropic spend of <b>$0.00</b>. Businesses already cached are skipped unless you tick the box.
+  </div>
+  <div id="prog" class="prog"></div>
+</div>
 ${q2}
+<script>
+function startBackfill(){
+  var btn=document.getElementById('run');
+  btn.disabled=true; btn.textContent='Starting…';
+  fetch('/api/admin/site-email-backfill',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({force:document.getElementById('force').checked})})
+   .then(function(r){return r.json();})
+   .then(function(){ poll(); })
+   .catch(function(e){ btn.disabled=false; btn.textContent='Run backfill';
+     document.getElementById('prog').textContent='Failed to start: '+e.message; });
+}
+function poll(){
+  fetch('/api/admin/site-email-backfill').then(function(r){return r.json();}).then(function(s){
+    var btn=document.getElementById('run');
+    var pct=s.total?Math.round(s.done/s.total*100):0;
+    document.getElementById('prog').innerHTML =
+      '<div class="barwrap" style="width:100%"><div class="bar" style="width:'+pct+'%;background:#84CC16"></div></div>'+
+      '<div class="mono" style="margin-top:6px">'+s.done+' / '+s.total+' ('+pct+'%) &nbsp;·&nbsp; '+
+      'email '+s.ok+' &nbsp;form '+s.form+' &nbsp;none '+s.none+' &nbsp;corporate '+s.corporate+
+      (s.errors?' &nbsp;errors '+s.errors:'')+'</div>'+
+      (s.lastBrand?'<div class="dim mono" style="margin-top:4px">'+String(s.lastBrand).slice(0,80)+'</div>':'');
+    if(s.running){ btn.textContent='Running…'; setTimeout(poll,1500); }
+    else { btn.disabled=false; btn.textContent='Run backfill';
+      if(s.total) document.getElementById('prog').innerHTML+='<div style="margin-top:8px;color:#84CC16">Finished. Reload to update the table below.</div>'; }
+  }).catch(function(){ setTimeout(poll,3000); });
+}
+poll();
+</script>
 </body></html>`);
 });
 

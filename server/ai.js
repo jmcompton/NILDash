@@ -2085,6 +2085,31 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // Places phone is authoritative for this exact business location, so it
   // overrides the web-searched number and bypasses the locality gate.
   if (places && places.phone) { res.businessPhone = places.phone; res.phoneUnconfirmed = false; }
+
+  // ── The business's own website, read for an address ────────────────────────
+  // THE LOCAL LANE HAD NO EMAIL CHANNEL AT ALL. Cards showed a phone and "No
+  // named contact found" while holding the URL that answers it.
+  //
+  // Runs on the CHEAP card path too, not just the deep one -- that is the whole
+  // point, since the cheap path is what a local Deal Scan card renders from. It
+  // can afford to: plain HTTP, at most 3 fetches, no model call, and cached by
+  // domain so the second scan of a business is free.
+  //
+  // notAffiliated is handed in so the franchise check reads the contacts lane's
+  // own cached parent-or-brand people rather than re-deciding it.
+  if (localityRequired && effectiveWebsite) {
+    try {
+      const { findSiteEmail } = require('./services/siteEmail');
+      const se = await findSiteEmail(effectiveWebsite, {
+        brand,
+        isFranchise: !!(ctx && ctx.isFranchise),
+        notAffiliated: res.notAffiliated || [],
+      });
+      if (se && (se.email || se.formUrl)) res.siteEmail = se;
+    } catch (e) {
+      console.warn('[dealScan] site email lookup failed:', e.message);
+    }
+  }
   // NO EMAIL IS INVENTED, GUESSED, OR BOUGHT. Hunter.io used to run here and do
   // three things: fill an address onto a fan-out contact by surname match, CREATE
   // a contact out of its best personal address titled "Company contact (not
@@ -2161,7 +2186,7 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(brand + (loc ? ' ' + loc : ''))
     : null);
   const approach = _contactApproach(ctx || {}, res.contacts[0] || null, res);
-  return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, instagramScope: res.instagramScope || null, businessPhone: res.businessPhone, approach, mapsUrl, website: (places && places.website) || website || null };
+  return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, instagramScope: res.instagramScope || null, businessPhone: res.businessPhone, siteEmail: res.siteEmail || null, approach, mapsUrl, website: (places && places.website) || website || null };
 }
 
 // Build the "Approach" line. References the real person, else the honest phone
@@ -2176,6 +2201,24 @@ function _contactApproach(card, top, res) {
     if (card.market === 'hometown') base += ', mention the hometown angle';
     else if (card.isFranchise) base += ', ask about the local franchise budget';
     return stripEmDashes(base + '.');
+  }
+  // AN EMAIL ON THE SITE IS A CONTACT, so the line must stop saying none was
+  // found. A corporate address on a franchise is deliberately NOT treated as
+  // one: it is a real address that cannot approve a local deal, and saying
+  // otherwise would send the agent down a dead end.
+  const _se = res && res.siteEmail;
+  if (_se && _se.email && !_se.corporate) {
+    const kind = _se.type === 'personal' ? 'a named address' : 'a role inbox';
+    const tail = res.businessPhone ? ` Or call ${res.businessPhone}.` : '';
+    return stripEmDashes(`Email ${_se.email}, ${kind} published on their website.${tail}`);
+  }
+  if (_se && _se.formUrl && !_se.email) {
+    const tail = res.businessPhone ? ` Or call ${res.businessPhone}.` : '';
+    return stripEmDashes(`No email published, but their site has a contact form.${tail}`);
+  }
+  if (_se && _se.email && _se.corporate) {
+    const tail = res.businessPhone ? `Call ${res.businessPhone} and ask for the owner or general manager.` : 'Try the Google Maps listing.';
+    return stripEmDashes(`The only address on the site belongs to the national brand, not this location. ${tail}`);
   }
   if (res && res.businessPhone) {
     return `No named contact found. Call ${res.businessPhone} and ask for the owner or marketing manager.`;
