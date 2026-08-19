@@ -9559,6 +9559,63 @@ ${body}
 </body></html>`);
 });
 
+// ── Website validation pass, admin only ──────────────────────────────────────
+// FREE AND INSTANT: no fetching, no model, pure string work over rows already
+// on disk. Writes one 'websitecheck' row per website recording the verdict,
+// which rule fired, and -- for a name disagreement -- what we asked for beside
+// what Places returned. Rejects are KEPT, not deleted: that is a re-sourcing
+// queue, not garbage.
+app.post('/api/admin/website-validate', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const { validateWebsite } = require('./services/websiteValidation');
+    const rows = (await store.pool.query(
+      `SELECT DISTINCT ON (website) brand, website, evidence->>'name' AS google_name
+         FROM brand_evidence_cache
+        WHERE lane='places' AND website IS NOT NULL AND website <> ''
+        ORDER BY website, refreshed_at DESC`)).rows;
+
+    const counts = { total: rows.length, pass: 0, social: 0, platform: 0,
+      rejectName: 0, rejectDomain: 0, borderline: 0, byRule: {} };
+    for (const r of rows) {
+      const v = validateWebsite(r.brand, r.google_name, r.website);
+      if (v.verdict === 'pass') counts.pass++;
+      else if (v.verdict === 'social') counts.social++;
+      else if (v.verdict === 'platform') counts.platform++;
+      else if (v.verdict === 'reject-name') counts.rejectName++;
+      else counts.rejectDomain++;
+      if (v.borderline) counts.borderline++;
+      if (v.rule) counts.byRule[v.rule] = (counts.byRule[v.rule] || 0) + 1;
+      await store.saveBrandEvidence(
+        'wc:' + r.website, 'websitecheck', r.brand, r.website,
+        {
+          v: 'v1',
+          verdict: v.verdict,
+          rule: v.rule || null,
+          detail: v.detail || null,
+          borderline: !!v.borderline,
+          // The re-sourcing queue: what we wanted, what we got.
+          asked: r.brand || null,
+          returned: r.google_name || null,
+          coverage: typeof v.coverage === 'number' ? v.coverage : null,
+          missing: v.missing || [],
+          unverified: v.verdict === 'reject-name' ? 'unverified-website' : null,
+        },
+        v.verdict === 'pass' ? 'OK' : v.verdict.toUpperCase()
+      ).catch(() => {});
+    }
+    console.log(`[website-validate] ${counts.total} sites: pass=${counts.pass} social=${counts.social} `
+      + `platform=${counts.platform} rejectName=${counts.rejectName} rejectDomain=${counts.rejectDomain}`);
+    res.json(counts);
+  } catch (e) {
+    console.error('[website-validate]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Site-email backfill, admin only ───────────────────────────────────────────
 // Runs findSiteEmail over every local business that already has a website
 // stored. A button rather than a terminal command because the Railway database
@@ -9675,6 +9732,11 @@ app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
     // Express 4 handler that rejects sends NO response, which is what Railway's
     // edge reported as a 502. Aggregated in a CTE instead, where COUNT(DISTINCT)
     // is fine, then joined back.
+    // VALIDATED SITES ONLY. Scraping a wrong-entity match spends fetches on
+    // another company's website and files the result as a real miss, which is
+    // how the miss rate got inflated and the emailable rate understated. A site
+    // with no websitecheck row has not been validated and is skipped, so the
+    // validation pass must run first.
     const rows = (await store.pool.query(
       `WITH per_site AS (
          SELECT website,
@@ -9687,8 +9749,20 @@ app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
        SELECT DISTINCT ON (b.website) b.brand, b.website, p.shared_sites, p.rows_on_site
          FROM brand_evidence_cache b
          JOIN per_site p ON p.website = b.website
+         JOIN brand_evidence_cache wc
+           ON wc.lane = 'websitecheck' AND wc.website = b.website
+          AND wc.evidence->>'verdict' = 'pass'
         WHERE b.lane = 'places' AND b.website IS NOT NULL AND b.website <> ''
         ORDER BY b.website, b.refreshed_at DESC`)).rows;
+    if (!rows.length) {
+      const anyCheck = (await store.pool.query(
+        `SELECT COUNT(*)::int AS n FROM brand_evidence_cache WHERE lane='websitecheck'`)).rows[0].n;
+      return res.status(400).json({
+        error: anyCheck
+          ? 'No websites passed validation, so there is nothing to scrape.'
+          : 'Run the website validation pass first — the backfill only scrapes validated sites.',
+      });
+    }
     const collapsed = rows.reduce((n, r) => n + (r.rows_on_site - 1), 0);
 
     const jobId = 'seb_' + require('crypto').randomBytes(6).toString('hex');
@@ -9810,6 +9884,7 @@ app.get('/admin/local-coverage', async (req, res) => {
 
   let places = null, ledger = null, site = null, err = null;
   let split = null, chains = [], named = [], dedup = null, ig = null, mismatch = null;
+  let wc = null, wcRules = [], borderline = [];
   // EACH SECTION FAILS ALONE. These nine queries used to share one try/catch,
   // so a single failure blanked every section computed after it -- which is
   // why 3b, computed last, rendered nothing at all while the page looked fine.
@@ -9893,6 +9968,29 @@ app.get('/admin/local-coverage', async (req, res) => {
     // measured in JS rather than SQL because the test is a name/token
     // comparison, not something a query can express.
   const { domainMatchesBusiness } = require('./services/siteEmail');
+  wc = await safe('websitecheck', async () => (await store.pool.query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE evidence->>'verdict'='pass')::int AS pass,
+             COUNT(*) FILTER (WHERE evidence->>'verdict'='social')::int AS social,
+             COUNT(*) FILTER (WHERE evidence->>'verdict'='platform')::int AS platform,
+             COUNT(*) FILTER (WHERE evidence->>'verdict'='reject-name')::int AS reject_name,
+             COUNT(*) FILTER (WHERE evidence->>'verdict'='reject-domain')::int AS reject_domain,
+             COUNT(*) FILTER (WHERE evidence->>'borderline'='true')::int AS borderline
+        FROM brand_evidence_cache WHERE lane='websitecheck'`)).rows[0]);
+  wcRules = (await safe('websitecheck-rules', async () => (await store.pool.query(`
+      SELECT evidence->>'rule' AS rule, evidence->>'verdict' AS verdict, COUNT(*)::int AS n
+        FROM brand_evidence_cache
+       WHERE lane='websitecheck' AND evidence->>'rule' IS NOT NULL
+       GROUP BY 1,2 ORDER BY n DESC`)).rows)) || [];
+  // The borderline list is the point of the gate: partial name overlap is the
+  // ambiguous zone, and it is meant to be read before running at scale.
+  borderline = (await safe('borderline', async () => (await store.pool.query(`
+      SELECT evidence->>'asked' AS asked, evidence->>'returned' AS returned,
+             website, evidence->>'coverage' AS coverage, evidence->>'missing' AS missing
+        FROM brand_evidence_cache
+       WHERE lane='websitecheck' AND evidence->>'borderline'='true'
+       ORDER BY (evidence->>'coverage')::float DESC NULLS LAST LIMIT 40`)).rows)) || [];
+
   // evidence->>'name' is GOOGLE'S OWN displayName for the place it matched.
   // Comparing it against the brand we asked about is the decisive test for
   // where a bad URL comes from: if Google's name is a different business, then
@@ -10062,6 +10160,48 @@ ${!mismatch.examples.length ? '' : `<table><thead><tr><th>We asked Places for</t
   <span class="mono">maxResultCount: 1</span> and uses result #1 with no check that the returned
   name is the business we wanted.</p>`}`}
 
+<h2>3c — Website validation</h2>
+<div class="runbox">
+  <button id="val" onclick="validateSites()">Run validation pass</button>
+  <div class="dim" style="margin-top:8px">
+    Free and instant — no fetching, no model, pure string work over rows already stored.
+    Name agreement runs first; domain rules second. Rejects are kept and marked
+    <span class="mono">unverified-website</span> with what we asked for beside what Places
+    returned, so they can be re-sourced. <b>Run this before the backfill</b> — the backfill
+    now scrapes validated sites only.
+  </div>
+  <div id="valout" class="prog"></div>
+</div>
+${!wc || !wc.total ? '<p class="empty">Validation has not run yet.</p>' : `<table><tbody>
+  <tr><td>Websites checked</td><td class="mono">${wc.total}</td></tr>
+  <tr><td><b>Passed — safe to scrape</b> <span class="tag ok">used by backfill</span></td>
+      <td>${bar(wc.pass, wc.total, '#84CC16')}</td></tr>
+  <tr><td>Social / link-in-bio <span class="dim">(correct match, nothing to scrape)</span></td>
+      <td>${bar(wc.social, wc.total, '#3b82f6')}</td></tr>
+  <tr><td>Storefront platform <span class="dim">(tenant page)</span></td>
+      <td>${bar(wc.platform, wc.total, '#8b5cf6')}</td></tr>
+  <tr><td><b>Rejected — wrong business</b> <span class="mono dim">unverified-website</span></td>
+      <td>${bar(wc.reject_name, wc.total, '#f59e0b')}</td></tr>
+  <tr><td>Rejected — directory / retailer / MLM</td>
+      <td>${bar(wc.reject_domain, wc.total, '#ef4444')}</td></tr>
+  <tr><td>&nbsp;&nbsp;of the name rejections, borderline</td><td class="mono">${wc.borderline}</td></tr>
+</tbody></table>
+${!wcRules.length ? '' : `<table><thead><tr><th>Rule</th><th>Verdict</th><th>Count</th></tr></thead><tbody>`
+  + wcRules.map((r) => `<tr><td class="mono">${esc(r.rule)}</td><td class="dim">${esc(r.verdict)}</td>
+      <td class="mono">${r.n}</td></tr>`).join('') + '</tbody></table>'}`}
+
+<h2>3d — Borderline name rejections, for review</h2>
+<p class="note">Partial name overlap: Places kept some words and dropped others. These are the
+ambiguous ones — <b>read this before running the backfill at scale</b>. "Rally House Fayetteville"
+→ "Rally House" drops a city and is probably right; "Charleston Battery" → "The Battery" drops a
+city and is wrong. The strings alone cannot tell them apart, so all of them are rejected and kept
+for re-sourcing rather than guessed at.</p>
+${!borderline.length ? '<p class="empty">None yet — run the validation pass.</p>'
+  : `<table><thead><tr><th>We asked for</th><th>Places returned</th><th>Dropped</th><th>Website</th></tr></thead><tbody>`
+    + borderline.map((b) => `<tr class="no"><td>${esc(b.asked)}</td><td class="mono">${esc(b.returned)}</td>
+        <td class="mono dim">${esc((b.missing||'').replace(/[\[\]"]/g,''))}</td>
+        <td class="mono dim">${esc(String(b.website).slice(0,60))}</td></tr>`).join('') + '</tbody></table>'}
+
 <h2>4 — Instagram lane: what are we already holding?</h2>
 ${!ig ? '' : `<table><tbody>
   <tr><td>Instagram rows cached</td><td class="mono">${ig.rows}</td></tr>
@@ -10091,6 +10231,18 @@ exactly what <span class="mono">evidenceKind</span> exists to record.</p>`}
   <div id="reclout" class="prog"></div>
 </div>
 <script>
+function validateSites(){
+  var b=document.getElementById('val'); b.disabled=true; b.textContent='Validating…';
+  fetch('/api/admin/website-validate',{method:'POST',credentials:'same-origin'})
+   .then(readJson)
+   .then(function(d){ b.disabled=false; b.textContent='Run validation pass';
+     document.getElementById('valout').innerHTML='<span class="mono">'+d.total+' checked · pass '+d.pass+
+       ' · social '+d.social+' · platform '+d.platform+' · wrong-business '+d.rejectName+
+       ' · bad-domain '+d.rejectDomain+' · borderline '+d.borderline+'</span>'+
+       '<div style="margin-top:6px;color:#84CC16">Reload to see the tables and the borderline list.</div>'; })
+   .catch(function(e){ b.disabled=false; b.textContent='Run validation pass';
+     document.getElementById('valout').innerHTML='<span style="color:#f59e0b">'+e.message+'</span>'; });
+}
 function reclassify(){
   var b=document.getElementById('recl'); b.disabled=true; b.textContent='Reclassifying…';
   fetch('/api/admin/site-email-reclassify',{method:'POST'})
