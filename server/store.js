@@ -1261,6 +1261,41 @@ async function init() {
   ).catch((e) => console.error('[init] outreach draft key index:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_brand_key ON outreach_logs(brand_key)`).catch(() => {});
 
+  // ── Outreach queue: backoff, and the on-demand day claim ──────────────────
+  // WHY BACKOFF EXISTS. slotsToFill returns every empty slot every night, so an
+  // athlete whose businesses keep failing the quality bar was re-attempted
+  // nightly, forever, at full price -- the single largest source of spend on
+  // deals nobody would ever see. consecutive_failures counts nights that SPENT
+  // money and placed nothing; a night with no candidates costs nothing and does
+  // not count. At BACKOFF_NIGHTS the athlete is paused and the page says so.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS outreach_queue_athlete_state (
+      athlete_id TEXT PRIMARY KEY,
+      consecutive_failures INT NOT NULL DEFAULT 0,
+      last_attempt_date DATE,
+      paused_at TIMESTAMPTZ,
+      paused_reason TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] outreach_queue_athlete_state table ready'))
+    .catch(e => console.error('[init] outreach_queue_athlete_state:', e.message));
+  // PER ATHLETE PER DAY, not per open. An agent flipping between athletes all
+  // morning must not re-trigger a paid fill every time they come back to one,
+  // so the row is claimed on the first open of the day and every later open
+  // that day is free by construction -- the same claim-before-spending shape
+  // outreach_queue_runs uses for the nightly job.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS outreach_queue_ondemand (
+      athlete_id TEXT NOT NULL,
+      run_date DATE NOT NULL,
+      spent_usd NUMERIC DEFAULT 0,
+      filled INT DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (athlete_id, run_date)
+    )
+  `).then(() => console.log('[init] outreach_queue_ondemand table ready'))
+    .catch(e => console.error('[init] outreach_queue_ondemand:', e.message));
+
   // ── Reply capture (Resend Inbound) ────────────────────────────────────────
   // Set on EVERY inbound event the webhook sees for this row, including bounces
   // and auto-replies -- the diagnostic trail for "did the webhook even fire" is

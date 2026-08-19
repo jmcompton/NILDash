@@ -38,6 +38,76 @@ const SLOTS_PER_ATHLETE = 3;
 const WAITING_AFTER_DAYS = 3;
 const OUTCOMES = ['no_reply', 'replied', 'closed'];
 
+// ── Generate on demand, not overnight ────────────────────────────────────────
+// Building three cards a night for every athlete spends real money on deals
+// nobody opens. The night now guarantees ONE fresh card per athlete -- enough
+// that the page is never empty -- and slots 2 and 3 are built when an agent
+// actually opens that athlete's queue.
+const NIGHTLY_SLOTS = 1;
+// Per athlete per DAY, not per open: an agent flipping between athletes all
+// morning must not re-trigger a fill each time they come back.
+const DEFAULT_ONDEMAND_USD = 0.15;
+
+// ── Back off instead of retrying forever ─────────────────────────────────────
+// slotsToFill returns every empty slot every night, so an athlete whose
+// businesses keep failing the bar was re-attempted nightly, indefinitely, at
+// full price. After this many consecutive nights that spent money and placed
+// nothing, stop attempting and SAY SO on the page -- a queue that quietly
+// spends forever on an athlete it cannot fill is the worst of both.
+const BACKOFF_NIGHTS = 3;
+
+function pausedNote(failures) {
+  return 'paused after ' + (failures || BACKOFF_NIGHTS) + ' nights where nothing passed the bar. '
+    + 'Nothing is being spent on this athlete until their scan has new businesses — run a Deal Scan to refresh it.';
+}
+
+// ── Predict failure before paying for it ─────────────────────────────────────
+// About one in five deep lookups returns nothing usable and costs full price.
+// Places is already fetched (and cached 30 days) for the phone number on every
+// lookup, so these signals are FREE at this point -- the question is only
+// whether they are worth acting on.
+//
+// HOW MUCH EACH SIGNAL IS ACTUALLY WORTH, stated honestly rather than tuned to
+// a number nobody measured:
+//   businessStatus != OPERATIONAL  near-certain failure, and a closed business
+//                                  is a bad pitch regardless. HARD SKIP.
+//   no website                     the strongest of the soft signals: site is
+//                                  one of the two top-yield sources, and a
+//                                  business with no site tends to have thin web
+//                                  presence generally. FLAGGED, not skipped.
+//   not found in Places at all     same shape of signal, same treatment.
+//   rating / userRatingCount       directional at best. RECORDED ONLY.
+// Everything here is recorded on the tried entry (see placesFacts) so the real
+// predictive rate is measurable in a few weeks instead of asserted today.
+function prescreen(place) {
+  if (!place) {
+    return { skip: false, risk: 'high', reason: 'not found in Places — thin web presence is likely' };
+  }
+  const status = place.businessStatus || null;
+  if (status && status !== 'OPERATIONAL') {
+    return { skip: true, risk: 'certain', reason: 'Places says this business is ' + String(status).toLowerCase().replace(/_/g, ' ') };
+  }
+  if (!place.website) {
+    return { skip: false, risk: 'high', reason: 'no website on file — site is a top-yield source and it has nothing to read' };
+  }
+  return { skip: false, risk: 'normal', reason: null };
+}
+
+// The Places fields worth keeping next to every attempt, so failure prediction
+// can be calibrated against what actually happened rather than guessed at.
+function placesFacts(place) {
+  if (!place) return { found: false };
+  return {
+    found: true,
+    businessStatus: place.businessStatus || null,
+    hasWebsite: !!place.website,
+    hasPhone: !!place.phone,
+    primaryType: place.primaryType || null,
+    rating: place.rating != null ? place.rating : null,
+    userRatingCount: place.userRatingCount != null ? place.userRatingCount : null,
+  };
+}
+
 // Every named row the ladder is willing to show, Tier 1 or Tier 2. Tier 3 is
 // business channels and never a person.
 function namedRows(ladder) {
@@ -202,6 +272,8 @@ function waitingOnYou(rows, nowMs) {
 module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
   waitingOnYou, writeDm, askFirstName, namedRows,
+  prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,
   WAITING_AFTER_DAYS, OUTCOMES,
+  NIGHTLY_SLOTS, DEFAULT_ONDEMAND_USD, BACKOFF_NIGHTS,
 };

@@ -8382,6 +8382,27 @@ app.post('/api/agent/brand-contacts', requireAuth, requireAgentSubscription, aiL
 // one sitting would trigger three lookups. The nightly job is the only filler.
 const OQ = require('./services/outreachQueue');
 
+// On-demand fills ride the same enable flag as the nightly job: one switch
+// controls every path that can spend on the queue.
+function OQfillOnDemandEnabled() {
+  try { return require('./jobs/outreachQueue').ENABLED; } catch (_) { return false; }
+}
+
+// Fill the slots the night deliberately left empty, for every athlete on this
+// agent's roster that still has one. Each athlete is claimed per day inside
+// fillOnDemand, so this is safe to call on every single page load.
+async function runOnDemandFills(agentId) {
+  const job = require('./jobs/outreachQueue');
+  const aths = await store.pool.query(
+    `SELECT id, agent_id, data->>'name' AS name, data->>'hometown' AS hometown,
+            data->>'school' AS school
+       FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`, [agentId]);
+  for (const ath of aths.rows || []) {
+    await job.fillOnDemand(store.pool, ath).catch((e) =>
+      console.error(`[queue/ondemand] athlete=${ath.id} failed: ${e.message}`));
+  }
+}
+
 // GET /api/agent/outreach-queue — the three slots per athlete, plus what is late.
 app.get('/api/agent/outreach-queue', requireAuth, async (req, res) => {
   try {
@@ -8413,7 +8434,30 @@ app.get('/api/agent/outreach-queue', requireAuth, async (req, res) => {
       ? { date: lastRunRow.rows[0].run_date, details: lastRunRow.rows[0].details || [] }
       : null;
 
-    res.json({ groups, waiting: OQ.waitingOnYou(rows), outcomes: OQ.OUTCOMES, lastRun });
+    // PAUSED ATHLETES, so the page can say "we stopped trying, and why" rather
+    // than showing the same empty slot every morning with no explanation.
+    const pausedRows = await store.pool.query(
+      `SELECT s.athlete_id, s.consecutive_failures, s.paused_reason
+         FROM outreach_queue_athlete_state s
+         JOIN athletes a ON a.id = s.athlete_id
+        WHERE a.agent_id = $1 AND s.paused_at IS NOT NULL`, [agentId]).catch(() => ({ rows: [] }));
+    const paused = (pausedRows.rows || []).map((p) => ({
+      athleteId: p.athlete_id,
+      reason: p.paused_reason || OQ.pausedNote(p.consecutive_failures),
+    }));
+
+    res.json({ groups, waiting: OQ.waitingOnYou(rows), outcomes: OQ.OUTCOMES, lastRun, paused });
+
+    // ON-DEMAND FILL, AFTER THE RESPONSE. The page renders from what the night
+    // already produced; slots 2-3 are built in the background so the agent's
+    // next refresh has them. Deliberately not awaited -- a deep ladder is
+    // 15-40s a business and holding the queue's own GET open for it would make
+    // the page feel broken. Claimed per athlete per DAY inside fillOnDemand, so
+    // re-opening the same athlete all morning costs nothing after the first.
+    if (OQfillOnDemandEnabled()) {
+      setImmediate(() => { runOnDemandFills(agentId).catch((e) =>
+        console.error('[queue/ondemand]', e.message)); });
+    }
   } catch (e) {
     console.error('[outreach-queue]', e.message);
     res.status(500).json({ error: e.message });

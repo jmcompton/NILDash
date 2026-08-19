@@ -883,6 +883,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
   padding:14px 16px;margin-bottom:8px}
 .hq-card.dm{border-left:3px solid #84CC16}
 .hq-card.call{border-left:3px solid #3f4c5e}
+.hq-card.paused{border-left:3px solid #f59e0b}
+.hq-tab.paused{opacity:.72}
 .hq-brand{font-size:14.5px;color:#F0EDE6;font-weight:600;line-height:1.35}
 .hq-why{font-size:11.5px;color:#6B7280;line-height:1.5;margin:5px 0 9px}
 .hq-who{font-size:12px;color:#9CA3AF;line-height:1.6}
@@ -16448,6 +16450,11 @@ function renderOutreachQueue(data) {
   groups.forEach(function (g) { cardsByAthlete[g.athleteId] = g.cards || []; });
   var detailByAthlete = {};
   lastRunDetails.forEach(function (d) { detailByAthlete[d.athleteId] = d; });
+  // Athletes the queue has STOPPED spending on after repeated failed nights.
+  // This has to outrank the ordinary empty state: "we gave up, here is why" is
+  // a different message from "tonight's run will try again".
+  var pausedByAthlete = {};
+  ((data && data.paused) || []).forEach(function (p) { pausedByAthlete[p.athleteId] = p.reason; });
 
   // The selected tab persists across every re-render -- a poll tick, a
   // mark-sent refresh, an admin fill completion -- the same way the admin fill
@@ -16465,9 +16472,11 @@ function renderOutreachQueue(data) {
     h.push('<div class="hq-tabs">' + roster.map(function (a) {
       var n = (cardsByAthlete[a.id] || []).length;
       var active = a.id === _hqSelectedAthlete;
-      return '<button type="button" class="hq-tab' + (active ? ' active' : '') + '" '
+      return '<button type="button" class="hq-tab' + (active ? ' active' : '')
+        + (pausedByAthlete[a.id] ? ' paused' : '') + '" '
         + 'onclick="hqSelectAthlete(\'' + hqEsc(a.id) + '\')">'
-        + hqEsc(a.name || a.id) + '<span class="hq-tab-count">' + n + '</span></button>';
+        + hqEsc(a.name || a.id) + '<span class="hq-tab-count">'
+        + (pausedByAthlete[a.id] ? '&#9208;' : n) + '</span></button>';
     }).join('') + '</div>');
 
     // ONE ATHLETE AT A TIME. cards or the empty state, scoped to whichever tab
@@ -16475,6 +16484,11 @@ function renderOutreachQueue(data) {
     var cards = cardsByAthlete[_hqSelectedAthlete] || [];
     if (cards.length) {
       cards.forEach(function (c) { h.push(hqCard(c)); });
+    } else if (pausedByAthlete[_hqSelectedAthlete]) {
+      // PAUSED BEATS THE ORDINARY EMPTY STATE. Nothing is being spent here, and
+      // saying so is the whole point of backing off rather than retrying.
+      h.push('<div class="hq-card paused"><div class="hq-why" style="margin:0">'
+        + hqEsc(pausedByAthlete[_hqSelectedAthlete]) + '</div></div>');
     } else {
       // NEVER A BLANK SPACE. detail.note is the actual reason from the last
       // nightly (or button) run; detail.tried is every business it considered

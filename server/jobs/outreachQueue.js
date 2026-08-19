@@ -32,13 +32,25 @@
 const store = require('../store');
 const ai = require('../ai');
 const { buildContactLadder } = require('../services/contactLadder');
+const { lookupPlace } = require('../services/placesLookup');
 const Q = require('../services/outreachQueue');
 
 const ENABLED = process.env.OUTREACH_QUEUE_ENABLED === '1';
 const CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_AGENT_CAP_USD) || Q.DEFAULT_AGENT_NIGHTLY_USD;
 // The ladder's own ceiling, used to decide whether the NEXT lookup fits. Pricing
 // the worst case rather than the average is what makes the cap a cap.
-const LOOKUP_CEILING_USD = parseFloat(process.env.OUTREACH_QUEUE_LOOKUP_USD) || 0.26;
+//
+// THIS NUMBER IS TIED TO THE SOURCE ORDER, and moved when the order did. $0.26
+// priced the OLD full fan-out: up to 7 sources at roughly $0.02 a source (one
+// Haiku call with web search at $10/1k searches, plus tokens). The queue now
+// runs the lean order -- chamber, site, facebook -- so three sources is the
+// true worst case and the ceiling is ~$0.06.
+//
+// Getting this wrong is not a rounding error: left at $0.26 it silently made
+// the $0.15 on-demand cap unspendable, because canSpend($0.26) against a $0.15
+// cap is false before the first lookup. On-demand would have claimed its day,
+// filled nothing, and reported "budget cap reached" every single time.
+const LOOKUP_CEILING_USD = parseFloat(process.env.OUTREACH_QUEUE_LOOKUP_USD) || 0.06;
 
 // ── Time, in Central, without a timezone library ─────────────────────────────
 // Same trick as server/services/weeklyDigest.js: the server runs UTC and Central
@@ -92,6 +104,56 @@ async function claimNight(pool, agentId, runDate, force) {
     `INSERT INTO outreach_queue_runs (agent_id, run_date) VALUES ($1,$2)
      ON CONFLICT (agent_id, run_date) DO NOTHING`, [agentId, runDate]);
   return (r.rowCount || 0) > 0;
+}
+
+// ── Backoff state ────────────────────────────────────────────────────────────
+// One row per athlete, written only by the two functions below so the pause
+// rule lives in exactly one place.
+async function athleteState(pool, athleteId) {
+  const r = await pool.query(
+    `SELECT athlete_id, consecutive_failures, last_attempt_date, paused_at, paused_reason
+       FROM outreach_queue_athlete_state WHERE athlete_id = $1`, [athleteId]).catch(() => ({ rows: [] }));
+  return r.rows[0] || null;
+}
+
+// Record what an attempt that ACTUALLY SPENT produced. A night with no
+// candidates costs nothing and must not count toward the pause, or an athlete
+// waiting on their first Deal Scan would be paused for a problem that is not
+// theirs. Idempotent per date: re-running the same day cannot double-count.
+async function recordAttempt(pool, athleteId, { filled, spent, runDate }) {
+  if (filled > 0) {
+    await pool.query(
+      `INSERT INTO outreach_queue_athlete_state (athlete_id, consecutive_failures, last_attempt_date, paused_at, paused_reason, updated_at)
+         VALUES ($1, 0, $2, NULL, NULL, NOW())
+       ON CONFLICT (athlete_id) DO UPDATE SET
+         consecutive_failures = 0, last_attempt_date = $2,
+         paused_at = NULL, paused_reason = NULL, updated_at = NOW()`,
+      [athleteId, runDate]).catch((e) => console.error('[queue] backoff reset failed:', e.message));
+    return;
+  }
+  if (!(spent > 0)) return;   // nothing was spent, so nothing was learned
+
+  const r = await pool.query(
+    `INSERT INTO outreach_queue_athlete_state (athlete_id, consecutive_failures, last_attempt_date, updated_at)
+       VALUES ($1, 1, $2, NOW())
+     ON CONFLICT (athlete_id) DO UPDATE SET
+       consecutive_failures = CASE
+         WHEN outreach_queue_athlete_state.last_attempt_date = $2
+           THEN outreach_queue_athlete_state.consecutive_failures
+         ELSE outreach_queue_athlete_state.consecutive_failures + 1 END,
+       last_attempt_date = $2, updated_at = NOW()
+     RETURNING consecutive_failures`,
+    [athleteId, runDate]).catch((e) => { console.error('[queue] backoff bump failed:', e.message); return { rows: [] }; });
+
+  const failures = r.rows[0] ? r.rows[0].consecutive_failures : 0;
+  if (failures >= Q.BACKOFF_NIGHTS) {
+    await pool.query(
+      `UPDATE outreach_queue_athlete_state
+          SET paused_at = NOW(), paused_reason = $2, updated_at = NOW()
+        WHERE athlete_id = $1 AND paused_at IS NULL`,
+      [athleteId, Q.pausedNote(failures)]).catch(() => {});
+    console.log(`[queue] athlete=${athleteId} PAUSED after ${failures} nights with nothing that passed the bar`);
+  }
 }
 
 // Businesses this athlete has seen but nobody has contacted or retired. The
@@ -156,13 +218,27 @@ async function fillAthlete(pool, ctx) {
   // here, rather than reconstructed later from a log line nobody kept.
   const tried = [];
 
-  const open = Q.slotsToFill((await pool.query(
+  // PAUSED ATHLETES COST NOTHING. Checked before the slot query, before the
+  // candidate query, and long before any lookup -- the whole point is that a
+  // repeatedly-failing athlete stops consuming budget entirely.
+  const state = await athleteState(pool, athleteId);
+  if (state && state.paused_at) {
+    const note = state.paused_reason || Q.pausedNote(state.consecutive_failures);
+    say(`${athleteName}: ${note}`);
+    return { filled: 0, open: 0, tried, note, paused: true };
+  }
+
+  let open = Q.slotsToFill((await pool.query(
     `SELECT slot, state FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
     [athleteId])).rows);
   if (!open.length) {
     say(`${athleteName}: all three slots already full`);
     return { filled: 0, open: 0, tried, note: 'all three slots already full' };
   }
+  // The night guarantees ONE fresh card so the page is never empty; slots 2-3
+  // are built on demand when the agent actually opens this athlete's queue.
+  // maxSlots is what makes the same filler serve both callers.
+  if (ctx.maxSlots && open.length > ctx.maxSlots) open = open.slice(0, ctx.maxSlots);
   say(`${athleteName}: ${open.length} slot${open.length > 1 ? 's' : ''} to fill`);
 
   const cands = await candidatesFor(pool, athleteId, open.length * Q.MAX_ATTEMPTS_PER_SLOT);
@@ -184,14 +260,32 @@ async function fillAthlete(pool, ctx) {
         say(`slot ${slot} ${why}`);
         return { filled, open: open.length, cappedOut: true, tried, note: why };
       }
+      // THE CHEAP PASS, BEFORE THE EXPENSIVE ONE. Places is cached 30 days and
+      // the deep lookup would call it anyway, so this costs nothing extra --
+      // it just moves the call earlier, where its answer can still stop us
+      // paying for a business that was never going to produce a contact.
+      let place = null;
+      try {
+        place = await lookupPlace(cand.brand_name || cand.brand_key, region || '');
+      } catch (_) { place = null; }
+      const pre = Q.prescreen(place);
+      const facts = Q.placesFacts(place);
+      if (pre.skip) {
+        say(`${cand.brand_name}: skipped before spending — ${pre.reason}`);
+        tried.push({ brand: cand.brand_name, result: 'prescreen_skip', reason: pre.reason, places: facts, risk: pre.risk });
+        continue;
+      }
+
       say(`looking up ${cand.brand_name}…`);
       let out = null;
       try {
+        // lean: the queue's cost-tuned source order (chamber+site, then
+        // facebook). See LEAN_SOURCE_ORDER in ai.js.
         out = await ai.getBrandContacts(cand.brand_name || cand.brand_key, null,
-          region || '', ai.deepContactCtx({ market: null }));
+          region || '', ai.deepContactCtx({ market: null, lean: true }));
       } catch (e) {
         say(`${cand.brand_name}: lookup failed (${e.message})`);
-        tried.push({ brand: cand.brand_name, result: 'error', reason: e.message });
+        tried.push({ brand: cand.brand_name, result: 'error', reason: e.message, places: facts, risk: pre.risk });
         continue;
       }
       if (!out.cached) budget.spend(LOOKUP_CEILING_USD);
@@ -204,10 +298,10 @@ async function fillAthlete(pool, ctx) {
       const bar = Q.passesBar(ladder, ig);
       if (!bar.ok) {
         say(`${cand.brand_name}: skipped, ${bar.reason}`);
-        tried.push({ brand: cand.brand_name, result: 'rejected', reason: bar.reason });
+        tried.push({ brand: cand.brand_name, result: 'rejected', reason: bar.reason, places: facts, risk: pre.risk });
         continue;
       }
-      tried.push({ brand: cand.brand_name, result: 'queued', reason: null });
+      tried.push({ brand: cand.brand_name, result: 'queued', reason: null, places: facts, risk: pre.risk });
 
       const card = Q.buildCard({
         brandKey: cand.brand_key, brand: cand.brand_name,
@@ -262,17 +356,26 @@ async function fillAgent(pool, agent, opts) {
   const details = [];
 
   for (const ath of athletes) {
+    const before = budget.spent();
     const r = await fillAthlete(pool, {
       agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
       // Resolved per athlete. Passing opts.region here meant passing undefined.
       budget, region: regionForAthlete(ath), dryRun: dry,
+      // ONE card a night. The rest are built when the agent opens the queue,
+      // so the night never pays for two cards nobody looks at.
+      maxSlots: Q.NIGHTLY_SLOTS,
       onProgress: (m) => console.log('[queue] ' + m),
     });
     filled += r.filled;
     details.push({
       athleteId: ath.id, athleteName: ath.name, filled: r.filled, open: r.open,
-      note: r.note || null, tried: r.tried || [],
+      note: r.note || null, tried: r.tried || [], paused: !!r.paused,
     });
+    // Only a night that actually spent teaches us anything about this athlete,
+    // and a paused one spent nothing by definition.
+    if (!dry && !r.paused) {
+      await recordAttempt(pool, ath.id, { filled: r.filled, spent: budget.spent() - before, runDate });
+    }
     if (r.cappedOut) break;   // the cap is per agent, so one athlete exhausting it stops the rest
   }
 
@@ -305,6 +408,43 @@ async function run(opts = {}) {
   return { agents: agents.length, filled, spent };
 }
 
+// ── On demand, when the agent actually opens the queue ───────────────────────
+// The night leaves two slots deliberately empty. This fills them the first time
+// someone looks at that athlete -- so the money follows attention instead of
+// preceding it.
+//
+// CLAIMED PER ATHLETE PER DAY, NOT PER OPEN. The claim row goes in BEFORE any
+// lookup, exactly like the nightly claim, so an agent flipping between athletes
+// all morning triggers at most one paid fill per athlete per day no matter how
+// many times they come back. A crash after the claim costs that athlete one
+// day's on-demand fill, which is the right way round for money.
+const ONDEMAND_CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_ONDEMAND_USD) || Q.DEFAULT_ONDEMAND_USD;
+
+async function fillOnDemand(pool, ath, opts = {}) {
+  const runDate = opts.runDate || today();
+  const claim = await pool.query(
+    `INSERT INTO outreach_queue_ondemand (athlete_id, run_date) VALUES ($1,$2)
+     ON CONFLICT (athlete_id, run_date) DO NOTHING`, [ath.id, runDate]).catch(() => ({ rowCount: 0 }));
+  if (!(claim.rowCount > 0)) return { filled: 0, spent: 0, claimed: false };
+
+  const budget = Q.newBudget(ONDEMAND_CAP_USD);
+  const r = await fillAthlete(pool, {
+    agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
+    budget, region: regionForAthlete(ath),
+    onProgress: (m) => console.log('[queue/ondemand] ' + m),
+  });
+  await pool.query(
+    `UPDATE outreach_queue_ondemand SET filled = $3, spent_usd = $4 WHERE athlete_id = $1 AND run_date = $2`,
+    [ath.id, runDate, r.filled, budget.spent()]).catch(() => {});
+  // An on-demand attempt that spent and placed nothing counts toward the same
+  // backoff as a night: the athlete is equally unfillable either way.
+  if (!r.paused) {
+    await recordAttempt(pool, ath.id, { filled: r.filled, spent: budget.spent(), runDate });
+  }
+  console.log(`[queue/ondemand] athlete=${ath.id} filled=${r.filled} spent=$${budget.spent().toFixed(2)} of $${ONDEMAND_CAP_USD.toFixed(2)}`);
+  return { filled: r.filled, spent: budget.spent(), claimed: true, note: r.note, tried: r.tried, paused: !!r.paused };
+}
+
 async function status(pool) {
   const r = await (pool || store.pool).query(
     `SELECT agent_id, state, COUNT(*)::int AS n FROM outreach_queue GROUP BY agent_id, state ORDER BY agent_id`);
@@ -313,8 +453,9 @@ async function status(pool) {
 }
 
 module.exports = {
-  run, fillAgent, fillAthlete, regionForAthlete, claimNight, candidatesFor,
-  ENABLED, CAP_USD, LOOKUP_CEILING_USD,
+  run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor,
+  athleteState, recordAttempt,
+  ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
 };
 

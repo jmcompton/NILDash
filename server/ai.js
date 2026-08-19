@@ -1306,6 +1306,23 @@ const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'si
 // Single source of truth: every deep caller uses this instead of its own literal.
 const MANUAL_SOURCE_ORDER = ['site', 'facebook', 'chamber', 'linkedin', 'maps', 'news', 'registry'];
 
+// THE LEAN ORDER, for the morning outreach queue. Measured yield across the
+// sample runs, not intuition:
+//   chamber  20-25 people across 12-14 of 20 businesses -- far and away the best
+//   site     next best
+//   facebook next after that
+//   news, linkedin  found almost nobody AND cost the most per call
+//   registry 5 runs, 1 contact, 0 Tier 1 (see MANUAL_SOURCE_ORDER above)
+//
+// So the queue runs the top two FIRST as a 2-wide wave and stops the moment
+// something passes the bar; facebook is a lone second wave; the three that
+// never earned their cost are not in the list at all. The queue is a
+// cost-sensitive background job, not an agent waiting on one business they
+// chose -- a miss here costs a card, not a customer, so it is the right lane
+// to trade recall for money. Manual "Add a Business" keeps the full order.
+const LEAN_SOURCE_ORDER = ['chamber', 'site', 'facebook'];
+const LEAN_WAVE_SIZE = 2;
+
 // THE DEEP CONTACT LOOKUP, STATED ONCE.
 //
 // Four callers run the contact fan-out and each built this object itself. Three set
@@ -1324,12 +1341,16 @@ const MANUAL_SOURCE_ORDER = ['site', 'facebook', 'chamber', 'linkedin', 'maps', 
 // One builder, so a caller cannot get three of the four settings right.
 function deepContactCtx(opts) {
   const o = opts || {};
+  // lean:true is the queue lane -- fewer sources, narrower waves, ordered by
+  // measured yield. See LEAN_SOURCE_ORDER.
+  const lean = o.lean === true;
   return {
     market: o.market === undefined ? null : o.market,
     isFranchise: o.isFranchise === true,
     contactApproach: o.contactApproach || null,
     enrichEmail: true,
-    sourceOrder: MANUAL_SOURCE_ORDER,
+    sourceOrder: lean ? LEAN_SOURCE_ORDER : MANUAL_SOURCE_ORDER,
+    waveSize: lean ? LEAN_WAVE_SIZE : null,
     // The ladder keeps searching until it finds someone who can actually approve a
     // deal. Anything less is what produced "no named contact" for businesses whose
     // owner is on their own about page.
@@ -1888,6 +1909,9 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
     (src) => _searchContactSource(src, brand, loc, domain, regionState),
     {
       wallBudgetMs: CONTACT_WALL_BUDGET_MS,
+      // The lean (queue) lane narrows the wave to 2 so wave 1 is chamber+site and
+      // nothing else. A wave always spends its full width, so width IS cost here.
+      waveSize: (opts && opts.waveSize) || null,
       label: `brand=${brand}`,
       // A wave may cut its straggler once this is true of any settled result.
       // r.contacts can no longer contain a parent-or-brand person (they are held
@@ -2051,6 +2075,7 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     localityRequired,
     allowSearch: _deep,
     sourceOrder: (ctx && Array.isArray(ctx.sourceOrder)) ? ctx.sourceOrder : null,
+    waveSize: (ctx && ctx.waveSize) || null,
     stopAtTier1: !!(ctx && ctx.stopAtTier1),
   });
   // Collapse titles at READ time as well, so already-cached rows written before
@@ -3558,6 +3583,7 @@ module.exports = {
   brandNameSlug: _brandKey, // shared name-slug for the ledger migration bridge
   contactAuthorityRank: _contactAuthorityRank, // injected into services/contactLadder
   MANUAL_SOURCE_ORDER,                         // shared wave order for deep lookups
+  LEAN_SOURCE_ORDER, LEAN_WAVE_SIZE,           // the queue's cost-tuned order
   deepContactCtx,                              // the one deep-lookup ctx, shared by every caller
   runSourceWaves,                              // shared parallel wave engine
   withTimeout,                                 // SOFT cap: resolves to a fallback value
