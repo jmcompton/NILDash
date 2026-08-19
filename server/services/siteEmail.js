@@ -203,6 +203,9 @@ function hasContactForm(html) {
 }
 
 // ── Fetching ─────────────────────────────────────────────────────────────────
+// Returns { html } on success or { reason } on failure. A NAMED reason, always:
+// swallowing every failure into null made "found nothing" and "never got the
+// page" indistinguishable, so a scraper problem read as a real miss rate.
 async function fetchPage(url, fetchImpl) {
   const f = fetchImpl || fetch;
   const ctrl = new AbortController();
@@ -213,13 +216,40 @@ async function fetchPage(url, fetchImpl) {
       redirect: 'follow',
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NILDashBot/1.0; +https://mynildash.com)', Accept: 'text/html' },
     });
-    if (!resp || !resp.ok) return null;
+    if (!resp) return { reason: 'no response' };
+    if (!resp.ok) {
+      const s = resp.status;
+      if (s === 403 || s === 401) return { reason: 'blocked (' + s + ')' };
+      if (s === 429) return { reason: 'rate limited (429)' };
+      if (s === 404) return { reason: 'not found (404)' };
+      if (s >= 500) return { reason: 'server error (' + s + ')' };
+      return { reason: 'http ' + s };
+    }
     const ct = (resp.headers && resp.headers.get && resp.headers.get('content-type')) || '';
-    if (ct && !/text\/html|application\/xhtml/i.test(ct)) return null;
+    if (ct && !/text\/html|application\/xhtml/i.test(ct)) {
+      return { reason: 'not html (' + String(ct).split(';')[0].trim() + ')' };
+    }
     const body = await resp.text();
-    return typeof body === 'string' ? body.slice(0, MAX_BYTES) : null;
-  } catch (_) {
-    return null;
+    if (typeof body !== 'string') return { reason: 'unreadable body' };
+    const html = body.slice(0, MAX_BYTES);
+    // A page whose markup carries almost no text is a JS-rendered shell: the
+    // content exists only after hydration, so there is nothing for us to read.
+    const visible = html.replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    if (visible.length < 200 && /<div[^>]+id=["'](root|app|__next)["']/i.test(html)) {
+      return { html, reason: 'js-rendered (no static text)', thin: true };
+    }
+    return { html };
+  } catch (e) {
+    if (e && (e.name === 'AbortError' || /abort/i.test(e.message || ''))) {
+      return { reason: 'timeout (' + FETCH_TIMEOUT_MS + 'ms)' };
+    }
+    const m = String((e && e.message) || 'error');
+    if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(m)) return { reason: 'dns failure' };
+    if (/ECONNREFUSED/i.test(m)) return { reason: 'connection refused' };
+    if (/certificate|SSL|TLS/i.test(m)) return { reason: 'tls error' };
+    return { reason: 'network: ' + m.slice(0, 60) };
   } finally { clearTimeout(t); }
 }
 
@@ -248,17 +278,20 @@ async function findSiteEmail(website, opts = {}) {
   }
 
   const pages = [];
+  const failures = [];   // named reasons, so a scraper problem never reads as a real miss
   const homeUrl = start.origin + (start.pathname === '/' ? '/' : start.pathname);
   const home = await fetchPage(homeUrl, opts.fetchImpl);
-  if (home) pages.push({ url: homeUrl, html: home });
+  if (home && home.html) pages.push({ url: homeUrl, html: home.html, thin: !!home.thin });
+  if (home && home.reason) failures.push({ url: homeUrl, reason: home.reason });
 
   // Only pages the homepage actually links to. No guessing at /contact and no
   // crawling: the cap is the cap.
-  if (home) {
-    for (const link of contactLinks(home, homeUrl)) {
+  if (home && home.html) {
+    for (const link of contactLinks(home.html, homeUrl)) {
       if (pages.length >= MAX_PAGES) break;
-      const html = await fetchPage(link, opts.fetchImpl);
-      if (html) pages.push({ url: link, html });
+      const got = await fetchPage(link, opts.fetchImpl);
+      if (got && got.html) pages.push({ url: link, html: got.html, thin: !!got.thin });
+      if (got && got.reason) failures.push({ url: link, reason: got.reason });
     }
   }
 
@@ -318,11 +351,26 @@ async function findSiteEmail(website, opts = {}) {
   // staff, it is the franchisor's address. isFranchise stays as a secondary
   // signal because the scan already computes it upstream; it is read, not
   // re-derived.
+  // THREE SIGNALS, because the first one is only available where a deep contact
+  // lookup actually ran -- which for a local scan is almost never, and is why a
+  // whole backfill came back with corporate=0.
+  //
+  //   notAffiliated  best evidence, but needs a cached contacts row.
+  //   sharedSites    a website serving SEVERAL DISTINCT BUSINESSES is a chain.
+  //                  Raising Cane's Fayetteville and Raising Cane's Rogers both
+  //                  point at raisingcanes.com; a one-location business does not
+  //                  share its domain with anybody. Free, derived from data we
+  //                  already hold, and it needs no deep lookup.
+  //   isFranchise    whatever the scan already decided upstream.
   const corpDomains = corporateDomainsFrom(opts.notAffiliated);
-  const corporate = !!best && (corpDomains.has(best.domain) || opts.isFranchise === true);
-  const corporateVia = !best ? null
-    : (corpDomains.has(best.domain) ? 'parent-or-brand contact at the same domain'
-      : (opts.isFranchise === true ? 'scan flagged this as a franchise location' : null));
+  const sharedSites = Number(opts.sharedSites || 0);   // distinct businesses on this domain
+  const byContact = !!best && corpDomains.has(best.domain);
+  const byShared = !!best && sharedSites > 1;
+  const corporate = byContact || byShared || (!!best && opts.isFranchise === true);
+  const corporateVia = !corporate ? null
+    : (byContact ? 'a parent-or-brand contact lives at this domain'
+      : (byShared ? `this website serves ${sharedSites} different businesses, so it is a chain site`
+        : 'the scan flagged this as a franchise location'));
 
   const out = {
     v: CACHE_V,
@@ -332,11 +380,21 @@ async function findSiteEmail(website, opts = {}) {
     corporate,
     corporateDomain: corporate && best ? best.domain : null,
     corporateVia,
+    sharedSites,
     free: best ? !!best.free : false,
     sourceUrl: best ? best.sourceUrl : formUrl,
     how: best ? best.how : (formUrl ? 'form' : null),
     siteRoot,
     pagesFetched: pages.length,
+    // THE SPLIT: did we fail to READ the site, or read it and find nothing?
+    //   fetch-failed      the homepage never came back. reason says why.
+    //   js-rendered       we got HTML but it is a hydration shell with no text.
+    //   fetched-empty     we genuinely read the pages and there was no address.
+    outcomeKind: !pages.length ? 'fetch-failed'
+      : (best || formUrl) ? 'found'
+        : (pages.every((p) => p.thin) ? 'js-rendered' : 'fetched-empty'),
+    failureReason: !pages.length ? ((failures[0] && failures[0].reason) || 'unknown') : null,
+    failures: failures.slice(0, 4),
     usedModel,
     rejected: rejected.slice(0, 6),
     cached: false,

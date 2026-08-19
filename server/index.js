@@ -9567,7 +9567,9 @@ ${body}
 // call -- the LLM fallback is injected and this route does not inject it, so a
 // backfill cannot spend anything on Anthropic. Businesses already cached are
 // skipped outright unless force is set.
-const _seBackfill = { running: false, done: 0, total: 0, ok: 0, form: 0, none: 0, corporate: 0, errors: 0, startedAt: null, finishedAt: null, lastBrand: null };
+const _seBackfill = { running: false, done: 0, total: 0, ok: 0, form: 0, none: 0, corporate: 0,
+  fetchFailed: 0, jsRendered: 0, fetchedEmpty: 0, collapsed: 0, businessesCovered: 0,
+  reasons: {}, errors: 0, startedAt: null, finishedAt: null, lastBrand: null };
 
 app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
@@ -9577,15 +9579,29 @@ app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
   if (_seBackfill.running) return res.json({ alreadyRunning: true, ...(_seBackfill) });
 
   const force = req.body && req.body.force === true;
+  // DISTINCT ON (website) is deliberate -- the siteEmail cache is keyed by
+  // DOMAIN, so fetching the same site once per location would be pure waste.
+  // But the count of businesses collapsed into each row is not waste, it is the
+  // chain signal: a website serving several DISTINCT businesses belongs to a
+  // chain, and a one-location business never shares its domain. That count is
+  // carried through as sharedSites so the franchise check works without needing
+  // a deep contact lookup that a local scan almost never runs.
   const rows = (await store.pool.query(
-    `SELECT DISTINCT ON (website) brand, website
+    `SELECT DISTINCT ON (website) brand, website,
+            COUNT(DISTINCT LOWER(brand)) OVER (PARTITION BY website)::int AS shared_sites,
+            COUNT(*) OVER (PARTITION BY website)::int AS rows_on_site
        FROM brand_evidence_cache
       WHERE lane = 'places' AND website IS NOT NULL AND website <> ''
       ORDER BY website, refreshed_at DESC`)).rows;
+  const _collapsed = rows.reduce((n, r) => n + (r.rows_on_site - 1), 0);
+  console.log(`[site-email-backfill] ${rows.length} distinct websites `
+    + `covering ${rows.length + _collapsed} business rows (${_collapsed} share a domain with another)`);
 
   Object.assign(_seBackfill, {
     running: true, done: 0, total: rows.length, ok: 0, form: 0, none: 0,
-    corporate: 0, errors: 0, startedAt: Date.now(), finishedAt: null, lastBrand: null,
+    corporate: 0, fetchFailed: 0, jsRendered: 0, fetchedEmpty: 0,
+    collapsed: _collapsed, businessesCovered: rows.length + _collapsed,
+    reasons: {}, errors: 0, startedAt: Date.now(), finishedAt: null, lastBrand: null,
   });
 
   setImmediate(async () => {
@@ -9600,11 +9616,31 @@ app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
           `SELECT evidence FROM brand_evidence_cache
             WHERE lane = 'contacts' AND brand = $1 LIMIT 1`, [r.brand]).catch(() => ({ rows: [] }))).rows[0];
         const notAffiliated = (ev && ev.evidence && ev.evidence.notAffiliated) || [];
-        const out = await findSiteEmail(r.website, { brand: r.brand, notAffiliated, force });
+        const out = await findSiteEmail(r.website, {
+          brand: r.brand, notAffiliated, force,
+          // The chain signal, from the dedup count above.
+          sharedSites: r.shared_sites || 1,
+        });
         if (!out) _seBackfill.errors++;
         else if (out.email) { _seBackfill.ok++; if (out.corporate) _seBackfill.corporate++; }
         else if (out.formUrl) _seBackfill.form++;
-        else _seBackfill.none++;
+        else {
+          _seBackfill.none++;
+          // WHY nothing, not just that nothing. A scraper problem and a genuine
+          // miss look identical in a single count, and they call for opposite
+          // responses -- fix the fetcher, or accept the lane is thinner.
+          if (out.outcomeKind === 'fetch-failed') {
+            _seBackfill.fetchFailed++;
+            const k = out.failureReason || 'unknown';
+            _seBackfill.reasons[k] = (_seBackfill.reasons[k] || 0) + 1;
+          } else if (out.outcomeKind === 'js-rendered') {
+            _seBackfill.jsRendered++;
+            const k = 'js-rendered (no static text)';
+            _seBackfill.reasons[k] = (_seBackfill.reasons[k] || 0) + 1;
+          } else {
+            _seBackfill.fetchedEmpty++;
+          }
+        }
       } catch (e) {
         _seBackfill.errors++;
         console.error('[site-email-backfill]', r.website, e.message);
@@ -9618,6 +9654,60 @@ app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
   });
 
   res.json({ started: true, total: rows.length });
+});
+
+// POST /api/admin/site-email-reclassify — FREE, no refetch.
+// corporate is derived, not scraped, so a wrong corporate flag can be corrected
+// from data already on disk. This recomputes it for every stored siteemail row
+// using the shared-domain chain count plus any cached parent-or-brand contacts,
+// which is exactly what the first backfill ran without.
+app.post('/api/admin/site-email-reclassify', requireAuth, async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { rootDomain, corporateDomainsFrom } = require('./services/siteEmail');
+  // distinct businesses per website, the chain signal
+  const shared = new Map();
+  for (const r of (await store.pool.query(
+    `SELECT website, COUNT(DISTINCT LOWER(brand))::int AS n
+       FROM brand_evidence_cache
+      WHERE lane='places' AND website IS NOT NULL AND website <> ''
+      GROUP BY website`)).rows) {
+    const root = rootDomain(r.website);
+    if (root) shared.set(root, Math.max(shared.get(root) || 0, r.n));
+  }
+  const rows = (await store.pool.query(
+    `SELECT brand_key, brand, evidence FROM brand_evidence_cache WHERE lane='siteemail'`)).rows;
+  let changed = 0, nowCorporate = 0, examined = 0;
+  for (const row of rows) {
+    const ev = row.evidence || {};
+    if (!ev.email) continue;
+    examined++;
+    const n = shared.get(ev.siteRoot) || 1;
+    const cev = (await store.pool.query(
+      `SELECT evidence FROM brand_evidence_cache WHERE lane='contacts' AND brand=$1 LIMIT 1`,
+      [row.brand]).catch(() => ({ rows: [] }))).rows[0];
+    const notAffiliated = (cev && cev.evidence && cev.evidence.notAffiliated) || [];
+    const corpDomains = corporateDomainsFrom(notAffiliated);
+    const emailRoot = rootDomain((ev.email.split('@')[1] || ''));
+    const byContact = corpDomains.has(emailRoot);
+    const byShared = n > 1;
+    const corporate = byContact || byShared;
+    if (!!ev.corporate === corporate && (ev.sharedSites || 1) === n) continue;
+    const next = { ...ev, corporate, sharedSites: n,
+      corporateVia: corporate
+        ? (byContact ? 'a parent-or-brand contact lives at this domain'
+          : `this website serves ${n} different businesses, so it is a chain site`)
+        : null };
+    await store.pool.query(
+      `UPDATE brand_evidence_cache SET evidence=$3::jsonb WHERE brand_key=$1 AND lane=$2`,
+      [row.brand_key, 'siteemail', JSON.stringify(next)]).catch(() => {});
+    changed++;
+    if (corporate) nowCorporate++;
+  }
+  console.log(`[site-email-reclassify] examined=${examined} changed=${changed} nowCorporate=${nowCorporate}`);
+  res.json({ examined, changed, nowCorporate });
 });
 
 app.get('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
@@ -9651,6 +9741,7 @@ app.get('/admin/local-coverage', async (req, res) => {
   const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 10 : 0);
 
   let places = null, ledger = null, site = null, err = null;
+  let split = null, chains = [], named = [], dedup = null, ig = null;
   try {
     places = (await store.pool.query(`
       SELECT COUNT(*)::int AS looked_up,
@@ -9669,6 +9760,59 @@ app.get('/admin/local-coverage', async (req, res) => {
              COUNT(*) FILTER (WHERE evidence->>'type' IS NULL)::int      AS none,
              COUNT(*) FILTER (WHERE evidence->>'corporate' = 'true')::int AS corporate
         FROM brand_evidence_cache WHERE lane = 'siteemail'`)).rows[0];
+
+    // Q2: WHY nothing was found, split by cause.
+    split = (await store.pool.query(`
+      SELECT COALESCE(evidence->>'outcomeKind','(not recorded)') AS kind,
+             COALESCE(evidence->>'failureReason','—') AS reason,
+             COUNT(*)::int AS n
+        FROM brand_evidence_cache
+       WHERE lane='siteemail' AND evidence->>'email' IS NULL AND evidence->>'formUrl' IS NULL
+       GROUP BY 1,2 ORDER BY n DESC`)).rows;
+
+    // Q3: where the businesses went. One row per website, N businesses behind it.
+    dedup = (await store.pool.query(`
+      SELECT COUNT(*)::int AS business_rows,
+             COUNT(DISTINCT website)::int AS distinct_sites
+        FROM brand_evidence_cache
+       WHERE lane='places' AND website IS NOT NULL AND website <> ''`)).rows[0];
+
+    // Q1 + Q3: the websites shared by more than one business = the chains.
+    chains = (await store.pool.query(`
+      SELECT website, COUNT(DISTINCT LOWER(brand))::int AS businesses,
+             MIN(brand) AS example
+        FROM brand_evidence_cache
+       WHERE lane='places' AND website IS NOT NULL AND website <> ''
+       GROUP BY website HAVING COUNT(DISTINCT LOWER(brand)) > 1
+       ORDER BY businesses DESC LIMIT 15`)).rows;
+
+    // Q1: the three you named, whatever their current state.
+    named = (await store.pool.query(`
+      SELECT p.brand, p.website,
+             s.evidence->>'email' AS email, s.evidence->>'type' AS type,
+             s.evidence->>'corporate' AS corporate, s.evidence->>'corporateVia' AS via,
+             s.evidence->>'sharedSites' AS shared,
+             s.evidence->>'outcomeKind' AS kind, s.evidence->>'failureReason' AS reason
+        FROM brand_evidence_cache p
+        LEFT JOIN brand_evidence_cache s
+          ON s.lane='siteemail' AND s.evidence->>'siteRoot' IS NOT NULL
+         AND p.website ILIKE '%' || (s.evidence->>'siteRoot') || '%'
+       WHERE p.lane='places'
+         AND (p.brand ILIKE '%cane%' OR p.brand ILIKE '%wingstop%' OR p.brand ILIKE '%planet fitness%')
+       ORDER BY p.brand LIMIT 30`)).rows;
+
+    // INSTAGRAM LANE, read-only. What are we already holding but not using?
+    // bookingEmail is captured today; bioText is captured today and never
+    // parsed for an address. Both are already on disk, so this costs nothing.
+    ig = (await store.pool.query(`
+      SELECT COUNT(*)::int AS rows,
+             COUNT(*) FILTER (WHERE evidence->>'handle' IS NOT NULL)::int AS with_handle,
+             COUNT(*) FILTER (WHERE NULLIF(evidence->>'bookingEmail','') IS NOT NULL)::int AS with_booking,
+             COUNT(*) FILTER (WHERE NULLIF(evidence->>'bioText','') IS NOT NULL)::int AS with_bio,
+             COUNT(*) FILTER (WHERE NULLIF(evidence->>'bookingEmail','') IS NULL
+                              AND evidence->>'bioText' ~* '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}')::int AS bio_has_email,
+             COUNT(*) FILTER (WHERE NULLIF(evidence->>'ownerName','') IS NOT NULL)::int AS with_owner
+        FROM brand_evidence_cache WHERE lane='instagram'`)).rows[0];
   } catch (e) { err = e.message; }
 
   const bar = (n, d, colour) => {
@@ -9745,6 +9889,87 @@ ${q1}
   <div id="prog" class="prog"></div>
 </div>
 ${q2}
+
+<h2>2b — Of the ones with nothing: scraper problem, or real miss?</h2>
+${!split ? '' : (!split.length
+  ? '<p class="empty">Nothing to split yet — run the backfill.</p>'
+  : `<table><thead><tr><th>Outcome</th><th>Reason</th><th>Count</th></tr></thead><tbody>`
+    + split.map((r) => `<tr><td>${esc(r.kind)}</td><td class="mono dim">${esc(r.reason)}</td>
+        <td class="mono">${r.n}</td></tr>`).join('')
+    + `</tbody></table>
+    <p class="note"><b>fetch-failed</b> means we never read the page — a scraper problem, and the
+    reason column says which. <b>js-rendered</b> means we got HTML but it was a hydration shell with
+    no static text, so there was nothing to parse. <b>fetched-empty</b> is the honest miss rate:
+    we read the pages and the business genuinely publishes no address.
+    Rows written before this split existed show "(not recorded)" — re-run the backfill with
+    re-check ticked to fill them in.</p>`)}
+
+<h2>3 — Where the businesses went</h2>
+${!dedup ? '' : `<table><tbody>
+   <tr><td>Business rows with a website</td><td class="mono">${dedup.business_rows}</td></tr>
+   <tr><td>Distinct websites among them</td><td class="mono">${dedup.distinct_sites}</td></tr>
+   <tr><td><b>Collapsed — share a domain with another business</b></td>
+       <td class="mono">${dedup.business_rows - dedup.distinct_sites}</td></tr>
+ </tbody></table>
+ <p class="note">The backfill processes one row per <i>website</i>, not per business, because the
+ siteEmail cache is keyed by domain — fetching the same site once per location would be pure waste.
+ So the difference is not skipped work: those businesses are covered by the row for their shared
+ domain. It is also the chain signal, since a single-location business never shares its domain.</p>
+ ${!chains.length ? '' : `<table><thead><tr><th>Shared website</th><th>Businesses</th><th>Example</th></tr></thead><tbody>`
+   + chains.map((c) => `<tr><td class="mono">${esc(c.website)}</td><td class="mono">${c.businesses}</td>
+       <td class="dim">${esc(c.example)}</td></tr>`).join('') + '</tbody></table>'}`}
+
+<h2>1b — The three franchises, specifically</h2>
+${!named || !named.length
+  ? '<p class="empty">No Raising Cane’s / Wingstop / Planet Fitness rows found in the places cache.</p>'
+  : `<table><thead><tr><th>Brand</th><th>Email found</th><th>Type</th><th>Corporate?</th><th>Why</th></tr></thead><tbody>`
+    + named.map((r) => `<tr class="${r.corporate === 'true' ? 'ok' : 'no'}">
+        <td>${esc(r.brand)}</td>
+        <td class="mono">${esc(r.email || (r.kind ? '(' + r.kind + (r.reason ? ': ' + r.reason : '') + ')' : '(not processed)'))}</td>
+        <td class="mono dim">${esc(r.type || '')}</td>
+        <td class="mono">${r.corporate === 'true' ? 'YES' : '<span class="badge">no</span>'}</td>
+        <td class="dim">${esc(r.via || (r.shared ? r.shared + ' businesses on this domain' : ''))}</td>
+      </tr>`).join('') + '</tbody></table>'}
+
+<h2>4 — Instagram lane: what are we already holding?</h2>
+${!ig ? '' : `<table><tbody>
+  <tr><td>Instagram rows cached</td><td class="mono">${ig.rows}</td></tr>
+  <tr><td>&nbsp;&nbsp;with a handle</td><td class="mono">${ig.with_handle}</td></tr>
+  <tr><td><b>bookingEmail already captured</b> <span class="tag ok">usable today</span></td>
+      <td>${bar(ig.with_booking, ig.with_handle, '#84CC16')}</td></tr>
+  <tr><td>bioText captured</td><td>${bar(ig.with_bio, ig.with_handle, '#3b82f6')}</td></tr>
+  <tr><td><b>bioText containing an unparsed email</b> <span class="tag ok">free to harvest</span></td>
+      <td>${bar(ig.bio_has_email, ig.with_handle, '#f59e0b')}</td></tr>
+  <tr><td>ownerName captured from bio</td><td class="mono">${ig.with_owner}</td></tr>
+</tbody></table>
+<p class="note">Read-only, nothing scraped. <b>bookingEmail</b> is already on disk and already
+usable — the same shape as the website bug. <b>bioText containing an unparsed email</b> is an
+address we hold and have never extracted. Both are free. Note these two are DIFFERENT in kind:
+a booking/contact-field address is published by the account, a bio-prose one is not, which is
+exactly what <span class="mono">evidenceKind</span> exists to record.</p>`}
+
+<div class="runbox" style="border-left-color:#f59e0b;margin-top:14px">
+  <button id="recl" onclick="reclassify()">Reclassify corporate flags</button>
+  <div class="dim" style="margin-top:8px">
+    Free and instant — no refetching. corporate is derived, not scraped, so it can be
+    recomputed from data already on disk using the shared-domain chain count plus any
+    cached parent-or-brand contacts. This is what the first backfill ran without.
+  </div>
+  <div id="reclout" class="prog"></div>
+</div>
+<script>
+function reclassify(){
+  var b=document.getElementById('recl'); b.disabled=true; b.textContent='Reclassifying…';
+  fetch('/api/admin/site-email-reclassify',{method:'POST'})
+   .then(function(r){return r.json();})
+   .then(function(d){ b.disabled=false; b.textContent='Reclassify corporate flags';
+     document.getElementById('reclout').innerHTML='<span class="mono">examined '+d.examined+
+       ' · changed '+d.changed+' · now corporate '+d.nowCorporate+'</span>'+
+       '<div style="margin-top:6px;color:#84CC16">Reload to update the tables.</div>'; })
+   .catch(function(e){ b.disabled=false; b.textContent='Reclassify corporate flags';
+     document.getElementById('reclout').textContent='Failed: '+e.message; });
+}
+</script>
 <script>
 function startBackfill(){
   var btn=document.getElementById('run');
