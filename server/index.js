@@ -9893,8 +9893,13 @@ app.get('/admin/local-coverage', async (req, res) => {
     // measured in JS rather than SQL because the test is a name/token
     // comparison, not something a query can express.
   const { domainMatchesBusiness } = require('./services/siteEmail');
+  // evidence->>'name' is GOOGLE'S OWN displayName for the place it matched.
+  // Comparing it against the brand we asked about is the decisive test for
+  // where a bad URL comes from: if Google's name is a different business, then
+  // Places resolved the wrong entity and the website is correct for THAT
+  // business, not ours.
   const sites = (await safe('mismatch-sites', async () => (await store.pool.query(`
-      SELECT DISTINCT ON (website) brand, website
+      SELECT DISTINCT ON (website) brand, website, evidence->>'name' AS google_name
         FROM brand_evidence_cache
        WHERE lane='places' AND website IS NOT NULL AND website <> ''
        ORDER BY website, refreshed_at DESC`)).rows)) || [];
@@ -9906,7 +9911,11 @@ app.get('/admin/local-coverage', async (req, res) => {
         mismatch.bad++;
         if (v.foreign) mismatch.foreign++;
         if (mismatch.examples.length < 25) {
-          mismatch.examples.push({ brand: s.brand, website: s.website, reason: v.reason });
+          mismatch.examples.push({ brand: s.brand, website: s.website, reason: v.reason,
+            googleName: s.google_name || null,
+            // Does the URL fit the name GOOGLE returned? If so, Places resolved
+            // a different business and handed back that business's real site.
+            googleDiffers: !!(s.google_name && domainMatchesBusiness(s.google_name, s.website).plausible) });
         }
       }
     }
@@ -10041,9 +10050,17 @@ ${!mismatch ? '' : `<table><tbody>
 domain share nothing at all, which catches the Agua Plus → rotoplas.com.mx class. It does NOT
 catch Barstool Athletics → barstoolsports.com: the token overlaps, so a wrong-entity-at-the-right-brand
 match looks fine to it. The real mismatch rate is higher than the number above.</p>
-${!mismatch.examples.length ? '' : `<table><thead><tr><th>Business</th><th>Website</th></tr></thead><tbody>`
+${!mismatch.examples.length ? '' : `<table><thead><tr><th>We asked Places for</th><th>Places returned</th><th>Website it gave</th></tr></thead><tbody>`
   + mismatch.examples.map((e) => `<tr class="no"><td>${esc(e.brand)}</td>
-      <td class="mono dim">${esc(e.website)}</td></tr>`).join('') + '</tbody></table>'}`}
+      <td class="mono">${esc(e.googleName || '(name not stored)')}${e.googleDiffers ? ' <span class="badge">DIFFERENT BUSINESS</span>' : ''}</td>
+      <td class="mono dim">${esc(e.website)}</td></tr>`).join('')
+  + `</tbody></table>
+  <p class="note">The middle column is <b>Google's own displayName</b> for the place it matched.
+  Where it names a different business and the URL fits <i>that</i> business, Places resolved the
+  wrong entity: the website is correct for what Google matched, just not for what we asked about.
+  lookupPlace sends <span class="mono">textQuery: "&lt;brand&gt; &lt;location&gt;"</span> with
+  <span class="mono">maxResultCount: 1</span> and uses result #1 with no check that the returned
+  name is the business we wanted.</p>`}`}
 
 <h2>4 — Instagram lane: what are we already holding?</h2>
 ${!ig ? '' : `<table><tbody>
