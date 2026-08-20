@@ -59,16 +59,28 @@ function normBrand(s) {
 // university. A dealership that has already done a deal with an athlete at this
 // school is a far better target than one that merely has a marketing budget.
 //
-// WHAT IS ACTUALLY REACHABLE, and nothing beyond it:
+// THREE SOURCES, AND THEY ARE NOT THE SAME KIND OF EVIDENCE. Labelling them
+// identically was the thing to avoid: a card that says "they already sponsor
+// Auburn athletes" on the strength of a news article is a claim the agent will
+// repeat to a business owner, and it needs to be true.
 //
-//   deal_comps          school + brand. Market-wide evidence that a brand did a
-//                       deal with an athlete at THIS school. The strongest
-//                       signal we hold, and it is already being ingested.
-//   deals               our own closed deals, joined to the athlete's school.
-//                       Narrower but certain: we watched it happen.
-//   brand_engagement    a brand at this school that REPLIED or closed. Weaker
-//                       than a signed deal, stronger than never having heard of
-//                       them.
+//   deals (agent-closed-at-school)  WE CLOSED IT. We watched it happen, and it
+//                                   is almost always a local business. Strongest.
+//   brand_engagement (replied)      A business that ANSWERED us for another
+//                                   athlete at this school. Real, local, and it
+//                                   is what the sponsorship insight is actually
+//                                   about -- someone with a tie to the program
+//                                   who picked up the phone.
+//   deal_comps (reported)           nilCompJob.js is a weekly web search for
+//                                   DISCLOSED NIL deals over $1,000. Its
+//                                   extraction prompt asks for "collective name
+//                                   or brand name", so the table is mostly NIL
+//                                   collectives and national brands from
+//                                   conference news. That is useful for the
+//                                   national lane and it is NOT evidence that a
+//                                   business loves the university. Lowest
+//                                   weight, worded as a report, and it does not
+//                                   boost the local lane at all.
 //
 // WHAT IS NOT REACHABLE, and is therefore NOT approximated:
 //
@@ -76,13 +88,19 @@ function normBrand(s) {
 //                                  athletics URL we could scrape a partners page
 //                                  from, but no such scrape exists and inferring
 //                                  a sponsor from a name would be a guess about
-//                                  a real business relationship.
+//                                  a real business relationship. PARKED, on
+//                                  purpose -- it is the real path to this data.
 //   advertisers around the program Signage, radio reads and program ads are not
 //                                  on the web in any form we ingest.
-//
-// So this boosts on deal history at the school, and says so. It does not claim
-// to know who sponsors the athletic department.
-const SIGNAL_WEIGHT = { 'nil-deal-at-school': 18, 'agent-closed-at-school': 14, 'replied-at-school': 8 };
+const SIGNAL_WEIGHT = {
+  'agent-closed-at-school': 18,
+  'replied-at-school': 12,
+  'reported-deal-at-school': 6,
+};
+// A reported deal is national-press evidence. It says nothing about whether a
+// business is tied to the town, so it must not outrank proximity in the lane
+// that is built on proximity.
+const LOCAL_LANE_SIGNALS = new Set(['agent-closed-at-school', 'replied-at-school']);
 
 async function schoolSponsorSignals(pool, school, opts = {}) {
   const out = new Map();
@@ -100,17 +118,7 @@ async function schoolSponsorSignals(pool, school, opts = {}) {
     catch (e) { console.error('[scout/signals] ' + label, e.message); return []; }
   };
 
-  // 1. A brand that has done a deal with an athlete at this school. Matched on
-  //    school loosely, because deal_comps carries whatever the source called it.
-  for (const r of await q('comps',
-    `SELECT DISTINCT brand FROM deal_comps
-      WHERE brand IS NOT NULL AND brand <> ''
-        AND (LOWER(school) = LOWER($1) OR LOWER(school) LIKE '%' || LOWER($2) || '%')
-      LIMIT 400`, [s, s.replace(/\s*(university|college)\s*/ig, ' ').trim()])) {
-    add(r.brand, 'nil-deal-at-school', `has done an NIL deal with an athlete at ${s}`);
-  }
-
-  // 2. Our own closed deals for athletes at this school.
+  // 1. Our own closed deals for athletes at this school.
   for (const r of await q('deals',
     `SELECT DISTINCT d.data->>'brand' AS brand
        FROM deals d JOIN athletes a ON a.id = d.athlete_id
@@ -120,14 +128,34 @@ async function schoolSponsorSignals(pool, school, opts = {}) {
     add(r.brand, 'agent-closed-at-school', `you have already closed a deal with them at ${s}`);
   }
 
-  // 3. A brand at this school that replied or closed.
+  // 2. A business that answered us for another athlete at this school. This read
+  //    returned nothing for the life of the product: 'responded' and 'closed'
+  //    were never written by anything. See store.advanceBrandEngagement.
   for (const r of await q('engaged',
-    `SELECT DISTINCT be.brand_name AS brand
+    `SELECT DISTINCT be.brand_name AS brand, be.state
        FROM brand_engagement be JOIN athletes a ON a.id = be.athlete_id
       WHERE be.state IN ('responded','closed') AND be.brand_name IS NOT NULL
         AND LOWER(a.data->>'school') = LOWER($1)
       LIMIT 200`, [s])) {
-    add(r.brand, 'replied-at-school', `has replied to outreach for another ${s} athlete`);
+    add(r.brand, 'replied-at-school', r.state === 'closed'
+      ? `has closed a deal with another ${s} athlete`
+      : `replied to outreach for another ${s} athlete`);
+  }
+
+  // 3. A DISCLOSED deal reported publicly. Matched on school loosely, because
+  //    deal_comps carries whatever the source called it. Worded as what it is: a
+  //    report, not a relationship we can vouch for. Rows we wrote ourselves
+  //    (source='agent-close') are excluded -- they are already source 1, at a
+  //    much higher weight, and counting them twice would launder our own close
+  //    into "the market says so".
+  for (const r of await q('comps',
+    `SELECT DISTINCT brand FROM deal_comps
+      WHERE brand IS NOT NULL AND brand <> ''
+        AND COALESCE(source,'') <> 'agent-close'
+        AND (LOWER(school) = LOWER($1) OR LOWER(school) LIKE '%' || LOWER($2) || '%')
+      LIMIT 400`, [s, s.replace(/\s*(university|college)\s*/ig, ' ').trim()])) {
+    add(r.brand, 'reported-deal-at-school',
+      `publicly reported an NIL deal with an athlete at ${s}`);
   }
   void opts;
   return out;
@@ -264,7 +292,12 @@ async function assembleSlate(pool, ctx) {
   // a deal at this school is the better target whether it is the coffee shop
   // down the road or a national program.
   const ranked = all.map((c) => {
-    const sig = signals.get(normBrand(c.brand_name)) || null;
+    let sig = signals.get(normBrand(c.brand_name)) || null;
+    // A publicly reported deal does not boost the LOCAL lane. It is national
+    // press evidence about a collective or a national brand, and letting it
+    // outrank a business that is actually down the road would be the same
+    // category error as pitching a national brand a storefront appearance.
+    if (sig && c.lane === 'local' && !LOCAL_LANE_SIGNALS.has(sig.kind)) sig = null;
     let fit = Number(c.fitHint) || 50;
     if (c.lane === 'local') fit += 6;          // proximity is real, and modest
     if (c.pool === 'shown') fit += 4;          // a scan already thought so

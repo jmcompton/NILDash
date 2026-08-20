@@ -1482,6 +1482,19 @@ async function init() {
   // and sponsor_signal/sponsor_note carry the deal-history-at-this-school boost
   // so a card can say "they have already done a deal at Auburn" instead of
   // showing the agent a rank with no reason attached.
+  // One row per market, recording the last time its radius was widened. In the
+  // DATABASE and not in memory because the nightly job is a separate process
+  // from the web server: an in-process guard would give each its own allowance
+  // and the same market could be widened twice in a day.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS market_deepen_log (
+      market_key TEXT PRIMARY KEY,
+      last_deepened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_source TEXT,
+      deepen_count INT NOT NULL DEFAULT 0
+    )`).then(() => console.log('[init] market_deepen_log table ready'))
+    .catch((e) => console.error('[init] market_deepen_log:', e.message));
+
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS lane TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS program_url TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS sponsor_signal TEXT`).catch(() => {});
@@ -2034,19 +2047,34 @@ async function deleteAthlete(id) {
 
 // DEALS
 // DEAL COMPS — anonymized closed deals that improve NILViewVal accuracy
+//
+// SCHOOL AND BRAND ARE WRITTEN NOW. They were absent from the column list, so
+// every comp created from our OWN closed deals carried NULL for both -- which
+// meant our real, verified deal history could never feed the one query that
+// asks "has this brand done a deal at this school" (scout.js
+// schoolSponsorSignals). The table was left holding only the weekly news scrape
+// in nilCompJob.js, which finds disclosed deals over $1,000 and is therefore
+// mostly collectives and national brands. Our own closes are the local half of
+// that picture and they were being thrown away at the insert.
+//
+// Still anonymized: no athlete name, no agent, no deal id. School and brand are
+// market facts, and they are what makes a comp comparable.
 async function saveComp(dealData, athleteData) {
   try {
     await pool.query(`
-      INSERT INTO deal_comps (sport, school_tier, followers, engagement, deal_type, deal_value, year_in_school)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      INSERT INTO deal_comps (sport, school_tier, school, brand, followers, engagement, deal_type, deal_value, year_in_school, source)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
     `, [
       athleteData.sport || 'unknown',
       athleteData.schoolTier || 'mid-mid',
+      athleteData.school || '',
+      dealData.brand || '',
       (parseInt(athleteData.instagram) || 0) + (parseInt(athleteData.tiktok) || 0),
       parseFloat(athleteData.engagement) || 3.0,
       dealData.type || 'ig-post',
       parseInt(dealData.value) || 0,
-      athleteData.year || 'unknown'
+      athleteData.year || 'unknown',
+      'agent-close'
     ]);
   } catch(e) {
     console.error('saveComp error:', e.message);
@@ -2126,6 +2154,17 @@ async function saveDeal(id, data) {
     ON CONFLICT (id) DO UPDATE SET
       data=EXCLUDED.data, updated_at=NOW()
   `, [id, athleteId, agentId, rest]);
+  // A CLOSE IS THE STRONGEST THING THE LEDGER CAN KNOW, and it is recorded here
+  // rather than in the two route handlers that happen to close deals today --
+  // this is the one function every deal write goes through, so a path added
+  // later cannot forget. Idempotent: advanceBrandEngagement never moves a state
+  // backwards, so re-saving a closed deal is a no-op.
+  const stage = String(rest.stage || rest.status || '').toLowerCase();
+  if ((stage === 'closed' || rest.status === 'closed') && athleteId && rest.brand) {
+    await markBrandClosed(athleteId, {
+      agentId: agentId || null, brandName: rest.brand, outcome: 'closed', source: 'deal',
+    });
+  }
   return getDeal(id);
 }
 async function deleteDeal(id) {
@@ -2408,6 +2447,108 @@ async function upsertShownBrands(agentId, athleteId, lane, items) {
     } catch (e) { console.warn(`[brandLedger] shown upsert failed key=${bk}: ${e.message}`); }
   }
   return n;
+}
+
+// ── THE LEDGER LEARNS FROM WHAT CAME BACK ────────────────────────────────────
+//
+// Nothing in the tree ever wrote 'responded' or 'closed'. Both values existed
+// only in read filters -- ai.js and index.js treat them as retirement states,
+// scout.js reads them as a school-sponsor signal, and every one of those queries
+// matched zero rows because no writer existed. The outcome endpoint looked like
+// the writer but set brand_engagement.OUTCOME, a different column, leaving state
+// on 'contacted' forever.
+//
+// So the ledger recorded that we contacted someone and never that they answered.
+// Three things were reading for an answer that could not arrive:
+//   scout.js         a brand that replied for another athlete at this school
+//   ai.js / index.js retirement, so a brand that already replied stays offered
+//   pitchWriter      learnedAngles, which weights angles by reply rate
+//
+// STATE ONLY EVER MOVES FORWARD. A late reply on a closed deal must not demote
+// it, and re-ticking an outcome must be a no-op rather than a downgrade. 'dead'
+// ranks below 'responded' on purpose: a brand we wrote off that then answers is
+// answered, not dead.
+const ENGAGEMENT_RANK = { shown: 0, contacted: 1, dead: 2, responded: 3, closed: 4 };
+
+// Fallback key for a brand that never went through a scan, so a deal closed on a
+// business we never showed still lands in the ledger. ai.resolveBrandKey is the
+// real key builder, but requiring ai from store would be circular, and its keys
+// (place_id / root domain) are not derivable from a name anyway. Prefixed so a
+// name-derived key can never collide with a place_id or a domain.
+function _nameBrandKey(brandName) {
+  const n = String(brandName || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return n ? 'name:' + n.slice(0, 80) : null;
+}
+
+// Move a brand's engagement state forward for ONE athlete. Upserts, because a
+// reply or a close can arrive for a brand no scan ever surfaced. Never throws:
+// a ledger write must not be able to fail a reply or a deal close.
+async function advanceBrandEngagement(athleteId, opts = {}) {
+  const state = String(opts.state || '').toLowerCase();
+  if (!athleteId || ENGAGEMENT_RANK[state] === undefined) return false;
+  const brandName = opts.brandName ? String(opts.brandName).trim() : '';
+  const brandKey = opts.brandKey || null;
+  if (!brandKey && !brandName) return false;
+  const ranks = Object.keys(ENGAGEMENT_RANK).filter((k) => ENGAGEMENT_RANK[k] >= ENGAGEMENT_RANK[state]);
+  try {
+    // 1. Advance an existing row. Matched on brand_key when we have one, and on
+    //    the NAME otherwise -- outreach_logs and deals carry a display name, not
+    //    the scan's key, and demanding the key here is what would silently drop
+    //    the majority of real replies.
+    const upd = await pool.query(
+      `UPDATE brand_engagement
+          SET state = $3,
+              updated_at = NOW(),
+              contacted_at = COALESCE(contacted_at, NOW()),
+              outcome = COALESCE($4, outcome),
+              outcome_at = CASE WHEN $4 IS NULL THEN outcome_at ELSE NOW() END
+        WHERE athlete_id = $1
+          AND ($2::text IS NOT NULL AND brand_key = $2::text
+               OR $5::text <> '' AND LOWER(brand_name) = LOWER($5::text))
+          AND NOT (state = ANY($6::text[]))
+        RETURNING id`,
+      [String(athleteId), brandKey, state, opts.outcome || null, brandName, ranks]);
+    if (upd.rowCount > 0) return true;
+
+    // Already at or past this state: nothing to do, and that is a success.
+    const seen = await pool.query(
+      `SELECT 1 FROM brand_engagement
+        WHERE athlete_id = $1
+          AND ($2::text IS NOT NULL AND brand_key = $2::text
+               OR $3::text <> '' AND LOWER(brand_name) = LOWER($3::text))
+        LIMIT 1`, [String(athleteId), brandKey, brandName]);
+    if (seen.rowCount > 0) return true;
+
+    // 2. No row at all. Insert one, so a close on a business we never scanned
+    //    still becomes evidence for the next athlete at that school.
+    const bk = brandKey || _nameBrandKey(brandName);
+    if (!bk) return false;
+    await pool.query(
+      `INSERT INTO brand_engagement
+         (agent_id, athlete_id, brand_key, brand_name, lane, state, shown_count,
+          first_shown_at, last_shown_at, contacted_at, outcome, outcome_at, source)
+       VALUES ($1,$2,$3,$4,$5,$6,0,NOW(),NOW(),NOW(),$7,
+               CASE WHEN $7::text IS NULL THEN NULL ELSE NOW() END,$8)
+       ON CONFLICT (athlete_id, brand_key) DO NOTHING`,
+      [opts.agentId || null, String(athleteId), bk, brandName || null,
+       opts.lane || null, state, opts.outcome || null, opts.source || 'engagement']);
+    return true;
+  } catch (e) {
+    console.warn(`[brandLedger] advance to ${state} failed athlete=${athleteId} `
+      + `brand=${brandName || brandKey}: ${e.message}`);
+    return false;
+  }
+}
+
+// They answered. Called from every path a reply can arrive down: the Resend
+// inbound webhook, the manual email tick, and the queue card outcome button.
+async function markBrandResponded(athleteId, opts = {}) {
+  return advanceBrandEngagement(athleteId, { ...opts, state: 'responded' });
+}
+
+// A deal closed with them. Strongest signal the ledger holds.
+async function markBrandClosed(athleteId, opts = {}) {
+  return advanceBrandEngagement(athleteId, { ...opts, state: 'closed' });
 }
 
 // Retire a brand: state=contacted, recording which path did it (contacted_via).
@@ -3351,6 +3492,7 @@ module.exports = {
   CHECKLIST_ITEMS,
   getMarketCache, setMarketCache, MARKET_CACHE_TTL_DAYS,
   getBrandLedgerRows, getBrandLedgerRow, insertManualBrand, upsertShownBrands, markBrandContacted, unmarkBrandContacted, getCrossAthleteContacted,
+  advanceBrandEngagement, markBrandResponded, markBrandClosed, ENGAGEMENT_RANK,
   getSocialBrandPool, getSocialDepth,
   saveProgramStaff, getProgramStaff, saveProgramContact, getProgramContact,
   getProgramSource, saveProgramSourceUrl, saveProgramStaffSnapshot,

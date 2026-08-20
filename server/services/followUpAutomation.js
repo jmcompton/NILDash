@@ -10,12 +10,16 @@
 // as the existing emailSync poller — no new infrastructure needed.
 //
 // SAFETY: reads outreach_logs and emails tables only.
-//         writes to outreach_logs and workflow_events (new tables).
+//         writes outreach_logs, workflow_events, outreach_queue.replied_at, and
+//         advances brand_engagement to 'responded' -- see markReplied. The
+//         ledger write is why a reply can now teach anything; it is wrapped so
+//         it can never fail the reply itself.
 //         does NOT modify deals, athletes, or any existing table.
 
 'use strict';
 
-const { pool } = require('../store');
+const store = require('../store');
+const { pool } = store;
 const { oneShot } = require('../ai');
 
 const FOLLOW_UP_DAY_1 = 4; // days before first follow-up draft
@@ -78,6 +82,16 @@ async function markReplied(outreachLogId, repliedAt) {
           AND sent_at IS NOT NULL`,
       [repliedAt || new Date(), log.agent_id, log.athlete_id, log.brand_name || '']
     ).catch((e) => console.error('[markReplied] queue stamp failed:', e.message));
+
+    // AND THE LEDGER. This is the write that did not exist. Without it the reply
+    // was recorded on the log and the card but never on the brand, so every
+    // reader asking "has this business ever answered us" -- retirement, the
+    // Scout's school-sponsor signal -- got nothing back, for every business,
+    // permanently.
+    await store.markBrandResponded(log.athlete_id, {
+      agentId: log.agent_id, brandKey: log.brand_key || null,
+      brandName: log.brand_name || '', source: 'reply',
+    });
   }
 }
 

@@ -37,6 +37,7 @@ const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
 const AR = require('../services/athleteRecord');
 const Scout = require('../services/scout');
+const Deepen = require('../services/marketDeepen');
 const { resolveSchool } = require('../services/schoolResolver');
 // One resolver for the job and the shared record, so a school that resolves
 // for the Writer resolves for the Scout too.
@@ -321,12 +322,39 @@ async function fillAthlete(pool, ctx) {
   // and passed over), the social index and the national comps AT ONCE, ranked
   // together, with a boost for brands that have done a deal at this athlete's
   // school. The lane is a property of a result, not a separate run.
-  const slate = await Scout.assembleSlate(pool, {
-    agentId,
-    athlete: ctx.athleteProfile || { id: athleteId, hasLocalMarket: !!region, school: null },
-    store,
+  const profile = ctx.athleteProfile || { id: athleteId, hasLocalMarket: !!region, school: null };
+  let slate = await Scout.assembleSlate(pool, {
+    agentId, athlete: profile, store,
     limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
   });
+
+  // ── WIDEN THE RADIUS RATHER THAN GO QUIET ────────────────────────────────
+  // The deeper search pass has always existed, but it only ever fired when an
+  // agent OPENED Deal Scan on a thin market. A market the nightly run drained
+  // stayed drained until a human happened to look at that athlete -- which for
+  // 45 clients is most of the roster, most nights. The Scout knows the pool is
+  // spent, so it says so here, once per market per 24h across both processes.
+  if (slate.localExhausted && profile.hasLocalMarket && !ctx.noWiden) {
+    const gate = await Deepen.canDeepen(pool, profile.school);
+    if (!gate.ok) {
+      say(`${athleteName}: local pool is spent — not widening (${gate.reason})`);
+    } else if (await Deepen.claimDeepen(pool, profile.school, { source: 'nightly' })) {
+      say(`${athleteName}: local pool is spent — widening the search to neighbouring towns`);
+      try {
+        const athObj = { id: athleteId, ...(ctx.athleteRow || {}) };
+        await ai.getDealRecommendations(athObj, 'agent', [], 'local', { deepen: true });
+        // Re-assemble: the widened pass writes new businesses into the market
+        // pool, and re-reading is the whole point of having widened.
+        slate = await Scout.assembleSlate(pool, {
+          agentId, athlete: profile, store,
+          limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
+        });
+        say(`${athleteName}: after widening, ${slate.picks.length} candidate(s)`);
+      } catch (e) {
+        say(`${athleteName}: widening failed (${e.message}) — carrying on with what we have`);
+      }
+    }
+  }
   const cands = slate.picks;
   if (!cands.length) {
     // NEVER EMPTY WITHOUT A REASON. A silent zero is what we spent a day
@@ -551,8 +579,11 @@ async function fillAgent(pool, agent, opts) {
     const r = await fillAthlete(pool, {
       agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
       athleteProfile: athleteProfile(ath), agentFirstName: agentFirst,
+      // The raw stored athlete, for the widened re-scan only. getDealRecommendations
+      // reads school/sport/instagram/tiktok off the record itself.
+      athleteRow: ath.data || null,
       // Resolved per athlete. Passing opts.region here meant passing undefined.
-      budget, region: regionForAthlete(ath), athleteProfile: athleteProfile(ath), dryRun: dry,
+      budget, region: regionForAthlete(ath), dryRun: dry,
       // ONE card a night. The rest are built when the agent opens the queue,
       // so the night never pays for two cards nobody looks at.
       maxSlots: Q.NIGHTLY_SLOTS,
@@ -623,7 +654,11 @@ async function fillOnDemand(pool, ath, opts = {}) {
   const r = await fillAthlete(pool, {
     agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
     athleteProfile: athleteProfile(ath), agentFirstName: ath.agent_first_name || null,
-    budget, region: regionForAthlete(ath), athleteProfile: athleteProfile(ath),
+    budget, region: regionForAthlete(ath),
+    // ON-DEMAND NEVER WIDENS. This runs while the agent is watching, on a $0.15
+    // cap; a deep search pass costs more than the whole on-demand budget and
+    // would stall the page. Widening is the night's job.
+    noWiden: true,
     onProgress: (m) => console.log('[queue/ondemand] ' + m),
   });
   await pool.query(

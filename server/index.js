@@ -15,6 +15,7 @@ const store    = require('./store');
 const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ai       = require('./ai');
+const MarketDeepen = require('./services/marketDeepen');
 const nilRules = require('./nilStateRules');
 const scanMeter = require('./scanMeter');
 const { requireUniversityMode } = require('./middleware/modeGuard');
@@ -7591,7 +7592,11 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
         const _unseen = (recs && typeof recs._poolUnseen === 'number') ? recs._poolUnseen : recs.length;
         if (_unseen < 5) {
           const _dk = _deepenMarketKey(loaded.athleteObj.school);
-          if (_autoDeepenAllowed(_dk) && _deepenRateCheck(_dk).ok) {
+          // The DB claim is shared with the nightly job, which widens the same
+          // markets from a different process. Without it each process keeps its
+          // own in-memory allowance and one market gets widened twice a day.
+          const _dbClaim = await MarketDeepen.claimDeepen(store.pool, loaded.athleteObj.school, { source: 'dealscan' });
+          if (_dbClaim && _autoDeepenAllowed(_dk) && _deepenRateCheck(_dk).ok) {
             _autoDeepenRecord(_dk); _deepenRateRecord(_dk);
             try {
               const deeper = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane, { deepen: true, ledger: scanLedger });
@@ -8863,7 +8868,12 @@ app.patch('/api/agent/outreach-queue/:id', requireAuth, async (req, res) => {
 // stays empty until tonight's run.
 app.post('/api/agent/outreach-queue/:id/sent', requireAuth, async (req, res) => {
   try {
-    const via = req.body.via === 'dm' ? 'dm' : 'call';
+    // 'program' is a real channel now: a social, DTC or national brand is
+    // reached through its athlete-program page, not a handle or a phone. It was
+    // being collapsed into 'call', which recorded the wrong thing about how the
+    // outreach actually went out.
+    const VIA = ['dm', 'call', 'program'];
+    const via = VIA.indexOf(req.body.via) === -1 ? 'call' : req.body.via;
     const r = await store.pool.query(
       `UPDATE outreach_queue SET state = 'sent', sent_at = NOW(), sent_via = $3, updated_at = NOW()
         WHERE id = $1 AND agent_id = $2 AND state = 'queued' RETURNING *`,
@@ -8872,9 +8882,17 @@ app.post('/api/agent/outreach-queue/:id/sent', requireAuth, async (req, res) => 
     if (!card) return res.status(404).json({ error: 'Card not found' });
     // The ledger records the contact for THIS athlete only; the table is keyed
     // (athlete_id, brand_key), so another athlete can still be shown this brand.
+    // UPSERTED, not updated: a program-lane card's brand comes from the verified
+    // index and may never have been through a scan, so there is often no row to
+    // update and the contact would go unrecorded.
+    await store.advanceBrandEngagement(card.athlete_id, {
+      state: 'contacted', agentId: card.agent_id, brandKey: card.brand_key,
+      brandName: card.brand_name, lane: card.lane || null, source: 'queue_' + via,
+    });
     await store.pool.query(
-      `UPDATE brand_engagement SET state = 'contacted', contacted_at = NOW(), contacted_via = $3, updated_at = NOW()
-        WHERE athlete_id = $1 AND brand_key = $2`, [card.athlete_id, card.brand_key, 'queue_' + via]).catch(() => {});
+      `UPDATE brand_engagement SET contacted_via = $3, updated_at = NOW()
+        WHERE athlete_id = $1 AND brand_key = $2`,
+      [card.athlete_id, card.brand_key, 'queue_' + via]).catch(() => {});
     res.json(card);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -8901,15 +8919,34 @@ app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) 
   try {
     const outcome = String(req.body.outcome || '');
     if (OQ.OUTCOMES.indexOf(outcome) === -1) return res.status(400).json({ error: 'Unknown outcome' });
+    // A REPLY IS A REPLY WHICHEVER WAY IT ARRIVED. This used to set outcome only.
+    // learnedAngles counts outreach_queue.replied_at, so an agent ticking
+    // "replied" on a DM or call card taught the Writer nothing -- the only
+    // replies it could ever see were emailed ones that came back through the
+    // Resend webhook. A close implies a reply, so it stamps the same field.
+    const replied = outcome === 'replied' || outcome === 'closed';
     const r = await store.pool.query(
-      `UPDATE outreach_queue SET outcome = $3, outcome_at = NOW(), updated_at = NOW()
+      `UPDATE outreach_queue
+          SET outcome = $3, outcome_at = NOW(), updated_at = NOW(),
+              replied_at = CASE WHEN $4 THEN COALESCE(replied_at, NOW()) ELSE replied_at END
         WHERE id = $1 AND agent_id = $2 AND state = 'sent' RETURNING *`,
-      [req.params.id, req.session.userId, outcome]);
+      [req.params.id, req.session.userId, outcome, replied]);
     const card = r.rows[0];
     if (!card) return res.status(404).json({ error: 'Card not found' });
-    await store.pool.query(
-      `UPDATE brand_engagement SET outcome = $3, outcome_at = NOW(), updated_at = NOW()
-        WHERE athlete_id = $1 AND brand_key = $2`, [card.athlete_id, card.brand_key, outcome]).catch(() => {});
+    // The ledger, by STATE and not only by outcome. Writing outcome alone left
+    // state on 'contacted' forever, which is why every reader looking for
+    // 'responded' or 'closed' matched nothing.
+    if (outcome === 'closed' || outcome === 'replied') {
+      await store.advanceBrandEngagement(card.athlete_id, {
+        state: outcome === 'closed' ? 'closed' : 'responded',
+        agentId: card.agent_id, brandKey: card.brand_key, brandName: card.brand_name,
+        lane: card.lane || null, outcome, source: 'queue_outcome',
+      });
+    } else {
+      await store.pool.query(
+        `UPDATE brand_engagement SET outcome = $3, outcome_at = NOW(), updated_at = NOW()
+          WHERE athlete_id = $1 AND brand_key = $2`, [card.athlete_id, card.brand_key, outcome]).catch(() => {});
+    }
     res.json(card);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -10038,7 +10075,12 @@ function retireStale(){
        return;
      }
      b.textContent='Project the cleanup'; b.dataset.confirmed='';
-     o.innerHTML='<span style="color:#84CC16">Retired '+d.retired+' row(s). Tonight\'s run re-sources those slots.</span>';
+     // NO APOSTROPHE IN HERE. This whole script block is emitted from a template
+     // literal in index.js, where \\' collapses to a bare ' and silently breaks
+     // the string it was meant to escape. That took out the entire block, so
+     // retireStale was never defined and the button did nothing at all when
+     // clicked -- no error on the page, no request, no output.
+     o.innerHTML='<span style="color:#84CC16">Retired '+d.retired+' row(s). The next run re-sources those slots.</span>';
    })
    .catch(function(e){ b.disabled=false; b.textContent='Project the cleanup'; o.textContent='Failed: '+e.message; });
 }
