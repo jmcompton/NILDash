@@ -1709,6 +1709,292 @@ app.post('/api/benchmarks/backfill', requireAuth, async (req, res) => {
 // number with no chart reads as intentional and a chart with no data reads as broken.
 const HOME_CHART_MIN_WEEKS = 3;
 
+// ── THE SHIFT REPORT ─────────────────────────────────────────────────────────
+// What the agentic team did overnight, as the first thing an agent reads.
+//
+// THE ONLY RULE THAT MATTERS: every number is counted from a row that exists, or
+// the card says nothing to report. The product is a claim that a team worked
+// while the agent slept. One invented number and the claim is worthless, so
+// there is no default, no placeholder, no "—" standing in for a count, and no
+// role that reports activity because the others did.
+//
+// Each role names the table it is counted from, so a number on the page can
+// always be traced to rows in the database:
+//
+//   Scout       brand_evidence_cache lane='places'   -> businesses checked
+//               outreach_queue                        -> how many became cards
+//   Researcher  brand_evidence_cache lane='contacts'  -> named contacts found
+//               brand_evidence_cache lane='siteemail' -> how many are emailable
+//   Writer      outreach_logs status='draft'          -> pitches drafted
+//               outreach_queue.dm_text                -> DM scripts written
+//   Closer      outreach_logs.sent_at / replied_at    -> sent, replies in
+//   Analyst     athlete_activity_log                  -> media_kit_built,
+//                                                        valuation_run
+//
+// THE WINDOW. outreach_queue_runs is the only record of a nightly run actually
+// happening, so the latest row for this agent anchors everything. Work is
+// bracketed around that timestamp rather than counted over a calendar day: the
+// job fires at 3am Central and its artifacts land over the following minutes,
+// while a calendar day would also sweep up whatever the agent did by hand at
+// 4pm and credit it to the team. The bracket opens slightly BEFORE the run
+// because ladderPrewarm warms contacts as the scan is still being written.
+const SHIFT_PRE_HOURS = 2;
+const SHIFT_POST_HOURS = 12;
+
+// Everything starts here. Graduation logic is deliberately not built yet -- this
+// renders the level so the concept is visible and demoable, nothing more.
+const ROLE_AUTONOMY_DEFAULT = 'draft';   // 'draft' | 'auto'
+
+async function _shiftReport(agentId) {
+  // Every query is individually guarded. A role whose source table is missing
+  // reports nothing to report -- it must never take the rest of the page with
+  // it, and it must never borrow another role's number.
+  const errs = [];
+  const q = async (label, sql, params) => {
+    try { return (await store.pool.query(sql, params || [])).rows; }
+    catch (e) { errs.push(label + ': ' + e.message); console.error('[shift-report] ' + label, e.message); return null; }
+  };
+  const one = async (label, sql, params) => {
+    const rows = await q(label, sql, params);
+    return rows && rows[0] ? rows[0] : null;
+  };
+  const n = (v) => (v === null || v === undefined ? null : Number(v));
+
+  // ── The run itself ────────────────────────────────────────────────────────
+  const run = await one('run',
+    `SELECT run_date, filled, spent_usd, note, details, created_at
+       FROM outreach_queue_runs WHERE agent_id = $1
+      ORDER BY run_date DESC LIMIT 1`, [agentId]);
+
+  if (!run) {
+    // No run has ever been recorded. Say that, rather than showing five cards of
+    // zeroes, which reads as a team that worked and found nothing.
+    return {
+      run: { ran: false, reason: 'no-run-recorded' },
+      roles: [], needsYou: await _shiftNeedsYou(agentId, q), errors: errs,
+    };
+  }
+
+  const details = Array.isArray(run.details) ? run.details : [];
+  const athletesCovered = details.length;
+  const from = new Date(new Date(run.created_at).getTime() - SHIFT_PRE_HOURS * 3600e3);
+  const to = new Date(new Date(run.created_at).getTime() + SHIFT_POST_HOURS * 3600e3);
+  const W = [agentId, from, to];
+
+  // ── Scout ─────────────────────────────────────────────────────────────────
+  // Places lookups are cached globally rather than per agent, so they carry no
+  // agent_id. Scoping them to this agent's queue would double-count; counting
+  // them raw would credit one agent with another's scan. They are counted only
+  // where they belong to a brand this agent's queue picked up in the window.
+  const scoutKept = await one('scout-kept',
+    `SELECT COUNT(*)::int AS kept, COUNT(DISTINCT athlete_id)::int AS athletes
+       FROM outreach_queue
+      WHERE agent_id = $1 AND created_at >= $2 AND created_at < $3`, W);
+  const scoutChecked = await one('scout-checked',
+    `SELECT COUNT(DISTINCT b.brand_key)::int AS checked
+       FROM brand_evidence_cache b
+      WHERE b.lane = 'places' AND b.refreshed_at >= $2 AND b.refreshed_at < $3
+        AND EXISTS (SELECT 1 FROM brand_engagement e
+                     WHERE e.agent_id = $1 AND e.brand_key = b.brand_key)`, W);
+
+  // ── Researcher ────────────────────────────────────────────────────────────
+  const research = await one('researcher',
+    `SELECT COUNT(*) FILTER (WHERE lane='contacts')::int AS contact_rows,
+            COALESCE(SUM(CASE WHEN lane='contacts'
+              AND jsonb_typeof(evidence->'contacts')='array'
+              THEN jsonb_array_length(evidence->'contacts') ELSE 0 END),0)::int AS contacts_found,
+            COUNT(*) FILTER (WHERE lane='siteemail' AND evidence->>'email' IS NOT NULL)::int AS emailable
+       FROM brand_evidence_cache b
+      WHERE b.refreshed_at >= $2 AND b.refreshed_at < $3
+        AND b.lane IN ('contacts','siteemail')
+        AND EXISTS (SELECT 1 FROM brand_engagement e
+                     WHERE e.agent_id = $1 AND e.brand_key = b.brand_key)`, W);
+
+  // ── Writer ────────────────────────────────────────────────────────────────
+  const drafts = await one('writer-drafts',
+    `SELECT COUNT(*)::int AS n FROM outreach_logs
+      WHERE agent_id = $1 AND status = 'draft'
+        AND created_at >= $2 AND created_at < $3`, W);
+  const scripts = await one('writer-scripts',
+    `SELECT COUNT(*)::int AS n FROM outreach_queue
+      WHERE agent_id = $1 AND dm_text IS NOT NULL AND dm_text <> ''
+        AND created_at >= $2 AND created_at < $3`, W);
+
+  // ── Closer ────────────────────────────────────────────────────────────────
+  const closer = await one('closer',
+    `SELECT COUNT(*) FILTER (WHERE sent_at >= $2 AND sent_at < $3)::int      AS sent,
+            COUNT(*) FILTER (WHERE replied_at >= $2 AND replied_at < $3)::int AS replies
+       FROM outreach_logs WHERE agent_id = $1`, W);
+  const queueSent = await one('closer-queue',
+    `SELECT COUNT(*)::int AS n FROM outreach_queue
+      WHERE agent_id = $1 AND sent_at >= $2 AND sent_at < $3`, W);
+
+  // ── Analyst ───────────────────────────────────────────────────────────────
+  const analyst = await one('analyst',
+    `SELECT COUNT(*) FILTER (WHERE activity_type = 'media_kit_built')::int AS kits,
+            COUNT(*) FILTER (WHERE activity_type = 'valuation_run')::int   AS valuations
+       FROM athlete_activity_log
+      WHERE agent_id = $1 AND created_at >= $2 AND created_at < $3`, W);
+
+  const plural = (x, s, p) => x + ' ' + (x === 1 ? s : (p || s + 's'));
+
+  // A role reports only what its own rows support. `ran:false` is a real answer
+  // and renders as "Nothing to report" -- never as a zero dressed up as work.
+  const roles = [
+    (() => {
+      const checked = scoutChecked && n(scoutChecked.checked);
+      const kept = scoutKept && n(scoutKept.kept);
+      if (!checked && !kept) return { key: 'scout', name: 'Scout', ran: false };
+      return {
+        key: 'scout', name: 'Scout', ran: true,
+        value: kept || 0, unit: 'kept',
+        headline: plural(kept || 0, 'business', 'businesses') + ' kept',
+        detail: checked
+          ? `from ${plural(checked, 'business', 'businesses')} checked across ${plural(scoutKept ? scoutKept.athletes : 0, 'athlete')}`
+          : `across ${plural(scoutKept ? scoutKept.athletes : 0, 'athlete')}`,
+      };
+    })(),
+    (() => {
+      const found = research && n(research.contacts_found);
+      const emailable = research && n(research.emailable);
+      if (!found && !emailable) return { key: 'researcher', name: 'Researcher', ran: false };
+      return {
+        key: 'researcher', name: 'Researcher', ran: true,
+        value: found || 0, unit: 'contacts',
+        headline: plural(found || 0, 'contact') + ' found',
+        detail: `${emailable || 0} with an email address we can write to`,
+      };
+    })(),
+    (() => {
+      const d = drafts ? n(drafts.n) : 0;
+      const s = scripts ? n(scripts.n) : 0;
+      if (!d && !s) return { key: 'writer', name: 'Writer', ran: false };
+      const total = d + s;
+      return {
+        key: 'writer', name: 'Writer', ran: true,
+        value: total, unit: 'drafted',
+        headline: plural(total, 'pitch', 'pitches') + ' drafted',
+        detail: d && s ? `${d} email ${d === 1 ? 'draft' : 'drafts'}, ${s} DM ${s === 1 ? 'script' : 'scripts'}`
+          : (d ? 'waiting in Outreach for your approval' : 'DM scripts on the morning queue'),
+      };
+    })(),
+    (() => {
+      const sent = (closer ? n(closer.sent) : 0) + (queueSent ? n(queueSent.n) : 0);
+      const replies = closer ? n(closer.replies) : 0;
+      if (!sent && !replies) return { key: 'closer', name: 'Closer', ran: false };
+      return {
+        key: 'closer', name: 'Closer', ran: true,
+        value: sent, unit: 'sent',
+        headline: plural(sent, 'outreach', 'outreaches') + ' sent',
+        detail: replies ? `${plural(replies, 'reply', 'replies')} came back` : 'no replies yet',
+      };
+    })(),
+    (() => {
+      const kits = analyst ? n(analyst.kits) : 0;
+      const vals = analyst ? n(analyst.valuations) : 0;
+      if (!kits && !vals) return { key: 'analyst', name: 'Analyst', ran: false };
+      const bits = [];
+      if (kits) bits.push(plural(kits, 'media kit') + ' refreshed');
+      if (vals) bits.push(plural(vals, 'valuation') + ' updated');
+      return {
+        key: 'analyst', name: 'Analyst', ran: true,
+        value: kits + vals, unit: 'updates',
+        headline: bits[0], detail: bits[1] || 'nothing else changed',
+      };
+    })(),
+  ].map((r) => ({ ...r, autonomy: ROLE_AUTONOMY_DEFAULT }));
+
+  return {
+    run: {
+      ran: true,
+      runDate: run.run_date,
+      startedAt: run.created_at,
+      windowFrom: from, windowTo: to,
+      athletesCovered,
+      filled: n(run.filled),
+      note: run.note || null,
+    },
+    roles,
+    needsYou: await _shiftNeedsYou(agentId, q),
+    errors: errs,
+  };
+}
+
+// ── NEEDS YOU ────────────────────────────────────────────────────────────────
+// A decision queue, five items maximum, each one line and one button.
+//
+// TWO TYPES, NOT THREE. The brief asked for a third -- "compliance held
+// something before sending" -- and there is no such mechanism in this codebase:
+// nothing holds an outreach, no table records a hold, and the compliance screen
+// analyses a closed deal portfolio after the fact. Rendering that row would mean
+// inventing the state it reports, which is the one thing this page cannot do.
+// It is left out until something real can hold a send.
+const SHIFT_QUEUE_MAX = 5;
+
+async function _shiftNeedsYou(agentId, q) {
+  const items = [];
+
+  // 1. A brand replied and has not been answered.
+  const replies = await q('needs-replies',
+    `SELECT l.id, l.brand_name, l.athlete_id, l.replied_at,
+            a.data->>'name' AS athlete_name
+       FROM outreach_logs l
+       LEFT JOIN athletes a ON a.id = l.athlete_id
+      WHERE l.agent_id = $1 AND l.replied_at IS NOT NULL
+        AND COALESCE(l.status,'') <> 'closed'
+      ORDER BY l.replied_at DESC LIMIT $2`, [agentId, SHIFT_QUEUE_MAX]);
+  for (const r of (replies || [])) {
+    items.push({
+      kind: 'reply', id: r.id, priority: 0,
+      line: `${r.brand_name} replied${r.athlete_name ? ' about ' + r.athlete_name : ''}`,
+      // No claim that a drafted answer exists: nothing in this codebase writes
+      // one. The button opens the thread, which is what actually happens.
+      actionLabel: 'Read and reply', target: { view: 'outreach', id: r.id },
+      at: r.replied_at,
+    });
+  }
+
+  // 2. Pitches drafted and waiting on approval.
+  const pend = await q('needs-drafts',
+    `SELECT COUNT(*)::int AS n, MIN(created_at) AS oldest
+       FROM outreach_logs
+      WHERE agent_id = $1 AND status = 'draft'`, [agentId]);
+  const pendN = pend && pend[0] ? Number(pend[0].n) : 0;
+  if (pendN > 0) {
+    items.push({
+      kind: 'approve', id: 'drafts', priority: 1,
+      line: `${pendN} pitch${pendN === 1 ? '' : 'es'} drafted and waiting on your approval`,
+      actionLabel: 'Review drafts', target: { view: 'outreach' },
+      at: pend[0].oldest,
+    });
+  }
+
+  // 3. Morning queue cards the team filled and nobody has worked yet.
+  const queued = await q('needs-queue',
+    `SELECT COUNT(*)::int AS n FROM outreach_queue
+      WHERE agent_id = $1 AND state = 'queued'`, [agentId]);
+  const queuedN = queued && queued[0] ? Number(queued[0].n) : 0;
+  if (queuedN > 0) {
+    items.push({
+      kind: 'queue', id: 'queue', priority: 2,
+      line: `${queuedN} outreach card${queuedN === 1 ? '' : 's'} ready to work`,
+      actionLabel: 'Open the queue', target: { view: 'home', anchor: 'hm-queue' },
+    });
+  }
+
+  items.sort((a, b) => a.priority - b.priority);
+  return items.slice(0, SHIFT_QUEUE_MAX);
+}
+
+app.get('/api/agent/shift-report', requireAuth, async (req, res) => {
+  try {
+    res.json(await _shiftReport(req.session.userId));
+  } catch (e) {
+    console.error('[shift-report]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/agent/home-metrics', requireAuth, async (req, res) => {
   const agentId = req.session.userId;
   // Individually guarded: one missing table must not blank the whole page.
