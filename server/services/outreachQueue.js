@@ -34,7 +34,11 @@
 const DEFAULT_AGENT_NIGHTLY_USD = 0.50;
 // A slot must not burn the whole cap on candidates that all fail the bar.
 const MAX_ATTEMPTS_PER_SLOT = 3;
-const SLOTS_PER_ATHLETE = 3;
+// Five per athlete per night, and five means five WORTH SENDING. The filler
+// runs out long before the slots do, so a night that produces two strong
+// pitches writes two: the shift report saying "wrote two, both strong" beats
+// five with three pieces of filler in it, and the writer is allowed to refuse.
+const SLOTS_PER_ATHLETE = 5;
 const WAITING_AFTER_DAYS = 3;
 const OUTCOMES = ['no_reply', 'replied', 'closed'];
 
@@ -176,17 +180,21 @@ function askFirstName(fullName) {
   return parts[0];
 }
 
-// The DM, written from the card the scan already produced. No model call: the
-// rationale that justified showing the business is the same sentence that
-// justifies the message.
+// THE FALLBACK ONLY. The real writer is services/pitchWriter.js, which reads the
+// business and the athlete and reasons about the angle before it writes a word.
+// This exists for one case: the model was unreachable and we still owe the agent
+// a card. It is deliberately plain rather than dressed up, because a bland
+// message an agent will rewrite is honest, and a fake-specific one is not.
+//
+// Anything this produces is marked angle=null, so the shift report and the
+// reply-learning never mistake a fallback for a reasoned pitch.
 function writeDm(athleteName, brandName, why) {
   const who = String(athleteName || 'a college athlete I work with').trim();
   const angle = String(why || '').trim().replace(/\s+/g, ' ');
   const first = angle ? angle.split(/(?<=[.!?])\s/)[0] : '';
-  return `Hi! I work on the NIL side with ${who}, a college athlete here in your area. `
-    + `I had an idea for a partnership with ${brandName}`
-    + (first ? ` — ${first.charAt(0).toLowerCase()}${first.slice(1).replace(/\.$/, '')}` : '')
-    + `. Would love to send over a short overview if you're open to it!`;
+  return `Hi, I work with ${who} on the NIL side and had an idea for ${brandName}`
+    + (first ? `, ${first.charAt(0).toLowerCase()}${first.slice(1).replace(/\.$/, '')}` : '')
+    + `. Worth a quick conversation?`;
 }
 
 // One card. `cand` is the scan candidate, `ladder` the built contact ladder, `ig`
@@ -219,7 +227,18 @@ function buildCard(cand, ladder, ig) {
     channel: dmable ? 'dm' : 'call',
     // Only written when it can actually be sent. A DM drafted for a corporate
     // account is a message nobody should paste.
-    dmText: dmable ? writeDm(c.athleteName, c.brand || c.brandName, c.rationale) : null,
+    //
+    // c.pitch is what services/pitchWriter.js produced for this pairing. When it
+    // is present the card carries the reasoned message AND the angle behind it;
+    // when it is absent (model unreachable) the plain fallback is used and the
+    // angle stays null, so nothing downstream can mistake one for the other.
+    dmText: dmable ? (c.pitch && c.pitch.message
+      ? c.pitch.message
+      : writeDm(c.athleteName, c.brand || c.brandName, c.rationale)) : null,
+    angle: (c.pitch && c.pitch.angle) || null,
+    angleKey: (c.pitch && c.pitch.angleKey) || null,
+    categoryKey: (c.pitch && c.pitch.categoryKey) || null,
+    ask: (c.pitch && c.pitch.ask) || null,
   };
 }
 

@@ -1462,6 +1462,24 @@ async function init() {
   // ── Held outreach ─────────────────────────────────────────────────────────
   // A draft cleared to send is STAMPED with a release time rather than going out
   // at 3am. See services/sendWindow.js for why, and for the rule.
+  // ── Why this pitch said what it said ──────────────────────────────────────
+  // The angle is the reasoning that produced the message. Stored beside the
+  // draft so "why did it pitch that" is answerable from the row, and so replies
+  // can be attributed back to an angle rather than to a vague sense that some
+  // messages work. category_key is the Google-category playbook that shaped the
+  // ask; angle_key is the slug the writer chose.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS angle TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS angle_key TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS category_key TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS ask TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_queue_angle
+                      ON outreach_queue (category_key, angle_key) WHERE angle_key IS NOT NULL`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS angle TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS angle_key TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS category_key TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS ask TEXT`).catch(() => {});
+
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS scheduled_send_at TIMESTAMPTZ`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_timezone TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_scheduled

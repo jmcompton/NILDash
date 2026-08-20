@@ -8698,10 +8698,15 @@ function OQfillOnDemandEnabled() {
 // fillOnDemand, so this is safe to call on every single page load.
 async function runOnDemandFills(agentId) {
   const job = require('./jobs/outreachQueue');
+  // data and the agent's name come along because the Writer sells THIS athlete
+  // and signs as THIS agent. Selecting three fields is what produced "a college
+  // athlete here in your area" on every pitch.
   const aths = await store.pool.query(
-    `SELECT id, agent_id, data->>'name' AS name, data->>'hometown' AS hometown,
-            data->>'school' AS school
-       FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`, [agentId]);
+    `SELECT a.id, a.agent_id, a.data, a.data->>'name' AS name,
+            a.data->>'hometown' AS hometown, a.data->>'school' AS school,
+            split_part(COALESCE(u.name,''), ' ', 1) AS agent_first_name
+       FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
+      WHERE a.agent_id = $1 ORDER BY a.created_at ASC`, [agentId]);
   for (const ath of aths.rows || []) {
     await job.fillOnDemand(store.pool, ath).catch((e) =>
       console.error(`[queue/ondemand] athlete=${ath.id} failed: ${e.message}`));

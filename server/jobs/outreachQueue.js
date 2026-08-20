@@ -34,6 +34,7 @@ const ai = require('../ai');
 const { buildContactLadder } = require('../services/contactLadder');
 const { lookupPlace } = require('../services/placesLookup');
 const Q = require('../services/outreachQueue');
+const PW = require('../services/pitchWriter');
 
 const ENABLED = process.env.OUTREACH_QUEUE_ENABLED === '1';
 const CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_AGENT_CAP_USD) || Q.DEFAULT_AGENT_NIGHTLY_USD;
@@ -184,6 +185,28 @@ async function candidatesFor(pool, athleteId, limit) {
 //
 // Hometown first, because that is the market the athlete actually sells into,
 // then the school's real city and state. Never the school's name.
+// What the writer is actually selling. Flattened from the athlete row so the
+// pitch can name a position, a school, a hometown and a real follower count
+// instead of "a college athlete here in your area".
+function athleteProfile(ath) {
+  const d = (ath && ath.data) || {};
+  const num = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
+  return {
+    name: ath.name || d.name || null,
+    sport: d.sport || null,
+    position: d.position || null,
+    year: d.year || null,
+    school: ath.school || d.school || null,
+    hometown: ath.hometown || d.hometown || null,
+    instagram: num(d.instagram),
+    tiktok: num(d.tiktok),
+    stats: d.stats || null,
+    tags: Array.isArray(d.tags) ? d.tags.filter((x) => typeof x === 'string') : [],
+    productWants: typeof d.productWants === 'string' ? d.productWants : null,
+    notes: d.notes || null,
+  };
+}
+
 function regionForAthlete(athlete) {
   const d = (athlete && athlete.data) || athlete || {};
   const home = String(d.hometown || '').trim();
@@ -195,12 +218,25 @@ function regionForAthlete(athlete) {
 
 // The rationale the scan already wrote, which is the same sentence that justifies
 // the message. No extra model call.
-async function rationaleFor(pool, agentId, athleteId, brandName) {
+// EVERYTHING the scan already worked out for this pairing. The old version read
+// only `reasoning` and the writer then re-derived an ask from nothing; the value
+// and the campaign ideas were generated on the Deal Scan card and thrown away at
+// exactly the moment a concrete ask needed them.
+async function matchFor(pool, agentId, athleteId, brandName) {
   const r = await pool.query(
-    `SELECT reasoning FROM brand_match_scores
+    `SELECT reasoning, campaign_ideas, compatibility_score
+       FROM brand_match_scores
       WHERE agent_id = $1 AND athlete_id = $2 AND LOWER(brand_name) = LOWER($3)
       ORDER BY created_at DESC LIMIT 1`, [agentId, athleteId, brandName]).catch(() => ({ rows: [] }));
-  return (r.rows[0] && r.rows[0].reasoning) || null;
+  const m = r.rows[0];
+  if (!m) return null;
+  const ideas = Array.isArray(m.campaign_ideas) ? m.campaign_ideas
+    : (typeof m.campaign_ideas === 'string' ? (() => { try { return JSON.parse(m.campaign_ideas); } catch (_) { return []; } })() : []);
+  return {
+    reasoning: m.reasoning || null,
+    campaignIdeas: (ideas || []).map((x) => (typeof x === 'string' ? x : (x && (x.idea || x.title)) || '')).filter(Boolean),
+    score: m.compatibility_score != null ? Number(m.compatibility_score) : null,
+  };
 }
 
 // ONE FILLER, shared by the nightly job and the admin "fill now" button. If the
@@ -303,10 +339,50 @@ async function fillAthlete(pool, ctx) {
       }
       tried.push({ brand: cand.brand_name, result: 'queued', reason: null, places: facts, risk: pre.risk });
 
+      // ── THE WRITER ──────────────────────────────────────────────────────
+      // Reads the business and the athlete, decides the angle, then writes. It
+      // is allowed to REFUSE: if nothing real connects the two, no pitch is
+      // written and the slot moves on to the next candidate rather than being
+      // filled with something that reads like a mail merge.
+      const match = await matchFor(pool, agentId, athleteId, cand.brand_name);
+      let pitch = null;
+      try {
+        pitch = await PW.writePitch({
+          business: {
+            name: cand.brand_name,
+            category: (place && (place.primaryType || place.category)) || null,
+            address: (place && (place.address || place.formattedAddress)) || null,
+            rating: place ? place.rating : null,
+            userRatingCount: place ? place.userRatingCount : null,
+            ownerName: (Q.namedRows(ladder)[0] || {}).name || null,
+            ownerTitle: (Q.namedRows(ladder)[0] || {}).title || null,
+            siteSummary: (out && out.siteEmail && out.siteEmail.sourceUrl) ? null : null,
+            isFranchise: !!(out && out.siteEmail && out.siteEmail.corporate),
+            sponsorsLocal: null,
+          },
+          athlete: ctx.athleteProfile || { name: athleteName },
+          deal: match,
+          agentFirstName: ctx.agentFirstName || null,
+          channel: 'dm',
+          learnedAngles: await PW.learnedAngles(pool,
+            PW.playbookFor((place && place.primaryType) || null).key).catch(() => []),
+        }, { oneShot: (p2, sys, mt) => ai.oneShot(p2, sys, mt, ai.MODEL_GEN) });
+      } catch (e) {
+        say(`${cand.brand_name}: writer failed (${e.message}), using the plain fallback`);
+        pitch = null;
+      }
+      if (pitch && pitch.skipped) {
+        // A REFUSAL IS A RESULT. Recorded with its reason so "wrote two, both
+        // strong" is a claim the log can back up.
+        say(`${cand.brand_name}: nothing worth pitching — ${pitch.reason}`);
+        tried.push({ brand: cand.brand_name, result: 'no_angle', reason: pitch.reason, places: facts, risk: pre.risk });
+        continue;
+      }
+
       const card = Q.buildCard({
         brandKey: cand.brand_key, brand: cand.brand_name,
-        rationale: await rationaleFor(pool, agentId, athleteId, cand.brand_name),
-        athleteName,
+        rationale: (match && match.reasoning) || null,
+        athleteName, pitch,
       }, ladder, ig);
 
       if (dry) { say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; break; }
@@ -314,12 +390,13 @@ async function fillAthlete(pool, ctx) {
         `INSERT INTO outreach_queue
            (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
             source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
-            dm_text, channel, state)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued')
+            dm_text, channel, state, angle, angle_key, category_key, ask)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20)
          ON CONFLICT DO NOTHING RETURNING id`,
         [agentId, athleteId, slot, card.brandKey, card.brandName, card.why, card.contactName,
          card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
-         card.instagramScope, card.phone, card.phoneAskFor, card.dmText, card.channel]);
+         card.instagramScope, card.phone, card.phoneAskFor, card.dmText, card.channel,
+         card.angle, card.angleKey, card.categoryKey, card.ask]);
       if ((ins.rowCount || 0) > 0) {
         placed = true; filled++;
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
@@ -344,10 +421,14 @@ async function fillAgent(pool, agent, opts) {
     return { filled: 0, spent: 0, claimed: false };
   }
   const budget = Q.newBudget(CAP_USD);
+  // THE WHOLE ATHLETE, not three fields. Every pitch used to say "a college
+  // athlete here in your area", which throws away the only thing being sold.
   const athletes = (await pool.query(
-    `SELECT id, data->>'name' AS name, data->>'hometown' AS hometown, data->>'school' AS school
+    `SELECT id, data, data->>'name' AS name, data->>'hometown' AS hometown,
+            data->>'school' AS school
        FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`,
     [agent.id])).rows;
+  const agentFirst = String(agent.name || '').trim().split(/\s+/)[0] || null;
   let filled = 0;
   // ONE ROW PER ATHLETE, even the ones that got nothing. Without this an athlete
   // the job found zero candidates for left no trace anywhere -- not a queued
@@ -359,6 +440,7 @@ async function fillAgent(pool, agent, opts) {
     const before = budget.spent();
     const r = await fillAthlete(pool, {
       agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
+      athleteProfile: athleteProfile(ath), agentFirstName: agentFirst,
       // Resolved per athlete. Passing opts.region here meant passing undefined.
       budget, region: regionForAthlete(ath), dryRun: dry,
       // ONE card a night. The rest are built when the agent opens the queue,
@@ -393,9 +475,9 @@ async function fillAgent(pool, agent, opts) {
 async function run(opts = {}) {
   const pool = store.pool;
   const agents = opts.agentId
-    ? (await pool.query(`SELECT id FROM users WHERE id = $1`, [opts.agentId])).rows
+    ? (await pool.query(`SELECT id, name FROM users WHERE id = $1`, [opts.agentId])).rows
     : (await pool.query(
-      `SELECT id FROM users WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
+      `SELECT id, name FROM users WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
   let filled = 0, spent = 0;
   for (const a of agents) {
     const r = await fillAgent(pool, a, opts).catch((e) => {
@@ -430,6 +512,7 @@ async function fillOnDemand(pool, ath, opts = {}) {
   const budget = Q.newBudget(ONDEMAND_CAP_USD);
   const r = await fillAthlete(pool, {
     agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
+    athleteProfile: athleteProfile(ath), agentFirstName: ath.agent_first_name || null,
     budget, region: regionForAthlete(ath),
     onProgress: (m) => console.log('[queue/ondemand] ' + m),
   });

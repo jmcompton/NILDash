@@ -66,7 +66,18 @@ async function markReplied(outreachLogId, repliedAt) {
   if (log) {
     logEvent(null, log.agent_id, 'reply_received', {
       outreachId: outreachLogId, brand: log.brand_name, athleteId: log.athlete_id,
+      // The angle that earned the reply. Without this the learning loop can only
+      // see THAT something worked, never WHAT.
+      angleKey: log.angle_key || null, categoryKey: log.category_key || null,
     });
+    // Stamp the queue card this outreach came from, so angle performance is
+    // measurable from one table instead of a join nobody will write.
+    await pool.query(
+      `UPDATE outreach_queue SET replied_at = COALESCE(replied_at, $1)
+        WHERE agent_id = $2 AND athlete_id = $3 AND LOWER(brand_name) = LOWER($4)
+          AND sent_at IS NOT NULL`,
+      [repliedAt || new Date(), log.agent_id, log.athlete_id, log.brand_name || '']
+    ).catch((e) => console.error('[markReplied] queue stamp failed:', e.message));
   }
 }
 
