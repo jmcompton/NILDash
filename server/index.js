@@ -9881,13 +9881,22 @@ app.get('/api/admin/hunter-audit', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    // 1. What the hunter lane actually holds. Every row here is an HTTP 200.
+    // 1. What the hunter lane holds. Rows written BEFORE the restore only exist
+    //    for HTTP 200s; rows written after also record failures with their
+    //    status, so 'answered' is now OK + NONE specifically, never COUNT(*).
     const answered = (await store.pool.query(`
-      SELECT COUNT(*)::int                                            AS rows,
-             COUNT(*) FILTER (WHERE outcome = 'OK')::int              AS with_addresses,
-             COUNT(*) FILTER (WHERE outcome = 'NONE')::int            AS zero_addresses,
-             MIN(refreshed_at)                                        AS first_at,
-             MAX(refreshed_at)                                        AS last_at
+      SELECT COUNT(*)::int                                             AS rows,
+             COUNT(*) FILTER (WHERE outcome IN ('OK','NONE'))::int     AS answered,
+             COUNT(*) FILTER (WHERE outcome = 'OK')::int               AS with_addresses,
+             COUNT(*) FILTER (WHERE outcome = 'NONE')::int             AS zero_addresses,
+             COUNT(*) FILTER (WHERE outcome = 'HTTP_401')::int         AS unauthorized,
+             COUNT(*) FILTER (WHERE outcome = 'HTTP_429')::int         AS rate_limited,
+             COUNT(*) FILTER (WHERE outcome = 'HTTP_ERR')::int         AS http_error,
+             COUNT(*) FILTER (WHERE outcome = 'TIMEOUT')::int          AS timed_out,
+             COUNT(*) FILTER (WHERE outcome = 'ERROR')::int            AS errored,
+             COUNT(*) FILTER (WHERE outcome = 'NO_KEY')::int           AS no_key,
+             MIN(refreshed_at)                                         AS first_at,
+             MAX(refreshed_at)                                         AS last_at
         FROM brand_evidence_cache WHERE lane = 'hunter'`)).rows[0];
 
     // 2. The derived denominator: deep lookups that had a website to ask about.
@@ -9931,8 +9940,12 @@ app.get('/api/admin/hunter-audit', requireAuth, async (req, res) => {
        ORDER BY refreshed_at DESC LIMIT 100`)).rows;
 
     const asked = askedDomains.size;
-    const ans = answered.rows;
-    const silent = Math.max(0, asked - ans);
+    const ans = answered.answered;
+    // Failures that ARE now recorded. Rows predating the restore still cannot be
+    // distinguished from never-called, which is what 'silent' still means.
+    const failed = answered.unauthorized + answered.rate_limited + answered.http_error
+      + answered.timed_out + answered.errored + answered.no_key;
+    const silent = Math.max(0, asked - ans - failed);
     const personal = addresses.filter((a) => a.type === 'personal').length;
 
     // ── THE OVERLAP: what would Hunter actually ADD? ─────────────────────────
@@ -9972,7 +9985,13 @@ app.get('/api/admin/hunter-audit', requireAuth, async (req, res) => {
       ok: true,
       askedDomains: asked,
       answered: ans,
-      silent,                                   // never called OR 401/429/error — NOT separable
+      failed,
+      failures: {
+        unauthorized: answered.unauthorized, rateLimited: answered.rate_limited,
+        httpError: answered.http_error, timedOut: answered.timed_out,
+        errored: answered.errored, noKey: answered.no_key,
+      },
+      silent,                                   // never called OR a pre-restore failure
       withAddresses: answered.with_addresses,
       zeroAddresses: answered.zero_addresses,
       totalAddresses: addresses.length,
@@ -9983,8 +10002,9 @@ app.get('/api/admin/hunter-audit', requireAuth, async (req, res) => {
       noneDomains,
       overlap,
       // Stated in the payload as well as the page, so a JSON reader cannot miss it.
-      caveat: 'A 401/429/timeout wrote no cache row, so "silent" cannot be split into '
-            + 'never-called vs rate-limited from this table. Every row present is an HTTP 200.',
+      caveat: 'Calls made BEFORE the Hunter restore wrote no row on 401/429/timeout, so any '
+            + '"silent" domain from that era cannot be split into never-called vs failed. '
+            + 'Calls made after the restore record every outcome with its HTTP status.',
     });
   } catch (e) {
     console.error('[hunter-audit]', e.message);
@@ -10151,6 +10171,243 @@ async function _seRunJob(jobId, rows, force) {
       [jobId, String(e.message).slice(0, 400)]).catch(() => {});
   }
 }
+
+// ── Hunter backfill ──────────────────────────────────────────────────────────
+// SPENDS REAL CREDITS, one per domain that reaches Hunter. Runs ONLY against
+// validated sites where siteEmail already tried and found no address: the
+// overlap audit showed most domains Hunter has a person for are domains the
+// website could already reach for free, so calling it on those is paying for
+// what we have.
+//
+// Two modes on one endpoint. Without { confirm: true } it is a DRY RUN: it
+// resolves exactly the same candidate set, reports the count and the projected
+// credits, and calls nothing. Spending money is not a thing a button should do
+// because it was clicked once.
+const HUNTER_CONCURRENCY = 3;   // Hunter's own rate limit is the binding constraint
+
+// The candidate set, resolved identically for the dry run and the real run so
+// the projection cannot describe a different job from the one that runs.
+async function _hunterCandidates() {
+  const { rootDomain } = require('./services/siteEmail');
+  // Validated sites only, same gate the siteEmail backfill uses.
+  const sites = (await store.pool.query(
+    `SELECT DISTINCT ON (b.website) b.brand, b.website
+       FROM brand_evidence_cache b
+       JOIN brand_evidence_cache wc
+         ON wc.lane = 'websitecheck' AND wc.website = b.website
+        AND wc.evidence->>'verdict' = 'pass'
+      WHERE b.lane = 'places' AND b.website IS NOT NULL AND b.website <> ''
+      ORDER BY b.website, b.refreshed_at DESC`)).rows;
+
+  // Where siteEmail already has an address -> nothing to buy.
+  const seHas = new Set();
+  for (const r of (await store.pool.query(
+    `SELECT website, evidence FROM brand_evidence_cache WHERE lane='siteemail'`)).rows) {
+    const d = rootDomain(r.website);
+    if (d && r.evidence && r.evidence.email) seHas.add(d);
+  }
+  // Domains Hunter has already answered for -> free from cache, no credit.
+  const answered = new Set();
+  for (const r of (await store.pool.query(
+    `SELECT brand_key FROM brand_evidence_cache
+      WHERE lane='hunter' AND outcome IN ('OK','NONE')
+        AND refreshed_at > NOW() - INTERVAL '30 days'`)).rows) {
+    answered.add(r.brand_key);
+  }
+
+  const seen = new Set();
+  const out = [];
+  let skippedHaveEmail = 0, skippedCached = 0;
+  for (const s of sites) {
+    const d = rootDomain(s.website);
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    if (seHas.has(d)) { skippedHaveEmail++; continue; }
+    if (answered.has(d)) { skippedCached++; continue; }
+    out.push({ brand: s.brand, website: s.website, domain: d });
+  }
+  return { rows: out, validatedSites: seen.size, skippedHaveEmail, skippedCached };
+}
+
+async function _hunterRunJob(jobId, rows) {
+  const { findDomainEmails } = require('./services/hunterLookup');
+  const t = { done: 0, credits: 0, withAddresses: 0, zeroAddresses: 0,
+    personalFound: 0, genericFound: 0, cached: 0, failed: 0, outcomes: {}, lastDomain: null };
+  let cursor = 0, lastFlush = 0;
+
+  const flush = async (final) => {
+    try {
+      await store.pool.query(
+        `UPDATE hunter_jobs SET done=$2, credits=$3, with_addresses=$4, zero_addresses=$5,
+           personal_found=$6, generic_found=$7, cached=$8, failed=$9,
+           outcomes=$10::jsonb, last_domain=$11, updated_at=NOW()
+           ${final ? ", status='done', finished_at=NOW()" : ''}
+         WHERE id=$1`,
+        [jobId, t.done, t.credits, t.withAddresses, t.zeroAddresses,
+         t.personalFound, t.genericFound, t.cached, t.failed,
+         JSON.stringify(t.outcomes), t.lastDomain]);
+    } catch (e) { console.error('[hunter-backfill] flush failed:', e.message); }
+  };
+
+  const worker = async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= rows.length) return;
+      const r = rows[i];
+      t.lastDomain = r.domain;
+      try {
+        const before = Date.now();
+        const out = await findDomainEmails(r.domain);
+        // The lookup writes its own outcome row; read it back so the tally
+        // reports what actually happened rather than inferring from null.
+        const row = (await store.pool.query(
+          `SELECT outcome FROM brand_evidence_cache WHERE lane='hunter' AND brand_key=$1`,
+          [r.domain]).catch(() => ({ rows: [] }))).rows[0];
+        const oc = (row && row.outcome) || 'UNKNOWN';
+        t.outcomes[oc] = (t.outcomes[oc] || 0) + 1;
+        if (out && out.cached) t.cached++;
+        else t.credits++;                       // it reached Hunter, so it cost one
+        if (oc === 'OK') {
+          t.withAddresses++;
+          const em = (out && out.emails) || [];
+          t.personalFound += em.filter((e) => e.type === 'personal').length;
+          t.genericFound += em.filter((e) => e.type === 'generic').length;
+        } else if (oc === 'NONE') t.zeroAddresses++;
+        else t.failed++;
+        // A 401 means the key is wrong and every further call wastes a round trip.
+        if (oc === 'HTTP_401' || oc === 'NO_KEY') {
+          console.error(`[hunter-backfill] job=${jobId} ABORTING: ${oc} — stopping before spending more`);
+          cursor = rows.length;
+          await store.pool.query(
+            `UPDATE hunter_jobs SET status='failed', error=$2, finished_at=NOW() WHERE id=$1`,
+            [jobId, oc === 'NO_KEY' ? 'HUNTER_API_KEY is not set' : 'Hunter returned 401 — check the API key']
+          ).catch(() => {});
+          return;
+        }
+        void before;
+      } catch (e) {
+        t.failed++;
+        console.error('[hunter-backfill]', r.domain, e.message);
+      }
+      t.done++;
+      if (Date.now() - lastFlush > 2000) { lastFlush = Date.now(); await flush(false); }
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: Math.min(HUNTER_CONCURRENCY, rows.length || 1) }, worker));
+    const still = (await store.pool.query(`SELECT status FROM hunter_jobs WHERE id=$1`, [jobId])).rows[0];
+    if (still && still.status === 'running') await flush(true);
+    console.log(`[hunter-backfill] job=${jobId} done ${t.done}/${rows.length} credits=${t.credits} `
+      + `withAddresses=${t.withAddresses} none=${t.zeroAddresses} failed=${t.failed}`);
+  } catch (e) {
+    console.error('[hunter-backfill] job=' + jobId + ' FAILED:', e.message);
+    await store.pool.query(
+      `UPDATE hunter_jobs SET status='failed', error=$2, finished_at=NOW() WHERE id=$1`,
+      [jobId, String(e.message).slice(0, 400)]).catch(() => {});
+  }
+}
+
+app.post('/api/admin/hunter-backfill', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const running = (await store.pool.query(
+      `SELECT id FROM hunter_jobs WHERE status='running' LIMIT 1`)).rows[0];
+    if (running) return res.json({ alreadyRunning: true, jobId: running.id });
+
+    const c = await _hunterCandidates();
+    const keySet = !!process.env.HUNTER_API_KEY;
+
+    // DRY RUN unless explicitly confirmed. One credit per candidate domain.
+    if (!(req.body && req.body.confirm === true)) {
+      return res.json({
+        dryRun: true, keySet,
+        validatedSites: c.validatedSites,
+        skippedHaveEmail: c.skippedHaveEmail,
+        skippedCached: c.skippedCached,
+        willCall: c.rows.length,
+        projectedCredits: c.rows.length,
+        sample: c.rows.slice(0, 15).map((r) => r.domain),
+      });
+    }
+    if (!keySet) return res.status(400).json({ error: 'HUNTER_API_KEY is not set in this environment.' });
+    if (!c.rows.length) return res.status(400).json({ error: 'Nothing to call: every validated site either already has an email or has a fresh Hunter answer.' });
+
+    const jobId = 'hb_' + require('crypto').randomBytes(6).toString('hex');
+    await store.pool.query(`INSERT INTO hunter_jobs (id, total) VALUES ($1,$2)`, [jobId, c.rows.length]);
+    setImmediate(() => {
+      _hunterRunJob(jobId, c.rows).catch((e) =>
+        console.error('[hunter-backfill] unhandled:', e && e.message));
+    });
+    console.log(`[hunter-backfill] job=${jobId} started over ${c.rows.length} domains (up to ${c.rows.length} credits)`);
+    res.json({ started: true, jobId, total: c.rows.length });
+  } catch (e) {
+    console.error('[hunter-backfill/start]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET progress, plus the COMBINED coverage number once a run finishes: of the
+// validated local businesses, what share now has at least one usable email from
+// ANY source. That is the number the whole exercise is for.
+app.get('/api/admin/hunter-backfill', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const job = (await store.pool.query(
+      `SELECT * FROM hunter_jobs ORDER BY started_at DESC LIMIT 1`)).rows[0] || null;
+
+    const { rootDomain } = require('./services/siteEmail');
+    const validated = new Set();
+    for (const r of (await store.pool.query(
+      `SELECT DISTINCT website FROM brand_evidence_cache
+        WHERE lane='websitecheck' AND evidence->>'verdict'='pass'`)).rows) {
+      const d = rootDomain(r.website); if (d) validated.add(d);
+    }
+    const seEmail = new Set(), seForm = new Set();
+    for (const r of (await store.pool.query(
+      `SELECT website, evidence FROM brand_evidence_cache WHERE lane='siteemail'`)).rows) {
+      const d = rootDomain(r.website); if (!d || !validated.has(d)) continue;
+      if (r.evidence && r.evidence.email) seEmail.add(d);
+      else if (r.evidence && r.evidence.formUrl) seForm.add(d);
+    }
+    const hunterEmail = new Set();
+    for (const r of (await store.pool.query(
+      `SELECT brand_key, evidence FROM brand_evidence_cache
+        WHERE lane='hunter' AND outcome='OK'`)).rows) {
+      if (!validated.has(r.brand_key)) continue;
+      const em = (r.evidence && Array.isArray(r.evidence.emails)) ? r.evidence.emails : [];
+      if (em.length) hunterEmail.add(r.brand_key);
+    }
+    const anyEmail = new Set([...seEmail, ...hunterEmail]);
+    const writable = new Set([...anyEmail, ...seForm]);
+    const denom = validated.size || 1;
+    const pct = (n) => Math.round((n / denom) * 1000) / 10;
+
+    res.json({
+      ok: true, job,
+      coverage: {
+        validated: validated.size,
+        siteEmail: seEmail.size,
+        hunterOnly: [...hunterEmail].filter((d) => !seEmail.has(d)).length,
+        anyEmail: anyEmail.size,
+        forms: seForm.size,
+        reachableInWriting: writable.size,
+        pctSiteEmail: pct(seEmail.size),
+        pctAnyEmail: pct(anyEmail.size),
+        pctReachable: pct(writable.size),
+      },
+    });
+  } catch (e) {
+    console.error('[hunter-backfill/progress]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 app.post('/api/admin/site-email-backfill', requireAuth, async (req, res) => {
   try {
@@ -10680,6 +10937,20 @@ exactly what <span class="mono">evidenceKind</span> exists to record.</p>`}
   <div id="huntout" class="prog"></div>
 </div>
 
+<h2>6 — Hunter backfill (spends credits)</h2>
+<div class="runbox">
+  <button id="hb" onclick="hunterBackfill(false)">Project Hunter backfill cost</button>
+  <div class="dim" style="margin-top:8px">
+    Runs against validated sites where <b>siteEmail already tried and found no address</b> —
+    the only domains where a credit buys something we cannot already reach for free.
+    Domains with a Hunter answer under 30 days old are served from cache and cost nothing.
+    <div style="margin-top:8px;color:#f59e0b"><b>This spends real money.</b> One Hunter credit
+    per domain called. The button above only PROJECTS the cost; a second, separate
+    confirm button appears with the number on it.</div>
+  </div>
+  <div id="hbout" class="prog"></div>
+</div>
+
 <div class="runbox" style="border-left-color:#f59e0b;margin-top:14px">
   <button id="recl" onclick="reclassify()" disabled style="opacity:.5">Reclassify corporate flags — HELD</button>
   <div class="dim" style="margin-top:8px">
@@ -10741,7 +11012,11 @@ function hunterAudit(){
         '<tr><td><b>Got a real answer</b> <span class="tag ok">HTTP 200, proven</span></td><td class="mono">'+d.answered+'</td></tr>'+
         '<tr><td>&nbsp;&nbsp;returned at least one address</td><td class="mono">'+d.withAddresses+'</td></tr>'+
         '<tr><td>&nbsp;&nbsp;returned zero addresses <span class="dim">(a real coverage miss)</span></td><td class="mono">'+d.zeroAddresses+'</td></tr>'+
-        '<tr><td><b>Silent</b> <span class="tag" style="background:#3a2a10;color:#f59e0b">never called OR 401/429/error — not separable</span></td><td class="mono">'+d.silent+'</td></tr>'+
+        '<tr><td><b>Recorded failures</b> <span class="dim">(post-restore, status kept)</span></td><td class="mono">'+(d.failed||0)+
+          (d.failed ? ' <span class="dim">401:'+d.failures.unauthorized+' · 429:'+d.failures.rateLimited+
+            ' · other HTTP:'+d.failures.httpError+' · timeout:'+d.failures.timedOut+
+            ' · error:'+d.failures.errored+' · no key:'+d.failures.noKey+'</span>' : '')+'</td></tr>'+
+        '<tr><td><b>Silent</b> <span class="tag" style="background:#3a2a10;color:#f59e0b">never called OR a pre-restore failure</span></td><td class="mono">'+d.silent+'</td></tr>'+
         '<tr><td>Addresses returned in total</td><td class="mono">'+d.totalAddresses+
           ' <span class="dim">('+d.personalAddresses+' personal, '+d.genericAddresses+' generic)</span></td></tr>'+
         '<tr><td>First / last answered call</td><td class="mono dim">'+esc(d.firstAt||'—')+' / '+esc(d.lastAt||'—')+'</td></tr>'+
@@ -10792,6 +11067,73 @@ function hunterAudit(){
    })
    .catch(function(e){ b.disabled=false; b.textContent='Run Hunter cache audit';
      o.innerHTML='<span style="color:#f59e0b">'+e.message+'</span>'; });
+}
+var _hbPoll=null;
+function hunterBackfill(confirm){
+  var b=document.getElementById('hb'), o=document.getElementById('hbout');
+  b.disabled=true; b.textContent=confirm?'Starting…':'Projecting…';
+  fetch('/api/admin/hunter-backfill',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:!!confirm})})
+   .then(readJson)
+   .then(function(d){
+     b.disabled=false; b.textContent='Project Hunter backfill cost';
+     if(d.dryRun){
+       var warn = d.keySet ? '' :
+         '<div style="color:#f59e0b;margin-top:6px"><b>HUNTER_API_KEY is not set in this environment.</b> '+
+         'The run would record NO_KEY for every domain and spend nothing.</div>';
+       o.innerHTML='<table><tbody>'+
+         '<tr><td>Validated sites</td><td class="mono">'+d.validatedSites+'</td></tr>'+
+         '<tr><td>&nbsp;&nbsp;siteEmail already has an address <span class="dim">(free — skipped)</span></td><td class="mono">'+d.skippedHaveEmail+'</td></tr>'+
+         '<tr><td>&nbsp;&nbsp;Hunter answered within 30 days <span class="dim">(cached — skipped)</span></td><td class="mono">'+d.skippedCached+'</td></tr>'+
+         '<tr><td><b>Domains that would be called</b></td><td class="mono">'+d.willCall+'</td></tr>'+
+         '<tr><td><b>Projected credits</b> <span class="dim">(1 per domain, of 2,000/mo)</span></td><td class="mono" style="color:#f59e0b">'+d.projectedCredits+'</td></tr>'+
+         '</tbody></table>'+warn+
+         (d.sample&&d.sample.length?'<div class="mono dim" style="font-size:11px;margin-top:6px">first: '+d.sample.join(' · ')+'</div>':'')+
+         (d.willCall&&d.keySet
+           ? '<div style="margin-top:10px"><button onclick="hunterBackfill(true)" style="background:#f59e0b">'+
+             'Confirm — spend '+d.projectedCredits+' credits</button></div>'
+           : '<div class="dim" style="margin-top:8px">Nothing to run.</div>');
+       return;
+     }
+     if(d.alreadyRunning){ o.innerHTML='<span class="mono">A run is already going.</span>'; hbPoll(); return; }
+     if(d.started){ o.innerHTML='<span class="mono">Started over '+d.total+' domains…</span>'; hbPoll(); return; }
+     o.innerHTML='<span style="color:#f59e0b">'+(d.error||'Unexpected response')+'</span>';
+   })
+   .catch(function(e){ b.disabled=false; b.textContent='Project Hunter backfill cost';
+     o.innerHTML='<span style="color:#f59e0b">'+e.message+'</span>'; });
+}
+function hbPoll(){
+  if(_hbPoll) clearInterval(_hbPoll);
+  var tick=function(){
+    fetch('/api/admin/hunter-backfill',{credentials:'same-origin'}).then(readJson).then(function(d){
+      var j=d.job, c=d.coverage||{}, o=document.getElementById('hbout');
+      if(!j) return;
+      var pctDone=j.total?Math.round((j.done/j.total)*100):0;
+      var h='<div class="mono">'+j.status+' — '+j.done+'/'+j.total+' ('+pctDone+'%)'+
+            (j.last_domain?' · '+j.last_domain:'')+'</div>'+
+            '<div class="mono" style="margin-top:4px">credits spent <b style="color:#f59e0b">'+j.credits+'</b>'+
+            ' · found addresses '+j.with_addresses+' · none '+j.zero_addresses+
+            ' · cached '+j.cached+' · failed '+j.failed+'</div>';
+      if(j.error) h+='<div style="color:#f59e0b;margin-top:4px">'+j.error+'</div>';
+      if(j.outcomes&&Object.keys(j.outcomes).length){
+        h+='<div class="mono dim" style="font-size:11px;margin-top:4px">'+
+           Object.keys(j.outcomes).map(function(k){return k+':'+j.outcomes[k];}).join(' · ')+'</div>';
+      }
+      // THE COMBINED NUMBER. Always shown, so it is visible before and after.
+      h+='<h3 style="margin:14px 0 6px;font-size:13px">Combined coverage over the validated set</h3>'+
+         '<table><tbody>'+
+         '<tr><td>Validated local businesses</td><td class="mono">'+c.validated+'</td></tr>'+
+         '<tr><td>siteEmail found an address</td><td class="mono">'+c.siteEmail+' <span class="dim">('+c.pctSiteEmail+'%)</span></td></tr>'+
+         '<tr><td>Hunter added one siteEmail did not have</td><td class="mono">'+c.hunterOnly+'</td></tr>'+
+         '<tr><td><b>At least one usable email, any source</b></td><td class="mono" style="color:#84CC16">'+c.anyEmail+' <span class="dim">('+c.pctAnyEmail+'%)</span></td></tr>'+
+         '<tr><td>Contact form only</td><td class="mono">'+c.forms+'</td></tr>'+
+         '<tr><td><b>Reachable in writing</b> <span class="dim">(email or form)</span></td><td class="mono" style="color:#84CC16">'+c.reachableInWriting+' <span class="dim">('+c.pctReachable+'%)</span></td></tr>'+
+         '</tbody></table>';
+      o.innerHTML=h;
+      if(j.status!=='running'&&_hbPoll){ clearInterval(_hbPoll); _hbPoll=null; }
+    }).catch(function(){});
+  };
+  tick(); _hbPoll=setInterval(tick,2500);
 }
 function reclassify(){
   var b=document.getElementById('recl'); b.disabled=true; b.textContent='Reclassifying…';

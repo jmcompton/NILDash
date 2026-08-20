@@ -1393,6 +1393,32 @@ async function init() {
     )
   `).then(() => console.log('[init] site_email_jobs table ready'))
     .catch(e => console.error('[init] site_email_jobs:', e.message));
+
+  // Hunter backfill job. Separate table from site_email_jobs because the tallies
+  // are different in kind: this one counts CREDITS, and a run that spends them
+  // and finds nothing has to be as legible as one that works.
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS hunter_jobs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'running',
+      total INT DEFAULT 0,
+      done INT DEFAULT 0,
+      credits INT DEFAULT 0,       -- calls that actually reached Hunter
+      with_addresses INT DEFAULT 0,
+      zero_addresses INT DEFAULT 0,
+      personal_found INT DEFAULT 0,
+      generic_found INT DEFAULT 0,
+      cached INT DEFAULT 0,        -- served from cache, no credit spent
+      failed INT DEFAULT 0,
+      outcomes JSONB DEFAULT '{}'::jsonb,
+      last_domain TEXT,
+      error TEXT,
+      started_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      finished_at TIMESTAMPTZ
+    )
+  `).then(() => console.log('[init] hunter_jobs table ready'))
+    .catch(e => console.error('[init] hunter_jobs:', e.message));
   // A job left 'running' by a process that died is not running. Anything still
   // marked running at boot is stale by definition, since the only writer is
   // this process.
@@ -1403,6 +1429,11 @@ async function init() {
     `UPDATE site_email_jobs SET status='interrupted', error='process restarted mid-run', finished_at=NOW()
       WHERE status='running' AND started_at < $1`, [BOOT_AT]
   ).then((r) => { if (r.rowCount) console.log(`[init] marked ${r.rowCount} interrupted site-email job(s)`); })
+    .catch(() => {});
+  await pool.query(
+    `UPDATE hunter_jobs SET status='interrupted', error='process restarted mid-run', finished_at=NOW()
+      WHERE status='running' AND started_at < $1`, [BOOT_AT]
+  ).then((r) => { if (r.rowCount) console.log(`[init] marked ${r.rowCount} interrupted hunter job(s)`); })
     .catch(() => {});
 
   // ── Reply capture (Resend Inbound) ────────────────────────────────────────

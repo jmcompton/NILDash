@@ -218,11 +218,13 @@ function buildContactLadder(res, opts = {}) {
       name: c.name,
       title: c.title || null,
       email: c.email || null,
-      // Always 'published'. The only thing that ever produced anything else was a
-      // paid domain lookup that returned an address for the COMPANY and pinned it
-      // to a person; the field stays so the card and the sampler keep reading one
-      // name for the same idea.
-      emailKind: c.email ? 'published' : null,
+      // 'published' means a source found this address printed for this person.
+      // 'hunter' means a paid domain lookup had it against the COMPANY and we
+      // matched it to this person by surname -- likely right, not confirmed. The
+      // distinction is load-bearing, not cosmetic: greetingGuard refuses to greet
+      // by first name on anything but 'published', which is the guard that was
+      // missing when this lookup was removed in fbf5865.
+      emailKind: c.email ? (c.emailSource === 'hunter' ? 'hunter' : 'published') : null,
       emailDomainNote: c.email ? _xdom(c.email) : null,
       phone: isOwnLine ? c.phone : null,
       phoneKind: isOwnLine ? 'direct' : null,

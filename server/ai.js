@@ -2110,19 +2110,82 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
       console.warn('[dealScan] site email lookup failed:', e.message);
     }
   }
-  // NO EMAIL IS INVENTED, GUESSED, OR BOUGHT. Hunter.io used to run here and do
-  // three things: fill an address onto a fan-out contact by surname match, CREATE
-  // a contact out of its best personal address titled "Company contact (not
-  // confirmed owner)", and backfill a generic inbox. It is gone.
+  // ── Hunter, LAST AND ONLY IF WE STILL HAVE NOTHING ──────────────────────────
   //
-  // The second one is why. A Hunter contact carried a name AND an email, which is
-  // exactly the test greetableContacts applies, so the greeting guard approved
-  // addressing that person by first name -- on an address whose own title said
-  // they might not work there. That is the invented-recipient failure with an
-  // extra step. Measured yield across 20 Birmingham businesses: 3 such people and
-  // not one published address, against a 50-call monthly ceiling.
+  // Restored after fbf5865, with two of its three original uses and a different
+  // position in the pipeline.
   //
-  // Every email on the ladder is now one a source found published for that person.
+  // ORDER IS THE COST CONTROL. This used to be raced in PARALLEL with the fan-out,
+  // before anything else had a chance, so it spent a credit on every domain --
+  // including the ones the website was about to give us for free. The audit put a
+  // number on that: only 5 of 34 domains where Hunter had a person were domains
+  // siteEmail could not already reach. So it runs after siteEmail, and only when
+  // siteEmail came back with nothing. A credit is spent on a business we cannot
+  // otherwise email, or it is not spent.
+  //
+  // TWO USES, NOT THREE:
+  //   (a) fill an address onto a contact the fan-out ALREADY NAMED, by surname
+  //   (b) backfill a generic inbox when we have none
+  // The third -- creating a contact out of Hunter's best personal address, titled
+  // "Company contact (not confirmed owner)" -- STAYS OUT. That is the one that
+  // manufactured a name-plus-address pair out of a company-level record and got
+  // a stranger greeted by first name. Neither use here invents a person: (a)
+  // attaches an address to a name another source found, (b) produces no name at
+  // all.
+  //
+  // Nothing from here is 'published'. Every address is tagged emailKind 'hunter'
+  // so the greeting guard refuses to greet on it and the card can say what it is.
+  let _hunterMs = 0;
+  const _seFoundEmail = !!(res.siteEmail && res.siteEmail.email);
+  if (_deep && effectiveWebsite && !_seFoundEmail && process.env.HUNTER_API_KEY) {
+    const _dom = _domainFromUrl(effectiveWebsite);
+    // Nothing to fill and nothing to backfill -> no reason to spend a credit.
+    const _wantsFill = res.contacts.some((c) => c && c.name && !c.email);
+    const _wantsInbox = !res.genericInbox;
+    if (_dom && (_wantsFill || _wantsInbox)) {
+      const _hT0 = Date.now();
+      try {
+        const { findDomainEmails } = require('./services/hunterLookup');
+        const _hunter = await findDomainEmails(_dom);
+        const _emails = (_hunter && Array.isArray(_hunter.emails)) ? _hunter.emails.filter((e) => e && e.email) : [];
+        if (_emails.length) {
+          const _personal = _emails.filter((e) => e.type === 'personal')
+            .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+          const _generic = _emails.filter((e) => e.type === 'generic')
+            .sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+          // (a) SURNAME MATCH ONTO AN EXISTING NAME. Last name only, and only onto
+          // a contact some other source already put on the list. This never adds
+          // a person; it gives a person we found a way to be reached.
+          let _filled = null;
+          for (const c of res.contacts) {
+            if (c.email || !c.name) continue;
+            const _last = String(c.name).trim().toLowerCase().split(/\s+/).pop();
+            const _m = _last && _personal.find((e) => e.lastName && e.lastName.toLowerCase() === _last);
+            if (_m) {
+              c.email = _m.email;
+              c.emailSource = 'hunter';       // NOT 'published' -- see contactLadder
+              c.emailScore = _m.confidence;
+              _filled = { name: c.name, email: _m.email, confidence: _m.confidence };
+              break;
+            }
+          }
+          // (b) GENERIC INBOX BACKFILL. No name attached, so nothing to greet.
+          let _inbox = null;
+          if (!res.genericInbox && _generic.length) {
+            res.genericInbox = _generic[0].email;
+            res.genericInboxSource = 'hunter';
+            _inbox = _generic[0].email;
+          }
+          // DELIBERATELY NOT DONE: unshifting a contact built from _personal[0].
+          console.log(`[hunter] @${_dom} used fill=${_filled ? _filled.email : 'none'} inbox=${_inbox || 'none'} `
+            + `personalAvailable=${_personal.length} (contact-creation deliberately not restored)`);
+        }
+      } catch (e) {
+        console.warn('[hunter] lookup failed:', e.message);
+      }
+      _hunterMs = Date.now() - _hT0;
+    }
+  }
   let _igMs = 0;
   // Instagram: for a local business the owner's DM is often a better channel than
   // the phone, and it is a genuinely DIFFERENT contact rather than another copy of
@@ -2168,7 +2231,7 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     _igMs = Date.now() - _igT0;
   }
   // Phase breakdown, so time spent OUTSIDE the fan-out is never unexplained again.
-  if (_deep) console.log(`[brand-contacts] deep brand=${brand} placesMs=${_placesMs} igWaitMs=${_igMs}`);
+  if (_deep) console.log(`[brand-contacts] deep brand=${brand} placesMs=${_placesMs} hunterMs=${_hunterMs} igWaitMs=${_igMs}`);
   // Make the card actionable: hand the top named contact the business line as a
   // callable number when they have none of their own. "Ask for Bryan" plus the
   // shop's number is the real local play; a name with no number is a dead end.
