@@ -3101,9 +3101,13 @@ function scoreNationalBrandFit(row, athlete) {
   const tierMin = Number(row.tier_min) || 0;
   const tierMax = Number(row.tier_max) || 0;
 
+  // NO STATED BAND is not the same as a band of 0-0. A researched brand that
+  // publishes no follower threshold used to score as "sits inside their stated
+  // tier", which invents a fact: 0 <= reach and tierMax===0 read as open-ended.
+  const hasBand = tierMin > 0 || tierMax > 0;
   const sportOk = !sports.length || sports.includes('all') || sports.includes(sport);
-  const inBand = reach > 0 && tierMin <= reach && (tierMax === 0 || tierMax >= reach);
-  const nearBand = reach > 0 && !inBand && tierMin <= reach * 1.5 && (tierMax === 0 || tierMax >= reach * 0.5);
+  const inBand = hasBand && reach > 0 && tierMin <= reach && (tierMax === 0 || tierMax >= reach);
+  const nearBand = hasBand && reach > 0 && !inBand && tierMin <= reach * 1.5 && (tierMax === 0 || tierMax >= reach * 0.5);
 
   let score = 50;
   const why = [];
@@ -3114,10 +3118,14 @@ function scoreNationalBrandFit(row, athlete) {
   else { score -= 25; why.push(`their program lists ${sports.join(', ')}, not ${sport || 'this sport'}`); }
   if (inBand) { score += 20; why.push(`${reach.toLocaleString()} combined followers sits inside their stated tier`); }
   else if (nearBand) { score += 5; why.push(`${reach.toLocaleString()} followers is near their stated tier`); }
-  else if (reach > 0 && tierMin > reach) { score -= 15; why.push(`their program starts around ${tierMin.toLocaleString()} followers`); }
+  else if (hasBand && reach > 0 && tierMin > reach) { score -= 15; why.push(`their program starts around ${tierMin.toLocaleString()} followers`); }
   else if (!reach) why.push('no follower counts on file for this athlete yet');
-  if (row.freshness === 'current') score += 5;
-  else why.push(`program page last verified ${row.proofAge} months ago`);
+  else if (!hasBand) why.push('they publish no follower threshold, so reach is not a filter here');
+  // Freshness only means something for a row backed by a dated proof page. A
+  // researched card has no proof_date, so saying "verified 0 months ago" would
+  // be claiming a check that never happened.
+  if (row.proof_date && row.freshness === 'current') score += 5;
+  else if (row.proof_date) why.push(`program page last verified ${row.proofAge} months ago`);
 
   score = Math.max(1, Math.min(99, score));
   return { fitScore: score, fitWhy: why };

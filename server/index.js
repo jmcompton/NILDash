@@ -7738,8 +7738,13 @@ app.post('/api/agent/deal-scan/add-national', requireAuth, requireAgentSubscript
     const known = await store.findNationalBrand(brand);
     if (known) {
       const fit = store.scoreNationalBrandFit(known, athlete);
+      // Every social_brands row got in by passing the discovery job's program-page
+      // gate, so an index hit is always an open program -- and it is index-grade
+      // verified, which a researched card is not.
+      const card = { ...known, programState: 'open-program', verified: true,
+        nextStep: `${known.brand} runs a public program — apply through their page.` };
       console.log(`[addNational] athlete=${athleteId} INDEX HIT "${brand}" -> "${known.brand}" fit=${fit.fitScore} ms=${Date.now() - _t0}`);
-      return res.json({ found: true, source: 'index', card: { ...known, ...fit, lane: 'social' } });
+      return res.json({ found: true, source: 'index', card: { ...card, ...fit, lane: 'social' } });
     }
 
     // Researching costs a web search plus a summarise call. Same 25-per-agent-per-day
@@ -7750,8 +7755,31 @@ app.post('/api/agent/deal-scan/add-national', requireAuth, requireAgentSubscript
         message: `You have added ${mrl.limit} businesses today. Add more tomorrow.` });
     }
 
-    // 2. Not indexed. Research it the same way the discovery job does.
+    // 2. Not indexed. Research it -- but a MISSING APPLICATION FORM IS NOT A
+    //    DECLINE. Red Bull, Gatorade and Buffalo Wild Wings all run athlete and
+    //    campus promotions and all of them fail the program-page check, because
+    //    they take partnerships through contact and agencies. The agent is
+    //    asking "can I pitch this company", not "do they have a signup form".
+    //
+    //    NOTHING BELOW WRITES TO social_brands. That index is the nightly
+    //    discovery job's, built to a stricter bar (a verified program page), and
+    //    mixing search results into it would leave two populations verified to
+    //    different standards in one table. Search results are cached in
+    //    brand_evidence_cache instead, so a repeat search is free without
+    //    changing what the index means.
     const { findProgramUrl, summarizeProgram } = require('./services/socialProof');
+    const { findPitchRoute, probeSite, describeRoute } = require('./services/pitchRoute');
+    const CACHE_LANE = 'natsearch';
+    const cacheKey = brand.toLowerCase();
+
+    const cached = await store.getBrandEvidence(cacheKey, CACHE_LANE, 30);
+    if (cached && cached.evidence && cached.evidence.card) {
+      const c = cached.evidence.card;
+      const fit = store.scoreNationalBrandFit(c, athlete);
+      console.log(`[addNational] athlete=${athleteId} CACHE HIT "${brand}" state=${c.programState} ms=${Date.now() - _t0}`);
+      return res.json({ found: true, source: 'researched', cached: true, card: { ...c, ...fit, lane: 'social' } });
+    }
+
     // The official site, from a web search -- NOT from Places, which is the
     // local lane and the whole reason this route exists.
     let site = null;
@@ -7764,37 +7792,69 @@ app.post('/api/agent/deal-scan/add-national', requireAuth, requireAgentSubscript
       if (m) site = m[0];
     } catch (e) { console.warn('[addNational] site lookup failed:', e.message); }
 
-    if (!site) {
-      console.log(`[addNational] athlete=${athleteId} NO SITE for "${brand}" ms=${Date.now() - _t0}`);
-      return res.json({ found: false, reason: 'no-website',
-        message: `Could not find an official website for "${brand}", so there is nothing to verify. Check the spelling, or add it as a local business if it is a storefront.` });
+    // THE ONLY DECLINE: we cannot establish the company is real. Note that a
+    // 403 or a timeout does NOT land here -- big brands refuse our user agent
+    // routinely, and that is evidence the domain resolves, not that the company
+    // is fictional. Only "no site at all" or a name that resolves to nothing.
+    const probe = site ? await probeSite(site) : { exists: false, reason: 'no official website found' };
+    if (!probe.exists) {
+      console.log(`[addNational] athlete=${athleteId} UNVERIFIABLE "${brand}" reason=${probe.reason} ms=${Date.now() - _t0}`);
+      return res.json({ found: false, reason: 'cannot-verify', website: site || null,
+        message: `Could not confirm a company called "${brand}" exists — ${probe.reason}. Check the spelling, or try the full legal name. If it is a local storefront, use the Local tab instead.` });
     }
 
-    const found = await findProgramUrl(site);
-    if (!found) {
-      console.log(`[addNational] athlete=${athleteId} NO PROGRAM PAGE for "${brand}" site=${site} ms=${Date.now() - _t0}`);
-      return res.json({ found: false, reason: 'no-program', website: site,
-        message: `${brand} has a website but no athlete or creator program page we could verify, so it is not added. Nothing is indexed on the strength of a name alone.` });
+    // Program page: the SAME check the discovery job uses, called read-only.
+    // A hit is the best outcome; a miss is now a state on the card, not a wall.
+    let program = null;
+    try { program = await findProgramUrl(site); }
+    catch (e) { console.warn('[addNational] findProgramUrl failed:', e.message); }
+
+    let programState, route = null, offerSummary = null, brandSize = null;
+    if (program) {
+      programState = 'open-program';
+      try {
+        const s = await summarizeProgram(program.pageText);
+        offerSummary = s.summary; brandSize = s.size;
+      } catch (e) { console.warn('[addNational] summarize failed:', e.message); }
+    } else {
+      // No public application page. Find the route an agent would actually use:
+      // a partnerships or sponsorship page, a marketing address, or a form.
+      try { route = await findPitchRoute(site, { homepageHtml: probe.html || null }); }
+      catch (e) { console.warn('[addNational] findPitchRoute failed:', e.message); route = null; }
+      programState = route && route.kind === 'direct-pitch' ? 'direct-pitch' : 'unknown';
     }
 
-    const { summary: offerSummary, size: brandSize } = await summarizeProgram(found.pageText);
-    // Same insert shape and same defaults the discovery job uses.
-    await store.pool.query(
-      `INSERT INTO social_brands
-         (brand, category, website, sports, tier_min, tier_max, deal_structure,
-          est_low, est_high, cadence_note, proof_url, proof_snippet, tier_stated,
-          offer_summary, brand_size, proof_date, active)
-       VALUES ($1,'unknown',$2,ARRAY['all']::text[],0,0,'affiliate',NULL,NULL,NULL,$3,$4,$5,$6,$7,CURRENT_DATE,true)
-       ON CONFLICT (brand) DO UPDATE SET proof_date = CURRENT_DATE,
-         proof_url = EXCLUDED.proof_url, proof_snippet = EXCLUDED.proof_snippet,
-         tier_stated = EXCLUDED.tier_stated, offer_summary = EXCLUDED.offer_summary,
-         brand_size = EXCLUDED.brand_size, active = true, updated_at = NOW()`,
-      [brand, site, found.url, found.snippet || null, !!found.tierStated, offerSummary, brandSize]);
+    const card = {
+      brand,
+      website: site,
+      programState,                                   // open-program | direct-pitch | unknown
+      proof_url: program ? program.url : null,
+      proof_snippet: program ? (program.snippet || null) : null,
+      tier_stated: program ? !!program.tierStated : false,
+      offer_summary: offerSummary,
+      brand_size: brandSize,
+      deal_structure: null, est_low: null, est_high: null,
+      tier_min: 0, tier_max: 0, sports: [],
+      // The route, for the card and for the outreach that follows it.
+      contactEmail: route ? route.email : null,
+      contactType: route ? route.routeKind : null,     // partnerships | marketing | named | general
+      contactSourceUrl: route ? (route.emailSourceUrl || null) : null,
+      partnershipsUrl: route ? route.pageUrl : null,
+      partnershipsLabel: route ? route.pageLabel : null,
+      contactFormUrl: route ? route.formUrl : null,
+      nextStep: describeRoute(brand, programState, route),
+      researchedAt: new Date().toISOString(),
+      verified: false,                                 // not index-grade; say so on the card
+    };
 
-    const row = await store.findNationalBrand(brand);
-    const fit = row ? store.scoreNationalBrandFit(row, athlete) : { fitScore: 50, fitWhy: [] };
-    console.log(`[addNational] athlete=${athleteId} RESEARCHED "${brand}" site=${site} program=${found.url} fit=${fit.fitScore} ms=${Date.now() - _t0}`);
-    res.json({ found: true, source: 'researched', card: { ...(row || {}), ...fit, lane: 'social' } });
+    // Cached, NOT indexed. 30 days, keyed by the typed name.
+    await store.saveBrandEvidence(cacheKey, CACHE_LANE, brand, site, { card }, programState);
+
+    const fit = store.scoreNationalBrandFit(card, athlete);
+    console.log(`[addNational] athlete=${athleteId} RESEARCHED "${brand}" site=${site} state=${programState} `
+      + `route=${card.contactEmail || card.contactFormUrl || card.partnershipsUrl || 'none'} `
+      + `pages=${route ? route.pagesFetched : 0} fit=${fit.fitScore} ms=${Date.now() - _t0}`);
+    res.json({ found: true, source: 'researched', card: { ...card, ...fit, lane: 'social' } });
   } catch (e) {
     console.error('[addNational]', e.message);
     res.status(500).json({ error: e.message });

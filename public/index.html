@@ -7572,10 +7572,29 @@ function _dsNatCard(c) {
   var tier = (c.tier_min || c.tier_max)
     ? (Number(c.tier_min || 0).toLocaleString() + (c.tier_max ? '\u2013' + Number(c.tier_max).toLocaleString() : '+') + ' followers')
     : 'Not stated';
+  // How you approach this brand. Three states, because "no public application
+  // page" is a kind of approach, not a failure -- most national brands take
+  // partnerships through contact rather than a form.
+  var ST = {
+    'open-program': { label: 'Open program', color: '#4ade80', bg: 'rgba(74,222,128,.13)', bd: 'rgba(74,222,128,.32)' },
+    'direct-pitch': { label: 'Direct pitch', color: '#fbbf24', bg: 'rgba(251,191,36,.13)', bd: 'rgba(251,191,36,.32)' },
+    'unknown':      { label: 'Route unknown', color: '#94a3b8', bg: 'rgba(148,163,184,.13)', bd: 'rgba(148,163,184,.30)' },
+  };
+  var st = ST[c.programState] || ST.unknown;
+
   var bits = [];
-  // Being in the verified index MEANS a program page passed the same gate the
-  // nightly discovery job uses, so say that in words rather than implying it.
-  bits.push('<div style="font-size:11px;color:#4ade80;margin-top:6px">✓ Signs athletes — verified from their own program page</div>');
+  if (c.nextStep) bits.push('<div style="font-size:11.5px;color:var(--text);line-height:1.5;margin-top:7px">' + esc(c.nextStep) + '</div>');
+  // The route itself, as something the agent can click or copy.
+  var route = [];
+  if (c.contactEmail) {
+    var ctLabel = { partnerships: 'partnerships desk', marketing: 'marketing desk', named: 'named contact', general: 'general inbox' }[c.contactType] || 'contact';
+    route.push('<a href="mailto:' + esc(c.contactEmail) + '" style="color:#60a5fa;text-decoration:none">' + esc(c.contactEmail) + '</a>'
+      + ' <span style="color:var(--muted);font-size:10.5px">(' + esc(ctLabel) + ')</span>');
+  }
+  if (c.partnershipsUrl) route.push('<a href="' + esc(c.partnershipsUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none">' + esc(c.partnershipsLabel || 'Partnerships page') + '</a>');
+  if (c.contactFormUrl) route.push('<a href="' + esc(c.contactFormUrl) + '" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none">Contact form</a>');
+  if (route.length) bits.push('<div style="font-size:11.5px;margin-top:7px;line-height:1.7">' + route.join('<br>') + '</div>');
+
   if (c.est_low || c.est_high) {
     bits.push('<div style="font-size:11px;color:var(--muted);margin-top:4px">Typical deal: $'
       + Number(c.est_low || 0).toLocaleString() + (c.est_high ? '–$' + Number(c.est_high).toLocaleString() : '+') + '</div>');
@@ -7585,17 +7604,26 @@ function _dsNatCard(c) {
   if (Array.isArray(c.fitWhy) && c.fitWhy.length) {
     bits.push('<div style="font-size:11px;color:var(--muted);margin-top:5px;line-height:1.5">' + esc(c.fitWhy.join('; ')) + '.</div>');
   }
-  return '<div style="margin-top:10px;padding:12px 14px;border:1px solid var(--border);border-left:3px solid #60a5fa;border-radius:9px;background:var(--surface2)">'
+  // A researched card is not index-grade. Say which one this is rather than
+  // letting the two look identical.
+  var prov = c.verified
+    ? 'Verified in the national index'
+    : 'Researched just now from their site — not yet verified';
+
+  return '<div style="margin-top:10px;padding:12px 14px;border:1px solid var(--border);border-left:3px solid ' + st.color + ';border-radius:9px;background:var(--surface2)">'
     + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">'
     + '<span style="font-size:14px;font-weight:600;color:var(--text)">' + esc(c.brand) + '</span>'
-    + '<span style="font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#60a5fa;background:rgba(96,165,250,.14);border:1px solid rgba(96,165,250,.32);border-radius:4px;padding:1px 6px">national</span>'
+    + '<span style="font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:' + st.color
+    + ';background:' + st.bg + ';border:1px solid ' + st.bd + ';border-radius:4px;padding:1px 6px">' + esc(st.label) + '</span>'
     + (c.fitScore ? '<span style="font-size:11px;color:var(--muted)">Fit ' + esc(c.fitScore) + '</span>' : '')
     + '</div>'
     + '<div style="font-size:11px;color:var(--muted);margin-top:4px">Tier: ' + esc(tier)
     + (c.deal_structure ? ' &middot; ' + esc(String(c.deal_structure).replace(/_/g, ' ')) : '')
-    + (c.freshness ? ' &middot; program page ' + esc(c.freshness) : '') + '</div>'
+    + (c.proof_url && c.freshness ? ' &middot; program page ' + esc(c.freshness) : '') + '</div>'
     + bits.join('')
     + (c.proof_url ? '<div style="margin-top:8px"><a href="' + esc(c.proof_url) + '" target="_blank" rel="noopener" style="font-size:11px;color:#60a5fa">Program page</a></div>' : '')
+    + (c.website && !c.proof_url ? '<div style="margin-top:8px"><a href="' + esc(c.website) + '" target="_blank" rel="noopener" style="font-size:11px;color:#60a5fa">' + esc(String(c.website).replace(/^https?:\/\/(www\.)?/, '')) + '</a></div>' : '')
+    + '<div style="font-size:10px;color:var(--muted);margin-top:8px;opacity:.75">' + esc(prov) + '</div>'
     + '</div>';
 }
 

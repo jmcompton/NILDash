@@ -414,6 +414,10 @@ module.exports = {
   rootDomain, emailDomain, localPart, screenEmail, classifyEmail, rankEmail,
   extractMailtos, extractPlainEmails, contactLinks, hasContactForm,
   MAX_PAGES, REJECT_LOCALS, ROLE_LOCALS, corporateDomainsFrom,
+  // Exported for pitchRoute.js, which needs the SAME named-reason fetch
+  // behaviour: "403 blocked" and "dns failure" mean very different things when
+  // deciding whether a company exists at all.
+  fetchPage,
 };
 
 // ── Does this website plausibly belong to this business? ─────────────────────
