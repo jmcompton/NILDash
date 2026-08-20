@@ -2135,9 +2135,35 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   //
   // Nothing from here is 'published'. Every address is tagged emailKind 'hunter'
   // so the greeting guard refuses to greet on it and the card can say what it is.
+  // RUNS ON THE CHEAP CARD PATH TOO, on the same gate siteEmail uses, because a
+  // local Deal Scan card renders from the cheap path and that is where "no named
+  // contact found" is actually read. The deep path AWAITS the answer; the cheap
+  // path does NOT -- see the fire-and-forget branch below.
+  //
+  // The 30-day per-domain cache is what makes this affordable at scan volume: a
+  // business costs one credit per month however many times it is scanned, so the
+  // burn tracks NEW businesses, not scans. A monthly budget in hunterLookup caps
+  // it regardless.
   let _hunterMs = 0;
   const _seFoundEmail = !!(res.siteEmail && res.siteEmail.email);
-  if (_deep && effectiveWebsite && !_seFoundEmail && process.env.HUNTER_API_KEY) {
+  const _hunterEligible = (_deep || localityRequired) && effectiveWebsite
+    && !_seFoundEmail && process.env.HUNTER_API_KEY;
+  if (_hunterEligible && !_deep) {
+    // CHEAP PATH: warm the cache, never block the card on it. Same trick the
+    // Instagram lookup uses -- this scan may not show the address, but it is
+    // free on the next one, and ladderPrewarm re-reads it seconds later anyway.
+    // Nothing here mutates res, so a slow or failing call cannot affect the card.
+    const _dom = _domainFromUrl(effectiveWebsite);
+    if (_dom) {
+      try {
+        const { findDomainEmails } = require('./services/hunterLookup');
+        findDomainEmails(_dom)
+          .then((h) => console.log(`[hunter] @${_dom} warmed from card path found=${h ? (h.emails || []).length : 0}`))
+          .catch((e) => console.warn('[hunter] card-path warm failed:', e.message));
+      } catch (e) { console.warn('[hunter] card-path warm failed:', e.message); }
+    }
+  }
+  if (_hunterEligible && _deep) {
     const _dom = _domainFromUrl(effectiveWebsite);
     // Nothing to fill and nothing to backfill -> no reason to spend a credit.
     const _wantsFill = res.contacts.some((c) => c && c.name && !c.email);

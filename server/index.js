@@ -10384,6 +10384,39 @@ app.get('/api/admin/hunter-backfill', requireAuth, async (req, res) => {
       const em = (r.evidence && Array.isArray(r.evidence.emails)) ? r.evidence.emails : [];
       if (em.length) hunterEmail.add(r.brand_key);
     }
+    // ── PROJECTED MONTHLY BURN ────────────────────────────────────────────────
+    // The 30-day per-domain cache is the whole cost model: a business costs one
+    // credit per month however many times it is scanned, so the burn tracks NEW
+    // DOMAINS, not scans. Measured, not assumed: distinct websites that first
+    // appeared in the places lane over the last 30 and 90 days.
+    const disc = (await store.pool.query(`
+      WITH first_seen AS (
+        SELECT website, MIN(refreshed_at) AS t
+          FROM brand_evidence_cache
+         WHERE lane = 'places' AND website IS NOT NULL AND website <> ''
+         GROUP BY website
+      )
+      SELECT COUNT(*) FILTER (WHERE t >= NOW() - INTERVAL '30 days')::int AS d30,
+             COUNT(*) FILTER (WHERE t >= NOW() - INTERVAL '90 days')::int AS d90,
+             COUNT(*)::int                                                AS all_time,
+             MIN(t)                                                       AS earliest
+        FROM first_seen`)).rows[0];
+
+    // Not every new domain costs a credit: Hunter is only called where siteEmail
+    // found no address. Use the rate we have actually measured rather than a guess.
+    const seTotal = (await store.pool.query(
+      `SELECT COUNT(*)::int AS n,
+              COUNT(*) FILTER (WHERE evidence->>'email' IS NOT NULL)::int AS with_email
+         FROM brand_evidence_cache WHERE lane='siteemail'`)).rows[0];
+    const needRate = seTotal.n ? (seTotal.n - seTotal.with_email) / seTotal.n : 1;
+
+    const hb = require('./services/hunterLookup');
+    const budget = await hb.budgetStatus();
+    // Months of history, so a 30-day window over a 5-day-old dataset is not read
+    // as a monthly rate.
+    const daysOfHistory = disc.earliest
+      ? Math.max(1, Math.round((Date.now() - new Date(disc.earliest).getTime()) / 86400000)) : 0;
+
     const anyEmail = new Set([...seEmail, ...hunterEmail]);
     const writable = new Set([...anyEmail, ...seForm]);
     const denom = validated.size || 1;
@@ -10401,6 +10434,24 @@ app.get('/api/admin/hunter-backfill', requireAuth, async (req, res) => {
         pctSiteEmail: pct(seEmail.size),
         pctAnyEmail: pct(anyEmail.size),
         pctReachable: pct(writable.size),
+      },
+      burn: {
+        newDomains30d: disc.d30,
+        newDomains90d: disc.d90,
+        allTimeDomains: disc.all_time,
+        daysOfHistory,
+        // The share of new domains that would actually reach Hunter, measured.
+        needRatePct: Math.round(needRate * 1000) / 10,
+        siteEmailRows: seTotal.n,
+        // Two readings of the same data: the last 30 days, and the 90-day
+        // average, which is steadier when discovery is bursty.
+        projected30d: Math.round(disc.d30 * needRate),
+        projected90dAvg: Math.round((disc.d90 / 3) * needRate),
+        budget: budget.budget,
+        usedThisMonth: budget.used,
+        remainingThisMonth: budget.remaining,
+        // A 30-day window needs 30 days behind it to mean anything.
+        historyThin: daysOfHistory < 30,
       },
     });
   } catch (e) {
@@ -11129,6 +11180,28 @@ function hbPoll(){
          '<tr><td>Contact form only</td><td class="mono">'+c.forms+'</td></tr>'+
          '<tr><td><b>Reachable in writing</b> <span class="dim">(email or form)</span></td><td class="mono" style="color:#84CC16">'+c.reachableInWriting+' <span class="dim">('+c.pctReachable+'%)</span></td></tr>'+
          '</tbody></table>';
+      // ── PROJECTED MONTHLY BURN, from measured discovery volume ─────────────
+      var bn=d.burn;
+      if(bn){
+        var over = bn.projected30d > bn.budget;
+        h+='<h3 style="margin:16px 0 6px;font-size:13px">Projected monthly credit burn</h3>'+
+           '<table><tbody>'+
+           '<tr><td>New websites discovered, last 30 days</td><td class="mono">'+bn.newDomains30d+'</td></tr>'+
+           '<tr><td>New websites, last 90 days <span class="dim">(÷3 for a steadier rate)</span></td><td class="mono">'+bn.newDomains90d+'</td></tr>'+
+           '<tr><td>Share where siteEmail finds nothing <span class="dim">(measured, these are the ones that call Hunter)</span></td><td class="mono">'+bn.needRatePct+'%</td></tr>'+
+           '<tr><td><b>Projected credits/month</b> <span class="dim">(30-day window)</span></td><td class="mono" style="color:'+(over?'#f59e0b':'#84CC16')+'">'+bn.projected30d+'</td></tr>'+
+           '<tr><td><b>Projected credits/month</b> <span class="dim">(90-day average)</span></td><td class="mono">'+bn.projected90dAvg+'</td></tr>'+
+           '<tr><td>Budget cap <span class="dim">(HUNTER_MONTHLY_BUDGET, of 2,000 on the plan)</span></td><td class="mono">'+bn.budget+'</td></tr>'+
+           '<tr><td>Spent this calendar month</td><td class="mono">'+bn.usedThisMonth+' <span class="dim">· '+bn.remainingThisMonth+' left</span></td></tr>'+
+           '</tbody></table>'+
+           '<p class="note">A domain is cached 30 days, so a business costs <b>one credit per month however '+
+           'many times it is scanned</b>. The burn tracks NEW businesses, not scan volume — rescanning the '+
+           'same market all week is free.'+
+           (bn.historyThin?' <b style="color:#f59e0b">Only '+bn.daysOfHistory+' days of discovery history, so the '+
+             '30-day figure is not yet a monthly rate — read it as a floor.</b>':'')+
+           (over?' <b style="color:#f59e0b">Projection exceeds the cap: lookups stop when the cap is hit, '+
+             'they do not overspend.</b>':' Comfortably inside the cap.')+'</p>';
+      }
       o.innerHTML=h;
       if(j.status!=='running'&&_hbPoll){ clearInterval(_hbPoll); _hbPoll=null; }
     }).catch(function(){});

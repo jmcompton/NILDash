@@ -34,6 +34,66 @@ const FAIL_COOLDOWN_HOURS = parseInt(process.env.HUNTER_FAIL_COOLDOWN_HOURS, 10)
 const LIMIT = 5;
 const LANE = 'hunter';
 
+// ── Monthly credit budget ────────────────────────────────────────────────────
+// The plan is 2,000 credits a month and there is no soft landing: past the
+// ceiling Hunter returns 429 for everything, including the lookups that would
+// have mattered. Wiring this into the live scan path multiplies the call rate by
+// roughly the card count, so a cap is not optional.
+//
+// Default 1,800 leaves 200 in reserve, which is what a manual backfill or a
+// debugging session costs. Set HUNTER_MONTHLY_BUDGET to change it.
+const MONTHLY_BUDGET = parseInt(process.env.HUNTER_MONTHLY_BUDGET, 10) || 1800;
+// A COUNT per lookup would be silly on the scan path; 60s of staleness cannot
+// overshoot by more than the concurrency.
+let _budgetCache = { at: 0, used: 0 };
+const BUDGET_TTL_MS = 60000;
+// Credits reserved since the last DB read, for requests whose rows are not
+// written yet. Kept SEPARATE from the DB count: a refresh replaces the count and
+// the reservations together, so a reservation can never be clobbered by a read
+// that was already in flight when it was made. (That clobbering is exactly what
+// let 12 concurrent lookups spend 9 credits against a cap of 5.)
+let _reserved = 0;
+// One DB read at a time. Twelve callers arriving together used to fire twelve
+// identical COUNTs, each resolving with the same pre-burst number.
+let _inflight = null;
+
+// Every row EXCEPT NO_KEY represents a request that reached Hunter, so every row
+// except NO_KEY cost a credit. Cache hits never write a row, so they never count.
+async function creditsThisMonth(force) {
+  if (force || Date.now() - _budgetCache.at >= BUDGET_TTL_MS) {
+    if (!_inflight) {
+      _inflight = (async () => {
+        try {
+          const r = await store.pool.query(
+            `SELECT COUNT(*)::int AS n FROM brand_evidence_cache
+              WHERE lane = $1 AND outcome <> 'NO_KEY'
+                AND refreshed_at >= date_trunc('month', NOW())`, [LANE]);
+          _budgetCache = { at: Date.now(), used: r.rows[0].n };
+        } catch (e) {
+          console.error('[hunter] budget read failed: ' + e.message);
+          // Fail SAFE: an unreadable budget must not read as "plenty left".
+          _budgetCache = { at: Date.now(), used: MONTHLY_BUDGET };
+        }
+        // The count now includes every row written before it ran, so the
+        // reservations it supersedes are cleared with it. Requests still in
+        // flight at this instant are undercounted until their rows land -- at
+        // most the concurrency limit, which the reserve absorbs.
+        _reserved = 0;
+        _inflight = null;
+      })();
+    }
+    await _inflight;
+  }
+  // Evaluated at RESUME, so each caller in a burst sees the reservations made by
+  // the callers ahead of it.
+  return _budgetCache.used + _reserved;
+}
+
+async function budgetStatus() {
+  const used = await creditsThisMonth(true);
+  return { used, budget: MONTHLY_BUDGET, remaining: Math.max(0, MONTHLY_BUDGET - used) };
+}
+
 // Outcomes written to brand_evidence_cache.outcome. OK and NONE are answers;
 // everything else is a failure and says which.
 const OUTCOME = {
@@ -58,6 +118,8 @@ async function _record(domain, outcome, evidence) {
   try {
     await store.saveBrandEvidence(domain, LANE, domain, null,
       { ...evidence, outcome, at: new Date().toISOString() }, outcome);
+    // NOT incremented here. The credit was reserved at the budget gate before the
+    // request went out; counting it again on the way back would double-charge.
   } catch (e) {
     console.error('[hunter] cache write failed @' + domain + ': ' + e.message);
   }
@@ -98,6 +160,28 @@ async function findDomainEmails(domain, opts = {}) {
       }
     } catch (_) { /* a cache problem must never block the call */ }
   }
+
+  // Budget check goes AFTER the cache read, so a domain we already know about is
+  // still served when the budget is spent -- the cap limits new spend, not access
+  // to what has already been paid for. No row is written for a budget skip: not
+  // spending a credit is a fact about us, not about the domain, and writing it
+  // would occupy the cache key that the real answer needs later.
+  //
+  // CHECK AND RESERVE IN ONE TICK. Incrementing only when the row is written let
+  // a burst of concurrent scans all read the same pre-burst count and each
+  // decide there was room: 12 concurrent lookups spent 6 credits against a cap
+  // of 5. The await below may yield, but nothing runs between it resolving and
+  // the ++, so the comparison and the reservation cannot interleave.
+  //
+  // A reservation that never becomes a request (the fetch throws before leaving
+  // the machine) is reconciled down by the next DB read. Over-reserving is the
+  // safe direction; over-spending is not.
+  const used = await creditsThisMonth();
+  if (used >= MONTHLY_BUDGET) {
+    console.warn(`[hunter] @${key} SKIPPED: monthly budget spent (${used}/${MONTHLY_BUDGET})`);
+    return null;
+  }
+  _reserved++;
 
   const params = new URLSearchParams({ domain: key, limit: String(LIMIT), api_key: apiKey });
   const ctrl = new AbortController();
@@ -161,4 +245,8 @@ async function findDomainEmails(domain, opts = {}) {
   return out;
 }
 
-module.exports = { findDomainEmails, OUTCOME, ANSWERED, LANE, CACHE_DAYS };
+module.exports = {
+  findDomainEmails, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
+  creditsThisMonth, budgetStatus, MONTHLY_BUDGET,
+  _resetBudgetCache: () => { _budgetCache = { at: 0, used: 0 }; _reserved = 0; _inflight = null; },
+};
