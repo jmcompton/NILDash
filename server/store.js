@@ -1436,6 +1436,37 @@ async function init() {
   ).then((r) => { if (r.rowCount) console.log(`[init] marked ${r.rowCount} interrupted hunter job(s)`); })
     .catch(() => {});
 
+  // ── Daily shift report delivery ───────────────────────────────────────────
+  // The one thing an agent configures about the report: when it arrives.
+  // Default 7am in their own timezone. report_tz is the browser's IANA zone,
+  // captured on first load; NULL means we have not learned it yet and the
+  // sender falls back to Central rather than guessing UTC (which would deliver
+  // a "good morning" note at 1am).
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_hour INT DEFAULT 7`).catch(() => {});
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_tz TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_enabled BOOLEAN DEFAULT TRUE`).catch(() => {});
+  // One row per agent per local day. The double-send guard: recurring work runs
+  // on in-process timers, so a restart or a second instance can otherwise fire
+  // the same morning's report twice.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS shift_report_sends (
+      agent_id TEXT NOT NULL,
+      local_date DATE NOT NULL,
+      sent_at TIMESTAMPTZ DEFAULT NOW(),
+      items INT DEFAULT 0,
+      PRIMARY KEY (agent_id, local_date)
+    )
+  `).then(() => console.log('[init] shift_report_sends table ready'))
+    .catch(e => console.error('[init] shift_report_sends:', e.message));
+
+  // ── Held outreach ─────────────────────────────────────────────────────────
+  // A draft cleared to send is STAMPED with a release time rather than going out
+  // at 3am. See services/sendWindow.js for why, and for the rule.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS scheduled_send_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_timezone TEXT`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_scheduled
+                      ON outreach_logs (scheduled_send_at) WHERE scheduled_send_at IS NOT NULL`).catch(() => {});
+
   // ── Reply capture (Resend Inbound) ────────────────────────────────────────
   // Set on EVERY inbound event the webhook sees for this row, including bounces
   // and auto-replies -- the diagnostic trail for "did the webhook even fire" is

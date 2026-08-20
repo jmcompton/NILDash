@@ -382,6 +382,45 @@ router.get('/logs/:id', async (req, res) => {
 });
 
 /**
+ * POST /api/outreach/logs/:id/schedule
+ * HOLD, do not send. Stamps the release time this outreach is allowed to leave
+ * at, computed in the RECIPIENT'S timezone: Tue/Wed/Thu, 9:30-11:00 local, never
+ * a weekend. See services/sendWindow.js for why.
+ *
+ * This is the path an approved draft takes. An agent clicking Send by hand still
+ * goes immediately below -- a person deciding to send now is a person's
+ * decision, and the window exists to stop the TEAM sending at 3am, not to argue
+ * with the agent.
+ */
+router.post('/logs/:id/schedule', async (req, res) => {
+  try {
+    const sw = require('../services/sendWindow');
+    const r = await pool.query(
+      `SELECT l.*, e.location AS biz_address, a.data->>'school' AS school
+         FROM outreach_logs l
+         LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
+         LEFT JOIN athletes a ON a.id = l.athlete_id
+        WHERE l.id=$1 AND l.agent_id=$2`, [req.params.id, req.principal.id]);
+    const log = r.rows[0];
+    if (!log) return res.status(404).json({ error: 'Outreach log not found' });
+    if (log.status === 'sent') return res.status(400).json({ error: 'Already sent' });
+
+    const slot = sw.nextSendSlot(new Date(), {
+      businessAddress: log.biz_address, athleteSchoolState: log.school, key: log.id,
+    });
+    if (!slot) return res.status(500).json({ error: 'Could not compute a send window' });
+    await pool.query(
+      `UPDATE outreach_logs SET scheduled_send_at=$2, send_timezone=$3, updated_at=NOW()
+        WHERE id=$1`, [log.id, slot.at, slot.timezone]);
+    console.log(`[outreach/schedule] ${log.id} -> ${slot.at.toISOString()} (${slot.timezone})`);
+    res.json({ ok: true, scheduledSendAt: slot.at, timezone: slot.timezone });
+  } catch (e) {
+    console.error('[outreach/schedule]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * POST /api/outreach/logs/:id/send
  * Mark outreach as sent and trigger the actual email via the existing email system.
  * Body: { emailAccountId, toEmail }

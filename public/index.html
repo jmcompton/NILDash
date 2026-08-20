@@ -1005,6 +1005,24 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .sr-btn:hover{filter:brightness(1.07)}
 .sr-empty{padding:20px 15px;text-align:center;font-size:13px;color:var(--muted);line-height:1.6}
 .sr-empty b{color:#84CC16;font-weight:600}
+.sr-sentence{font-family:'Syne',sans-serif;font-size:23px;font-weight:700;color:var(--text);
+  line-height:1.38;letter-spacing:-.01em;max-width:34em}
+.sr-link{color:#84CC16;text-decoration:none;border-bottom:1px solid rgba(132,204,22,.3)}
+.sr-link:hover{border-bottom-color:#84CC16}
+.sr-item-detail{display:block;font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+.sr-more{padding:11px 15px;font-size:12px;color:#5b6b80;border-top:.5px solid #16202c}
+.sr-moving{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px}
+.sr-fig{background:#0D1520;border:.5px solid #1e2a3a;border-radius:12px;padding:15px 17px}
+.sr-fig-n{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--text);
+  line-height:1;letter-spacing:-.02em}
+.sr-fig-l{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.4}
+.sr-pad{padding:14px 15px}
+.sr-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.sr-tbl td{padding:5px 0;color:var(--text);border-bottom:.5px solid #16202c}
+.sr-tbl td:first-child{color:var(--muted)}
+.sr-tbl td:last-child{text-align:right;font-family:'DM Mono',monospace}
+.sr-tbl tr:last-child td{border-bottom:none}
+.sr-dim{color:#5b6b80}
 
 @media (max-width:900px){
   /* Three across, then two: five cards on a phone are unreadable in one row,
@@ -1021,6 +1039,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
   /* The button drops under the line rather than squeezing it to two words. */
   .sr-item{flex-direction:column;align-items:stretch;gap:9px}
   .sr-btn{width:100%;padding:10px 13px}
+  .sr-sentence{font-size:19px}
+  .sr-moving{grid-template-columns:1fr;gap:8px}
+  .sr-fig-n{font-size:24px}
 }
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1845,54 +1866,29 @@ tbody td{padding:11px 14px;vertical-align:middle}
              Five role cards, every number counted from rows that exist. A role
              with nothing behind it renders "Nothing to report" rather than a
              zero, because a zero reads as work that found nothing. -->
-        <div id="sr-team"></div>
+        <!-- ══ 1. ONE SENTENCE ══
+             Not five cards. The five role cards live on the detail page behind
+             the link below, because five cards plus a queue is five competing
+             calls to action and this page is meant to have one. -->
+        <div id="sr-sentence"></div>
 
-        <!-- ══ ZONE 2 — NEEDS YOU ══ A decision queue, five items maximum. -->
+        <!-- ══ 2. NEEDS YOU ══ Five items, hard cap. Overflow is one line. -->
         <div id="sr-needs"></div>
 
-        <!-- ══ ZONE 3 — MOVING ══ Deals in flight, earned by athletes. -->
-        <div id="sr-moving-head" class="sr-zone-head" hidden>Moving</div>
+        <!-- ══ 3. MOVING ══ Two figures: earned, and in flight. -->
+        <div id="sr-moving"></div>
 
-        <!-- ── Add-client CTA (prominent empty state only; nothing when you have clients) ── -->
-        <div id="home-client-cta" style="margin-bottom:12px"></div>
-
-        <!-- ══ HERO: what the roster has earned, and the eight-week shape of it ══
-             The chart is NOT in the markup. It is inserted only when the server says
-             three separate weeks carry real closes, because a number standing alone
-             reads as a decision and a chart of empty bars reads as a broken page. -->
-        <div id="hm-hero" class="hm-card hm-hero">
-          <div class="hm-hero-fig">
-            <div class="hm-eyebrow">Earned by your athletes</div>
-            <div id="hm-total" class="hm-total">—</div>
-            <div id="hm-total-sub" class="hm-sub">&nbsp;</div>
-          </div>
-          <div id="hm-chart" class="hm-chart" hidden></div>
-        </div>
-
-        <!-- ══ MOMENTUM: one bordered row, four cells ══ -->
-        <div id="hm-momentum" class="hm-card hm-strip"></div>
-
-        <!-- ══ DO THIS FIRST: never empty. With nothing waiting it becomes a
-             suggestion naming a specific athlete. ══ -->
-        <div id="hm-first"></div>
-
-        <!-- ══ MORNING QUEUE: three slots an athlete, filled nightly. Below
-             "do this first", above "what needs you". ══ -->
-        <div id="hm-queue"></div>
-
-        <!-- ══ TWO COLUMNS: work grouped by kind, and the roster ══ -->
-        <div class="hm-cols">
-          <div class="hm-card hm-col">
-            <div class="hm-col-head">What needs you</div>
-            <div id="hm-work"><div class="hm-quiet">Loading…</div></div>
-          </div>
-          <div class="hm-card hm-col">
-            <div class="hm-col-head">Roster</div>
-            <div id="hm-roster"><div class="hm-quiet">Loading…</div></div>
-          </div>
-        </div>
+        <!-- The add-client CTA survives because with no clients there is nothing
+             else on this page at all. It renders only in that empty state. -->
+        <div id="home-client-cta" style="margin-top:14px"></div>
 
       </div>
+
+      <!-- ══ SHIFT DETAIL — the five role cards, behind "See the detail" ══ -->
+      <div id="view-shift-detail" class="view">
+        <div id="sd-body"></div>
+      </div>
+
       <div id="view-command" class="view">
 
         <div class="kpi-grid" style="display:none">
@@ -3397,6 +3393,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div class="page-title">Outreach Tracker</div>
         <div class="page-sub">All brand outreach — agent-sent and athlete-sent — in one unified feed</div>
 
+        <!-- ══ MORNING QUEUE ══ Moved here from the home page. Home is the shift
+             report and nothing else; the queue is outreach work, so it lives on
+             the outreach page with the rest of it. The "Open queue" button in
+             Needs You lands here. -->
+        <div id="hm-queue"></div>
+
         <!-- Stat cards -->
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
           <div class="kpi"><div class="kpi-label">Sent This Month</div><div class="kpi-val" id="ot-stat-sent" style="font-size:26px">—</div><div class="kpi-sub">Total outreach</div></div>
@@ -3953,6 +3955,32 @@ tbody td{padding:11px 14px;vertical-align:middle}
   <div id="view-settings" class="view">
     <div class="page-title">Settings</div>
     <div class="page-sub">Manage integrations, connected accounts, and preferences</div>
+
+    <!-- ══ DAILY REPORT — the ONE thing an agent sets about it: when it lands.
+         Outreach send timing is deliberately NOT here. The team holds overnight
+         drafts and releases them into business hours in the recipient's own
+         timezone, mid-morning Tuesday to Thursday, never weekends. That is how
+         the product behaves, not a preference — an agent who could set it to 3am
+         eventually would, and it is their sender reputation that pays. ══ -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Daily report</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">
+        What your team did overnight, what needs you, and what is moving — the same page you land on, in your inbox.
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <label style="font-size:12px;color:var(--text)">Arrives at</label>
+        <select id="report-hour" onchange="saveReportSettings()"
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;padding:8px 10px"></select>
+        <span id="report-tz-label" style="font-size:11px;color:var(--muted)"></span>
+        <label style="font-size:12px;color:var(--text);display:flex;align-items:center;gap:6px;margin-left:auto">
+          <input type="checkbox" id="report-enabled" onchange="saveReportSettings()"> Send it
+        </label>
+      </div>
+      <div id="report-status" style="font-size:11px;color:var(--muted);margin-top:10px"></div>
+      <div style="margin-top:12px">
+        <a href="/api/agent/report-preview" target="_blank" rel="noopener" style="font-size:12px;color:#84CC16">Preview today's report</a>
+      </div>
+    </div>
 
     <!-- Email Integrations -->
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
@@ -6778,6 +6806,8 @@ async function sendAthleteReport() {
 async function showView(id, btn) {
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
+  if (id === 'settings') { setTimeout(loadReportSettings, 60); }
+  if (id === 'outreach') { setTimeout(loadOutreachQueue, 60); }
       if (id === 'commission') setTimeout(renderCommission, 100);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -6785,7 +6815,7 @@ async function showView(id, btn) {
   if (btn) btn.classList.add('active');
   const labels = { home:'Home', command:'Command Center', deals:'Deal Scan', rate:'Rate Calculator',
     marketing:'Media Kit',
-    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
+    negotiate:'Negotiation Intel', pipeline:'Deal Pipeline', outreach:'Brand Outreach', calendar:'Deliverables Calendar', compliance:'NIL Compliance', contract:'Contract Generator', 'pdf-scan':'PDF Scanner', commission:'Commission Tracker', roster:'My Roster', 'add-athlete':'Add Client', 'athlete-portals':'Athlete Portals', 'athlete-dashboard':'My NIL Dashboard', 'email-inbox':'Email Inbox', 'shift-detail':'What your team did', settings:'Settings', 'university-dashboard':'University Portal', programs:'Programs' };
   document.getElementById('breadcrumb').textContent = labels[id] || id;
   // An athlete has one client -- herself -- so the ACTIVE CLIENT bar never applies.
   // Checked HERE as well as at boot because this line runs on every view change and
@@ -16438,144 +16468,146 @@ function hmEsc(s) {
 // link is real rather than a guess.
 var HM_VISIBLE = 6;
 
+// ══ THE HOME PAGE ════════════════════════════════════════════════════════════
+// Three things, in this order: one sentence, the queue, two figures. Everything
+// that used to sit below -- the earned hero, the stat strip, "Do this first",
+// the morning queue with its inline DM boxes, the athlete tabs, the roster, and
+// a SECOND "what needs you" list -- has moved to its own page. Five competing
+// calls to action after a queue that was meant to be the only one is not a
+// simpler page with a header on top; it is the old page with a header on top.
 async function loadAgentHomeV2() {
-  var m = null, t = null;
-  try {
-    var r = await Promise.all([
-      fetch(API_BASE + '/api/agent/home-metrics').then(function (x) { return x.ok ? x.json() : null; }),
-      fetch(API_BASE + '/api/agent/today?limit=24').then(function (x) { return x.ok ? x.json() : null; }),
-    ]);
-    m = r[0]; t = r[1];
-  } catch (e) { /* rendered as the quiet state below */ }
-
-  // Zones 1 and 2 own their own call: they are the first thing read, and they
-  // must not wait on the metrics query behind them.
-  loadShiftReport();
-
-  hmRenderHero(m);
-  hmRenderMomentum(m);
-  // Fetched separately rather than in the Promise.all above: the queue is the
-  // one section that reloads on its own after every action, so it owns its call.
-  loadOutreachQueue();
-  hmRenderWork((t && t.actions) || [], m, (t && t.total) || 0);
-  hmRenderRoster((m && m.roster) || []);
-}
-
-// ══ SHIFT REPORT ═════════════════════════════════════════════════════════════
-// Zones 1 and 2. Renders ONLY what the server counted. There is no default
-// number anywhere in here: a role the server marked ran:false renders "Nothing
-// to report", and a server that returns nothing renders a stated failure rather
-// than an empty frame that reads as a quiet night.
-var SR_ROLE_ORDER = ['scout', 'researcher', 'writer', 'closer', 'analyst'];
-var SR_ROLE_NAMES = { scout: 'Scout', researcher: 'Researcher', writer: 'Writer',
-  closer: 'Closer', analyst: 'Analyst' };
-
-function srClock(iso) {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleTimeString('en-US',
-      { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }).toLowerCase();
-  } catch (e) { return null; }
-}
-
-async function loadShiftReport() {
-  var team = document.getElementById('sr-team');
-  var needs = document.getElementById('sr-needs');
-  if (!team || !needs) return;
   var d = null;
   try {
     var r = await fetch(API_BASE + '/api/agent/shift-report', { credentials: 'include' });
     if (r.ok) d = await r.json();
   } catch (e) { /* handled below */ }
 
+  var sEl = document.getElementById('sr-sentence');
+  var nEl = document.getElementById('sr-needs');
+  var mEl = document.getElementById('sr-moving');
+  if (!sEl || !nEl || !mEl) return;
+
   if (!d) {
-    // A failure is stated. Rendering nothing here would read as "your team had a
-    // quiet night", which is a different and untrue claim.
-    team.innerHTML = '<div class="sr-needs-card"><div class="sr-empty">'
-      + 'Could not load your team\'s report just now. Nothing is wrong with the overnight run — '
+    // Stated, not blank. Rendering nothing would read as "quiet night", which is
+    // a different and untrue claim.
+    sEl.innerHTML = '<div class="sr-needs-card"><div class="sr-empty">'
+      + 'Could not load your team\'s report. Nothing is wrong with the overnight run — '
       + 'this page could not reach it. Refresh to try again.</div></div>';
-    needs.innerHTML = '';
+    nEl.innerHTML = ''; mEl.innerHTML = '';
     return;
   }
-  srRenderTeam(d, team);
-  srRenderNeeds(d, needs);
-  var mh = document.getElementById('sr-moving-head');
-  if (mh) mh.hidden = false;
+  srRenderSentence(d, sEl);
+  srRenderNeeds(d, nEl);
+  srRenderMoving(d, mEl);
+  // The CTA still owns the truly-empty case (no clients at all).
+  try { renderHomeClientCta(); } catch (e) {}
 }
 
-function srRenderTeam(d, el) {
-  var run = d.run || {};
-  var head;
-  if (!run.ran) {
-    // No run recorded. Say exactly that; do not render five zeroed cards.
-    head = '<div class="sr-head"><div class="sr-title">Your team has not run yet</div>'
+function srRenderSentence(d, el) {
+  if (!d.run || !d.run.ran) {
+    el.innerHTML = '<div class="sr-head"><div class="sr-title">Your team has not run yet</div>'
       + '<div class="sr-sub">The overnight run fills your queue and briefs each role. '
-      + 'Nothing has been recorded for your account yet — add a client and run a Deal Scan to start it.</div></div>';
-    el.innerHTML = head;
+      + 'Add a client and run a Deal Scan to start it.</div></div>';
     return;
   }
-  var started = srClock(run.startedAt);
-  var ath = run.athletesCovered || 0;
-  var sub = [];
-  if (started) sub.push('Started ' + started + ' Central');
-  sub.push(ath + ' athlete' + (ath === 1 ? '' : 's') + ' covered');
-  head = '<div class="sr-head"><div class="sr-title">Your team worked last night</div>'
-    + '<div class="sr-sub">' + hmEsc(sub.join(' · ')) + '</div></div>';
-
-  var byKey = {};
-  (d.roles || []).forEach(function (r) { byKey[r.key] = r; });
-
-  var cards = SR_ROLE_ORDER.map(function (k) {
-    var r = byKey[k] || { key: k, name: SR_ROLE_NAMES[k], ran: false, autonomy: 'draft' };
-    var auto = r.autonomy === 'auto'
-      ? '<b>Sends</b> on its own'
-      : '<b>Drafts</b>, you approve';
-    if (!r.ran) {
-      return '<div class="sr-role idle">'
-        + '<div class="sr-role-top"><span class="sr-role-name">' + hmEsc(r.name || SR_ROLE_NAMES[k]) + '</span>'
-        + '<span class="sr-dot"></span></div>'
-        + '<div class="sr-val">Nothing to report</div>'
-        + '<div class="sr-auto">' + auto + '</div></div>';
-    }
-    return '<div class="sr-role">'
-      + '<div class="sr-role-top"><span class="sr-role-name">' + hmEsc(r.name) + '</span>'
-      + '<span class="sr-dot"></span></div>'
-      + '<div class="sr-val">' + hmEsc(r.value) + '</div>'
-      + '<div class="sr-line">' + hmEsc(r.headline) + '</div>'
-      + (r.detail ? '<div class="sr-detail">' + hmEsc(r.detail) + '</div>' : '')
-      + '<div class="sr-auto">' + auto + '</div></div>';
-  }).join('');
-
-  el.innerHTML = head + '<div class="sr-roles">' + cards + '</div>';
+  var cov = d.coverage || {};
+  el.innerHTML = '<div class="sr-head">'
+    + '<div class="sr-sentence">' + hmEsc(d.sentence) + '</div>'
+    + '<div class="sr-sub">' + (cov.line ? hmEsc(cov.line) + ' · ' : '')
+    + '<a href="#" class="sr-link" onclick="srOpenDetail();return false">See the detail</a>'
+    + '</div></div>';
 }
+
+function srRenderMoving(d, el) {
+  var m = d.moving;
+  if (!m || (!m.earned && !m.inFlight)) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="sr-zone-head">Moving</div>'
+    + '<div class="sr-moving">'
+    + '<div class="sr-fig"><div class="sr-fig-n">' + hmEsc(hmMoney(m.earned)) + '</div>'
+    + '<div class="sr-fig-l">earned by your athletes</div></div>'
+    + '<div class="sr-fig"><div class="sr-fig-n">' + hmEsc(hmMoney(m.inFlight)) + '</div>'
+    + '<div class="sr-fig-l">in flight across ' + hmEsc(m.inFlightCount)
+    + ' deal' + (m.inFlightCount === 1 ? '' : 's') + '</div></div>'
+    + '</div>';
+}
+
+var SR_KIND = { reply: 'Brand replied', approve: 'Waiting on approval', queue: 'Ready to work' };
 
 function srRenderNeeds(d, el) {
-  var items = d.needsYou || [];
+  var nu = d.needsYou || { items: [], overflow: 0 };
+  var items = nu.items || [];
   if (!items.length) {
-    // An empty queue is a GOOD outcome. It gets a sentence saying so, not a
-    // broken-looking blank panel.
     el.innerHTML = '<div class="sr-needs-card">'
       + '<div class="sr-needs-head"><span class="sr-needs-title">Needs you</span></div>'
       + '<div class="sr-empty"><b>Nothing needs you right now.</b><br>'
       + 'No replies waiting, no drafts to approve. Your team will queue anything that comes in.</div></div>';
     return;
   }
-  var KIND = { reply: 'Brand replied', approve: 'Waiting on approval', queue: 'Ready to work' };
+  window._srItems = items;
   var rows = items.map(function (it, i) {
     return '<div class="sr-item">'
-      + '<div class="sr-item-line"><span class="sr-item-kind">' + hmEsc(KIND[it.kind] || 'Needs a decision') + '</span>'
-      + hmEsc(it.line) + '</div>'
+      + '<div class="sr-item-line"><span class="sr-item-kind">' + hmEsc(SR_KIND[it.kind] || 'Needs a decision') + '</span>'
+      + hmEsc(it.line)
+      + (it.detail ? '<span class="sr-item-detail">' + hmEsc(it.detail) + '</span>' : '')
+      + '</div>'
       + '<button class="sr-btn" onclick="srAct(' + i + ')">' + hmEsc(it.actionLabel || 'Open') + '</button>'
       + '</div>';
   }).join('');
-  window._srItems = items;
+  // Overflow is ONE QUIET LINE. Never a second list.
+  var more = nu.overflow > 0
+    ? '<div class="sr-more">' + hmEsc(nu.overflow) + ' more waiting.</div>' : '';
   el.innerHTML = '<div class="sr-needs-card">'
     + '<div class="sr-needs-head"><span class="sr-needs-title">Needs you</span>'
     + '<span class="sr-count">' + items.length + '</span></div>'
-    + rows + '</div>';
+    + rows + more + '</div>';
 }
 
-// One button per row, and it resolves the row by taking the agent to the thing.
+// ── Daily report settings ────────────────────────────────────────────────────
+// The browser is the only thing that knows the agent's actual timezone, so it is
+// captured on load. Without it the sender falls back to Central rather than UTC,
+// which would deliver a "good morning" note at 1am.
+async function loadReportSettings() {
+  var sel = document.getElementById('report-hour');
+  if (!sel || sel.options.length) return;
+  for (var h = 0; h < 24; h++) {
+    var lbl = (h === 0 ? '12 am' : h < 12 ? h + ' am' : h === 12 ? '12 pm' : (h - 12) + ' pm');
+    sel.add(new Option(lbl, String(h)));
+  }
+  var tz = null;
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) {}
+  var lab = document.getElementById('report-tz-label');
+  if (lab && tz) lab.textContent = tz.replace(/_/g, ' ');
+  try {
+    var r = await fetch(API_BASE + '/api/agent/report-settings', { credentials: 'include' });
+    var d = r.ok ? await r.json() : null;
+    if (d) {
+      sel.value = String(d.hour === undefined || d.hour === null ? 7 : d.hour);
+      document.getElementById('report-enabled').checked = d.enabled !== false;
+      // Teach the server this browser's zone the first time we see it.
+      if (tz && d.timezone !== tz) saveReportSettings(true);
+    }
+  } catch (e) {}
+}
+async function saveReportSettings(quiet) {
+  var sel = document.getElementById('report-hour');
+  var en = document.getElementById('report-enabled');
+  var st = document.getElementById('report-status');
+  if (!sel) return;
+  var tz = null;
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (e) {}
+  try {
+    var r = await fetch(API_BASE + '/api/agent/report-settings', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hour: parseInt(sel.value, 10), timezone: tz, enabled: en ? en.checked : true }),
+    });
+    if (st && !quiet) {
+      st.textContent = r.ok
+        ? (en && !en.checked ? 'Report paused.' : 'Saved — your report will arrive at ' + sel.options[sel.selectedIndex].text + '.')
+        : 'Could not save.';
+    }
+  } catch (e) { if (st && !quiet) st.textContent = 'Could not save.'; }
+}
+
 function srAct(i) {
   var it = (window._srItems || [])[i];
   if (!it || !it.target) return;
@@ -16584,12 +16616,77 @@ function srAct(i) {
     var btn = document.querySelector('.nav-item[onclick*="\'' + t.view + '\'"]');
     showView(t.view, btn || null);
   }
-  if (t.anchor) {
-    setTimeout(function () {
-      var a = document.getElementById(t.anchor);
-      if (a) a.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 120);
+}
+
+// ── The detail page: the five role cards, the coverage gap, the draft audit ──
+async function srOpenDetail() {
+  showView('shift-detail', null);
+  var el = document.getElementById('sd-body');
+  if (el) el.innerHTML = '<div class="sr-empty">Loading…</div>';
+  var d = null;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/shift-report/detail', { credentials: 'include' });
+    if (r.ok) d = await r.json();
+  } catch (e) {}
+  if (!el) return;
+  if (!d) { el.innerHTML = '<div class="sr-empty">Could not load the detail. Refresh to try again.</div>'; return; }
+
+  var head = '<div class="sr-head"><div class="sr-title">What your team did</div>'
+    + '<div class="sr-sub">' + (d.run && d.run.ran ? hmEsc(d.sentence) : 'No run recorded yet.') + '</div></div>';
+
+  var cards = (d.roles || []).map(function (r2) {
+    var auto = r2.autonomy === 'auto' ? '<b>Sends</b> on its own' : '<b>Drafts</b>, you approve';
+    if (!r2.ran) {
+      return '<div class="sr-role idle"><div class="sr-role-top">'
+        + '<span class="sr-role-name">' + hmEsc(r2.name) + '</span><span class="sr-dot"></span></div>'
+        + '<div class="sr-val">Nothing to report</div><div class="sr-auto">' + auto + '</div></div>';
+    }
+    return '<div class="sr-role"><div class="sr-role-top">'
+      + '<span class="sr-role-name">' + hmEsc(r2.name) + '</span><span class="sr-dot"></span></div>'
+      + '<div class="sr-val">' + hmEsc(r2.value) + '</div>'
+      + '<div class="sr-line">' + hmEsc(r2.headline) + '</div>'
+      + (r2.detail ? '<div class="sr-detail">' + hmEsc(r2.detail) + '</div>' : '')
+      + '<div class="sr-auto">' + auto + '</div></div>';
+  }).join('');
+
+  // THE COVERAGE GAP, named. Two numbers that disagree look like a bug; the
+  // athletes who got nothing are the reason, so they are listed.
+  var cov = d.coverage || {};
+  var covBlock = '';
+  if (cov.attempted) {
+    covBlock = '<div class="sr-zone-head">Coverage</div><div class="sr-needs-card"><div class="sr-pad">'
+      + '<div class="sr-line">' + hmEsc(cov.withWork) + ' of ' + hmEsc(cov.attempted)
+      + ' athletes got new work.</div>'
+      + (cov.blank > 0
+        ? '<div class="sr-detail">' + hmEsc(cov.blank) + ' had nothing new'
+          + (cov.blankNames && cov.blankNames.length ? ': ' + hmEsc(cov.blankNames.join(', ')) : '')
+          + '. That is the run finding no fresh businesses for them, not a missing number.</div>'
+        : '<div class="sr-detail">Every athlete the run covered got work.</div>')
+      + '</div></div>';
   }
+
+  // THE DRAFT AUDIT: is the Writer producing work anything consumes?
+  var da = d.draftAudit, daBlock = '';
+  if (da) {
+    var stalePct = da.pending ? Math.round((da.stale / da.pending) * 100) : 0;
+    daBlock = '<div class="sr-zone-head">Drafts</div><div class="sr-needs-card"><div class="sr-pad">'
+      + '<table class="sr-tbl"><tbody>'
+      + '<tr><td>Waiting on approval</td><td>' + hmEsc(da.pending) + '</td></tr>'
+      + '<tr><td>Ever sent</td><td>' + hmEsc(da.everSent)
+      + (da.sendThroughPct !== null ? ' <span class="sr-dim">(' + hmEsc(da.sendThroughPct) + '% of all drafts ever written)</span>' : '')
+      + '</td></tr>'
+      + '<tr><td>Oldest still waiting</td><td>'
+      + (da.oldestDraftAgeDays === null ? '—' : hmEsc(da.oldestDraftAgeDays) + ' days old') + '</td></tr>'
+      + '<tr><td>Older than ' + hmEsc(da.expiryDays) + ' days</td><td>' + hmEsc(da.stale)
+      + (stalePct ? ' <span class="sr-dim">(' + stalePct + '%)</span>' : '') + '</td></tr>'
+      + '<tr><td>Expired so far</td><td>' + hmEsc(da.expired) + '</td></tr>'
+      + '</tbody></table>'
+      + '<div class="sr-detail">A draft nothing sends is debt, not inventory. Anything past '
+      + hmEsc(da.expiryDays) + ' days expires — a status change, not a delete, so the body is kept.</div>'
+      + '</div></div>';
+  }
+
+  el.innerHTML = head + '<div class="sr-roles">' + cards + '</div>' + covBlock + daBlock;
 }
 
 function hmRenderHero(m) {
