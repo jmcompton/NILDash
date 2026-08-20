@@ -1473,6 +1473,19 @@ async function init() {
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS category_key TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS ask TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ`).catch(() => {});
+
+  // ── Which lane produced this card, and why it outranked the rest ──────────
+  // The Scout assembles ONE mixed slate per athlete per night; the lane is a
+  // property of a result, not a separate run, so it is stored on the row rather
+  // than inferred from which query happened to find it. program_url is how a
+  // social or national brand is actually reached -- there is no owner to call --
+  // and sponsor_signal/sponsor_note carry the deal-history-at-this-school boost
+  // so a card can say "they have already done a deal at Auburn" instead of
+  // showing the agent a rank with no reason attached.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS lane TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS program_url TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS sponsor_signal TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS sponsor_note TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_queue_angle
                       ON outreach_queue (category_key, angle_key) WHERE angle_key IS NOT NULL`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS angle TEXT`).catch(() => {});

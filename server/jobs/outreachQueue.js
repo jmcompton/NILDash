@@ -36,6 +36,7 @@ const { lookupPlace } = require('../services/placesLookup');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
 const AR = require('../services/athleteRecord');
+const Scout = require('../services/scout');
 const { resolveSchool } = require('../services/schoolResolver');
 // One resolver for the job and the shared record, so a school that resolves
 // for the Writer resolves for the Scout too.
@@ -188,8 +189,8 @@ async function candidatesFor(pool, athleteId, limit) {
 // better: it passed the SCHOOL NAME ("University of Arkansas"), which is not a
 // place a business directory understands.
 //
-// Hometown first, because that is the market the athlete actually sells into,
-// then the school's real city and state. Never the school's name.
+// The SCHOOL CITY, and nothing else. The hometown fallback that used to sit
+// above this is gone; see regionForAthlete below for why.
 // ONE ATHLETE RECORD, shared with the Writer and the market diagnostic. Every
 // field is present or explicitly null; nothing here fills a blank.
 function athleteProfile(ath) {
@@ -239,6 +240,30 @@ async function matchFor(pool, agentId, athleteId, brandName) {
 //
 // onProgress is called with plain sentences so a UI can print them verbatim; the
 // job passes console.log and the endpoint pushes them to a poller.
+// ONE INSERT FOR EVERY LANE. Both routes -- the local contact ladder and the
+// program page -- land here, so a card cannot pick up a column on one path and
+// lose it on the other. Returns true only when a row was actually written; the
+// partial unique index on (athlete_id, slot) WHERE state='queued' is what makes
+// a double-fill a no-op rather than a duplicate.
+async function insertCard(pool, { agentId, athleteId, slot, card }) {
+  const ins = await pool.query(
+    `INSERT INTO outreach_queue
+       (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
+        source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
+        dm_text, channel, state, angle, angle_key, category_key, ask, lane, program_url,
+        sponsor_signal, sponsor_note)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20,
+             $21,$22,$23,$24)
+     ON CONFLICT DO NOTHING RETURNING id`,
+    [agentId, athleteId, slot, card.brandKey, card.brandName, card.why, card.contactName,
+     card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
+     card.instagramScope, card.phone, card.phoneAskFor, card.dmText, card.channel,
+     card.angle, card.angleKey, card.categoryKey, card.ask,
+     card.lane || 'local', card.programUrl || null,
+     card.sponsorSignal || null, card.sponsorNote || null]);
+  return (ins.rowCount || 0) > 0;
+}
+
 async function fillAthlete(pool, ctx) {
   const { agentId, athleteId, athleteName, budget, region } = ctx;
   const say = ctx.onProgress || (() => {});
@@ -258,21 +283,22 @@ async function fillAthlete(pool, ctx) {
     return { filled: 0, open: 0, tried, note, paused: true };
   }
 
-  // NO MARKET, NO LOCAL LANE. Before this, an athlete whose school did not
-  // resolve fell back to their HOMETOWN and got businesses in a town they do not
-  // live in. There is no fallback now: the local lane returns nothing and the
-  // run records why, so the shift report can say "school could not be matched"
-  // instead of showing an athlete a quiet night they cannot explain.
+  // NO MARKET SILENCES THE LOCAL LANE, NOT THE ATHLETE. An athlete whose school
+  // did not resolve used to fall back to their HOMETOWN and get businesses in a
+  // town they do not live in. There is no fallback now.
   //
-  // This binds the LOCAL lane only. Social, DTC and national brands ship product
-  // and do not care where the athlete lives; they are not gated here.
-  if (!String(region || '').trim()) {
-    const rec = ctx.athleteProfile || null;
-    const note = (rec && rec.localLaneNote)
-      || 'no school we could match, so the local lane has no town to work in';
-    say(`${athleteName}: ${note}`);
-    return { filled: 0, open: 0, tried, note, noMarket: true };
-  }
+  // But this binds the LOCAL lane ONLY. Social, DTC and national brands ship
+  // product and do not care where the athlete lives, so an unresolved school
+  // must not blank the whole night -- it used to return here before the Scout
+  // ever ran, which is one of the ways an athlete woke up to nothing. The Scout
+  // suppresses the local lane on its own when hasLocalMarket is false; we just
+  // carry the reason through so an empty result can still say why.
+  const noMarket = !String(region || '').trim();
+  const noMarketNote = noMarket
+    ? ((ctx.athleteProfile && ctx.athleteProfile.localLaneNote)
+       || 'no school we could match, so the local lane has no town to work in')
+    : null;
+  if (noMarket) say(`${athleteName}: ${noMarketNote} — social and national only`);
 
   let open = Q.slotsToFill((await pool.query(
     `SELECT slot, state FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
@@ -287,12 +313,39 @@ async function fillAthlete(pool, ctx) {
   if (ctx.maxSlots && open.length > ctx.maxSlots) open = open.slice(0, ctx.maxSlots);
   say(`${athleteName}: ${open.length} slot${open.length > 1 ? 's' : ''} to fill`);
 
-  const cands = await candidatesFor(pool, athleteId, open.length * Q.MAX_ATTEMPTS_PER_SLOT);
+  // ── THE SLATE, ACROSS ALL THREE LANES ────────────────────────────────────
+  // Was: candidatesFor(), which read ONLY brands a Deal Scan had already shown
+  // for this athlete, local only. With no recent scan there were no candidates
+  // at all -- which is how eight athletes produced three pitches. The slate now
+  // draws from the local market pool (including businesses the scan discovered
+  // and passed over), the social index and the national comps AT ONCE, ranked
+  // together, with a boost for brands that have done a deal at this athlete's
+  // school. The lane is a property of a result, not a separate run.
+  const slate = await Scout.assembleSlate(pool, {
+    agentId,
+    athlete: ctx.athleteProfile || { id: athleteId, hasLocalMarket: !!region, school: null },
+    store,
+    limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
+  });
+  const cands = slate.picks;
   if (!cands.length) {
-    const note = 'no un-contacted businesses on their scan — run a Deal Scan first';
-    say(`${athleteName}: ${note}.`);
-    return { filled: 0, open: open.length, tried, note };
+    // NEVER EMPTY WITHOUT A REASON. A silent zero is what we spent a day
+    // debugging; the shift report prints this verbatim. When the school is the
+    // reason the local lane was silent, say that too -- it is the actionable
+    // half, because it is fixable by naming the school correctly.
+    const note = noMarket && slate.emptyReason !== Scout.EMPTY.NO_MARKET
+      ? `${slate.emptyText} (${noMarketNote})`
+      : slate.emptyText;
+    say(`${athleteName}: ${note}`);
+    return { filled: 0, open: open.length, tried, note,
+      emptyReason: slate.emptyReason, noMarket };
   }
+  if (slate.signalCount) {
+    say(`${athleteName}: ${slate.signalCount} brand(s) have a deal history at their school`
+      + (slate.boosted ? `, ${slate.boosted} on tonight's slate` : ''));
+  }
+  say(`${athleteName}: slate of ${cands.length} — `
+    + Object.keys(slate.laneCounts).map((k) => `${slate.laneCounts[k]} ${k}`).join(', '));
   let ci = 0, filled = 0;
 
   for (const slot of open) {
@@ -306,6 +359,59 @@ async function fillAthlete(pool, ctx) {
         say(`slot ${slot} ${why}`);
         return { filled, open: open.length, cappedOut: true, tried, note: why };
       }
+      // ── THE LANE DECIDES THE ROUTE ──────────────────────────────────────
+      // A social or national brand goes nowhere near Places or the contact
+      // ladder. Both are the LOCAL lane: they exist to find the owner of a
+      // storefront, and pointed at a national brand they resolve it to whatever
+      // shop is nearby. That lane costs money per candidate too, so running it
+      // on the wrong lane is a wrong answer we pay for.
+      if (cand.lane && cand.lane !== 'local') {
+        const pbar = Q.passesProgramBar(cand);
+        if (!pbar.ok) {
+          say(`${cand.brand_name}: skipped, ${pbar.reason}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', reason: pbar.reason,
+            lane: cand.lane, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+        const pmatch = await matchFor(pool, agentId, athleteId, cand.brand_name);
+        let ppitch = null;
+        try {
+          ppitch = await PW.writePitch({
+            business: {
+              name: cand.brand_name, category: cand.category || null,
+              address: null, rating: null, userRatingCount: null,
+              ownerName: null, ownerTitle: null,
+              siteSummary: cand.offerSummary || null,
+              isFranchise: false, sponsorsLocal: null,
+            },
+            athlete: ctx.athleteProfile || { name: athleteName },
+            deal: pmatch,
+            agentFirstName: ctx.agentFirstName || null,
+            channel: 'dm',
+            learnedAngles: await PW.learnedAngles(pool, PW.playbookFor(cand.category || null).key).catch(() => []),
+          }, { oneShot: (p2, sys, mt) => ai.oneShot(p2, sys, mt, ai.MODEL_GEN) });
+        } catch (e) {
+          say(`${cand.brand_name}: writer failed (${e.message}), using the plain fallback`);
+          ppitch = null;
+        }
+        if (ppitch && ppitch.skipped) {
+          say(`${cand.brand_name}: nothing worth pitching — ${ppitch.reason}`);
+          tried.push({ brand: cand.brand_name, result: 'no_angle', reason: ppitch.reason,
+            lane: cand.lane, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+        tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
+          lane: cand.lane, places: { found: false }, risk: 'normal' });
+        const pcard = Q.buildProgramCard(cand, ppitch, athleteName);
+        pcard.lane = cand.lane;
+        pcard.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
+        pcard.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
+        if (dry) { say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`); placed = true; filled++; break; }
+        const pins = await insertCard(pool, { agentId, athleteId, slot, card: pcard });
+        if (pins) { placed = true; filled++; say(`slot ${slot}: ${pcard.brandName} (program)`); break; }
+        continue;
+      }
+
       // THE CHEAP PASS, BEFORE THE EXPENSIVE ONE. Places is cached 30 days and
       // the deep lookup would call it anyway, so this costs nothing extra --
       // it just moves the call earlier, where its answer can still stop us
@@ -394,20 +500,14 @@ async function fillAthlete(pool, ctx) {
         rationale: (match && match.reasoning) || null,
         athleteName, pitch,
       }, ladder, ig);
-
+      // The lane is a PROPERTY of the result, and the sponsorship signal is why
+      // this one outranked the rest. Both recorded, so the card can say "they
+      // already did a deal at Auburn" instead of showing a rank.
+      card.lane = cand.lane || 'local';
+      card.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
+      card.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
       if (dry) { say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; break; }
-      const ins = await pool.query(
-        `INSERT INTO outreach_queue
-           (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
-            source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
-            dm_text, channel, state, angle, angle_key, category_key, ask)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20)
-         ON CONFLICT DO NOTHING RETURNING id`,
-        [agentId, athleteId, slot, card.brandKey, card.brandName, card.why, card.contactName,
-         card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
-         card.instagramScope, card.phone, card.phoneAskFor, card.dmText, card.channel,
-         card.angle, card.angleKey, card.categoryKey, card.ask]);
-      if ((ins.rowCount || 0) > 0) {
+      if (await insertCard(pool, { agentId, athleteId, slot, card })) {
         placed = true; filled++;
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
           + (card.contactName ? `, ${card.contactName}` : ''));

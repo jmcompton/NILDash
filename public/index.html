@@ -883,6 +883,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
   padding:14px 16px;margin-bottom:8px}
 .hq-card.dm{border-left:3px solid #84CC16}
 .hq-card.call{border-left:3px solid #3f4c5e}
+.hq-card.program{border-left:3px solid #7dd3fc}
 .hq-card.paused{border-left:3px solid #f59e0b}
 .hq-tab.paused{opacity:.72}
 .hq-brand{font-size:14.5px;color:#F0EDE6;font-weight:600;line-height:1.35}
@@ -893,6 +894,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-tag{font-size:8.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
   border-radius:4px;padding:1px 6px;margin-left:6px;vertical-align:1px}
 .hq-tag.brandacct{color:#f59e0b;background:rgba(245,158,11,0.14);border:1px solid rgba(245,158,11,0.32)}
+.hq-tag.lane{color:#7dd3fc;background:rgba(125,211,252,0.12);border:1px solid rgba(125,211,252,0.28)}
+.hq-sponsor{font-size:11.5px;color:#84CC16;line-height:1.5;margin:0 0 8px}
 .hq-dm{width:100%;box-sizing:border-box;margin:10px 0 9px;padding:9px 11px;border-radius:7px;
   background:#0a0f16;border:1px solid #1e2a3a;color:#D6D3CC;font-size:12px;line-height:1.55;
   font-family:inherit;resize:vertical;min-height:70px}
@@ -16658,7 +16661,13 @@ async function srOpenDetail() {
       + '<div class="sr-line">' + hmEsc(cov.withWork) + ' of ' + hmEsc(cov.attempted)
       + ' athletes got new work.</div>'
       + (cov.blank > 0
-        ? '<div class="sr-detail">' + hmEsc(cov.blank) + ' had nothing new'
+        ? (Array.isArray(cov.blankReasons) && cov.blankReasons.length
+            ? '<table class="sr-tbl" style="margin-top:8px"><tbody>'
+              + cov.blankReasons.map(function (r) {
+                  return '<tr><td>' + hmEsc(r.why) + '</td><td>' + hmEsc(r.athletes) + '</td></tr>';
+                }).join('') + '</tbody></table>'
+            : '')
+          + '<div class="sr-detail">' + hmEsc(cov.blank) + ' had nothing new'
           + (cov.blankNames && cov.blankNames.length ? ': ' + hmEsc(cov.blankNames.join(', ')) : '')
           + '. That is the run finding no fresh businesses for them, not a missing number.</div>'
         : '<div class="sr-detail">Every athlete the run covered got work.</div>')
@@ -16837,11 +16846,19 @@ function hqIgLink(h) { return 'https://www.instagram.com/' + String(h || '').rep
 
 function hqCard(c) {
   var isDm = c.channel === 'dm';
+  // A social, DTC or national brand has no owner to call and no local handle.
+  // It is reached through its athlete-program page, so that is the button.
+  var isProgram = c.channel === 'program';
   var brandAcct = c.instagram_scope === 'brand';
   var bits = [];
-  bits.push('<div class="hq-card ' + (isDm ? 'dm' : 'call') + '" data-id="' + hqEsc(c.id) + '">');
-  bits.push('<div class="hq-brand">' + hqEsc(c.brand_name) + '</div>');
+  bits.push('<div class="hq-card ' + (isDm ? 'dm' : isProgram ? 'program' : 'call') + '" data-id="' + hqEsc(c.id) + '">');
+  bits.push('<div class="hq-brand">' + hqEsc(c.brand_name)
+    + (c.lane && c.lane !== 'local' ? '<span class="hq-tag lane">' + hqEsc(c.lane) + '</span>' : '') + '</div>');
   if (c.why) bits.push('<div class="hq-why">' + hqEsc(c.why) + '</div>');
+  // WHY THIS ONE OUTRANKED THE REST, in words. Businesses sponsor because they
+  // are tied to the school, so when we hold evidence of that, it is the single
+  // most useful line on the card.
+  if (c.sponsor_note) bits.push('<div class="hq-sponsor">' + hqEsc(c.sponsor_note) + '</div>');
 
   if (c.contact_name) {
     bits.push('<div class="hq-who"><b>' + hqEsc(c.contact_name) + '</b>'
@@ -16863,17 +16880,20 @@ function hqCard(c) {
     bits.push('<div class="hq-note">' + hqEsc(c.source_note) + '</div>');
   }
 
-  if (isDm && c.dm_text) {
+  if ((isDm || isProgram) && c.dm_text) {
     bits.push('<textarea class="hq-dm" id="hq-dm-' + hqEsc(c.id) + '">' + hqEsc(c.dm_text) + '</textarea>');
   }
   bits.push('<div class="hm-btns">');
   if (isDm && c.dm_text) {
     bits.push('<button class="hm-btn primary" onclick="hqCopyAndOpen(' + hqEsc(c.id) + ',\'' + hqEsc(c.instagram) + '\')">Copy DM &amp; open Instagram</button>');
   }
+  if (isProgram && c.program_url) {
+    bits.push('<button class="hm-btn primary" onclick="hqCopyAndOpenUrl(' + hqEsc(c.id) + ',\'' + hqEsc(c.program_url) + '\')">Copy pitch &amp; open program page</button>');
+  }
   if (c.phone) {
     bits.push('<a class="hm-btn ghost" style="text-decoration:none" href="tel:' + hqEsc(String(c.phone).replace(/[^0-9+]/g, '')) + '">Call</a>');
   }
-  bits.push('<button class="hm-btn ghost" onclick="hqMark(' + hqEsc(c.id) + ',\'sent\',\'' + (isDm ? 'dm' : 'call') + '\')">Mark sent</button>');
+  bits.push('<button class="hm-btn ghost" onclick="hqMark(' + hqEsc(c.id) + ',\'sent\',\'' + (isDm ? 'dm' : isProgram ? 'program' : 'call') + '\')">Mark sent</button>');
   bits.push('<button class="hm-btn ghost" onclick="hqMark(' + hqEsc(c.id) + ',\'skip\')">Skip</button>');
   bits.push('</div></div>');
   return bits.join('');
@@ -16984,6 +17004,24 @@ function renderOutreachQueue(data) {
   }
   h.push('</div>');
   el.innerHTML = h.join('');
+}
+
+// Same contract as hqCopyAndOpen, for the lane that is reached through a page
+// rather than a handle: save the edit first so what is copied and what is stored
+// can never disagree.
+function hqCopyAndOpenUrl(id, url) {
+  var ta = document.getElementById('hq-dm-' + id);
+  var text = ta ? ta.value : '';
+  var done = function () {
+    if (typeof showToast === 'function') showToast('Pitch copied');
+    if (url) window.open(url, '_blank', 'noopener');
+  };
+  fetch(API_BASE + '/api/agent/outreach-queue/' + id, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dmText: text }),
+  }).catch(function () {});
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, done);
+  else { if (ta) { ta.select(); try { document.execCommand('copy'); } catch (e) {} } done(); }
 }
 
 function hqCopyAndOpen(id, handle) {

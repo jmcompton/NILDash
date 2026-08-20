@@ -1,0 +1,325 @@
+'use strict';
+// ── THE SCOUT ────────────────────────────────────────────────────────────────
+//
+// Last night: three pitches across eight athletes, three athletes with nothing.
+// An agent with 45 clients going to 80 cannot contact everyone every day, which
+// is the entire reason this exists. A Scout that reports "nothing new to work"
+// is a product that gets cancelled.
+//
+// TWO CAUSES, BOTH FIXED HERE.
+//
+// 1. IT ONLY EVER LOOKED AT ONE LANE. The nightly fill read candidates from
+//    brand_engagement WHERE state='shown' -- brands a Deal Scan had already
+//    surfaced, local only. If nobody had run a scan lately there were no
+//    candidates at all, and social and national sat in separate tabs holding
+//    things it could have used. The slate is now assembled across all three
+//    lanes at once and the lane is a PROPERTY of a result, not a separate run.
+//
+// 2. IT RE-READ AN EXHAUSTED LIST. Nothing ever pulled from the pool of
+//    businesses the market scan had already discovered but passed over
+//    (market_business_seen), so a market went quiet and stayed quiet.
+//
+// THE QUALITY BAR STILL BINDS. Five is a ceiling, not a quota. Three strong
+// beats five with two pieces of filler, and the caller is told which it got.
+
+// Up to five per athlete per night, drawn from wherever the fit is best.
+const SLATE_MAX = 5;
+
+// A lane never takes the whole slate on its own unless the others are empty.
+// Without this a market with 200 unworked businesses would crowd out the social
+// and national results that are often the better pitch.
+const LANE_SOFT_CAP = 3;
+
+// Why an athlete got nothing. A SILENT ZERO IS THE BUG WE SPENT A DAY ON, so
+// every empty result carries one of these and the shift report prints it.
+const EMPTY = {
+  NO_MARKET: 'no-market',
+  MARKET_EXHAUSTED: 'market-exhausted',
+  BELOW_BAR: 'below-bar',
+  SLOTS_FULL: 'slots-full',
+  PAUSED: 'paused',
+  CAPPED: 'capped-out',
+};
+const EMPTY_TEXT = {
+  [EMPTY.NO_MARKET]: 'no school we could match, so the local lane has no town to work in — and no social or national fit either',
+  [EMPTY.MARKET_EXHAUSTED]: 'every business we have found in this market has already been worked, and no social or national brand fit tonight',
+  [EMPTY.BELOW_BAR]: 'candidates were found but none cleared the bar, so nothing was queued rather than filling slots with filler',
+  [EMPTY.SLOTS_FULL]: 'all slots already hold work you have not actioned yet',
+  [EMPTY.PAUSED]: 'paused after repeated nights with nothing to show',
+  [EMPTY.CAPPED]: 'the nightly spend cap was reached before this athlete',
+};
+
+function normBrand(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// ── THE SPONSORSHIP SIGNAL ───────────────────────────────────────────────────
+//
+// Businesses do not sponsor athletes for ROI, they sponsor because they love the
+// university. A dealership that has already done a deal with an athlete at this
+// school is a far better target than one that merely has a marketing budget.
+//
+// WHAT IS ACTUALLY REACHABLE, and nothing beyond it:
+//
+//   deal_comps          school + brand. Market-wide evidence that a brand did a
+//                       deal with an athlete at THIS school. The strongest
+//                       signal we hold, and it is already being ingested.
+//   deals               our own closed deals, joined to the athlete's school.
+//                       Narrower but certain: we watched it happen.
+//   brand_engagement    a brand at this school that REPLIED or closed. Weaker
+//                       than a signed deal, stronger than never having heard of
+//                       them.
+//
+// WHAT IS NOT REACHABLE, and is therefore NOT approximated:
+//
+//   athletic department sponsors   Nothing stores them. program_source holds an
+//                                  athletics URL we could scrape a partners page
+//                                  from, but no such scrape exists and inferring
+//                                  a sponsor from a name would be a guess about
+//                                  a real business relationship.
+//   advertisers around the program Signage, radio reads and program ads are not
+//                                  on the web in any form we ingest.
+//
+// So this boosts on deal history at the school, and says so. It does not claim
+// to know who sponsors the athletic department.
+const SIGNAL_WEIGHT = { 'nil-deal-at-school': 18, 'agent-closed-at-school': 14, 'replied-at-school': 8 };
+
+async function schoolSponsorSignals(pool, school, opts = {}) {
+  const out = new Map();
+  const s = String(school || '').trim();
+  if (!s) return out;
+  const add = (brand, kind, detail) => {
+    const k = normBrand(brand);
+    if (!k) return;
+    const prev = out.get(k);
+    const w = SIGNAL_WEIGHT[kind] || 0;
+    if (!prev || w > prev.weight) out.set(k, { brand, kind, detail, weight: w });
+  };
+  const q = async (label, sql, params) => {
+    try { return (await pool.query(sql, params)).rows; }
+    catch (e) { console.error('[scout/signals] ' + label, e.message); return []; }
+  };
+
+  // 1. A brand that has done a deal with an athlete at this school. Matched on
+  //    school loosely, because deal_comps carries whatever the source called it.
+  for (const r of await q('comps',
+    `SELECT DISTINCT brand FROM deal_comps
+      WHERE brand IS NOT NULL AND brand <> ''
+        AND (LOWER(school) = LOWER($1) OR LOWER(school) LIKE '%' || LOWER($2) || '%')
+      LIMIT 400`, [s, s.replace(/\s*(university|college)\s*/ig, ' ').trim()])) {
+    add(r.brand, 'nil-deal-at-school', `has done an NIL deal with an athlete at ${s}`);
+  }
+
+  // 2. Our own closed deals for athletes at this school.
+  for (const r of await q('deals',
+    `SELECT DISTINCT d.data->>'brand' AS brand
+       FROM deals d JOIN athletes a ON a.id = d.athlete_id
+      WHERE d.data->>'stage' = 'Closed' AND d.data->>'brand' IS NOT NULL
+        AND LOWER(a.data->>'school') = LOWER($1)
+      LIMIT 200`, [s])) {
+    add(r.brand, 'agent-closed-at-school', `you have already closed a deal with them at ${s}`);
+  }
+
+  // 3. A brand at this school that replied or closed.
+  for (const r of await q('engaged',
+    `SELECT DISTINCT be.brand_name AS brand
+       FROM brand_engagement be JOIN athletes a ON a.id = be.athlete_id
+      WHERE be.state IN ('responded','closed') AND be.brand_name IS NOT NULL
+        AND LOWER(a.data->>'school') = LOWER($1)
+      LIMIT 200`, [s])) {
+    add(r.brand, 'replied-at-school', `has replied to outreach for another ${s} athlete`);
+  }
+  void opts;
+  return out;
+}
+
+// ── Candidate pools, per lane ────────────────────────────────────────────────
+// LOCAL BINDS TO THE SCHOOL CITY. Social and national do not: a brand that ships
+// product does not care where the athlete lives. That rule is enforced here by
+// which pools are consulted at all, not by filtering afterwards.
+async function localCandidates(pool, { agentId, athlete, limit }) {
+  if (!athlete.hasLocalMarket) return { rows: [], exhausted: false, reason: EMPTY.NO_MARKET };
+  const q = async (label, sql, params) => {
+    try { return (await pool.query(sql, params)).rows; }
+    catch (e) { console.error('[scout/local] ' + label, e.message); return []; }
+  };
+
+  // a. Brands a scan already surfaced for this athlete and nobody has queued.
+  const shown = await q('shown',
+    `SELECT be.brand_key, be.brand_name, 'shown' AS pool
+       FROM brand_engagement be
+      WHERE be.athlete_id = $1 AND be.state = 'shown'
+        AND COALESCE(be.lane,'local') = 'local'
+        AND NOT EXISTS (SELECT 1 FROM outreach_queue q
+                         WHERE q.athlete_id = be.athlete_id AND q.brand_key = be.brand_key)
+      ORDER BY be.last_shown_at DESC NULLS LAST
+      LIMIT $2`, [athlete.id, limit * 3]);
+
+  // b. THE POOL THAT WAS NEVER READ. Businesses the market scan discovered and
+  //    passed over, plus any discovered since. This is what stops a market going
+  //    quiet: the scan found them, we simply never came back to them.
+  const seen = athlete.marketKey ? await q('seen',
+    `SELECT m.brand AS brand_name, m.brand AS brand_key, 'market-pool' AS pool
+       FROM market_business_seen m
+      WHERE m.market_key = $1
+        AND NOT EXISTS (SELECT 1 FROM brand_engagement be
+                         WHERE be.athlete_id = $2 AND LOWER(be.brand_name) = LOWER(m.brand))
+        AND NOT EXISTS (SELECT 1 FROM outreach_queue q
+                         WHERE q.athlete_id = $2 AND LOWER(q.brand_name) = LOWER(m.brand))
+      ORDER BY m.last_seen_at DESC NULLS LAST
+      LIMIT $3`, [athlete.marketKey, athlete.id, limit * 4]) : [];
+
+  const rows = [];
+  const seenKeys = new Set();
+  for (const r of shown.concat(seen)) {
+    const k = normBrand(r.brand_name);
+    if (!k || seenKeys.has(k)) continue;
+    seenKeys.add(k);
+    rows.push({ ...r, lane: 'local' });
+  }
+  // Exhausted means BOTH pools are dry, which is the signal to widen the radius
+  // on the next market build rather than to give up.
+  return { rows, exhausted: rows.length === 0, reason: rows.length ? null : EMPTY.MARKET_EXHAUSTED };
+}
+
+// A social or national result is reached through the brand's own athlete-program
+// page, NEVER through a Places lookup -- that is the local lane, and pointing it
+// at a national brand resolves it to whatever storefront happens to be nearby.
+// So both lanes carry their program page with them, and a candidate without one
+// is rejected by name later rather than queued as something un-actionable.
+function programFacts(b) {
+  return {
+    programUrl: b.proof_url || b.programUrl || b.website || null,
+    website: b.website || null,
+    category: b.category || null,
+    offerSummary: b.offer_summary || b.offerSummary || null,
+    dealStructure: b.deal_structure || b.dealStructure || null,
+  };
+}
+
+async function socialCandidates(pool, { athlete, limit, store }) {
+  if (!store || typeof store.getSocialBrandPool !== 'function') return [];
+  try {
+    const rows = await store.getSocialBrandPool(athlete);
+    return (rows || []).slice(0, limit * 3).map((b) => ({
+      brand_key: b.brandKey || normBrand(b.brand), brand_name: b.brand,
+      lane: 'social', pool: 'social-index', fitHint: b.fitScore || null, why: b.whyFits || null,
+      ...programFacts(b),
+    }));
+  } catch (e) { console.error('[scout/social]', e.message); return []; }
+}
+
+async function nationalCandidates(pool, { limit, store }) {
+  if (!store || typeof store.getTopNilComps !== 'function') return [];
+  let rows = [];
+  try { rows = (await store.getTopNilComps(limit * 2, 2)) || []; }
+  catch (e) { console.error('[scout/national]', e.message); return []; }
+  if (!rows.length) return [];
+
+  // Deal comps prove a brand SPENDS on NIL. They do not tell us where to apply.
+  // The verified index does, so attach the program page in one pass; anything
+  // with no page still comes through, carrying programUrl: null, so the reason
+  // it cannot be pitched is recorded rather than silently dropped here.
+  const byBrand = new Map();
+  try {
+    const r = await pool.query(
+      `SELECT brand, website, proof_url, category, offer_summary, deal_structure
+         FROM social_brands WHERE active = true AND LOWER(brand) = ANY($1::text[])`,
+      [rows.map((b) => String(b.brand || '').toLowerCase())]);
+    for (const row of r.rows) byBrand.set(normBrand(row.brand), row);
+  } catch (e) { console.error('[scout/national-index]', e.message); }
+
+  return rows.map((b) => {
+    const idx = byBrand.get(normBrand(b.brand));
+    return {
+      brand_key: b.brandKey || normBrand(b.brand), brand_name: b.brand,
+      lane: 'national', pool: 'deal-comps',
+      why: b.why || (b.count ? `${b.count} logged NIL deal${b.count === 1 ? '' : 's'}` : null),
+      ...programFacts(idx || {}),
+    };
+  });
+}
+
+// ── The slate ────────────────────────────────────────────────────────────────
+// One mixed list, ranked across lanes. Lane is a property of a result.
+async function assembleSlate(pool, ctx) {
+  const { agentId, athlete, store } = ctx;
+  const limit = ctx.limit || SLATE_MAX;
+
+  const signals = await schoolSponsorSignals(pool, athlete.school);
+  const local = await localCandidates(pool, { agentId, athlete, limit });
+  const social = await socialCandidates(pool, { athlete, limit, store });
+  const national = await nationalCandidates(pool, { limit, store });
+
+  const all = local.rows.concat(social, national);
+  if (!all.length) {
+    // Say WHICH kind of empty. "no market" and "market exhausted" are different
+    // problems with different fixes, and a bare zero told us neither.
+    const reason = !athlete.hasLocalMarket ? EMPTY.NO_MARKET : EMPTY.MARKET_EXHAUSTED;
+    return { picks: [], laneCounts: {}, emptyReason: reason, emptyText: EMPTY_TEXT[reason],
+      signalCount: signals.size, localExhausted: local.exhausted };
+  }
+
+  // Rank. The sponsorship boost applies across ALL lanes: a brand that has done
+  // a deal at this school is the better target whether it is the coffee shop
+  // down the road or a national program.
+  const ranked = all.map((c) => {
+    const sig = signals.get(normBrand(c.brand_name)) || null;
+    let fit = Number(c.fitHint) || 50;
+    if (c.lane === 'local') fit += 6;          // proximity is real, and modest
+    if (c.pool === 'shown') fit += 4;          // a scan already thought so
+    if (sig) fit += sig.weight;
+    return { ...c, fit, sponsorSignal: sig };
+  }).sort((a, b) => b.fit - a.fit);
+
+  // ONE BUSINESS, ONE SLOT. A brand can legitimately reach us down two lanes at
+  // once -- the same company can sit in the local market pool AND in the
+  // national deal-comp index, which is exactly what a school-sponsor boost
+  // makes more likely, not less. Without this the athlete gets two pitches to
+  // the same owner on the same night. Deduped after ranking so the surviving
+  // copy is the one with the better score and its lane label.
+  const takenBrand = new Set();
+  const scored = [];
+  let collapsed = 0;
+  for (const c of ranked) {
+    const k = normBrand(c.brand_name) || normBrand(c.brand_key);
+    if (!k) continue;
+    if (takenBrand.has(k)) { collapsed++; continue; }
+    takenBrand.add(k);
+    scored.push(c);
+  }
+
+  // Interleave under a soft lane cap so one lane cannot take the whole slate
+  // while another has something better waiting.
+  const picks = [];
+  const chosen = new Set();
+  const perLane = {};
+  for (const c of scored) {
+    if (picks.length >= limit) break;
+    perLane[c.lane] = perLane[c.lane] || 0;
+    if (perLane[c.lane] >= LANE_SOFT_CAP) continue;
+    perLane[c.lane]++; picks.push(c); chosen.add(c);
+  }
+  // Soft cap: if the slate is short only because of it, fill from what is left.
+  if (picks.length < limit) {
+    for (const c of scored) {
+      if (picks.length >= limit) break;
+      if (chosen.has(c)) continue;
+      chosen.add(c); picks.push(c);
+    }
+  }
+
+  const laneCounts = picks.reduce((m, p) => { m[p.lane] = (m[p.lane] || 0) + 1; return m; }, {});
+  return {
+    picks, laneCounts, emptyReason: null, emptyText: null,
+    signalCount: signals.size,
+    boosted: picks.filter((p) => p.sponsorSignal).length,
+    collapsed,
+    localExhausted: local.exhausted,
+  };
+}
+
+module.exports = {
+  assembleSlate, schoolSponsorSignals, localCandidates, socialCandidates, nationalCandidates,
+  normBrand, SLATE_MAX, LANE_SOFT_CAP, EMPTY, EMPTY_TEXT, SIGNAL_WEIGHT,
+};

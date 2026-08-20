@@ -9801,7 +9801,8 @@ app.post('/api/admin/retire-stale-queue', requireAuth, async (req, res) => {
             WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(q.brand_name)
             ORDER BY b.refreshed_at DESC LIMIT 1
          ) p ON TRUE
-        WHERE q.state = 'queued'`)).rows;
+        WHERE q.state = 'queued'
+          AND COALESCE(q.lane, 'local') = 'local'`)).rows;
 
     const stale = [];
     const marketCache = new Map();
@@ -9868,7 +9869,10 @@ app.get('/admin/athlete-markets', async (req, res) => {
        FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
       ORDER BY u.name NULLS LAST, a.created_at ASC`)).rows)) || [];
 
-  // Every queued local business per athlete, with the address Places gave us.
+  // Every queued LOCAL business per athlete, with the address Places gave us.
+  // Scoped to the local lane on purpose: a social or national brand has no city
+  // and never had one, so counting it here would report a correct card as a
+  // wrong-city mismatch.
   const rows = (await safe('queue', async () => (await store.pool.query(
     `SELECT q.athlete_id, q.brand_name, q.created_at,
             p.evidence->>'address' AS address,
@@ -9879,6 +9883,7 @@ app.get('/admin/athlete-markets', async (req, res) => {
           WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(q.brand_name)
           ORDER BY b.refreshed_at DESC LIMIT 1
        ) p ON TRUE
+      WHERE COALESCE(q.lane, 'local') = 'local'
       ORDER BY q.athlete_id, q.created_at DESC`)).rows)) || [];
 
   const byAthlete = new Map();

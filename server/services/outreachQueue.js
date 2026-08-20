@@ -242,6 +242,48 @@ function buildCard(cand, ladder, ig) {
   };
 }
 
+// ── THE PROGRAM LANE (social, DTC, national) ─────────────────────────────────
+// These brands are not reached the way a local business is. There is no owner to
+// name, no main line to call, and a Places lookup on them resolves to whichever
+// storefront happens to be nearby -- the exact mistake store.findNationalBrand
+// exists to prevent. What makes one actionable is a program page we can point
+// the agent at, so that is the bar.
+function passesProgramBar(cand) {
+  const c = cand || {};
+  if (!c.programUrl) {
+    return { ok: false,
+      reason: 'they spend on NIL but we hold no athlete-program page for them, so there is nowhere to send this' };
+  }
+  return { ok: true, reason: null };
+}
+
+function buildProgramCard(cand, pitch, athleteName) {
+  const c = cand || {};
+  return {
+    brandKey: c.brand_key || null,
+    brandName: c.brand_name || null,
+    why: c.why || null,
+    contactName: null,
+    contactTitle: null,
+    sourceNote: c.offerSummary || null,
+    affiliationScope: null,
+    instagram: null,
+    instagramScope: null,
+    phone: null,
+    phoneAskFor: null,
+    channel: 'program',
+    programUrl: c.programUrl || null,
+    // Written the same way a DM is, by the same writer, under the same lint --
+    // the ban on naming a price and the ban on inventing an athlete fact do not
+    // relax because the lane changed.
+    dmText: (pitch && pitch.message) ? pitch.message : writeDm(athleteName, c.brand_name, c.why),
+    angle: (pitch && pitch.angle) || null,
+    angleKey: (pitch && pitch.angleKey) || null,
+    categoryKey: (pitch && pitch.categoryKey) || null,
+    ask: (pitch && pitch.ask) || null,
+  };
+}
+
 // DM-able first: a card an agent can act on in ten seconds outranks one that
 // needs a phone call, whatever else is true of it.
 function sortCards(cards) {
@@ -290,6 +332,7 @@ function waitingOnYou(rows, nowMs) {
 
 module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
+  passesProgramBar, buildProgramCard,
   waitingOnYou, writeDm, askFirstName, namedRows,
   prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,

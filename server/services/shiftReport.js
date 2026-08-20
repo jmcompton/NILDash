@@ -188,8 +188,22 @@ async function buildShiftReport(pool, agentId) {
   const blankNames = details
     .filter((d) => d && !Number(d.filled))
     .map((d) => d.athleteName).filter(Boolean).slice(0, 6);
+  // WHY each athlete got nothing, grouped. A silent zero is what we spent a day
+  // debugging; the Scout now returns a named reason for every empty athlete and
+  // this is where it surfaces. Reasons are counted rather than listed one by one,
+  // because "4 athletes: no school we could match" is a fix and four identical
+  // sentences is a wall.
+  const reasonCounts = {};
+  for (const d of details) {
+    if (!d || Number(d.filled)) continue;
+    const why = String(d.note || 'no reason recorded').trim();
+    reasonCounts[why] = (reasonCounts[why] || 0) + 1;
+  }
+  const blankReasons = Object.keys(reasonCounts)
+    .sort((a, b) => reasonCounts[b] - reasonCounts[a])
+    .map((why) => ({ why, athletes: reasonCounts[why] }));
   const coverage = {
-    attempted, withWork, blank, blankNames,
+    attempted, withWork, blank, blankNames, blankReasons,
     line: !attempted ? null
       : (blank > 0
         ? `Across ${withWork} of ${attempted} athletes — ${blank} had nothing new to work`
