@@ -9790,6 +9790,7 @@ app.get('/admin/athlete-markets', async (req, res) => {
   const esc = (x) => String(x == null ? '' : x)
     .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const AR = require('./services/athleteRecord');
+  const { resolveSchool } = require('./services/schoolResolver');
   const errs = [];
   const safe = async (l, fn) => { try { return await fn(); } catch (e) { errs.push(l + ': ' + e.message); return null; } };
 
@@ -9819,9 +9820,28 @@ app.get('/admin/athlete-markets', async (req, res) => {
     byAthlete.get(r.athlete_id).push(r);
   }
 
+  // BEFORE AND AFTER, on the same rows. The old lookup was exact-match only; the
+  // new one normalizes, aliases and fuzzy-matches with a floor. Showing both is
+  // the only honest way to answer "how many of the 21 now resolve".
+  const resolution = { total: 0, wasResolved: 0, nowResolved: 0, recovered: 0, stillMissing: [], byMethod: {} };
+  for (const a of athletes) {
+    const school = (a.school || '').trim();
+    resolution.total++;
+    const before = school ? ai.lookupSchoolLocation(school) : null;
+    const after = school ? resolveSchool(school) : null;
+    if (before && before.city) resolution.wasResolved++;
+    if (after && after.city) {
+      resolution.nowResolved++;
+      resolution.byMethod[after.method] = (resolution.byMethod[after.method] || 0) + 1;
+      if (!(before && before.city)) resolution.recovered++;
+    } else {
+      resolution.stillMissing.push({ name: a.name || a.id, school: school || '(none on file)' });
+    }
+  }
+
   let totalBiz = 0, matched = 0, mismatched = 0, unknownCity = 0, noMarket = 0;
   const blocks = athletes.map((a) => {
-    const rec = AR.resolveAthlete(a, { schoolLocation: ai.lookupSchoolLocation });
+    const rec = AR.resolveAthlete(a, { schoolLocation: resolveSchool });
     const biz = byAthlete.get(a.id) || [];
     if (!rec.hasLocalMarket) noMarket++;
     const lines = biz.map((b) => {
@@ -9842,7 +9862,10 @@ app.get('/admin/athlete-markets', async (req, res) => {
       + `school: <span class="mono">${esc(rec.school || 'MISSING')}</span> · `
       + `market we hold: <span class="mono" style="color:${rec.market ? '#84CC16' : '#f59e0b'}">${esc(rec.market || 'NONE — local lane has no town to work in')}</span>`
       + (rec.marketSource ? ` <span class="dim">(${esc(rec.marketSource)})</span>` : '')
-      + ` · hometown: <span class="mono">${esc(rec.hometown || 'MISSING')}</span></div>`
+      + ` · hometown: <span class="mono">${esc(rec.hometown || 'MISSING')}</span>`
+      + (rec.schoolMatched && rec.schoolMatched !== rec.school ? ` <span class="dim">(matched to "${esc(rec.schoolMatched)}")</span>` : '')
+      + `</div>`
+      + (rec.localLaneNote ? `<div style="font-size:12px;color:#f59e0b;margin-bottom:8px">${esc(rec.localLaneNote)}</div>` : '')
       + (biz.length
         ? `<table><thead><tr><th>queued business</th><th>address Places returned</th><th>city</th><th>vs market</th></tr></thead><tbody>${lines}</tbody></table>`
         : `<div class="dim" style="font-size:12px">No local businesses queued.</div>`);
@@ -9867,6 +9890,21 @@ ${errs.length ? `<div style="border:1px solid #7c3f16;background:#2a1a0e;border-
   <tr><td>&nbsp;&nbsp;<b>in a different city</b></td><td class="mono" style="color:${mismatched ? '#f59e0b' : '#84CC16'}">${mismatched}</td></tr>
   <tr><td>&nbsp;&nbsp;no address on file <span class="dim">(name join missed, or Places returned none)</span></td><td class="mono">${unknownCity}</td></tr>
 </tbody></table>
+<h2>School resolution: before and after</h2>
+<table style="max-width:720px"><tbody>
+  <tr><td>Athletes with a school on file</td><td class="mono">${resolution.total}</td></tr>
+  <tr><td>Resolved by the OLD exact lookup</td><td class="mono">${resolution.wasResolved}</td></tr>
+  <tr><td><b>Resolved now</b> <span class="dim">(normalize + alias + fuzzy)</span></td><td class="mono" style="color:#84CC16">${resolution.nowResolved}</td></tr>
+  <tr><td><b>Recovered by the fix</b></td><td class="mono" style="color:#84CC16">${resolution.recovered}</td></tr>
+  <tr><td>Still unmatched</td><td class="mono" style="color:${resolution.stillMissing.length ? '#f59e0b' : '#84CC16'}">${resolution.stillMissing.length}</td></tr>
+  <tr><td>How they matched</td><td class="mono dim">${esc(Object.keys(resolution.byMethod).map((k) => k + ':' + resolution.byMethod[k]).join(' · ') || '—')}</td></tr>
+</tbody></table>
+${resolution.stillMissing.length ? `<p class="dim" style="font-size:12px;margin-top:4px">Still unmatched, so their local lane returns nothing until the school is corrected:</p>
+<table style="max-width:720px"><thead><tr><th>athlete</th><th>school as typed</th></tr></thead><tbody>
+${resolution.stillMissing.map((m) => `<tr><td>${esc(m.name)}</td><td class="mono" style="color:#f59e0b">${esc(m.school)}</td></tr>`).join('')}
+</tbody></table>` : ''}
+
+<h2>Per athlete</h2>
 <p class="dim" style="font-size:12px;max-width:900px">The join is on brand NAME: the places cache is keyed
 <span class="mono">brand | region | v1</span> while the queue carries a place_id-based key, so they cannot be joined
 on brand_key. A miss shows as "no address on file" and is never counted as a match, so the mismatch number is a

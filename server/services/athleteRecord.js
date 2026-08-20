@@ -58,11 +58,18 @@ function resolveAthlete(row, opts = {}) {
   // THE MARKET. The school's city is the local lane's anchor, and it is resolved
   // ONLY from a real lookup. An unresolved school yields null, which is a market
   // this athlete does not have rather than one to substitute.
-  let schoolCity = null, schoolState = null, marketSource = null;
+  let schoolCity = null, schoolState = null, marketSource = null, schoolMatched = null;
   if (school && typeof opts.schoolLocation === 'function') {
     let loc = null;
     try { loc = opts.schoolLocation(school); } catch (_) { loc = null; }
-    if (loc && loc.city) { schoolCity = _str(loc.city); schoolState = _str(loc.state); marketSource = 'school-lookup'; }
+    if (loc && loc.city) {
+      schoolCity = _str(loc.city); schoolState = _str(loc.state);
+      // The resolver reports HOW it matched, which is worth keeping: a fuzzy
+      // match on a misspelling is right far more often than not, but it is the
+      // one an agent should be able to eyeball.
+      marketSource = _str(loc.method) || 'school-lookup';
+      schoolMatched = _str(loc.matched) || null;
+    }
   }
   // A school string that already carries its own city ("Auburn, AL") is a fact
   // we hold, not a guess.
@@ -78,7 +85,7 @@ function resolveAthlete(row, opts = {}) {
     position: _str(d.position),
     year: _str(d.year),
     school,
-    schoolCity, schoolState, marketSource,
+    schoolCity, schoolState, marketSource, schoolMatched,
     hometown,
     hometownCity: hometown ? cityStateFrom(hometown).city : null,
     hometownState: hometown ? cityStateFrom(hometown).state : null,
@@ -98,6 +105,13 @@ function resolveAthlete(row, opts = {}) {
     k !== 'missing' && k !== 'tags' && k !== 'marketSource' && (rec[k] === null || rec[k] === undefined));
   // Does the local lane have a market to work in at all?
   rec.hasLocalMarket = !!rec.schoolCity;
+  // SURFACED, NOT SWALLOWED. A school we could not match is a data problem the
+  // agent can fix in ten seconds, but only if something tells them. The local
+  // lane producing nothing looks identical to a quiet night otherwise.
+  rec.schoolUnmatched = !!(rec.school && !rec.schoolCity);
+  rec.localLaneNote = rec.schoolUnmatched
+    ? `We could not match "${rec.school}" to a school we know, so the local lane has no town to work in. Correct the school on this athlete and it will start.`
+    : (!rec.school ? 'No school on file, so the local lane has no town to work in.' : null);
   rec.market = rec.schoolCity ? (rec.schoolCity + (rec.schoolState ? ', ' + rec.schoolState : '')) : null;
   rec.marketKey = rec.market ? canonicalRegion(rec.market) : null;
   return rec;

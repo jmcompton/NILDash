@@ -36,6 +36,10 @@ const { lookupPlace } = require('../services/placesLookup');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
 const AR = require('../services/athleteRecord');
+const { resolveSchool } = require('../services/schoolResolver');
+// One resolver for the job and the shared record, so a school that resolves
+// for the Writer resolves for the Scout too.
+const resolveSchoolLoc = (name) => resolveSchool(name);
 
 const ENABLED = process.env.OUTREACH_QUEUE_ENABLED === '1';
 const CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_AGENT_CAP_USD) || Q.DEFAULT_AGENT_NIGHTLY_USD;
@@ -189,16 +193,21 @@ async function candidatesFor(pool, athleteId, limit) {
 // ONE ATHLETE RECORD, shared with the Writer and the market diagnostic. Every
 // field is present or explicitly null; nothing here fills a blank.
 function athleteProfile(ath) {
-  return AR.resolveAthlete(ath, { schoolLocation: ai.lookupSchoolLocation });
+  return AR.resolveAthlete(ath, { schoolLocation: resolveSchoolLoc });
 }
 
+// THE HOMETOWN FALLBACK IS GONE. It read `hometown` FIRST and the school second,
+// so an athlete whose school did not resolve got local businesses in the town
+// they grew up in: Brayden Latham at Eastern Kentucky pitched Knoxville, Messiah
+// Mickens at Virginia Tech pitched Harrisburg. Both are hometowns, neither is
+// where the athlete lives.
+//
+// An athlete lives where they go to school. If the school does not resolve, the
+// local lane has no town to work in and returns NOTHING for that athlete, which
+// the run records as a stated reason. It never substitutes another city.
 function regionForAthlete(athlete) {
-  const d = (athlete && athlete.data) || athlete || {};
-  const home = String(d.hometown || '').trim();
-  if (home) return home;
-  const loc = ai.lookupSchoolLocation(String(d.school || '').trim());
-  if (loc && loc.city) return loc.city + (loc.state ? ', ' + loc.state : '');
-  return '';
+  const rec = AR.resolveAthlete(athlete, { schoolLocation: resolveSchoolLoc });
+  return rec.market || '';
 }
 
 // The rationale the scan already wrote, which is the same sentence that justifies
@@ -247,6 +256,22 @@ async function fillAthlete(pool, ctx) {
     const note = state.paused_reason || Q.pausedNote(state.consecutive_failures);
     say(`${athleteName}: ${note}`);
     return { filled: 0, open: 0, tried, note, paused: true };
+  }
+
+  // NO MARKET, NO LOCAL LANE. Before this, an athlete whose school did not
+  // resolve fell back to their HOMETOWN and got businesses in a town they do not
+  // live in. There is no fallback now: the local lane returns nothing and the
+  // run records why, so the shift report can say "school could not be matched"
+  // instead of showing an athlete a quiet night they cannot explain.
+  //
+  // This binds the LOCAL lane only. Social, DTC and national brands ship product
+  // and do not care where the athlete lives; they are not gated here.
+  if (!String(region || '').trim()) {
+    const rec = ctx.athleteProfile || null;
+    const note = (rec && rec.localLaneNote)
+      || 'no school we could match, so the local lane has no town to work in';
+    say(`${athleteName}: ${note}`);
+    return { filled: 0, open: 0, tried, note, noMarket: true };
   }
 
   let open = Q.slotsToFill((await pool.query(
@@ -427,7 +452,7 @@ async function fillAgent(pool, agent, opts) {
       agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
       athleteProfile: athleteProfile(ath), agentFirstName: agentFirst,
       // Resolved per athlete. Passing opts.region here meant passing undefined.
-      budget, region: regionForAthlete(ath), dryRun: dry,
+      budget, region: regionForAthlete(ath), athleteProfile: athleteProfile(ath), dryRun: dry,
       // ONE card a night. The rest are built when the agent opens the queue,
       // so the night never pays for two cards nobody looks at.
       maxSlots: Q.NIGHTLY_SLOTS,
@@ -498,7 +523,7 @@ async function fillOnDemand(pool, ath, opts = {}) {
   const r = await fillAthlete(pool, {
     agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
     athleteProfile: athleteProfile(ath), agentFirstName: ath.agent_first_name || null,
-    budget, region: regionForAthlete(ath),
+    budget, region: regionForAthlete(ath), athleteProfile: athleteProfile(ath),
     onProgress: (m) => console.log('[queue/ondemand] ' + m),
   });
   await pool.query(
