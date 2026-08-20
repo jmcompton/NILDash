@@ -179,6 +179,165 @@ function autoRepair(msg) {
   return t;
 }
 
+// ── NO INVENTED ATHLETE FACTS ────────────────────────────────────────────────
+//
+// The prompt asks the model to use what it was given. This CHECKS the result,
+// because "use only the facts provided" is a request and a fabricated hometown
+// is a lie told to a real business under an athlete's name.
+//
+// The rule: every fact about the athlete in the copy must trace to a stored
+// field. If we hold no hometown, the pitch may not name one -- not a plausible
+// one, not the school's city, none. The absence of a field is not an invitation
+// to fill it.
+//
+// HOW IT IS ENFORCED. Each class of claim has a closed vocabulary or a numeric
+// shape, so a claim can be FOUND in the text and then checked against the
+// profile:
+//
+//   position   a fixed list of position words. Any that appears must match the
+//              stored position. No stored position -> any of them is invented.
+//   sport      same, against the stored sport.
+//   class year freshman/sophomore/junior/senior/etc, against the stored year.
+//   reach      any number >= 1,000 must match a stored follower figure (IG,
+//              TikTok, or their sum) within 10%, or a number we were given about
+//              the BUSINESS. No stored followers -> any big number is invented.
+//   stats      a number next to a stat noun must appear in the stored stats
+//              string. No stored stats -> any stat claim is invented.
+//
+// Small numbers that are not next to a stat noun are left alone: "two feed
+// posts", "4.8 stars", "nine years on University Drive" are not athlete facts.
+const POSITION_WORDS = [
+  'quarterback', 'qb', 'running back', 'runningback', 'rb', 'wide receiver', 'receiver', 'wr',
+  'tight end', 'te', 'offensive lineman', 'lineman', 'linebacker', 'lb', 'cornerback', 'corner',
+  'safety', 'defensive end', 'defensive back', 'kicker', 'punter', 'edge rusher',
+  'point guard', 'shooting guard', 'small forward', 'power forward', 'center', 'forward', 'guard',
+  'pitcher', 'catcher', 'shortstop', 'outfielder', 'infielder', 'first baseman', 'second baseman',
+  'third baseman', 'designated hitter',
+  'goalkeeper', 'keeper', 'goalie', 'midfielder', 'striker', 'winger', 'defender', 'fullback',
+  'setter', 'libero', 'outside hitter', 'middle blocker',
+  'sprinter', 'distance runner', 'thrower', 'jumper', 'swimmer', 'diver', 'wrestler', 'golfer',
+];
+const SPORT_WORDS = [
+  'football', 'basketball', 'baseball', 'softball', 'soccer', 'volleyball', 'track', 'cross country',
+  'swimming', 'diving', 'tennis', 'golf', 'wrestling', 'gymnastics', 'lacrosse', 'hockey',
+  'rowing', 'bowling', 'beach volleyball', 'water polo',
+];
+const YEAR_WORDS = [
+  'freshman', 'sophomore', 'junior', 'senior', 'redshirt', 'graduate student', 'grad student',
+  'true freshman', 'fifth year', 'fifth-year',
+];
+const STAT_NOUNS = /\b(tackles?|sacks?|yards?|touchdowns?|tds?|points?|rebounds?|assists?|goals?|saves?|steals?|blocks?|kills?|aces?|strikeouts?|home runs?|rbis?|era|batting average|interceptions?|catches|receptions?)\b/i;
+
+function _words(s) { return String(s || '').toLowerCase(); }
+
+// Longest-first so "wide receiver" is matched before "receiver".
+function _findVocab(text, vocab) {
+  const t = _words(text);
+  const hits = [];
+  for (const w of vocab.slice().sort((a, b) => b.length - a.length)) {
+    const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+    if (re.test(t) && !hits.some((h) => h.includes(w))) hits.push(w);
+  }
+  return hits;
+}
+
+// Numbers of 1,000 or more, however written: 35,000 / 35000 / 35k / 35K.
+function _bigNumbers(text) {
+  const out = [];
+  const re = /\b(\d{1,3}(?:,\d{3})+|\d{4,}|\d+(?:\.\d+)?\s*[kK])\b/g;
+  let m;
+  while ((m = re.exec(String(text || '')))) {
+    const raw = m[1];
+    const n = /[kK]\s*$/.test(raw)
+      ? Math.round(parseFloat(raw) * 1000)
+      : parseInt(raw.replace(/,/g, ''), 10);
+    if (Number.isFinite(n) && n >= 1000) out.push({ raw, n });
+  }
+  return out;
+}
+
+function _near(a, b, tol) { return b > 0 && Math.abs(a - b) / b <= (tol === undefined ? 0.1 : tol); }
+
+// opts.businessNumbers: figures we legitimately gave the model about the
+// business (review count, years in operation), which are not athlete claims.
+function verifyAthleteFacts(message, athlete, opts = {}) {
+  const a = athlete || {};
+  const t = String(message || '');
+  const problems = [];
+
+  // ── position ──────────────────────────────────────────────────────────────
+  const storedPos = _words(a.position);
+  for (const hit of _findVocab(t, POSITION_WORDS)) {
+    if (!storedPos) { problems.push(`claims a position ("${hit}") and we hold none`); break; }
+    if (!storedPos.includes(hit) && !hit.includes(storedPos)) {
+      problems.push(`says "${hit}" but the stored position is "${a.position}"`); break;
+    }
+  }
+  // ── sport ─────────────────────────────────────────────────────────────────
+  const storedSport = _words(a.sport);
+  for (const hit of _findVocab(t, SPORT_WORDS)) {
+    if (!storedSport) { problems.push(`names a sport ("${hit}") and we hold none`); break; }
+    if (!storedSport.includes(hit) && !hit.includes(storedSport)) {
+      problems.push(`says "${hit}" but the stored sport is "${a.sport}"`); break;
+    }
+  }
+  // ── class year ────────────────────────────────────────────────────────────
+  const storedYear = _words(a.year);
+  for (const hit of _findVocab(t, YEAR_WORDS)) {
+    if (!storedYear) { problems.push(`calls them a "${hit}" and we hold no class year`); break; }
+    if (!storedYear.includes(hit) && !hit.includes(storedYear)) {
+      problems.push(`says "${hit}" but the stored year is "${a.year}"`); break;
+    }
+  }
+  // ── hometown and school ───────────────────────────────────────────────────
+  // Checked the other way round: rather than trying to spot every place name in
+  // English, the copy is scanned for the STORED values, and a "grew up in X" /
+  // "from X" construction whose X is not the stored hometown is the fabrication
+  // this catches.
+  const homeRe = /\b(?:grew up in|from|hometown of|native of|raised in)\s+([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2})/g;
+  const storedHome = _words(a.hometown);
+  let hm;
+  while ((hm = homeRe.exec(t))) {
+    const claimed = _words(hm[1]).replace(/[.,]$/, '');
+    if (!storedHome) { problems.push(`says they are ${hm[0].trim()} and we hold no hometown`); break; }
+    const ok2 = storedHome.split(/[,\s]+/).filter(Boolean).some((tok) => claimed.includes(tok));
+    if (!ok2) { problems.push(`says "${hm[1]}" but the stored hometown is "${a.hometown}"`); break; }
+  }
+
+  // ── reach ─────────────────────────────────────────────────────────────────
+  const ig = Number(a.instagram) || 0, tt = Number(a.tiktok) || 0;
+  const allowed = [ig, tt, ig + tt].filter((n) => n > 0);
+  const bizNums = (opts.businessNumbers || []).map(Number).filter((n) => Number.isFinite(n));
+  for (const b of _bigNumbers(t)) {
+    if (bizNums.some((n) => _near(b.n, n, 0.02))) continue;          // a business figure
+    if (!allowed.length) { problems.push(`cites "${b.raw}" as reach and we hold no follower counts`); break; }
+    if (!allowed.some((n) => _near(b.n, n))) {
+      problems.push(`cites "${b.raw}" which matches no stored follower count (${allowed.join(', ')})`); break;
+    }
+  }
+
+  // ── stats ─────────────────────────────────────────────────────────────────
+  const storedStats = _words(a.stats);
+  const statClaim = /(\d[\d,.]*)\s*(?:\+\s*)?([a-z ]{0,14}?)\b(tackles?|sacks?|yards?|touchdowns?|tds?|points?|rebounds?|assists?|goals?|saves?|steals?|blocks?|kills?|aces?|strikeouts?|home runs?|rbis?|interceptions?|catches|receptions?)\b/gi;
+  let sm;
+  while ((sm = statClaim.exec(t))) {
+    const num = sm[1].replace(/,/g, '');
+    if (!storedStats) { problems.push(`claims a stat ("${sm[0].trim()}") and we hold no stats`); break; }
+    if (!storedStats.replace(/,/g, '').includes(num)) {
+      problems.push(`claims "${sm[0].trim()}" which is not in the stored stats`); break;
+    }
+  }
+
+  // ── the name ──────────────────────────────────────────────────────────────
+  if (a.name) {
+    const first = String(a.name).trim().split(/\s+/)[0];
+    if (first && first.length > 2 && !new RegExp('\\b' + first + '\\b', 'i').test(t)) {
+      problems.push(`never names the athlete (${a.name})`);
+    }
+  }
+  return { ok: problems.length === 0, problems };
+}
+
 // ── Context ──────────────────────────────────────────────────────────────────
 // Everything we hold about both sides, as prose rather than JSON: a model reads
 // "4.7 stars from 312 reviews" better than {"rating":4.7,"userRatingCount":312},
@@ -241,6 +400,8 @@ HARD RULES FOR THE MESSAGE:
 - Name the DELIVERABLE, never the price. "Two feed posts and an appearance at your location" is a real ask. "Would love to send over a short overview" is not.
 - NEVER put a dollar amount, a rate, a fee or a budget in the message. Not a range, not "starting at", not "around". Money comes up after they reply, and the agent handles it from there. A number in a cold message turns a conversation into a negotiation before there is anything to negotiate about.
 - Sign off with the agent's first name on its own line.
+
+NEVER invent a fact about the athlete. Use only what is listed under THE ATHLETE. If no hometown is listed, do not name one. If no position is listed, do not name one. If no follower count is listed, do not cite one. A missing field is not a gap to fill, and a plausible guess is still a lie told to a real business under this athlete's name.
 
 The message must be answerable yes or no without a follow-up question.`;
 
@@ -313,24 +474,38 @@ async function writePitch(ctx, opts = {}) {
     return { skipped: true, reason: String(j.reason || 'no real connection to pitch').trim() };
   }
 
+  const factsOf = (m) => verifyAthleteFacts(m, ctx.athlete, {
+    businessNumbers: [ctx.business && ctx.business.userRatingCount].filter(Boolean),
+  });
+
   let message = autoRepair(j.message);
   let lint = lintMessage(message, lintOpts);
+  // A FABRICATED FACT IS A LINT FAILURE. Same path, same retry, same refusal:
+  // an invented hometown is worse than an em dash, not softer.
+  let facts = factsOf(message);
+  if (!facts.ok) lint = { ok: false, problems: lint.problems.concat(facts.problems) };
   if (!lint.ok) {
     // ONE retry, told exactly what was wrong. Asking again unchanged just spends
     // a second call on the same mistake.
     const j2 = await attempt(`\n\nYour previous attempt was rejected for: ${lint.problems.join('; ')}. `
-      + `Rewrite the message fixing every one of those. Keep the same angle and the same ask.`);
+      + `Rewrite the message fixing every one of those. Keep the same angle and the same ask. `
+      + `Use ONLY facts listed in THE ATHLETE above. If a detail is not listed there, leave it out entirely.`);
     if (j2 && j2.skip) return { skipped: true, reason: String(j2.reason || 'no real connection').trim() };
     if (j2 && j2.message) {
       const m2 = autoRepair(j2.message);
       const l2 = lintMessage(m2, lintOpts);
-      if (l2.ok) { j = j2; message = m2; lint = l2; }
+      const f2 = factsOf(m2);
+      if (l2.ok && f2.ok) { j = j2; message = m2; lint = l2; }
+      else lint = { ok: false, problems: l2.problems.concat(f2.problems) };
     }
   }
   if (!lint.ok) {
     // Twice rejected. NOT sent as-is: a message that breaks the voice rules is
     // the failure this rewrite exists to remove.
     return { skipped: true, reason: 'could not write it in voice: ' + lint.problems.join('; '), lintFailed: true };
+  }
+  if (!facts.ok && (facts = factsOf(message)) && !facts.ok) {
+    return { skipped: true, reason: 'invented a fact about the athlete: ' + facts.problems.join('; '), factsFailed: true };
   }
 
   const play = playbookFor(ctx.business && ctx.business.category);
@@ -378,8 +553,9 @@ async function learnedAngles(pool, categoryKey, opts = {}) {
 }
 
 module.exports = {
-  writePitch, lintMessage, autoRepair, containsPrice, playbookFor, describeBusiness, describeAthlete,
+  writePitch, lintMessage, autoRepair, containsPrice, verifyAthleteFacts,
+  playbookFor, describeBusiness, describeAthlete,
   buildPrompt, sentenceCount, stripSignOff, learnedAngles,
   CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
-  DELIVERABLE_RE, SYSTEM, MIN_SAMPLE,
+  DELIVERABLE_RE, SYSTEM, MIN_SAMPLE, POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
 };

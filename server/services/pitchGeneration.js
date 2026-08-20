@@ -206,6 +206,30 @@ Generate this exact JSON:
   ]
 }`;
 
+  // REFUSE AND REGENERATE, same as the DM. A flag on a draft gets approved along
+  // with the other nine: an agent clearing a queue is not re-reading each body
+  // for a dollar sign, so a flagged draft is a shipped draft. The only
+  // enforcement that holds is one that will not hand the draft over.
+  const PW = require('./pitchWriter');
+  const violationsIn = (pitch) => {
+    if (!pitch) return [];
+    const out = [];
+    // Every field, not only the body: partnership_structure and value_proposition
+    // are pasted into emails and decks too.
+    for (const f of ['full_email_body', 'partnership_structure', 'value_proposition',
+      'roi_messaging', 'cta', 'personalized_intro', 'athlete_fit']) {
+      const hit = PW.containsPrice(pitch[f]);
+      if (hit) out.push(`${f} names a price ("${String(hit).trim()}")`);
+    }
+    // No invented athlete facts, checked against the same stored profile the
+    // prompt was built from.
+    const facts = PW.verifyAthleteFacts(pitch.full_email_body, athleteData, {
+      businessNumbers: [enrichment && enrichment.employee_count].filter(Boolean),
+    });
+    for (const p2 of facts.problems) out.push(p2);
+    return out;
+  };
+
   let raw;
   try {
     raw = await oneShot(prompt, system, 3000);
@@ -214,7 +238,27 @@ Generate this exact JSON:
     return buildFallbackPitch(athleteData, enrichment, contact, dealScanData);
   }
 
-  return parsePitch(raw, athleteData, enrichment, contact, dealScanData);
+  let pitch = parsePitch(raw, athleteData, enrichment, contact, dealScanData);
+  let bad = violationsIn(pitch);
+  if (bad.length) {
+    console.warn(`[pitchGeneration] brand="${enrichment.brand_name}" rejected: ${bad.join('; ')}. Regenerating.`);
+    try {
+      const retry = await oneShot(
+        prompt + `\n\nYour previous attempt was REJECTED for: ${bad.join('; ')}. `
+        + `Rewrite it fixing every one of those. Name the deliverable, never a price. `
+        + `Use ONLY the athlete facts listed above; if a detail is not listed, leave it out entirely.`,
+        system, 3000);
+      const second = parsePitch(retry, athleteData, enrichment, contact, dealScanData);
+      const stillBad = violationsIn(second);
+      if (!stillBad.length) return second;
+      console.error(`[pitchGeneration] brand="${enrichment.brand_name}" REFUSED after retry: ${stillBad.join('; ')}`);
+      return { refused: true, reasons: stillBad, brand: enrichment.brand_name };
+    } catch (e) {
+      console.error('[pitchGeneration] regenerate failed:', e.message);
+      return { refused: true, reasons: bad, brand: enrichment.brand_name };
+    }
+  }
+  return pitch;
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
@@ -231,20 +275,6 @@ function parsePitch(raw, athleteData, enrichment, contact, dealScanData) {
     const greetable = greetingGuard.greetableContacts([contact]);
     const body = strNull(parsed.full_email_body) || '';
     const g = greetingGuard.enforceGreeting(body, greetable);
-    // NO PRICE IN OUTREACH. The instruction is in the prompt above, but a prompt
-    // is a request: this checks the result. Money comes up once the business
-    // replies and the agent takes it from there; the valuation stays on the Deal
-    // Scan card for the agent's reference.
-    //
-    // FLAGGED, NOT REWRITTEN. Deleting the sentence carrying the number would
-    // change what the email says, and unlike a greeting there is no safe
-    // substitution. This is a draft an agent approves, so it is surfaced to them
-    // instead -- see priceFlag on the returned pitch.
-    const priceHit = require('./pitchWriter').containsPrice(g.body);
-    if (priceHit) {
-      console.warn(`[pitchGeneration] brand="${enrichment.brand_name}" names a price `
-        + `("${priceHit.trim()}") in the body. Flagged for the agent; outreach names the deliverable, not the money.`);
-    }
     if (g.changed) {
       console.warn(`[pitchGeneration] brand="${enrichment.brand_name}" model greeted "${g.removedName}", `
         + `who is not a verified contact. Greeting replaced with "Hi,".`);
@@ -260,7 +290,6 @@ function parsePitch(raw, athleteData, enrichment, contact, dealScanData) {
       roi_messaging:         strNull(parsed.roi_messaging) || '',
       cta:                   strNull(parsed.cta) || 'Would you be open to a brief call this week?',
       full_email_body:       g.body,
-      priceFlag:             priceHit ? String(priceHit).trim() : null,
       deck_talking_points:   Array.isArray(parsed.deck_talking_points) ? parsed.deck_talking_points.slice(0, 5) : [],
     };
   } catch (e) {

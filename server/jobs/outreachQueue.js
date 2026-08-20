@@ -35,6 +35,7 @@ const { buildContactLadder } = require('../services/contactLadder');
 const { lookupPlace } = require('../services/placesLookup');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
+const AR = require('../services/athleteRecord');
 
 const ENABLED = process.env.OUTREACH_QUEUE_ENABLED === '1';
 const CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_AGENT_CAP_USD) || Q.DEFAULT_AGENT_NIGHTLY_USD;
@@ -185,26 +186,10 @@ async function candidatesFor(pool, athleteId, limit) {
 //
 // Hometown first, because that is the market the athlete actually sells into,
 // then the school's real city and state. Never the school's name.
-// What the writer is actually selling. Flattened from the athlete row so the
-// pitch can name a position, a school, a hometown and a real follower count
-// instead of "a college athlete here in your area".
+// ONE ATHLETE RECORD, shared with the Writer and the market diagnostic. Every
+// field is present or explicitly null; nothing here fills a blank.
 function athleteProfile(ath) {
-  const d = (ath && ath.data) || {};
-  const num = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
-  return {
-    name: ath.name || d.name || null,
-    sport: d.sport || null,
-    position: d.position || null,
-    year: d.year || null,
-    school: ath.school || d.school || null,
-    hometown: ath.hometown || d.hometown || null,
-    instagram: num(d.instagram),
-    tiktok: num(d.tiktok),
-    stats: d.stats || null,
-    tags: Array.isArray(d.tags) ? d.tags.filter((x) => typeof x === 'string') : [],
-    productWants: typeof d.productWants === 'string' ? d.productWants : null,
-    notes: d.notes || null,
-  };
+  return AR.resolveAthlete(ath, { schoolLocation: ai.lookupSchoolLocation });
 }
 
 function regionForAthlete(athlete) {

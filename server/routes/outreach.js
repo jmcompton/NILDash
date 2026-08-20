@@ -298,6 +298,13 @@ router.post('/pitch', async (req, res) => {
     const agentEmail = senderRow.rows[0]?.email || null;
 
     const pitch = await pitchSvc.generatePitch({ athlete, enrichment, matchScore, contact, dealScanData: {}, agentName, agentEmail });
+    // Refused rather than flagged: no draft is created. See pitchGeneration.
+    if (pitch && pitch.refused) {
+      return res.status(422).json({
+        error: 'pitch_refused', reasons: pitch.reasons || [],
+        message: 'The writer could not produce this pitch without naming a price or inventing a detail about the athlete, so no draft was written.',
+      });
+    }
 
     // Attach the brand-personalized media kit link automatically when one exists
     try {

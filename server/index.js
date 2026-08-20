@@ -9774,6 +9774,107 @@ function _inboundAdminOk(user) {
 // via search OR via the nightly job. So "how many rows" is really "how many
 // national brands happen to publish a signup form", which is a much smaller
 // population than "how many national brands are pitchable".
+// ── /admin/athlete-markets — is the local lane pointed at the right town? ─────
+// READ ONLY. Answers one question per athlete: what school city do we hold, and
+// what cities are the local businesses we queued for them ACTUALLY in.
+//
+// THE JOIN IS ON NAME, and that is a real limitation stated on the page rather
+// than hidden. The places cache is keyed "brand | region | v1" while the queue
+// carries brand_engagement's key (a place_id for local), so the two cannot be
+// joined on brand_key. They are joined on the brand NAME, which matches for
+// every row the queue wrote from a Places result and misses any row whose name
+// was later edited. A miss shows as "no address on file", never as a match.
+app.get('/admin/athlete-markets', async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!_inboundAdminOk(user)) return res.status(403).send('Forbidden');
+  const esc = (x) => String(x == null ? '' : x)
+    .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const AR = require('./services/athleteRecord');
+  const errs = [];
+  const safe = async (l, fn) => { try { return await fn(); } catch (e) { errs.push(l + ': ' + e.message); return null; } };
+
+  const athletes = (await safe('athletes', async () => (await store.pool.query(
+    `SELECT a.id, a.agent_id, a.data, a.data->>'name' AS name,
+            a.data->>'school' AS school, a.data->>'hometown' AS hometown,
+            u.name AS agent_name
+       FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
+      ORDER BY u.name NULLS LAST, a.created_at ASC`)).rows)) || [];
+
+  // Every queued local business per athlete, with the address Places gave us.
+  const rows = (await safe('queue', async () => (await store.pool.query(
+    `SELECT q.athlete_id, q.brand_name, q.created_at,
+            p.evidence->>'address' AS address,
+            p.evidence->>'name'    AS google_name
+       FROM outreach_queue q
+       LEFT JOIN LATERAL (
+         SELECT evidence FROM brand_evidence_cache b
+          WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(q.brand_name)
+          ORDER BY b.refreshed_at DESC LIMIT 1
+       ) p ON TRUE
+      ORDER BY q.athlete_id, q.created_at DESC`)).rows)) || [];
+
+  const byAthlete = new Map();
+  for (const r of rows) {
+    if (!byAthlete.has(r.athlete_id)) byAthlete.set(r.athlete_id, []);
+    byAthlete.get(r.athlete_id).push(r);
+  }
+
+  let totalBiz = 0, matched = 0, mismatched = 0, unknownCity = 0, noMarket = 0;
+  const blocks = athletes.map((a) => {
+    const rec = AR.resolveAthlete(a, { schoolLocation: ai.lookupSchoolLocation });
+    const biz = byAthlete.get(a.id) || [];
+    if (!rec.hasLocalMarket) noMarket++;
+    const lines = biz.map((b) => {
+      totalBiz++;
+      const cs = AR.cityStateFrom(b.address);
+      let verdict, colour;
+      if (!b.address) { verdict = 'no address on file'; colour = '#5b6b80'; unknownCity++; }
+      else if (!rec.schoolCity) { verdict = 'no market held for this athlete'; colour = '#f59e0b'; mismatched++; }
+      else if (cs.city && cs.city.toLowerCase() === String(rec.schoolCity).toLowerCase()) { verdict = 'match'; colour = '#84CC16'; matched++; }
+      else { verdict = 'DIFFERENT CITY'; colour = '#f59e0b'; mismatched++; }
+      return `<tr><td>${esc(b.brand_name)}</td><td class="mono dim">${esc(b.address || '—')}</td>`
+        + `<td class="mono">${esc(cs.city || '—')}${cs.state ? ', ' + esc(cs.state) : ''}</td>`
+        + `<td class="mono" style="color:${colour}">${esc(verdict)}</td></tr>`;
+    }).join('');
+    return `<h3 style="margin:20px 0 4px;font-size:14px">${esc(rec.name || a.id)}`
+      + `<span class="dim" style="font-weight:400;font-size:12px"> · ${esc(a.agent_name || 'no agent')}</span></h3>`
+      + `<div class="dim" style="font-size:12px;margin-bottom:8px">`
+      + `school: <span class="mono">${esc(rec.school || 'MISSING')}</span> · `
+      + `market we hold: <span class="mono" style="color:${rec.market ? '#84CC16' : '#f59e0b'}">${esc(rec.market || 'NONE — local lane has no town to work in')}</span>`
+      + (rec.marketSource ? ` <span class="dim">(${esc(rec.marketSource)})</span>` : '')
+      + ` · hometown: <span class="mono">${esc(rec.hometown || 'MISSING')}</span></div>`
+      + (biz.length
+        ? `<table><thead><tr><th>queued business</th><th>address Places returned</th><th>city</th><th>vs market</th></tr></thead><tbody>${lines}</tbody></table>`
+        : `<div class="dim" style="font-size:12px">No local businesses queued.</div>`);
+  }).join('');
+
+  res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Athlete markets</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<body style="margin:0;padding:24px;background:#0b0f1a;color:#e6edf7;font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<style>table{border-collapse:collapse;width:100%;max-width:1100px;font-size:12.5px;margin-bottom:6px}
+th{text-align:left;color:#8fa0bd;font-weight:500;border-bottom:1px solid #26304a;padding:5px 10px 5px 0}
+td{padding:4px 10px 4px 0;border-bottom:1px solid #1a2133}
+.mono{font-family:ui-monospace,Menlo,monospace}.dim{color:#8fa0bd}
+h1{font-size:19px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 6px;color:#b9c7de}</style>
+<h1>Athlete markets vs queued local businesses</h1>
+<div class="dim" style="font-size:12px;margin-bottom:16px">Read-only. Nothing here writes or spends.</div>
+${errs.length ? `<div style="border:1px solid #7c3f16;background:#2a1a0e;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#f0b072">${errs.map(esc).join('<br>')}</div>` : ''}
+<table style="max-width:640px"><tbody>
+  <tr><td>Athletes</td><td class="mono">${athletes.length}</td></tr>
+  <tr><td><b>Athletes with NO resolvable market</b></td><td class="mono" style="color:${noMarket ? '#f59e0b' : '#84CC16'}">${noMarket}</td></tr>
+  <tr><td>Queued local businesses</td><td class="mono">${totalBiz}</td></tr>
+  <tr><td>&nbsp;&nbsp;in the athlete's school city</td><td class="mono" style="color:#84CC16">${matched}</td></tr>
+  <tr><td>&nbsp;&nbsp;<b>in a different city</b></td><td class="mono" style="color:${mismatched ? '#f59e0b' : '#84CC16'}">${mismatched}</td></tr>
+  <tr><td>&nbsp;&nbsp;no address on file <span class="dim">(name join missed, or Places returned none)</span></td><td class="mono">${unknownCity}</td></tr>
+</tbody></table>
+<p class="dim" style="font-size:12px;max-width:900px">The join is on brand NAME: the places cache is keyed
+<span class="mono">brand | region | v1</span> while the queue carries a place_id-based key, so they cannot be joined
+on brand_key. A miss shows as "no address on file" and is never counted as a match, so the mismatch number is a
+floor rather than an estimate.</p>
+${blocks}
+</body>`);
+});
+
 app.get('/admin/national-index', async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!_inboundAdminOk(user)) return res.status(403).send('Forbidden');

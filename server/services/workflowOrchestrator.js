@@ -172,6 +172,17 @@ async function executeWorkflow(runId, agentId, athlete, dealScanResult, knownCon
       agentEmail,
     })
   );
+  // A REFUSAL ENDS THE RUN. The writer would not produce copy that names a price
+  // or invents a fact about the athlete, so there is no draft to deck, store or
+  // send. Failing here is the point: the alternative is a flagged draft that
+  // gets approved along with the other nine.
+  if (pitch && pitch.refused) {
+    console.warn(`[workflow] run=${runId} pitch refused: ${(pitch.reasons || []).join('; ')}`);
+    await pool.query(
+      `UPDATE automation_runs SET status='refused', error_message=$1, completed_at=NOW() WHERE id=$2`,
+      [('pitch refused: ' + (pitch.reasons || []).join('; ')).slice(0, 400), runId]).catch(() => {});
+    return { runId, refused: true, reasons: pitch.reasons || [] };
+  }
 
   // ── Step 5: Deck Generation ────────────────────────────────────────────────
   const deck = await step('deck_generation', () =>
