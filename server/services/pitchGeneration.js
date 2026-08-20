@@ -95,7 +95,17 @@ Return ONLY a valid JSON object. No markdown code blocks, no explanation.`;
   // HONORIFIC, so the prompt literally instructed the model to write
   // `Greeting: "Dr.,"` -- and it obeyed. The rule keeps a title with the surname
   // ("Dr. Mercer") and otherwise uses the first name.
-  const contactName = (contact?.name && contact?.email) ? greetingGuard.salutationName(contact.name) : null;
+  //
+  // ONE RULE, ASKED ONCE. This used to be `contact?.name && contact?.email`, a
+  // second copy of the old greetable test -- so when the enforcement tightened,
+  // the prompt would still have instructed the model to write "Dana," and the
+  // guard would have stripped it afterwards on every send: a wasted generation
+  // and a warning line for a greeting that was never going to survive. Asking
+  // greetableContacts is what keeps the instruction and the enforcement from
+  // disagreeing, which is the drift the guard's own header warns about.
+  const contactName = greetingGuard.greetableContacts([contact]).length
+    ? greetingGuard.salutationName(contact.name)
+    : null;
 
   // ── Email body instruction — v2 vs legacy ─────────────────────
   const emailBodyInstruction = FEATURE_EMAIL_V2

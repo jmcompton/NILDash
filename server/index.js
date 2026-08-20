@@ -9935,6 +9935,39 @@ app.get('/api/admin/hunter-audit', requireAuth, async (req, res) => {
     const silent = Math.max(0, asked - ans);
     const personal = addresses.filter((a) => a.type === 'personal').length;
 
+    // ── THE OVERLAP: what would Hunter actually ADD? ─────────────────────────
+    // A Hunter personal address on a domain where siteEmail ALSO found an
+    // address is not lift -- we already have a way in, for free, from a source
+    // that published it. The lift is only the domains where siteEmail came back
+    // with nothing and Hunter has a person. That is the number that decides
+    // whether paying for Hunter is worth it, and it is smaller than 39.
+    const seRows = (await store.pool.query(`
+      SELECT website, evidence FROM brand_evidence_cache WHERE lane = 'siteemail'`)).rows;
+    const seFound = new Set();      // root domains where siteEmail produced an address
+    const seTried = new Set();      // root domains siteEmail actually looked at
+    for (const row of seRows) {
+      const d = rootDomain(row.website);
+      if (!d) continue;
+      seTried.add(d);
+      const ev = row.evidence || {};
+      if (ev.email) seFound.add(d);
+    }
+    const personalByDomain = new Map();
+    for (const a of addresses) {
+      if (a.type !== 'personal') continue;
+      if (!personalByDomain.has(a.domain)) personalByDomain.set(a.domain, []);
+      personalByDomain.get(a.domain).push(a);
+    }
+    const overlap = { bothHave: 0, hunterOnly: 0, hunterOnlyUntried: 0, hunterOnlyRows: [] };
+    for (const [domain, list] of personalByDomain) {
+      if (seFound.has(domain)) { overlap.bothHave++; continue; }
+      overlap.hunterOnly++;
+      if (!seTried.has(domain)) overlap.hunterOnlyUntried++;
+      overlap.hunterOnlyRows.push({ domain, siteEmailTried: seTried.has(domain), addresses: list });
+    }
+    overlap.domainsWithPersonal = personalByDomain.size;
+    overlap.hunterOnlyRows = overlap.hunterOnlyRows.slice(0, 80);
+
     res.json({
       ok: true,
       askedDomains: asked,
@@ -9948,6 +9981,7 @@ app.get('/api/admin/hunter-audit', requireAuth, async (req, res) => {
       firstAt: answered.first_at, lastAt: answered.last_at,
       addresses: addresses.slice(0, 120),
       noneDomains,
+      overlap,
       // Stated in the payload as well as the page, so a JSON reader cannot miss it.
       caveat: 'A 401/429/timeout wrote no cache row, so "silent" cannot be split into '
             + 'never-called vs rate-limited from this table. Every row present is an HTTP 200.',
@@ -10712,6 +10746,28 @@ function hunterAudit(){
           ' <span class="dim">('+d.personalAddresses+' personal, '+d.genericAddresses+' generic)</span></td></tr>'+
         '<tr><td>First / last answered call</td><td class="mono dim">'+esc(d.firstAt||'—')+' / '+esc(d.lastAt||'—')+'</td></tr>'+
         '</tbody></table>';
+     // THE LIFT NUMBER. A Hunter person on a domain where siteEmail already
+     // found an address is not lift -- we have a free way in already.
+     var ov=d.overlap||{};
+     if(ov.domainsWithPersonal!==undefined){
+       h+='<h3 style="margin:16px 0 6px;font-size:13px">What Hunter would actually ADD, over siteEmail</h3>'+
+          '<table><tbody>'+
+          '<tr><td>Domains where Hunter has a personal address</td><td class="mono">'+ov.domainsWithPersonal+'</td></tr>'+
+          '<tr><td>&nbsp;&nbsp;siteEmail already found an address there <span class="dim">(no lift — already free)</span></td><td class="mono">'+ov.bothHave+'</td></tr>'+
+          '<tr><td><b>&nbsp;&nbsp;siteEmail found nothing</b> <span class="tag ok">the real lift</span></td><td class="mono">'+ov.hunterOnly+'</td></tr>'+
+          '<tr><td>&nbsp;&nbsp;&nbsp;&nbsp;of which siteEmail never even tried <span class="dim">(fix that first — it is free)</span></td><td class="mono">'+ov.hunterOnlyUntried+'</td></tr>'+
+          '</tbody></table>'+
+          '<p class="note">The lift is <b>'+ov.hunterOnly+'</b>, not the raw address count. And the '+
+          ov.hunterOnlyUntried+' siteEmail never attempted are not evidence for Hunter — they are '+
+          'coverage we can close for nothing by pointing siteEmail at those domains.</p>';
+       if(ov.hunterOnlyRows && ov.hunterOnlyRows.length){
+         h+='<table><thead><tr><th>domain</th><th>siteEmail tried?</th><th>what Hunter has</th></tr></thead><tbody>'+
+            ov.hunterOnlyRows.map(function(x){return '<tr><td class="mono dim">'+esc(x.domain)+'</td>'+
+              '<td class="mono">'+(x.siteEmailTried?'tried, found nothing':'never tried')+'</td>'+
+              '<td class="mono">'+x.addresses.map(function(a){return esc(a.email);}).join('<br>')+'</td></tr>';}).join('')+
+            '</tbody></table>';
+       }
+     }
      if(d.addresses && d.addresses.length){
        h+='<h3 style="margin:14px 0 6px;font-size:13px">Every address Hunter returned, labelled as Hunter labelled it</h3>'+
           '<table><thead><tr><th>domain</th><th>address</th><th>Hunter type</th><th>Hunter position</th><th>conf</th><th>name</th></tr></thead><tbody>'+

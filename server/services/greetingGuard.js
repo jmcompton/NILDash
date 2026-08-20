@@ -145,12 +145,92 @@ function enforceGreetingHtml(html, contacts) {
   return { html: s.replace(head, head.replace(stripped, 'Hi,')), changed: true, removedName: who };
 }
 
-// A contact is good enough to greet by name only when it carries BOTH a name and a
-// personal email -- the same rule pitchGeneration already used to decide whether to
-// put a name in the prompt. Stated once, here, so the prompt and the enforcement
-// cannot drift apart.
+// ── Is this contact good enough to greet by first name? ─────────────────────
+//
+// THE BUG THIS EXISTS TO CLOSE. The rule used to be `c.name && c.email`. That is
+// exactly the shape a low-confidence source produces: a name it associated with
+// a domain, and an address it associated with the name, neither of them evidence
+// that the person holds a job at this business. Hunter did this -- it created a
+// contact titled "Company contact (not confirmed owner)" carrying both fields,
+// the guard approved it, and shipped code produced `greeting kept: true "Dana,"`.
+// The title said in words that we did not know who she was, and nothing read it.
+//
+// Hunter is gone, but the hole is not Hunter-shaped. Any source that supplies a
+// name beside an unconfirmed address trips it identically, so the fix is on the
+// guard, not on the source.
+//
+// A name plus an address is now necessary and NOT sufficient. There must also be
+// a real role title, and nothing may contradict it.
+
+// Titles that mean a real person in a real job. Deliberately broad: local
+// businesses put the decision maker under every one of these words, and a
+// department a person was actually named under ("Brand Partnerships") is a real
+// answer to "who is this", unlike a placeholder.
+const ROLE_TITLE = new RegExp('\\b(' + [
+  'owner', 'co-?owner', 'proprietor', 'founder', 'co-?founder', 'partner',
+  'president', 'vice[- ]president', 'vp', 'principal', 'principal broker',
+  'ceo', 'cfo', 'coo', 'cmo', 'cto', 'chief[a-z ]*officer',
+  'managing (partner|director|member)', 'director', 'manager', 'general manager', 'gm',
+  'head (of|chef)', 'supervisor', 'lead', 'coordinator', 'administrator',
+  'bookkeeper', 'accountant', 'controller', 'buyer', 'operator', 'franchisee',
+  'marketing', 'partnerships?', 'sponsorships?', 'sales', 'operations',
+  'communications', 'community', 'brand',
+  'chef', 'dentist', 'doctor', 'physician', 'surgeon', 'attorney', 'lawyer',
+  'agent', 'broker', 'realtor', 'stylist', 'barber', 'trainer', 'instructor',
+  'pharmacist', 'veterinarian', 'optometrist', 'chiropractor', 'therapist',
+].join('|') + ')\\b', 'i');
+
+// Titles that mean we do NOT know who this is. CHECKED FIRST, and that ordering
+// is the whole fix: "Company contact (not confirmed owner)" CONTAINS the word
+// owner, so a whitelist consulted first would pass the exact string that caused
+// fbf5865. A placeholder that happens to name a role is still a placeholder.
+const NON_ROLE_TITLE = new RegExp('(' + [
+  'not confirmed', 'unconfirmed', 'not verified', 'unverified', 'possible', 'may not',
+  'company contact', 'business contact', 'primary contact', 'listed contact',
+  'general (inbox|contact)', 'named mailbox', 'main line', 'business line',
+  'contact form', 'no contact', 'no named', 'staff', 'employee', 'team member',
+  'placeholder', 'unknown',
+].join('|') + ')', 'i');
+
+// contactDiscovery does `strNull(c.title) || 'Marketing / Partnerships'`, so a
+// contact the model returned with NO title is stored looking exactly like one it
+// gave a department for. That default is a fabricated title and is treated as
+// absent -- matched whole, so a person whose real title happens to read that way
+// is the only false positive, and losing a first name is the safe direction.
+const FABRICATED_DEFAULT_TITLE = /^\s*marketing\s*\/\s*partnerships\s*$/i;
+
+// Is the title itself evidence of a real job here?
+function hasRoleTitle(title) {
+  const t = String(title || '').trim();
+  if (!t) return false;                          // absent -> never greet
+  if (FABRICATED_DEFAULT_TITLE.test(t)) return false;
+  if (NON_ROLE_TITLE.test(t)) return false;      // placeholder -> never greet, even if it says "owner"
+  return ROLE_TITLE.test(t);
+}
+
+// The discovery prompt is allowed to INFER an address it never found -- "infer
+// its standard general inbox (info@theirdomain.com) and lower the confidence" --
+// and scores it on its own scale: 0.85 a real address on their site, 0.6 a real
+// shared inbox, 0.4 an inferred format, 0.2 a guess. An inferred address is not a
+// confirmed way to reach a named person, so it does not earn a first name.
+const MIN_EMAIL_CONFIDENCE = 0.6;
+
 function greetableContacts(contacts) {
-  return (Array.isArray(contacts) ? contacts : []).filter((c) => c && c.name && c.email);
+  return (Array.isArray(contacts) ? contacts : []).filter((c) => {
+    if (!c || !c.name || !c.email) return false;
+    // The source told us it could not tie this person to this business. That is
+    // the same claim the placeholder title makes, in a structured field.
+    if (c.affiliationScope === 'unclear') return false;
+    // An address that was pattern-matched rather than published is not a
+    // confirmed way to reach this person. Absent means a legacy row from before
+    // the field existed, and is treated as before.
+    if (c.emailKind && c.emailKind !== 'published') return false;
+    // The model invented this contact rather than finding it.
+    if (c.source === 'ai_inference') return false;
+    if (c.confidence_score !== undefined && c.confidence_score !== null
+        && Number(c.confidence_score) < MIN_EMAIL_CONFIDENCE) return false;
+    return hasRoleTitle(c.title);
+  });
 }
 
 // HOW TO ADDRESS THIS PERSON, for the prompt.
@@ -169,4 +249,4 @@ function salutationName(fullName) {
   return parts[0];
 }
 
-module.exports = { enforceGreeting, enforceGreetingHtml, allowedGreetingNames, addresseeOf, greetableContacts, salutationName, isHonorificOnly };
+module.exports = { enforceGreeting, enforceGreetingHtml, allowedGreetingNames, addresseeOf, greetableContacts, salutationName, isHonorificOnly, hasRoleTitle };
