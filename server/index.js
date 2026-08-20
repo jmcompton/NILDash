@@ -9553,6 +9553,136 @@ function _inboundAdminOk(user) {
   return !!user && (user.email === ADMIN_EMAIL || isFounderEmail(user.email));
 }
 
+// ── /admin/national-index — how big is social_brands, really? ────────────────
+// READ ONLY. No buttons, no writes, no spend. This exists to answer one
+// question before any change to the national search: does a search usually hit
+// the index (cheap, instant) or usually take the research path (slow, and
+// currently declined for most real brands)?
+//
+// The breakdown matters as much as the total. Every row in here got in by
+// passing verifySocialProof -- a PUBLIC APPLICATION PAGE. Brands that run
+// partnerships through inbound contact or agencies have never been eligible,
+// via search OR via the nightly job. So "how many rows" is really "how many
+// national brands happen to publish a signup form", which is a much smaller
+// population than "how many national brands are pitchable".
+app.get('/admin/national-index', async (req, res) => {
+  const user = await store.getUser(req.session.userId);
+  if (!_inboundAdminOk(user)) return res.status(403).send('Forbidden');
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const errs = [];
+  const safe = async (label, fn) => {
+    try { return await fn(); }
+    catch (e) { errs.push(label + ': ' + e.message); console.error('[national-index] ' + label, e.message); return null; }
+  };
+
+  const totals = await safe('totals', async () => (await store.pool.query(`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE active)::int                          AS active,
+             COUNT(*) FILTER (WHERE NOT active)::int                      AS retired,
+             COUNT(*) FILTER (WHERE proof_url IS NOT NULL AND proof_url <> '')::int AS with_proof,
+             COUNT(*) FILTER (WHERE website IS NOT NULL AND website <> '')::int     AS with_site,
+             COUNT(*) FILTER (WHERE tier_stated)::int                     AS tier_stated,
+             COUNT(*) FILTER (WHERE offer_summary IS NOT NULL)::int       AS with_summary,
+             COUNT(*) FILTER (WHERE brand_size = 'national')::int         AS national,
+             COUNT(*) FILTER (WHERE brand_size = 'small')::int            AS small,
+             COUNT(*) FILTER (WHERE brand_size IS NULL)::int              AS size_unknown
+        FROM social_brands`)).rows[0]);
+
+  // Freshness: a row whose proof page has not been re-verified in over a year is
+  // aging, which is what the card's freshness badge reports.
+  const fresh = await safe('fresh', async () => (await store.pool.query(`
+      SELECT COUNT(*) FILTER (WHERE proof_date >= CURRENT_DATE - INTERVAL '12 months')::int AS current,
+             COUNT(*) FILTER (WHERE proof_date <  CURRENT_DATE - INTERVAL '12 months')::int AS aging
+        FROM social_brands WHERE active`)).rows[0]);
+
+  const byStructure = await safe('byStructure', async () => (await store.pool.query(`
+      SELECT deal_structure, COUNT(*)::int AS n FROM social_brands WHERE active
+       GROUP BY deal_structure ORDER BY n DESC`)).rows) || [];
+
+  // How the index has grown. If almost everything landed on one day, the index
+  // is the seed and the nightly job is not actually adding anything.
+  const growth = await safe('growth', async () => (await store.pool.query(`
+      SELECT to_char(created_at, 'YYYY-MM-DD') AS day, COUNT(*)::int AS n
+        FROM social_brands GROUP BY 1 ORDER BY 1 DESC LIMIT 14`)).rows) || [];
+
+  const recent = await safe('recent', async () => (await store.pool.query(`
+      SELECT brand, website, proof_url, brand_size, active, to_char(created_at,'YYYY-MM-DD') AS added
+        FROM social_brands ORDER BY created_at DESC LIMIT 25`)).rows) || [];
+
+  const T = totals || {};
+  const card = (label, val, sub) =>
+    `<div style="border:1px solid #26304a;border-radius:10px;padding:12px 14px;background:#141a2b;min-width:130px">
+       <div style="font-size:22px;font-weight:700;color:#e6edf7">${esc(val)}</div>
+       <div style="font-size:11px;color:#8fa0bd;margin-top:2px">${esc(label)}</div>
+       ${sub ? `<div style="font-size:10.5px;color:#6b7c99;margin-top:3px">${esc(sub)}</div>` : ''}
+     </div>`;
+
+  const verdict = (() => {
+    const a = Number(T.active || 0);
+    if (!totals) return 'Could not read the table — see the errors above.';
+    if (a === 0) return 'The index is EMPTY. Every national search takes the research path, and under the current gate almost every one of them is declined.';
+    if (a < 25) return `Only ${a} active brands. Almost every search an agent types will miss the index and take the research path, so the research path IS the product here.`;
+    if (a < 150) return `${a} active brands. Common brands may hit, but anything specific will miss and take the research path.`;
+    return `${a} active brands — most searches should hit the index. The research path matters less.`;
+  })();
+
+  res.type('html').send(`<!doctype html><meta charset="utf-8"><title>National brand index</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<body style="margin:0;padding:24px;background:#0b0f1a;color:#e6edf7;font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<h1 style="font-size:19px;margin:0 0 4px">National brand index (social_brands)</h1>
+<div style="color:#8fa0bd;font-size:12px;margin-bottom:18px">Read-only. Nothing on this page writes or spends.</div>
+${errs.length ? `<div style="border:1px solid #7c3f16;background:#2a1a0e;border-radius:8px;padding:10px 12px;margin-bottom:16px;font-size:12px;color:#f0b072">${errs.map(esc).join('<br>')}</div>` : ''}
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+  ${card('rows total', T.total ?? '—')}
+  ${card('active', T.active ?? '—', 'what search can hit')}
+  ${card('retired', T.retired ?? '—', 'proof page went dead')}
+  ${card('have a program page', T.with_proof ?? '—', 'required to get in today')}
+  ${card('have a website', T.with_site ?? '—')}
+  ${card('state a tier', T.tier_stated ?? '—')}
+</div>
+<div style="border-left:3px solid #60a5fa;background:#111a2e;border-radius:8px;padding:12px 14px;margin-bottom:20px;font-size:13px">
+  <b>Verdict:</b> ${esc(verdict)}
+</div>
+
+<h2 style="font-size:14px;margin:20px 0 8px;color:#b9c7de">Freshness (active rows)</h2>
+<div style="font-size:13px;color:#c8d4e8">current (verified within 12 months): <b>${esc(fresh ? fresh.current : '—')}</b>
+ &nbsp;·&nbsp; aging: <b>${esc(fresh ? fresh.aging : '—')}</b></div>
+
+<h2 style="font-size:14px;margin:20px 0 8px;color:#b9c7de">Brand size</h2>
+<div style="font-size:13px;color:#c8d4e8">national: <b>${esc(T.national ?? '—')}</b>
+ &nbsp;·&nbsp; small/DTC: <b>${esc(T.small ?? '—')}</b>
+ &nbsp;·&nbsp; unclassified: <b>${esc(T.size_unknown ?? '—')}</b></div>
+
+<h2 style="font-size:14px;margin:20px 0 8px;color:#b9c7de">Deal structure (active)</h2>
+<div style="font-size:13px;color:#c8d4e8">${byStructure.length
+  ? byStructure.map((r) => `${esc(r.deal_structure || 'unset')}: <b>${esc(r.n)}</b>`).join(' &nbsp;·&nbsp; ')
+  : '<span style="color:#6b7c99">none</span>'}</div>
+
+<h2 style="font-size:14px;margin:22px 0 8px;color:#b9c7de">When rows were added</h2>
+<div style="color:#8fa0bd;font-size:11.5px;margin-bottom:6px">If this is one or two days, the nightly discovery job is not actually growing the index.</div>
+<table style="border-collapse:collapse;font-size:12.5px">
+${growth.length ? growth.map((r) => `<tr><td style="padding:3px 16px 3px 0;color:#8fa0bd">${esc(r.day)}</td><td style="padding:3px 0;font-weight:600">${esc(r.n)}</td></tr>`).join('')
+  : '<tr><td style="color:#6b7c99">no rows</td></tr>'}
+</table>
+
+<h2 style="font-size:14px;margin:22px 0 8px;color:#b9c7de">Most recently added (25)</h2>
+<table style="border-collapse:collapse;font-size:12.5px;width:100%;max-width:1000px">
+<tr style="text-align:left;color:#8fa0bd;border-bottom:1px solid #26304a">
+  <th style="padding:6px 10px 6px 0;font-weight:500">brand</th>
+  <th style="padding:6px 10px 6px 0;font-weight:500">size</th>
+  <th style="padding:6px 10px 6px 0;font-weight:500">added</th>
+  <th style="padding:6px 10px 6px 0;font-weight:500">program page</th></tr>
+${recent.length ? recent.map((r) => `<tr style="border-bottom:1px solid #1a2133">
+  <td style="padding:5px 10px 5px 0">${esc(r.brand)}${r.active ? '' : ' <span style="color:#f0b072;font-size:10px">retired</span>'}</td>
+  <td style="padding:5px 10px 5px 0;color:#8fa0bd">${esc(r.brand_size || '—')}</td>
+  <td style="padding:5px 10px 5px 0;color:#8fa0bd">${esc(r.added)}</td>
+  <td style="padding:5px 10px 5px 0"><a href="${esc(r.proof_url)}" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:none">${esc(String(r.proof_url || '').slice(0, 70))}</a></td>
+ </tr>`).join('') : '<tr><td colspan="4" style="padding:8px 0;color:#6b7c99">no rows</td></tr>'}
+</table>
+</body>`);
+});
+
 app.get('/admin/inbound', async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (!_inboundAdminOk(user)) return res.status(403).send('Forbidden');
