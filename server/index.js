@@ -9850,6 +9850,114 @@ ${body}
 </body></html>`);
 });
 
+// ── Hunter cache audit, admin only ───────────────────────────────────────────
+// READ ONLY. Pure SELECT over rows already on disk: no fetch, no model, no
+// write, no spend. Hunter itself was deleted in fbf5865; this reads what its
+// cache lane recorded while it was live.
+//
+// THE ONE THING THIS CANNOT TELL YOU, stated up front because the whole point
+// is to settle a question and a half-answer would settle it wrongly. The
+// deleted hunterLookup.js wrote a cache row on exactly two paths:
+//
+//     if (r.httpFail) return null;                       <-- NO ROW WRITTEN
+//     if (r.err)      { ...; return null; }              <-- NO ROW WRITTEN
+//     if (!emails.length) { save(..., {found:false}, 'NONE'); }
+//     save(..., {found:true, emails}, 'OK');
+//
+// A 401, a 429, a timeout and a network error all return before the save. So a
+// rate-limited call and a call that never happened are INDISTINGUISHABLE in
+// this table -- both leave nothing. What the lane proves is the positive: every
+// row in it is a call that reached Hunter and got an HTTP 200 back.
+//
+// The denominator therefore has to come from elsewhere: the 'contacts' lane,
+// which caches one row per deep lookup. Hunter was called once per deep lookup
+// that had a website, so distinct root domains among those rows is how many
+// domains were asked. That is derived, not recorded, and it is labelled as such
+// on the page.
+app.get('/api/admin/hunter-audit', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // 1. What the hunter lane actually holds. Every row here is an HTTP 200.
+    const answered = (await store.pool.query(`
+      SELECT COUNT(*)::int                                            AS rows,
+             COUNT(*) FILTER (WHERE outcome = 'OK')::int              AS with_addresses,
+             COUNT(*) FILTER (WHERE outcome = 'NONE')::int            AS zero_addresses,
+             MIN(refreshed_at)                                        AS first_at,
+             MAX(refreshed_at)                                        AS last_at
+        FROM brand_evidence_cache WHERE lane = 'hunter'`)).rows[0];
+
+    // 2. The derived denominator: deep lookups that had a website to ask about.
+    //    rootDomain here mirrors what hunterLookup was handed.
+    const { rootDomain } = require('./services/siteEmail');
+    const deepRows = (await store.pool.query(`
+      SELECT website FROM brand_evidence_cache
+       WHERE lane = 'contacts' AND website IS NOT NULL AND website <> ''`)).rows;
+    const askedDomains = new Set();
+    for (const r of deepRows) { const d = rootDomain(r.website); if (d) askedDomains.add(d); }
+
+    // 3. Every address Hunter returned, with ITS OWN labels -- type, position,
+    //    confidence, name. Not our reclassification: the question is what Hunter
+    //    said, so the row is reported as Hunter wrote it.
+    const okRows = (await store.pool.query(`
+      SELECT brand_key, brand, evidence, refreshed_at
+        FROM brand_evidence_cache
+       WHERE lane = 'hunter' AND outcome = 'OK'
+       ORDER BY refreshed_at DESC LIMIT 200`)).rows;
+    const addresses = [];
+    for (const r of okRows) {
+      const list = (r.evidence && Array.isArray(r.evidence.emails)) ? r.evidence.emails : [];
+      for (const e of list) {
+        addresses.push({
+          domain: r.brand_key,
+          email: e.email || null,
+          type: e.type || null,                       // Hunter's own personal|generic
+          position: e.position || null,               // Hunter's own job title
+          confidence: typeof e.confidence === 'number' ? e.confidence : null,
+          name: [e.firstName, e.lastName].filter(Boolean).join(' ') || null,
+          at: r.refreshed_at,
+        });
+      }
+    }
+
+    // Domains that answered with zero addresses -- real coverage misses, and the
+    // only rows that genuinely mean "Hunter does not have this business".
+    const noneDomains = (await store.pool.query(`
+      SELECT brand_key, refreshed_at FROM brand_evidence_cache
+       WHERE lane = 'hunter' AND outcome = 'NONE'
+       ORDER BY refreshed_at DESC LIMIT 100`)).rows;
+
+    const asked = askedDomains.size;
+    const ans = answered.rows;
+    const silent = Math.max(0, asked - ans);
+    const personal = addresses.filter((a) => a.type === 'personal').length;
+
+    res.json({
+      ok: true,
+      askedDomains: asked,
+      answered: ans,
+      silent,                                   // never called OR 401/429/error — NOT separable
+      withAddresses: answered.with_addresses,
+      zeroAddresses: answered.zero_addresses,
+      totalAddresses: addresses.length,
+      personalAddresses: personal,
+      genericAddresses: addresses.length - personal,
+      firstAt: answered.first_at, lastAt: answered.last_at,
+      addresses: addresses.slice(0, 120),
+      noneDomains,
+      // Stated in the payload as well as the page, so a JSON reader cannot miss it.
+      caveat: 'A 401/429/timeout wrote no cache row, so "silent" cannot be split into '
+            + 'never-called vs rate-limited from this table. Every row present is an HTTP 200.',
+    });
+  } catch (e) {
+    console.error('[hunter-audit]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Website validation pass, admin only ──────────────────────────────────────
 // FREE AND INSTANT: no fetching, no model, pure string work over rows already
 // on disk. Writes one 'websitecheck' row per website recording the verdict,
@@ -10516,6 +10624,28 @@ address we hold and have never extracted. Both are free. Note these two are DIFF
 a booking/contact-field address is published by the account, a bio-prose one is not, which is
 exactly what <span class="mono">evidenceKind</span> exists to record.</p>`}
 
+<h2>5 — Hunter: was it rate-limited, or does it just not have these businesses?</h2>
+<div class="runbox">
+  <button id="hunt" onclick="hunterAudit()">Run Hunter cache audit</button>
+  <div class="dim" style="margin-top:8px">
+    Read-only. Pure SELECT over rows already stored — no fetch, no model, no write, no spend.
+    Hunter was deleted in <span class="mono">fbf5865</span>; this reads what its cache lane
+    recorded while it was live.
+    <div style="margin-top:8px;color:#f59e0b"><b>What this cannot tell you.</b>
+    The deleted <span class="mono">hunterLookup.js</span> wrote a cache row on exactly two paths —
+    a 200 with addresses (<span class="mono">OK</span>) and a 200 with none
+    (<span class="mono">NONE</span>). A 401, a 429, a timeout and a network error all
+    <span class="mono">return null</span> <i>before</i> the save. So a rate-limited call and a call
+    that never happened leave the same trace: nothing. <b>“Silent” below cannot be split into the
+    two.</b> What the lane does prove is the positive — every row in it is a call that reached
+    Hunter and got an HTTP 200 back.</div>
+    <div style="margin-top:8px">The denominator is <b>derived, not recorded</b>: Hunter was called
+    once per deep lookup that had a website, so “domains asked” is the distinct root domains among
+    <span class="mono">contacts</span>-lane rows with a website.</div>
+  </div>
+  <div id="huntout" class="prog"></div>
+</div>
+
 <div class="runbox" style="border-left-color:#f59e0b;margin-top:14px">
   <button id="recl" onclick="reclassify()" disabled style="opacity:.5">Reclassify corporate flags — HELD</button>
   <div class="dim" style="margin-top:8px">
@@ -10539,6 +10669,73 @@ function validateSites(){
        '<div style="margin-top:6px;color:#84CC16">Reload to see the tables and the borderline list.</div>'; })
    .catch(function(e){ b.disabled=false; b.textContent='Run validation pass';
      document.getElementById('valout').innerHTML='<span style="color:#f59e0b">'+e.message+'</span>'; });
+}
+function hunterAudit(){
+  var b=document.getElementById('hunt'), o=document.getElementById('huntout');
+  b.disabled=true; b.textContent='Reading…';
+  fetch('/api/admin/hunter-audit',{credentials:'same-origin'})
+   .then(readJson)
+   .then(function(d){
+     b.disabled=false; b.textContent='Run Hunter cache audit';
+     var esc=function(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){
+       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+     // The verdict FIRST, because the counts alone get read the wrong way.
+     var v, vc;
+     if(d.answered===0 && d.askedDomains>0){
+       vc='#f59e0b';
+       v='Not one HTTP 200 was ever recorded, across '+d.askedDomains+' domains that were asked. '+
+         'Either HUNTER_API_KEY was never set in the environment (findDomainEmails returns null '+
+         'before making any request), or every single call failed. The 0-for-20 measured NOTHING '+
+         'about Hunter’s coverage — it never got an answer to measure.';
+     } else if(d.answered===0){
+       vc='#f59e0b'; v='No hunter rows and no deep lookups with a website on record. Nothing to conclude either way.';
+     } else if(d.silent > d.answered){
+       vc='#f59e0b';
+       v=d.answered+' of '+d.askedDomains+' domains got a real HTTP 200; '+d.silent+' left no row at all. '+
+         'The silent majority is consistent with the exhausted-ceiling story, but this table cannot '+
+         'prove it — never-called looks identical. Judge coverage only on the '+d.answered+' that answered.';
+     } else {
+       vc='#84CC16';
+       v='Hunter answered '+d.answered+' of '+d.askedDomains+' domains asked. The API was working. '+
+         'On the '+d.answered+' that answered, '+d.withAddresses+' returned at least one address — '+
+         'that is a real coverage rate, not a rate-limit artifact.';
+     }
+     var h='<div style="border-left:3px solid '+vc+';padding:8px 12px;margin-bottom:10px;background:#12160f">'+
+           '<b>Verdict:</b> '+v+'</div>';
+     h+='<table><tbody>'+
+        '<tr><td>Domains asked <span class="dim">(derived from the contacts lane)</span></td><td class="mono">'+d.askedDomains+'</td></tr>'+
+        '<tr><td><b>Got a real answer</b> <span class="tag ok">HTTP 200, proven</span></td><td class="mono">'+d.answered+'</td></tr>'+
+        '<tr><td>&nbsp;&nbsp;returned at least one address</td><td class="mono">'+d.withAddresses+'</td></tr>'+
+        '<tr><td>&nbsp;&nbsp;returned zero addresses <span class="dim">(a real coverage miss)</span></td><td class="mono">'+d.zeroAddresses+'</td></tr>'+
+        '<tr><td><b>Silent</b> <span class="tag" style="background:#3a2a10;color:#f59e0b">never called OR 401/429/error — not separable</span></td><td class="mono">'+d.silent+'</td></tr>'+
+        '<tr><td>Addresses returned in total</td><td class="mono">'+d.totalAddresses+
+          ' <span class="dim">('+d.personalAddresses+' personal, '+d.genericAddresses+' generic)</span></td></tr>'+
+        '<tr><td>First / last answered call</td><td class="mono dim">'+esc(d.firstAt||'—')+' / '+esc(d.lastAt||'—')+'</td></tr>'+
+        '</tbody></table>';
+     if(d.addresses && d.addresses.length){
+       h+='<h3 style="margin:14px 0 6px;font-size:13px">Every address Hunter returned, labelled as Hunter labelled it</h3>'+
+          '<table><thead><tr><th>domain</th><th>address</th><th>Hunter type</th><th>Hunter position</th><th>conf</th><th>name</th></tr></thead><tbody>'+
+          d.addresses.map(function(a){return '<tr><td class="mono dim">'+esc(a.domain)+'</td>'+
+            '<td class="mono">'+esc(a.email)+'</td>'+
+            '<td class="mono">'+esc(a.type||'—')+'</td>'+
+            '<td>'+esc(a.position||'—')+'</td>'+
+            '<td class="mono">'+esc(a.confidence==null?'—':a.confidence)+'</td>'+
+            '<td>'+esc(a.name||'—')+'</td></tr>';}).join('')+'</tbody></table>'+
+          '<p class="note"><b>position</b> is Hunter’s own job title for the address, not ours. '+
+          'A personal address with an empty position is the shape that produced the '+
+          '&ldquo;Company contact (not confirmed owner)&rdquo; rows the removal commit objected to.</p>';
+     } else if(d.answered>0){
+       h+='<p class="note">Hunter answered '+d.answered+' time(s) and returned no addresses at all.</p>';
+     }
+     if(d.noneDomains && d.noneDomains.length){
+       h+='<h3 style="margin:14px 0 6px;font-size:13px">Domains Hunter answered for with zero addresses</h3>'+
+          '<div class="mono dim" style="font-size:11px;line-height:1.7">'+
+          d.noneDomains.map(function(n){return esc(n.brand_key);}).join(' &middot; ')+'</div>';
+     }
+     o.innerHTML=h;
+   })
+   .catch(function(e){ b.disabled=false; b.textContent='Run Hunter cache audit';
+     o.innerHTML='<span style="color:#f59e0b">'+e.message+'</span>'; });
 }
 function reclassify(){
   var b=document.getElementById('recl'); b.disabled=true; b.textContent='Reclassifying…';
