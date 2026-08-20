@@ -9774,6 +9774,73 @@ function _inboundAdminOk(user) {
 // via search OR via the nightly job. So "how many rows" is really "how many
 // national brands happen to publish a signup form", which is a much smaller
 // population than "how many national brands are pitchable".
+// POST /api/admin/retire-stale-queue — clear the wrong-city rows the hometown
+// fallback left behind.
+//
+// RETIRE, NOT DELETE. state='retired' frees the slot (slotsToFill counts only
+// 'queued') so tonight's run re-sources that athlete against their real market,
+// while the row stays for outcome tracking. Nothing already sent is touched:
+// only state='queued' rows are eligible, so a card an agent has worked is safe.
+//
+// DRY RUN unless confirmed, same as the Hunter backfill. This changes production
+// rows and a button should not do that because it was clicked once.
+app.post('/api/admin/retire-stale-queue', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    const AR = require('./services/athleteRecord');
+    const { resolveSchool } = require('./services/schoolResolver');
+
+    const rows = (await store.pool.query(
+      `SELECT q.id, q.athlete_id, q.brand_name, a.data, a.data->>'name' AS name,
+              p.evidence->>'address' AS address
+         FROM outreach_queue q
+         JOIN athletes a ON a.id = q.athlete_id
+         LEFT JOIN LATERAL (
+           SELECT evidence FROM brand_evidence_cache b
+            WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(q.brand_name)
+            ORDER BY b.refreshed_at DESC LIMIT 1
+         ) p ON TRUE
+        WHERE q.state = 'queued'`)).rows;
+
+    const stale = [];
+    const marketCache = new Map();
+    let noMarket = 0;
+    for (const r of rows) {
+      let rec = marketCache.get(r.athlete_id);
+      if (!rec) { rec = AR.resolveAthlete(r, { schoolLocation: resolveSchool }); marketCache.set(r.athlete_id, rec); }
+      // No market at all: the row cannot have been sourced against one, whatever
+      // city it is in.
+      if (!rec.schoolCity) { stale.push({ id: r.id, brand: r.brand_name, athlete: rec.name, city: null }); noMarket++; continue; }
+      // An address we cannot read is NOT evidence of a wrong city. Left alone:
+      // retiring on a failed name-join would throw away good cards.
+      if (!r.address) continue;
+      const cs = AR.cityStateFrom(r.address);
+      if (cs.city && cs.city.toLowerCase() !== String(rec.schoolCity).toLowerCase()) {
+        stale.push({ id: r.id, brand: r.brand_name, athlete: rec.name, city: cs.city });
+      }
+    }
+
+    if (!(req.body && req.body.confirm === true)) {
+      return res.json({
+        dryRun: true, wouldRetire: stale.length, noMarket,
+        athletes: new Set(stale.map((x) => x.athlete)).size,
+        sample: stale.slice(0, 12),
+      });
+    }
+    if (!stale.length) return res.json({ retired: 0 });
+    const r2 = await store.pool.query(
+      `UPDATE outreach_queue
+          SET state = 'retired', outcome = 'wrong-market', outcome_at = NOW(), updated_at = NOW()
+        WHERE id = ANY($1::int[]) AND state = 'queued'`, [stale.map((x) => x.id)]);
+    console.log(`[retire-stale-queue] retired ${r2.rowCount} row(s) sourced under the hometown fallback`);
+    res.json({ retired: r2.rowCount });
+  } catch (e) {
+    console.error('[retire-stale-queue]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── /admin/athlete-markets — is the local lane pointed at the right town? ─────
 // READ ONLY. Answers one question per athlete: what school city do we hold, and
 // what cities are the local businesses we queued for them ACTUALLY in.
@@ -9839,7 +9906,36 @@ app.get('/admin/athlete-markets', async (req, res) => {
     }
   }
 
+  // ── DUPLICATE ATHLETE RECORDS ──────────────────────────────────────────
+  // Kaden House and Priya Nelson each appeared twice, once with a school and
+  // once with "none on file". A duplicate is not just clutter: the empty copy
+  // has no market, so it counts as an athlete the local lane cannot serve and
+  // drags the coverage number down for a person who is actually fine.
+  //
+  // Matched on normalized name within an agent. Two agents may legitimately
+  // represent people with the same name; one agent almost never does.
+  const dupKey = (n) => String(n || '').toLowerCase().replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim();
+  const byName = new Map();
+  for (const a of athletes) {
+    const k = (a.agent_id || '') + '|' + dupKey(a.name);
+    if (!dupKey(a.name)) continue;
+    if (!byName.has(k)) byName.set(k, []);
+    byName.get(k).push(a);
+  }
+  const dupes = [...byName.values()].filter((g) => g.length > 1).map((g) => ({
+    name: g[0].name, agent: g[0].agent_name || 'no agent', copies: g.length,
+    rows: g.map((x) => ({
+      id: x.id, school: x.school || null,
+      // The copy carrying nothing is the one to delete, and saying which is the
+      // difference between a report and a chore.
+      empty: !x.school && !x.hometown,
+      queued: (byAthlete.get(x.id) || []).length,
+    })),
+  })).sort((a, b) => b.copies - a.copies);
+  const dupTotal = dupes.reduce((n, d) => n + (d.copies - 1), 0);
+
   let totalBiz = 0, matched = 0, mismatched = 0, unknownCity = 0, noMarket = 0;
+  const staleRows = [];
   const blocks = athletes.map((a) => {
     const rec = AR.resolveAthlete(a, { schoolLocation: resolveSchool });
     const biz = byAthlete.get(a.id) || [];
@@ -9852,6 +9948,10 @@ app.get('/admin/athlete-markets', async (req, res) => {
       else if (!rec.schoolCity) { verdict = 'no market held for this athlete'; colour = '#f59e0b'; mismatched++; }
       else if (cs.city && cs.city.toLowerCase() === String(rec.schoolCity).toLowerCase()) { verdict = 'match'; colour = '#84CC16'; matched++; }
       else { verdict = 'DIFFERENT CITY'; colour = '#f59e0b'; mismatched++; }
+      if (verdict === 'DIFFERENT CITY' || verdict === 'no market held for this athlete') {
+        staleRows.push({ athleteId: a.id, athlete: rec.name, brand: b.brand_name,
+          city: cs.city, market: rec.market });
+      }
       return `<tr><td>${esc(b.brand_name)}</td><td class="mono dim">${esc(b.address || '—')}</td>`
         + `<td class="mono">${esc(cs.city || '—')}${cs.state ? ', ' + esc(cs.state) : ''}</td>`
         + `<td class="mono" style="color:${colour}">${esc(verdict)}</td></tr>`;
@@ -9890,6 +9990,55 @@ ${errs.length ? `<div style="border:1px solid #7c3f16;background:#2a1a0e;border-
   <tr><td>&nbsp;&nbsp;<b>in a different city</b></td><td class="mono" style="color:${mismatched ? '#f59e0b' : '#84CC16'}">${mismatched}</td></tr>
   <tr><td>&nbsp;&nbsp;no address on file <span class="dim">(name join missed, or Places returned none)</span></td><td class="mono">${unknownCity}</td></tr>
 </tbody></table>
+<h2>Duplicate athlete records</h2>
+<table style="max-width:720px"><tbody>
+  <tr><td><b>Extra copies across the roster</b></td><td class="mono" style="color:${dupTotal ? '#f59e0b' : '#84CC16'}">${dupTotal}</td></tr>
+  <tr><td>Names appearing more than once</td><td class="mono">${dupes.length}</td></tr>
+</tbody></table>
+${dupes.length ? `<table style="max-width:900px"><thead><tr><th>athlete</th><th>agent</th><th>copies</th><th>each copy</th></tr></thead><tbody>
+${dupes.map((d) => `<tr><td>${esc(d.name)}</td><td class="dim">${esc(d.agent)}</td><td class="mono">${d.copies}</td>
+  <td class="mono dim">${d.rows.map((r) => `${esc(r.school || 'none on file')}${r.empty ? ' <span style="color:#f59e0b">(empty — likely the one to delete)</span>' : ''}${r.queued ? ` · ${r.queued} queued` : ''}`).join('<br>')}</td></tr>`).join('')}
+</tbody></table>
+<p class="dim" style="font-size:12px;max-width:900px">Matched on normalized name within one agent. An empty copy has no
+market, so it counts against local coverage for someone who is actually fine — deleting it improves the number without
+touching the real record. Any copy carrying queued cards is listed with the count, because deleting that one loses work.</p>` : ''}
+
+<h2>Queue rows sourced under the old hometown logic</h2>
+<table style="max-width:720px"><tbody>
+  <tr><td><b>Queued businesses in the wrong city</b></td><td class="mono" style="color:${staleRows.length ? '#f59e0b' : '#84CC16'}">${staleRows.length}</td></tr>
+</tbody></table>
+<p class="dim" style="font-size:12px;max-width:900px">The hometown fallback is gone, but these rows were written while it
+was live and are still sitting in the queue waiting to be pitched. Retiring them frees the slot so tonight's run
+re-sources that athlete against their real market. It is a state change, not a delete: the row stays for outcome
+tracking and nothing already sent is touched.</p>
+<div style="margin:10px 0 4px">
+  <button id="rq" onclick="retireStale()" style="background:#84CC16;border:none;color:#0b0f0a;font:600 13px/1 inherit;padding:9px 14px;border-radius:8px;cursor:pointer">Project the cleanup</button>
+  <div id="rqout" style="margin-top:8px;font-size:12.5px"></div>
+</div>
+<script>
+function retireStale(){
+  var b=document.getElementById('rq'), o=document.getElementById('rqout');
+  var confirmed = b.dataset.confirmed === '1';
+  b.disabled=true; b.textContent=confirmed?'Retiring…':'Projecting…';
+  fetch('/api/admin/retire-stale-queue',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:confirmed})})
+   .then(function(r){return r.json();})
+   .then(function(d){
+     b.disabled=false;
+     if(d.dryRun){
+       b.textContent='Confirm — retire '+d.wouldRetire+' row(s)'; b.dataset.confirmed='1';
+       o.innerHTML='<span style="font-family:ui-monospace,monospace">'+d.wouldRetire+' queued row(s) in the wrong city'
+         +' · '+d.athletes+' athlete(s) affected · '+d.noMarket+' of them have no market at all</span>'
+         +(d.sample&&d.sample.length?'<div style="color:#8fa0bd;margin-top:6px">'+d.sample.map(function(x){return x.brand+' ('+(x.city||'?')+') for '+x.athlete;}).join('<br>')+'</div>':'');
+       return;
+     }
+     b.textContent='Project the cleanup'; b.dataset.confirmed='';
+     o.innerHTML='<span style="color:#84CC16">Retired '+d.retired+' row(s). Tonight\'s run re-sources those slots.</span>';
+   })
+   .catch(function(e){ b.disabled=false; b.textContent='Project the cleanup'; o.textContent='Failed: '+e.message; });
+}
+</script>
+
 <h2>School resolution: before and after</h2>
 <table style="max-width:720px"><tbody>
   <tr><td>Athletes with a school on file</td><td class="mono">${resolution.total}</td></tr>

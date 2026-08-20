@@ -124,6 +124,28 @@ const EXTRA_SCHOOLS = {
   'Stanford University': { city: 'Stanford', state: 'CA' },
   'University of Oregon': { city: 'Eugene', state: 'OR' },
   'Gonzaga University': { city: 'Spokane', state: 'WA' },
+  // Added after the first live pass: every one of these is a real school an
+  // agent had typed and the list simply did not carry.
+  'University of Louisiana Monroe': { city: 'Monroe', state: 'LA' },
+  'Florida A&M University': { city: 'Tallahassee', state: 'FL' },
+  'The Citadel': { city: 'Charleston', state: 'SC' },
+  'Grambling State University': { city: 'Grambling', state: 'LA' },
+  'University of Montana': { city: 'Missoula', state: 'MT' },
+  'Montana State University': { city: 'Bozeman', state: 'MT' },
+  'Cape Fear Community College': { city: 'Wilmington', state: 'NC' },
+  "Saint Mary's College of California": { city: 'Moraga', state: 'CA' },
+  'Southern University': { city: 'Baton Rouge', state: 'LA' },
+  'Jackson State University': { city: 'Jackson', state: 'MS' },
+  'Alabama State University': { city: 'Montgomery', state: 'AL' },
+  'Alabama A&M University': { city: 'Normal', state: 'AL' },
+  'Tennessee State University': { city: 'Nashville', state: 'TN' },
+  'North Carolina A&T State University': { city: 'Greensboro', state: 'NC' },
+  'Howard University': { city: 'Washington', state: 'DC' },
+  'Norfolk State University': { city: 'Norfolk', state: 'VA' },
+  'Prairie View A&M University': { city: 'Prairie View', state: 'TX' },
+  'Texas Southern University': { city: 'Houston', state: 'TX' },
+  'Bethune-Cookman University': { city: 'Daytona Beach', state: 'FL' },
+  'Virginia Military Institute': { city: 'Lexington', state: 'VA' },
 };
 
 // Abbreviations, nicknames and the misspellings that actually show up. An alias
@@ -172,11 +194,78 @@ const ALIASES = {
   'mtsu': 'Middle Tennessee State University',
   'utsa': null,
   'cal': 'University of California',
+  // Abbreviations for the schools added above.
+  'ulm': 'University of Louisiana Monroe',
+  'louisiana monroe': 'University of Louisiana Monroe',
+  'famu': 'Florida A&M University',
+  'florida a and m': 'Florida A&M University',
+  'citadel': 'The Citadel',
+  'grambling': 'Grambling State University',
+  'grambling state': 'Grambling State University',
+  'montana': 'University of Montana',
+  'cape fear': 'Cape Fear Community College',
+  'cfcc': 'Cape Fear Community College',
+  'saint marys': "Saint Mary's College of California",
+  'st marys': "Saint Mary's College of California",
+  'smc': "Saint Mary's College of California",
+  // Miami University IS the Ohio one; a bare "Miami" is Coral Gables. That is
+  // the real-world naming convention, so it is stated rather than fuzzy-matched.
+  'miami university': 'Miami University',
+  'miami ohio': 'Miami University',
+  'southern': null,                     // Southern U / USC / Southern Miss
+  'jackson state': 'Jackson State University',
+  'alabama state': 'Alabama State University',
+  'alabama a and m': 'Alabama A&M University',
+  'tennessee state': 'Tennessee State University',
+  'nc a and t': 'North Carolina A&T State University',
+  'howard': 'Howard University',
+  'norfolk state': 'Norfolk State University',
+  'prairie view': 'Prairie View A&M University',
+  'texas southern': 'Texas Southern University',
+  'bethune cookman': 'Bethune-Cookman University',
+  'vmi': 'Virginia Military Institute',
 };
 
 // Suffixes and prefixes that carry no identity. "Eastern Kentucky University"
 // and "Eastern Kentucky" are the same school; the map happens to key one of them.
 const STRIP_RE = /\b(university|univ|college|the|at|of|a\s*&\s*m\b(?!\w))\b/g;
+
+// Institution words a typo can land in. "Arizona State Univeristy" failed
+// because STRIP_RE matches the word EXACTLY, so the misspelled suffix survived
+// into the identity form: core became "arizona state univeristy" against a
+// target of "arizona state", a distance of 11 rather than 1, and the single-edit
+// allowance never got a chance. The typo was in the part we meant to throw away.
+const INSTITUTION_WORDS = ['university', 'college', 'institute', 'academy', 'universary'];
+function _isInstitutionWord(tok) {
+  if (tok.length < 6) return false;
+  return INSTITUTION_WORDS.some((w) => levenshtein(tok, w) <= 2);
+}
+
+const US_STATES = {
+  alabama: 'AL', alaska: 'AK', arizona: 'AZ', arkansas: 'AR', california: 'CA', colorado: 'CO',
+  connecticut: 'CT', delaware: 'DE', florida: 'FL', georgia: 'GA', hawaii: 'HI', idaho: 'ID',
+  illinois: 'IL', indiana: 'IN', iowa: 'IA', kansas: 'KS', kentucky: 'KY', louisiana: 'LA',
+  maine: 'ME', maryland: 'MD', massachusetts: 'MA', michigan: 'MI', minnesota: 'MN',
+  mississippi: 'MS', missouri: 'MO', montana: 'MT', nebraska: 'NE', nevada: 'NV',
+  ohio: 'OH', oklahoma: 'OK', oregon: 'OR', pennsylvania: 'PA', tennessee: 'TN', texas: 'TX',
+  utah: 'UT', vermont: 'VT', virginia: 'VA', washington: 'WA', wisconsin: 'WI', wyoming: 'WY',
+};
+
+// A parenthetical is usually a NOTE, not part of the name: "Maryland (incoming;
+// Class of 2026 recruit)" is Maryland. But "(Ohio)" in "Miami University (Ohio)"
+// is the thing that tells two real schools apart. So it is removed from the name
+// either way, and kept as a state hint when it names a state.
+function splitParenthetical(raw) {
+  const s2 = String(raw || '');
+  let hint = null;
+  const body = s2.replace(/\s*[([]([^)\]]*)[)\]]\s*/g, (m, inner) => {
+    const t = String(inner || '').trim().toLowerCase().replace(/[.]/g, '');
+    if (US_STATES[t]) hint = US_STATES[t];
+    else if (/^[a-z]{2}$/.test(t) && Object.values(US_STATES).indexOf(t.toUpperCase()) !== -1) hint = t.toUpperCase();
+    return ' ';
+  });
+  return { name: body.replace(/\s+/g, ' ').trim(), stateHint: hint };
+}
 
 function normalize(s) {
   return String(s || '')
@@ -188,9 +277,11 @@ function normalize(s) {
     .trim();
 }
 
-// Identity form: normalized, with the empty words removed.
+// Identity form: normalized, with the empty words removed -- including ones a
+// typo landed in, which is what "Arizona State Univeristy" needed.
 function core(s) {
-  return normalize(s).replace(STRIP_RE, ' ').replace(/\s+/g, ' ').trim();
+  const base = normalize(s).replace(STRIP_RE, ' ');
+  return base.split(/\s+/).filter((t) => t && !_isInstitutionWord(t)).join(' ').trim();
 }
 
 function levenshtein(a, b) {
@@ -244,7 +335,12 @@ function isIdentityLike(s) {
 // opts.map lets a test supply its own list. opts.lookup is the shipped exact
 // lookup, injected so this module can be exercised without ai.js.
 function resolveSchool(raw, opts = {}) {
-  const input = String(raw || '').trim();
+  // The note comes off the name first. "Maryland (incoming; Class of 2026
+  // recruit)" is Maryland; the parenthetical is an agent's aside, not part of
+  // the school. A parenthetical that names a STATE is kept as a hint instead,
+  // because "(Ohio)" is the only thing separating Miami University from the
+  // University of Miami.
+  const { name: input, stateHint } = splitParenthetical(String(raw || '').trim());
   if (!input) return null;
   const exact = opts.lookup || lookupSchoolLocation;
   const extra = opts.map || EXTRA_SCHOOLS;
@@ -294,8 +390,14 @@ function resolveSchool(raw, opts = {}) {
     if (loc && loc.city) cands.push({ name, loc });
   }
   const inputCore = core(input);
-  const exactCore = cands.filter((c) => core(c.name) === inputCore);
+  let exactCore = cands.filter((c) => core(c.name) === inputCore);
   if (exactCore.length) {
+    // A state hint from the parenthetical breaks a tie that would otherwise be
+    // unresolvable -- and only ever narrows, never invents.
+    if (stateHint && exactCore.length > 1) {
+      const narrowed = exactCore.filter((c) => (c.loc.state || '').toUpperCase() === stateHint);
+      if (narrowed.length) exactCore = narrowed;
+    }
     // Same identity form reached from several spellings is not ambiguity as long
     // as they all point at one city.
     const cities = new Set(exactCore.map((c) => (c.loc.city + '|' + (c.loc.state || ''))));
@@ -304,7 +406,12 @@ function resolveSchool(raw, opts = {}) {
   }
 
   // 5. Fuzzy, with a floor and a margin. This is what catches "Virgina Tech".
-  const scored = cands.map((c) => ({ ...c, s: similarity(inputCore, core(c.name)) }))
+  let pool = cands;
+  if (stateHint) {
+    const inState = cands.filter((c) => (c.loc.state || '').toUpperCase() === stateHint);
+    if (inState.length) pool = inState;
+  }
+  const scored = pool.map((c) => ({ ...c, s: similarity(inputCore, core(c.name)) }))
     .sort((a, b) => b.s - a.s);
   const best = scored[0];
   const typo = best && inputCore.length >= TYPO_MIN_CORE
@@ -333,5 +440,6 @@ try {
 module.exports = {
   resolveSchool, normalize, core, similarity, levenshtein,
   EXTRA_SCHOOLS, ALIASES, MIN_CONFIDENCE, MIN_MARGIN, TYPO_MIN_CORE,
-  GENERIC, isIdentityLike, SHIPPED_NAMES,
+  GENERIC, isIdentityLike, SHIPPED_NAMES, splitParenthetical, US_STATES,
+  INSTITUTION_WORDS,
 };
