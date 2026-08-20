@@ -167,7 +167,9 @@ DEAL SCAN CONTEXT:
 - Recommended deal structure: ${dealScanData?.recommendedPitch || 'N/A'}
 - Why that structure: ${dealScanData?.recommendedWhy || 'N/A'}
 
-IMPORTANT: When a recommended deal structure is given above, the email and the partnership_structure field MUST propose that same structure. Do not contradict it or substitute a different compensation model. Do NOT state a specific dollar amount, price, or rate anywhere in the email; describe the deliverables only and let the number be discussed on a call.
+IMPORTANT: When a recommended deal structure is given above, the email and the partnership_structure field MUST propose that same structure. Do not contradict it or substitute a different compensation model.
+
+NEVER state a dollar amount, a price, a rate, a fee or a budget anywhere in the email, in any field. Not a range, not "starting at", not "around". Name the DELIVERABLE instead: "two feed posts and an appearance at your location" is the ask. Money comes up once they reply and the agent takes it from there.
 
 MATCH ANALYSIS:
 - Compatibility score: ${matchScore?.compatibility_score || 70}/100
@@ -229,6 +231,20 @@ function parsePitch(raw, athleteData, enrichment, contact, dealScanData) {
     const greetable = greetingGuard.greetableContacts([contact]);
     const body = strNull(parsed.full_email_body) || '';
     const g = greetingGuard.enforceGreeting(body, greetable);
+    // NO PRICE IN OUTREACH. The instruction is in the prompt above, but a prompt
+    // is a request: this checks the result. Money comes up once the business
+    // replies and the agent takes it from there; the valuation stays on the Deal
+    // Scan card for the agent's reference.
+    //
+    // FLAGGED, NOT REWRITTEN. Deleting the sentence carrying the number would
+    // change what the email says, and unlike a greeting there is no safe
+    // substitution. This is a draft an agent approves, so it is surfaced to them
+    // instead -- see priceFlag on the returned pitch.
+    const priceHit = require('./pitchWriter').containsPrice(g.body);
+    if (priceHit) {
+      console.warn(`[pitchGeneration] brand="${enrichment.brand_name}" names a price `
+        + `("${priceHit.trim()}") in the body. Flagged for the agent; outreach names the deliverable, not the money.`);
+    }
     if (g.changed) {
       console.warn(`[pitchGeneration] brand="${enrichment.brand_name}" model greeted "${g.removedName}", `
         + `who is not a verified contact. Greeting replaced with "Hi,".`);
@@ -244,6 +260,7 @@ function parsePitch(raw, athleteData, enrichment, contact, dealScanData) {
       roi_messaging:         strNull(parsed.roi_messaging) || '',
       cta:                   strNull(parsed.cta) || 'Would you be open to a brief call this week?',
       full_email_body:       g.body,
+      priceFlag:             priceHit ? String(priceHit).trim() : null,
       deck_talking_points:   Array.isArray(parsed.deck_talking_points) ? parsed.deck_talking_points.slice(0, 5) : [],
     };
   } catch (e) {

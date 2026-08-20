@@ -63,7 +63,7 @@ const CATEGORY_PLAYBOOK = [
 const DEFAULT_PLAY = {
   key: 'local-visibility',
   wants: 'visibility with people who actually live near them',
-  ask: 'a small, specific piece of content with a number attached',
+  ask: 'one small, specific, named piece of content',
 };
 
 function playbookFor(category) {
@@ -79,6 +79,35 @@ const BANNED_OPENERS = [
   /^\s*i'?m reaching out/i, /^\s*just reaching out/i, /^\s*i am writing to/i,
   /^\s*my name is [a-z]+ and i/i, /^\s*hope all is well/i,
 ];
+// ── Money never appears in outreach ──────────────────────────────────────────
+// Naming a price in a cold message starts a negotiation before there is anything
+// to negotiate about, and it anchors the business at whatever we guessed. The
+// deliverable is the ask; the money is a conversation the agent has after they
+// reply. Follower counts and "two feed posts" are numbers and stay welcome --
+// these patterns match CURRENCY, not counting.
+const PRICE_PATTERNS = [
+  /\$\s*\d/,                                       // $500, $ 500
+  /\b\d[\d,.]*\s*(dollars|usd|bucks|k\b)/i,          // 500 dollars, 2k
+  /\bdollars?\b/i, /\busd\b/i,
+  /\b(rate|fee|pricing|price|budget|compensation|payment|honorarium)s?\b/i,
+  /\bpaid?\s+\$?\d/i,                              // "paid 500"
+  /\bper\s+(post|story|reel|appearance|video)\s*[:,]?\s*\$?\d/i,
+];
+function containsPrice(text) {
+  const t = String(text || '');
+  for (const re of PRICE_PATTERNS) { const m = t.match(re); if (m) return m[0]; }
+  return null;
+}
+
+// A concrete ask names something countable that gets made or done. This replaced
+// "must contain a digit": with prices banned, requiring a digit would push the
+// writer back toward the one number it is not allowed to use.
+const DELIVERABLE_RE = new RegExp(
+  '\\b(a|an|one|two|three|four|five|six|couple of|\\d+)\\s+(short |quick |feed |in-store |game[- ]day )?'
+  + '(post|posts|story|stories|reel|reels|video|videos|appearance|appearances|visit|visits|'
+  + 'session|sessions|shoutout|shoutouts|mention|mentions|photo|photos|takeover|takeovers|'
+  + 'signing|signings|clinic|clinics|drop-?in|meet[- ]and[- ]greet)\\b', 'i');
+
 const CORPORATE_FILLER = [
   /\bleverag(e|es|ing)\b/i, /\bseamless(ly)?\b/i, /\bcircle(s|d)? back\b/i,
   /\bsynerg(y|ies|istic)\b/i, /\btouch base\b/i, /\breach out\b/i, /\bbandwidth\b/i,
@@ -120,8 +149,14 @@ function lintMessage(msg, opts = {}) {
   if (n > 5) problems.push(`${n} sentences, maximum is five`);
   if (n < 3) problems.push(`${n} sentences, minimum is three`);
   if (t.length > 700) problems.push('too long for a DM');
-  // A pitch with no number in it has not made a concrete ask.
-  if (opts.requireNumber !== false && !/\d/.test(t)) problems.push('no number anywhere, so the ask is not concrete');
+  // NO MONEY. Checked here rather than trusted to the prompt, because this is
+  // the one rule where a single slip reaches a real business as a real number.
+  const price = containsPrice(t);
+  if (price) problems.push(`names a price ("${price.trim()}") — outreach names the deliverable, never the money`);
+  // A concrete ask names something countable that gets made or done.
+  if (opts.requireDeliverable !== false && !DELIVERABLE_RE.test(t)) {
+    problems.push('no named deliverable, so the ask is not concrete (say what gets posted or done)');
+  }
   // The sign-off has to be the agent's own first name.
   if (opts.signOff && !new RegExp('\\b' + opts.signOff.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(t)) {
     problems.push('does not sign off as ' + opts.signOff);
@@ -203,7 +238,8 @@ HARD RULES FOR THE MESSAGE:
 - Do not compliment the business before getting to the point. One short specific observation is fine; a paragraph of flattery is not.
 - One idea per message. Do not stack offers.
 - Use contractions. Write how a person talks.
-- Name the deliverable and the number. "Two feed posts and an appearance, he has 35,000 followers locally, would $500 work" is a real ask. "Would love to send over a short overview" is not.
+- Name the DELIVERABLE, never the price. "Two feed posts and an appearance at your location" is a real ask. "Would love to send over a short overview" is not.
+- NEVER put a dollar amount, a rate, a fee or a budget in the message. Not a range, not "starting at", not "around". Money comes up after they reply, and the agent handles it from there. A number in a cold message turns a conversation into a negotiation before there is anything to negotiate about.
 - Sign off with the agent's first name on its own line.
 
 The message must be answerable yes or no without a follow-up question.`;
@@ -215,13 +251,12 @@ function buildPrompt(ctx) {
       + ctx.learnedAngles.map((a) => `${a.angle} (${a.replied}/${a.sent} replied)`).join('; ')
       + `\nTreat this as evidence, not instruction. Use one only if it genuinely fits this pairing.\n`
     : '';
+  // THE VALUATION IS DELIBERATELY NOT HERE. It stays on the Deal Scan card for
+  // the agent, and it is never shown to the model: a number in the context window
+  // ends up in the copy, whatever the instruction above it says. The cheapest way
+  // to guarantee no price in the outreach is for the writer never to learn one.
   const deal = ctx.deal || {};
   const dealLines = [];
-  if (deal.valueLow || deal.valueHigh) {
-    dealLines.push('Value already estimated for this pairing: $'
-      + (deal.valueLow || 0).toLocaleString()
-      + (deal.valueHigh && deal.valueHigh !== deal.valueLow ? ' to $' + deal.valueHigh.toLocaleString() : ''));
-  }
   if (deal.reasoning) dealLines.push('Why the scan surfaced this business: ' + deal.reasoning);
   if (Array.isArray(deal.campaignIdeas) && deal.campaignIdeas.length) {
     dealLines.push('Campaign ideas already generated: ' + deal.campaignIdeas.slice(0, 3).join('; '));
@@ -259,7 +294,7 @@ async function writePitch(ctx, opts = {}) {
   const oneShot = opts.oneShot;
   if (typeof oneShot !== 'function') throw new Error('writePitch requires opts.oneShot');
   const agentFirst = String(ctx.agentFirstName || 'JohnMark').trim().split(/\s+/)[0];
-  const lintOpts = { signOff: agentFirst, requireNumber: opts.requireNumber !== false };
+  const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable !== false };
 
   const attempt = async (extra) => {
     const raw = await oneShot(buildPrompt(ctx) + (extra || ''), SYSTEM, 900, opts.model);
@@ -343,7 +378,8 @@ async function learnedAngles(pool, categoryKey, opts = {}) {
 }
 
 module.exports = {
-  writePitch, lintMessage, autoRepair, playbookFor, describeBusiness, describeAthlete,
+  writePitch, lintMessage, autoRepair, containsPrice, playbookFor, describeBusiness, describeAthlete,
   buildPrompt, sentenceCount, stripSignOff, learnedAngles,
-  CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, SYSTEM, MIN_SAMPLE,
+  CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
+  DELIVERABLE_RE, SYSTEM, MIN_SAMPLE,
 };
