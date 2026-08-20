@@ -10353,15 +10353,14 @@ app.post('/api/admin/hunter-backfill', requireAuth, async (req, res) => {
 // GET progress, plus the COMBINED coverage number once a run finishes: of the
 // validated local businesses, what share now has at least one usable email from
 // ANY source. That is the number the whole exercise is for.
-app.get('/api/admin/hunter-backfill', requireAuth, async (req, res) => {
-  try {
-    const user = await store.getUser(req.session.userId);
-    if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-    const job = (await store.pool.query(
-      `SELECT * FROM hunter_jobs ORDER BY started_at DESC LIMIT 1`)).rows[0] || null;
-
+// Coverage + burn, computed ONCE and used by both the JSON endpoint and the page
+// itself. It lived only inside the endpoint's poll response before, which meant
+// the burn projection could only render while a job was running -- the dry-run
+// path returned before the poll started and the poll bailed on `if(!j) return`,
+// so with a finished backfill it was unreachable. It renders on page load now,
+// like every other section, and this helper is why the two cannot disagree.
+async function _hunterCoverageAndBurn() {
+  {
     const { rootDomain } = require('./services/siteEmail');
     const validated = new Set();
     for (const r of (await store.pool.query(
@@ -10422,8 +10421,7 @@ app.get('/api/admin/hunter-backfill', requireAuth, async (req, res) => {
     const denom = validated.size || 1;
     const pct = (n) => Math.round((n / denom) * 1000) / 10;
 
-    res.json({
-      ok: true, job,
+    return {
       coverage: {
         validated: validated.size,
         siteEmail: seEmail.size,
@@ -10453,7 +10451,20 @@ app.get('/api/admin/hunter-backfill', requireAuth, async (req, res) => {
         // A 30-day window needs 30 days behind it to mean anything.
         historyThin: daysOfHistory < 30,
       },
-    });
+    };
+  }
+}
+
+app.get('/api/admin/hunter-backfill', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || (user.email !== ADMIN_EMAIL && !isFounderEmail(user.email))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const job = (await store.pool.query(
+      `SELECT * FROM hunter_jobs ORDER BY started_at DESC LIMIT 1`)).rows[0] || null;
+    const cb = await _hunterCoverageAndBurn();
+    res.json({ ok: true, job, ...cb });
   } catch (e) {
     console.error('[hunter-backfill/progress]', e.message);
     res.status(500).json({ error: e.message });
@@ -10632,6 +10643,7 @@ app.get('/admin/local-coverage', async (req, res) => {
   let places = null, ledger = null, site = null, err = null;
   let split = null, chains = [], named = [], dedup = null, ig = null, mismatch = null;
   let wc = null, wcRules = [], borderline = [];
+  let hcb = null;   // Hunter coverage + burn, rendered on LOAD (see section 6)
   // EACH SECTION FAILS ALONE. These nine queries used to share one try/catch,
   // so a single failure blanked every section computed after it -- which is
   // why 3b, computed last, rendered nothing at all while the page looked fine.
@@ -10737,6 +10749,10 @@ app.get('/admin/local-coverage', async (req, res) => {
         FROM brand_evidence_cache
        WHERE lane='websitecheck' AND evidence->>'borderline'='true'
        ORDER BY (evidence->>'coverage')::float DESC NULLS LAST LIMIT 40`)).rows)) || [];
+
+  // Section 6's numbers, on LOAD. Same helper the JSON endpoint calls, so the
+  // page and the poll cannot report different figures.
+  hcb = await safe('hunter-coverage-burn', () => _hunterCoverageAndBurn());
 
   // evidence->>'name' is GOOGLE'S OWN displayName for the place it matched.
   // Comparing it against the brand we asked about is the decisive test for
@@ -10988,7 +11004,38 @@ exactly what <span class="mono">evidenceKind</span> exists to record.</p>`}
   <div id="huntout" class="prog"></div>
 </div>
 
-<h2>6 — Hunter backfill (spends credits)</h2>
+<h2>6 — Hunter: coverage and monthly credit burn</h2>
+${!hcb ? '<p class="note">Could not compute — see the errors above.</p>' : (() => {
+  const c = hcb.coverage, bn = hcb.burn;
+  const over = bn.projected30d > bn.budget;
+  return `<table><tbody>
+  <tr><td>Validated local businesses</td><td class="mono">${c.validated}</td></tr>
+  <tr><td>siteEmail found an address</td><td class="mono">${c.siteEmail} <span class="dim">(${c.pctSiteEmail}%)</span></td></tr>
+  <tr><td>Hunter added one siteEmail did not have</td><td class="mono">${c.hunterOnly}</td></tr>
+  <tr><td><b>At least one usable email, any source</b></td><td class="mono" style="color:#84CC16">${c.anyEmail} <span class="dim">(${c.pctAnyEmail}%)</span></td></tr>
+  <tr><td>Contact form only</td><td class="mono">${c.forms}</td></tr>
+  <tr><td><b>Reachable in writing</b> <span class="dim">(email or form)</span></td><td class="mono" style="color:#84CC16">${c.reachableInWriting} <span class="dim">(${c.pctReachable}%)</span></td></tr>
+</tbody></table>
+
+<h3 style="margin:16px 0 6px;font-size:13px">Projected monthly credit burn</h3>
+<table><tbody>
+  <tr><td>New websites discovered, last 30 days</td><td class="mono">${bn.newDomains30d}</td></tr>
+  <tr><td>New websites, last 90 days <span class="dim">(÷3 for a steadier rate)</span></td><td class="mono">${bn.newDomains90d}</td></tr>
+  <tr><td>Share where siteEmail finds nothing <span class="dim">(measured — only these call Hunter)</span></td><td class="mono">${bn.needRatePct}%</td></tr>
+  <tr><td><b>Projected credits/month</b> <span class="dim">(30-day window)</span></td><td class="mono" style="color:${over ? '#f59e0b' : '#84CC16'}">${bn.projected30d}</td></tr>
+  <tr><td><b>Projected credits/month</b> <span class="dim">(90-day average)</span></td><td class="mono">${bn.projected90dAvg}</td></tr>
+  <tr><td>Budget cap <span class="dim">(HUNTER_MONTHLY_BUDGET, of 2,000 on the plan)</span></td><td class="mono">${bn.budget}</td></tr>
+  <tr><td>Spent this calendar month</td><td class="mono">${bn.usedThisMonth} <span class="dim">· ${bn.remainingThisMonth} left</span></td></tr>
+</tbody></table>
+<p class="note">A domain is cached 30 days, so a business costs <b>one credit per month however many
+times it is scanned</b>. The burn tracks NEW businesses, not scan volume — rescanning the same
+market all week is free.${bn.historyThin
+  ? ` <b style="color:#f59e0b">Only ${bn.daysOfHistory} days of discovery history, so the 30-day figure is not yet a monthly rate — read it as a floor.</b>`
+  : ''}${over
+  ? ' <b style="color:#f59e0b">Projection exceeds the cap: lookups stop when the cap is hit, they do not overspend.</b>'
+  : ' Comfortably inside the cap.'}</p>`;
+})()}
+
 <div class="runbox">
   <button id="hb" onclick="hunterBackfill(false)">Project Hunter backfill cost</button>
   <div class="dim" style="margin-top:8px">
@@ -11158,7 +11205,9 @@ function hbPoll(){
   var tick=function(){
     fetch('/api/admin/hunter-backfill',{credentials:'same-origin'}).then(readJson).then(function(d){
       var j=d.job, c=d.coverage||{}, o=document.getElementById('hbout');
-      if(!j) return;
+      // No job yet is not a reason to render nothing: the numbers above this
+      // box come from the same payload and are worth refreshing regardless.
+      if(!j){ if(_hbPoll){ clearInterval(_hbPoll); _hbPoll=null; } return; }
       var pctDone=j.total?Math.round((j.done/j.total)*100):0;
       var h='<div class="mono">'+j.status+' — '+j.done+'/'+j.total+' ('+pctDone+'%)'+
             (j.last_domain?' · '+j.last_domain:'')+'</div>'+
