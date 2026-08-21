@@ -42,6 +42,27 @@ below and nowhere else. If a question is not answered there:
 
 This applies even when the answer seems obvious.`;
 
+const OWN_DATA_RULE = `WHAT YOU KNOW ABOUT THEIR OWN DATA
+
+You do not know any number about this agent's athletes, outreach, deals or media kits
+unless a look_up_data call in THIS conversation returned it.
+
+Before answering any question about their data, call look_up_data. Then answer only
+from the rows it returned.
+
+  - a lookup that returns nothing is an ANSWER. Say "none" plainly. Do not soften it
+    into "I could not find any", which sounds like the search failed.
+  - a lookup that FAILS is not the same thing. Say you could not check, and name the
+    page that would show it.
+  - if no available question matches what they asked, say you cannot answer that one
+    from their data and name the page. Do NOT approximate, do NOT reason from what
+    seems likely, and do NOT reuse a number from earlier in the conversation as if it
+    answered a different question.
+
+Never state a count, a name, a date or a dollar figure about their data that did not
+come back from a lookup in this conversation. This matters more than being helpful:
+an agent who catches you inventing one number stops believing all of them.`;
+
 const SAFETY = `WHAT YOU DO NOT DO
 
 - Billing, plans, prices, refunds and cards: you cannot help. Say so plainly and tell
@@ -86,8 +107,8 @@ Never claim to have done something you have not done.`;
  */
 function systemPrompt({ contextBlock, brief, suppressed, toolsEnabled, lean }) {
   const parts = lean
-    ? [IDENTITY, '', HONESTY, '', GREETING_ONLY, '', DATA_RULE, '']
-    : [IDENTITY, '', HONESTY, '', KNOWLEDGE_RULE, '', SAFETY, '', DATA_RULE, ''];
+    ? [IDENTITY, '', HONESTY, '', GREETING_ONLY, '', DATA_RULE, '', OWN_DATA_RULE, '']
+    : [IDENTITY, '', HONESTY, '', KNOWLEDGE_RULE, '', SAFETY, '', DATA_RULE, '', OWN_DATA_RULE, ''];
 
   parts.push('YOUR ACTIONS');
   if (toolsEnabled) {
@@ -130,4 +151,4 @@ function systemPrompt({ contextBlock, brief, suppressed, toolsEnabled, lean }) {
   return parts.join('\n');
 }
 
-module.exports = { systemPrompt, IDENTITY, HONESTY, KNOWLEDGE_RULE, SAFETY, DATA_RULE, GREETING_ONLY };
+module.exports = { systemPrompt, IDENTITY, HONESTY, KNOWLEDGE_RULE, SAFETY, DATA_RULE, OWN_DATA_RULE, GREETING_ONLY };

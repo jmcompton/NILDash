@@ -1731,6 +1731,23 @@ app.get('/api/agent/shift-report', requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/onboarding/check-school — resolve a school AS IT IS TYPED.
+// Read-only, no spend. The point is to fail at the keyboard: an athlete whose
+// school does not resolve has no local market and silently gets nothing every
+// night, and before this the only place that surfaced was an admin page days
+// later.
+app.get('/api/onboarding/check-school', requireAuth, (req, res) => {
+  try {
+    const { checkSchool } = require('./services/schoolCheck');
+    res.json(checkSchool(req.query.q || ''));
+  } catch (e) {
+    console.error('[onboarding/check-school]', e.message);
+    // Never claims the school is fine when it could not check.
+    res.status(200).json({ ok: false, status: 'error', suggestions: [],
+      message: 'Could not check that school just now.' });
+  }
+});
+
 // ── THE CLOSER: ONE DECISION, NOT FORTY ──────────────────────────────────────
 // GET builds tonight's batch. POST approves it. There is deliberately no
 // per-message send endpoint here: forty clicks a night is data entry, not

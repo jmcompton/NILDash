@@ -1940,16 +1940,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
           </div>
         </div>
-        <div id="onboarding-checklist" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:16px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-            <div>
-              <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:2px">Welcome to NILDash</div>
-              <div style="font-size:11px;color:var(--muted)">Complete these steps to get started</div>
-            </div>
-            <button onclick="document.getElementById('onboarding-checklist').style.display='none';localStorage.setItem('nil-onboarding-dismissed','1')" style="font-size:10px;color:var(--muted);background:transparent;border:none;cursor:pointer;padding:4px 8px">Dismiss</button>
-          </div>
-          <div style="display:flex;flex-direction:column;gap:8px" id="onboarding-steps"></div>
-        </div>
+        <!-- THE GETTING STARTED CHECKLIST IS GONE. Eight items telling a new agent to
+     go and learn eight tools is the opposite of the three steps that replaced
+     it: none of them ends in the agent seeing a real business, and a list of
+     homework on the dashboard is what a product shows when it does not trust its
+     own first run. What replaced it is the shift report, which shows real work
+     that already happened. -->
         <div class="cmd-wrap">
           <div class="cmd-top">
             <span class="cmd-top-label">Ask about <span id="cmdClientLabel" style="color:var(--text)">your client</span></span>
@@ -4341,7 +4337,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <!-- STEP 1: Add your first athlete -->
     <div class="ob-step" id="ob-step-1" style="padding:28px 28px 24px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 1 of 5</div>
+        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 1 of 3</div>
         <button onclick="obSkipStep(1)" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip for now</button>
       </div>
       <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Add your first athlete</div>
@@ -4359,102 +4355,44 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
       <div style="margin-bottom:12px">
         <label class="form-label-sm">School</label>
-        <input class="input-sm" id="ob-athlete-school" placeholder="e.g. Duke University">
+        <!-- CHECKED AS THEY TYPE. An athlete whose school does not resolve has no
+             local market, and before this the failure was invisible at entry --
+             it showed up days later as an athlete who silently got nothing every
+             night. Fail at the keyboard, while the agent still knows the answer. -->
+        <input class="input-sm" id="ob-athlete-school" placeholder="e.g. Duke University"
+               oninput="obSchoolTyped()" onblur="obCheckSchool()">
+        <div id="ob-school-status" style="font-size:11px;margin-top:5px;line-height:1.5"></div>
+        <div id="ob-school-suggest" style="display:none;margin-top:6px;display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
 
+      <!-- FOUR FIELDS. Hometown, interests, product wants, position, class year,
+           school tier and brand restrictions were all on this step and are all
+           gone. Every one of them is editable later on the athlete's own page,
+           none of them is needed for tonight's run, and a nine-field form is
+           where a new agent closes the tab. Sport stays because it drives fit
+           scoring; the school stays because it is the local market. -->
       <div style="margin-bottom:12px">
-        <label class="form-label-sm">Hometown</label>
-        <input class="input-sm" id="ob-athlete-hometown" placeholder="e.g. Johns Creek, GA">
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">Optional. Deal Scan also finds brands in their hometown.</div>
-      </div>
-
-      <div style="margin-bottom:12px">
-        <label class="form-label-sm">Interests</label>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Tap an industry, then pick what fits. Deal Scan favors these.</div>
-        <div id="ob-tags"></div>
-      </div>
-
-      <div style="margin-bottom:8px">
-        <label class="form-label-sm">Products they already use and would take as compensation</label>
-        <input class="input-sm" id="ob-athlete-productwants" placeholder="e.g. Ghost energy, Lululemon, local smoothie spot">
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
-        <div>
-          <label class="form-label-sm">Sport</label>
-          <select class="select-sm" id="ob-athlete-sport">
-            <option value="baseball">Baseball</option>
-            <option value="basketball" selected>Basketball</option>
-            <option value="cheer">Cheer</option>
-            <option value="cross country">Cross Country</option>
-            <option value="field hockey">Field Hockey</option>
-            <option value="football">Football</option>
-            <option value="golf">Golf</option>
-            <option value="gymnastics">Gymnastics</option>
-            <option value="ice hockey">Ice Hockey</option>
-            <option value="lacrosse">Lacrosse</option>
-            <option value="mens golf">Men's Golf</option>
-            <option value="mens ice hockey">Men's Ice Hockey</option>
-            <option value="rowing">Rowing</option>
-            <option value="soccer">Soccer</option>
-            <option value="softball">Softball</option>
-            <option value="swimming">Swimming</option>
-            <option value="tennis">Tennis</option>
-            <option value="track">Track &amp; Field</option>
-            <option value="volleyball">Volleyball</option>
-            <option value="water polo">Water Polo</option>
-            <option value="womens basketball">Women's Basketball</option>
-            <option value="womens golf">Women's Golf</option>
-            <option value="womens ice hockey">Women's Ice Hockey</option>
-            <option value="womens soccer">Women's Soccer</option>
-            <option value="wrestling">Wrestling</option>
-          </select>
-        </div>
-        <div>
-          <label class="form-label-sm">Position</label>
-          <input class="input-sm" id="ob-athlete-pos" placeholder="e.g. PG, WR">
-        </div>
-      </div>
-
-      <div style="margin-bottom:12px">
-        <label class="form-label-sm">School tier</label>
-        <select class="select-sm" id="ob-athlete-tier">
-          <optgroup label="Power 4 — D1">
-            <option value="p4-top10">P4 — Elite (Alabama, Ohio State, Duke)</option>
-            <option value="p4-top25">P4 — Top 25 Program</option>
-            <option value="p4-mid" selected>P4 — Mid Tier</option>
-            <option value="p4-lower">P4 — Lower Tier</option>
-          </optgroup>
-          <optgroup label="High Major — D1">
-            <option value="highmajor-top">High Major — Top (Gonzaga, Memphis)</option>
-            <option value="highmajor-mid">High Major — Mid Tier</option>
-          </optgroup>
-          <optgroup label="Mid-Major — D1">
-            <option value="mid-top">Mid-Major — Top Program</option>
-            <option value="mid-mid">Mid-Major — Mid Tier</option>
-            <option value="mid-lower">Mid-Major — Lower Tier</option>
-          </optgroup>
-          <optgroup label="Low Major — D1">
-            <option value="lowmajor-top">Low Major — Top</option>
-            <option value="lowmajor-lower">Low Major — Lower Tier</option>
-          </optgroup>
-          <optgroup label="Division 2">
-            <option value="d2-elite">D2 — Elite Program</option>
-            <option value="d2-top">D2 — Top Program</option>
-            <option value="d2-mid">D2 — Mid Tier</option>
-            <option value="d2-lower">D2 — Lower Tier</option>
-          </optgroup>
-          <optgroup label="Division 3">
-            <option value="d3-top">D3 — Top Program</option>
-            <option value="d3-mid">D3 — Mid Tier</option>
-            <option value="d3-lower">D3 — Lower Tier</option>
-          </optgroup>
-          <optgroup label="NAIA / JUCO">
-            <option value="naia-top">NAIA — Top Program</option>
-            <option value="naia-mid">NAIA — Mid Tier</option>
-            <option value="juco-d1">JUCO — Division 1</option>
-            <option value="juco-d2">JUCO — Division 2</option>
-          </optgroup>
+        <label class="form-label-sm">Sport</label>
+        <select class="select-sm" id="ob-athlete-sport">
+          <option value="baseball">Baseball</option>
+          <option value="basketball" selected>Basketball</option>
+          <option value="cheer">Cheer</option>
+          <option value="cross country">Cross Country</option>
+          <option value="field hockey">Field Hockey</option>
+          <option value="football">Football</option>
+          <option value="golf">Golf</option>
+          <option value="gymnastics">Gymnastics</option>
+          <option value="ice hockey">Ice Hockey</option>
+          <option value="lacrosse">Lacrosse</option>
+          <option value="rowing">Rowing</option>
+          <option value="soccer">Soccer</option>
+          <option value="softball">Softball</option>
+          <option value="swimming">Swimming</option>
+          <option value="tennis">Tennis</option>
+          <option value="track">Track &amp; Field</option>
+          <option value="volleyball">Volleyball</option>
+          <option value="water polo">Water Polo</option>
+          <option value="wrestling">Wrestling</option>
         </select>
       </div>
 
@@ -4470,71 +4408,51 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
       <div style="display:flex;gap:10px;margin-top:18px">
         <button onclick="obUseSample()" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer">Use sample</button>
-        <button onclick="obToReview()" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Review profile →</button>
+        <button onclick="obSaveAthlete()" id="ob-save-btn" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Save and continue &rarr;</button>
       </div>
     </div>
 
     <!-- STEP 2: Review and save -->
+    <!-- STEP 2: Connect Gmail -->
+    <!-- Gmail ONLY. Calendar was on this step and was cut: connecting a calendar
+         produces nothing the agent can see, and every step that does not end in
+         something real is a step they close the tab on. -->
     <div class="ob-step" id="ob-step-2" style="display:none;padding:28px 28px 24px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 2 of 5</div>
+        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 2 of 3</div>
         <button onclick="obSkipStep(2)" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip for now</button>
       </div>
-      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Review and save</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Check the profile, then save. You can edit anything later.</div>
-
-      <div id="ob-review-body"></div>
-
+      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Connect Gmail</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:18px">Outreach goes out from your own address, so replies come back to you.</div>
+      <div id="ob-connect-body" style="display:flex;flex-direction:column;gap:10px"></div>
       <div style="display:flex;gap:10px;margin-top:18px">
-        <button onclick="obStep(1)" style="flex:1;padding:12px;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer">Back</button>
-        <button onclick="obSaveAthlete()" id="ob-save-btn" style="flex:2;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Save athlete →</button>
+        <button onclick="obStep(3)" style="flex:1;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Continue &rarr;</button>
       </div>
     </div>
 
-    <!-- STEP 3: Run first Deal Scan -->
+    <!-- STEP 3: Watch it run. THIS STEP IS THE PRODUCT. -->
+    <!-- Not a description of the AI team, not a feature tour: a real scan on the
+         athlete they just added, with real businesses and real contact names
+         appearing on screen. If this step does not land, nothing else will. -->
     <div class="ob-step" id="ob-step-3" style="display:none;padding:28px 28px 24px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 3 of 5</div>
-        <button onclick="obSkipStep(3)" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip for now</button>
-      </div>
-      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Run your first Deal Scan</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Deal Scan finds brands worth pitching: local businesses and top NIL spenders.</div>
+      <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px">Step 3 of 3</div>
+      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Watch it run</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px" id="ob-scan-sub">Finding real businesses near <span id="ob-scan-where">your athlete</span>.</div>
 
-      <button onclick="obRunDealScan()" id="ob-scan-btn" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:13px;border-radius:40px;border:none;cursor:pointer;margin-bottom:14px">Scan for deals for <span id="ob-scan-name">your athlete</span></button>
+      <button onclick="obRunDealScan()" id="ob-scan-btn" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:13px;border-radius:40px;border:none;cursor:pointer;margin-bottom:14px">Find businesses for <span id="ob-scan-name">your athlete</span></button>
 
+      <div id="ob-scan-live" style="font-size:11.5px;color:var(--muted);min-height:16px;margin-bottom:10px"></div>
       <div id="ob-scan-results"></div>
 
-      <div style="display:flex;gap:10px;margin-top:16px">
-        <button onclick="obStep(4)" id="ob-scan-continue" style="flex:1;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--text);font-family:var(--head);font-size:13px;font-weight:700;padding:12px;cursor:pointer">Continue →</button>
+      <div id="ob-scan-done" style="display:none;margin-top:16px">
+        <div style="background:var(--surface2);border-radius:var(--r-sm);padding:13px 15px;margin-bottom:14px">
+          <div style="font-size:13px;color:var(--text);line-height:1.6;font-weight:600">Your team runs tonight. Check back in the morning.</div>
+        </div>
+        <button onclick="obFinish()" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:14px;border-radius:40px;border:none;cursor:pointer">Go to dashboard</button>
       </div>
-    </div>
-
-    <!-- STEP 4: Connect Gmail and Calendar -->
-    <div class="ob-step" id="ob-step-4" style="display:none;padding:28px 28px 24px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase">Step 4 of 5</div>
-        <button onclick="obSkipStep(4)" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;text-underline-offset:2px">Skip for now</button>
+      <div style="display:flex;gap:10px;margin-top:14px" id="ob-scan-skiprow">
+        <button onclick="obFinish()" style="flex:1;background:transparent;border:1px solid var(--border2);border-radius:40px;color:var(--muted);font-family:var(--head);font-size:12px;padding:11px;cursor:pointer">Skip to dashboard</button>
       </div>
-      <div style="font-family:var(--head);font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Connect Gmail and Calendar</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:18px">AI outreach sends from your own email and deal deliverables land on your calendar automatically.</div>
-
-      <div id="ob-connect-body" style="display:flex;flex-direction:column;gap:10px"></div>
-
-      <div style="display:flex;gap:10px;margin-top:18px">
-        <button onclick="obStep(5)" style="flex:1;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:13px;font-weight:700;padding:12px;border-radius:40px;border:none;cursor:pointer">Continue →</button>
-      </div>
-    </div>
-
-    <!-- STEP 5: Done -->
-    <div class="ob-step" id="ob-step-5" style="display:none;padding:32px 28px;text-align:center">
-      <div style="font-size:11px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:14px">Step 5 of 5</div>
-      <div style="font-family:var(--head);font-size:22px;font-weight:700;color:var(--text);margin-bottom:8px">You're ready</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:22px;line-height:1.7">Here is what you just did.</div>
-      <div id="ob-done-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px;text-align:left"></div>
-      <div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:22px;text-align:left">
-        <div style="font-size:12px;color:var(--text);line-height:1.6">Your Getting Started checklist is on your dashboard. Work through it to learn every tool.</div>
-      </div>
-      <button onclick="obFinish()" style="width:100%;background:var(--accent);color:#0A0A08;font-family:var(--head);font-size:14px;font-weight:700;padding:14px;border-radius:40px;border:none;cursor:pointer">Go to dashboard</button>
     </div>
 
   </div>
@@ -13018,12 +12936,15 @@ Be word-for-word specific. This is for a real negotiation call.`;
 
 window.addEventListener('DOMContentLoaded', checkSession);
 
-    //  ONBOARDING WIZARD (5 steps)
+    //  ONBOARDING WIZARD (3 steps)
+    //  Add the athlete, connect Gmail, watch a real scan run. The review step and
+    //  the "you're ready" summary were both cut: neither ended in the agent
+    //  seeing something real, which is the only test a step has to pass.
     let obAthleteId   = null;   // set once the athlete is saved (step 2)
     let obData        = {};     // profile being built across steps 1-2
     let obStats       = null;   // last fetched IG stats {followers, engagement_rate, source, ...}
     let obPrefill     = {};     // extra fields carried from AI Lookup (tiktok, stats, year, engagement)
-    const OB_TOTAL    = 5;
+    const OB_TOTAL    = 3;
 
     // Log a wizard step transition server-side (fire-and-forget). Drop-off is
     // measured from these events; a logging failure must never block the user.
@@ -13042,14 +12963,17 @@ window.addEventListener('DOMContentLoaded', checkSession);
       if (bar) bar.style.width = Math.round((n / OB_TOTAL) * 100) + '%';
       obLog(n, 'entered');
       // Per-step setup
-      if (n === 1) { const tp = document.getElementById('ob-tags'); if (tp && !tp.innerHTML) renderTagPicker('ob-tags', []); }
-      if (n === 2) obRenderReview();
+      if (n === 2) obRenderConnect();
       if (n === 3) {
+        const first = (obData.name || 'your athlete').split(/\s+/)[0];
         const nm = document.getElementById('ob-scan-name');
-        if (nm) nm.textContent = (obData.name || 'your athlete').split(/\s+/)[0];
+        if (nm) nm.textContent = first;
+        const wh = document.getElementById('ob-scan-where');
+        if (wh) wh.textContent = obSchoolMarket || (obData.school || 'their school');
+        // AUTOSTART. The agent has already said yes twice; making them click a
+        // third time to see the one thing that matters is a step for its own sake.
+        if (!obDidScan) setTimeout(() => { obRunDealScan(); }, 350);
       }
-      if (n === 4) obRenderConnect();
-      if (n === 5) obRenderDone();
     }
 
     // Skip advances to the next step (or finishes on the last one) and never
@@ -13060,6 +12984,65 @@ window.addEventListener('DOMContentLoaded', checkSession);
       obStep(n + 1);
     }
 
+    // ── THE SCHOOL, CHECKED WHERE IT IS TYPED ──────────────────────────────
+    // An unmatched school means no local market, which means the athlete gets
+    // nothing local every night. That used to surface days later on an admin
+    // page. Now it surfaces at the keyboard, and never blocks -- some schools are
+    // real and simply not in our list, and refusing an agent's client would be
+    // worse than a thin local lane. What they may not do is finish WITHOUT
+    // KNOWING, so the warning names the consequence.
+    let obSchoolMarket = null;
+    let obSchoolOk = null;      // null = unchecked, true/false = answered
+    let _obSchoolTimer = null;
+
+    function obSchoolTyped() {
+      obSchoolOk = null; obSchoolMarket = null;
+      clearTimeout(_obSchoolTimer);
+      _obSchoolTimer = setTimeout(obCheckSchool, 500);
+    }
+
+    async function obCheckSchool() {
+      const el = document.getElementById('ob-athlete-school');
+      const out = document.getElementById('ob-school-status');
+      const sug = document.getElementById('ob-school-suggest');
+      if (!el || !out) return;
+      const v = el.value.trim();
+      sug.style.display = 'none'; sug.innerHTML = '';
+      if (!v) { out.textContent = ''; obSchoolOk = null; return; }
+      out.style.color = 'var(--muted)';
+      out.textContent = 'Checking\u2026';
+      try {
+        const r = await fetch(API_BASE + '/api/onboarding/check-school?q=' + encodeURIComponent(v),
+          { credentials: 'same-origin' });
+        const d = await r.json();
+        obSchoolOk = !!d.ok;
+        obSchoolMarket = d.market || null;
+        out.style.color = d.ok ? 'var(--accent)' : '#fbbf24';
+        out.textContent = d.message || '';
+        if (!d.ok && d.suggestions && d.suggestions.length) {
+          sug.style.display = 'flex';
+          sug.innerHTML = d.suggestions.map(function (x) {
+            return '<button type="button" onclick="obPickSchool(' + JSON.stringify(x.name).replace(/"/g, '&quot;') + ')" '
+              + 'style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);'
+              + 'font-size:11px;padding:5px 9px;border-radius:20px;cursor:pointer">'
+              + escHtml(x.name) + '</button>';
+          }).join('');
+        }
+      } catch (e) {
+        // A failed check must not stop onboarding, and must not claim the school
+        // is fine either.
+        out.style.color = 'var(--muted)';
+        out.textContent = 'Could not check that school just now.';
+        obSchoolOk = null;
+      }
+    }
+
+    function obPickSchool(name) {
+      const el = document.getElementById('ob-athlete-school');
+      if (el) el.value = name;
+      obCheckSchool();
+    }
+
     // ── Step 1: AI Lookup ──────────────────────────────────────────────────
     let _obLookupCandidates = [];
     let _obRotateTimer = null;
@@ -13067,12 +13050,19 @@ window.addEventListener('DOMContentLoaded', checkSession);
     function _obApplyCandidate(data) {
       if (data.name)       document.getElementById('ob-athlete-name').value   = data.name;
       if (data.school)     document.getElementById('ob-athlete-school').value = data.school;
-      if (data.hometown)   document.getElementById('ob-athlete-hometown').value = data.hometown;
-      if (data.position)   document.getElementById('ob-athlete-pos').value    = data.position;
-      if (data.schoolTier) document.getElementById('ob-athlete-tier').value   = data.schoolTier;
+      // These fields are no longer on step 1. AI Lookup still RETURNS them, so
+      // they are carried in obPrefill and saved -- the agent just is not asked to
+      // type them. Optional chaining because the inputs are deliberately absent.
+      const _set = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
+      _set('ob-athlete-hometown', data.hometown);
+      _set('ob-athlete-pos', data.position);
+      _set('ob-athlete-tier', data.schoolTier);
+      if (data.hometown)   obPrefill.hometown   = data.hometown;
+      if (data.position)   obPrefill.position   = data.position;
+      if (data.schoolTier) obPrefill.schoolTier = data.schoolTier;
       if (Array.isArray(data.interestTags) && data.interestTags.length) {
         const q = data.interestTags.map(nilTagFromSub).filter(Boolean);
-        if (q.length) renderTagPicker('ob-tags', q);
+        if (q.length) obPrefill.tags = q;
       }
       if (data.sport) {
         const s = document.getElementById('ob-athlete-sport');
@@ -13155,7 +13145,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
       if (!name) { showToast('Enter the athlete name first'); return; }
       const school   = document.getElementById('ob-athlete-school')?.value?.trim() || '';
       const sport    = document.getElementById('ob-athlete-sport')?.value || '';
-      const position = document.getElementById('ob-athlete-pos')?.value?.trim() || '';
+      const position = document.getElementById('ob-athlete-pos')?.value?.trim() || obPrefill.position || '';
       const btn    = document.getElementById('ob-lookup-btn');
       const status = document.getElementById('ob-lookup-status');
       const candEl = document.getElementById('ob-lookup-candidates');
@@ -13242,195 +13232,182 @@ window.addEventListener('DOMContentLoaded', checkSession);
       document.getElementById('ob-athlete-name').value = 'Marcus Johnson';
       document.getElementById('ob-athlete-school').value = 'University of Alabama';
       document.getElementById('ob-athlete-hometown').value = 'Johns Creek, GA';
-      document.getElementById('ob-athlete-sport').value = 'football';
-      document.getElementById('ob-athlete-pos').value = 'WR';
-      document.getElementById('ob-athlete-tier').value = 'p4-top10';
-      document.getElementById('ob-athlete-handle').value = 'marcusjohnson';
-      obPrefill = { instagram: 45000, tiktok: 28000, engagement: 6.2, stats: '42 rec, 680 yds, 7 TD', year: 'Junior' };
+      const _s = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+      _s('ob-athlete-sport', 'football');
+      _s('ob-athlete-pos', 'WR');
+      _s('ob-athlete-tier', 'p4-top10');
+      _s('ob-athlete-handle', 'marcusjohnson');
+      obPrefill = { instagram: 45000, tiktok: 28000, engagement: 6.2, stats: '42 rec, 680 yds, 7 TD',
+                    year: 'Junior', position: 'WR', schoolTier: 'p4-top10' };
       obStats = { followers: 45000, engagement_rate: 6.2, source: 'Sample data', found: true };
-      obToReview();
+      obCheckSchool();
     }
 
     // Gather step-1 inputs into obData and move to the review screen.
-    function obToReview() {
-      const name = document.getElementById('ob-athlete-name').value.trim();
-      if (!name) { showToast('Enter the athlete name to continue'); return; }
-      obData = {
-        name,
-        school:     document.getElementById('ob-athlete-school').value.trim(),
-        hometown:   document.getElementById('ob-athlete-hometown').value.trim(),
-        tags:       tagPickerValue('ob-tags'),
-        productWants: (document.getElementById('ob-athlete-productwants') ? document.getElementById('ob-athlete-productwants').value : '').trim(),
-        sport:      document.getElementById('ob-athlete-sport').value,
-        position:   document.getElementById('ob-athlete-pos').value.trim(),
-        schoolTier: document.getElementById('ob-athlete-tier').value || 'p4-mid',
-        instagramHandle: (document.getElementById('ob-athlete-handle').value || '').trim().replace(/^@+/, '').toLowerCase(),
-        tiktok:     obPrefill.tiktok || 0,
-        stats:      obPrefill.stats || '',
-        year:       obPrefill.year || '',
-        followers:  (obStats && obStats.followers !== null && obStats.followers !== undefined) ? obStats.followers : (obPrefill.instagram || 0),
-        engagement: (obStats && obStats.engagement_rate !== null && obStats.engagement_rate !== undefined) ? obStats.engagement_rate : (obPrefill.engagement || null),
-        followersSource:  (obStats && obStats.found && obStats.followers != null)
-          ? (obStats.followers_source === 'instagram_page' ? 'instagram' : 'web') : 'manual',
-        engagementSource: (obStats && obStats.found && obStats.engagement_rate != null) ? 'web' : 'manual',
-      };
-      obStep(2);
-    }
+
 
     // ── Step 2: Review and save ─────────────────────────────────────────────
-    function obSrcLabel(kind) {
-      const today = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric' });
-      const text = kind === 'instagram' ? 'From Instagram, ' + today
-        : kind === 'web' ? 'Est. from web, ' + today
-        : 'Manual';
-      return '<span data-src-label style="font-size:10px;color:var(--muted)">' + text + '</span>';
-    }
 
-    function obRenderReview() {
-      const meta = [obData.school, obData.hometown ? 'Hometown: ' + obData.hometown : '', obData.sport, obData.position, obData.schoolTier].filter(Boolean).join(' · ');
-      const folVal = (obData.followers === null || obData.followers === undefined) ? '' : obData.followers;
-      const engVal = (obData.engagement === null || obData.engagement === undefined) ? '' : obData.engagement;
-      const el = document.getElementById('ob-review-body');
-      el.innerHTML =
-        '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:14px;margin-bottom:14px">' +
-          '<div style="font-family:var(--head);font-size:16px;font-weight:700;color:var(--text)">' + escHtml(obData.name) + '</div>' +
-          (meta ? '<div style="font-size:11px;color:var(--muted);margin-top:2px">' + escHtml(meta) + '</div>' : '') +
-          (obData.instagramHandle ? '<div style="font-size:11px;color:var(--muted);margin-top:4px">@' + escHtml(obData.instagramHandle) + '</div>' : '') +
-        '</div>' +
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">' +
-          '<div>' +
-            '<label class="form-label-sm">Instagram followers</label>' +
-            '<input class="input-sm" id="ob-rev-followers" type="number" value="' + folVal + '" oninput="obEditStat(\'followers\')">' +
-            '<div id="ob-rev-followers-src" style="margin-top:3px">' + obSrcLabel(obData.followersSource) + '</div>' +
-            '<div id="ob-rev-followers-help" style="font-size:10px;color:var(--muted);margin-top:2px;' + (folVal === '' || folVal === 0 ? '' : 'display:none') + '">No public count found. Enter it manually if you know it.</div>' +
-          '</div>' +
-          '<div>' +
-            '<label class="form-label-sm">Engagement rate (%)</label>' +
-            '<input class="input-sm" id="ob-rev-engagement" type="number" step="0.1" value="' + engVal + '" oninput="obEditStat(\'engagement\')">' +
-            '<div id="ob-rev-engagement-src" style="margin-top:3px">' + obSrcLabel(obData.engagementSource) + '</div>' +
-            '<div id="ob-rev-engagement-help" style="font-size:10px;color:var(--muted);margin-top:2px;' + (engVal === '' ? '' : 'display:none') + '">' +
-              escHtml((obStats && obStats.engagement_suggestion) || 'No published rate found. Typical range is 1 to 5 percent.') + '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div style="border-top:1px solid var(--border);padding-top:12px">' +
-          '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:2px">Brand restrictions</div>' +
-          '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Categories this athlete will not work with. Uncheck any that are fine.</div>' +
-          '<div style="display:flex;flex-wrap:wrap;gap:14px">' +
-            ['alcohol','tobacco','gambling'].map(c =>
-              '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer">' +
-                '<input type="checkbox" class="ob-restrict" value="' + c + '" checked style="accent-color:var(--accent);width:15px;height:15px"> ' +
-                c.charAt(0).toUpperCase() + c.slice(1) +
-              '</label>'
-            ).join('') +
-          '</div>' +
-        '</div>';
-    }
+
+
 
     // Editing a fetched value flips its label to Manual (Part B requirement).
-    function obEditStat(kind) {
-      obData[kind === 'followers' ? 'followersSource' : 'engagementSource'] = 'manual';
-      const srcEl = document.getElementById('ob-rev-' + kind + '-src');
-      if (srcEl) srcEl.innerHTML = obSrcLabel('manual');
-      const helpEl = document.getElementById('ob-rev-' + kind + '-help');
-      if (helpEl) helpEl.style.display = 'none';
-    }
+
 
     async function obSaveAthlete() {
-      const name = obData.name;
-      if (!name) { showToast('Enter the athlete name'); obStep(1); return; }
-      const folRaw = document.getElementById('ob-rev-followers').value;
-      const engRaw = document.getElementById('ob-rev-engagement').value;
-      const followers  = folRaw === '' ? 0 : (parseInt(folRaw) || 0);
-      const engagement = engRaw === '' ? null : (parseFloat(engRaw) || null);
-      const restrictions = Array.from(document.querySelectorAll('.ob-restrict:checked')).map(c => c.value);
-      // Source is manual if the agent edited it; otherwise the fetch source
-      // (exact Instagram page metadata beats web estimates).
+      // READS ONLY WHAT IS STILL ON THE PAGE. This used to pull followers and
+      // engagement off the review step, which no longer exists -- left as it was
+      // it would have thrown on a null element and killed the wizard on the very
+      // first click. Follower counts come from Fetch stats when the agent used
+      // it, and are otherwise left unset rather than guessed at.
+      const name   = (document.getElementById('ob-athlete-name')?.value || '').trim();
+      const school = (document.getElementById('ob-athlete-school')?.value || '').trim();
+      const sport  = document.getElementById('ob-athlete-sport')?.value || 'basketball';
+      const handle = (document.getElementById('ob-athlete-handle')?.value || '').trim().replace(/^@/, '');
+      if (!name) { showToast('Enter the athlete name'); return; }
+
+      // The school warning is shown, not enforced. An agent who means it can
+      // proceed; they simply cannot do it unknowingly.
+      if (school && obSchoolOk === null) await obCheckSchool();
+
+      const followers = Number(obPrefill.instagram || (obStats && obStats.followers) || 0) || 0;
+      const engagement = (obStats && obStats.engagement_rate) ? Number(obStats.engagement_rate) : null;
       const igSource = obData.followersSource === 'instagram' ? 'instagram_page'
         : (obData.followersSource === 'web' || obData.engagementSource === 'web') ? 'web_estimate' : 'manual';
+
       const btn = document.getElementById('ob-save-btn');
-      btn.disabled = true; btn.textContent = 'Saving';
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving'; }
       try {
         const r = await fetch(`${API_BASE}/api/athletes`, {
-          method:'POST', headers:{'Content-Type':'application/json'},
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name,
-            sport: obData.sport || 'basketball',
-            position: obData.position,
-            school: obData.school,
-            hometown: obData.hometown || '',
-            tags: obData.tags || [],
-            productWants: obData.productWants || '',
-            schoolTier: obData.schoolTier || 'p4-mid',
-            instagram: followers,
-            tiktok: obData.tiktok || 0,
+            name, sport, school,
+            // Carried from AI Lookup when it found them. Not asked for.
+            position:   obPrefill.position   || '',
+            hometown:   obPrefill.hometown   || '',
+            schoolTier: obPrefill.schoolTier || 'p4-mid',
+            tags:       obPrefill.tags       || [],
+            year:       obPrefill.year       || '',
+            instagram:  followers,
+            tiktok:     obPrefill.tiktok || 0,
             engagement: engagement === null ? 3.0 : engagement,
-            year: obData.year || '',
-            stats: obData.stats || '',
-            instagramHandle: obData.instagramHandle || '',
-            brandRestrictions: restrictions,
+            instagramHandle: handle,
             igStatsSource: igSource,
             igStatsFetchedAt: (obStats && obStats.fetched_at) ? obStats.fetched_at : null,
-          })
+          }),
         });
-        const data = await r.json();
-        if (!r.ok) { showToast('Error: ' + (data.error || 'could not save')); btn.disabled = false; btn.textContent = 'Save athlete →'; return; }
-        obAthleteId = data.id;
-        await loadAthletes();
-        if (typeof selectedAthleteId !== 'undefined') selectedAthleteId = data.id;
-        const sel = document.getElementById('activeAthlete');
-        if (sel) { try { sel.value = data.id; } catch(_){} }
-        obLog(2, 'completed');
-        btn.disabled = false; btn.textContent = 'Save athlete →';
-        obStep(3);
-      } catch(e) {
-        showToast('Error: ' + e.message);
-        btn.disabled = false; btn.textContent = 'Save athlete →';
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || 'could not save');
+        obAthleteId = d.id || (d.athlete && d.athlete.id) || null;
+        obData.name = name; obData.school = school; obData.sport = sport;
+        obLog(1, 'completed');
+        obStep(2);
+      } catch (e) {
+        showToast('Could not save: ' + e.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Save and continue \u2192'; }
       }
     }
 
     // ── Step 3: Deal Scan ───────────────────────────────────────────────────
     let obDidScan = false;
     async function obRunDealScan() {
-      if (!obAthleteId) { showToast('Save the athlete first'); obStep(2); return; }
-      const btn = document.getElementById('ob-scan-btn');
-      const out = document.getElementById('ob-scan-results');
-      btn.disabled = true; btn.style.opacity = '0.7';
-      out.innerHTML = '<div style="text-align:center;padding:24px;color:var(--muted);font-size:12px">Scanning for brands worth pitching...</div>';
+      // THIS IS THE PRODUCT MOMENT. Not a description of the AI team: a real scan
+      // on the athlete they just added, with real businesses and the real person
+      // to call appearing on screen. Everything here is a live result -- there is
+      // no sample data, no placeholder card and no fake delay dressed up as work.
+      if (!obAthleteId) { obStep(1); return; }
+      const btn  = document.getElementById('ob-scan-btn');
+      const live = document.getElementById('ob-scan-live');
+      const out  = document.getElementById('ob-scan-results');
+      const done = document.getElementById('ob-scan-done');
+      const skip = document.getElementById('ob-scan-skiprow');
+      if (btn) { btn.disabled = true; btn.style.display = 'none'; }
+      out.innerHTML = '';
+      live.textContent = 'Searching ' + (obSchoolMarket || obData.school || 'the local market') + '\u2026';
+
       try {
         const r = await fetch(`${API_BASE}/api/agent/deal-scan`, {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ athleteId: obAthleteId, lane: 'local' })
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ athleteId: obAthleteId, lane: 'local' }),
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || 'scan failed');
-        const opps = data.opportunities || [];
+        const opps = (data.opportunities || []).slice(0, 5);
         obDidScan = true;
+
         if (!opps.length) {
-          out.innerHTML = '<div style="text-align:center;padding:18px;color:var(--muted);font-size:12px">No brands surfaced this time. You can run a full Deal Scan from the dashboard anytime.</div>';
+          // AN HONEST EMPTY. Says which market was searched, so "it did nothing"
+          // is answerable rather than mysterious.
+          live.textContent = '';
+          out.innerHTML = '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:13px 15px;font-size:12px;color:var(--muted);line-height:1.6">'
+            + 'Nothing came back for ' + escHtml(obSchoolMarket || obData.school || 'this market') + ' just now. '
+            + 'Your team will try again tonight with a wider search.</div>';
         } else {
-          out.innerHTML =
-            '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">' + opps.length + ' brand' + (opps.length>1?'s':'') + ' worth pitching</div>' +
-            opps.slice(0, 5).map(o => {
-              const val = (o.estimatedValueLow && o.estimatedValueHigh)
-                ? '$' + Number(o.estimatedValueLow).toLocaleString() + ' to $' + Number(o.estimatedValueHigh).toLocaleString() : '';
-              return '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:11px 13px;margin-bottom:8px">' +
-                '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
-                  '<span style="font-size:13px;font-weight:700;color:var(--text)">' + escHtml(o.brand || 'Brand') + '</span>' +
-                  (o.fitScore ? '<span style="font-size:10px;font-weight:700;color:var(--accent)">Fit ' + o.fitScore + '</span>' : '') +
-                '</div>' +
-                (o.category ? '<div style="font-size:10px;color:var(--muted);margin-top:1px">' + escHtml(o.category) + (val ? ' · ' + val : '') + '</div>' : (val ? '<div style="font-size:10px;color:var(--muted);margin-top:1px">' + val + '</div>' : '')) +
-                (o.campaign ? '<div style="font-size:11px;color:var(--text);margin-top:5px;line-height:1.5">' + escHtml(o.campaign) + '</div>' : '') +
-              '</div>';
-            }).join('') +
-            '<div style="font-size:10px;color:var(--muted);text-align:center;margin-top:2px">Full results, including social brands and top NIL spenders, are on the Deal Scan tab.</div>';
+          live.textContent = opps.length + ' businesses near ' + (obSchoolMarket || obData.school || 'campus');
+          // Rendered one at a time as each resolves. The stagger is small and it
+          // is real: the contact lookup below genuinely returns per business.
+          for (let idx = 0; idx < opps.length; idx++) {
+            const o = opps[idx];
+            const id = 'ob-biz-' + idx;
+            out.insertAdjacentHTML('beforeend',
+              '<div id="' + id + '" style="background:var(--surface2);border-radius:var(--r-sm);padding:11px 13px;margin-bottom:8px;opacity:0;transition:opacity .25s">'
+              + '<div style="font-size:13px;font-weight:700;color:var(--text)">' + escHtml(o.brand || 'Business') + '</div>'
+              + (o.category ? '<div style="font-size:10px;color:var(--muted);margin-top:1px">' + escHtml(o.category) + '</div>' : '')
+              + '<div class="ob-biz-contact" style="font-size:11.5px;color:var(--muted);margin-top:5px">Finding who to call\u2026</div>'
+              + '</div>');
+            requestAnimationFrame(() => { const el = document.getElementById(id); if (el) el.style.opacity = '1'; });
+            await new Promise((res) => setTimeout(res, 120));
+          }
+
+          // THE REAL CONTACT INFO. One request for the businesses on screen; each
+          // card fills in with the name and number actually found, or says
+          // plainly that nothing was found for that one.
+          try {
+            const cr = await fetch(`${API_BASE}/api/agent/brand-contacts`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ brands: opps.map((o) => ({
+                brand: o.brand, website: o.website || null,
+                region: obSchoolMarket || obData.school || '',
+              })) }),
+            });
+            const cd = await cr.json();
+            const byBrand = {};
+            (cd.results || []).forEach((x) => { byBrand[String(x.brand || '').toLowerCase()] = x; });
+            opps.forEach((o, idx) => {
+              const card = document.getElementById('ob-biz-' + idx);
+              if (!card) return;
+              const slot = card.querySelector('.ob-biz-contact');
+              const hit = byBrand[String(o.brand || '').toLowerCase()];
+              const person = hit && (hit.contacts || [])[0];
+              const phone = hit && (hit.businessPhone || (person && person.phone));
+              if (person && person.name) {
+                slot.innerHTML = '<span style="color:var(--text);font-weight:600">' + escHtml(person.name) + '</span>'
+                  + (person.title ? ' \u00b7 ' + escHtml(person.title) : '')
+                  + (phone ? '<div style="margin-top:2px">' + escHtml(phone) + '</div>' : '');
+              } else if (phone) {
+                slot.innerHTML = '<span style="color:var(--text)">' + escHtml(phone) + '</span>';
+              } else {
+                // NOT PADDED. A business with no contact yet says so.
+                slot.textContent = 'No contact found yet \u2014 your team keeps looking tonight.';
+              }
+            });
+            live.textContent = opps.length + ' businesses near ' + (obSchoolMarket || obData.school || 'campus')
+              + ', with the person to call';
+          } catch (e) {
+            document.querySelectorAll('.ob-biz-contact').forEach((el) => {
+              el.textContent = 'Contact lookup runs again tonight.';
+            });
+          }
         }
         obLog(3, 'completed');
-      } catch(e) {
-        out.innerHTML = '<div style="text-align:center;padding:16px;color:var(--muted);font-size:12px">Deal Scan had trouble just now. No problem, you can run it from the dashboard. Continue below.</div>';
+      } catch (e) {
+        live.textContent = '';
+        out.innerHTML = '<div style="background:var(--surface2);border-radius:var(--r-sm);padding:13px 15px;font-size:12px;color:var(--muted);line-height:1.6">'
+          + 'The scan could not finish just now. Your team runs it again tonight.</div>';
       }
-      btn.disabled = false; btn.style.opacity = '';
-      const cont = document.getElementById('ob-scan-continue');
-      if (cont) cont.style.flex = '2';
+      if (done) done.style.display = 'block';
+      if (skip) skip.style.display = 'none';
     }
 
     // ── Step 4: Connect Gmail and Calendar ──────────────────────────────────
@@ -13479,19 +13456,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
     }
 
     // ── Step 5: Done ────────────────────────────────────────────────────────
-    function obRenderDone() {
-      const items = [
-        { done: true, label: (obData.name ? obData.name + ' added to your roster' : 'Athlete added') },
-        { done: obDidScan, label: obDidScan ? 'First Deal Scan run' : 'Deal Scan ready to run' },
-      ];
-      document.getElementById('ob-done-list').innerHTML = items.map(it =>
-        '<div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text)">' +
-          '<span style="width:18px;height:18px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;' +
-            (it.done ? 'background:var(--accent);color:#000' : 'background:var(--surface2);color:var(--muted)') + '">' + (it.done ? '✓' : '·') + '</span>' +
-          it.label +
-        '</div>'
-      ).join('');
-    }
+
 
     async function obFinish() {
       if (_obRotateTimer) { clearInterval(_obRotateTimer); _obRotateTimer = null; }

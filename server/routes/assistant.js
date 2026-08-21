@@ -20,6 +20,7 @@ const ai = require('../ai');
 const actions = require('../services/assistantActions');
 const ctxSvc = require('../services/assistantContext');
 const { systemPrompt } = require('../services/assistantPrompt');
+const assistantData = require('../services/assistantData');
 const { hasKnowledge } = require('../services/assistantKnowledge');
 
 const MODEL = 'claude-sonnet-4-6';   // Sonnet, named. Never Opus.
@@ -146,12 +147,22 @@ async function runTurn({ agentId, principal, session, ctx, state, toolsEnabled, 
   const out = await ai.toolLoop({
     system,
     messages: convo,
-    tools: toolsEnabled ? actions.toolDefs() : [],
+    // The action tools DO things; look_up_data ANSWERS things. Both are on the
+    // same loop because the assistant should be able to check a fact and then act
+    // on it in one turn, which is most of what an agent actually asks for.
+    tools: toolsEnabled ? actions.toolDefs().concat([assistantData.toolDef()]) : [],
     model: MODEL,
     maxTokens: lean ? GREETING_MAX_TOKENS : 900,
     maxRounds: lean ? 1 : 3,
     timeoutMs: TURN_TIMEOUT_MS,
     runTool: async (name, input) => {
+      // READ-ONLY, AND IT NEVER STOPS THE TURN. A lookup is not an action: there
+      // is nothing to confirm and nothing to undo, and the model needs the rows
+      // in hand to write the sentence that follows.
+      if (name === 'look_up_data') {
+        const data = await assistantData.run(pool, agentId, input || {});
+        return { result: data, isError: false };
+      }
       const res = await actions.resolveCall(name, input, { agentId, principal, session });
       if (!res.ok) {
         // A refusal is reported back to the model so it can explain it in its own
