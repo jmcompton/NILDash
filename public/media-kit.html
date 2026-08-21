@@ -424,14 +424,18 @@ function render(data){
     { key:'tiktok',    label:'TikTok',    dot:DOTS.tiktok,    followers:Number(data.tiktok_followers)||0,    handle:realHandle(data.tiktok_handle) },
     { key:'twitter',   label:'Twitter / X', dot:DOTS.twitter, followers:Number(data.twitter_followers)||0,  handle:realHandle(data.twitter_handle) }
   ];
-  var shown = nets.filter(function(n){ return n.followers > 0 || n.handle; });
+  // THIN MEANS SHORTER, NOT PADDED. A network with a handle but no follower
+  // count used to render a tile reading "--", which is worse than showing
+  // nothing: a business owner reads a dash as a number we are hiding. Only
+  // networks with a real count get a tile.
+  var shown = nets.filter(function(n){ return n.followers > 0; });
   var reach = nets.reduce(function(s,n){ return s + n.followers; }, 0);
 
   var tiles = shown.map(function(n){
     var count = fmtFollowers(n.followers);
     return '<div class="mk-stat">' +
       '<div class="mk-stat-net"><span class="mk-stat-dot" style="background:' + n.dot + '"></span>' + esc(n.label) + '</div>' +
-      (count ? '<div class="mk-stat-num">' + esc(count) + '</div>' : '<div class="mk-stat-num" style="opacity:.35">--</div>') +
+      '<div class="mk-stat-num">' + esc(count) + '</div>' +
       (n.handle ? '<div class="mk-stat-sub">@' + esc(n.handle) + '</div>' : '') +
       (n.eng ? '<div class="mk-stat-eng">' + esc(n.eng) + ' engagement</div>' : '') +
     '</div>';
@@ -466,29 +470,20 @@ function render(data){
     document.getElementById('mk-about-section').style.display = 'none';
   }
 
-  // ── Rate card (variant reorders to lead with the most relevant deliverable) ─
-  var rates = normalizeRates(data.rateCards);
-  if (variant && Array.isArray(variant.rateLead) && variant.rateLead.length && rates.length){
-    var leadIdx = function(r){
-      var st = String(r.label||'').toLowerCase();
-      for (var i=0;i<variant.rateLead.length;i++){ if (st.indexOf(variant.rateLead[i])!==-1) return i; }
-      return 99;
-    };
-    rates.sort(function(a,b){ return leadIdx(a) - leadIdx(b); });
-  }
+  // ── NO RATE CARD. THE KIT DOES NOT NAME A PRICE. ──────────────────
+  // What gets done and for how much is the agent's negotiation. A kit that opens
+  // with a rate card has made the first offer before the agent has said hello,
+  // and it anchors every conversation that follows to a number nobody picked for
+  // this particular business.
+  //
+  // Same rule the Writer works under: name the deliverable in conversation,
+  // never the price in the artifact. The valuation stays internal, on the Deal
+  // Scan card, for the agent's own reference.
+  //
+  // Hidden rather than deleted, so kits saved with rates before this change stop
+  // showing them while the agent's own rate work survives in the table.
   var ratesSection = document.getElementById('mk-rates-section');
-  if (rates.length){
-    ratesSection.style.display = 'block';
-    document.getElementById('mk-rates-list').innerHTML = rates.map(function(r){
-      return '<div class="mk-rate">' +
-        '<div><div class="mk-rate-name">' + esc(r.label) + '</div>' +
-          (r.notes ? '<div class="mk-rate-note">' + esc(r.notes) + '</div>' : '') + '</div>' +
-        '<div class="mk-rate-price">' + fmtCurrency(r.price) + '</div>' +
-      '</div>';
-    }).join('');
-  } else {
-    ratesSection.style.display = 'none';
-  }
+  if (ratesSection) ratesSection.style.display = 'none';
 
   // ── Footer credit (theme-aware) ───────────────────────────────────────────
   document.getElementById('mk-year').textContent = '© ' + new Date().getFullYear();

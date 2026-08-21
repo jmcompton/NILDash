@@ -230,7 +230,59 @@ async function buildShiftReport(pool, agentId) {
     },
     sentence, stat, coverage, roles, needsYou, moving, draftAudit,
     closer: closerBlock,
+    analyst: await buildAnalystBlock(pool, agentId, from, to).catch((e) => {
+      errs.push('analyst: ' + e.message); return null;
+    }),
     errors: errs,
+  };
+}
+
+// ── WHAT THE ANALYST REFRESHED, AND WHY ──────────────────────────────────────
+// A count alone ("3 media kits refreshed") is not a report -- the agent cannot
+// tell whether that was real work or churn. The reason is stored on the activity
+// row at refresh time, so this reads it back rather than guessing.
+async function buildAnalystBlock(pool, agentId, from, to) {
+  const rows = (await pool.query(
+    `SELECT l.athlete_id, l.metadata, l.created_at,
+            a.data->>'name' AS name, k.slug
+       FROM athlete_activity_log l
+       JOIN athletes a ON a.id = l.athlete_id
+       LEFT JOIN media_kits k ON k.athlete_id = l.athlete_id
+      WHERE l.agent_id = $1 AND l.activity_type = 'media_kit_built'
+        AND l.created_at >= $2 AND l.created_at < $3
+      ORDER BY l.created_at DESC`, [agentId, from, to])).rows;
+
+  const refreshed = rows.map((r) => ({
+    athleteId: r.athlete_id,
+    name: r.name || null,
+    slug: r.slug || null,
+    why: (r.metadata && Array.isArray(r.metadata.reasons))
+      ? r.metadata.reasons.join('; ') : null,
+    auto: !!(r.metadata && r.metadata.auto),
+  }));
+
+  // Kits that exist but are THIN -- too little on file to be worth sending. The
+  // fix is data the agent has and we do not, so naming them is the useful thing;
+  // padding them would be the harmful one.
+  const thin = (await pool.query(
+    `SELECT a.id, a.data->>'name' AS name
+       FROM athletes a JOIN media_kits k ON k.athlete_id = a.id
+      WHERE a.agent_id = $1
+        AND COALESCE(k.instagram_followers,0) = 0
+        AND COALESCE(k.tiktok_followers,0) = 0
+      ORDER BY a.created_at ASC LIMIT 10`, [agentId])).rows
+    .map((r) => ({ athleteId: r.id, name: r.name || null }));
+
+  return {
+    refreshed,
+    thin,
+    line: refreshed.length
+      ? `${refreshed.length} media kit${refreshed.length === 1 ? '' : 's'} brought up to date`
+      : null,
+    thinLine: thin.length
+      ? `${thin.length} kit${thin.length === 1 ? ' has' : 's have'} no follower count on file, `
+        + 'so they stay short rather than being padded'
+      : null,
   };
 }
 
@@ -473,7 +525,7 @@ async function expireStaleDrafts(pool, agentId) {
 }
 
 module.exports = {
-  buildCloserBlock,
+  buildCloserBlock, buildAnalystBlock,
   buildShiftReport, buildNeedsYou, buildMoving, buildDraftAudit, expireStaleDrafts,
   buildRoleCards, num, plural, listify, cap,
   ITEM_MAX, QUEUE_MAX, DRAFT_EXPIRY_DAYS, SHIFT_PRE_HOURS, SHIFT_POST_HOURS,

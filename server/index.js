@@ -12105,6 +12105,26 @@ try {
   console.warn('[queue] scheduler failed to start:', e.message);
 }
 
+// ── Analyst refresh scheduler ────────────────────────────────────────────────
+// Once a day, an hour after the nightly queue window closes, so kits are current
+// before the agent opens the page in the morning.
+//
+// NO ENABLED GATE, unlike the other two jobs. Those are gated because they spend
+// money and send outbound mail; this reads stored fields and writes rows. There
+// is nothing here for a surprise deploy to run up a bill on.
+try {
+  const analystJob = require('./jobs/analystRefresh');
+  const ANALYST_TICK_MS = 6 * 60 * 60 * 1000;
+  const analystTick = () => {
+    analystJob.runOnce({}).catch((e) => console.error('[analyst] pass failed:', e.message));
+  };
+  setTimeout(analystTick, 5 * 60 * 1000);
+  setInterval(analystTick, ANALYST_TICK_MS);
+  console.log('[analyst] media kit refresh scheduled, every 6h');
+} catch (e) {
+  console.warn('[analyst] refresh scheduler failed to start:', e.message);
+}
+
 // ── Closer release scheduler ─────────────────────────────────────────────────
 // Ticks every 10 minutes all day, which sounds aggressive and is not: the window
 // is 9:30-11:00 in each RECIPIENT's timezone, so almost every tick finds nothing

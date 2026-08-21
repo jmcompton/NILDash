@@ -483,6 +483,55 @@ async function init() {
   `).then(() => console.log('[init] social_brand_shown table ready'))
     .catch(e => console.error('[init] social_brand_shown:', e.message));
 
+  // ── Media kits ────────────────────────────────────────────────────────────
+  // CREATED HERE NOW. The table has been in production since before this file
+  // owned the schema, so the ALTERs below assumed it and a FRESH database never
+  // got one -- every media-kit route 500s on a new install, and did.
+  //
+  // UNIQUE on athlete_id, because the product promise is ONE excellent kit per
+  // athlete that is always current, not a pile of stale ones. The Analyst's
+  // upsert depends on that constraint.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS media_kits (
+      id SERIAL PRIMARY KEY,
+      athlete_id TEXT NOT NULL,
+      instagram_handle TEXT,
+      instagram_followers INT,
+      instagram_engagement TEXT,
+      tiktok_handle TEXT,
+      tiktok_followers INT,
+      bio TEXT,
+      primary_color TEXT,
+      secondary_color TEXT,
+      slug TEXT,
+      twitter_handle TEXT,
+      twitter_followers INT,
+      headshot_url TEXT,
+      action_shot_data TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`).then(() => console.log('[init] media_kits table ready'))
+    .catch((e) => console.error('[init] media_kits:', e.message));
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_media_kits_athlete
+                      ON media_kits (athlete_id)`).catch((e) =>
+    console.error('[init] media_kits unique athlete:', e.message));
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_media_kits_slug
+                      ON media_kits (slug) WHERE slug IS NOT NULL`).catch(() => {});
+
+  // What the kit looked like WHEN IT WAS BUILT, so the Analyst can tell that the
+  // athlete's year, position or school has moved on since. Without these the
+  // only staleness signal is follower drift, and a kit that still says
+  // "sophomore" in October reads as carelessness to a business owner.
+  // The PHOTO is athlete-uploaded and lives on headshot_url as a data URL, so a
+  // hash is stored rather than the image: comparing multi-megabyte base64 on
+  // every athlete every night to answer "did the photo change" is not a thing
+  // to do to a database.
+  await pool.query(`ALTER TABLE media_kits ADD COLUMN IF NOT EXISTS photo_hash_at_build TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE media_kits ADD COLUMN IF NOT EXISTS year_at_build TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE media_kits ADD COLUMN IF NOT EXISTS position_at_build TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE media_kits ADD COLUMN IF NOT EXISTS school_at_build TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE media_kits ADD COLUMN IF NOT EXISTS built_by TEXT`).catch(() => {});
+
   // Media kit theme: 'school' (auto school colors, the original look) or
   // 'nildash' (dark + lime brand). NULL on existing rows = school behavior, so
   // saved kits are unchanged by this deploy. New kits default to 'nildash' in
