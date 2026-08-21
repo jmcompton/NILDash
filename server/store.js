@@ -1482,6 +1482,76 @@ async function init() {
   // and sponsor_signal/sponsor_note carry the deal-history-at-this-school boost
   // so a card can say "they have already done a deal at Auburn" instead of
   // showing the agent a rank with no reason attached.
+  // ── The send ceiling, and where an agent stands against it today ─────────
+  // 40 a night is a DELIVERABILITY limit, not Google's. Google allows 500 on a
+  // personal account and 2,000 on Workspace, but cold outreach above roughly 50
+  // a day reads as bulk sending and degrades the sender's reputation over two to
+  // four weeks -- on the agent's own mailbox, the one they use for real client
+  // work. Keyed by the agent's LOCAL date so the reset is their midnight and not
+  // the middle of someone's afternoon.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_send_budget (
+      agent_id       TEXT NOT NULL,
+      local_date     DATE NOT NULL,
+      sent           INT  NOT NULL DEFAULT 0,
+      cap            INT  NOT NULL,
+      blocked_at     TIMESTAMPTZ,
+      blocked_reason TEXT,
+      last_send_at   TIMESTAMPTZ,
+      PRIMARY KEY (agent_id, local_date)
+    )`).then(() => console.log('[init] agent_send_budget table ready'))
+    .catch((e) => console.error('[init] agent_send_budget:', e.message));
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_email_cap INT`).catch(() => {});
+
+  // ── Addresses that bounced ───────────────────────────────────────────────
+  // A bounce is a fact about the ADDRESS, not about one message, so it is stored
+  // per address and every send checks it. Sending again to an address that hard
+  // bounced is one of the fastest ways to lose sender reputation, which is the
+  // whole thing the ceiling above exists to protect.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_suppression (
+      email         TEXT PRIMARY KEY,
+      reason        TEXT,
+      kind          TEXT,
+      agent_id      TEXT,
+      outreach_id   TEXT,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      hits          INT NOT NULL DEFAULT 1
+    )`).then(() => console.log('[init] email_suppression table ready'))
+    .catch((e) => console.error('[init] email_suppression:', e.message));
+
+  // ── The Closer's own columns on outreach_logs ────────────────────────────
+  // approved_at is the batch decision; touch_no is where in the cadence this
+  // message sits; cadence_stopped_at and its reason are why a follow-up chain
+  // ended, so "we stopped because they replied" is answerable from the row.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS approved_by TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS touch_no INT DEFAULT 1`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS parent_id TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS cadence_stopped_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS cadence_stop_reason TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_error TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_attempts INT DEFAULT 0`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS edited_before_approval BOOLEAN DEFAULT FALSE`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_due
+                      ON outreach_logs (scheduled_send_at)
+                   WHERE status = 'approved' AND scheduled_send_at IS NOT NULL`).catch(() => {});
+
+  // ── Auto mode, per athlete or per lane, never global ─────────────────────
+  // Scope is ('athlete', <id>) or ('lane', 'local'|'social'|'national'). There
+  // is deliberately no ('global', ...) scope: an agent turning this on for one
+  // athlete is a different decision from turning it on for everyone, and the
+  // schema should not make the second one easy.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_auto_mode (
+      agent_id   TEXT NOT NULL,
+      scope_kind TEXT NOT NULL CHECK (scope_kind IN ('athlete','lane')),
+      scope_id   TEXT NOT NULL,
+      enabled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (agent_id, scope_kind, scope_id)
+    )`).then(() => console.log('[init] agent_auto_mode table ready'))
+    .catch((e) => console.error('[init] agent_auto_mode:', e.message));
+
   // One row per market, recording the last time its radius was widened. In the
   // DATABASE and not in memory because the nightly job is a separate process
   // from the web server: an in-process guard would give each its own allowance

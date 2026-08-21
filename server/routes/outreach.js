@@ -486,11 +486,25 @@ router.post('/logs/:id/send', async (req, res) => {
 router.patch('/logs/:id', async (req, res) => {
   try {
     const { subject, body_html } = req.body;
+    // AN EDIT IS THE SIGNAL, so it is recorded. Auto mode unlocks on a run of
+    // approvals the agent did NOT have to touch; without this flag there is no
+    // evidence either way and the offer would be a guess. Only counts as an edit
+    // when the text actually changed -- opening a draft and saving it unchanged
+    // is not distrust.
+    const before = await pool.query(
+      `SELECT subject, body_html FROM outreach_logs
+        WHERE id=$1 AND agent_id=$2 AND status='draft'`,
+      [req.params.id, req.principal.id]);
+    const prev = before.rows[0];
+    const changed = !!prev && (String(prev.subject || '') !== String(subject || '')
+      || String(prev.body_html || '') !== String(body_html || ''));
+
     const r = await pool.query(
-      `UPDATE outreach_logs SET subject=$1, body_html=$2, updated_at=NOW()
+      `UPDATE outreach_logs SET subject=$1, body_html=$2, updated_at=NOW(),
+              edited_before_approval = edited_before_approval OR $5
        WHERE id=$3 AND agent_id=$4 AND status='draft'
        RETURNING *`,
-      [subject, body_html, req.params.id, req.principal.id]
+      [subject, body_html, req.params.id, req.principal.id, changed]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Draft not found or already sent' });
     res.json(r.rows[0]);

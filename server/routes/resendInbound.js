@@ -20,6 +20,7 @@ const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const replyCapture = require('../services/replyCapture');
 const followUpSvc = require('../services/followUpAutomation');
+const suppression = require('../services/suppression');
 
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
@@ -181,9 +182,25 @@ async function processEvent(event) {
     [classification.kind, logRow.id]
   ).catch((e) => console.error('[resend-inbound] failed to record last_inbound:', e.message));
 
-  // Bounces and auto-replies arrive within minutes and look exactly like
-  // engagement if you only check "did mail come back" -- they must never reach
-  // markReplied, and never generate a notification.
+  // A BOUNCE IS ACTED ON, NOT JUST RECORDED. Stamping last_inbound_kind was as
+  // far as this went: the follow-up cadence carried on to a dead address, and so
+  // did the next athlete's pitch to the same business. Repeat-mailing an address
+  // that hard bounced is one of the fastest ways to lose the sender reputation
+  // the whole 40-a-night ceiling exists to protect.
+  if (classification.kind === 'bounce') {
+    const out = await suppression.onBounce(pool, logRow, {
+      reason: classification.reason, text,
+    }).catch((e) => { console.error('[resend-inbound] bounce handling failed:', e.message); return null; });
+    if (out) {
+      console.log(`[resend-inbound] bounce outreach=${logRow.id} to=${logRow.sent_to_email || '?'} `
+        + `${out.hard ? 'HARD, address suppressed' : 'soft, address left alone'}; cadence stopped`);
+    }
+    return;
+  }
+
+  // Auto-replies arrive within minutes and look exactly like engagement if you
+  // only check "did mail come back" -- they must never reach markReplied, and
+  // never generate a notification.
   if (classification.kind !== 'reply') return;
 
   await pool.query(

@@ -82,11 +82,22 @@ async function buildShiftReport(pool, agentId) {
   const moving = await buildMoving(pool, agentId, q);
   const draftAudit = await buildDraftAudit(pool, agentId, q);
 
+  // THE CLOSER BLOCK IS BUILT ONCE, FOR BOTH PATHS. An agent whose overnight run
+  // has not happened yet still has drafts waiting on the one decision and still
+  // has a ceiling to see -- putting it only on the ran path would hide the batch
+  // from exactly the agent most likely to be looking for it.
+  // Named closerBlock, not closer: `closer` further down is the Closer's SENT and
+  // REPLIED counts for the sentence, which is a different thing from the send
+  // ceiling and the batch waiting on approval.
+  const closerBlock = await buildCloserBlock(pool, agentId).catch((e) => {
+    errs.push('closer: ' + e.message); return null;
+  });
+
   if (!run) {
     return {
       run: { ran: false, reason: 'no-run-recorded' },
       sentence: null, roles: [], coverage: null,
-      needsYou, moving, draftAudit, errors: errs,
+      needsYou, moving, draftAudit, closer: closerBlock, errors: errs,
     };
   }
 
@@ -217,7 +228,63 @@ async function buildShiftReport(pool, agentId) {
       ran: true, runDate: run.run_date, startedAt: run.created_at,
       windowFrom: from, windowTo: to, note: run.note || null,
     },
-    sentence, stat, coverage, roles, needsYou, moving, draftAudit, errors: errs,
+    sentence, stat, coverage, roles, needsYou, moving, draftAudit,
+    closer: closerBlock,
+    errors: errs,
+  };
+}
+
+// ── THE SEND CEILING, SAID OUT LOUD ──────────────────────────────────────────
+// A cap that silently swallows the back half of the night is worse than no cap:
+// the agent believes forty went out. Both states surface here -- the ordinary
+// "you have used 12 of 40" and the two failure modes that stop sending
+// altogether, a reached ceiling and a provider refusal.
+async function buildCloserBlock(pool, agentId) {
+  const sendGuard = require('./sendGuard');
+  const Closer = require('./closer');
+  const budget = await sendGuard.status(pool, agentId);
+
+  // Waiting on the ONE decision. Not per message -- the count is the point.
+  const pending = (await pool.query(
+    `SELECT COUNT(*)::int AS n FROM outreach_logs
+      WHERE agent_id = $1 AND status = 'draft' AND approved_at IS NULL
+        AND cadence_stopped_at IS NULL`, [agentId])).rows[0].n;
+
+  // Approved and waiting for the recipient's Tuesday morning.
+  const scheduled = (await pool.query(
+    `SELECT COUNT(*)::int AS n, MIN(scheduled_send_at) AS next FROM outreach_logs
+      WHERE agent_id = $1 AND status = 'approved' AND cadence_stopped_at IS NULL`,
+    [agentId])).rows[0];
+
+  // Anything that failed to go out, with the reason. A send that errored and was
+  // never mentioned is the exact failure this block exists to prevent.
+  const failed = (await pool.query(
+    `SELECT brand_name, send_error FROM outreach_logs
+      WHERE agent_id = $1 AND send_error IS NOT NULL AND status <> 'sent'
+      ORDER BY updated_at DESC LIMIT 5`, [agentId])).rows;
+
+  // Cadences that ended, and why. "They replied" is good news; "it bounced" is
+  // an address to fix.
+  const stopped = (await pool.query(
+    `SELECT cadence_stop_reason AS why, COUNT(*)::int AS n FROM outreach_logs
+      WHERE agent_id = $1 AND cadence_stopped_at >= NOW() - INTERVAL '7 days'
+      GROUP BY cadence_stop_reason ORDER BY n DESC LIMIT 5`, [agentId])).rows;
+
+  const auto = await Closer.autoModeProgress(pool, agentId);
+
+  return {
+    budget,
+    pendingApproval: Number(pending) || 0,
+    scheduled: Number(scheduled.n) || 0,
+    nextSendAt: scheduled.next || null,
+    failed: failed.map((f) => ({ brand: f.brand_name, why: f.send_error })),
+    stopped: stopped.map((r) => ({ why: r.why, n: Number(r.n) })),
+    auto,
+    line: budget.blocked
+      ? `Sending is stopped for today: ${budget.blockedReason}`
+      : budget.remaining < 1
+        ? `Tonight's ${budget.cap}-email ceiling is used up. DMs and calls are not affected.`
+        : `${budget.used} of ${budget.cap} emails used today.`,
   };
 }
 
@@ -406,6 +473,7 @@ async function expireStaleDrafts(pool, agentId) {
 }
 
 module.exports = {
+  buildCloserBlock,
   buildShiftReport, buildNeedsYou, buildMoving, buildDraftAudit, expireStaleDrafts,
   buildRoleCards, num, plural, listify, cap,
   ITEM_MAX, QUEUE_MAX, DRAFT_EXPIRY_DAYS, SHIFT_PRE_HOURS, SHIFT_POST_HOURS,

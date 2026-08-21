@@ -884,6 +884,22 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-card.dm{border-left:3px solid #84CC16}
 .hq-card.call{border-left:3px solid #3f4c5e}
 .hq-card.program{border-left:3px solid #7dd3fc}
+/* The one decision: a count, a list, one button. */
+.sr-batch-body{padding:10px 15px 14px}
+.sr-row{display:flex;align-items:flex-start;gap:9px;padding:7px 0;cursor:pointer}
+.sr-row input{margin-top:3px;accent-color:#84CC16;flex:none}
+.sr-row-main{font-size:13px;color:var(--text);line-height:1.45}
+.sr-row-sub{display:block;font-size:11.5px;color:#6B7280;margin-top:1px}
+.sr-cap{padding:12px 15px;font-size:12.5px;line-height:1.5}
+.sr-cap.warn{color:#fbbf24}
+.sr-cap.bad{color:#f87171}
+.sr-cap-sub{font-size:11px;color:#6B7280;margin-top:5px;line-height:1.5}
+.sr-cap-note{margin-left:auto;font-size:11px;color:#6B7280}
+.sr-fail{font-size:12px;color:#f87171;line-height:1.5;padding:3px 0}
+.sr-auto{padding:12px 15px;font-size:12.5px;color:#84CC16;line-height:1.55}
+.sr-auto.dim{color:#9CA3AF}
+.sr-auto-bar{height:3px;background:#1e2a3a;border-radius:2px;margin-bottom:8px;overflow:hidden}
+.sr-auto-bar i{display:block;height:100%;background:#84CC16;border-radius:2px}
 .hq-card.paused{border-left:3px solid #f59e0b}
 .hq-tab.paused{opacity:.72}
 .hq-brand{font-size:14.5px;color:#F0EDE6;font-weight:600;line-height:1.35}
@@ -1877,6 +1893,11 @@ tbody td{padding:11px 14px;vertical-align:middle}
 
         <!-- ══ 2. NEEDS YOU ══ Five items, hard cap. Overflow is one line. -->
         <div id="sr-needs"></div>
+
+        <!-- ══ THE ONE DECISION ══ Tonight's email batch. Approve all, or
+             uncheck a few and approve the rest. There is no per-message send
+             button anywhere: forty clicks a night is data entry, not review. -->
+        <div id="sr-closer"></div>
 
         <!-- ══ 3. MOVING ══ Two figures: earned, and in flight. -->
         <div id="sr-moving"></div>
@@ -16501,9 +16522,143 @@ async function loadAgentHomeV2() {
   }
   srRenderSentence(d, sEl);
   srRenderNeeds(d, nEl);
+  srRenderCloser(d, document.getElementById('sr-closer'));
   srRenderMoving(d, mEl);
   // The CTA still owns the truly-empty case (no clients at all).
   try { renderHomeClientCta(); } catch (e) {}
+}
+
+// ══ THE ONE DECISION ══════════════════════════════════════════════════════
+// The whole Closer interaction is this block: a count, a list with checkboxes,
+// and one button. No send time (sendWindow decides that, in the recipient's
+// timezone) and no per-message send.
+var _srBatch = null;
+
+function srRenderCloser(d, el) {
+  if (!el) return;
+  var c = d.closer;
+  if (!c) { el.innerHTML = ''; return; }
+
+  var bits = [];
+
+  // The ceiling, always visible. A cap that silently eats the back half of the
+  // night is worse than no cap -- the agent would believe forty went out.
+  var blocked = c.budget && c.budget.blocked;
+  var full = c.budget && c.budget.remaining < 1;
+  if (blocked || full) {
+    bits.push('<div class="sr-needs-card"><div class="sr-cap ' + (blocked ? 'bad' : 'warn') + '">'
+      + hqEsc(c.line)
+      + (blocked ? '' : '<div class="sr-cap-sub">DMs, calls and program pages are not affected by this.</div>')
+      + '</div></div>');
+  }
+
+  if (c.pendingApproval > 0) {
+    bits.push('<div class="sr-needs-card" id="sr-batch-card">'
+      + '<div class="sr-needs-head"><div class="sr-needs-title">Ready to send</div>'
+      + '<div class="sr-cap-note">' + hqEsc(c.line) + '</div></div>'
+      + '<div id="sr-batch-body" class="sr-batch-body"><div class="sr-empty">Loading tonight\'s batch…</div></div>'
+      + '</div>');
+  } else if (c.scheduled > 0) {
+    bits.push('<div class="sr-needs-card"><div class="sr-empty">'
+      + hqEsc(c.scheduled) + ' approved and waiting for the right morning. '
+      + 'They go out Tuesday to Thursday, mid-morning where the business is.'
+      + '</div></div>');
+  }
+
+  // Sends that FAILED. Surfaced rather than swallowed: this is the whole reason
+  // the send path was hardened before the dispatcher was built.
+  if (c.failed && c.failed.length) {
+    bits.push('<div class="sr-needs-card"><div class="sr-needs-head">'
+      + '<div class="sr-needs-title">Did not go out</div></div><div class="sr-batch-body">'
+      + c.failed.map(function (f) {
+          return '<div class="sr-fail"><b>' + hqEsc(f.brand) + '</b> — ' + hqEsc(f.why) + '</div>';
+        }).join('') + '</div></div>');
+  }
+
+  // Auto mode is EARNED. Shown as progress so the offer arrives as something
+  // built up to, not a checkbox asking for trust on day one.
+  if (c.auto) {
+    if (c.auto.eligible) {
+      bits.push('<div class="sr-needs-card"><div class="sr-auto">'
+        + '<b>' + c.auto.approved + ' pitches approved, none edited.</b> '
+        + 'You can let the Closer send for one athlete, or one lane, without asking first. '
+        + 'Turn it on per athlete from their page — never for everyone at once.'
+        + '</div></div>');
+    } else if (c.auto.approved > 0) {
+      var pct = Math.min(100, Math.round((c.auto.clean / c.auto.threshold) * 100));
+      bits.push('<div class="sr-needs-card"><div class="sr-auto dim">'
+        + '<div class="sr-auto-bar"><i style="width:' + pct + '%"></i></div>'
+        + hqEsc(c.auto.clean) + ' of ' + hqEsc(c.auto.threshold)
+        + ' approved without an edit. At ' + hqEsc(c.auto.threshold)
+        + ', the Closer can start sending on its own for an athlete you choose.'
+        + (c.auto.note ? '<div class="sr-cap-sub">' + hqEsc(c.auto.note) + '</div>' : '')
+        + '</div></div>');
+    }
+  }
+
+  el.innerHTML = bits.join('');
+  if (c.pendingApproval > 0) srLoadBatch();
+}
+
+async function srLoadBatch() {
+  var body = document.getElementById('sr-batch-body');
+  if (!body) return;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/closer/batch', { credentials: 'same-origin' });
+    var d = await r.json();
+    _srBatch = d;
+    if (!d.batch || !d.batch.length) {
+      body.innerHTML = '<div class="sr-empty">' + hqEsc(d.note || 'Nothing ready tonight.') + '</div>';
+      return;
+    }
+    var rows = d.batch.map(function (b) {
+      return '<label class="sr-row"><input type="checkbox" checked data-id="' + hqEsc(b.id) + '">'
+        + '<span class="sr-row-main"><b>' + hqEsc(b.brand) + '</b>'
+        + '<span class="sr-row-sub">for ' + hqEsc(b.athleteName)
+        + (b.touch > 1 ? ' · follow-up ' + hqEsc(b.touch) : '')
+        + (b.why ? ' · ' + hqEsc(b.why) : '') + '</span></span></label>';
+    }).join('');
+    var dropped = (d.dropped && d.dropped.length)
+      ? '<div class="sr-cap-sub">' + d.dropped.length + ' skipped: '
+        + hqEsc(d.dropped.map(function (x) { return x.brand + ' (' + x.why + ')'; }).slice(0, 3).join(', '))
+        + '</div>'
+      : '';
+    body.innerHTML = rows + dropped
+      + '<div class="hm-btns"><button class="hm-btn primary" id="sr-approve" onclick="srApprove()">'
+      + 'Approve ' + d.batch.length + ' and schedule</button></div>'
+      + '<div class="sr-cap-sub">They go out Tuesday to Thursday, mid-morning where each business is. '
+      + 'You do not pick the time.</div>';
+  } catch (e) {
+    body.innerHTML = '<div class="sr-empty">Could not load the batch: ' + hqEsc(e.message) + '</div>';
+  }
+}
+
+async function srApprove() {
+  var btn = document.getElementById('sr-approve');
+  var body = document.getElementById('sr-batch-body');
+  if (!btn || !_srBatch) return;
+  var boxes = Array.prototype.slice.call(body.querySelectorAll('input[type=checkbox]'));
+  var ids = _srBatch.batch.map(function (b) { return b.id; });
+  var skip = boxes.filter(function (b) { return !b.checked; })
+                  .map(function (b) { return b.getAttribute('data-id'); });
+  btn.disabled = true; btn.textContent = 'Scheduling…';
+  try {
+    var r = await fetch(API_BASE + '/api/agent/closer/approve', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ids, skip: skip }),
+    });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'could not approve');
+    body.innerHTML = '<div class="sr-empty"><b>' + hqEsc(d.scheduled) + ' scheduled.</b> '
+      + 'They go out Tuesday to Thursday, mid-morning where each business is.'
+      + (d.note ? '<div class="sr-cap-sub">' + hqEsc(d.note) + '</div>' : '')
+      + '</div>';
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Approve and schedule';
+    body.insertAdjacentHTML('beforeend',
+      '<div class="sr-fail">Could not schedule: ' + hqEsc(e.message) + '</div>');
+  }
 }
 
 function srRenderSentence(d, el) {

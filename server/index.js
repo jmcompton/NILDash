@@ -16,6 +16,7 @@ const { Resend } = require('resend');
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ai       = require('./ai');
 const MarketDeepen = require('./services/marketDeepen');
+const Closer = require('./services/closer');
 const nilRules = require('./nilStateRules');
 const scanMeter = require('./scanMeter');
 const { requireUniversityMode } = require('./middleware/modeGuard');
@@ -1726,6 +1727,52 @@ app.get('/api/agent/shift-report', requireAuth, async (req, res) => {
     res.json(home);
   } catch (e) {
     console.error('[shift-report]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── THE CLOSER: ONE DECISION, NOT FORTY ──────────────────────────────────────
+// GET builds tonight's batch. POST approves it. There is deliberately no
+// per-message send endpoint here: forty clicks a night is data entry, not
+// review, and by the sixth nobody is reading.
+app.get('/api/agent/closer/batch', requireAuth, async (req, res) => {
+  try {
+    res.json(await Closer.buildBatch(store.pool, req.session.userId));
+  } catch (e) {
+    console.error('[closer/batch]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Approve all, or uncheck a few and approve the rest. `skip` is what the agent
+// unchecked; everything else in `ids` goes. The send TIME is not in this
+// payload and never will be -- sendWindow decides it, in the recipient's
+// timezone, because it is the business owner's Tuesday morning that matters.
+app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
+    const skip = Array.isArray(req.body.skip) ? req.body.skip : [];
+    if (!ids.length) return res.status(400).json({ error: 'nothing to approve' });
+    const out = await Closer.approveBatch(store.pool, req.session.userId, { ids, skip });
+    res.json(out);
+  } catch (e) {
+    console.error('[closer/approve]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Auto mode, per athlete or per lane. The route refuses a global scope outright
+// rather than offering one -- turning it on for one athlete is a different
+// decision from turning it on for a whole roster.
+app.post('/api/agent/closer/auto-mode', requireAuth, async (req, res) => {
+  try {
+    const { scopeKind, scopeId, enabled } = req.body || {};
+    const out = await Closer.setAutoMode(store.pool, req.session.userId,
+      { scopeKind, scopeId, enabled: !!enabled });
+    if (!out.ok) return res.status(400).json(out);
+    res.json(out);
+  } catch (e) {
+    console.error('[closer/auto-mode]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -12056,6 +12103,34 @@ try {
   }
 } catch (e) {
   console.warn('[queue] scheduler failed to start:', e.message);
+}
+
+// ── Closer release scheduler ─────────────────────────────────────────────────
+// Ticks every 10 minutes all day, which sounds aggressive and is not: the window
+// is 9:30-11:00 in each RECIPIENT's timezone, so almost every tick finds nothing
+// due and the few that do find a handful. Frequent ticks are what keep a message
+// from missing a 90-minute window by 20 minutes and waiting until Tuesday.
+//
+// Every real guard is inside releaseDue -- the per-agent ceiling, the bounce
+// list, the reply check and the window test are all re-checked at send time, not
+// at approval time, because all four can change in between.
+//
+// Off unless CLOSER_RELEASE_ENABLED=1.
+try {
+  const closerJob = require('./jobs/closerRelease');
+  if (!closerJob.ENABLED) {
+    console.log('[closer] release scheduler is OFF (set CLOSER_RELEASE_ENABLED=1 to enable)');
+  } else {
+    const CLOSER_TICK_MS = 10 * 60 * 1000;
+    const closerTick = () => {
+      closerJob.runOnce({}).catch((e) => console.error('[closer] release tick failed:', e.message));
+    };
+    setTimeout(closerTick, 3 * 60 * 1000);
+    setInterval(closerTick, CLOSER_TICK_MS);
+    console.log('[closer] release scheduler started, tick every 10 min, sends only inside each recipient\'s window');
+  }
+} catch (e) {
+  console.warn('[closer] release scheduler failed to start:', e.message);
 }
 
 // GET /api/digest/unsubscribe: public, no auth. The link in the email.
