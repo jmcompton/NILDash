@@ -1234,13 +1234,32 @@ function _contactAuthorityRank(title) {
 // states: a false negative leaves a rationale alone, a false positive rewrites a
 // correct one.
 //
-// 62 OTHER KEYS COLLIDE THE SAME WAY and are deliberately NOT here yet -- every
-// "University of <state>", plus city names (Pittsburgh, Cincinnati, Boston,
-// Stanford, Kennesaw, Notre Dame, San Diego) and ordinary words (Duke, Temple,
-// Miami, Purdue, Baylor, Mercer, Auburn, Clemson). They are listed in full for
-// review; adding one is adding one line here.
+// 63 of the 86 keys collide this way. All of them are here: 51 unique short
+// forms, since several keys share one ("University of Georgia" and "Georgia
+// State University" both shorten to "georgia").
+//
+// THE TRADEOFF, TAKEN DELIBERATELY: "Alabama campus" and "Alabama students" no
+// longer flag either. Requiring a school-context word next to the bare form would
+// keep those, at the cost of guessing which words count -- and a guess that
+// rewrites a correct rationale is the failure we are removing. Named in full, the
+// school is still caught; named by a specific alias ('Bama', 'Ole Miss', 'UConn',
+// 'Georgia Tech', 'UCLA') it is still caught. Only the bare geography is let go.
 const AMBIGUOUS_SHORT_FORMS = new Set([
-  'alabama',
+  // States. Every "University of <state>" shortens to the state it is in, which
+  // is the state its athletes' local businesses are in.
+  'alabama', 'arizona', 'arkansas', 'california', 'colorado',
+  'connecticut', 'florida', 'georgia', 'illinois', 'indiana', 'iowa',
+  'kansas', 'kentucky', 'louisiana', 'maine', 'massachusetts', 'michigan',
+  'minnesota', 'mississippi', 'missouri', 'nebraska', 'new hampshire',
+  'new mexico', 'north carolina', 'ohio', 'oklahoma', 'oregon',
+  'rhode island', 'south carolina', 'tennessee', 'texas', 'utah',
+  'vermont', 'virginia', 'washington', 'wisconsin',
+  // Cities -- every one of these is the town the school sits in, so it is also
+  // the town its neighbouring businesses describe themselves by.
+  'auburn', 'boston', 'cincinnati', 'clemson', 'kennesaw', 'notre dame',
+  'pittsburgh', 'san diego', 'stanford',
+  // Ordinary words that are also school names.
+  'baylor', 'duke', 'mercer', 'miami', 'purdue', 'temple',
 ]);
 
 // Detect a school named in generated prose that is NOT the athlete's school. Uses
