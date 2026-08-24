@@ -465,23 +465,35 @@ async function buildNeedsYou(pool, agentId, q) {
   // never collapsed into "3 holds", because the agent has to know which business
   // and which rule to make the decision.
   const holds = await q('needs-compliance',
-    `SELECT h.id, h.brand_name, h.rule_label, h.severity, h.reason, h.created_at,
+    `SELECT h.id, h.brand_name, h.rule_key, h.rule_label, h.severity, h.reason, h.created_at,
             COALESCE(a.data->>'name','an athlete') AS athlete_name
        FROM compliance_holds h
        LEFT JOIN athletes a ON a.id = h.athlete_id
       WHERE h.agent_id = $1 AND h.resolved_at IS NULL AND h.severity IN ('block','hold')
-      ORDER BY CASE h.severity WHEN 'block' THEN 0 ELSE 1 END, h.created_at ASC
+      -- Faults first: a broken read is not a queue of decisions and must not sit
+      -- below ordinary holds where it reads as one.
+      ORDER BY (h.rule_key = 'source-unreadable') DESC,
+               CASE h.severity WHEN 'block' THEN 0 ELSE 1 END, h.created_at ASC
       LIMIT $2`, [agentId, ITEM_MAX]);
   for (const h of (holds || [])) {
     const blocked = h.severity === 'block';
     items.push({
       kind: 'compliance', id: h.id, priority: -1, count: 1,
       severity: h.severity,
-      line: `${h.brand_name || 'A business'} is on hold for ${h.athlete_name}`,
+      // A BROKEN READ IS NOT A DECISION TO MAKE. It reads differently and sorts
+      // above everything, because a pile of "on hold" rows that are really "we
+      // could not read the athlete" is exactly the disguise this class of fault
+      // wears -- it looks like an agent with a backlog rather than a system with
+      // a broken join.
+      isFault: h.rule_key === 'source-unreadable',
+      line: h.rule_key === 'source-unreadable'
+        ? `${h.brand_name || 'A business'} could not be checked — the athlete record is missing`
+        : `${h.brand_name || 'A business'} is on hold for ${h.athlete_name}`,
       detail: h.rule_label,
       reason: h.reason,
       // A block cannot be overridden, so it is not offered as if it could be.
-      actionLabel: blocked ? 'See why it cannot send' : 'Review and decide',
+      actionLabel: h.rule_key === 'source-unreadable' ? 'This is a fault, not a decision'
+        : (blocked ? 'See why it cannot send' : 'Review and decide'),
       target: { view: 'compliance', id: h.id },
       at: h.created_at,
     });

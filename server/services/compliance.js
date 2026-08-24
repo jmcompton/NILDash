@@ -189,17 +189,38 @@ function classifyBusiness(brandName, evidence) {
 // Returns { known, minor, years } and never guesses. An unparseable or absent
 // date of birth is known:false, which the severity table treats as its own case
 // rather than as an adult.
-function ageFrom(dob, now) {
-  if (!dob) return { known: false, minor: null, years: null };
+// THREE OUTCOMES, NOT TWO. "We hold no date of birth for this athlete" and "we
+// could not read this athlete at all" are different facts and need different
+// responses, and collapsing them is how an empty roster table survived: every
+// pitch held on unknown age, which is exactly what a correctly-working gate over
+// a roster with no birthdays looks like. Indistinguishable, so nobody looked.
+//
+//   known:true                      an age we can act on
+//   known:false, reason:'absent'    we read the athlete, there is no dob -> HOLD
+//   known:false, reason:'unreadable' we could not read the athlete -> ERROR
+//
+// `reason` is also set for a dob we hold but cannot parse, because a corrupt
+// value is a fault to fix rather than a blank to fill.
+function ageFrom(dob, now, opts = {}) {
+  // The caller could not produce an athlete record at all. Not the same as an
+  // athlete with no birthday on file.
+  if (opts.sourceUnreadable) {
+    return { known: false, minor: null, years: null, reason: 'unreadable',
+      detail: opts.sourceDetail || 'the athlete record could not be read' };
+  }
+  if (dob === undefined || dob === null || dob === '') {
+    return { known: false, minor: null, years: null, reason: 'absent' };
+  }
   const d = new Date(dob);
-  if (isNaN(d.getTime())) return { known: false, minor: null, years: null };
+  const bad = (why) => ({ known: false, minor: null, years: null, reason: 'unreadable', detail: why });
+  if (isNaN(d.getTime())) return bad(`the stored date of birth (${String(dob).slice(0, 32)}) is not a date`);
   const ref = now ? new Date(now) : new Date();
-  if (d.getTime() > ref.getTime()) return { known: false, minor: null, years: null };
+  if (d.getTime() > ref.getTime()) return bad('the stored date of birth is in the future');
   let years = ref.getUTCFullYear() - d.getUTCFullYear();
   const m = ref.getUTCMonth() - d.getUTCMonth();
   if (m < 0 || (m === 0 && ref.getUTCDate() < d.getUTCDate())) years--;
-  if (years < 0 || years > 120) return { known: false, minor: null, years: null };
-  return { known: true, minor: years < 18, years };
+  if (years < 0 || years > 120) return bad(`the stored date of birth implies an age of ${years}`);
+  return { known: true, minor: years < 18, years, reason: null };
 }
 
 // The severity table. Unknown age is ITS OWN ROW and always at least a hold: we
@@ -243,7 +264,33 @@ async function evaluate(pool, ctx) {
       return _closed('no-brand', 'this outreach has no business name on it, so nothing could be checked');
     }
 
-    const age = ageFrom(ctx.dob, ctx.now);
+    const age = ageFrom(ctx.dob, ctx.now, {
+      sourceUnreadable: !!ctx.athleteUnreadable,
+      sourceDetail: ctx.athleteUnreadableDetail,
+    });
+
+    // ── THE SOURCE ITSELF IS BROKEN. ERROR, NOT HOLD. ───────────────────────
+    // A hold says "a person needs to decide". Nobody can decide anything about
+    // an athlete we cannot read, and a queue of holds that all say "unknown age"
+    // is indistinguishable from a roster where nobody has entered a birthday --
+    // which is precisely how an empty roster table went unnoticed. This is a
+    // fault to fix, so it is reported as one and it stops the send either way.
+    if (age.reason === 'unreadable') {
+      return {
+        decision: 'block',
+        findings: [{
+          ruleKey: 'source-unreadable',
+          ruleLabel: 'the athlete record could not be read',
+          severity: 'block',
+          reason: `${age.detail || 'the athlete record could not be read'}. This is not a `
+            + 'missing birthday, it is a broken read: nothing can be decided about this '
+            + 'athlete until it is fixed. Nothing was sent.',
+        }],
+        unchecked: UNCHECKED, rulesVersion: RULES_VERSION, ranAt: new Date(),
+        sourceError: true,
+      };
+    }
+
     const cls = classifyBusiness(brandName, ctx.evidence);
 
     // 1. WE COULD NOT LOOK. Not a pass.

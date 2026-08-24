@@ -346,6 +346,13 @@ async function complianceGate(pool, log, opts = {}) {
     brandName: log.brand_name,
     evidence: log.places_evidence || null,
     dob: log.dob || null,
+    // Carried so the gate can tell "this athlete has no birthday on file" from
+    // "this athlete does not exist". Different faults, different fixes, and they
+    // must not both read as a hold.
+    athleteUnreadable: !!log.athlete_missing,
+    athleteUnreadableDetail: log.athlete_missing
+      ? `outreach_logs row ${log.id} points at athlete_id ${log.athlete_id}, which has no row in athletes`
+      : null,
     schoolRestrictions: log.school_restrictions || [],
     athleteName: log.athlete_name || null,
     school: log.school || null,
@@ -402,11 +409,20 @@ async function releaseDue(pool, opts = {}) {
             -- The Places record for this business, for the compliance gate. Same
             -- join buildBatch already uses for the address; lane='places'
             -- evidence carries types and primaryType.
+            -- WHETHER THE ATHLETE ROW EXISTS AT ALL, distinct from whether its
+            -- fields are populated. See the LEFT JOIN below.
+            (a.id IS NULL) AS athlete_missing,
             (SELECT b.evidence FROM brand_evidence_cache b
               WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(l.brand_name)
               ORDER BY b.refreshed_at DESC LIMIT 1) AS places_evidence
        FROM outreach_logs l
-       JOIN athletes a ON a.id = l.athlete_id
+       -- LEFT JOIN, DELIBERATELY. An inner join makes a draft whose athlete row
+       -- is missing DISAPPEAR from this query -- not held, not failed, not
+       -- counted: absent. The send loop never sees it and nothing anywhere says
+       -- a draft was skipped. If the roster table were empty this query would
+       -- return zero rows and the whole send path would look idle and healthy.
+       -- A missing athlete has to arrive here so it can be reported as a fault.
+       LEFT JOIN athletes a ON a.id = l.athlete_id
        LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
       WHERE l.status = 'approved'
         AND l.scheduled_send_at IS NOT NULL
