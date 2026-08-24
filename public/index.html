@@ -1077,6 +1077,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .sr-item-line{flex:1;min-width:0;font-size:13px;color:var(--text);line-height:1.4}
 .sr-item-kind{display:block;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
   color:#5b6b80;margin-bottom:2px}
+/* A hold reads as a stop, not as another task in the stack. Amber for a decision
+   the agent can make, red for one they cannot. */
+.sr-item-hold{background:rgba(251,191,36,.05);border-left:2px solid #fbbf24}
+.sr-kind-hold{color:#fbbf24}
+.sr-kind-block{color:#f87171}
+.sr-item-hold:has(.sr-kind-block){background:rgba(248,113,113,.06);border-left-color:#f87171}
+.sr-hold-why{font-size:12px;color:var(--muted);line-height:1.45;margin-top:4px}
 .sr-btn{flex:none;background:#84CC16;border:none;color:#0b0f0a;font-family:'DM Sans',sans-serif;
   font-size:12px;font-weight:600;padding:8px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
 .sr-btn:hover{filter:brightness(1.07)}
@@ -4452,6 +4459,20 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <option value="water polo">Water Polo</option>
           <option value="wrestling">Wrestling</option>
         </select>
+      </div>
+
+      <!-- DATE OF BIRTH. Optional, and the only reason it is here is the
+           compliance gate: without it we cannot rule out that an athlete is a
+           minor, and a restricted-category business is HELD rather than sent.
+           The label says exactly that, because an unexplained birthday field on
+           a four-field form is the kind of thing an agent skips. -->
+      <div style="margin-bottom:8px">
+        <label class="form-label-sm">Date of birth <span style="color:var(--muted);font-weight:400">— optional</span></label>
+        <input class="input-sm" id="ob-athlete-dob" type="date" style="width:100%">
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          Without it we hold any pitch to alcohol, tobacco, cannabis, gambling or firearms
+          businesses, because we cannot rule out that they are under 18.
+        </div>
       </div>
 
       <!-- Instagram handle + Fetch stats (Part B) -->
@@ -13322,6 +13343,9 @@ window.addEventListener('DOMContentLoaded', checkSession);
       const school = (document.getElementById('ob-athlete-school')?.value || '').trim();
       const sport  = document.getElementById('ob-athlete-sport')?.value || 'basketball';
       const handle = (document.getElementById('ob-athlete-handle')?.value || '').trim().replace(/^@/, '');
+      // Empty string, not undefined: an absent birthday must reach the server as
+      // "not on file" rather than being dropped from the payload silently.
+      const dob    = (document.getElementById('ob-athlete-dob')?.value || '').trim();
       if (!name) { showToast('Enter the athlete name'); return; }
 
       // The school warning is shown, not enforced. An agent who means it can
@@ -13339,7 +13363,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
         const r = await fetch(`${API_BASE}/api/athletes`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name, sport, school,
+            name, sport, school, dob,
             // Carried from AI Lookup when it found them. Not asked for.
             position:   obPrefill.position   || '',
             hometown:   obPrefill.hometown   || '',
@@ -16900,7 +16924,8 @@ function srRenderMoving(d, el) {
     + '</div>';
 }
 
-var SR_KIND = { reply: 'Brand replied', approve: 'Waiting on approval', queue: 'Ready to work' };
+var SR_KIND = { reply: 'Brand replied', approve: 'Waiting on approval', queue: 'Ready to work',
+  compliance: 'On hold' };
 
 function srRenderNeeds(d, el) {
   var nu = d.needsYou || { items: [], overflow: 0 };
@@ -16914,10 +16939,19 @@ function srRenderNeeds(d, el) {
   }
   window._srItems = items;
   var rows = items.map(function (it, i) {
-    return '<div class="sr-item">'
-      + '<div class="sr-item-line"><span class="sr-item-kind">' + hmEsc(SR_KIND[it.kind] || 'Needs a decision') + '</span>'
+    // A HOLD IS NOT BURIED AND NOT ABBREVIATED. It carries the rule and the full
+    // reason on the row, because the agent has to make a decision from it -- and
+    // a hard block says it cannot be overridden rather than offering a button
+    // that will be refused.
+    var isHold = it.kind === 'compliance';
+    var blocked = isHold && it.severity === 'block';
+    return '<div class="sr-item' + (isHold ? ' sr-item-hold' : '') + '">'
+      + '<div class="sr-item-line"><span class="sr-item-kind'
+      + (blocked ? ' sr-kind-block' : isHold ? ' sr-kind-hold' : '') + '">'
+      + hmEsc(blocked ? 'Cannot send' : (SR_KIND[it.kind] || 'Needs a decision')) + '</span>'
       + hmEsc(it.line)
       + (it.detail ? '<span class="sr-item-detail">' + hmEsc(it.detail) + '</span>' : '')
+      + (isHold && it.reason ? '<div class="sr-hold-why">' + hmEsc(it.reason) + '</div>' : '')
       + '</div>'
       + '<button class="sr-btn" onclick="srAct(' + i + ')">' + hmEsc(it.actionLabel || 'Open') + '</button>'
       + '</div>';

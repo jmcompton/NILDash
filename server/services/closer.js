@@ -304,6 +304,75 @@ async function approveBatch(pool, agentId, opts = {}) {
 // ── RELEASE: the job that actually sends ─────────────────────────────────────
 // Nothing read scheduled_send_at before this existed. Runs on a tick, sends what
 // is due and inside the window, and stops the moment the provider says stop.
+// ── THE GATE, in one function ────────────────────────────────────────────────
+// Returns { clear } and nothing else matters to the caller. Every branch that is
+// not an explicit pass returns clear:false, including the ones that error.
+//
+// ORDER MATTERS. It reads the RECORD first, not the rules: an agent who
+// overrode a hold this morning must not be stopped by the same rule this
+// evening, and a hard block must not be walkable by re-running the gate against
+// changed data. The record is the decision; evaluate() only creates it.
+const RANK = { pass: -1, note: 0, hold: 1, block: 2 };
+
+async function complianceGate(pool, log, opts = {}) {
+  const compliance = require('./compliance');
+
+  // 1. Anything already open on this outreach stops it, whatever it is.
+  const open = await compliance.openHoldsFor(pool, log.id);
+  if (open.length) {
+    const blocking = open.find((h) => h.severity === 'block') || open[0];
+    return { clear: false, severity: blocking.severity,
+      why: `${blocking.rule_label}: ${blocking.reason}` };
+  }
+
+  // 2. Evaluate. This cannot throw -- it returns a hold instead -- but the
+  //    caller wraps it anyway, because "cannot throw" is a claim about today's
+  //    code and the fail-closed guarantee should not depend on it staying true.
+  let result = await compliance.evaluate(pool, {
+    brandName: log.brand_name,
+    evidence: log.places_evidence || null,
+    dob: log.dob || null,
+    athleteName: log.athlete_name || null,
+    school: log.school || null,
+    now: opts.now,
+  });
+
+  if (result.decision === 'pass') return { clear: true };
+
+  // 3. DROP FINDINGS THE AGENT HAS ALREADY DECIDED. An override that the gate
+  //    re-derives on the next tick is not an override -- the hold would resolve
+  //    and immediately reappear from the same unchanged data, forever. A BLOCK
+  //    can never reach here as overridden: overrideHold refuses to resolve one.
+  const decided = await compliance.overriddenRulesFor(pool, log.id);
+  if (decided.size) {
+    result = Object.assign({}, result, {
+      findings: result.findings.filter((f) => !decided.has(f.ruleKey)),
+    });
+    if (!result.findings.length) return { clear: true };
+    result.decision = result.findings.reduce(
+      (acc, f) => (RANK[f.severity] > RANK[acc] ? f.severity : acc), 'pass');
+    if (result.decision === 'pass') return { clear: true };
+  }
+
+  // 4. WRITE BEFORE DECIDING. If the record cannot be written the send does not
+  //    happen: an unrecorded hold is indistinguishable from no hold at all, and
+  //    the record is the whole point.
+  await compliance.recordFindings(pool, {
+    agentId: log.agent_id, athleteId: log.athlete_id, outreachLogId: log.id,
+    brandName: log.brand_name, brandKey: log.brand_key,
+    evidence: log.places_evidence || null, dob: log.dob || null,
+    school: log.school || null, now: opts.now,
+  }, result);
+
+  // A note proceeds. It is on the record and it does not stop anything.
+  if (result.decision === 'note') return { clear: true, noted: true };
+
+  const worstFinding = result.findings.find((f) => f.severity === 'block')
+    || result.findings.find((f) => f.severity === 'hold');
+  return { clear: false, severity: result.decision,
+    why: `${worstFinding.ruleLabel}: ${worstFinding.reason}` };
+}
+
 async function releaseDue(pool, opts = {}) {
   const now = opts.now ? new Date(opts.now) : new Date();
   const limit = opts.limit || 200;
@@ -312,7 +381,13 @@ async function releaseDue(pool, opts = {}) {
 
   const due = (await pool.query(
     `SELECT l.*, a.data->>'name' AS athlete_name, e.location AS biz_address,
-            a.data->>'school' AS school
+            a.data->>'school' AS school, a.data->>'dob' AS dob,
+            -- The Places record for this business, for the compliance gate. Same
+            -- join buildBatch already uses for the address; lane='places'
+            -- evidence carries types and primaryType.
+            (SELECT b.evidence FROM brand_evidence_cache b
+              WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(l.brand_name)
+              ORDER BY b.refreshed_at DESC LIMIT 1) AS places_evidence
        FROM outreach_logs l
        JOIN athletes a ON a.id = l.athlete_id
        LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
@@ -343,6 +418,34 @@ async function releaseDue(pool, opts = {}) {
       out.held++; out.detail.push({ id: log.id, result: 'stopped', why: sup.reason });
       continue;
     }
+    // ── THE COMPLIANCE GATE ──────────────────────────────────────────────
+    // BEFORE the reservation, because a held message must not consume the day's
+    // allowance. This is the only place the provider is called from, so this is
+    // the only place the gate has to be -- and it is a gate, not a warning:
+    // nothing below runs unless it returns clear.
+    //
+    // FAIL CLOSED, TWICE OVER. compliance.evaluate() cannot throw and returns a
+    // hold on any internal failure; and this block is itself wrapped, so a
+    // failure to REACH it, record it, or read it back still holds. There is no
+    // path from "the check errored" to "the email went out".
+    let gate;
+    try {
+      gate = await complianceGate(pool, log, opts);
+    } catch (e) {
+      console.error(`[closer] compliance gate failed for ${log.id}, holding:`, e.message);
+      gate = { clear: false, why: 'the compliance check could not run: ' + e.message, severity: 'hold' };
+    }
+    if (!gate.clear) {
+      out.held++;
+      out.compliance = (out.compliance || 0) + 1;
+      out.detail.push({ id: log.id, result: 'held', why: gate.why, compliance: gate.severity });
+      continue;
+    }
+
+    // THE WINDOW COMES AFTER COMPLIANCE. It used to come first, and that meant a
+    // hold was not RECORDED until the send window happened to open -- a pitch
+    // held on a Friday evening would not reach the agent's report until Monday.
+    // Compliance is a fact about the message; the window is only about timing.
     if (!sendWindow.isSendable(now, {
       businessAddress: log.biz_address, athleteSchoolState: log.school,
     })) {
@@ -519,6 +622,7 @@ async function setAutoMode(pool, agentId, { scopeKind, scopeId, enabled }) {
 
 module.exports = {
   buildBatch, laneLabel, cityOf, recipientOf, summariseDropped, approveBatch, releaseDue, scheduleNextTouch, stop,
+  complianceGate,
   autoModeProgress, autoModeFor, isAuto, setAutoMode, followUpSubject,
   CADENCE, MAX_TOUCHES, AUTO_MODE_THRESHOLD,
 };

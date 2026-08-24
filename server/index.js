@@ -1330,10 +1330,26 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
   } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// A date of birth is kept only if it is a real, past, plausible date. Anything
+// else is stored as '' -- NOT as a guess and not as today. The compliance gate
+// treats '' as unknown and holds restricted categories on it, so an honest blank
+// is safe and a wrong date is not.
+function _validDob(v) {
+  if (!v) return '';
+  const s = String(v).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  const d = new Date(s + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return '';
+  const now = Date.now();
+  if (d.getTime() > now) return '';
+  if (now - d.getTime() > 120 * 365.25 * 864e5) return '';
+  return s;
+}
+
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa,
-          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name } = req.body;
+          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name, dob } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
 
   // ── Seat limit check ─────────────────────────────────────────
@@ -1397,6 +1413,12 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     legal_name: (legal_name ? String(legal_name).trim() : ''),
     // Hometown powers the Deal Scan second market ("hometown hero" angle).
     hometown: (hometown ? String(hometown).trim() : ''),
+    // DATE OF BIRTH, for the compliance gate and nothing else. Stored ONLY when
+    // it parses to a real past date -- a junk value here would resolve minor
+    // status wrongly, and a wrong answer is worse than the honest unknown the
+    // gate already handles. Empty means not on file, which HOLDS restricted
+    // categories rather than assuming an adult.
+    dob: _validDob(dob),
     // Interest tags ("industry:sub" strings) and product wants feed Deal Scan.
     tags: Array.isArray(tags) ? tags.filter(t => typeof t === 'string').slice(0, 40) : [],
     productWants: (productWants ? String(productWants).trim().slice(0, 300) : ''),
@@ -1500,7 +1522,12 @@ app.put('/api/athletes/:id', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   if (existing.agentId !== req.session.userId && user.email !== ADMIN_EMAIL)
     return res.status(403).json({ error: 'Forbidden' });
-  const updated = await store.saveAthlete(req.params.id, { ...existing, ...req.body });
+  const patch = { ...req.body };
+  // The same validation the create path uses. A spread would let a junk birthday
+  // straight through here and the compliance gate would resolve minor status
+  // from it -- an unvalidated date is worse than none, because none holds.
+  if ('dob' in patch) patch.dob = _validDob(patch.dob);
+  const updated = await store.saveAthlete(req.params.id, { ...existing, ...patch });
   res.json(updated);
 });
 
@@ -1834,6 +1861,82 @@ app.post('/api/agent/closer/auto-mode', requireAuth, async (req, res) => {
     res.json(out);
   } catch (e) {
     console.error('[closer/auto-mode]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── COMPLIANCE ───────────────────────────────────────────────────────────────
+// The record, and the two things an agent can do to a row on it. There is no
+// endpoint that clears a block, by design: a block is not a decision the agent
+// gets to make, and the absence of the route is the enforcement.
+
+// GET /api/agent/compliance — open holds, and recent history.
+app.get('/api/agent/compliance', requireAuth, async (req, res) => {
+  try {
+    const agentId = req.session.userId;
+    const open = await store.pool.query(
+      `SELECT h.*, COALESCE(a.data->>'name','an athlete') AS athlete_name
+         FROM compliance_holds h LEFT JOIN athletes a ON a.id = h.athlete_id
+        WHERE h.agent_id = $1 AND h.resolved_at IS NULL AND h.severity IN ('block','hold')
+        ORDER BY CASE h.severity WHEN 'block' THEN 0 ELSE 1 END, h.created_at ASC`, [agentId]);
+    // History is the answer to "why did this not send", months later, so it is
+    // returned resolved-and-all rather than only what is currently open.
+    const history = await store.pool.query(
+      `SELECT h.*, COALESCE(a.data->>'name','an athlete') AS athlete_name
+         FROM compliance_holds h LEFT JOIN athletes a ON a.id = h.athlete_id
+        WHERE h.agent_id = $1
+        ORDER BY h.created_at DESC LIMIT 200`, [agentId]);
+    const compliance = require('./services/compliance');
+    res.json({
+      open: open.rows, history: history.rows,
+      rulesVersion: compliance.RULES_VERSION,
+      // Said on the page, not only in the code: what this gate does not check.
+      unchecked: compliance.UNCHECKED,
+    });
+  } catch (e) {
+    console.error('[compliance/list]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/agent/compliance/:id/override — the agent decides, on the record.
+app.post('/api/agent/compliance/:id/override', requireAuth, async (req, res) => {
+  try {
+    const compliance = require('./services/compliance');
+    const out = await compliance.overrideHold(store.pool, Number(req.params.id),
+      { agentId: req.session.userId, reason: (req.body || {}).reason });
+    if (!out.ok) return res.status(400).json(out);
+    console.log(`[compliance] hold=${req.params.id} OVERRIDDEN by agent=${req.session.userId}`);
+    res.json(out);
+  } catch (e) {
+    console.error('[compliance/override]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/agent/compliance/:id/cancel — drop the outreach instead. This is the
+// only route that resolves a BLOCK, and it resolves it by stopping the pitch,
+// never by letting it through.
+app.post('/api/agent/compliance/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    const compliance = require('./services/compliance');
+    const id = Number(req.params.id);
+    const row = (await store.pool.query(
+      `SELECT outreach_log_id FROM compliance_holds WHERE id = $1 AND agent_id = $2`,
+      [id, req.session.userId])).rows[0];
+    if (!row) return res.status(404).json({ error: 'No such hold.' });
+    const out = await compliance.cancelHold(store.pool, id,
+      { agentId: req.session.userId, reason: (req.body || {}).reason });
+    if (!out.ok) return res.status(400).json({ error: 'That hold was already resolved.' });
+    if (row.outreach_log_id) {
+      await store.pool.query(
+        `UPDATE outreach_logs
+            SET cadence_stopped_at = NOW(), cadence_stop_reason = $2, updated_at = NOW()
+          WHERE id = $1`, [row.outreach_log_id, 'stopped on a compliance hold']).catch(() => {});
+    }
+    res.json(out);
+  } catch (e) {
+    console.error('[compliance/cancel]', e.message);
     res.status(500).json({ error: e.message });
   }
 });

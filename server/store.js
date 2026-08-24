@@ -1623,6 +1623,53 @@ async function init() {
     )`).then(() => console.log('[init] agent_auto_mode table ready'))
     .catch((e) => console.error('[init] agent_auto_mode:', e.message));
 
+  // ── The compliance record ────────────────────────────────────────────────
+  // THIS TABLE IS THE PRODUCT. The gate itself is a few hundred lines; the value
+  // is being able to answer "why did this not send" nine months later, and to
+  // hand a school or a state the same answer from the same rows.
+  //
+  // Nothing here is ever deleted or updated in place except to RESOLVE a row.
+  // A resolved hold keeps its reason, its severity and its facts; the resolution
+  // is added alongside, so the record reads as a history rather than a state.
+  //
+  // facts is what we knew AT THE TIME -- the Places types, the derived age, the
+  // school, whether the gate failed closed. Never the date of birth itself: the
+  // log records that one was on file, not what it was.
+  // unchecked is what we did NOT look at, stored per row, so a hold read years
+  // from now still states its own limits instead of implying it checked
+  // everything.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS compliance_holds (
+      id                SERIAL PRIMARY KEY,
+      agent_id          TEXT,
+      athlete_id        TEXT,
+      outreach_log_id   TEXT,
+      brand_name        TEXT,
+      brand_key         TEXT,
+      rule_key          TEXT NOT NULL,
+      rule_label        TEXT NOT NULL,
+      severity          TEXT NOT NULL CHECK (severity IN ('block','hold','note')),
+      reason            TEXT NOT NULL,
+      facts             JSONB DEFAULT '{}'::jsonb,
+      unchecked         JSONB DEFAULT '[]'::jsonb,
+      rules_version     TEXT,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      resolved_at       TIMESTAMPTZ,
+      resolved_by       TEXT,
+      resolution        TEXT CHECK (resolution IN ('overridden','cancelled','auto-cleared')),
+      resolution_reason TEXT
+    )`).then(() => console.log('[init] compliance_holds table ready'))
+    .catch((e) => console.error('[init] compliance_holds:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_compliance_holds_open
+    ON compliance_holds (agent_id, resolved_at) WHERE resolved_at IS NULL`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_compliance_holds_log
+    ON compliance_holds (outreach_log_id)`).catch(() => {});
+  // ONE OPEN ROW PER RULE PER OUTREACH. releaseDue re-evaluates every tick, and
+  // without this a held draft would write a fresh identical row every fifteen
+  // minutes until the log was unreadable.
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_compliance_holds_open
+    ON compliance_holds (outreach_log_id, rule_key) WHERE resolved_at IS NULL`).catch(() => {});
+
   // One row per market, recording the last time its radius was widened. In the
   // DATABASE and not in memory because the nightly job is a separate process
   // from the web server: an in-process guard would give each its own allowance

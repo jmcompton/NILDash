@@ -19,7 +19,8 @@ function money(n) {
   return '$' + Math.round(n).toLocaleString();
 }
 
-const KIND_LABEL = { reply: 'Brand replied', approve: 'Waiting on approval', queue: 'Ready to work' };
+const KIND_LABEL = { reply: 'Brand replied', approve: 'Waiting on approval', queue: 'Ready to work',
+  compliance: 'On hold' };
 
 // Deep links. Each one lands on the screen that resolves the item, not the home
 // page -- an email that says "3 replies" and drops you on a dashboard has made
@@ -43,6 +44,18 @@ function nameOnly(line) {
   return m ? m[1] : null;
 }
 function buildSubject(r, replies, waiting) {
+  // A stopped pitch outranks a reply. A reply is an opportunity going cold; a
+  // hold is work that cannot move until a person acts, and it is the one thing
+  // in this email nobody else will chase.
+  const holds = (r.needsYou && r.needsYou.items || []).filter((it) => it.kind === 'compliance');
+  if (holds.length) {
+    const blocked = holds.filter((h) => h.severity === 'block').length;
+    if (holds.length === 1) {
+      const h = holds[0];
+      return (blocked ? 'Cannot send: ' : 'On hold: ') + String(h.line || 'a pitch is on hold');
+    }
+    return `${holds.length} pitches on hold` + (blocked ? ` — ${blocked} cannot be sent` : '');
+  }
   if (replies.length === 1) {
     const brand = nameOnly(replies[0].line);
     const head = brand ? `${brand} replied` : 'A brand replied';
@@ -67,6 +80,11 @@ function renderShiftEmail(report, opts = {}) {
   // on an answer; it was previously just another card in a stack of three, and
   // an agent skimming on a phone would never have seen it.
   const replies = allItems.filter((it) => it.kind === 'reply');
+  // Holds keep their place in the NEEDS YOU list rather than getting a block of
+  // their own: unlike a reply, a hold is already stopped, so it is not losing
+  // anything by being read second. It carries its rule and its reason inline,
+  // and a block says it cannot be overridden.
+  const holds = allItems.filter((it) => it.kind === 'compliance');
   const closer = r.closer || {};
   const waiting = Number(closer.pendingApproval) || 0;
   const forWhom = Array.isArray(closer.byAthlete) ? closer.byAthlete : [];
@@ -143,9 +161,10 @@ function renderShiftEmail(report, opts = {}) {
     for (const it of needs) {
       parts.push(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px">
 <tr><td style="padding:10px 12px;background:#f8fafc;border:1px solid #e8edf4;border-radius:9px">
-  <p style="margin:0 0 2px;font:600 10px/1.4 -apple-system,Arial,sans-serif;color:#6b7c99;letter-spacing:.06em;text-transform:uppercase">${esc(KIND_LABEL[it.kind] || 'Needs a decision')}</p>
-  <p style="margin:0 0 ${it.detail ? '2' : '9'}px;font:15px/1.4 -apple-system,Arial,sans-serif;color:#1a2230">${esc(it.line)}</p>
-  ${it.detail ? `<p style="${MUTED};font-size:12px;margin-bottom:9px">${esc(it.detail)}</p>` : ''}
+  <p style="margin:0 0 2px;font:600 10px/1.4 -apple-system,Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:${it.kind === 'compliance' ? (it.severity === 'block' ? '#b91c1c' : '#b45309') : '#6b7c99'}">${esc(it.kind === 'compliance' && it.severity === 'block' ? 'Cannot send' : (KIND_LABEL[it.kind] || 'Needs a decision'))}</p>
+  <p style="margin:0 0 ${(it.detail || it.reason) ? '2' : '9'}px;font:15px/1.4 -apple-system,Arial,sans-serif;color:#1a2230">${esc(it.line)}</p>
+  ${it.detail ? `<p style="${MUTED};font-size:12px;margin-bottom:${it.reason ? '2' : '9'}px">${esc(it.detail)}</p>` : ''}
+  ${it.reason ? `<p style="${MUTED};font-size:12px;margin-bottom:9px">${esc(it.reason)}</p>` : ''}
   <a href="${esc(deepLink(appUrl, it))}" style="display:inline-block;background:#84CC16;color:#0b0f0a;text-decoration:none;font:600 13px/1 -apple-system,Arial,sans-serif;padding:9px 15px;border-radius:7px">${esc(it.actionLabel || 'Open')}</a>
 </td></tr></table>`);
     }
@@ -232,7 +251,11 @@ function renderShiftEmail(report, opts = {}) {
   if (!needs.length) {
     textLines.push(replies.length ? '  Nothing else needs you.' : '  Nothing needs you right now.');
   } else {
-    for (const it of needs) textLines.push('  - ' + it.line + '  ' + deepLink(appUrl, it));
+    for (const it of needs) {
+      textLines.push('  - ' + (it.kind === 'compliance' && it.severity === 'block' ? 'CANNOT SEND: ' : '')
+        + it.line + '  ' + deepLink(appUrl, it));
+      if (it.reason) textLines.push('      ' + it.reason);
+    }
     if (overflow > 0) textLines.push('  ' + overflow + ' more waiting.');
   }
   if (waiting > 0) {

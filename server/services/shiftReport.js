@@ -458,6 +458,35 @@ function buildRoleCards(s) {
 async function buildNeedsYou(pool, agentId, q) {
   const items = [];
 
+  // ── COMPLIANCE HOLDS, ABOVE EVERYTHING ───────────────────────────────────
+  // A hold is a pitch that has ALREADY been stopped, and it stays stopped until
+  // a person acts. It outranks a reply: a reply is an opportunity going cold,
+  // a hold is work that cannot move at all. One row per hold, named -- these are
+  // never collapsed into "3 holds", because the agent has to know which business
+  // and which rule to make the decision.
+  const holds = await q('needs-compliance',
+    `SELECT h.id, h.brand_name, h.rule_label, h.severity, h.reason, h.created_at,
+            COALESCE(a.data->>'name','an athlete') AS athlete_name
+       FROM compliance_holds h
+       LEFT JOIN athletes a ON a.id = h.athlete_id
+      WHERE h.agent_id = $1 AND h.resolved_at IS NULL AND h.severity IN ('block','hold')
+      ORDER BY CASE h.severity WHEN 'block' THEN 0 ELSE 1 END, h.created_at ASC
+      LIMIT $2`, [agentId, ITEM_MAX]);
+  for (const h of (holds || [])) {
+    const blocked = h.severity === 'block';
+    items.push({
+      kind: 'compliance', id: h.id, priority: -1, count: 1,
+      severity: h.severity,
+      line: `${h.brand_name || 'A business'} is on hold for ${h.athlete_name}`,
+      detail: h.rule_label,
+      reason: h.reason,
+      // A block cannot be overridden, so it is not offered as if it could be.
+      actionLabel: blocked ? 'See why it cannot send' : 'Review and decide',
+      target: { view: 'compliance', id: h.id },
+      at: h.created_at,
+    });
+  }
+
   const replies = await q('needs-replies',
     `SELECT l.id, l.brand_name, l.replied_at, a.data->>'name' AS athlete_name
        FROM outreach_logs l
