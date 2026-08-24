@@ -1778,6 +1778,50 @@ app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
   }
 });
 
+// PATCH /api/agent/closer/draft/:id — edit the message in place, or skip it.
+// Editing here is the same write the outreach route makes, including the
+// edited_before_approval flag that gates auto mode: an agent who rewrites a
+// pitch has not yet been given a reason to trust the writer unedited.
+app.patch('/api/agent/closer/draft/:id', requireAuth, async (req, res) => {
+  try {
+    const agentId = req.session.userId;
+    const { body, skip } = req.body || {};
+
+    if (skip === true) {
+      // SKIPPED, NOT DELETED. It stops the cadence for this one business and
+      // says why, so "where did that pitch go" is answerable.
+      const r = await store.pool.query(
+        `UPDATE outreach_logs
+            SET cadence_stopped_at = NOW(), cadence_stop_reason = 'you skipped it', updated_at = NOW()
+          WHERE id = $1 AND agent_id = $2 AND status = 'draft' AND approved_at IS NULL
+          RETURNING id`, [req.params.id, agentId]);
+      if (!r.rows[0]) return res.status(404).json({ error: 'Draft not found' });
+      return res.json({ ok: true, skipped: true });
+    }
+
+    if (typeof body !== 'string' || !body.trim()) {
+      return res.status(400).json({ error: 'Nothing to save' });
+    }
+    const before = await store.pool.query(
+      `SELECT body_html FROM outreach_logs
+        WHERE id = $1 AND agent_id = $2 AND status = 'draft'`, [req.params.id, agentId]);
+    if (!before.rows[0]) return res.status(404).json({ error: 'Draft not found' });
+    const changed = String(before.rows[0].body_html || '') !== body;
+
+    const r = await store.pool.query(
+      `UPDATE outreach_logs
+          SET body_html = $3, updated_at = NOW(),
+              edited_before_approval = edited_before_approval OR $4
+        WHERE id = $1 AND agent_id = $2 AND status = 'draft' AND approved_at IS NULL
+        RETURNING id, body_html`, [req.params.id, agentId, body, changed]);
+    if (!r.rows[0]) return res.status(404).json({ error: 'Draft not found' });
+    res.json({ ok: true, body: r.rows[0].body_html, changed });
+  } catch (e) {
+    console.error('[closer/draft]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Auto mode, per athlete or per lane. The route refuses a global scope outright
 // rather than offering one -- turning it on for one athlete is a different
 // decision from turning it on for a whole roster.

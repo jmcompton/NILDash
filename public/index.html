@@ -900,6 +900,64 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .sr-auto.dim{color:#9CA3AF}
 .sr-auto-bar{height:3px;background:#1e2a3a;border-radius:2px;margin-bottom:8px;overflow:hidden}
 .sr-auto-bar i{display:block;height:100%;background:#84CC16;border-radius:2px}
+
+/* ── Ready to send: grouped by athlete ─────────────────────────────────── */
+/* The athlete name appears once, on a header, with the status line that says
+   why they are near the top. Nineteen rows repeating the name is a list. */
+.sr-ath{margin:0 0 14px}
+.sr-ath-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;
+  padding:7px 0 6px;border-bottom:.5px solid #1e2a3a;margin-bottom:4px}
+.sr-ath-name{font-family:'Syne',sans-serif;font-size:13.5px;font-weight:700;color:var(--text)}
+.sr-ath-count{font-size:10.5px;font-weight:700;color:#0b0f0a;background:#84CC16;
+  border-radius:9px;padding:1px 7px;line-height:1.5}
+.sr-ath-status{font-size:11px;color:#6B7280;margin-left:auto;text-align:right}
+
+.sr-draft{border-radius:7px;margin:2px 0}
+.sr-draft.open{background:#0A121C;outline:.5px solid #1e2a3a}
+.sr-draft-head{display:flex;align-items:center;gap:9px;padding:6px 8px 6px 2px}
+.sr-draft-head input{accent-color:#84CC16;flex:none;width:15px;height:15px;cursor:pointer}
+.sr-draft-open{flex:1;display:flex;align-items:center;gap:8px;background:none;border:none;
+  padding:2px 0;cursor:pointer;text-align:left;font:inherit;color:inherit;min-width:0}
+.sr-biz{font-size:13px;color:var(--text);font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-lane{font-size:10px;color:#7dd3fc;background:rgba(125,211,252,0.1);
+  border-radius:4px;padding:1px 6px;white-space:nowrap;flex:none}
+.sr-touch{font-size:10px;color:#fbbf24;white-space:nowrap;flex:none}
+.sr-caret{margin-left:auto;color:#6B7280;font-size:14px;flex:none;padding-left:6px}
+
+/* The message, exactly as it will send. */
+.sr-draft-body{padding:2px 10px 12px 26px}
+.sr-to{font-size:11.5px;color:#9CA3AF;line-height:1.6}
+.sr-to .dimmed{color:#6B7280}
+.sr-subj{font-size:11.5px;color:#9CA3AF;margin:4px 0 8px}
+.sr-msg{font-size:12.5px;color:var(--text);line-height:1.65;white-space:pre-wrap;
+  background:#0D1520;border-radius:6px;padding:11px 13px;margin:6px 0 4px}
+.sr-edit{width:100%;box-sizing:border-box;min-height:150px;margin:6px 0 4px;
+  padding:11px 13px;border-radius:6px;background:#0D1520;border:.5px solid #1e2a3a;
+  color:var(--text);font:12.5px/1.65 inherit;resize:vertical}
+
+.sr-more{background:none;border:none;color:#6B7280;font:11.5px inherit;
+  cursor:pointer;padding:5px 0 2px 26px;text-align:left;text-decoration:underline;
+  text-underline-offset:2px}
+.sr-more:hover{color:#9CA3AF}
+
+.sr-held{font-size:11.5px;color:#6B7280;line-height:1.6;padding:9px 0 2px;
+  border-top:.5px solid #1e2a3a;margin-top:6px}
+.sr-held a{color:#7dd3fc}
+.sr-held-list{margin-top:7px;max-height:220px;overflow-y:auto}
+.sr-held-row{font-size:11.5px;color:#6B7280;line-height:1.7}
+.sr-held-row b{color:#9CA3AF;font-weight:600}
+
+/* Mobile: the header stays put, the row stacks, the message stays readable. */
+@media (max-width:520px){
+  .sr-ath-status{margin-left:0;width:100%;text-align:left;padding-top:2px}
+  .sr-draft-open{flex-wrap:wrap;gap:5px}
+  .sr-biz{white-space:normal;flex:1 1 100%}
+  .sr-caret{margin-left:0}
+  .sr-draft-body{padding-left:10px}
+  .sr-more{padding-left:10px}
+  .sr-msg{font-size:13px;padding:12px}
+}
 .hq-card.paused{border-left:3px solid #f59e0b}
 .hq-tab.paused{opacity:.72}
 .hq-brand{font-size:14.5px;color:#F0EDE6;font-weight:600;line-height:1.35}
@@ -16572,30 +16630,202 @@ async function srLoadBatch() {
     var r = await fetch(API_BASE + '/api/agent/closer/batch', { credentials: 'same-origin' });
     var d = await r.json();
     _srBatch = d;
-    if (!d.batch || !d.batch.length) {
-      body.innerHTML = '<div class="sr-empty">' + hqEsc(d.note || 'Nothing ready tonight.') + '</div>';
-      return;
-    }
-    var rows = d.batch.map(function (b) {
-      return '<label class="sr-row"><input type="checkbox" checked data-id="' + hqEsc(b.id) + '">'
-        + '<span class="sr-row-main"><b>' + hqEsc(b.brand) + '</b>'
-        + '<span class="sr-row-sub">for ' + hqEsc(b.athleteName)
-        + (b.touch > 1 ? ' · follow-up ' + hqEsc(b.touch) : '')
-        + (b.why ? ' · ' + hqEsc(b.why) : '') + '</span></span></label>';
-    }).join('');
-    var dropped = (d.dropped && d.dropped.length)
-      ? '<div class="sr-cap-sub">' + d.dropped.length + ' skipped: '
-        + hqEsc(d.dropped.map(function (x) { return x.brand + ' (' + x.why + ')'; }).slice(0, 3).join(', '))
-        + '</div>'
-      : '';
-    body.innerHTML = rows + dropped
-      + '<div class="hm-btns"><button class="hm-btn primary" id="sr-approve" onclick="srApprove()">'
-      + 'Approve ' + d.batch.length + ' and schedule</button></div>'
-      + '<div class="sr-cap-sub">They go out Tuesday to Thursday, mid-morning where each business is. '
-      + 'You do not pick the time.</div>';
+    _srExpanded = {};
+    _srOpenDraft = null;
+    srRenderBatch();
   } catch (e) {
     body.innerHTML = '<div class="sr-empty">Could not load the batch: ' + hqEsc(e.message) + '</div>';
   }
+}
+
+// Which athletes have had "N more" clicked, and which single draft is open.
+var _srExpanded = {};
+var _srOpenDraft = null;
+var _srSkipped = {};
+var _srPerAthlete = 3;
+
+// ══ GROUPED BY ATHLETE ════════════════════════════════════════════════════
+// The name appears ONCE, on a header, with the status line that explains why
+// this athlete is near the top. Nineteen flat rows repeating the name is a
+// list; this is a decision.
+function srRenderBatch() {
+  var body = document.getElementById('sr-batch-body');
+  var d = _srBatch;
+  if (!body || !d) return;
+  var groups = d.groups || [];
+  if (!groups.length) {
+    body.innerHTML = '<div class="sr-empty">' + hqEsc(d.note || 'Nothing ready tonight.') + '</div>';
+    return;
+  }
+
+  var live = 0;
+  var out = groups.map(function (g) {
+    var items = (g.items || []).filter(function (it) { return !_srSkipped[it.id]; });
+    if (!items.length) return '';
+    live += items.length;
+    var open = !!_srExpanded[g.athleteId];
+    var shown = open ? items : items.slice(0, _srPerAthlete);
+    var hidden = items.length - shown.length;
+
+    var rows = shown.map(function (it) { return srDraftRow(it); }).join('');
+    // ONE QUIET LINE, not a longer list. The page has to stay short whether an
+    // athlete has four pitches or forty.
+    var more = hidden > 0
+      ? '<button type="button" class="sr-more" onclick="srExpand(' + JSON.stringify(g.athleteId).replace(/"/g, '&quot;') + ')">'
+        + hidden + ' more for ' + hqEsc(firstName(g.name)) + '</button>'
+      : (open && items.length > _srPerAthlete
+        ? '<button type="button" class="sr-more" onclick="srExpand(' + JSON.stringify(g.athleteId).replace(/"/g, '&quot;') + ')">Show fewer</button>'
+        : '');
+
+    return '<div class="sr-ath">'
+      + '<div class="sr-ath-head">'
+        + '<span class="sr-ath-name">' + hqEsc(g.name || 'Athlete') + '</span>'
+        + '<span class="sr-ath-count">' + items.length + '</span>'
+        + (g.status ? '<span class="sr-ath-status">' + hqEsc(g.status) + '</span>' : '')
+      + '</div>'
+      + rows + more
+      + '</div>';
+  }).join('');
+
+  // THE HELD-BACK LINE. One line and a link, replacing a paragraph that named
+  // three businesses out of forty-five and trailed off.
+  var held = d.heldBack
+    ? '<div class="sr-held">' + hqEsc(d.heldBack.line)
+      + ' <a href="#" onclick="srShowHeld();return false;">See them</a></div>'
+    : '';
+
+  body.innerHTML = out
+    + held
+    + '<div class="hm-btns"><button class="hm-btn primary" id="sr-approve" onclick="srApprove()">'
+    + 'Approve ' + live + ' and schedule</button></div>'
+    + '<div class="sr-cap-sub">They go out Tuesday to Thursday, mid-morning where each business is. '
+    + 'You do not pick the time.</div>';
+}
+
+function firstName(n) { return String(n || '').trim().split(/\s+/)[0] || 'them'; }
+
+// ══ THE BUSINESS ROW ══════════════════════════════════════════════════════
+// Name, lane, checkbox. No "for [athlete]" -- the header carries it. Clicking
+// the row opens the message that is about to go out under the agent's name,
+// which is the thing they were approving unread.
+function srDraftRow(it) {
+  var open = _srOpenDraft === it.id;
+  var bits = [];
+  bits.push('<div class="sr-draft' + (open ? ' open' : '') + '" data-id="' + hqEsc(it.id) + '">');
+  bits.push('<div class="sr-draft-head">');
+  bits.push('<input type="checkbox" checked data-id="' + hqEsc(it.id) + '" onclick="event.stopPropagation()">');
+  bits.push('<button type="button" class="sr-draft-open" onclick="srToggleDraft(' + JSON.stringify(it.id).replace(/"/g, '&quot;') + ')">');
+  bits.push('<span class="sr-biz">' + hqEsc(it.brand) + '</span>');
+  bits.push('<span class="sr-lane">' + hqEsc(it.lane || 'Local') + '</span>');
+  if (it.touch > 1) bits.push('<span class="sr-touch">follow-up ' + hqEsc(it.touch) + '</span>');
+  bits.push('<span class="sr-caret">' + (open ? '&minus;' : '+') + '</span>');
+  bits.push('</button></div>');
+
+  if (open) {
+    bits.push('<div class="sr-draft-body">');
+    // WHO IT IS GOING TO, said plainly. "the general inbox" is a fact worth
+    // seeing before the message goes out, not after a reply comes back odd.
+    var to = it.to || {};
+    bits.push('<div class="sr-to"><b>To:</b> ' + hqEsc(to.name || 'the general inbox')
+      + (to.title ? ' &middot; ' + hqEsc(to.title) : '')
+      + (it.toEmail ? ' <span class="dimmed">' + hqEsc(it.toEmail) + '</span>' : '') + '</div>');
+    if (it.address) bits.push('<div class="sr-to dimmed">' + hqEsc(it.address) + '</div>');
+    if (it.subject) bits.push('<div class="sr-subj"><b>Subject:</b> ' + hqEsc(it.subject) + '</div>');
+
+    if (_srEditing === it.id) {
+      bits.push('<textarea class="sr-edit" id="sr-edit-' + hqEsc(it.id) + '">' + hqEsc(stripHtml(it.body)) + '</textarea>');
+      bits.push('<div class="hm-btns">');
+      bits.push('<button class="hm-btn primary" onclick="srSaveDraft(' + JSON.stringify(it.id).replace(/"/g, '&quot;') + ')">Save</button>');
+      bits.push('<button class="hm-btn ghost" onclick="srCancelEdit()">Cancel</button>');
+      bits.push('</div>');
+    } else {
+      // THE FULL MESSAGE, EXACTLY AS IT SENDS. Not a preview, not a first line.
+      bits.push('<div class="sr-msg">' + hqEsc(stripHtml(it.body)).replace(/\n/g, '<br>') + '</div>');
+      bits.push('<div class="hm-btns">');
+      bits.push('<button class="hm-btn ghost" onclick="srEditDraft(' + JSON.stringify(it.id).replace(/"/g, '&quot;') + ')">Edit</button>');
+      bits.push('<button class="hm-btn ghost" onclick="srSkipDraft(' + JSON.stringify(it.id).replace(/"/g, '&quot;') + ')">Skip this one</button>');
+      bits.push('</div>');
+    }
+    bits.push('</div>');
+  }
+  bits.push('</div>');
+  return bits.join('');
+}
+
+var _srEditing = null;
+
+// The body is stored as HTML; the agent edits and reads plain text.
+function stripHtml(h) {
+  return String(h || '')
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/\s*p\s*>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function srExpand(athleteId) {
+  _srExpanded[athleteId] = !_srExpanded[athleteId];
+  srRenderBatch();
+}
+
+function srToggleDraft(id) {
+  _srOpenDraft = _srOpenDraft === id ? null : id;
+  if (_srOpenDraft !== id) _srEditing = null;
+  srRenderBatch();
+}
+
+function srEditDraft(id) { _srEditing = id; srRenderBatch(); }
+function srCancelEdit() { _srEditing = null; srRenderBatch(); }
+
+// SAVES IN PLACE. No navigation, no modal, no losing the agent's position in a
+// list they are halfway through reading.
+async function srSaveDraft(id) {
+  var ta = document.getElementById('sr-edit-' + id);
+  if (!ta) return;
+  var text = ta.value;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/closer/draft/' + encodeURIComponent(id), {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: text }),
+    });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'could not save');
+    // Update in place so the row shows what was just saved.
+    (_srBatch.groups || []).forEach(function (g) {
+      (g.items || []).forEach(function (it) { if (it.id === id) it.body = d.body; });
+    });
+    _srEditing = null;
+    srRenderBatch();
+    if (typeof showToast === 'function') showToast('Saved');
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Could not save: ' + e.message);
+  }
+}
+
+async function srSkipDraft(id) {
+  try {
+    await fetch(API_BASE + '/api/agent/closer/draft/' + encodeURIComponent(id), {
+      method: 'PATCH', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skip: true }),
+    });
+  } catch (e) { /* the row is removed either way; the next load is the truth */ }
+  _srSkipped[id] = true;
+  if (_srOpenDraft === id) _srOpenDraft = null;
+  srRenderBatch();
+}
+
+function srShowHeld() {
+  var d = _srBatch;
+  if (!d || !d.dropped) return;
+  var body = document.getElementById('sr-batch-body');
+  var list = d.dropped.map(function (x) {
+    return '<div class="sr-held-row"><b>' + hqEsc(x.brand) + '</b> &middot; ' + hqEsc(x.why) + '</div>';
+  }).join('');
+  body.insertAdjacentHTML('beforeend',
+    '<div class="sr-held-list">' + list + '</div>');
 }
 
 async function srApprove() {
@@ -16603,9 +16833,14 @@ async function srApprove() {
   var body = document.getElementById('sr-batch-body');
   if (!btn || !_srBatch) return;
   var boxes = Array.prototype.slice.call(body.querySelectorAll('input[type=checkbox]'));
-  var ids = _srBatch.batch.map(function (b) { return b.id; });
-  var skip = boxes.filter(function (b) { return !b.checked; })
-                  .map(function (b) { return b.getAttribute('data-id'); });
+  // Every draft still on the page, including ones inside a collapsed "N more".
+  var ids = [];
+  (_srBatch.groups || []).forEach(function (g) {
+    (g.items || []).forEach(function (it) { if (!_srSkipped[it.id]) ids.push(it.id); });
+  });
+  var unchecked = boxes.filter(function (b) { return !b.checked; })
+                       .map(function (b) { return b.getAttribute('data-id'); });
+  var skip = unchecked.concat(Object.keys(_srSkipped));
   btn.disabled = true; btn.textContent = 'Scheduling…';
   try {
     var r = await fetch(API_BASE + '/api/agent/closer/approve', {

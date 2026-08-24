@@ -80,18 +80,37 @@ async function buildBatch(pool, agentId, opts = {}) {
   }
 
   const wanted = new Map(plan.picks.map((p) => [p.athleteId, p]));
+  // WHAT THE AGENT HAS TO BE ABLE TO READ. The old batch carried a subject and a
+  // brand name; an agent approved nineteen messages that went out under their own
+  // name having read none of them. The row now carries who it is going to, where
+  // they are, and the full body, so the page can show the message itself.
+  //
+  // lane and the contact name live on outreach_queue (the card the Scout built),
+  // the street address on company_enrichment. Both are LEFT JOINs on the brand
+  // name: a draft with no matching card still appears, just with less on it.
   const drafts = (await pool.query(
     `SELECT l.id, l.athlete_id, l.brand_name, l.brand_key, l.subject, l.body_html,
-            l.sent_to_email, l.angle, l.angle_key, l.category_key, l.touch_no,
-            l.created_at, l.edited_before_approval,
+            l.sent_to_email, l.email_kind, l.angle, l.angle_key, l.category_key,
+            l.touch_no, l.created_at, l.edited_before_approval,
             a.data->>'name' AS athlete_name,
-            e.location AS biz_address,
             a.data->>'school' AS school,
-            COALESCE(c.email, l.sent_to_email) AS to_email
+            COALESCE(c.email, l.sent_to_email) AS to_email,
+            q.lane, q.contact_name, q.contact_title,
+            COALESCE(e.location, p.evidence->>'address') AS biz_address
        FROM outreach_logs l
        JOIN athletes a ON a.id = l.athlete_id
-       LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
        LEFT JOIN brand_contacts c ON c.id = l.contact_id
+       LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
+       LEFT JOIN LATERAL (
+         SELECT lane, contact_name, contact_title FROM outreach_queue q2
+          WHERE q2.athlete_id = l.athlete_id AND LOWER(q2.brand_name) = LOWER(l.brand_name)
+          ORDER BY q2.created_at DESC LIMIT 1
+       ) q ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT evidence FROM brand_evidence_cache b
+          WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(l.brand_name)
+          ORDER BY b.refreshed_at DESC LIMIT 1
+       ) p ON TRUE
       WHERE l.agent_id = $1
         AND l.status = 'draft'
         AND l.approved_at IS NULL
@@ -131,13 +150,101 @@ async function buildBatch(pool, agentId, opts = {}) {
       brand: d.brand_name, toEmail: addr, subject: d.subject,
       body: d.body_html, angle: d.angle, touch: d.touch_no || 1,
       why: cap.reason, floor: !!cap.floor,
+      lane: laneLabel(d),
+      // WHO IT IS ACTUALLY GOING TO. A named contact when we have one, and the
+      // honest alternative when we do not -- "the general inbox" is a fact the
+      // agent should see before it goes out under their name, not after.
+      to: recipientOf(d),
+      address: d.biz_address || null,
     });
   }
 
+  // ── GROUPED BY ATHLETE, ORDERED BY URGENCY ───────────────────────────────
+  // Nineteen flat rows with the athlete name repeated on every one is a list,
+  // not a decision. The name belongs once, at the top of their businesses, with
+  // the status line that explains why they are near the top at all.
+  //
+  // The order is the allocator's, not a second opinion: plan.picks is already
+  // sorted by the same score the Closer allocates on, so a reply pending
+  // outranks quiet, which outranks the weekly floor.
+  const order = plan.picks.map((p) => p.athleteId);
+  const groups = [];
+  const byAthlete = new Map();
+  for (const item of batch) {
+    if (!byAthlete.has(item.athleteId)) {
+      const pick = wanted.get(item.athleteId) || {};
+      const g = {
+        athleteId: item.athleteId, name: item.athleteName,
+        // The status line is the allocator's own words for why this athlete
+        // scored where they did.
+        status: pick.reason || null,
+        floor: !!pick.floor, score: pick.score || 0,
+        items: [],
+      };
+      byAthlete.set(item.athleteId, g);
+      groups.push(g);
+    }
+    byAthlete.get(item.athleteId).items.push(item);
+  }
+  groups.sort((a, b) => order.indexOf(a.athleteId) - order.indexOf(b.athleteId));
+  for (const g of groups) g.count = g.items.length;
+
   return {
-    batch, dropped, plan, budget: guard, blocked: false,
+    batch, groups, dropped, plan, budget: guard, blocked: false,
+    // ONE LINE, NOT A PARAGRAPH. The page said "Old Mill Co, Kessler Auto and
+    // Hound & Co (that address bounced before)" and trailed off, which named
+    // three of forty-five and explained none of them.
+    heldBack: summariseDropped(dropped),
     note: batch.length ? null : 'no drafts are ready for the athletes allocated tonight',
   };
+}
+
+// local + the town, so "local" is never just a category. DTC and national have
+// no city by definition and must not be given one.
+function laneLabel(d) {
+  const lane = (d.lane || 'local').toLowerCase();
+  if (lane === 'social') return 'DTC';
+  if (lane === 'national') return 'National';
+  const city = cityOf(d.biz_address);
+  return city ? 'Local · ' + city : 'Local';
+}
+
+function cityOf(address) {
+  const s = String(address || '').trim();
+  if (!s) return null;
+  // "123 Main St, Auburn, AL 36830" -> "Auburn". Returns null rather than a
+  // guess when the shape is not one we recognise.
+  const m = s.match(/,\s*([^,]+?),\s*[A-Z]{2}\b/);
+  return m ? m[1].trim() : null;
+}
+
+function recipientOf(d) {
+  if (d.contact_name) {
+    return { name: d.contact_name, title: d.contact_title || null, kind: 'person' };
+  }
+  if (d.email_kind === 'corporate') {
+    return { name: 'the corporate inbox', title: null, kind: 'corporate' };
+  }
+  return { name: 'the general inbox', title: null, kind: 'inbox' };
+}
+
+// The held-back line. Counts by reason, leads with the biggest, and never names
+// individual businesses -- that is what the link is for.
+function summariseDropped(dropped) {
+  const list = dropped || [];
+  if (!list.length) return null;
+  const byWhy = {};
+  for (const d of list) byWhy[d.why] = (byWhy[d.why] || 0) + 1;
+  const top = Object.keys(byWhy).sort((a, b) => byWhy[b] - byWhy[a])[0];
+  const noAddress = list.filter((d) => /no email found/.test(d.why)).length;
+  if (noAddress) {
+    return {
+      count: noAddress, total: list.length,
+      line: `${noAddress} held back with no email address yet. They stay as DM or call cards.`,
+    };
+  }
+  return { count: byWhy[top], total: list.length,
+    line: `${byWhy[top]} held back: ${top}.` };
 }
 
 // ── The one decision ─────────────────────────────────────────────────────────
@@ -411,7 +518,7 @@ async function setAutoMode(pool, agentId, { scopeKind, scopeId, enabled }) {
 }
 
 module.exports = {
-  buildBatch, approveBatch, releaseDue, scheduleNextTouch, stop,
+  buildBatch, laneLabel, cityOf, recipientOf, summariseDropped, approveBatch, releaseDue, scheduleNextTouch, stop,
   autoModeProgress, autoModeFor, isAuto, setAutoMode, followUpSubject,
   CADENCE, MAX_TOUCHES, AUTO_MODE_THRESHOLD,
 };
