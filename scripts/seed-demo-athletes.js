@@ -11,24 +11,49 @@
 // moment a real value replaces a seeded one -- see services/seedMarker.
 //
 // Usage:
-//   DATABASE_URL=... node scripts/seed-demo-athletes.js                 # dry run
-//   DATABASE_URL=... node scripts/seed-demo-athletes.js --write         # do it
-//   DATABASE_URL=... node scripts/seed-demo-athletes.js --list          # what is seeded
-//   DATABASE_URL=... node scripts/seed-demo-athletes.js --unseed --write # remove it all
+//   DATABASE_URL=... node scripts/seed-demo-athletes.js --agent <id>
+//   DATABASE_URL=... node scripts/seed-demo-athletes.js --agent <id> --write --expect-email you@example.com
+//   DATABASE_URL=... node scripts/seed-demo-athletes.js --agent <id> --list
+//   DATABASE_URL=... node scripts/seed-demo-athletes.js --audit            # every roster, counts only
+//   DATABASE_URL=... node scripts/seed-demo-athletes.js --agent <id> --unseed --write --expect-email ...
 //
-//   --agent <id>   restrict to one agent's roster (default: every athlete)
-//   --force        overwrite values that are NOT marked as seeded
+//   --agent <id>          REQUIRED. Whose roster. There is no default.
+//   --expect-email <addr> REQUIRED with --write. Must match the agent id's own
+//                         email, so a mistyped id fails instead of seeding a
+//                         stranger.
+//   --force               overwrite values that are NOT marked as seeded
 //
-// THREE SAFETY RULES, because this writes to a live database:
+// SCOPING, BECAUSE THIS DATABASE HAS REAL CUSTOMERS ON IT.
+//
+// This script used to default to EVERY athlete when --agent was omitted. On a
+// database with a paying customer's roster in it, one forgotten flag would have
+// written fabricated birthdays and follower counts over real athletes. That
+// default is gone. There is no "the first agent", no "the only admin", no
+// inferred owner: an explicit id or it refuses to start.
+//
+// Four things stand between a typo and someone else's data:
+//   1. --agent is REQUIRED. No flag, no run.
+//   2. The id must resolve to a real user, and the script prints WHO -- name,
+//      email, roster size -- before it shows a plan or writes anything.
+//   3. --write additionally requires --expect-email to match that user's own
+//      address. A mistyped id now has to be mistyped consistently in two places
+//      to do damage, and an id belonging to someone else fails on the mismatch.
+//   4. Every statement binds agent_id as a parameter. The seed and unseed paths
+//      have no code path that reaches a row outside the named roster.
+//
+// --audit reads every agent and reports COUNTS ONLY -- how many athletes on each
+// roster carry fabricated values, no names and no numbers. That is the check for
+// "has any demo data reached a real customer", and it answers it without opening
+// anybody's roster.
+//
+// THREE SAFETY RULES for the write itself:
 //   1. DRY RUN BY DEFAULT. It prints every change and writes nothing without
 //      --write.
 //   2. IT NEVER OVERWRITES A REAL VALUE. A field that already holds a value not
 //      marked as seeded is left alone and reported as skipped. --force overrides,
-//      and says loudly that it is doing so. This is the rule that stops a demo
-//      seeder destroying an athlete's actual birthday.
+//      and says loudly that it is doing so.
 //   3. IT IS DETERMINISTIC. Values derive from the athlete's id, so re-running
-//      produces identical output and a second run is a no-op rather than a
-//      reshuffle.
+//      produces identical output and a second run is a no-op.
 
 'use strict';
 
@@ -47,6 +72,8 @@ const FORCE = has('force');
 const LIST = has('list');
 const UNSEED = has('unseed');
 const AGENT = val('agent', null);
+const EXPECT_EMAIL = val('expect-email', null);
+const AUDIT = has('audit');
 const BY = 'scripts/seed-demo-athletes.js';
 
 // ── Deterministic values from the athlete id ────────────────────────────────
@@ -129,19 +156,110 @@ async function main() {
   const store = require(path.join(__dirname, '..', 'server', 'store'));
   await new Promise((r) => setTimeout(r, 2500));   // init() is fire-and-forget
 
-  const where = AGENT ? 'WHERE agent_id = $1' : '';
-  const params = AGENT ? [AGENT] : [];
+  // ── --audit: every roster, counts only ────────────────────────────────────
+  // The one command that reads across accounts, and it reads no athlete names
+  // and no values. It exists to answer "has any fabricated data reached a real
+  // customer", which is a question you cannot answer by looking at your own
+  // roster.
+  if (AUDIT) {
+    const rowsA = (await store.pool.query(
+      `SELECT a.agent_id, COALESCE(u.name,'(unknown)') AS agent_name, u.email,
+              COUNT(*)::int AS athletes,
+              COUNT(*) FILTER (WHERE a.data ? '${SEED.KEY}')::int AS seeded
+         FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
+        GROUP BY a.agent_id, u.name, u.email
+        ORDER BY seeded DESC, athletes DESC`)).rows;
+    console.log('\nSEEDED DATA ACROSS EVERY ROSTER  (counts only, no names, no values)');
+    console.log('='.repeat(78));
+    console.log('AGENT'.padEnd(26) + 'EMAIL'.padEnd(30) + 'ATHLETES'.padEnd(10) + 'SEEDED');
+    console.log('-'.repeat(78));
+    for (const r of rowsA) {
+      console.log(String(r.agent_name).slice(0, 25).padEnd(26)
+        + String(r.email || '—').slice(0, 29).padEnd(30)
+        + String(r.athletes).padEnd(10)
+        + (r.seeded ? String(r.seeded) + '  <-- FABRICATED' : '0'));
+    }
+    const dirty = rowsA.filter((r) => r.seeded > 0);
+    console.log('-'.repeat(78));
+    console.log(dirty.length
+      ? dirty.length + ' roster(s) carry fabricated values: '
+        + dirty.map((r) => r.agent_name + ' (' + r.seeded + ')').join(', ')
+      : 'No fabricated values anywhere on this database.');
+    await store.pool.end(); return;
+  }
+
+  // ── --agent IS REQUIRED. There is no default and no inference. ────────────
+  if (!AGENT) {
+    console.error('--agent <id> is required. This script has no default roster.');
+    console.error('');
+    console.error('It used to fall back to EVERY athlete on the database, which on a');
+    console.error('database with real customers means one forgotten flag writes fabricated');
+    console.error('birthdays over somebody\'s actual roster. Name the agent explicitly.');
+    console.error('');
+    console.error('  node scripts/seed-demo-athletes.js --agent <id>');
+    console.error('  node scripts/seed-demo-athletes.js --audit     # who has seeded data');
+    process.exit(2);
+  }
+
+  // The id must be a real user, and we say who before doing anything at all.
+  const who = (await store.pool.query(
+    `SELECT id, name, email, role FROM users WHERE id = $1`, [AGENT])).rows[0];
+  if (!who) {
+    console.error('No user with id "' + AGENT + '".');
+    console.error('Nothing was read and nothing was written. Check the id and try again.');
+    console.error('A mistyped id fails here rather than resolving to somebody else.');
+    await store.pool.end();
+    process.exit(2);
+  }
+
+  // ── --write must name the account in TWO ways that agree ──────────────────
+  // A typo in the id can land on a real customer. Requiring the email as well
+  // means it would have to be mistyped consistently in two places, and an id
+  // belonging to someone else fails on the mismatch rather than seeding them.
+  if (WRITE) {
+    if (!EXPECT_EMAIL) {
+      console.error('--write requires --expect-email <address>, matching the agent id above.');
+      console.error('');
+      console.error('  agent    ' + who.name + '  (' + who.id + ')');
+      console.error('  email    ' + who.email);
+      console.error('');
+      console.error('Re-run with --expect-email ' + who.email + ' if that is the right roster.');
+      await store.pool.end();
+      process.exit(2);
+    }
+    if (String(EXPECT_EMAIL).trim().toLowerCase() !== String(who.email || '').trim().toLowerCase()) {
+      console.error('REFUSING TO WRITE: the agent id and the expected email do not match.');
+      console.error('');
+      console.error('  --agent ' + AGENT + '  belongs to  ' + who.name + '  <' + who.email + '>');
+      console.error('  --expect-email ' + EXPECT_EMAIL);
+      console.error('');
+      console.error('This is the check that stops a mistyped id writing to the wrong roster.');
+      await store.pool.end();
+      process.exit(2);
+    }
+  }
+
   const rows = (await store.pool.query(
-    `SELECT id, agent_id, data FROM athletes ${where} ORDER BY created_at ASC`, params)).rows;
+    `SELECT id, agent_id, data FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`,
+    [AGENT])).rows;
+
+  // WHOSE ROSTER, stated before the plan and before any write, every time.
+  console.log('');
+  console.log('ROSTER');
+  console.log('  agent     ' + who.name + '  (' + who.id + ')');
+  console.log('  email     ' + who.email);
+  console.log('  athletes  ' + rows.length);
+  console.log('  scope     this roster only. Every statement below binds agent_id = ' + JSON.stringify(AGENT) + '.');
 
   if (!rows.length) {
-    console.log('No athletes found' + (AGENT ? ' for agent ' + AGENT : '') + '.');
+    console.log('\nNo athletes on this roster. Nothing to do.');
     await store.pool.end(); return;
   }
 
   // ── --list ────────────────────────────────────────────────────────────────
   if (LIST) {
-    console.log('\nSEEDED VALUES ON THE ROSTER');
+    console.log('\nSEEDED VALUES ON ' + String(who.name).toUpperCase() + "'S ROSTER");
+    console.log('  ' + who.email + '   (' + who.id + ')');
     console.log('='.repeat(78));
     let any = 0;
     for (const r of rows) {
@@ -155,6 +273,7 @@ async function main() {
     }
     console.log('\n' + any + ' of ' + rows.length + ' athlete(s) still carry fabricated values.');
     console.log('A field stops being listed here the moment a real value replaces it.');
+    console.log('This is ONE roster. For every roster on the database, run --audit.');
     await store.pool.end(); return;
   }
 
@@ -173,8 +292,11 @@ async function main() {
         // values behind unmarked is precisely the outcome this whole file exists
         // to prevent.
         await store.pool.query(
-          `UPDATE athletes SET data = (data - $2::text[]) - '${SEED.KEY}', updated_at = NOW() WHERE id = $1`,
-          [r.id, f]);
+          // agent_id bound as well as the row id: belt and braces, so even a bug
+          // in row selection above cannot reach a row outside this roster.
+          `UPDATE athletes SET data = (data - $2::text[]) - '${SEED.KEY}', updated_at = NOW()
+            WHERE id = $1 AND agent_id = $3`,
+          [r.id, f, AGENT]);
       }
     }
     console.log('\n' + n + ' athlete(s) ' + (WRITE ? 'cleared.' : 'would be cleared. Re-run with --write.'));
@@ -252,8 +374,11 @@ async function main() {
     const marker = SEED.stamp(p.row.data, Object.keys(p.write), { by: BY, at: now.toISOString() });
     const patch = Object.assign({}, p.write, { [SEED.KEY]: marker });
     await store.pool.query(
-      `UPDATE athletes SET data = data || $2::jsonb, updated_at = NOW() WHERE id = $1`,
-      [p.row.id, JSON.stringify(patch)]);
+      // Same here: the roster is named in the statement itself, not only in the
+      // query that produced the row.
+      `UPDATE athletes SET data = data || $2::jsonb, updated_at = NOW()
+        WHERE id = $1 AND agent_id = $3`,
+      [p.row.id, JSON.stringify(patch), AGENT]);
   }
 
   console.log('-'.repeat(78));
