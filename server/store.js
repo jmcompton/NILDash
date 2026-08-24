@@ -1670,6 +1670,48 @@ async function init() {
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_compliance_holds_open
     ON compliance_holds (outreach_log_id, rule_key) WHERE resolved_at IS NULL`).catch(() => {});
 
+  // ── State category rules ─────────────────────────────────────────────────
+  // The structured table nilStateRules.js should have been. That file is a
+  // REFERENCE DOCUMENT -- prose summaries of agent registration and statute
+  // framing, 45 of its 51 entries hedged with "verify the current rule" -- and it
+  // contains no category restrictions at all. Reading rules out of it would be
+  // inventing them.
+  //
+  // THIS TABLE SHIPS EMPTY, ON PURPOSE. Nothing in this codebase populates it and
+  // nothing should: every row needs a citation to an actual statute or state
+  // association rule, entered by someone qualified to read one. A model must
+  // never write here.
+  //
+  // Until a row exists for a (state, category), the gate holds. An empty table
+  // therefore changes nothing about today's behaviour -- which is the point. It
+  // can only ever make the gate MORE precise, never more permissive by default.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS state_category_rules (
+      id            SERIAL PRIMARY KEY,
+      state_code    TEXT NOT NULL,
+      category      TEXT NOT NULL,
+      -- What the rule says for each, independently. 'block' and 'hold' carry the
+      -- same meaning as the gate's severities; 'allow' means the state imposes
+      -- no restriction, which is a real finding and not the same as no row.
+      minor_rule    TEXT NOT NULL CHECK (minor_rule IN ('block','hold','allow')),
+      adult_rule    TEXT NOT NULL CHECK (adult_rule IN ('block','hold','allow')),
+      -- NOT NULL, with no default. A row without a citation is an opinion, and
+      -- the schema refuses to store one.
+      citation      TEXT NOT NULL,
+      note          TEXT,
+      date_checked  DATE NOT NULL,
+      confidence    TEXT NOT NULL DEFAULT 'verify' CHECK (confidence IN ('confident','verify')),
+      entered_by    TEXT,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (state_code, category)
+    )`).then(() => console.log('[init] state_category_rules table ready'))
+    .catch((e) => console.error('[init] state_category_rules:', e.message));
+  // A citation of whitespace is not a citation.
+  await pool.query(`ALTER TABLE state_category_rules
+    ADD CONSTRAINT state_category_rules_citation_not_blank CHECK (LENGTH(TRIM(citation)) >= 8)`)
+    .catch(() => {});   // already present
+
   // One row per market, recording the last time its radius was widened. In the
   // DATABASE and not in memory because the nightly job is a separate process
   // from the web server: an in-process guard would give each its own allowance

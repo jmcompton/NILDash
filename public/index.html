@@ -1072,6 +1072,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .sr-needs-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--text)}
 .sr-count{font-size:10px;font-weight:700;color:#84CC16;background:rgba(132,204,22,.12);
   border:1px solid rgba(132,204,22,.28);border-radius:20px;padding:1px 8px}
+.sr-dob-note{padding:11px 15px;font-size:12px;color:var(--muted);line-height:1.5;border-bottom:.5px solid #16202c}
+.sr-dob-note b{color:#dbe4f0;font-weight:600}
+.sr-dob-rows{max-height:340px;overflow-y:auto}
+.sr-dob-row{display:flex;align-items:center;gap:12px;padding:9px 15px;border-bottom:.5px solid #16202c}
+.sr-dob-who{flex:1;min-width:0;font-size:13px;line-height:1.35}
+.sr-dob-who span{display:block;font-size:11px;color:var(--muted)}
+.sr-dob-who em{font-style:normal;font-size:11px;color:#fbbf24}
+.sr-dob-input{flex:none;width:150px;padding:6px 8px;background:var(--surface2);border:1px solid var(--border2);
+  border-radius:7px;color:var(--text);font-size:12px;font-family:inherit}
+.sr-dob-foot{display:flex;align-items:center;gap:12px;padding:12px 15px}
+.sr-dob-foot span{font-size:12px;color:var(--muted)}
+@media (max-width:520px){.sr-dob-row{flex-wrap:wrap}.sr-dob-input{width:100%}}
+.cat-toggles{display:flex;flex-wrap:wrap;gap:6px}
+.cat-toggle{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border2);
+  border-radius:20px;font-size:11px;color:var(--muted);cursor:pointer;user-select:none;background:var(--surface2)}
+.cat-toggle input{margin:0;accent-color:#f87171;cursor:pointer}
+.cat-toggle.on{border-color:#f87171;color:#f87171;background:rgba(248,113,113,.08)}
 .sr-item{display:flex;align-items:center;gap:12px;padding:12px 15px;border-bottom:.5px solid #16202c}
 .sr-item:last-child{border-bottom:none}
 .sr-item-line{flex:1;min-width:0;font-size:13px;color:var(--text);line-height:1.4}
@@ -1962,7 +1979,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <!-- ══ THE ONE DECISION ══ Tonight's email batch. Approve all, or
              uncheck a few and approve the rest. There is no per-message send
              button anywhere: forty clicks a night is data entry, not review. -->
-        <div id="sr-closer"></div>
+        <div id="sr-dobgap"></div>
+      <div id="sr-closer"></div>
 
         <!-- ══ 3. MOVING ══ Two figures: earned, and in flight. -->
         <div id="sr-moving"></div>
@@ -3364,6 +3382,28 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <label class="form-label-sm">Hometown</label>
             <input class="input-sm" id="a_hometown" placeholder="e.g. Johns Creek, GA">
             <div style="font-size:10px;color:var(--muted);margin-top:2px">Deal Scan also searches the hometown market when this is set.</div>
+          </div>
+          <!-- DATE OF BIRTH. The compliance gate cannot rule out that an athlete
+               is a minor without this, so a restricted-category business is HELD.
+               Blank stays blank: an agent who does not know must not be nudged
+               into guessing, because a wrong date resolves minor status wrongly
+               and a blank one is already safe. -->
+          <div class="form-group-sm">
+            <label class="form-label-sm">Date of birth <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+            <input class="input-sm" id="a_dob" type="date">
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">Without it, pitches to alcohol, tobacco, cannabis, gambling and firearms businesses are held. Leave blank if you do not know.</div>
+          </div>
+
+          <!-- SCHOOL RESTRICTIONS, AGENT-SUPPLIED. We hold no school policy data
+               and are not going to scrape it from behind a student login. The
+               agent often knows. Every label on this block says who said so. -->
+          <div class="form-group-sm">
+            <label class="form-label-sm">Categories this school restricts</label>
+            <div style="font-size:10px;color:var(--muted);margin-bottom:6px">
+              What <b>you</b> know of their policy. We do not check this with the school and never say we have.
+              Anything ticked here blocks outreach to that category for this athlete.
+            </div>
+            <div id="a_school_restrictions" class="cat-toggles"></div>
           </div>
           <div class="form-group-sm">
             <label class="form-label-sm">Interests</label>
@@ -6185,6 +6225,8 @@ async function editAthlete(id) {
   const aLegalEl = document.getElementById('a_legal_name'); if (aLegalEl) aLegalEl.value = a.legal_name || '';
   const aEmailEl = document.getElementById('a_email'); if (aEmailEl) aEmailEl.value = a.email || '';
   const aPEmailEl = document.getElementById('a_parent_email'); if (aPEmailEl) aPEmailEl.value = a.parentEmail || '';
+  const aDobEl = document.getElementById('a_dob'); if (aDobEl) aDobEl.value = a.dob || '';
+  renderCatToggles('a_school_restrictions', a.schoolRestrictions || []);
   document.getElementById('a_tier').value = a.schoolTier || 'p4-mid';
   document.getElementById('a_ig').value = a.instagram || '';
   document.getElementById('a_tt').value = a.tiktok || '';
@@ -6217,6 +6259,31 @@ async function editAthlete(id) {
   showToast('Editing ' + a.name + ' — make changes and click Update');
 }
 
+// ── School restriction toggles ───────────────────────────────────────────────
+// The seven categories the compliance gate already knows, and nothing else. A
+// toggle here means "the agent says their school restricts this", which the gate
+// treats as a block and records as agent-supplied. It is never presented as
+// something we verified.
+var CAT_TOGGLES = [
+  ['alcohol', 'Alcohol'], ['tobacco', 'Tobacco / vaping'], ['cannabis', 'Cannabis / CBD'],
+  ['gambling', 'Gambling / betting'], ['firearms', 'Firearms'],
+  ['adult', 'Adult entertainment'], ['supplements', 'Supplements'],
+];
+function renderCatToggles(elId, selected) {
+  var el = document.getElementById(elId); if (!el) return;
+  var set = {}; (selected || []).forEach(function (k) { set[k] = true; });
+  el.innerHTML = CAT_TOGGLES.map(function (c) {
+    return '<label class="cat-toggle' + (set[c[0]] ? ' on' : '') + '">'
+      + '<input type="checkbox" value="' + c[0] + '"' + (set[c[0]] ? ' checked' : '')
+      + ' onchange="this.parentNode.classList.toggle(\'on\', this.checked)">'
+      + hqEsc(c[1]) + '</label>';
+  }).join('');
+}
+function catTogglesValue(elId) {
+  var el = document.getElementById(elId); if (!el) return [];
+  return Array.prototype.slice.call(el.querySelectorAll('input:checked')).map(function (i) { return i.value; });
+}
+
 async function updateAthlete(id) {
   const name = document.getElementById('a_name').value.trim();
   if (!name) return;
@@ -6237,6 +6304,8 @@ async function updateAthlete(id) {
     stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
     transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
     hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
+    dob: (document.getElementById('a_dob') ? document.getElementById('a_dob').value : '').trim(),
+    schoolRestrictions: catTogglesValue('a_school_restrictions'),
     tags: tagPickerValue('a_tags'),
     productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
     instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
@@ -6287,6 +6356,8 @@ async function addAthlete() {
         transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
         gpa: document.getElementById('a_gpa') ? document.getElementById('a_gpa').value : '',
         hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
+        dob: (document.getElementById('a_dob') ? document.getElementById('a_dob').value : '').trim(),
+        schoolRestrictions: catTogglesValue('a_school_restrictions'),
         tags: tagPickerValue('a_tags'),
         productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
         instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
@@ -6307,8 +6378,9 @@ async function addAthlete() {
     document.getElementById('kpi-clients').textContent = athletes.length;
     renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
-    ['a_name','a_legal_name','a_pos','a_school','a_email','a_parent_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    ['a_name','a_legal_name','a_pos','a_school','a_email','a_parent_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants','a_dob'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     renderTagPicker('a_tags', []);
+    renderCatToggles('a_school_restrictions', []);
     _statFetchedSource = null;
     const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = '';
     const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = '';
@@ -16570,6 +16642,7 @@ async function loadAgentHomeV2() {
   srRenderSentence(d, sEl);
   srRenderNeeds(d, nEl);
   srRenderCloser(d, document.getElementById('sr-closer'));
+  srRenderDobGap(document.getElementById('sr-dobgap'));
   srRenderMoving(d, mEl);
   // The CTA still owns the truly-empty case (no clients at all).
   try { renderHomeClientCta(); } catch (e) {}
@@ -16909,6 +16982,72 @@ function srRenderSentence(d, el) {
     + (d.added && d.added.line
       ? '<div class="sr-sub">' + hmEsc(d.added.line) + '</div>' : '')
     + '</div>';
+}
+
+// ── The date-of-birth gap ────────────────────────────────────────────────────
+// Every athlete starts unknown, and unknown HOLDS every restricted-category
+// pitch. This is the one screen where that is fixable in bulk: a row per athlete
+// with a date field, ordered by how many pitches each one is currently holding,
+// so the first row filled in unblocks the most work.
+//
+// A BLANK IS A VALID ANSWER. There is no "unknown" default and no skip-all: an
+// agent who does not know leaves it empty and that athlete keeps holding, which
+// is correct. Nothing here can make a blank read as an adult.
+var _dobGap = null;
+async function srRenderDobGap(el) {
+  if (!el) return;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/compliance/missing-dob', { credentials: 'include' });
+    if (!r.ok) { el.innerHTML = ''; return; }
+    _dobGap = await r.json();
+  } catch (e) { el.innerHTML = ''; return; }
+  var rows = (_dobGap && _dobGap.missing) || [];
+  if (!rows.length) { el.innerHTML = ''; return; }
+  var held = rows.reduce(function (n, a) { return n + (Number(a.held_on_age) || 0); }, 0);
+  el.innerHTML = '<div class="sr-needs-card" style="margin-top:14px">'
+    + '<div class="sr-needs-head"><span class="sr-needs-title">Dates of birth</span>'
+    + '<span class="sr-count">' + rows.length + '</span></div>'
+    + '<div class="sr-dob-note">'
+    + hqEsc(rows.length) + ' of ' + hqEsc(_dobGap.total) + ' athletes have no date of birth. '
+    + 'Without one we cannot rule out that they are under 18, so pitches to alcohol, tobacco, '
+    + 'cannabis, gambling and firearms businesses are held'
+    + (held ? ' — ' + hqEsc(held) + ' right now.' : '.')
+    + ' <b>Leave blank if you do not know.</b> A blank keeps holding; it never counts as an adult.'
+    + '</div>'
+    + '<div class="sr-dob-rows">' + rows.map(function (a, i) {
+      return '<div class="sr-dob-row">'
+        + '<div class="sr-dob-who"><b>' + hqEsc(a.name) + '</b>'
+        + (a.school ? '<span>' + hqEsc(a.school) + '</span>' : '')
+        + (Number(a.held_on_age) ? '<em>' + hqEsc(a.held_on_age) + ' held</em>' : '')
+        + '</div>'
+        + '<input type="date" class="sr-dob-input" data-athlete="' + hqEsc(a.id) + '">'
+        + '</div>';
+    }).join('') + '</div>'
+    + '<div class="sr-dob-foot"><button class="sr-btn" onclick="srSaveDobs()">Save dates</button>'
+    + '<span id="sr-dob-status"></span></div></div>';
+}
+
+async function srSaveDobs() {
+  var inputs = Array.prototype.slice.call(document.querySelectorAll('.sr-dob-input'));
+  var rows = inputs.filter(function (i) { return i.value; })
+    .map(function (i) { return { athleteId: i.getAttribute('data-athlete'), dob: i.value }; });
+  var st = document.getElementById('sr-dob-status');
+  if (!rows.length) { if (st) st.textContent = 'Nothing filled in.'; return; }
+  if (st) st.textContent = 'Saving...';
+  try {
+    var r = await fetch(API_BASE + '/api/agent/compliance/dob', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: rows })
+    });
+    var j = await r.json();
+    if (!r.ok) { if (st) st.textContent = j.error || 'Save failed'; return; }
+    // PARTIAL SUCCESS IS SHOWN. A date that did not parse must not look saved.
+    if (st) {
+      st.textContent = j.saved + ' saved'
+        + (j.skipped && j.skipped.length ? ', ' + j.skipped.length + ' could not be read' : '') + '.';
+    }
+    srRenderDobGap(document.getElementById('sr-dobgap'));
+  } catch (e) { if (st) st.textContent = 'Save failed: ' + e.message; }
 }
 
 function srRenderMoving(d, el) {

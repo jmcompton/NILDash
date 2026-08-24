@@ -1334,6 +1334,15 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
 // else is stored as '' -- NOT as a guess and not as today. The compliance gate
 // treats '' as unknown and holds restricted categories on it, so an honest blank
 // is safe and a wrong date is not.
+// Only the seven keys the compliance gate has rules for. Anything else is
+// dropped rather than stored: an unrecognised key would sit in the record
+// looking like a restriction while matching no category the gate can see.
+function _validRestrictions(v) {
+  if (!Array.isArray(v)) return [];
+  const known = new Set(require('./services/compliance').CATEGORIES.map((c) => c.key));
+  return v.map((x) => String(x || '').trim().toLowerCase()).filter((x) => known.has(x));
+}
+
 function _validDob(v) {
   if (!v) return '';
   const s = String(v).trim();
@@ -1349,7 +1358,8 @@ function _validDob(v) {
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa,
-          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name, dob } = req.body;
+          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name, dob,
+          schoolRestrictions } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
 
   // ── Seat limit check ─────────────────────────────────────────
@@ -1419,6 +1429,11 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     // gate already handles. Empty means not on file, which HOLDS restricted
     // categories rather than assuming an adult.
     dob: _validDob(dob),
+    // AGENT-SUPPLIED SCHOOL RESTRICTIONS. Filtered to the categories the gate
+    // actually knows, so a typo cannot create a rule that blocks everything and
+    // matches nothing. This is what the agent says their school restricts; it is
+    // never checked with the school and the record says so wherever it appears.
+    schoolRestrictions: _validRestrictions(schoolRestrictions),
     // Interest tags ("industry:sub" strings) and product wants feed Deal Scan.
     tags: Array.isArray(tags) ? tags.filter(t => typeof t === 'string').slice(0, 40) : [],
     productWants: (productWants ? String(productWants).trim().slice(0, 300) : ''),
@@ -1527,6 +1542,7 @@ app.put('/api/athletes/:id', requireAuth, async (req, res) => {
   // straight through here and the compliance gate would resolve minor status
   // from it -- an unvalidated date is worse than none, because none holds.
   if ('dob' in patch) patch.dob = _validDob(patch.dob);
+  if ('schoolRestrictions' in patch) patch.schoolRestrictions = _validRestrictions(patch.schoolRestrictions);
   const updated = await store.saveAthlete(req.params.id, { ...existing, ...patch });
   res.json(updated);
 });
@@ -1895,6 +1911,61 @@ app.get('/api/agent/compliance', requireAuth, async (req, res) => {
     });
   } catch (e) {
     console.error('[compliance/list]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/agent/compliance/missing-dob — the backfill worklist.
+// Every athlete without a date of birth, with the count of pitches currently
+// held on the unknown, so the list is ordered by what it would actually unblock
+// rather than alphabetically.
+app.get('/api/agent/compliance/missing-dob', requireAuth, async (req, res) => {
+  try {
+    const r = await store.pool.query(
+      `SELECT a.id, COALESCE(a.data->>'name','(no name)') AS name,
+              COALESCE(a.data->>'school','') AS school,
+              COALESCE(a.data->>'dob','') AS dob,
+              (SELECT COUNT(*)::int FROM compliance_holds h
+                WHERE h.athlete_id = a.id AND h.resolved_at IS NULL
+                  AND h.facts->'age'->>'known' = 'false') AS held_on_age
+         FROM athletes a
+        WHERE a.agent_id = $1 AND COALESCE(NULLIF(a.data->>'dob',''), NULL) IS NULL
+        ORDER BY held_on_age DESC, name ASC`, [req.session.userId]);
+    const total = (await store.pool.query(
+      `SELECT COUNT(*)::int n FROM athletes WHERE agent_id = $1`, [req.session.userId])).rows[0].n;
+    res.json({ missing: r.rows, total, withDob: total - r.rows.length });
+  } catch (e) {
+    console.error('[compliance/missing-dob]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/agent/compliance/dob — save many at once.
+// PARTIAL SUCCESS IS REPORTED, NOT SWALLOWED. An agent filling in twelve rows
+// needs to know which one did not take, and a blank is a legitimate answer that
+// clears nothing and holds nothing differently.
+app.post('/api/agent/compliance/dob', requireAuth, async (req, res) => {
+  try {
+    const rows = Array.isArray((req.body || {}).rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'Nothing to save.' });
+    const saved = [], skipped = [];
+    for (const row of rows.slice(0, 200)) {
+      const dob = _validDob(row && row.dob);
+      // A value that was typed but did not parse is REPORTED. Silently storing
+      // '' would look identical to leaving it blank, and the agent would think
+      // they had filled it in.
+      if (!dob) {
+        if (row && String(row.dob || '').trim()) skipped.push({ id: row.athleteId, why: 'not a valid date' });
+        continue;
+      }
+      const a = await store.getAthlete(row.athleteId);
+      if (!a || a.agentId !== req.session.userId) { skipped.push({ id: row.athleteId, why: 'not your athlete' }); continue; }
+      await store.saveAthlete(row.athleteId, { ...a, dob });
+      saved.push(row.athleteId);
+    }
+    res.json({ ok: true, saved: saved.length, skipped });
+  } catch (e) {
+    console.error('[compliance/dob]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -10133,6 +10204,154 @@ app.post('/api/admin/retire-stale-queue', requireAuth, async (req, res) => {
 //
 // Read-only. It answers "is the bar wrong or is the pool junk" from stored rows,
 // which is the question that has to be settled before either is changed.
+// ── /admin/state-rules ───────────────────────────────────────────────────────
+// Review and edit state_category_rules. This is the ONLY way rows get into that
+// table: nothing in the codebase writes it, no job populates it, and no model
+// touches it. Every row needs a citation and the form will not submit without
+// one, because a rule without a source is an opinion.
+app.get('/admin/state-rules', async (req, res) => {
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  try {
+    const compliance = require('./services/compliance');
+    const { NIL_STATE_RULES } = require('./nilStateRules');
+    const rows = (await store.pool.query(
+      `SELECT * FROM state_category_rules ORDER BY state_code, category`)).rows;
+    const states = Object.keys(NIL_STATE_RULES).sort();
+    const cats = compliance.CATEGORIES.map((c) => c.key);
+
+    const opt = (list, sel) => list.map((v) =>
+      `<option value="${esc(v)}"${v === sel ? ' selected' : ''}>${esc(v)}</option>`).join('');
+
+    const body = rows.length ? rows.map((r) => `<tr>
+      <td><b>${esc(r.state_code)}</b></td><td>${esc(r.category)}</td>
+      <td class="${r.minor_rule}">${esc(r.minor_rule)}</td>
+      <td class="${r.adult_rule}">${esc(r.adult_rule)}</td>
+      <td class="cite">${esc(r.citation)}</td>
+      <td>${esc(String(r.date_checked).slice(0, 10))}</td>
+      <td class="${r.confidence}">${esc(r.confidence)}</td>
+      <td><button onclick="del(${r.id})">delete</button></td></tr>`).join('')
+      : `<tr><td colspan="8" class="empty">
+          <b>No rows. This is the intended state.</b><br>
+          Until a row exists for a state and a category, the gate holds on that category —
+          exactly as it does now. An empty table cannot let anything through.<br>
+          Every row needs a citation to a statute or a state association rule. Do not fill
+          this in from memory or from a model.
+        </td></tr>`;
+
+    res.set('Content-Type', 'text/html').send(`<!doctype html><meta charset="utf-8">
+<title>State category rules</title>
+<style>
+body{font:14px/1.5 -apple-system,Arial,sans-serif;margin:0;padding:26px;background:#0b0f14;color:#dbe4f0}
+h1{font-size:19px;margin:0 0 4px} .sub{color:#8296b0;margin-bottom:20px;max-width:760px}
+table{border-collapse:collapse;width:100%;margin-bottom:26px;font-size:13px}
+th,td{border:1px solid #1d2735;padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#141c26;color:#8296b0;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.block{color:#f87171;font-weight:600}.hold{color:#fbbf24;font-weight:600}.allow{color:#84cc16;font-weight:600}
+.verify{color:#fbbf24}.confident{color:#84cc16}
+.cite{max-width:340px;font-size:12px;color:#a9bcd4}
+.empty{color:#8296b0;text-align:center;padding:26px;line-height:1.7}
+.empty b{color:#84cc16}
+form{background:#111823;border:1px solid #1d2735;border-radius:10px;padding:16px;max-width:760px}
+label{display:block;font-size:11px;color:#8296b0;margin:10px 0 3px;text-transform:uppercase;letter-spacing:.04em}
+input,select,textarea{width:100%;padding:8px;background:#0b0f14;border:1px solid #24303f;color:#dbe4f0;
+  border-radius:6px;font:13px -apple-system,Arial,sans-serif;box-sizing:border-box}
+button{background:#84cc16;color:#0b0f0a;border:none;padding:9px 15px;border-radius:7px;font-weight:600;
+  cursor:pointer;margin-top:14px}
+.warn{background:#1c1410;border:1px solid #4a3520;color:#fbbf24;padding:11px 13px;border-radius:8px;
+  margin-bottom:18px;font-size:13px;max-width:760px}
+.row{display:flex;gap:12px}.row>div{flex:1}
+</style>
+<h1>State category rules</h1>
+<div class="sub">The structured table behind the compliance gate. <b>nilStateRules.js is not this</b> —
+it is a prose reference with no category rules in it, and the gate never reads rules from it.</div>
+<div class="warn"><b>Do not populate this from a model.</b> Every row needs a citation to an actual
+statute or state athletic-association rule. A missing row is safe: the gate holds. A wrong row is not.</div>
+<table><tr><th>State</th><th>Category</th><th>Minor</th><th>Adult</th><th>Citation</th>
+<th>Checked</th><th>Confidence</th><th></th></tr>${body}</table>
+<form onsubmit="save(event)">
+  <div class="row">
+    <div><label>State</label><select id="f_state">${opt(states)}</select></div>
+    <div><label>Category</label><select id="f_cat">${opt(cats)}</select></div>
+  </div>
+  <div class="row">
+    <div><label>Minor (under 18)</label><select id="f_minor">${opt(['block', 'hold', 'allow'])}</select></div>
+    <div><label>Adult (18+)</label><select id="f_adult">${opt(['block', 'hold', 'allow'], 'hold')}</select></div>
+  </div>
+  <label>Citation (required — statute section or association rule)</label>
+  <input id="f_cite" placeholder="e.g. Ala. Code Section 28-3-1 et seq.; ALSDE NIL policy 4.2">
+  <label>Note (optional)</label><textarea id="f_note" rows="2"></textarea>
+  <div class="row">
+    <div><label>Date checked</label><input id="f_date" type="date"></div>
+    <div><label>Confidence</label><select id="f_conf">${opt(['confident', 'verify'], 'verify')}</select></div>
+  </div>
+  <label>Entered by</label><input id="f_by" placeholder="name of whoever read the statute">
+  <button type="submit">Save rule</button>
+</form>
+<script>
+var g = function (i) { return document.getElementById(i).value.trim(); };
+async function save(e) {
+  e.preventDefault();
+  if (g('f_cite').length < 8) { alert('A citation is required. A rule without a source is an opinion.'); return; }
+  if (!g('f_date')) { alert('Date checked is required.'); return; }
+  var r = await fetch('/admin/state-rules', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stateCode: g('f_state'), category: g('f_cat'),
+      minorRule: g('f_minor'), adultRule: g('f_adult'), citation: g('f_cite'),
+      note: g('f_note'), dateChecked: g('f_date'), confidence: g('f_conf'), enteredBy: g('f_by') })
+  });
+  var j = await r.json();
+  if (!r.ok) { alert(j.error || 'Save failed'); return; }
+  location.reload();
+}
+async function del(id) {
+  if (!confirm('Delete this rule? The gate goes back to holding on that category.')) return;
+  await fetch('/admin/state-rules/' + id, { method: 'DELETE' });
+  location.reload();
+}
+</script>`);
+  } catch (e) {
+    console.error('[admin/state-rules]', e.message);
+    res.status(500).send('error: ' + esc(e.message));
+  }
+});
+
+app.post('/admin/state-rules', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.citation || String(b.citation).trim().length < 8) {
+      return res.status(400).json({ error: 'A citation is required.' });
+    }
+    if (!b.dateChecked) return res.status(400).json({ error: 'Date checked is required.' });
+    const compliance = require('./services/compliance');
+    const known = new Set(compliance.CATEGORIES.map((c) => c.key));
+    if (!known.has(String(b.category))) return res.status(400).json({ error: 'Unknown category.' });
+    await store.pool.query(
+      `INSERT INTO state_category_rules
+         (state_code, category, minor_rule, adult_rule, citation, note, date_checked, confidence, entered_by)
+       VALUES (UPPER($1), LOWER($2), $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (state_code, category) DO UPDATE SET
+         minor_rule = EXCLUDED.minor_rule, adult_rule = EXCLUDED.adult_rule,
+         citation = EXCLUDED.citation, note = EXCLUDED.note,
+         date_checked = EXCLUDED.date_checked, confidence = EXCLUDED.confidence,
+         entered_by = EXCLUDED.entered_by, updated_at = NOW()`,
+      [b.stateCode, b.category, b.minorRule, b.adultRule, String(b.citation).trim(),
+        b.note || null, b.dateChecked, b.confidence || 'verify', b.enteredBy || null]);
+    console.log(`[state-rules] ${b.stateCode}/${b.category} saved by ${b.enteredBy || 'unknown'}`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[admin/state-rules/save]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/admin/state-rules/:id', async (req, res) => {
+  try {
+    await store.pool.query(`DELETE FROM state_category_rules WHERE id = $1`, [Number(req.params.id)]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/scan-rejects', async (req, res) => {
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

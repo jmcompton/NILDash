@@ -328,10 +328,25 @@ async function complianceGate(pool, log, opts = {}) {
   // 2. Evaluate. This cannot throw -- it returns a hold instead -- but the
   //    caller wraps it anyway, because "cannot throw" is a claim about today's
   //    code and the fail-closed guarantee should not depend on it staying true.
+  // State rules for this athlete's state, if any have been entered. The table
+  // ships empty, so this is normally {} and the gate behaves exactly as it does
+  // today -- holding. It is loaded before evaluate() rather than inside it so a
+  // lookup failure is visible here and holds, instead of being swallowed.
+  const stateRule = {};
+  const stateCode = compliance.stateCodeForSchool(log.school);
+  if (stateCode) {
+    for (const c of compliance.CATEGORIES) {
+      const row = await compliance.stateRuleFor(pool, stateCode, c.key);
+      if (row) stateRule[c.key] = row;
+    }
+  }
+
   let result = await compliance.evaluate(pool, {
+    stateRule, stateCode,
     brandName: log.brand_name,
     evidence: log.places_evidence || null,
     dob: log.dob || null,
+    schoolRestrictions: log.school_restrictions || [],
     athleteName: log.athlete_name || null,
     school: log.school || null,
     now: opts.now,
@@ -361,7 +376,8 @@ async function complianceGate(pool, log, opts = {}) {
     agentId: log.agent_id, athleteId: log.athlete_id, outreachLogId: log.id,
     brandName: log.brand_name, brandKey: log.brand_key,
     evidence: log.places_evidence || null, dob: log.dob || null,
-    school: log.school || null, now: opts.now,
+    schoolRestrictions: log.school_restrictions || [],
+    school: log.school || null, stateCode, now: opts.now,
   }, result);
 
   // A note proceeds. It is on the record and it does not stop anything.
@@ -382,6 +398,7 @@ async function releaseDue(pool, opts = {}) {
   const due = (await pool.query(
     `SELECT l.*, a.data->>'name' AS athlete_name, e.location AS biz_address,
             a.data->>'school' AS school, a.data->>'dob' AS dob,
+            a.data->'schoolRestrictions' AS school_restrictions,
             -- The Places record for this business, for the compliance gate. Same
             -- join buildBatch already uses for the address; lane='places'
             -- evidence carries types and primaryType.

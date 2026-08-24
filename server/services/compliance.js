@@ -259,8 +259,43 @@ async function evaluate(pool, ctx) {
     }
 
     // 2. RESTRICTED CATEGORIES.
+    // AGENT-SUPPLIED SCHOOL RESTRICTIONS. The agent ticked this category on the
+    // athlete, saying their school forbids it. We did not check with the school
+    // and this never claims we did -- but a stated restriction is a block, not a
+    // hold: the agent already made the decision when they ticked it, and asking
+    // them to re-approve their own rule every time is not a safeguard.
+    const stated = new Set(Array.isArray(ctx.schoolRestrictions)
+      ? ctx.schoolRestrictions.map((x) => String(x).toLowerCase()) : []);
+
     for (const h of cls.hits) {
-      const sev = severityFor(h.key, age);
+      if (stated.has(h.key)) {
+        findings.push({
+          ruleKey: 'school-restricted-' + h.key,
+          ruleLabel: h.label + ' — restricted by the school',
+          severity: 'block',
+          source: 'agent',
+          reason: `${brandName} looks like ${h.why} — ${h.basis}. You recorded that `
+            + `${ctx.school || 'this athlete\'s school'} restricts this category. `
+            + 'That came from you, not from the school — we hold no school policy data and did not check.',
+        });
+        decision = worst(decision, 'block');
+        continue;   // the school rule is the stricter answer; do not also file the age one
+      }
+      let sev = severityFor(h.key, age);
+      // A STATE RULE CAN TIGHTEN, NEVER LOOSEN. If the table says this state
+      // blocks the category, that wins. If it says 'allow', the category table's
+      // answer still stands: a state permitting alcohol advertising says nothing
+      // about whether this athlete's school does, and we hold no school policy.
+      // The only thing 'allow' changes is what the record says.
+      const sRule = ctx.stateRule && ctx.stateRule[h.key];
+      let stateNote = null;
+      if (sRule) {
+        const stateSev = age.known && age.minor ? sRule.minor_rule : sRule.adult_rule;
+        if (stateSev !== 'allow') sev = worst(sev, stateSev);
+        stateNote = ` ${sRule.state_code} rule: ${sRule.citation}`
+          + (sRule.confidence === 'verify' ? ' (marked for verification)' : '')
+          + `, checked ${new Date(sRule.date_checked).toISOString().slice(0, 10)}.`;
+      }
       const who = age.known
         ? (age.minor ? `${ctx.athleteName || 'This athlete'} is ${age.years}, a minor`
                      : `${ctx.athleteName || 'This athlete'} is ${age.years}`)
@@ -269,7 +304,9 @@ async function evaluate(pool, ctx) {
         ruleKey: 'category-' + h.key,
         ruleLabel: h.label,
         severity: sev,
+        source: sRule ? 'state-rule' : 'rule',
         reason: `${brandName} looks like ${h.why} — ${h.basis}. ${who}.`
+          + (stateNote || '')
           + (sev === 'block'
             ? ' This cannot be sent.'
             : ' A person needs to decide whether this is appropriate under the school\'s policy, which we do not hold.'),
@@ -304,6 +341,43 @@ function _closed(ruleKey, reason) {
   };
 }
 
+// ── STATE CATEGORY RULES ─────────────────────────────────────────────────────
+// Reads the structured table, never nilStateRules.js. That file is prose written
+// to be read by a person; this is a lookup meant to be read by a gate, and the
+// two must not be confused.
+//
+// A MISSING ROW IS NOT PERMISSION. There is deliberately no fallback: no row
+// means the gate applies its own category table, which holds. Adding a state
+// rule can tighten the outcome for that state, or record that the state
+// genuinely allows it -- it can never loosen the gate by being absent.
+async function stateRuleFor(pool, stateCode, category) {
+  if (!pool || !stateCode || !category) return null;
+  try {
+    const r = await pool.query(
+      `SELECT * FROM state_category_rules
+        WHERE state_code = UPPER($1) AND category = LOWER($2) LIMIT 1`, [stateCode, category]);
+    return r.rows[0] || null;
+  } catch (e) {
+    // A table that cannot be read is not a table that says yes.
+    console.error('[compliance] state rule lookup failed:', e.message);
+    return null;
+  }
+}
+
+// Resolve the athlete's state from their school, using the SAME resolution the
+// rest of the app uses. Returns null when it does not resolve, and null means
+// no state rule applies -- which leaves the category table's answer standing.
+function stateCodeForSchool(school) {
+  if (!school) return null;
+  try {
+    const { stateCodeFromText } = require('../nilStateRules');
+    const ai = require('../ai');
+    const loc = ai.lookupSchoolLocation ? ai.lookupSchoolLocation(String(school)) : null;
+    if (loc && loc.state) return stateCodeFromText(loc.state);
+    return stateCodeFromText(String(school));
+  } catch (_) { return null; }
+}
+
 // ── THE RECORD ───────────────────────────────────────────────────────────────
 // Every hold, block and note is written. This is the product: an agent asking
 // "why did this not send" nine months later, and a school or a state asking the
@@ -327,6 +401,12 @@ async function recordFindings(pool, ctx, result) {
           ctx.brandName || null, ctx.brandKey || null,
           f.ruleKey, f.ruleLabel, f.severity, f.reason,
           JSON.stringify({
+            // WHERE THE RULE CAME FROM. 'agent' means a person ticked a box on
+            // the athlete; 'rule' means a category table in this codebase. A
+            // record that cannot tell those apart is a record that lets an
+            // agent's own note be read back as something we verified.
+            source: f.source || 'rule',
+            schoolRestrictions: Array.isArray(ctx.schoolRestrictions) ? ctx.schoolRestrictions : [],
             dob: ctx.dob ? 'on file' : null,      // the VALUE never goes in the log
             age: ageFrom(ctx.dob, ctx.now),
             placesTypes: (ctx.evidence && ctx.evidence.types) || null,
@@ -440,5 +520,6 @@ module.exports = {
   RULES_VERSION, UNCHECKED, CATEGORIES, CATEGORY_BY_KEY,
   classifyBusiness, ageFrom, severityFor, evaluate,
   recordFindings, overrideHold, cancelHold, openHoldsFor, overriddenRulesFor,
+  stateRuleFor, stateCodeForSchool,
   prepareDisclosureFiling,
 };
