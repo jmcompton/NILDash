@@ -2195,11 +2195,39 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   if (effectiveWebsite && _pick.matchedOn) {
     console.log(`[domain-gate] brand="${brand}" kept ${effectiveWebsite} (matched "${_pick.matchedOn}")`);
   }
+  // Cost gate, declared here because domain resolution answers to it too.
+  const _deep = !!(ctx && ctx.enrichEmail);
+  // ── DOMAIN RESOLUTION, ON A TOTAL MISS ─────────────────────────────────────
+  // Dropping a wrong domain and stopping there trades a wrong answer for no
+  // answer, and "no website" removes the site scrape, the Instagram scrape and
+  // Hunter in one go -- for a small local business that is most of the ways to
+  // reach anybody. So ask for the domain directly and put the answer through THE
+  // SAME GATE, because a search result is not better evidence than a Places
+  // result; it is the same evidence from a different source, and it fails the
+  // same way (a search for "Post Office Pies website" can return a pizza place).
+  //
+  // Only where a website is actually consumed: siteEmail and Hunter both gate on
+  // (_deep || localityRequired), so resolving one anywhere else buys nothing and
+  // costs a search. Cached 30 days, so the spend tracks NEW businesses.
+  let websiteResolved = null;
+  if (!effectiveWebsite && (_deep || localityRequired)) {
+    try {
+      const { resolveDomain } = require('./services/domainResolve');
+      const _r = await resolveDomain(brand, {
+        city: locationHint, address: (places && places.address) || null,
+        webSearch: _contactWebSearchRaw,
+      });
+      if (_r && _r.website) {
+        effectiveWebsite = _r.website;
+        websiteResolved = { url: _r.website, matchedOn: _r.matchedOn, cached: !!_r.cached };
+      }
+    } catch (e) { console.warn('[domain-resolve] failed:', e.message); }
+  }
   // Cost gate: the 6-source contact web-search fan-out is the biggest Anthropic
   // cost driver. Only run it on the AI Outreach path (ctx.enrichEmail), where the
   // agent chose to pursue this business. On the card path we return the Places
   // phone/website only — cheap, and phone is the actionable contact anyway.
-  const _deep = !!(ctx && ctx.enrichEmail);
+  // (_deep is declared above the domain gate, which answers to the same rule.)
   // Kick the two INDEPENDENT lookups off now so they overlap the contact fan-out
   // instead of running after it. It does not need the contact list to start, and
   // serially it was adding ~8s to the wall time of a deep call. Failure-tolerant:
@@ -2244,18 +2272,45 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   //
   // notAffiliated is handed in so the franchise check reads the contacts lane's
   // own cached parent-or-brand people rather than re-deciding it.
-  if (localityRequired && effectiveWebsite) {
+  // ── STEP 1 OF THE ADDRESS LADDER ───────────────────────────────────────────
+  // THE GATE USED TO BE `localityRequired` ALONE, which is the single reason a
+  // deep run with no market (ladder-sample, and every national-lane lookup)
+  // NEVER SCRAPED THE SITE AT ALL and went straight to Hunter. The site is free,
+  // three fetches, no model call -- spending a Hunter credit ahead of it is
+  // paying for what the business already published. It now answers to the same
+  // condition Hunter does, so "site before Hunter" holds on every path.
+  //
+  // One scrape, read twice: the named person's address is step 1, the general
+  // inbox it also found is held back for step 4.
+  const _addr = { steps: [], step: null, label: null, email: null, kind: null,
+    person: null, sourceUrl: null, formUrl: null,
+    cost: { siteFetches: 0, hunterCalls: 0, personSearches: 0, resolveSearches: 0 } };
+  const _note = (n, label, ran, hit, detail) => _addr.steps.push({ step: n, label, ran, hit, detail });
+  if (websiteResolved) _addr.cost.resolveSearches = websiteResolved.cached ? 0 : 1;
+
+  let _se = null;
+  if ((_deep || localityRequired) && effectiveWebsite) {
     try {
       const { findSiteEmail } = require('./services/siteEmail');
-      const se = await findSiteEmail(effectiveWebsite, {
+      _se = await findSiteEmail(effectiveWebsite, {
         brand,
         isFranchise: !!(ctx && ctx.isFranchise),
         notAffiliated: res.notAffiliated || [],
       });
-      if (se && (se.email || se.formUrl)) res.siteEmail = se;
+      if (_se && (_se.email || _se.formUrl)) res.siteEmail = _se;
+      if (_se && !_se.cached) _addr.cost.siteFetches = _se.pagesFetched || 0;
     } catch (e) {
       console.warn('[dealScan] site email lookup failed:', e.message);
     }
+  }
+  if (_se && _se.personalEmail) {
+    _addr.step = 1; _addr.label = 'named person on the business website';
+    _addr.email = _se.personalEmail; _addr.kind = 'personal'; _addr.sourceUrl = _se.personalSourceUrl;
+    _note(1, 'website, named person', true, true, _se.personalEmail);
+  } else {
+    _note(1, 'website, named person', !!(_se), false,
+      !effectiveWebsite ? 'no confirmed website'
+        : (_se ? (_se.outcomeKind || 'nothing published') : 'not run'));
   }
   // ── Hunter, LAST AND ONLY IF WE STILL HAVE NOTHING ──────────────────────────
   //
@@ -2292,9 +2347,27 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // burn tracks NEW businesses, not scans. A monthly budget in hunterLookup caps
   // it regardless.
   let _hunterMs = 0;
+  // ── STEP 2: HUNTER, AND ONLY AGAINST A GATE-CONFIRMED DOMAIN ───────────────
+  // effectiveWebsite is gate-confirmed by construction -- it is either a
+  // candidate pickWebsite accepted or a resolveDomain answer that went through
+  // the same checkDomain. This re-checks it anyway, at the point of spend. The
+  // rule "Hunter never runs against an unconfirmed domain" is a property worth
+  // enforcing where the money leaves, not one worth inferring from the fact that
+  // nothing upstream currently violates it. It is pure string work and free.
+  const _hunterDomainOk = (() => {
+    if (!effectiveWebsite) return false;
+    try {
+      const { checkDomain } = require('./services/domainGate');
+      const v = checkDomain(brand, effectiveWebsite);
+      if (!v.ok) console.warn(`[hunter] REFUSED ${effectiveWebsite} for "${brand}": ${v.reason}`);
+      return v.ok;
+    } catch (_) { return false; }
+  })();
   const _seFoundEmail = !!(res.siteEmail && res.siteEmail.email);
-  const _hunterEligible = (_deep || localityRequired) && effectiveWebsite
-    && !_seFoundEmail && process.env.HUNTER_API_KEY;
+  // Step 1 already succeeded -> nothing to escalate to. _seFoundEmail keeps the
+  // old behaviour for a role-only site hit, which still suppresses a credit.
+  const _hunterEligible = (_deep || localityRequired) && _hunterDomainOk
+    && _addr.step === null && !_seFoundEmail && process.env.HUNTER_API_KEY;
   if (_hunterEligible && !_deep) {
     // CHEAP PATH: warm the cache, never block the card on it. Same trick the
     // Instagram lookup uses -- this scan may not show the address, but it is
@@ -2342,6 +2415,17 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
               break;
             }
           }
+          // STEP 2 IS THE SURNAME FILL, NOT THE INBOX. Hunter's two uses land on
+          // different rungs: attaching an address to a person another source
+          // named is step 2, while its generic inbox is a general inbox and
+          // belongs at step 4 with the website's. Counting the inbox as step 2
+          // would stop the escalation before the targeted search that might have
+          // found an actual person.
+          if (_filled && _addr.step === null) {
+            _addr.step = 2; _addr.label = 'Hunter, against the confirmed domain';
+            _addr.email = _filled.email; _addr.kind = 'personal'; _addr.person = _filled.name;
+            _note(2, 'Hunter', true, true, _filled.email);
+          }
           // (b) GENERIC INBOX BACKFILL. No name attached, so nothing to greet.
           let _inbox = null;
           if (!res.genericInbox && _generic.length) {
@@ -2357,8 +2441,99 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
         console.warn('[hunter] lookup failed:', e.message);
       }
       _hunterMs = Date.now() - _hT0;
+      _addr.cost.hunterCalls = 1;
     }
   }
+  if (_addr.step !== 2) {
+    _note(2, 'Hunter', !!_hunterEligible && _deep, false,
+      !_hunterDomainOk ? 'no confirmed domain, so Hunter was not called'
+        : (!process.env.HUNTER_API_KEY ? 'no Hunter key'
+          : (_addr.step === 1 ? 'skipped, step 1 already had an address' : 'no surname match')));
+  }
+
+  // ── STEP 3: A TARGETED SEARCH FOR ONE NAMED PERSON'S ADDRESS ───────────────
+  // ONLY when 1 and 2 both failed, only for a person another source already
+  // named, and capped at two searches for the whole business. It cannot invent a
+  // person: it is handed a name and asked whether that name has a PUBLISHED
+  // address, and the answer is refused unless a web-search citation backs the
+  // page it claims to have read.
+  const _PERSON_SEARCH_CAP = parseInt(process.env.PERSON_EMAIL_SEARCH_CAP, 10) || 2;
+  if (_deep && _addr.step === null) {
+    const _need = (res.contacts || []).filter((c) => c && c.name && !c.email).slice(0, _PERSON_SEARCH_CAP);
+    if (!_need.length) {
+      _note(3, 'targeted person search', false, false, 'no named person without an address');
+    } else {
+      const _budget = { left: _PERSON_SEARCH_CAP };
+      try {
+        const { findPersonEmail } = require('./services/personEmailSearch');
+        for (const c of _need) {
+          if (_budget.left <= 0) break;
+          const _p = await findPersonEmail(c.name, {
+            brand, where: locationHint, domain: _domainFromUrl(effectiveWebsite),
+            webSearch: _contactWebSearchRaw, budget: _budget,
+          });
+          if (_p && !_p.cached) _addr.cost.personSearches += 1;
+          if (_p && _p.email) {
+            c.email = _p.email;
+            c.emailSource = 'searched';   // NOT 'published' -- the greeting guard reads this
+            c.emailSourceUrl = _p.sourceUrl || null;
+            _addr.step = 3; _addr.label = 'targeted search for a named person';
+            _addr.email = _p.email; _addr.kind = 'personal'; _addr.person = c.name;
+            _addr.sourceUrl = _p.sourceUrl || null;
+            _note(3, 'targeted person search', true, true, `${c.name} -> ${_p.email}`);
+            break;
+          }
+        }
+      } catch (e) { console.warn('[person-email] step 3 failed:', e.message); }
+      if (_addr.step !== 3) {
+        _note(3, 'targeted person search', true, false,
+          `${_PERSON_SEARCH_CAP - _budget.left} search(es), no published address`);
+      }
+    }
+  } else if (_addr.step !== null) {
+    _note(3, 'targeted person search', false, false, `skipped, step ${_addr.step} already had an address`);
+  }
+
+  // ── STEP 4: THE GENERAL INBOX ──────────────────────────────────────────────
+  // A desk, not a person. Last resort before a form, which is why it sits below
+  // a search that might have produced an actual name to write to.
+  if (_addr.step === null) {
+    const _role = (_se && _se.roleEmail) || res.genericInbox || null;
+    if (_role) {
+      if (!res.genericInbox) res.genericInbox = _role;
+      _addr.step = 4; _addr.label = 'general inbox on the business website';
+      _addr.email = _role; _addr.kind = 'role';
+      _addr.sourceUrl = (_se && _se.roleSourceUrl) || null;
+      _note(4, 'general inbox', true, true, _role);
+    } else {
+      _note(4, 'general inbox', true, false, 'none published');
+    }
+  } else {
+    _note(4, 'general inbox', false, false, `skipped, step ${_addr.step} already had an address`);
+  }
+
+  // ── STEP 5: A CONTACT FORM ─────────────────────────────────────────────────
+  // Not an address. Recorded as a channel so the card can offer it rather than
+  // saying there is no way through, and never counted as an email.
+  if (_addr.step === null) {
+    const _form = (_se && _se.formUrl) || null;
+    if (_form) {
+      _addr.step = 5; _addr.label = 'contact form'; _addr.formUrl = _form; _addr.kind = 'form';
+      _note(5, 'contact form', true, true, _form);
+    } else {
+      _note(5, 'contact form', true, false, 'none found');
+    }
+  } else {
+    _note(5, 'contact form', false, false, `skipped, step ${_addr.step} already had an address`);
+  }
+
+  console.log(`[address-ladder] brand="${brand}" `
+    + (_addr.step ? `step=${_addr.step} (${_addr.label}) ${_addr.email || _addr.formUrl}`
+      : 'step=none, no address from any step')
+    + ` cost: siteFetches=${_addr.cost.siteFetches} hunter=${_addr.cost.hunterCalls} `
+    + `personSearches=${_addr.cost.personSearches} resolveSearches=${_addr.cost.resolveSearches}`);
+  res.addressLadder = _addr;
+
   let _igMs = 0;
   // Instagram: for a local business the owner's DM is often a better channel than
   // the phone, and it is a genuinely DIFFERENT contact rather than another copy of
@@ -2427,7 +2602,8 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // to contactLadder and became the domain every address was judged against --
   // exactly the ground truth that must not be wrong. Null when nothing passed;
   // websiteDropped says what was rejected so the card can show it.
-  return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, instagramScope: res.instagramScope || null, businessPhone: res.businessPhone, siteEmail: res.siteEmail || null, approach, mapsUrl, website: effectiveWebsite, websiteDropped };
+  return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, instagramScope: res.instagramScope || null, businessPhone: res.businessPhone, siteEmail: res.siteEmail || null, approach, mapsUrl, website: effectiveWebsite, websiteDropped,
+    websiteResolved, addressLadder: res.addressLadder || null };
 }
 
 // Build the "Approach" line. References the real person, else the honest phone

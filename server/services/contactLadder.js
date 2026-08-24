@@ -57,6 +57,17 @@ function _hostOf(url) {
 
 // One-line note saying HOW this contact was found, from source + sourceUrl.
 // Always returns a non-empty string so a name can never render bare.
+// How strongly an address is vouched for, by where it came from. Only
+// 'published' is greeted by first name (see greetingGuard). An emailSource this
+// map does not know falls to 'unverified', which fails closed on the greeting
+// rather than promoting an unrecognised source to the strongest label.
+const EMAIL_KIND = {
+  published: 'published',   // a source found it printed for this person
+  hunter: 'hunter',         // paid domain lookup, matched to the person by surname
+  bio: 'bio',               // off an Instagram profile, not the business website
+  searched: 'searched',     // address ladder step 3: claimed, with a citation
+};
+
 function sourceNote(contact) {
   const c = contact || {};
   // Said in words on the row, because "why is the owner in Tier 2" has to be
@@ -271,7 +282,16 @@ function buildContactLadder(res, opts = {}) {
       // distinction is load-bearing, not cosmetic: greetingGuard refuses to greet
       // by first name on anything but 'published', which is the guard that was
       // missing when this lookup was removed in fbf5865.
-      emailKind: c.email ? (c.emailSource === 'hunter' ? 'hunter' : 'published') : null,
+      // AN ALLOW-LIST, NOT A DEFAULT. This read "hunter ? hunter : published",
+      // so every emailSource that was not literally 'hunter' was announced as
+      // published -- including 'bio', which ai.js sets precisely so that an
+      // address off an Instagram profile never reads as published on the
+      // business website, and 'searched', which is step 3 of the address ladder:
+      // a model's claim backed by a citation, not something we read on the
+      // business's own page. greetingGuard greets by first name on 'published'
+      // and nothing else, so the default was handing the strongest label to the
+      // two weakest sources.
+      emailKind: c.email ? (EMAIL_KIND[c.emailSource] || 'unverified') : null,
       emailDomainNote: c.email ? _xdom(c.email) : null,
       phone: isOwnLine ? c.phone : null,
       phoneKind: isOwnLine ? 'direct' : null,

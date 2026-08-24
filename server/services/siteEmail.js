@@ -26,7 +26,10 @@ const MAX_PAGES = 3;              // hard cap, homepage included
 const FETCH_TIMEOUT_MS = 6000;
 const MAX_BYTES = 600 * 1024;     // a contact page that is bigger than this is not a contact page
 const CACHE_DAYS = 30;
-const CACHE_V = 'v1';
+// v2: personalEmail / roleEmail split out. A v1 row carries one address and no
+// way to tell which rung of the address ladder it belongs on, so serving it would
+// make a general inbox look like a named person's address found at step 1.
+const CACHE_V = 'v2';
 
 // Never a contact for a NIL pitch, whatever else is true of them.
 const REJECT_LOCALS = new Set([
@@ -372,10 +375,26 @@ async function findSiteEmail(website, opts = {}) {
       : (byShared ? `this website serves ${sharedSites} different businesses, so it is a chain site`
         : 'the scan flagged this as a franchise location'));
 
+  // THE SPLIT THE ESCALATION NEEDS. `best` is one address, personal-first, which
+  // is right for a caller that wants "the" address. The address ladder wants two
+  // different things from the SAME scrape at two different rungs: a named
+  // person's address at step 1, and a general inbox only at step 4, after Hunter
+  // and a targeted search have both failed. Re-fetching the site to ask the
+  // second question would be three more requests for information already in hand.
+  const bestPersonal = candidates.find((c) => c.type === 'personal')
+    || (best && best.type === 'personal' ? best : null);
+  const bestRole = candidates.find((c) => c.type === 'role')
+    || (best && best.type === 'role' ? best : null);
+
   const out = {
     v: CACHE_V,
     email: best ? best.email : null,
     type: best ? best.type : (formUrl ? 'form' : null),
+    // Named-person address and general inbox, kept apart. Either may be null.
+    personalEmail: bestPersonal ? bestPersonal.email : null,
+    personalSourceUrl: bestPersonal ? bestPersonal.sourceUrl : null,
+    roleEmail: bestRole ? bestRole.email : null,
+    roleSourceUrl: bestRole ? bestRole.sourceUrl : null,
     formUrl,
     corporate,
     corporateDomain: corporate && best ? best.domain : null,

@@ -107,11 +107,18 @@ function classify(brand, res, ladder, meta, lineTypes) {
   // in Tier 3 with no name and is never counted here, per the brief.
   const emailRows = rows.filter((x) => x.email);
   const personalEmail = emailRows.length > 0;
-  // INVARIANT, not a metric. Since the paid domain lookup was removed, every
-  // address on a named row is one a source found published for that person, so
-  // this always equals personalEmail. It is kept and asserted rather than dropped:
-  // if it ever diverges, something has started attaching unpublished addresses to
-  // names again, which is the exact failure the removal was for.
+  // NO LONGER AN INVARIANT, AND THAT IS DELIBERATE. It used to be: with the paid
+  // lookup removed, every address on a named row was published, so this always
+  // equalled personalEmail and a divergence meant something had started attaching
+  // unpublished addresses to names again.
+  //
+  // Steps 2 and 3 of the address ladder attach addresses that are NOT published:
+  // Hunter matches a company-level address to a person by surname, and the
+  // targeted search reports an address it says it read on a cited page. Both are
+  // labelled ('hunter', 'searched') and neither is greeted by first name. So this
+  // is now a real distinction to report rather than an alarm -- the EMAIL column
+  // prints the kind, so a run says which rung an address came from instead of
+  // flattening three different strengths of evidence into "yes".
   const personalEmailPublished = emailRows.length > 0 && emailRows.every((x) => x.emailKind === 'published');
 
   // "Only a general inbox": a published shop mailbox is the single email route.
@@ -157,6 +164,14 @@ function classify(brand, res, ladder, meta, lineTypes) {
     topChannel: top ? top.channel : null,
     personalEmail,
     personalEmailPublished,
+    // WHICH RUNG, and how strongly the address is vouched for. Both read off the
+    // run rather than recomputed, so the table cannot disagree with what happened.
+    addrStep: (meta && meta.addrStep) || null,
+    addrLabel: (meta && meta.addrLabel) || null,
+    emailKind: emailRows.length ? emailRows[0].emailKind : null,
+    // Sources that threw before reaching the network. Empty on a healthy run; a
+    // full house here means the run measured nothing at all.
+    sourceErrors: (meta && meta.sourceErrors) || [],
     personalEmailAddr: emailRows.length ? emailRows[0].email : null,
     generalInboxOnly,
     genericInbox,
@@ -269,9 +284,13 @@ function projectPerBusiness(inTokPerSearch, sourcesLow, sourcesHigh, searchesPer
 // wrap the Anthropic client -- which would mean re-implementing the call and
 // measuring something that is not the production path -- this reads those lines.
 const RE_SOURCE = /\[brand-contacts\] source=(\S+) ms=(\d+) found=(\d+) tier1=(\S+) searches=(\d+) outTokens=(\d+)/;
+const RE_STATUS = /status=(\S+)/;
+const RE_DROP = /dropReason=(.+?)(?: prose=1)?$/;
 const RE_SERVED = /\[dealScan\] contacts brand=(.*?) found=\d+ named=\d+ withEmail=\d+ withPhone=\d+ source=(\S+)$/;
 
-function newMeter() { return { sources: 0, searches: 0, outTokens: 0, served: null, perSource: [] }; }
+function newMeter() {
+  return { sources: 0, searches: 0, outTokens: 0, served: null, perSource: [], errors: [] };
+}
 
 function feedMeter(meter, line) {
   const m = RE_SOURCE.exec(line);
@@ -279,11 +298,20 @@ function feedMeter(meter, line) {
     meter.sources++;
     meter.searches += parseInt(m[5], 10) || 0;
     meter.outTokens += parseInt(m[6], 10) || 0;
-    meter.perSource.push({ source: m[1], ms: +m[2], found: +m[3], tier1: m[4] === 'yes', searches: +m[5] });
+    // THE REASON A SOURCE FAILED IS ON THE SAME LINE, and this used to capture
+    // six fields and drop it. A run where all seven sources threw before reaching
+    // the network is indistinguishable from a run where all seven searched and
+    // found nobody -- both read as "0 named contacts" -- unless status is kept.
+    const st = (RE_STATUS.exec(line) || [])[1] || 'ran';
+    const why = (RE_DROP.exec(line) || [])[1] || null;
+    meter.perSource.push({ source: m[1], ms: +m[2], found: +m[3], tier1: m[4] === 'yes', searches: +m[5], status: st, why });
+    if (st === 'error') meter.errors.push({ source: m[1], why: why || 'error' });
     return;
   }
   const s = RE_SERVED.exec(line);
-  if (s) meter.served = s[2];        // 'web' | 'cache' | 'TIMEOUT' | 'ERROR'
+  if (s) { meter.served = s[2]; return; }        // 'web' | 'cache' | 'TIMEOUT' | 'ERROR'
+  const a = /\[address-ladder\] brand="(.*?)" step=(\S+)(?: \((.*?)\))?/.exec(line);
+  if (a) { meter.addrStep = a[2] === 'none' ? null : parseInt(a[2], 10); meter.addrLabel = a[3] || null; }
 }
 
 // ── Formatting ───────────────────────────────────────────────────────────────
@@ -296,7 +324,11 @@ const COLS = [
   ['NAMED', 5, (r) => yn(r.named)],
   ['WHO', 20, (r) => trunc(r.topName || '-', 20)],
   ['TITLE', 20, (r) => trunc(r.topTitle || '-', 20)],
-  ['EMAIL', 5, (r) => (r.personalEmail ? (r.personalEmailPublished ? 'yes' : 'patt') : 'no')],
+  // pub = published on a page for this person. hunt = a company address matched
+  // by surname. srch = the targeted search said it read it somewhere, with a
+  // citation. Three different strengths, and "yes" hid all three.
+  ['EMAIL', 5, (r) => (!r.personalEmail ? 'no'
+    : ({ published: 'pub', hunter: 'hunt', searched: 'srch', bio: 'bio' }[r.emailKind] || 'unver'))],
   ['INBOX', 5, (r) => yn(r.generalInboxOnly)],
   ['IG', 4, (r) => yn(!!r.instagram)],
   ['PHONE', 5, (r) => yn(r.phone)],
@@ -305,6 +337,13 @@ const COLS = [
   ['CONF', 9, (r) => trunc(r.topConfidence || '-', 9)],
   ['CHANNEL', 9, (r) => trunc(r.topChannel || '-', 9)],
   ['SOURCES', 22, (r) => trunc(Object.keys(r.bySource || {}).join(',') || '-', 22)],
+  // WHICH RUNG PAID FOR ITSELF. The five steps cost wildly different amounts --
+  // step 1 is three plain fetches, step 2 is a paid Hunter credit, step 3 is two
+  // web searches -- so "we got an address" is not the interesting number. Where
+  // it came from is, because that is what says whether the rungs below step 1
+  // are worth keeping.
+  ['STEP', 5, (r) => (r.addrStep ? String(r.addrStep) : '-')],
+  ['FOUND VIA', 30, (r) => trunc(r.addrLabel || '-', 30)],
   ['SPEND', 7, (r) => (r.served === 'cache' ? 'cache' : '$' + (r.cost ? r.cost.total : 0).toFixed(3))],
 ];
 
@@ -478,6 +517,30 @@ async function main() {
     process.exit(2);
   }
 
+  // ANTHROPIC_API_KEY, CHECKED BECAUSE ITS ABSENCE IS INVISIBLE.
+  //
+  // Every source call goes through getClient(), which throws 'ANTHROPIC_API_KEY
+  // not set' before any HTTP request. _searchContactSource catches per source, so
+  // getBrandContacts returns NORMALLY with an empty list. A run with no key
+  // therefore reports 7 sources, 0 searches, 0 contacts, 0.1s and a dollar figure
+  // -- and every one of those numbers is a lie except the zero contacts. The
+  // dollar figure is the worst of them: it is sources x 700 assumed prompt tokens
+  // priced as if the prompts had been sent, so a run that spent nothing at all
+  // still bills itself $0.005 a business.
+  //
+  // DATABASE_URL is checked twice above for exactly this reason. The key that the
+  // money actually leaves through was not checked at all.
+  if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.includes('YOUR_KEY')) {
+    console.error('ANTHROPIC_API_KEY is not set.');
+    console.error('');
+    console.error('Without it every source call throws before it reaches the network, and the run');
+    console.error('reports "7 src / 0 searches" and zero contacts for every business -- which looks');
+    console.error('like a broken ladder rather than a missing key. Refusing to start instead.');
+    console.error('');
+    console.error('  DATABASE_URL=... ANTHROPIC_API_KEY=... node scripts/ladder-sample.js --city ... --state ...');
+    process.exit(2);
+  }
+
   // Required lazily so --dry-run and the unit tests never need pg or an API key.
   const ai = require('../server/ai');
   const { buildContactLadder } = require('../server/services/contactLadder');
@@ -516,6 +579,16 @@ async function main() {
     }
     const ms = Date.now() - t0;
 
+    // THE CAPTURE ABOVE IS A SWALLOWER, and a source that threw before reaching
+    // the network is not an error the script can see any other way -- the fan-out
+    // catches per source and returns normally. Say it out loud, once per business,
+    // rather than reporting a clean zero.
+    if (meter.errors.length) {
+      const why = meter.errors[0].why;
+      console.log(pad(String(i + 1) + '.', 4) + pad(trunc(brand, 26), 27)
+        + `ALL ${meter.errors.length}/${meter.sources} SOURCES ERRORED: ${why}`);
+    }
+
     if (err) {
       console.log(pad(String(i + 1) + '.', 4) + pad(trunc(brand, 26), 27) + 'FAILED: ' + err.message);
       rows.push(classify(brand, {}, buildContactLadder({}, {}), { ms, served: 'ERROR', error: err.message, cost: costOf({}, opts.inTok) }, {}));
@@ -537,6 +610,11 @@ async function main() {
     const row = classify(brand, res, ladder, {
       ms, served: meter.served, cost, perSource: meter.perSource,
       sourcesRun: meter.sources, searches: meter.searches,
+      // Which rung of the address ladder actually produced the address, and the
+      // per-step spend behind it. Read off the [address-ladder] log line rather
+      // than recomputed here, so the table cannot disagree with the run.
+      addrStep: meter.addrStep || null, addrLabel: meter.addrLabel || null,
+      sourceErrors: meter.errors,
     }, lineTypes);
     rows.push(row);
 
