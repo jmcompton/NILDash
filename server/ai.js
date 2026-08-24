@@ -1429,7 +1429,16 @@ function deepContactCtx(opts) {
 // exactly the rows the agent is about to send under their own name. They also
 // predate the `sources` array, so corroboration cannot be counted on them and
 // every contact would read as unconfirmed. Re-run rather than serve them.
-const _CONTACTS_CACHE_VERSION = 6;
+// v7: the domain gate. Every v6 row was produced by a fan-out that was handed an
+// UNGATED website, and the site source writes that domain into the model's prompt
+// as fact -- "Search the business's OWN website for Post Office Pies
+// (davenportspizza.com)". So a v6 row for a business whose domain resolved wrong
+// does not hold slightly-off contacts, it holds a DIFFERENT COMPANY'S staff,
+// correctly named and correctly cited. Nothing downstream can tell: no address is
+// fabricated and every honesty check passes. Gating the domain fixes what the next
+// fan-out is told, and does nothing at all about the answers already cached under
+// the old one, which is why this has to be a version bump and not just a fix.
+const _CONTACTS_CACHE_VERSION = 7;
 
 // Test seam (see _searchContactSource). Production leaves this null.
 let _contactSearchImpl = null;
