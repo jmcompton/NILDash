@@ -1997,14 +1997,30 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
       console.log(`[dealScan] contacts brand=${brand} cache version miss (had v=${ev.v || 'none'}), re-running widened search`);
       return null;
     }
-    let cphone = ev.businessPhone || null;
-    let cunconf = !!ev.phoneUnconfirmed;
-    // Re-validate the cached phone against the CURRENT region. A stale wrong-state
-    // number (cached before the locality fix) must not survive.
-    if (cphone && !_localityCheck(cphone, null).ok) {
-      console.log(`[dealScan] contacts brand=${brand} cached phone rejected on read region=${regionState || 'n/a'}`);
-      cphone = null; cunconf = true;
-    }
+    // THE VERDICT IS ALREADY IN THE ROW. This used to re-run the locality check on
+    // read, and a read has STRICTLY LESS INFORMATION than the write did, so it
+    // could only ever produce false rejections.
+    //
+    // _phoneLocalityOk confirms a number two ways: the state the SOURCE reported
+    // matches the market, or the area code resolves to the market. The reported
+    // state is not stored in this row (and is not being added -- it would need a
+    // cache bump and every existing row lacks it), so on read only the area-code
+    // route survives. Any number whose area code is not a state -- toll-free
+    // 800/888/877, or a format the parser cannot place -- passed at write time on
+    // the reported state and was then thrown away here.
+    //
+    // That is why PHONE read 20/20 live and 17/20 from cache on the same twenty
+    // Birmingham businesses: Steel City Pops, Alabama Outdoors and Mountain High
+    // Outfitters are the multi-location retailers, which is exactly the class that
+    // publishes a toll-free line rather than a store number.
+    //
+    // The original reason for re-checking was that a row cached BEFORE the
+    // locality fix could carry a wrong-state number. Those rows cannot be served
+    // any more: _CONTACTS_CACHE_VERSION has moved several times since and a
+    // version mismatch is a hard miss twelve lines above this. So the guard now
+    // only rejects numbers its own write already approved.
+    const cphone = ev.businessPhone || null;
+    const cunconf = !!ev.phoneUnconfirmed;
     if (via) console.log(`[dealScan] contacts brand=${brand} served from the DEEP row (${(ev.contacts || []).length} named)`);
     return { contacts: ev.contacts || [], notAffiliated: ev.notAffiliated || [], genericInbox: ev.genericInbox || null, personalInbox: ev.personalInbox || null, businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
   };
@@ -2149,8 +2165,33 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   }
   // Merge named contacts across sources, then locality-check every phone.
   let named = _mergeContacts(results.flatMap((r) => r.contacts));
+  // A PERSON'S DIRECT LINE GETS THE SAME EVIDENCE THE BUSINESS LINE GETS.
+  //
+  // This passed null as the reported state, so a named person's own number could
+  // only ever be confirmed by its area code -- while the business phone twenty
+  // lines below is checked against the state its source actually reported. Same
+  // check, same market, one arm tied behind its back: a direct line on a
+  // toll-free or unplaceable area code was dropped even on a live run, and unlike
+  // the cached-read version of this bug there was no second run to reveal it.
+  //
+  // The state comes from the source that named the person. A merged contact can
+  // carry several, so every one of them is tried -- which mirrors the business
+  // phone, where the candidate list is walked and the first that passes wins.
+  const _reportedStatesFor = (c) => {
+    const out = [];
+    for (const s of [].concat(c.sources || [], c.source ? [c.source] : [])) {
+      const st = bySource[s] && bySource[s].state;
+      if (st && out.indexOf(st) === -1) out.push(st);
+    }
+    return out;
+  };
   for (const c of named) {
-    if (c.phone && !_localityCheck(c.phone, null).ok) c.phone = null;
+    if (!c.phone) continue;
+    const states = _reportedStatesFor(c);
+    // No source reported a state -> fall back to the old behaviour (area code
+    // alone), which is what this always did. Never weaker than before.
+    const candidates = states.length ? states : [null];
+    if (!candidates.some((st) => _localityCheck(c.phone, st).ok)) c.phone = null;
   }
   // THE TOTAL ORDER. Authority, then how hedged the title is, then how many
   // sources agreed, then which source, then a stable name tie-break that never
