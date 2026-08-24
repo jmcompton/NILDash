@@ -111,6 +111,41 @@ const QUESTIONS = {
         ORDER BY l.replied_at DESC LIMIT 25`, [agentId])).rows,
   },
 
+  pitches_waiting: {
+    description: 'Pitches drafted and waiting on the agent\'s approval, grouped by '
+      + 'athlete. Use for "how many pitches are waiting", "what is ready to send", '
+      + '"what needs approving".',
+    where: 'Home, under Ready to send',
+    run: async (pool, agentId) => (await pool.query(
+      `SELECT COALESCE(a.data->>'name','an athlete') AS athlete,
+              COUNT(*)::int AS waiting,
+              MIN(l.created_at) AS oldest,
+              (ARRAY_AGG(l.brand_name ORDER BY l.created_at ASC))[1:3] AS first_few
+         FROM outreach_logs l
+         LEFT JOIN athletes a ON a.id = l.athlete_id
+        WHERE l.agent_id = $1 AND l.status = 'draft'
+          AND l.approved_at IS NULL AND l.cadence_stopped_at IS NULL
+        GROUP BY 1 ORDER BY 2 DESC`, [agentId])).rows,
+  },
+
+  // "Why did nothing send" has TWO answers and they are different actions. The
+  // send path may be fine and every pitch held by the gate instead, which
+  // nothing_sent_recently cannot see.
+  compliance_holds: {
+    description: 'Outreach stopped by the compliance gate, with the rule and the '
+      + 'reason. Use for "why was this held", "what is blocked", and alongside '
+      + 'nothing_sent_recently for "why did nothing send".',
+    where: 'Home, under Needs you',
+    run: async (pool, agentId) => (await pool.query(
+      `SELECT h.brand_name, h.rule_label, h.severity, h.reason, h.created_at,
+              COALESCE(a.data->>'name','an athlete') AS athlete,
+              (h.resolved_at IS NULL) AS still_open, h.resolution
+         FROM compliance_holds h
+         LEFT JOIN athletes a ON a.id = h.athlete_id
+        WHERE h.agent_id = $1 AND h.severity IN ('block','hold')
+        ORDER BY (h.resolved_at IS NULL) DESC, h.created_at DESC LIMIT 30`, [agentId])).rows,
+  },
+
   roster_summary: {
     description: 'Roster size and how much of it has been worked. Use for "how many '
       + 'athletes do I have", "how is the roster doing".',

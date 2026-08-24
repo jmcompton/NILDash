@@ -1,205 +1,252 @@
 'use strict';
-// The assistant's product knowledge.
+// ── THE ASSISTANT'S PRODUCT KNOWLEDGE, DERIVED FROM THE PRODUCT ──────────────
 //
-// THIS IS THE ONLY THING THE ASSISTANT MAY STATE AS FACT about how NILDash works.
-// The system prompt tells it that anything not answered here is something it does
-// not know, and that it must say so and offer to pass the question on rather than
-// reason its way to a plausible answer.
+// WHY THIS IS NOT A PROSE FILE ANY MORE. It used to be a block of hand-written
+// text behind a "PASTE KNOWLEDGE BASE HERE" marker. Every number in it was a
+// copy: the send ceiling, the follow-up cadence, how many slots a night, what
+// compliance blocks. A copy of a number is wrong the day the number changes, and
+// nothing fails when it drifts -- the assistant just starts confidently telling
+// agents something that stopped being true months ago. That is the same class of
+// problem as a test that passes because a string moved.
 //
-// EDITING. Change the text between the markers and nothing else in this file has to
-// change. hasKnowledge() reports whether real content is present, and the route logs
-// it on boot, so "the assistant is answering vaguely" has an obvious first thing to
-// check. Keep it as prose: it is read by a model, not parsed.
+// So the facts are READ FROM THE MODULES THAT IMPLEMENT THEM. Raise the send cap
+// in sendGuard and the assistant's answer changes on the next boot. Add a
+// restricted category to compliance and the assistant lists it. Nothing to
+// remember, nothing to keep in step.
 //
-// It is a template literal, so a backtick or a ${ in the text would break the file.
-// There are none today; if you paste some, escape them.
+// WHAT STAYS PROSE: framing and judgement -- what the product is FOR, why the
+// agent does not pick the send time. Those are decisions, not values, and they
+// belong in words. They are kept next to the derived numbers so it is obvious
+// which is which.
+//
+// WHAT IS DELIBERATELY WRITTEN DOWN AS A LIMIT: everything the product does NOT
+// do. An assistant that oversells is worse than one that says "I don't know",
+// because an agent acts on it. The honest numbers here are the measured ones,
+// not the flattering ones.
 
-const KNOWLEDGE = `
-<!-- PASTE KNOWLEDGE BASE HERE -->
+function _try(fn, dflt) { try { const v = fn(); return v === undefined ? dflt : v; } catch (_) { return dflt; } }
+const _list = (a) => (a.length === 1 ? a[0] : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1]);
 
-NILDash: what it is and how it works
-
-NILDash is a deal sourcing tool for sports agents. It finds brand deals for an
-agent's athletes, finds the person at each business who can actually say yes, and
-drafts the outreach. It is built for the athletes nobody is chasing yet, not the ones
-with brands already coming to them.
-
-It costs $99 a month per agent. There is no per-athlete charge, on purpose, so an
-agent can put their whole roster in without thinking about cost.
-
-ADD CLIENT
-
-Type an athlete's name and hit AI Lookup. It searches college rosters and news
-coverage to find their school, sport, class year, and hometown, and fills the form
-in.
-
-It works well for D1 athletes. It is less reliable for smaller schools and
-non-revenue sports. If it does not find them, the agent can type everything in by
-hand and nothing is lost.
-
-Instagram followers fetch automatically from the handle. For private accounts the
-number is estimated from cached web sources and can be off by a few hundred. The
-agent can type over it.
-
-Sport is required because it drives the fit scoring. School and hometown are optional
-but both make Deal Scan better, because the scan searches the school's market and the
-hometown market.
-
-Interests matter too. If an athlete is into fishing or cars or skincare, put it in.
-The scan favors businesses that match.
-
-DEAL SCAN
-
-Pick a client, hit Scan Deals with AI. Three lanes come back.
-
-Local is businesses near the athlete's school, plus their hometown if it is set.
-These are real businesses that are actively spending on marketing. Ranked by fit,
-each with a score and a specific reason.
-
-Social is brands running affiliate or athlete programs. Usually commission or product
-rather than cash. This lane is often the better fit for an athlete with a smaller
-following, because the brand does not need reach to say yes.
-
-Top NIL Spenders is national brands with a history of paying athletes.
-
-Every card shows a fit score and a "why" that names the specific reason this business
-fits this athlete. Not generic. If a rationale reads like it could be about any
-business, that is a bug worth reporting.
-
-Refresh pulls businesses the agent has not been shown before. A ledger tracks what
-has already been surfaced so the same barbershop does not come back every scan.
-Businesses already contacted are excluded.
-
-A scan takes 30 to 60 seconds and costs real money to run, so it is not free to spam.
-Refresh is the cheaper way to see more.
-
-If a market comes back thin, it is thin. Small towns have fewer businesses that
-market. Say so rather than pretending otherwise.
-
-THE CONTACT
-
-This is the hardest thing NILDash does and the main reason to use it. Anyone can find
-a business. Finding the human who can say yes is the work.
-
-When a card is opened it runs a six-source search: the business website, Facebook,
-chamber of commerce listings, Google Maps, news coverage, LinkedIn, and business
-registries. It is looking for a named person, not a front desk.
-
-Then it tries to get that person's direct email, their phone if it is published
-anywhere, and their Instagram. A lot of small business owners answer a DM faster than
-an email.
-
-Confidence is labeled honestly:
-- Confident means the person is named and the email is on the business's own domain.
-- Likely means the pattern matched but was not verified.
-- Main line means no named person was found. It gives the business number and tells
-  the agent who to ask for.
-
-If an email is on a different domain than the business website, it says so. That
-usually means a former business name and is worth checking before sending.
-
-It never guesses an email address. If it cannot find one it says so.
-
-A main line is still useful. It is not a failure.
-
-AI OUTREACH
-
-Opens with the email already written, because drafting happens in the background
-right after the scan. There is a subject, a body, and an Instagram DM version
-underneath.
-
-The draft uses the specific reason this business fits this athlete. If it reads
-generic, that is a bug.
-
-While the modal is open it runs the deep contact search for that business. The agent
-will see "finding decision maker" for a few seconds. When a name comes back the
-greeting updates and the To field fills in. If it finds nobody it says so and keeps
-the main line.
-
-Everything is editable before sending.
-
-Send goes through the agent's own Gmail, so the email comes from their address, not
-from NILDash. Gmail has to be connected once. If it is not connected there is a
-Connect button right in the From slot, and the draft is saved and waiting when they
-come back.
-
-If an agent has run scans but sent no outreach, an unconnected Gmail is the most
-likely reason. That is worth checking first.
-
-A media kit can be attached if the athlete has one.
-
-PROGRAMS
-
-Pick a sport first, football or men's basketball, then search a school.
-
-It returns the people who decide roster spots: general manager, director of
-operations, player personnel, recruiting, head coach, assistants. Names, titles,
-emails, phones, and a source link to the school's own staff directory so anything can
-be verified.
-
-Coverage is 119 football programs and 126 men's basketball programs. Nine
-basketball schools have no entry because their sites publish only a
-department-wide directory.
-
-It shows decision makers only, not the full support staff, and it says how many it
-hid.
-
-This is the portal tool. When an agent is moving a player or figuring out who runs a
-program, this is where to start.
-
-Some schools have no entry for a sport. That means their site publishes only a
-department-wide directory with no usable staff page. Showing nothing is deliberate. A
-wrong contact is worse than a missing one.
-
-MEDIA KIT
-
-Builds a shareable page for an athlete with their stats, photos, following, and rate
-card. Produces a public link that can be texted or attached to an email. Takes a few
-minutes to fill in.
-
-PIPELINE
-
-Every business added to the pipeline moves through stages: contacted, in
-conversation, negotiating, closed. This is where an agent sees what is actually
-moving.
-
-MY ROSTER
-
-The agent's athletes. Clicking one shows their scans, outreach, and deals.
-
-THINGS THAT ARE COMMONLY CONFUSING
-
-"Why is this business here?" Every card has a rationale naming the specific reason.
-If it is not obvious, read the why.
-
-"The follower count is wrong." Private accounts are estimated. Type over it.
-
-"There is no email for this contact." NILDash never invents one. Use the main line
-and ask for the person by name.
-
-"The same businesses keep coming back." Hit Refresh. That pulls ones not yet shown.
-
-"This school has no basketball contacts." That school publishes only a department
-directory. Nothing is better than wrong.
-
-"Nothing happens when I hit send." Gmail is probably not connected. There is a
-Connect button in the From slot.
-
-WHAT NILDASH DOES NOT DO
-
-- It does not handle payments, contracts execution, or money movement.
-- It does not have athlete valuation data or projected NIL value.
-- It does not cover women's basketball or sports other than football and men's
-  basketball in Programs.
-- It does not guarantee a business will respond. It finds the right person to ask.
-
-<!-- END KNOWLEDGE BASE -->
-`.trim();
-
-// True once real content has replaced the placeholder. Checked by the route so the
-// state is visible in the logs rather than inferred from bad answers.
-function hasKnowledge() {
-  return !/has not been added yet/.test(KNOWLEDGE);
+// ── THE SIX ROLES ────────────────────────────────────────────────────────────
+// Five come from the shift report's own role cards, which is what the agent sees
+// every morning, so the assistant cannot describe a team the page does not show.
+// Compliance is the sixth: it has no card because it produces no nightly output,
+// it stops things.
+function rolesText() {
+  const sr = _try(() => require('./shiftReport'), null);
+  // buildRoleCards needs a stat object; a zeroed one still yields the names and
+  // the order, which is all that is wanted here.
+  const zero = { checked: 0, kept: 0, contacts: 0, emailable: 0, drafts: 0, emailDrafts: 0,
+    dmScripts: 0, sent: 0, replies: 0, kits: 0, valuations: 0 };
+  const cards = sr && sr.buildRoleCards ? _try(() => sr.buildRoleCards(zero), []) : [];
+  const names = cards.map((c) => c.name).filter(Boolean);
+  const WHAT = {
+    Scout: 'finds businesses worth approaching for a given athlete, and says why each one',
+    Researcher: 'finds the person at that business who can actually approve a deal, and a way to reach them',
+    Writer: 'drafts the pitch in the agent\'s voice, naming what the athlete would actually do',
+    Closer: 'sends approved pitches at the right time, follows up, and stops the moment someone replies',
+    Analyst: 'keeps one current media kit per athlete',
+  };
+  const lines = names.map((n) => `- ${n}: ${WHAT[n] || 'part of the nightly run'}`);
+  lines.push('- Compliance: checks every pitch before it sends and holds anything that '
+    + 'needs a human decision. It is the only role that stops work rather than producing it, '
+    + 'which is why it has no card on the morning report.');
+  return lines.join('\n');
 }
 
-module.exports = { KNOWLEDGE, hasKnowledge };
+// ── THE THREE LANES ──────────────────────────────────────────────────────────
+function lanesText() {
+  const C = _try(() => require('./closer'), null);
+  // laneLabel is what the agent sees on every draft row, so the names match.
+  const label = (k) => (C && C.laneLabel ? _try(() => C.laneLabel({ lane: k }), k) : k);
+  return `- Local (${label('local')}): businesses near the athlete's school, and their hometown when it is set.
+  This is the lane most deals come from. It needs the school to resolve to a town -- an athlete
+  whose school does not resolve has NO local lane and will quietly get nothing every night.
+- DTC (${label('social')}): brands running athlete or affiliate programmes. Usually product or
+  commission rather than cash, and often the better fit for a smaller following.
+- National (${label('national')}): larger brands with a real NIL history. Lowest hit rate, and
+  the pitch goes to a corporate inbox rather than a person.`;
+}
+
+// ── OUTREACH: WRITTEN, APPROVED, SENT ────────────────────────────────────────
+function outreachText() {
+  const sg = _try(() => require('./sendGuard'), {});
+  const C = _try(() => require('./closer'), {});
+  const oq = _try(() => require('./outreachQueue'), {});
+  const sr = _try(() => require('./shiftReport'), {});
+  const cap = sg.DEFAULT_DAILY_CAP;
+  const cadence = Array.isArray(C.CADENCE) ? C.CADENCE : [];
+  const gaps = cadence.slice(1).map((c) => c.afterDays);
+  const slots = oq.NIGHTLY_SLOTS;
+  const expiry = sr.DRAFT_EXPIRY_DAYS;
+  const auto = C.AUTO_MODE_THRESHOLD;
+
+  return `The nightly run drafts up to ${slots == null ? 'a few' : slots} pitches per athlete. Nothing sends on its own.
+
+APPROVAL IS ONE DECISION, NOT ONE PER MESSAGE. The morning page groups everything
+waiting by athlete. The agent opens a draft, reads exactly what will go out, edits it
+in place or skips it, then approves the batch. There is deliberately no per-message
+send button: forty clicks a night is data entry, not review.
+
+THE AGENT DOES NOT PICK THE SEND TIME, and this is on purpose rather than an
+omission. A pitch lands better on a weekday morning in the RECIPIENT's timezone, and
+that is a fact about the recipient, not a preference the agent should have to hold in
+their head. Approved pitches are released into that window automatically.
+
+${cap == null ? '' : `THE CEILING IS ${cap} EMAILS PER AGENT PER DAY. That is a deliverability limit, not a
+Google one: sending more from a new domain is how a mailbox starts landing in spam.
+DMs and calls are not affected by it.
+
+`}${cadence.length ? `FOLLOW-UPS: ${cadence.length} touches${gaps.length ? `, the second after ${gaps[0]} days and the ${cadence.length === 3 ? 'third' : 'last'} after ${gaps[gaps.length - 1]}` : ''}.
+They stop immediately when someone replies, and stop and flag the address when one
+bounces.
+
+` : ''}${auto == null ? '' : `AUTO MODE is off by default and is not even offered until the agent has approved ${auto}
+pitches without editing any of them. It is per athlete or per lane, never global.
+
+`}${expiry == null ? '' : `A draft nobody sends expires after ${expiry} days. Expiring is a status change, not a
+delete -- the text is kept and can still be read.`}`;
+}
+
+// ── COMPLIANCE: WHAT IT BLOCKS, AND WHAT IT DOES NOT CHECK ───────────────────
+// Both halves derived. The second half matters more: an agent who believes we
+// check their school's policy will not check it themselves.
+function complianceText() {
+  const co = _try(() => require('./compliance'), null);
+  if (!co) return 'A compliance gate runs before every send. Details unavailable right now.';
+  const cats = (co.CATEGORIES || []).map((c) => {
+    const both = c.minor === c.adult;
+    return `- ${c.label}: ${both ? (c.minor === 'block' ? 'blocked for every athlete' : 'held for a human decision')
+      : `blocked for a minor, held for a human decision for an adult`}`;
+  });
+  const unchecked = (co.UNCHECKED || []).map((u) => `- ${u}`);
+  return `Every pitch passes a gate before it can send. It BLOCKS -- it is not a warning the
+agent can click past -- and it fails closed: if the check cannot run, the send does not
+happen.
+
+Three outcomes: a hard block the agent cannot override, a hold the agent can override
+with a recorded reason, and a note that proceeds but stays on the record. Every one is
+written to a log with what was held, which rule, why, when, and how it was resolved.
+
+WHAT IT CHECKS, by business category:
+${cats.join('\n')}
+
+Category comes from the Google Places record for the business plus its name. A business
+we hold no record for cannot be classified, and that is a HOLD, never a pass.
+
+Age comes from a date of birth the agent entered. There is no other source for it. With
+no date of birth the athlete's age is UNKNOWN, and unknown age against a restricted
+category holds rather than assuming they are an adult.
+
+WHAT IT DOES NOT CHECK, and an agent should not assume otherwise:
+${unchecked.join('\n')}
+
+If asked whether we check a school's NIL policy: we do NOT. We hold only what the agent
+told us about their own school's restrictions, recorded as agent-supplied and not
+verified. We do not read school policies, and most of them sit behind a student login.
+
+Disclosure filings are PREPARED, never submitted. Schools file through their own portal
+with the athlete's login.`;
+}
+
+// ── WHAT WE DO NOT KNOW, IN NUMBERS ──────────────────────────────────────────
+// The measured figures, including the unflattering ones. An assistant quoting the
+// old 69% would be quoting a warm-cache re-read as if it were cold discovery.
+const LIMITS = `HONEST NUMBERS. Use these, not more flattering ones.
+
+CONTACT COVERAGE ON A COLD MARKET. On a business we have never looked at before,
+roughly 10% yield a personal email address for a named person. Measured over 60
+business-runs in Birmingham. Do not quote 69% for this: that figure came from
+Fayetteville businesses that had ALREADY been processed, so it measured re-reading a
+warm cache rather than cold discovery. They are different quantities.
+
+Do not quote a "named person found" rate at all. The measurement counted people who
+turned out to be wrong -- in one sample an editor at a trade magazine was carried as a
+bakery owner -- so any figure would be an upper bound on something we cannot currently
+compute.
+
+Mobile numbers: we found none at all in that sample. Assume we do not have them.
+
+FOLLOWER COUNTS are typed in by the agent or estimated from public sources today. They
+go stale. Connecting the athlete's Instagram is the fix, and until an athlete connects,
+treat every follower and engagement number as approximate.
+
+SCHOOL SPONSOR CONFLICTS are not checked. We hold our own deal history at a school,
+which is not the same as the school's official sponsor roster.`;
+
+// ── FRAMING ──────────────────────────────────────────────────────────────────
+const PURPOSE = `WHAT NILDASH IS FOR
+
+NILDash is an AI team that works an agent's roster overnight. The agent does not
+operate a tool: they wake up to work already done -- businesses found, contacts
+researched, pitches drafted -- and their job is to decide what goes out, not to run
+searches.
+
+It is built for the athletes nobody is chasing yet. An athlete with brands already
+coming to them does not need this.
+
+The whole product runs on one rhythm: the team works at night, the agent reviews in
+the morning, approved pitches go out during the day when the recipient is most likely
+to read them.`;
+
+const SHIFT_REPORT = `THE MORNING REPORT
+
+One sentence saying what the team did overnight, then what needs the agent.
+
+The sentence counts ONLY the overnight run. Work the agent's own page load triggers
+during the day is counted separately and said in its own line, so the numbers do not
+quietly inflate as the day goes on.
+
+"Across N of M athletes" means the run attempted M and produced work for N. The
+difference is real athletes who got nothing, and the reasons are listed rather than
+hidden.
+
+NEEDS YOU is ordered by what cannot move without a person: compliance holds first
+(the pitch is already stopped), then replies (someone is waiting on an answer), then
+drafts to approve, then queue cards.
+
+A role that did nothing is ABSENT from the sentence rather than shown as a zero.`;
+
+const PRICING = `PRICING
+
+$99 a month per agent, with no per-athlete charge, so an agent can put their whole
+roster in without thinking about cost. Athletes are not charged.
+
+If asked what tier they are on and it is not in the data provided, say you cannot see
+their billing from here and point them at Settings. Do not guess.`;
+
+function buildKnowledge() {
+  return [
+    PURPOSE,
+    '', 'THE SIX ROLES', rolesText(),
+    '', 'DEAL SCAN AND THE THREE LANES',
+    'A scan looks for businesses worth approaching for one athlete, in three lanes:',
+    lanesText(),
+    '', 'HOW OUTREACH GETS WRITTEN, APPROVED AND SENT', outreachText(),
+    '', 'REPLIES',
+    `A reply is captured automatically and lands on the morning report above everything
+else. It stops the follow-up cadence for that business immediately -- nobody gets a
+"just following up" after they have answered -- and marks the business as having
+engaged, which feeds future targeting. A bounce also stops the cadence and flags the
+address as bad so nothing else is sent to it.`,
+    '', 'THE COMPLIANCE GATE', complianceText(),
+    '', SHIFT_REPORT,
+    '', PRICING,
+    '', LIMITS,
+  ].join('\n');
+}
+
+// Derived knowledge is present as long as the modules load. The check is that the
+// numbers actually resolved -- a KNOWLEDGE block full of "unavailable" is the same
+// failure as an empty one and should be just as visible on boot.
+function hasKnowledge() {
+  const k = buildKnowledge();
+  return k.length > 800 && !/unavailable right now/.test(k);
+}
+
+// KNOWLEDGE is kept as a getter so existing callers that read it as a value still
+// work, while the text is rebuilt from live module values on each read.
+module.exports = {
+  buildKnowledge, hasKnowledge, rolesText, lanesText, outreachText, complianceText,
+  get KNOWLEDGE() { return buildKnowledge(); },
+};
