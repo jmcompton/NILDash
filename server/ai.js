@@ -1217,6 +1217,32 @@ function _contactAuthorityRank(title) {
   return 7;
 }
 
+// SHORT FORMS THAT ARE NOT SCHOOL NAMES AT ALL.
+//
+// The short form of a key is the key minus university/college/state/of/the/at, so
+// "University of Alabama" becomes "alabama" -- which is also the state, and the
+// state a great many of our businesses are in. "Family-run barbecue institution
+// in Alabama" on an Auburn athlete matched, was logged as a GROUNDING VIOLATION,
+// and had its researched rationale replaced with the generic template. The model
+// had done nothing wrong.
+//
+// For a short form on this list the bare word is not enough: the text has to name
+// the school in full ("University of Alabama"). Specific alias keys are unaffected
+// -- 'Bama' shortens to "bama", which is nobody's state, so it still matches on
+// its own. That keeps the guard catching a genuinely invented school while
+// leaving ordinary geography alone, which is the bias this function already
+// states: a false negative leaves a rationale alone, a false positive rewrites a
+// correct one.
+//
+// 62 OTHER KEYS COLLIDE THE SAME WAY and are deliberately NOT here yet -- every
+// "University of <state>", plus city names (Pittsburgh, Cincinnati, Boston,
+// Stanford, Kennesaw, Notre Dame, San Diego) and ordinary words (Duke, Temple,
+// Miami, Purdue, Baylor, Mercer, Auburn, Clemson). They are listed in full for
+// review; adding one is adding one line here.
+const AMBIGUOUS_SHORT_FORMS = new Set([
+  'alabama',
+]);
+
 // Detect a school named in generated prose that is NOT the athlete's school. Uses
 // the SCHOOL_LOCATIONS keys (the schools the model actually knows) plus their common
 // short forms, so "UConn campus" on a Samford athlete's card is caught. Returns the
@@ -1253,7 +1279,11 @@ function _foreignSchoolIn(text, athleteSchool) {
     const kShort = k.replace(/\b(university|college|state|of|the|at)\b/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
     if (!kShort || kShort.length < 4) continue;
     if (ownShort && (kShort.includes(ownShort) || ownShort.includes(kShort))) continue;
-    const re = new RegExp('\\b' + kShort.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+') + '\\b', 'i');
+    // An ambiguous short form has to be backed by the full school name. Matching
+    // the bare word here is what rewrote correct rationales that merely named the
+    // state the business is in.
+    const needle = AMBIGUOUS_SHORT_FORMS.has(kShort) ? k : kShort;
+    const re = new RegExp('\\b' + needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+') + '\\b', 'i');
     if (re.test(t)) return key;
   }
   return null;
