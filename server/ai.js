@@ -1438,7 +1438,19 @@ function deepContactCtx(opts) {
 // fabricated and every honesty check passes. Gating the domain fixes what the next
 // fan-out is told, and does nothing at all about the answers already cached under
 // the old one, which is why this has to be a version bump and not just a fix.
-const _CONTACTS_CACHE_VERSION = 7;
+// v8: domain resolution. v7 fixed the wrong-domain problem by DROPPING the
+// domain, so every business the gate could not confirm was searched blind -- the
+// site source got the no-domain prompt and the fan-out had no domain to work
+// from. Resolution now finds many of those, and a fan-out told
+// "(onyxcoffeelab.com)" is being asked a different question from one told nothing
+// at all. Those rows are the ones this re-runs.
+//
+// Being precise about what this does NOT invalidate, so the cost is understood:
+// the five-rung address ladder and resolution itself both run live on every call,
+// AFTER the cached contacts are read, so a cache hit already gets them. The
+// re-run buys a better CONTACT LIST for the businesses that were searched without
+// a domain, not the ladder.
+const _CONTACTS_CACHE_VERSION = 8;
 
 // Test seam (see _searchContactSource). Production leaves this null.
 let _contactSearchImpl = null;
