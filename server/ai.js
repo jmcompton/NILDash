@@ -1604,13 +1604,18 @@ function _extractCitationUrls(blocks) {
 // (SEQUENTIAL within the turn, so max_uses=2 means two round trips before any text
 // is generated), and the output tokens Haiku then generates. Both are env-tunable so
 // they can be A/B'd without a code change. Defaults are unchanged from before.
-// How long we will still wait for the Instagram lookup once the source fan-out is
-// done. It starts upfront and overlaps the fan-out, so this is only the tail.
-// NOTE: this used to be the tail for a paid email lookup as well, and that lookup
-// was raced FIRST -- so Instagram inherited its wait on top of this grace. With it
-// gone Instagram gets this window and nothing more, which is a real, small
-// reduction in the handle hit rate. Raise this if that matters more than latency.
-const SIDE_LOOKUP_GRACE_MS = parseInt(process.env.SIDE_LOOKUP_GRACE_MS, 10) || 2500;
+// RETIRED, kept only so an existing SIDE_LOOKUP_GRACE_MS in the environment does
+// not read as a setting that still does something. This was how long we would
+// wait for the Instagram lookup after the fan-out finished, and a late result was
+// DISCARDED -- so whether the bio-derived owner was in the contact set came down
+// to whether the scrape beat a 2500ms clock. The lookup is awaited in full now
+// (it carries its own 8s fetch and 15s search caps), and the "real, small
+// reduction in the handle hit rate" this constant used to cause is gone with it.
+const SIDE_LOOKUP_GRACE_MS_RETIRED = parseInt(process.env.SIDE_LOOKUP_GRACE_MS, 10) || 2500;
+// Per-source safety net. Named and env-tunable because in deterministic mode it
+// is the only remaining thing that can change which sources contribute, so it is
+// the one number to raise if a slow source is being clipped.
+const CONTACT_SOURCE_TIMEOUT_MS = parseInt(process.env.CONTACT_SOURCE_TIMEOUT_MS, 10) || 15000;
 const CONTACT_SEARCH_MAX_USES = parseInt(process.env.CONTACT_SEARCH_MAX_USES, 10) || 2;
 const CONTACT_SEARCH_MAX_TOKENS = parseInt(process.env.CONTACT_SEARCH_MAX_TOKENS, 10) || 900;
 
@@ -1625,9 +1630,42 @@ const CONTACT_SEARCH_MAX_TOKENS = parseInt(process.env.CONTACT_SEARCH_MAX_TOKENS
 //   opts.hasWin(r)     result counts as a win, which permits the straggler cut
 //   opts.isSatisfied(all)  stop between waves
 //   opts.onResult(r)   per-result callback, used for logging
+//   opts.deterministic true -> WHICH SOURCES CONTRIBUTE IS NOT DECIDED BY A CLOCK
 // Returns { results, ms, waveSize, wavesRun }.
+//
+// ── DETERMINISTIC MODE, AND WHY IT EXISTS ────────────────────────────────────
+// Two things in this function used to decide SET MEMBERSHIP by stopwatch, and a
+// set that changes is a different answer, not a slower one:
+//
+//   THE STRAGGLER CUT. Once any source produced a win and all but one member had
+//   settled, the last member was abandoned and its result DISCARDED. Which member
+//   is last is network timing. Cahaba Brewing named Eric Meyer on one run and
+//   Andrew Pharo on the next, from nothing but a ~380ms difference in which of
+//   two third-party sources replied first. Both people were found both times; one
+//   of them was thrown away for being slow.
+//
+//   THE WALL BUDGET. Whether waves 2 and 3 ran at all was decided on elapsed
+//   time, so a slow wave 1 silently removed four of the seven sources.
+//
+// The cut was also quietly starving corroboration: it can only fire AFTER a win,
+// so it discarded second opinions precisely on the businesses where we had found
+// a decision maker -- which is exactly where a second source naming the same
+// person is worth having. Contacts came back with sources:['facebook'] almost
+// every time, so the corroboration tie-break rarely engaged.
+//
+// Determinism costs the slowest member of each wave instead of the second
+// slowest. It is opt-in per caller because that trade is not free everywhere:
+// the contact ladder runs overnight with nobody waiting, and takes it. The
+// program map (135 schools) has not been switched over -- one flag when wanted.
+//
+// WHAT IS STILL NOT DETERMINISTIC, stated rather than implied: each source keeps
+// its own timeout (CONTACT_SOURCE_TIMEOUT_MS), so a source that would have
+// answered within a hair of the cap can still fall either side of it. That is now
+// the ONLY clock left in the path, it needs a near-exact coincidence to bite, and
+// removing it would mean a hung call could stall an overnight run indefinitely.
 async function runSourceWaves(sources, runOne, opts = {}) {
   const waveSize = Math.max(1, opts.waveSize || parseInt(process.env.CONTACT_WAVE_SIZE, 10) || 3);
+  const deterministic = opts.deterministic === true;
   const wallBudgetMs = opts.wallBudgetMs || 22000;
   const hasWin = typeof opts.hasWin === 'function' ? opts.hasWin : () => false;
   const isSatisfied = typeof opts.isSatisfied === 'function' ? opts.isSatisfied : () => false;
@@ -1637,7 +1675,11 @@ async function runSourceWaves(sources, runOne, opts = {}) {
   const all = [];
   let wavesRun = 0;
   for (let w = 0; w < sources.length; w += waveSize) {
-    if (all.length && Date.now() - t0 > wallBudgetMs) {
+    // The wall budget decides whether the REMAINING SOURCES RUN, on elapsed time.
+    // Skipped in deterministic mode: the bound there is per-source
+    // (CONTACT_SOURCE_TIMEOUT_MS x number of waves), which is a fixed ceiling
+    // rather than a race between the clock and the network.
+    if (!deterministic && all.length && Date.now() - t0 > wallBudgetMs) {
       console.log(`[waves] ${label} stop: wall budget after ${all.length} source(s)`);
       break;
     }
@@ -1652,13 +1694,24 @@ async function runSourceWaves(sources, runOne, opts = {}) {
     let cut = null;
     const cutP = new Promise((resolve) => { cut = resolve; });
     const maybeCut = () => { if (win && settled >= wave.length - 1 && cut) cut('cut'); };
-    const tracked = wave.map((src) => Promise.resolve()
-      .then(() => runOne(src))
-      .then((r) => { if (r) { waveOut.push(r); if (hasWin(r)) win = true; } settled++; maybeCut(); })
-      .catch(() => { settled++; maybeCut(); }));
-    const outcome = await Promise.race([Promise.all(tracked).then(() => 'all'), cutP]);
-    if (outcome === 'cut' && waveOut.length < wave.length) {
-      console.log(`[waves] ${label} wave cut: ${wave.length - waveOut.length} straggler(s) abandoned after a win (wave=${wave.join(',')})`);
+    if (deterministic) {
+      // EVERY MEMBER, EVERY TIME. Sources still run in parallel -- the wave costs
+      // its slowest member, not the sum -- but none is dropped for finishing last,
+      // so the same wave always yields the same set. Collected in wave order
+      // rather than completion order, which also makes the array itself stable.
+      const settledAll = await Promise.all(wave.map((src) => Promise.resolve()
+        .then(() => runOne(src))
+        .then((r) => r || null, () => null)));
+      for (const r of settledAll) if (r) waveOut.push(r);
+    } else {
+      const tracked = wave.map((src) => Promise.resolve()
+        .then(() => runOne(src))
+        .then((r) => { if (r) { waveOut.push(r); if (hasWin(r)) win = true; } settled++; maybeCut(); })
+        .catch(() => { settled++; maybeCut(); }));
+      const outcome = await Promise.race([Promise.all(tracked).then(() => 'all'), cutP]);
+      if (outcome === 'cut' && waveOut.length < wave.length) {
+        console.log(`[waves] ${label} wave cut: ${wave.length - waveOut.length} straggler(s) abandoned after a win (wave=${wave.join(',')})`);
+      }
     }
     for (const r of waveOut) { all.push(r); onResult(r); }
     if (isSatisfied(all)) {
@@ -1791,9 +1844,15 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
       if (out && typeof out === 'object') { text = out.text || ''; citations = out.citations || []; }
       else { text = out || ''; }
     } else {
+      // THE LAST CLOCK IN THE PATH, and it is a safety net rather than a budget:
+      // without it a hung call stalls an overnight run indefinitely. It can still
+      // decide membership, but only for a source that would answer within a hair
+      // of the cap -- a near-exact coincidence, where the straggler cut it
+      // replaced fired on every business that found an owner.
       const r = await Promise.race([
         _contactWebSearchRaw(prompt, sys),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout-15s')), 15000)),
+        new Promise((_, rej) => setTimeout(
+          () => rej(new Error(`timeout-${Math.round(CONTACT_SOURCE_TIMEOUT_MS / 1000)}s`)), CONTACT_SOURCE_TIMEOUT_MS)),
       ]);
       text = r.text || ''; citations = r.citations || [];
       searches = r.searches || 0; outTokens = r.outTokens || 0; apiMs = r.apiMs || 0;
@@ -2022,6 +2081,16 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
     sourceOrder,
     (src) => _searchContactSource(src, brand, loc, domain, regionState),
     {
+      // The set of sources that contribute is not decided by a clock. See the
+      // header on runSourceWaves: the straggler cut was choosing between two real
+      // owners on response latency, and it fired only after a win, so it was
+      // throwing away exactly the corroborating second source that makes a name
+      // trustworthy. Nobody is waiting on this call.
+      //
+      // Env-overridable so the old behaviour can be restored without a deploy if
+      // the added wall time ever turns out to matter, and so the two can be
+      // measured against each other on the same list.
+      deterministic: process.env.CONTACT_WAVES_LEGACY !== '1',
       wallBudgetMs: CONTACT_WALL_BUDGET_MS,
       // The lean (queue) lane narrows the wave to 2 so wave 1 is chamber+site and
       // nothing else. A wave always spends its full width, so width IS cost here.
@@ -2554,12 +2623,18 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   if (_igPromise) {
     const _igT0 = Date.now();
     try {
-      const ig = await Promise.race([_igPromise, new Promise((res2) => setTimeout(() => res2('__late__'), SIDE_LOOKUP_GRACE_MS))]);
-      // A late result is dropped for THIS call but the promise is not aborted, so
-      // it still finishes and writes its cache row. The search path routinely
-      // outlives the grace, and that is how the next lookup gets it for free --
-      // which is also why the scan-time ladder warm matters more now.
-      if (ig === '__late__') console.log(`[brand-contacts] instagram still running after fan-out, dropped after ${SIDE_LOOKUP_GRACE_MS}ms`);
+      // AWAITED IN FULL, NOT RACED. This used to drop the result after 2500ms,
+      // which made the bio-derived owner a member of the contact set on a fast
+      // run and absent on a slow one -- the same person, the same page, decided
+      // by a stopwatch. The lookup has its own internal caps (an 8s fetch and a
+      // 15s search inside instagramLookup), so awaiting it is bounded; it just no
+      // longer matters WHEN inside that bound the answer arrives.
+      //
+      // The old comment noted the search path "routinely outlives the grace",
+      // which is another way of saying the grace was usually deciding the
+      // question rather than guarding against a hang.
+      const ig = await _igPromise;
+      if (!ig) console.log('[brand-contacts] instagram: no handle found');
       else if (ig && ig.handle) {
         res.instagram = ig.handle;
         res.instagramScope = ig.scope || 'business';
