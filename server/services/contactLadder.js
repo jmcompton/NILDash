@@ -113,7 +113,19 @@ function _fallbackRootDomain(url) {
 // that from the row. So it is never shown as if it belongs to the business: it is
 // labeled with the mismatch, naming the other domain. Returns null when the domains
 // match or when either side is unknown.
-function crossDomainNote(email, bizDomain, rootFn) {
+//
+// IT NEEDS A CONFIRMED WEBSITE, OR IT RUNS BACKWARDS. This compares an address to
+// a domain it assumes is the business's own. Give it the wrong domain and every
+// verdict inverts: with Post Office Pies holding davenportspizza.com, the real
+// address at postofficepies.com gets labelled "different domain, verify before
+// using" while the other company's address is presented clean, as the business's
+// own. The agent is warned off the right answer and reassured about the wrong one.
+// With no ground truth there is nothing to compare against, so it says nothing --
+// which is why bizDomain must be null, not a rejected URL, when the gate dropped
+// one. Callers pass websiteConfirmed=false to make that refusal explicit rather
+// than relying on the empty-string fall-through.
+function crossDomainNote(email, bizDomain, rootFn, websiteConfirmed) {
+  if (websiteConfirmed === false) return null;
   const root = typeof rootFn === 'function' ? rootFn : _fallbackRootDomain;
   const biz = root(bizDomain || '');
   const at = String(email || '').split('@')[1];
@@ -121,6 +133,27 @@ function crossDomainNote(email, bizDomain, rootFn) {
   const emailRoot = root(at);
   if (!emailRoot || emailRoot === biz) return null;
   return `Different domain (${emailRoot}) from the business site (${biz}), possibly a former business name. Verify before using.`;
+}
+
+// The one sentence an agent reads when the domain gate rejected the listed URL.
+// Written HERE rather than imported from domainGate on purpose: this module is
+// pure string work with no network and no database, and domainGate reaches
+// siteEmail, which opens a pg pool. A card renderer must not drag a connection in.
+// It never implies the business is unreachable -- the ladder below it still ran.
+function _droppedNote(dropped) {
+  if (!dropped) return null;
+  const host = _fallbackRootDomain(dropped.url || '') || String(dropped.url || '').slice(0, 60);
+  if (!host) return 'No confirmed website for this business.';
+  if (dropped.code === 'third-party-host') {
+    return `No confirmed website. The listed address was ${host}, a platform page rather than this `
+      + `business's own site, so nothing was read from it.`;
+  }
+  if (dropped.code === 'no-distinctive-word') {
+    return `No confirmed website. The listed address was ${host}, and this business's name is all `
+      + `trade words, so we could not confirm the domain is theirs. Contacts below come from other sources.`;
+  }
+  return `No confirmed website. The listed address was ${host}, which does not carry this business's `
+    + `name, so it was not used. Contacts below come from other sources.`;
 }
 
 // Front-of-house staff: real people, but not who an agent should be calling about a
@@ -180,10 +213,15 @@ function buildContactLadder(res, opts = {}) {
   const named = Array.isArray(r.contacts) ? r.contacts.filter((c) => c && c.name && String(c.name).trim()) : [];
 
   const mainDigits = _digits(r.businessPhone);
-  // Business domain that every email on this ladder is checked against.
-  const bizSite = r.website || opts.website || null;
+  // Business domain that every email on this ladder is checked against -- ONLY if
+  // the domain gate confirmed it. A dropped website is not weaker ground truth,
+  // it is none: opts.website is deliberately not consulted as a fallback when the
+  // gate rejected one, because that is the ungated URL the gate just refused.
+  const websiteDropped = r.websiteDropped || opts.websiteDropped || null;
+  const bizSite = websiteDropped ? null : (r.website || opts.website || null);
+  const websiteConfirmed = !!bizSite;
   const _rootFn = typeof opts.rootDomain === 'function' ? opts.rootDomain : _fallbackRootDomain;
-  const _xdom = (email) => crossDomainNote(email, bizSite, _rootFn);
+  const _xdom = (email) => crossDomainNote(email, bizSite, _rootFn, websiteConfirmed);
   // A site-scraped handle that carries a person's name is a PERSONAL account, so it
   // belongs to that person's row and rides their tier. Otherwise it is the business
   // account and becomes its own business-channel row.
@@ -416,6 +454,11 @@ function buildContactLadder(res, opts = {}) {
   return {
     mainLine,
     tiers,
+    // A website the domain gate rejected. Shown on the card, not hidden: an agent
+    // seeing contacts with no website should know it is because the listed URL
+    // belonged to someone else, not because the business has no web presence.
+    websiteNote: websiteDropped ? _droppedNote(websiteDropped) : null,
+    websiteDroppedCode: websiteDropped ? (websiteDropped.code || null) : null,
     // Named people we found but cannot reach by any channel. Never given a row;
     // shown as context so the research is not silently thrown away.
     unreachable,

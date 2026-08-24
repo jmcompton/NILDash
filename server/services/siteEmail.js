@@ -439,12 +439,85 @@ const NAME_STOPWORDS = new Set([
   'restaurant', 'cafe', 'coffee', 'bar', 'grill', 'kitchen', 'shop', 'store',
   'salon', 'studio', 'gym', 'fitness', 'center', 'centre', 'clinic', 'auto',
   'motors', 'plus', 'pro', 'best', 'new', 'my', 'us',
+
+  // ── WORDS THAT NAME THE TRADE, NOT THE BUSINESS ────────────────────────────
+  // Every competitor in a trade shares these, so matching on one says only that
+  // two businesses are in the same line of work -- which is exactly the mistake
+  // that let a Birmingham market run accept three wrong domains:
+  //   Homewood Cycle & Fitness -> cahabaCYCLEs.com     matched on "cycle"
+  //   Onyx Coffee Lab          -> daysolcoffeeLAB.co   matched on "lab"
+  //   Millennium Chiropractic  -> pillarCHIROPRACTIC…  matched on "chiropractic"
+  // In all three the distinctive word (homewood, onyx, millennium) is absent
+  // from the domain. A trade word is the weakest possible evidence and it was
+  // being treated as sufficient.
+  //
+  // STRICTLY TRADE NOUNS AND THEIR ADJECTIVES. Deliberately NOT here: place
+  // names, family names, nature words (cahaba, magnolia, oak, summit, ridge) or
+  // quality words. Those are how a local business is actually distinguished, and
+  // stopwording them would gut the check to fix the opposite problem.
+  'cycle', 'cycles', 'cycling', 'bike', 'bikes', 'bicycle', 'bicycles',
+  'lab', 'labs', 'laboratory', 'laboratories',
+  'chiropractic', 'chiropractor', 'chiropractors', 'chiro',
+  'dental', 'dentistry', 'dentist', 'orthodontics', 'orthodontist',
+  'medical', 'medicine', 'med', 'health', 'healthcare', 'wellness', 'therapy',
+  'therapeutic', 'physical', 'rehab', 'rehabilitation', 'pharmacy', 'dermatology',
+  'optical', 'optometry', 'vision', 'veterinary', 'vet', 'animal', 'pet', 'pets',
+  'nutrition', 'supplements',
+  'pizza', 'pizzeria', 'bakery', 'bakeries', 'deli', 'delicatessen', 'diner',
+  'eatery', 'bistro', 'tavern', 'pub', 'taproom', 'brewing', 'brewery', 'brewhouse',
+  'roasters', 'roasting', 'roastery', 'catering', 'caterers', 'smoothie', 'juice',
+  'yogurt', 'creamery', 'donuts', 'donut', 'bagel', 'bagels', 'sandwich',
+  'sandwiches', 'burger', 'burgers', 'taco', 'tacos', 'sushi', 'barbecue', 'bbq',
+  'steakhouse', 'seafood', 'wings', 'grocery', 'liquor', 'wine', 'spirits',
+  'barber', 'barbershop', 'beauty', 'nails', 'tattoo', 'aesthetics', 'skincare',
+  'cleaners', 'cleaning', 'laundry', 'landscaping', 'lawn', 'plumbing', 'plumbers',
+  'electric', 'electrical', 'electricians', 'hvac', 'heating', 'cooling',
+  'roofing', 'roofers', 'construction', 'contracting', 'contractors', 'builders',
+  'remodeling', 'renovations', 'paving', 'concrete', 'fencing', 'flooring',
+  'painting', 'painters', 'glass', 'windows', 'cabinets', 'countertops',
+  'realty', 'realtors', 'estate', 'properties', 'property', 'insurance', 'agency',
+  'financial', 'finance', 'accounting', 'accountants', 'bookkeeping', 'tax',
+  'legal', 'law', 'attorneys', 'attorney', 'lawyers', 'mortgage', 'lending',
+  'apparel', 'boutique', 'outfitters', 'sporting', 'goods', 'supply', 'supplies',
+  'hardware', 'furniture', 'appliance', 'appliances', 'equipment', 'rentals',
+  'rental', 'storage', 'moving', 'movers', 'printing', 'signs', 'signage',
+  'photography', 'photo', 'films', 'media', 'marketing', 'advertising', 'design',
+  'consulting', 'consultants', 'solutions', 'systems', 'technologies', 'technology',
+  'tech', 'software', 'digital', 'security', 'staffing', 'recruiting',
+  'training', 'academy', 'school', 'learning', 'tutoring', 'daycare', 'childcare',
+  'preschool', 'montessori', 'yoga', 'pilates', 'crossfit', 'martial', 'dance',
+  'athletics', 'sports', 'nutrition', 'wellbeing',
+  'tire', 'tires', 'collision', 'repair', 'repairs', 'detailing', 'towing',
+  'transmission', 'automotive', 'dealership', 'powersports', 'marine', 'boat',
+  'motorcycle', 'trailer', 'trucking', 'logistics', 'freight', 'delivery',
+  'florist', 'flowers', 'nursery', 'garden', 'farms', 'orchard',
+  'hotel', 'inn', 'suites', 'lodging', 'travel', 'tours', 'events',
+  'entertainment', 'cinema', 'theater', 'theatre', 'bowling', 'golf',
+  'grooming', 'boarding', 'kennel', 'pest', 'septic', 'welding', 'machining',
+  'fabrication', 'industrial', 'manufacturing', 'distributing', 'distributors',
+  'wholesale', 'retail', 'outlet', 'market', 'mart',
 ]);
 
 function nameTokens(brand) {
   return String(brand || '').toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/).filter((t) => t.length >= 3 && !NAME_STOPWORDS.has(t));
+}
+
+// Is one collapsed name SUBSTANTIALLY the other, rather than merely inside it?
+// "cycletherapy" vs "cycletherapyllc" is the same business; "chiropractic" vs
+// "millenniumchiropractic" is a trade word sitting inside a name. Containment
+// alone cannot tell those apart, so the shorter side must also account for most
+// of the longer one.
+const _OVERLAP_MIN_LEN = 8;
+const _OVERLAP_MIN_SHARE = 0.7;
+function collapsedOverlapOk(a, b) {
+  const x = String(a || ''), y = String(b || '');
+  if (!x || !y) return false;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < _OVERLAP_MIN_LEN) return false;
+  if (!long.includes(short)) return false;
+  return (short.length / long.length) >= _OVERLAP_MIN_SHARE;
 }
 
 // { plausible, reason, matchedOn }
@@ -462,7 +535,11 @@ function domainMatchesBusiness(brand, website) {
   // inside the collapsed name ("onyxcoffeelab" vs "Onyx Coffee Lab").
   const hit = toks.find((t) => flat.includes(t));
   if (hit) return { plausible: true, reason: null, matchedOn: hit };
-  if (collapsed && flat.length >= 4 && collapsed.includes(flat)) {
+  // The label inside the collapsed name used to accept on containment alone,
+  // which let a bare trade word through: "chiropractic.com" sits inside
+  // "millenniumchiropractic" and was read as a match. The label must now account
+  // for most of the name, not just appear somewhere in it.
+  if (collapsedOverlapOk(collapsed, flat)) {
     return { plausible: true, reason: null, matchedOn: flat };
   }
   // Acronym: "David Protein Bar" -> "dpb"
@@ -482,3 +559,5 @@ function domainMatchesBusiness(brand, website) {
 
 module.exports.nameTokens = nameTokens;
 module.exports.domainMatchesBusiness = domainMatchesBusiness;
+module.exports.collapsedOverlapOk = collapsedOverlapOk;
+module.exports.NAME_STOPWORDS = NAME_STOPWORDS;

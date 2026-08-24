@@ -1466,7 +1466,13 @@ function _sourceLead(source, brand, loc, domain, regionState) {
       return `Search LinkedIn for the owner, founder, or general manager of "${brand}"${where} (queries "${brand} ${loc || ''} owner linkedin", "${brand} founder linkedin"). Extract the person's name, their title exactly as the profile states it, and the FULL public profile URL as linkedinUrl (e.g. https://www.linkedin.com/in/...). Only report a profile that genuinely names this business as their company. Do not guess a profile URL.`;
     case 'site':
     default:
-      return `Search the business's OWN website for "${brand}"${where}${domain ? ` (${domain})` : ''}: its team, about, staff, and contact pages. Extract named people with the titles the site states, and any published email or phone.`;
+      // With a domain, unchanged. WITHOUT one the domain gate rejected every
+      // candidate, so the model must not quietly substitute the nearest
+      // same-trade business it can find -- which is the failure the gate exists
+      // to stop, arriving by a different route.
+      return `Search the business's OWN website for "${brand}"${where}${domain ? ` (${domain})` : ''}: its team, about, staff, and contact pages.`
+        + (domain ? '' : ` We have NO confirmed domain for this business. Only report people from a page that names this exact business at this location. If you cannot find its own website, return no contacts rather than people from a similarly named business or another business in the same trade.`)
+        + ` Extract named people with the titles the site states, and any published email or phone.`;
   }
 }
 
@@ -2158,7 +2164,28 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   const _placesT0 = Date.now();
   try { places = await lookupPlace(brand, locationHint); } catch (_) { places = null; }
   const _placesMs = Date.now() - _placesT0;
-  const effectiveWebsite = website || (places && places.website) || null;
+  // ── THE DOMAIN GATE ────────────────────────────────────────────────────────
+  // Everything below treats this URL as the business's own: the Instagram scrape
+  // reads it, the fan-out writes it into the model's prompt as fact, siteEmail
+  // scrapes it for an address, and Hunter SPENDS A CREDIT on it. Until now
+  // nothing checked that it was the right business's domain, and a Birmingham run
+  // proved it is often not -- Post Office Pies resolved to davenportspizza.com,
+  // Onyx Coffee Lab to daysolcoffeelab.co. Both real businesses, neither ours.
+  //
+  // Two candidates, in the order the old code preferred them, and now the second
+  // gets a look when the first fails instead of being ignored. A URL that cannot
+  // be tied to this business is dropped: the lookup still runs, it just runs
+  // without a website rather than with another company's.
+  const { pickWebsite } = require('./services/domainGate');
+  const _pick = pickWebsite(brand, [website, places && places.website]);
+  let effectiveWebsite = _pick.website;
+  const websiteDropped = _pick.dropped;
+  for (const d of _pick.drops) {
+    console.log(`[domain-gate] brand="${brand}" DROPPED ${d.url} code=${d.code}: ${d.reason}`);
+  }
+  if (effectiveWebsite && _pick.matchedOn) {
+    console.log(`[domain-gate] brand="${brand}" kept ${effectiveWebsite} (matched "${_pick.matchedOn}")`);
+  }
   // Cost gate: the 6-source contact web-search fan-out is the biggest Anthropic
   // cost driver. Only run it on the AI Outreach path (ctx.enrichEmail), where the
   // agent chose to pursue this business. On the card path we return the Places
@@ -2386,7 +2413,12 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
     ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(brand + (loc ? ' ' + loc : ''))
     : null);
   const approach = _contactApproach(ctx || {}, res.contacts[0] || null, res);
-  return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, instagramScope: res.instagramScope || null, businessPhone: res.businessPhone, siteEmail: res.siteEmail || null, approach, mapsUrl, website: (places && places.website) || website || null };
+  // website is the GATED one. It used to be re-derived here from the raw
+  // places.website, which meant a URL the gate had just rejected still travelled
+  // to contactLadder and became the domain every address was judged against --
+  // exactly the ground truth that must not be wrong. Null when nothing passed;
+  // websiteDropped says what was rejected so the card can show it.
+  return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, instagramScope: res.instagramScope || null, businessPhone: res.businessPhone, siteEmail: res.siteEmail || null, approach, mapsUrl, website: effectiveWebsite, websiteDropped };
 }
 
 // Build the "Approach" line. References the real person, else the honest phone

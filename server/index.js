@@ -8578,6 +8578,11 @@ app.post('/api/agent/deal-scan/add-business', requireAuth, requireAgentSubscript
     card.contacts = contacts.contacts;
     card.genericInbox = contacts.genericInbox;
     card.businessPhone = contacts.businessPhone;
+    // The GATED website, not the one Places handed over. The card posts its
+    // website back on every later lookup, where it outranks the Places one, so an
+    // ungated URL parked here would survive the gate by going round it.
+    card.website = contacts.website || null;
+    card.websiteDropped = contacts.websiteDropped || null;
     card.mapsUrl = contacts.mapsUrl;
     card.contactApproach = contacts.approach || card.contactApproach;
     card._contactsLoaded = true;

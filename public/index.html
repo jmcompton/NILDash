@@ -7970,6 +7970,13 @@ function _dsLadderHtml(d) {
   if (!L.hasTier1) {
     out += '<div style="font-size:10px;color:var(--muted);line-height:1.5">No owner or marketing decision maker found in the free sources. Start with the tier above and ask for the owner by name.</div>';
   }
+  // A website the domain gate rejected. Amber, not muted grey: this is the
+  // difference between "this business has no site" and "the site we were handed
+  // belongs to a different company", and an agent about to look it up needs the
+  // second one said out loud.
+  if (L.websiteNote) {
+    out += '<div style="font-size:10px;color:#f59e0b;margin-top:6px;line-height:1.5">' + esc(L.websiteNote) + '</div>';
+  }
   // Names we found but cannot reach by any channel are shown as context only, never
   // as rows that look actionable.
   if (Array.isArray(L.unreachable) && L.unreachable.length) {
@@ -8051,6 +8058,11 @@ async function _dsDeepContacts(i, btn) {
     if (row.businessPhone) d.businessPhone = row.businessPhone;
     if (row.mapsUrl) d.mapsUrl = row.mapsUrl;
     if (row.approach) d.contactApproach = row.approach;
+    // The gate rejected the URL this card was holding. Drop it, or the card keeps
+    // showing the other company's site as a link AND posts it straight back as the
+    // `website` argument on the next lookup, where it outranks the Places one.
+    if (row.websiteDropped) d.website = null;
+    else if (row.website) d.website = row.website;
     d.contactLadder = row.contactLadder || null;
     d._contactsLoaded = true;
     // _contactsLoaded is set by the CHEAP fan-out too, so it cannot tell the two

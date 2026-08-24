@@ -1065,6 +1065,10 @@ async function ensureDeepContact(d, force) {
     if (row.businessPhone) d.businessPhone = row.businessPhone;
     if (row.mapsUrl) d.mapsUrl = row.mapsUrl;
     if (row.approach) d.contactApproach = row.approach;
+    // Same reason as the Deal Scan card: a rejected URL that stays on the card is
+    // posted back as `website` next time, where it outranks the Places one.
+    if (row.websiteDropped) d.website = null;
+    else if (row.website) d.website = row.website;
     d.contactLadder = row.contactLadder || null;
     d._contactsLoaded = true;
     d._deepLoaded = true;
