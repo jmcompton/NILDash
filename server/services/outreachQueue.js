@@ -28,10 +28,20 @@
 //
 // Pure: no SQL, no network, no store. The job supplies the data, this decides.
 
-// $0.50 an agent a night. At $99/month a queue that costs $30 to fill for one
-// agent is not a feature, it is a leak. A slot that cannot be filled inside the
-// cap stays EMPTY and says why.
-const DEFAULT_AGENT_NIGHTLY_USD = 0.50;
+// ── THE NIGHTLY CAP ──────────────────────────────────────────────────────────
+// $0.50 bought EIGHT lookups a night for a whole roster, because the budget
+// charges the worst-case ceiling ($0.06) per uncached lookup. Six athletes
+// wanting three candidates each is eighteen lookups against eight affordable,
+// which is why the last athlete processed was told "budget cap reached
+// ($0.48 of $0.50)" -- $0.48 is exactly eight lookups.
+//
+// $3.00 buys fifty. At $99 a month that is about 1.5% of one agent's revenue if
+// every night ran to the cap, and nights do not: cached lookups are free and
+// most businesses resolve from cache after the first pass.
+//
+// It is still a CAP, not a target. A slot that cannot be filled inside it stays
+// empty and says which limit stopped it.
+const DEFAULT_AGENT_NIGHTLY_USD = parseFloat(process.env.OUTREACH_QUEUE_AGENT_CAP_USD) || 3.00;
 // A slot must not burn the whole cap on candidates that all fail the bar.
 const MAX_ATTEMPTS_PER_SLOT = 3;
 // Five per athlete per night, and five means five WORTH SENDING. The filler
@@ -307,18 +317,98 @@ function slotsToFill(rows) {
 function newBudget(capUsd) {
   const cap = typeof capUsd === 'number' ? capUsd : DEFAULT_AGENT_NIGHTLY_USD;
   let used = 0;
-  return {
+  // Per-athlete share, so the ordering of the roster stops deciding who eats.
+  let share = Infinity;
+  let sharedUsed = 0;
+  const b = {
     cap: () => cap,
     spent: () => used,
     remaining: () => Math.max(0, cap - used),
-    canSpend: (amount) => used + (amount || 0) <= cap + 1e-9,
-    spend: (amount) => { used += (amount || 0); return used; },
+    spend: (amount) => { used += (amount || 0); sharedUsed += (amount || 0); return used; },
+
+    // ── ALLOCATED, NOT FIRST-COME-FIRST-SERVED ─────────────────────────────
+    // The first athletes processed used to spend the whole cap and the last ones
+    // got "budget cap reached" -- which is not a budget, it is a race decided by
+    // the ORDER BY on the roster query. Each athlete now gets a share of what is
+    // left, computed from how many are still to come.
+    //
+    // It is a SHARE, NOT A RESERVATION: an athlete who needs less leaves the rest
+    // in the pot, because the next call recomputes against the true remaining.
+    // So a cheap night for the first three genuinely funds the last three.
+    openFor: (athletesRemaining) => {
+      const n = Math.max(1, Number(athletesRemaining) || 1);
+      share = Math.max(0, cap - used) / n;
+      sharedUsed = 0;
+      return share;
+    },
+    shareLeft: () => Math.max(0, share - sharedUsed),
+    shareOf: () => share,
+    // Affordable against BOTH the agent's cap and this athlete's share.
+    canSpend: (amount) => {
+      const a = amount || 0;
+      if (used + a > cap + 1e-9) return false;
+      return sharedUsed + a <= share + 1e-9;
+    },
+    // The cap is a hard stop; a share is not. When the roster is nearly done and
+    // money is left over, the last athlete should be allowed to use it rather
+    // than leave it unspent on principle.
+    canSpendFromPot: (amount) => used + (amount || 0) <= cap + 1e-9,
+  };
+  return b;
+}
+
+// ── WHAT A LOOKUP ACTUALLY COST ──────────────────────────────────────────────
+// Priced from what the lookup really did, not from a flat ceiling.
+//
+//   web search   $10 per 1,000 searches, so $0.01 each. This dominates.
+//   model call   Haiku with a small prompt and a short structured answer. At
+//                Haiku 4.5 rates and the sizes this path sends, a few tenths of
+//                a cent; $0.003 is a deliberate over-estimate so the figure
+//                never flatters itself.
+//
+// It is an ESTIMATE FROM REAL COUNTS, which is a different thing from both a
+// measured invoice and a guess: the counts are exact, the unit prices are the
+// published rates. Anyone reconciling against a bill should expect it to be
+// slightly high rather than slightly low.
+const USD_PER_WEB_SEARCH = 0.01;
+const USD_PER_AI_CALL = 0.003;
+
+function priceOf(meter) {
+  if (!meter) return 0;
+  const web = Number(meter.webSearches) || 0;
+  const ai = Number(meter.aiCalls) || 0;
+  return Math.round((web * USD_PER_WEB_SEARCH + ai * USD_PER_AI_CALL) * 10000) / 10000;
+}
+
+// Roll a night's lookups into the per-athlete figure the audit asked for.
+function costSummary(spendLogs) {
+  const flat = [].concat(...(spendLogs || []).filter(Boolean));
+  const paid = flat.filter((x) => x && !x.cached);
+  const total = flat.reduce((n, x) => n + (Number(x.cost) || 0), 0);
+  const athletes = (spendLogs || []).filter((l) => Array.isArray(l) && l.length).length;
+  return {
+    lookups: flat.length,
+    paidLookups: paid.length,
+    cachedLookups: flat.length - paid.length,
+    totalUsd: Math.round(total * 10000) / 10000,
+    perPaidLookupUsd: paid.length ? Math.round((total / paid.length) * 10000) / 10000 : 0,
+    perAthleteUsd: athletes ? Math.round((total / athletes) * 10000) / 10000 : 0,
+    athletes,
   };
 }
 
 function slotSkipReason(budget, projected) {
-  return 'left empty: budget cap reached ($' + budget.spent().toFixed(2)
-    + ' of $' + budget.cap().toFixed(2) + ' spent, next lookup ~$' + Number(projected || 0).toFixed(2) + ')';
+  // Says WHICH limit stopped it. "Budget cap reached" was reported when the
+  // agent's whole cap was gone AND when this athlete had merely used their share,
+  // which are different problems: the first needs a bigger cap, the second needs
+  // nothing at all because the money is still there for whoever comes next.
+  const capGone = !budget.canSpendFromPot || !budget.canSpendFromPot(projected || 0);
+  if (capGone) {
+    return 'left empty: the night\'s cap is spent ($' + budget.spent().toFixed(2)
+      + ' of $' + budget.cap().toFixed(2) + ', next lookup ~$' + Number(projected || 0).toFixed(2) + ')';
+  }
+  return 'left empty: this athlete used their share of tonight\'s budget ($'
+    + Number(budget.shareOf ? budget.shareOf() : 0).toFixed(2) + '), and the rest is held for the others';
 }
 
 // Sent more than three days ago and never answered. A card sent yesterday is not
@@ -332,6 +422,7 @@ function waitingOnYou(rows, nowMs) {
 
 module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
+  priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL,
   passesProgramBar, buildProgramCard,
   waitingOnYou, writeDm, askFirstName, namedRows,
   prescreen, placesFacts, pausedNote,

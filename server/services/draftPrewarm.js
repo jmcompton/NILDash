@@ -246,17 +246,36 @@ async function draftOne({ agentId, athleteId, athlete, card, agentName, lane }) 
   if (!parsed) return { failed: lastWhy + ' (after retry)' };
 
   const id = 'out_' + crypto.randomBytes(8).toString('hex');
+
+  // THE ADDRESS, ATTACHED AT BIRTH. This INSERT named eleven columns and not one
+  // of them was sent_to_email, so every nightly draft was created with no way to
+  // reach anyone -- and the Closer skipped 115 of 120 for exactly that reason
+  // while the coverage page reported 69% of businesses had a working address.
+  // Both were true: the addresses existed and were never written onto the row.
+  //
+  // Looked up, never invented. A brand with nothing cached gets null, the draft
+  // still exists as a DM or call card, and the Closer says why it cannot mail it.
+  let addr = null;
+  try {
+    addr = await require('./draftAddress').lookupOne(pool, brand);
+  } catch (e) {
+    console.error('[prewarm] address lookup failed for ' + brand + ':', e.message);
+  }
+
   try {
     await pool.query(
       `INSERT INTO outreach_logs
-         (id, agent_id, athlete_id, brand_name, brand_key, subject, body_html, status, source, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'draft','prewarm',NOW(),NOW())
+         (id, agent_id, athlete_id, brand_name, brand_key, subject, body_html, status, source,
+          sent_to_email, email_kind, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'draft','prewarm',$8,$9,NOW(),NOW())
        ON CONFLICT DO NOTHING`,
-      [id, agentId, athleteId, brand, brandKey, parsed.subject, toHtml(parsed.body)]);
+      [id, agentId, athleteId, brand, brandKey, parsed.subject, toHtml(parsed.body),
+       addr ? addr.email : null, addr ? addr.kind : null]);
   } catch (e) {
     return { failed: 'store: ' + e.message };
   }
-  return { drafted: true, id, brandKey, retried: !!lastWhy };
+  return { drafted: true, id, brandKey, retried: !!lastWhy,
+    email: addr ? addr.email : null, emailKind: addr ? addr.kind : null };
 }
 
 // One model call plus the check. Returns { parsed } on success, { why } for a

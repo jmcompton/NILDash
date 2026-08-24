@@ -1625,6 +1625,12 @@ async function init() {
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS category_key TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS ask TEXT`).catch(() => {});
 
+  // WHAT KIND of address this is. A corporate inbox on a franchise is a real
+  // address and worth having, but it is not the local owner, and the greeting
+  // guard and the writer both need to know which one they are looking at rather
+  // than finding out from the reply.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS email_kind TEXT`).catch(() => {});
+
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS scheduled_send_at TIMESTAMPTZ`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_timezone TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_scheduled

@@ -59,6 +59,18 @@ async function buildBatch(pool, agentId, opts = {}) {
       note: `tonight's ${guard.cap}-email ceiling is already used up` };
   }
 
+  // THE 120 DRAFTS THAT ALREADY EXIST have no address, because the column was
+  // never in the INSERT. New drafts are born with one now; this catches the
+  // backlog, at batch time, so the pile drains instead of being rewritten.
+  // Cheap: it only touches rows where the address is still NULL.
+  try {
+    const attached = await require('./draftAddress').attach(pool, { agentId, limit: 300 });
+    if (attached.attached) {
+      console.log(`[closer] attached ${attached.attached} address(es) to drafts that had none`
+        + ` (${attached.missing} still have no cached address)`);
+    }
+  } catch (e) { console.error('[closer] address backfill:', e.message); }
+
   const alloc = require('./closerAllocator');
   const signals = await alloc.gatherSignals(pool, agentId, opts);
   const plan = alloc.allocate(signals, guard.remaining, opts);
@@ -101,7 +113,14 @@ async function buildBatch(pool, agentId, opts = {}) {
     if (used >= cap.count) continue;                       // athlete's allocation is full
     if (batch.length >= guard.remaining) break;            // the agent's ceiling
     const addr = suppression.normalize(d.to_email);
-    if (!addr) { dropped.push({ id: d.id, brand: d.brand_name, why: 'no email address on file' }); continue; }
+    if (!addr) {
+      // Says WHICH kind of nothing this is. "No email address on file" read as a
+      // storage bug for weeks when it was in fact two different situations: a
+      // business we have never checked, and one we checked and found nothing on.
+      dropped.push({ id: d.id, brand: d.brand_name,
+        why: 'no email found for this business yet — it stays a DM or call card' });
+      continue;
+    }
     if (suppressed.has(addr)) {
       dropped.push({ id: d.id, brand: d.brand_name, why: 'that address bounced before' });
       continue;

@@ -61,10 +61,17 @@ async function gatherSignals(pool, agentId, opts = {}) {
     `SELECT a.id,
             a.data->>'name'   AS name,
             a.data->>'school' AS school,
-            -- last time we sent anything for them, any channel
+            -- Last time we sent anything for them, any channel.
+            -- NO EPOCH SENTINEL. It used to COALESCE both sides to 'epoch', and
+            -- the JS then tried to spot that with String(d).startsWith('1970') --
+            -- which is false, because a Date stringifies as "Thu Jan 01 1970...".
+            -- So "never sent" was read as sent-in-1970 and the page said
+            -- "nothing sent in 20689 days". Postgres GREATEST already ignores
+            -- NULLs and returns NULL only when every input is NULL, so the
+            -- sentinel was never needed in the first place.
             GREATEST(
-              COALESCE((SELECT MAX(sent_at) FROM outreach_logs  l WHERE l.athlete_id = a.id), 'epoch'::timestamptz),
-              COALESCE((SELECT MAX(sent_at) FROM outreach_queue q WHERE q.athlete_id = a.id), 'epoch'::timestamptz)
+              (SELECT MAX(sent_at) FROM outreach_logs  l WHERE l.athlete_id = a.id),
+              (SELECT MAX(sent_at) FROM outreach_queue q WHERE q.athlete_id = a.id)
             ) AS last_touch,
             -- a business that ANSWERED, which is the warmest thing we hold
             (SELECT MAX(l2.replied_at) FROM outreach_logs l2
@@ -84,7 +91,7 @@ async function gatherSignals(pool, agentId, opts = {}) {
     ? (now.getTime() - new Date(t).getTime()) / 86400000 : null);
 
   return rows.map((r) => {
-    const lastTouch = String(r.last_touch || '').startsWith('1970') ? null : r.last_touch;
+    const lastTouch = r.last_touch || null;
     return {
       id: r.id,
       name: r.name || null,

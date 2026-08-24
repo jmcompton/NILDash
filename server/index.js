@@ -9943,6 +9943,98 @@ app.post('/api/admin/retire-stale-queue', requireAuth, async (req, res) => {
   }
 });
 
+// ── /admin/scan-rejects — WHAT THE BAR THREW AWAY, AND WHY ───────────────────
+// Last night: "3 businesses tried, none passed the bar" on two athletes, with no
+// way to see which three or what was wrong with them. outreach_queue_runs.details
+// has carried every attempt and its reason all along -- brand, result, the exact
+// rejection text, and the Places facts behind it -- and nothing rendered it.
+//
+// Read-only. It answers "is the bar wrong or is the pool junk" from stored rows,
+// which is the question that has to be settled before either is changed.
+app.get('/admin/scan-rejects', async (req, res) => {
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  try {
+    const runs = (await store.pool.query(
+      `SELECT r.agent_id, r.run_date, r.details, r.spent_usd, u.name AS agent_name
+         FROM outreach_queue_runs r LEFT JOIN users u ON u.id = r.agent_id
+        ORDER BY r.run_date DESC LIMIT 8`)).rows;
+
+    // Every attempt, flattened, newest run first.
+    const attempts = [];
+    const byReason = {};
+    const byResult = {};
+    for (const run of runs) {
+      const details = Array.isArray(run.details) ? run.details : [];
+      for (const d of details) {
+        for (const t of (d.tried || [])) {
+          attempts.push({
+            runDate: run.run_date, agent: run.agent_name || run.agent_id,
+            athlete: d.athleteName || d.athleteId,
+            brand: t.brand, result: t.result, reason: t.reason,
+            risk: t.risk || null, places: t.places || null, lane: t.lane || null,
+          });
+          byResult[t.result] = (byResult[t.result] || 0) + 1;
+          if (t.reason) {
+            const key = String(t.reason).replace(/^found [^—]+—\s*/i, '').slice(0, 90);
+            byReason[key] = (byReason[key] || 0) + 1;
+          }
+        }
+      }
+    }
+    const reasons = Object.keys(byReason).sort((a, b) => byReason[b] - byReason[a]);
+    const tried = attempts.length;
+    const queued = byResult.queued || 0;
+
+    res.set('Content-Type', 'text/html').send(`<!doctype html><meta charset="utf-8">
+<title>Scan rejects</title>
+<style>body{background:#0b0f14;color:#dfe6ef;font:13px/1.55 ui-monospace,monospace;margin:0;padding:24px}
+h1{font-size:17px;margin:0 0 4px}h2{font-size:14px;margin:26px 0 8px;color:#9fb3c8}
+table{border-collapse:collapse;margin:8px 0 18px}td,th{border-bottom:1px solid #1e2a3a;padding:5px 12px 5px 0;text-align:left;vertical-align:top}
+th{color:#7d8fa6;font-weight:600}.dim{color:#7d8fa6}.mono{font-variant-numeric:tabular-nums}
+.bad{color:#f87171}.ok{color:#84CC16}.warn{color:#fbbf24}</style>
+<h1>What the bar rejected</h1>
+<div class="dim">Last ${runs.length} run(s). Every business the nightly job tried, and the reason it was or was not queued.</div>
+
+<h2>The shape of it</h2>
+<table><tbody>
+<tr><td>Businesses tried</td><td class="mono">${tried}</td></tr>
+<tr><td>Queued</td><td class="mono ${queued ? 'ok' : 'bad'}">${queued}</td></tr>
+<tr><td>Pass rate</td><td class="mono ${queued ? '' : 'bad'}">${tried ? ((queued / tried) * 100).toFixed(1) + '%' : '—'}</td></tr>
+</tbody></table>
+
+<h2>By outcome</h2>
+<table><tr><th>Result</th><th>Count</th></tr>
+${Object.keys(byResult).sort((a, b) => byResult[b] - byResult[a]).map((k) =>
+  `<tr><td>${esc(k)}</td><td class="mono">${byResult[k]}</td></tr>`).join('')}
+</table>
+
+<h2>Why they failed</h2>
+<div class="dim">If one reason dominates, that is the thing to change — not the pool and not the bar in general.</div>
+<table><tr><th>Reason</th><th>Count</th></tr>
+${reasons.map((r) => `<tr><td>${esc(r)}</td><td class="mono">${byReason[r]}</td></tr>`).join('') || '<tr><td colspan="2" class="dim">No attempts recorded</td></tr>'}
+</table>
+
+<h2>Every business, one row each</h2>
+<table><tr><th>Run</th><th>Athlete</th><th>Business</th><th>Result</th><th>Reason</th><th>Places</th></tr>
+${attempts.slice(0, 400).map((a) => `<tr>
+<td class="dim">${esc(String(a.runDate).slice(0, 10))}</td>
+<td>${esc(a.athlete)}</td>
+<td>${esc(a.brand)}</td>
+<td class="${a.result === 'queued' ? 'ok' : a.result === 'rejected' ? 'bad' : 'warn'}">${esc(a.result)}</td>
+<td>${esc(a.reason || '')}</td>
+<td class="dim">${a.places ? (a.places.found === false ? 'not in Places'
+  : [a.places.hasWebsite ? 'site' : 'no site', a.places.hasPhone ? 'phone' : 'no phone',
+     a.places.primaryType || ''].filter(Boolean).join(', ')) : ''}</td>
+</tr>`).join('') || '<tr><td colspan="6" class="dim">Nothing recorded yet</td></tr>'}
+</table>
+`);
+  } catch (e) {
+    console.error('[admin/scan-rejects]', e.message);
+    res.status(500).send('Failed: ' + esc(e.message));
+  }
+});
+
 // ── /admin/athlete-markets — is the local lane pointed at the right town? ─────
 // READ ONLY. Answers one question per athlete: what school city do we hold, and
 // what cities are the local businesses we queued for them ACTUALLY in.

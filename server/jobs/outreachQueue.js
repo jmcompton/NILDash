@@ -30,6 +30,7 @@
 // MAX_ATTEMPTS_PER_SLOT candidates a slot.
 
 const store = require('../store');
+const scanMeter = require('../scanMeter');
 const ai = require('../ai');
 const { buildContactLadder } = require('../services/contactLadder');
 const { lookupPlace } = require('../services/placesLookup');
@@ -273,6 +274,9 @@ async function fillAthlete(pool, ctx) {
   // queued. This is the answer to "which businesses and why" -- built once,
   // here, rather than reconstructed later from a log line nobody kept.
   const tried = [];
+  // What each lookup really cost, so the run can report a measured per-athlete
+  // figure instead of a ceiling multiplied by a count.
+  const spendLog = [];
 
   // PAUSED ATHLETES COST NOTHING. Checked before the slot query, before the
   // candidate query, and long before any lookup -- the whole point is that a
@@ -385,7 +389,13 @@ async function fillAthlete(pool, ctx) {
       if (!budget.canSpend(LOOKUP_CEILING_USD)) {
         const why = Q.slotSkipReason(budget, LOOKUP_CEILING_USD);
         say(`slot ${slot} ${why}`);
-        return { filled, open: open.length, cappedOut: true, tried, note: why };
+        // TWO DIFFERENT STOPS. Running out of this athlete's SHARE ends their
+        // turn and leaves the money for the rest of the roster; running out of
+        // the agent's CAP ends the night. Reporting both as cappedOut is what
+        // made one athlete's spending stop everyone after them.
+        const potGone = !budget.canSpendFromPot(LOOKUP_CEILING_USD);
+        return { filled, open: open.length, cappedOut: potGone, shareSpent: !potGone,
+          tried, note: why, spendLog };
       }
       // ── THE LANE DECIDES THE ROUTE ──────────────────────────────────────
       // A social or national brand goes nowhere near Places or the contact
@@ -458,17 +468,43 @@ async function fillAthlete(pool, ctx) {
 
       say(`looking up ${cand.brand_name}…`);
       let out = null;
+      let meter = null;
       try {
         // lean: the queue's cost-tuned source order (chamber+site, then
         // facebook). See LEAN_SOURCE_ORDER in ai.js.
-        out = await ai.getBrandContacts(cand.brand_name || cand.brand_key, null,
-          region || '', ai.deepContactCtx({ market: null, lean: true }));
+        // MEASURED, NOT ASSUMED. scanMeter counts the real web searches and model
+        // calls this lookup made; without it the only "cost" in the system was
+        // the worst-case ceiling charged flat on every lookup, which is why
+        // nobody could say what a night actually costs.
+        const m = await scanMeter.run(async () => ai.getBrandContacts(
+          cand.brand_name || cand.brand_key, null,
+          region || '', ai.deepContactCtx({ market: null, lean: true })));
+        out = m.result;
+        meter = m.meter;
       } catch (e) {
         say(`${cand.brand_name}: lookup failed (${e.message})`);
         tried.push({ brand: cand.brand_name, result: 'error', reason: e.message, places: facts, risk: pre.risk });
         continue;
       }
-      if (!out.cached) budget.spend(LOOKUP_CEILING_USD);
+      // RESERVED AT THE CEILING, CHARGED AT COST. The affordability check above
+      // has to price the worst case or the cap is not a cap; what is DEDUCTED is
+      // what the lookup actually used. Charging the ceiling flat is what made
+      // $0.50 buy eight lookups no matter how cheap they really were.
+      // A ZERO ON AN UNCACHED LOOKUP IS A BROKEN METER, NOT A FREE LOOKUP.
+      // The meter runs on AsyncLocalStorage; if a call path ever escapes the
+      // context the counts come back empty, and charging that as $0 would
+      // silently switch off both the cap AND the backoff -- which only records a
+      // night that actually spent. So an uncached lookup is never free: it falls
+      // back to the ceiling and says the measurement failed.
+      let realCost = out.cached ? 0 : Q.priceOf(meter);
+      if (!out.cached && realCost <= 0) {
+        realCost = LOOKUP_CEILING_USD;
+        console.warn(`[queue] ${cand.brand_name}: lookup was not cached but the meter `
+          + 'recorded no calls; charging the ceiling rather than treating it as free');
+      }
+      if (realCost > 0) budget.spend(realCost);
+      spendLog.push({ brand: cand.brand_name, cached: !!out.cached, cost: realCost,
+        webSearches: meter ? meter.webSearches : 0, aiCalls: meter ? meter.aiCalls : 0 });
 
       const ladder = buildContactLadder(out, {
         rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain,
@@ -548,7 +584,7 @@ async function fillAthlete(pool, ctx) {
     : tried.length
       ? `${tried.length} business${tried.length > 1 ? 'es' : ''} tried, none passed the bar`
       : 'no candidates were tried';
-  return { filled, open: open.length, tried, note };
+  return { filled, open: open.length, tried, note, spendLog };
 }
 
 async function fillAgent(pool, agent, opts) {
@@ -574,8 +610,15 @@ async function fillAgent(pool, agent, opts) {
   // reads exactly like the page failing to load rather than like an honest answer.
   const details = [];
 
-  for (const ath of athletes) {
+  for (let ai2 = 0; ai2 < athletes.length; ai2++) {
+    const ath = athletes[ai2];
     const before = budget.spent();
+    // EACH ATHLETE GETS A SHARE OF WHAT IS LEFT, recomputed against the number
+    // still to come. Last night the first athletes spent the whole cap and the
+    // last ones were told "budget cap reached" -- which is not a budget, it is a
+    // race decided by the roster's ORDER BY. Unspent share flows forward
+    // automatically because this divides the REMAINING pot, not the original.
+    budget.openFor(athletes.length - ai2);
     const r = await fillAthlete(pool, {
       agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
       athleteProfile: athleteProfile(ath), agentFirstName: agentFirst,
@@ -593,14 +636,31 @@ async function fillAgent(pool, agent, opts) {
     details.push({
       athleteId: ath.id, athleteName: ath.name, filled: r.filled, open: r.open,
       note: r.note || null, tried: r.tried || [], paused: !!r.paused,
+      // The measured figure for THIS athlete, so "what does a night cost per
+      // athlete" is answerable from the run row rather than estimated.
+      spentUsd: Math.round((budget.spent() - before) * 10000) / 10000,
+      spendLog: r.spendLog || [],
     });
     // Only a night that actually spent teaches us anything about this athlete,
     // and a paused one spent nothing by definition.
     if (!dry && !r.paused) {
       await recordAttempt(pool, ath.id, { filled: r.filled, spent: budget.spent() - before, runDate });
     }
-    if (r.cappedOut) break;   // the cap is per agent, so one athlete exhausting it stops the rest
+    // Only the AGENT'S cap ends the night. An athlete who used their share is
+    // done for the evening; the next one still has theirs.
+    if (r.cappedOut) {
+      console.log('[queue] nightly cap reached, stopping the run');
+      break;
+    }
   }
+
+  // THE MEASURED ANSWER TO "WHAT DOES A NIGHT COST". Printed every run, from
+  // real search and model counts rather than the ceiling.
+  const cost = Q.costSummary(details.map((d) => d.spendLog));
+  console.log(`[queue] agent=${agent.id} COST $${cost.totalUsd.toFixed(4)} over `
+    + `${cost.lookups} lookup(s) (${cost.paidLookups} paid, ${cost.cachedLookups} cached) `
+    + `= $${cost.perPaidLookupUsd.toFixed(4)}/paid lookup, `
+    + `$${cost.perAthleteUsd.toFixed(4)}/athlete across ${cost.athletes} athlete(s)`);
 
   if (!dry) {
     await pool.query(
