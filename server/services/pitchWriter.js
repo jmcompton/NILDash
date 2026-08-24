@@ -99,14 +99,34 @@ function containsPrice(text) {
   return null;
 }
 
-// A concrete ask names something countable that gets made or done. This replaced
-// "must contain a digit": with prices banned, requiring a digit would push the
-// writer back toward the one number it is not allowed to use.
+// ── A CONCRETE ASK NAMES WHAT THE ATHLETE WOULD DO ───────────────────────────
+//
+// This was the single largest rejection cause on the audit: five good pitches
+// thrown away by our own lint. It used to demand a QUANTIFIER followed by a noun
+// -- "two feed posts", "a visit" -- which meant "I'd post about you on game day"
+// and "she'd come by the shop" both failed for naming the deliverable in a
+// perfectly normal way.
+//
+// The rule is now what it always should have been: the message says what the
+// athlete would DO. Format is not the writer's problem. A count is welcome and
+// not required, and the verb forms are accepted alongside the nouns, because
+// "post about you" and "a post about you" are the same offer.
+//
+// It is still a real check -- "would love to send over an overview" names no
+// action and still fails, which is the case this exists for.
+const DELIVERABLE_NOUNS = 'post|posts|story|stories|reel|reels|video|videos|appearance|appearances|'
+  + 'visit|visits|session|sessions|shoutout|shoutouts|shout[- ]out|mention|mentions|photo|photos|'
+  + 'takeover|takeovers|signing|signings|clinic|clinics|drop-?in|meet[- ]and[- ]greet|'
+  + 'giveaway|giveaways|collab|collabs|feature|features|tag|tags|content|demo|demos';
+// The same offers, said as verbs. A pitch is not less concrete for using one.
+const DELIVERABLE_VERBS = 'post(ing|s)?|share|sharing|shares|shout(ing)? (?:you )?out|film(ing|s)?|'
+  + 'record(ing|s)?|wear(ing|s)?|show up|come (?:by|in|out)|stop by|drop by|appear(ing|s)?|'
+  + 'sign(ing)? autographs|tag(ging|s)?|feature(s|d)?|mention(ing|s)?|rep(ping|s)?|'
+  + 'bring(ing)? (?:her|his|their)|hand out|host(ing|s)?';
 const DELIVERABLE_RE = new RegExp(
-  '\\b(a|an|one|two|three|four|five|six|couple of|\\d+)\\s+(short |quick |feed |in-store |game[- ]day )?'
-  + '(post|posts|story|stories|reel|reels|video|videos|appearance|appearances|visit|visits|'
-  + 'session|sessions|shoutout|shoutouts|mention|mentions|photo|photos|takeover|takeovers|'
-  + 'signing|signings|clinic|clinics|drop-?in|meet[- ]and[- ]greet)\\b', 'i');
+  '\\b(?:(?:a|an|one|two|three|four|five|six|couple of|\\d+)\\s+(?:\\w+[- ]){0,2}(?:' + DELIVERABLE_NOUNS + ')'
+  + '|(?:' + DELIVERABLE_VERBS + ')'
+  + '|(?:' + DELIVERABLE_NOUNS + ')\\s+(?:about|for|at|with|of)\\b)', 'i');
 
 const CORPORATE_FILLER = [
   /\bleverag(e|es|ing)\b/i, /\bseamless(ly)?\b/i, /\bcircle(s|d)? back\b/i,
@@ -155,10 +175,13 @@ function lintMessage(msg, opts = {}) {
   if (price) problems.push(`names a price ("${price.trim()}") — outreach names the deliverable, never the money`);
   // A concrete ask names something countable that gets made or done.
   if (opts.requireDeliverable !== false && !DELIVERABLE_RE.test(t)) {
-    problems.push('no named deliverable, so the ask is not concrete (say what gets posted or done)');
+    problems.push('the message never says what the athlete would actually do');
   }
   // The sign-off has to be the agent's own first name.
-  if (opts.signOff && !new RegExp('\\b' + opts.signOff.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i').test(t)) {
+  // THE SIGN-OFF IS REPAIRED, NOT REJECTED. See repairSignOff: losing a business
+  // because a name did not match a regex is not a trade worth making, and this
+  // check threw away two good pitches for exactly that.
+  if (opts.signOff && !signsOffAs(t, opts.signOff)) {
     problems.push('does not sign off as ' + opts.signOff);
   }
   return { ok: problems.length === 0, problems };
@@ -167,6 +190,53 @@ function lintMessage(msg, opts = {}) {
 // Repairs that cannot change meaning. Anything that WOULD change meaning is left
 // for the retry: silently rewriting a sentence to pass a lint is how a checker
 // starts certifying its own edits.
+// ── THE SIGN-OFF ─────────────────────────────────────────────────────────────
+//
+// The old check was `new RegExp('\\b' + name + '\\b', 'i')`. It was already
+// case-insensitive, so case was never the problem -- the TRAILING \\b was. The
+// account name was "john", the model signed "JohnMark" (the name it sees as the
+// example throughout its own prompt), and \bjohn\b does not match "JohnMark"
+// because M is a word character and there is no boundary after "john". Same for
+// an account named "Jonathan" signed "Jon".
+//
+// So two perfectly good pitches to real businesses were thrown away over a word
+// boundary. A name is not a correctness property of a pitch: it is a string we
+// control, at the end, on its own line. It gets FIXED.
+function firstNameOf(s) {
+  return String(s || '').trim().split(/\s+/)[0] || '';
+}
+
+// Does the message already end with something that reads as this person? Matched
+// leniently on purpose: a leading-prefix match in either direction accepts
+// "John" for "JohnMark", "JohnMark" for "John", and "Jon" for "Jonathan".
+function signsOffAs(text, signOff) {
+  const want = firstNameOf(signOff).toLowerCase();
+  if (!want) return true;
+  const lines = String(text || '').trim().split(/\n/).map((x) => x.trim()).filter(Boolean);
+  const tail = lines.slice(-2).join(' ').toLowerCase();
+  if (!tail) return false;
+  const words = tail.match(/[a-z][a-z.'\-]*/g) || [];
+  return words.some((w) => w.startsWith(want) || want.startsWith(w) && w.length >= 3);
+}
+
+// Put the right name on the end. Replaces a wrong sign-off line rather than
+// stacking a second one, and appends when there is none at all.
+function repairSignOff(text, signOff) {
+  const name = firstNameOf(signOff);
+  if (!name) return String(text || '').trim();
+  let t = String(text || '').trim();
+  if (signsOffAs(t, name)) return t;
+  // A short trailing line with no sentence punctuation is a sign-off with the
+  // wrong name on it; anything else is the last sentence and must be kept.
+  const lines = t.split(/\n/);
+  const last = (lines[lines.length - 1] || '').trim();
+  if (lines.length > 1 && last.length <= 32 && !/[.?!]$/.test(last) && /^[A-Za-z][A-Za-z.'\- ]*$/.test(last)) {
+    lines.pop();
+    t = lines.join('\n').trim();
+  }
+  return t + '\n\n' + name;
+}
+
 function autoRepair(msg) {
   let t = String(msg || '');
   t = t.replace(/\s*—\s*/g, ', ').replace(/\s*–\s*/g, ', ');
@@ -478,7 +548,9 @@ async function writePitch(ctx, opts = {}) {
     businessNumbers: [ctx.business && ctx.business.userRatingCount].filter(Boolean),
   });
 
-  let message = autoRepair(j.message);
+  // REPAIRED BEFORE IT IS JUDGED. The sign-off is a string we control at the end
+  // of the message; there is no reason for it to be able to fail a pitch.
+  let message = repairSignOff(autoRepair(j.message), agentFirst);
   let lint = lintMessage(message, lintOpts);
   // A FABRICATED FACT IS A LINT FAILURE. Same path, same retry, same refusal:
   // an invented hometown is worse than an em dash, not softer.
@@ -492,7 +564,7 @@ async function writePitch(ctx, opts = {}) {
       + `Use ONLY facts listed in THE ATHLETE above. If a detail is not listed there, leave it out entirely.`);
     if (j2 && j2.skip) return { skipped: true, reason: String(j2.reason || 'no real connection').trim() };
     if (j2 && j2.message) {
-      const m2 = autoRepair(j2.message);
+      const m2 = repairSignOff(autoRepair(j2.message), agentFirst);
       const l2 = lintMessage(m2, lintOpts);
       const f2 = factsOf(m2);
       if (l2.ok && f2.ok) { j = j2; message = m2; lint = l2; }
@@ -556,6 +628,8 @@ module.exports = {
   writePitch, lintMessage, autoRepair, containsPrice, verifyAthleteFacts,
   playbookFor, describeBusiness, describeAthlete,
   buildPrompt, sentenceCount, stripSignOff, learnedAngles,
+  signsOffAs, repairSignOff, firstNameOf,
   CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
-  DELIVERABLE_RE, SYSTEM, MIN_SAMPLE, POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
+  DELIVERABLE_RE, DELIVERABLE_NOUNS, DELIVERABLE_VERBS, SYSTEM, MIN_SAMPLE,
+  POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
 };

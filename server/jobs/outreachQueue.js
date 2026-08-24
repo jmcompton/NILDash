@@ -309,8 +309,11 @@ async function fillAthlete(pool, ctx) {
     `SELECT slot, state FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
     [athleteId])).rows);
   if (!open.length) {
-    say(`${athleteName}: all three slots already full`);
-    return { filled: 0, open: 0, tried, note: 'all three slots already full' };
+    // Says the real number. It said "three" while SLOTS_PER_ATHLETE was five,
+    // which made a full athlete look like a bug in the slot count.
+    const msg = `all ${Q.SLOTS_PER_ATHLETE} slots already hold work you have not actioned`;
+    say(`${athleteName}: ${msg}`);
+    return { filled: 0, open: 0, tried, note: msg };
   }
   // The night guarantees ONE fresh card so the page is never empty; slots 2-3
   // are built on demand when the agent actually opens this athlete's queue.
@@ -627,8 +630,9 @@ async function fillAgent(pool, agent, opts) {
       athleteRow: ath.data || null,
       // Resolved per athlete. Passing opts.region here meant passing undefined.
       budget, region: regionForAthlete(ath), dryRun: dry,
-      // ONE card a night. The rest are built when the agent opens the queue,
-      // so the night never pays for two cards nobody looks at.
+      // FIVE a night now. See NIGHTLY_SLOTS: this is what caps the slate the
+      // Scout is asked for, so raising it is what lets the night evaluate
+      // dozens of businesses rather than three.
       maxSlots: Q.NIGHTLY_SLOTS,
       onProgress: (m) => console.log('[queue] ' + m),
     });

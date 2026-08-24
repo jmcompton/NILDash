@@ -52,12 +52,18 @@ const SLOTS_PER_ATHLETE = 5;
 const WAITING_AFTER_DAYS = 3;
 const OUTCOMES = ['no_reply', 'replied', 'closed'];
 
-// ── Generate on demand, not overnight ────────────────────────────────────────
-// Building three cards a night for every athlete spends real money on deals
-// nobody opens. The night now guarantees ONE fresh card per athlete -- enough
-// that the page is never empty -- and slots 2 and 3 are built when an agent
-// actually opens that athlete's queue.
-const NIGHTLY_SLOTS = 1;
+// ── FIVE A NIGHT, AS INTENDED ────────────────────────────────────────────────
+// This was 1, and it was the whole reason a night produced one card per athlete.
+// The slate size is derived from it -- limit = openSlots * MAX_ATTEMPTS_PER_SLOT
+// -- so one slot meant the Scout was only ever ASKED for three businesses, no
+// matter how many it had. The audit's "3 businesses tried" was this number,
+// multiplied by three, not a shortage of supply.
+//
+// It was 1 to stop the night spending on cards nobody opens. That reasoning has
+// been overtaken twice: the cap is now $3.00 rather than $0.50, and it is
+// allocated per athlete rather than raced for, so five slots cannot let the
+// first athlete eat the roster's budget.
+const NIGHTLY_SLOTS = 5;
 // Per athlete per DAY, not per open: an agent flipping between athletes all
 // morning must not re-trigger a fill each time they come back.
 const DEFAULT_ONDEMAND_USD = 0.15;
@@ -153,28 +159,54 @@ function _whatWeGot(ladder, ig) {
   return bits;
 }
 
+// ── THE BAR ──────────────────────────────────────────────────────────────────
+//
+// It used to require a NAMED person before anything else, and that was the
+// largest rejection group on the audit: 11 businesses, four of which had an
+// Instagram handle, three a main line and two a general inbox. All eleven were
+// reachable. We threw them away because nobody had published the owner's name.
+//
+// THE REASON THAT RULE EXISTED IS GONE. It was there because a pitch opening
+// "Hi Dana," to a general inbox is worse than no pitch, and at the time nothing
+// stopped the writer greeting an unnamed contact by a guessed first name. The
+// greeting guard now refuses to greet anyone we cannot name -- so an unnamed
+// business gets "Hi," and the failure mode the rule protected against cannot
+// happen any more.
+//
+// So the bar is now what it always meant: CAN WE REACH THEM. A named decision
+// maker is better and still ranks higher, but a shop with a real inbox and no
+// published owner is a business worth pitching, not a dead end.
+//
+// What still fails: nothing reachable at all, and a name with no channel behind
+// it (which is research, not a card).
 function passesBar(ladder, ig) {
   const rows = namedRows(ladder);
   const got = _whatWeGot(ladder, ig);
-  if (!rows.length) {
-    return {
-      ok: false,
-      reason: got.length
-        ? 'no named decision maker — found ' + got.join(', ')
-        : 'nothing found at all: no name, no phone, no inbox, no handle',
-    };
-  }
   const handle = ig && ig.instagram ? ig.instagram : null;
   const phone = (ladder && ladder.mainLine && ladder.mainLine.phone)
     || rows.map((r) => r.phone).find(Boolean) || null;
-  if (!handle && !phone) {
+
+  // Tier 3 channels: a general inbox or a named mailbox is a way in.
+  const t3 = ((ladder && ladder.tiers) || []).find((t) => t.tier === 3);
+  const inbox = !!(t3 && (t3.rows || []).some((r) => r && (r.email || /inbox|mailbox|email/i.test(r.title || ''))));
+
+  const reachable = !!(handle || phone || inbox);
+  if (!reachable) {
     return {
       ok: false,
-      reason: 'found ' + rows.map((r) => r.name).join(', ') + ' but no way to reach '
-        + (rows.length > 1 ? 'them' : 'them') + ' — no phone, no handle',
+      named: rows.length > 0,
+      reason: rows.length
+        ? 'found ' + rows.map((r) => r.name).join(', ') + ' but no way to reach them — no phone, no inbox, no handle'
+        : (got.length
+          ? 'nothing reachable — found only ' + got.join(', ')
+          : 'nothing found at all: no name, no phone, no inbox, no handle'),
     };
   }
-  return { ok: true, reason: null };
+  // Reachable. Whether we can NAME anyone decides how the pitch opens, and the
+  // greeting guard is what enforces that downstream.
+  return { ok: true, reason: null, named: rows.length > 0,
+    greeting: rows.length ? 'named' : 'generic',
+    via: handle ? 'handle' : phone ? 'phone' : 'inbox' };
 }
 
 // Who to ask for on a shared line. Mirrors askName in contactLadder: keep an
@@ -303,7 +335,7 @@ function sortCards(cards) {
   });
 }
 
-// Which of the three slots are open. Only a QUEUED row holds a slot -- sent and
+// Which of the five slots are open. Only a QUEUED row holds a slot -- sent and
 // skipped rows stay for outcome tracking but free their slot for the next run.
 function slotsToFill(rows) {
   const taken = new Set((rows || []).filter((r) => r && r.state === 'queued').map((r) => Number(r.slot)));
