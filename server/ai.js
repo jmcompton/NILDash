@@ -468,6 +468,7 @@ const SCHOOL_LOCATIONS = {
   'UConn': { city: 'Storrs', state: 'Connecticut' },
   'Yale University': { city: 'New Haven', state: 'Connecticut' },
   'University of Alabama': { city: 'Tuscaloosa', state: 'Alabama' },
+  'Bama': { city: 'Tuscaloosa', state: 'Alabama' },
   'Samford University': { city: 'Homewood', state: 'Alabama' },
   'Samford': { city: 'Homewood', state: 'Alabama' },
   'UAB': { city: 'Birmingham', state: 'Alabama' },
@@ -494,6 +495,7 @@ const SCHOOL_LOCATIONS = {
   'Virginia Tech': { city: 'Blacksburg', state: 'Virginia' },
   'Penn State University': { city: 'State College', state: 'Pennsylvania' },
   'University of Pittsburgh': { city: 'Pittsburgh', state: 'Pennsylvania' },
+  'Pitt': { city: 'Pittsburgh', state: 'Pennsylvania' },
   'Temple University': { city: 'Philadelphia', state: 'Pennsylvania' },
   'Ohio State University': { city: 'Columbus', state: 'Ohio' },
   'University of Cincinnati': { city: 'Cincinnati', state: 'Ohio' },
@@ -511,9 +513,19 @@ const SCHOOL_LOCATIONS = {
   'University of Kansas': { city: 'Lawrence', state: 'Kansas' },
   'Kansas State University': { city: 'Manhattan', state: 'Kansas' },
   'University of Missouri': { city: 'Columbia', state: 'Missouri' },
+  'Mizzou': { city: 'Columbia', state: 'Missouri' },
   'University of Arkansas': { city: 'Fayetteville', state: 'Arkansas' },
   'Louisiana State University': { city: 'Baton Rouge', state: 'Louisiana' },
   'University of Mississippi': { city: 'Oxford', state: 'Mississippi' },
+  // COLLOQUIAL NAMES ARE FIRST-CLASS KEYS, same as UConn and Georgia Tech above.
+  // Nobody writes "Beloved by University of Mississippi fans" -- the model writes
+  // "Ole Miss", and _foreignSchoolIn only matches what is in this map, so a
+  // rationale naming the wrong school by its common name went through clean.
+  // Pointing an alias at the same city and state also makes the alias guard in
+  // _foreignSchoolIn treat it as the athlete's OWN school when it is theirs.
+  // Only unambiguous forms belong here: 'Cal' and 'LSU' are too short for the
+  // four-character floor in _foreignSchoolIn to use them anyway.
+  'Ole Miss': { city: 'Oxford', state: 'Mississippi' },
   'Mississippi State University': { city: 'Starkville', state: 'Mississippi' },
   'Texas A&M University': { city: 'College Station', state: 'Texas' },
   'University of Texas': { city: 'Austin', state: 'Texas' },
