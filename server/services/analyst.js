@@ -143,7 +143,14 @@ function composeKit(athlete, opts = {}) {
   add('sport', 'Sport', a.sport || null, 'athletes.data.sport');
   add('position', 'Position', a.position || null, 'athletes.data.position');
   add('year', 'Year', a.year || null, 'athletes.data.year');
-  add('reach', 'Total reach', reach === null ? null : fmt(reach), 'instagram + tiktok + twitter');
+  // DATED, NOT BARE. A follower count is right on the day it is typed and wrong
+  // from then on, and an undated one on a document that gets forwarded reads as
+  // current. The caveat disappears on its own when the number starts coming from
+  // a connected Instagram -- see services/reachProvenance.
+  const RP = require('./reachProvenance');
+  const prov = RP.reachProvenance(a, opts.now);
+  add('reach', 'Total reach', reach === null ? null : RP.withAsOf(fmt(reach), a, opts.now),
+    'instagram + tiktok + twitter');
   add('engagement', 'Engagement', eng === null ? null : eng + '%', 'athletes.data.engagement');
 
   const audience = opts.audience || null;
@@ -157,8 +164,12 @@ function composeKit(athlete, opts = {}) {
     facts,
     // The lead line, when local is genuinely the point. Null otherwise, and the
     // kit leads with reach instead.
-    lead: loc.show ? loc.lead : (reach !== null ? fmt(reach) + ' total reach' : null),
+    lead: loc.show ? loc.lead
+      : (reach !== null ? RP.withAsOf(fmt(reach) + ' total reach', a, opts.now) : null),
     location: loc,
+    // The kit renders this in its footer, so a reader can see who supplied the
+    // numbers and when without reading the fact rows.
+    reachProvenance: prov,
     // What a reader can verify, and what we deliberately left off.
     reach, engagement: eng, instagram: ig, tiktok: tt, twitter: tw,
     thin: facts.length < 3,

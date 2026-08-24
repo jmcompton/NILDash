@@ -312,11 +312,28 @@ function _findVocab(text, vocab) {
 }
 
 // Numbers of 1,000 or more, however written: 35,000 / 35000 / 35k / 35K.
+// A DATE IS NOT A FOLLOWER COUNT. The reach rule now REQUIRES a hand-entered
+// count to be dated ("35,000 followers as of 14 Aug 2026"), and the year in that
+// date is a four-digit number that this scanner would otherwise read as a reach
+// claim -- refusing the pitch for citing "2026", which matches no stored count.
+// The rule that makes pitches honest would have made every honest pitch fail.
+// Dates come out before any number is judged.
+const _DATE_SHAPES = [
+  /\b(?:as of\s+)?\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{4}\b/gi,
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b/gi,
+  /\b(?:as of\s+)?(?:19|20)\d{2}\b/gi,   // a bare year, e.g. "since 2016"
+];
+function _stripDates(text) {
+  let s = String(text || '');
+  for (const re of _DATE_SHAPES) s = s.replace(re, ' ');
+  return s;
+}
+
 function _bigNumbers(text) {
   const out = [];
   const re = /\b(\d{1,3}(?:,\d{3})+|\d{4,}|\d+(?:\.\d+)?\s*[kK])\b/g;
   let m;
-  while ((m = re.exec(String(text || '')))) {
+  while ((m = re.exec(_stripDates(text)))) {
     const raw = m[1];
     const n = /[kK]\s*$/.test(raw)
       ? Math.round(parseFloat(raw) * 1000)
@@ -386,6 +403,30 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
     }
   }
 
+  // A HAND-ENTERED FOLLOWER COUNT MUST NOT BE ASSERTED AS CURRENT. Matching a
+  // stored figure only proves we did not invent it; it says nothing about
+  // whether it is still true. A number typed in months ago, stated flat to a
+  // business owner under the agent's name, is a claim we cannot stand behind.
+  //
+  // The pitch must either date it or not cite it. This lifts on its own when the
+  // number starts coming from a connected Instagram: reachProvenance reports it
+  // live and the rule stops applying.
+  const RP = require('./reachProvenance');
+  if (RP.citesReach(t)) {
+    const prov = RP.reachProvenance(a, opts.now);
+    if (!prov.isLive) {
+      const dated = prov.asOfText && t.indexOf(prov.asOfText) !== -1;
+      // "as of" in any form the writer might use, not only our exact rendering.
+      const hedged = /\bas of\b|\bcurrently\b|\bat last count\b|\blast checked\b/i.test(t);
+      if (!dated && !hedged) {
+        problems.push('cites a follower count as if it were live. It is '
+          + (prov.sourceLabel || 'hand-entered')
+          + (prov.asOfText ? ` and dates from ${prov.asOfText}` : ' with no recorded date')
+          + ' — say when it was measured or leave the number out');
+      }
+    }
+  }
+
   // ── stats ─────────────────────────────────────────────────────────────────
   const storedStats = _words(a.stats);
   const statClaim = /(\d[\d,.]*)\s*(?:\+\s*)?([a-z ]{0,14}?)\b(tackles?|sacks?|yards?|touchdowns?|tds?|points?|rebounds?|assists?|goals?|saves?|steals?|blocks?|kills?|aces?|strikeouts?|home runs?|rbis?|interceptions?|catches|receptions?)\b/gi;
@@ -444,7 +485,32 @@ function describeAthlete(a) {
     const parts = [];
     if (ig) parts.push(ig.toLocaleString() + ' on Instagram');
     if (tt) parts.push(tt.toLocaleString() + ' on TikTok');
-    L.push('Following: ' + parts.join(', ') + ' (' + (ig + tt).toLocaleString() + ' combined)');
+    // THE DATE TRAVELS WITH THE NUMBER. The lint refuses a follower count stated
+    // as if it were live, so the model has to be TOLD when it was measured --
+    // otherwise the instruction and the enforcement disagree and every pitch that
+    // mentions reach burns a retry before being refused.
+    // THE DATE TRAVELS WITH THE NUMBER, or the number does not travel at all.
+    //
+    // A count we cannot date cannot be cited honestly, so it is NOT HANDED TO THE
+    // MODEL. Telling it "here is a number, please do not use it" is an invitation
+    // to use it, and the fact-check would then refuse the whole pitch -- losing a
+    // good pitch to save a number. Every athlete on the roster is in exactly this
+    // state today, because the date field did not exist until now, so this is the
+    // common case and not an edge one.
+    //
+    // Withholding it costs a sentence. Citing it would state an unknown-age
+    // figure to a real business as current, under the agent's name.
+    const RP = require('./reachProvenance');
+    const prov = RP.reachProvenance(a);
+    if (prov.isLive) {
+      L.push('Following: ' + parts.join(', ') + ' (' + (ig + tt).toLocaleString() + ' combined)');
+    } else if (prov.asOfText) {
+      L.push('Following: ' + parts.join(', ') + ' (' + (ig + tt).toLocaleString() + ' combined)'
+        + ` — measured ${prov.asOfText}, NOT live. If you cite it, write "as of ${prov.asOfText}".`);
+    } else {
+      L.push('Following: not usable. We hold counts but no date for them, so they cannot be '
+        + 'quoted as current. Write the pitch without a follower number.');
+    }
   }
   if (a.stats) L.push('On the field: ' + a.stats);
   if (Array.isArray(a.tags) && a.tags.length) L.push('Posts about: ' + a.tags.join(', '));

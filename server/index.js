@@ -6126,6 +6126,152 @@ app.get('/api/agents/athletes/:id/invite-status', requireAuth, async (req, res) 
   }
 });
 
+// ── ATHLETE ONBOARDING: PROFILE, PHOTO, REACH ────────────────────────────────
+// Activation creates the account. These three finish the profile, and each one
+// exists because a field nobody fills is a field the product quietly works
+// around forever.
+//
+// The athlete supplies all of it themselves, which is the point: the agent
+// otherwise has to chase eight people for a date of birth.
+
+// POST /api/athlete/onboarding/profile — date of birth, position, class year.
+//
+// DATE OF BIRTH IS THE ONE THAT MATTERS. The compliance gate cannot tell a minor
+// from an adult without it, and unknown age against a restricted category HOLDS
+// rather than assuming an adult -- correctly, but it means every alcohol or
+// gambling pitch stops for every athlete until someone types a birthday. Asking
+// the athlete once, here, is cheaper than the agent chasing it.
+app.post('/api/athlete/onboarding/profile', verifyAthleteToken, async (req, res) => {
+  try {
+    const { dob, position, year } = req.body || {};
+    const patch = {};
+    if (dob !== undefined) {
+      const d = new Date(dob);
+      // Refuse rather than store nonsense: a bad date read back as "unknown age"
+      // is fine, but one that parses to 1901 would silently read as an adult.
+      if (dob && (isNaN(d.getTime()) || d > new Date())) {
+        return res.status(400).json({ error: 'That date of birth does not look right.' });
+      }
+      const age = dob ? Math.floor((Date.now() - d.getTime()) / 31557600000) : null;
+      if (dob && (age < 10 || age > 80)) {
+        return res.status(400).json({ error: 'That date of birth does not look right.' });
+      }
+      patch.dob = dob || null;
+    }
+    if (position !== undefined) patch.position = String(position || '').trim() || null;
+    if (year !== undefined) patch.year = String(year || '').trim() || null;
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to save.' });
+
+    await store.pool.query(
+      `UPDATE athletes SET data = data || $2::jsonb, updated_at = NOW() WHERE id = $1`,
+      [req.athlete.id, JSON.stringify(patch)]);
+    console.log(`[athlete/onboarding] athlete=${req.athlete.id} profile saved (dob=${patch.dob ? 'yes' : 'no'})`);
+    res.json({ ok: true, saved: Object.keys(patch) });
+  } catch (e) {
+    console.error('[athlete/onboarding/profile]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/athlete/onboarding/photo — the headshot.
+// Stored on the athlete record, NOT on media_kits: the Analyst rebuilds kits
+// nightly and an athlete-uploaded photo must survive that.
+app.post('/api/athlete/onboarding/photo', verifyAthleteToken, async (req, res) => {
+  try {
+    const { photo } = req.body || {};
+    if (!photo || typeof photo !== 'string') return res.status(400).json({ error: 'No photo supplied.' });
+    if (!/^data:image\/(png|jpe?g|webp);base64,/i.test(photo)) {
+      return res.status(400).json({ error: 'Photo must be a PNG, JPEG or WebP image.' });
+    }
+    // ~4MB of base64. A phone photo straight from the camera is bigger than this
+    // and would bloat every athlete row it is joined to.
+    if (photo.length > 4 * 1024 * 1024) {
+      return res.status(413).json({ error: 'That image is too large. Please use one under 3MB.' });
+    }
+    await store.pool.query(
+      `UPDATE athletes SET data = data || jsonb_build_object('photo', $2::text), updated_at = NOW()
+        WHERE id = $1`, [req.athlete.id, photo]);
+    console.log(`[athlete/onboarding] athlete=${req.athlete.id} photo saved (${Math.round(photo.length / 1024)}kb)`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[athlete/onboarding/photo]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/athlete/onboarding/reach — follower counts, DATED AND ATTRIBUTED.
+//
+// Every number written here is stamped with who supplied it and when. That stamp
+// is what lets the media kit say "as of 14 Aug" instead of implying the figure is
+// live, and what makes the pitch lint refuse a bare follower count. Writing the
+// number without the stamp is the failure mode this endpoint exists to prevent,
+// so reachAsOf and reachSource are set here, server-side, and are not accepted
+// from the client.
+app.post('/api/athlete/onboarding/reach', verifyAthleteToken, async (req, res) => {
+  try {
+    const { instagram, tiktok, twitter, engagement } = req.body || {};
+    const num = (v) => {
+      if (v === undefined || v === null || v === '') return undefined;
+      const n = Number(String(v).replace(/[,\s]/g, ''));
+      return Number.isFinite(n) && n >= 0 && n < 1e9 ? Math.round(n) : null;
+    };
+    const patch = {};
+    for (const [k, v] of [['instagram', instagram], ['tiktok', tiktok], ['twitter', twitter]]) {
+      const n = num(v);
+      if (n === null) return res.status(400).json({ error: `That ${k} follower count does not look right.` });
+      if (n !== undefined) patch[k] = n;
+    }
+    const eng = num(engagement === undefined ? undefined : String(engagement).replace('%', ''));
+    if (eng === null) return res.status(400).json({ error: 'That engagement rate does not look right.' });
+    if (eng !== undefined) patch.engagement = eng;
+
+    if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to save.' });
+    // THE STAMP. Server-side, always, on every write.
+    patch.reachSource = 'athlete';
+    patch.reachAsOf = new Date().toISOString().slice(0, 10);
+
+    await store.pool.query(
+      `UPDATE athletes SET data = data || $2::jsonb, updated_at = NOW() WHERE id = $1`,
+      [req.athlete.id, JSON.stringify(patch)]);
+    console.log(`[athlete/onboarding] athlete=${req.athlete.id} reach saved as of ${patch.reachAsOf}`);
+    const RP = require('./services/reachProvenance');
+    res.json({ ok: true, asOf: patch.reachAsOf, note: RP.reachProvenance(patch).note });
+  } catch (e) {
+    console.error('[athlete/onboarding/reach]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/athlete/onboarding/status — what is still missing, for the wizard and
+// for the agent's roster view. Names what is absent rather than a percentage.
+app.get('/api/athlete/onboarding/status', verifyAthleteToken, async (req, res) => {
+  try {
+    const r = await store.pool.query(`SELECT data FROM athletes WHERE id = $1`, [req.athlete.id]);
+    const d = (r.rows[0] && r.rows[0].data) || {};
+    const RP = require('./services/reachProvenance');
+    const missing = [];
+    if (!d.dob) missing.push('date of birth');
+    if (!d.photo) missing.push('photo');
+    if (!d.instagram && !d.tiktok && !d.twitter) missing.push('follower counts');
+    res.json({
+      missing, complete: missing.length === 0,
+      reach: RP.reachProvenance(d),
+      // Said plainly so the wizard can explain WHY it is asking, rather than
+      // presenting a form with no reason attached.
+      why: {
+        dob: 'The compliance check needs it to know whether a business selling alcohol '
+          + 'or similar can be approached for you. Without it those pitches are held.',
+        photo: 'It goes on your media kit, which is what a business sees.',
+        reach: 'Your follower count goes in pitches. We date it so nobody is told it is '
+          + 'live when it was typed in months ago.',
+      },
+    });
+  } catch (e) {
+    console.error('[athlete/onboarding/status]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Athlete Brand Outreach ───────────────────────────────────────────────────
 
 // POST /api/athlete/outreach — athlete initiates brand outreach

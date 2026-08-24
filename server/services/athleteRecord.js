@@ -95,6 +95,15 @@ function resolveAthlete(row, opts = {}) {
     // "an athlete with no audience" and null reads as "we have not measured".
     instagram: _int(d.instagram) || _int(row && row.instagram_followers),
     tiktok: _int(d.tiktok) || _int(row && row.tiktok_followers),
+    // WHEN THOSE COUNTS WERE MEASURED, AND BY WHOM. This record is what the
+    // Writer and the queue job see, and it is built from a fixed field list --
+    // so a field missing here is a field that does not exist as far as they are
+    // concerned. Without these two the Writer reads every athlete as having an
+    // undated follower count forever, including athletes who had just entered
+    // their own numbers minutes earlier, and quietly stops citing reach for
+    // everyone. See services/reachProvenance.
+    reachSource: _str(d.reachSource),
+    reachAsOf: _str(d.reachAsOf),
     stats: _str(d.stats),
     tags: Array.isArray(d.tags) ? d.tags.filter((x) => typeof x === 'string' && x.trim()) : [],
     productWants: _str(d.productWants),

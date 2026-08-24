@@ -82,6 +82,13 @@ body{font-family:Inter,sans-serif;min-height:100vh;display:flex;background:#0f11
 .field-error{font-size:11px;color:#ef4444;margin-top:4px}
 .form-error{background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;font-size:13px;color:#dc2626;margin-bottom:12px;display:none}
 
+/* Athlete onboarding steps: reuse the page's field styling rather than a second look */
+.ob-lbl{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:5px}
+.ob-inp{width:100%;padding:11px 14px;border:1.5px solid #e5e7eb;border-radius:10px;font-size:14px;color:#111;background:#fff;outline:none;font-family:Inter,sans-serif}
+.ob-inp:focus{border-color:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,0.08)}
+.ob-skip{width:100%;background:none;border:none;color:#9ca3af;font-size:13px;font-family:Inter,sans-serif;cursor:pointer;padding:12px 0;text-decoration:underline}
+#ob-wrap .form-error{display:none}
+
 /* Mobile */
 @media(max-width:768px){
   .left{display:none}
@@ -135,6 +142,69 @@ body{font-family:Inter,sans-serif;min-height:100vh;display:flex;background:#0f11
       <h2>Account Activated!</h2>
       <p>Taking you to your dashboard…</p>
       <div class="spinner" style="margin-top:20px"></div>
+    </div>
+
+    <!-- ── AFTER ACTIVATION: three short steps ────────────────────────────
+         Each one ends in something real on the athlete's own media kit, which
+         is what they are told up front. Every step is skippable: a half-filled
+         profile is better than an abandoned one, and the agent can see exactly
+         what is still missing. -->
+    <div id="ob-wrap" style="display:none">
+      <div class="form-header">
+        <div class="form-logo"><img src="/images/nildash-logo-header.png" alt="NILDash" style="height:36px;width:auto;"></div>
+        <div class="form-title" id="ob-title">Three quick things</div>
+        <div class="form-sub" id="ob-sub">This is what a business sees when your agent pitches you.</div>
+      </div>
+      <div style="height:4px;background:#eef1f6;border-radius:3px;margin:14px 0 20px">
+        <div id="ob-bar" style="height:4px;width:0%;background:#84CC16;border-radius:3px;transition:width .3s"></div>
+      </div>
+
+      <!-- 1. Profile. Date of birth is the reason this step exists. -->
+      <div id="ob-1">
+        <div style="font-size:12px;color:#667;margin-bottom:14px" id="ob-why-dob"></div>
+        <label class="ob-lbl">Date of birth</label>
+        <input class="ob-inp" id="ob-dob" type="date">
+        <div style="display:flex;gap:10px;margin-top:12px">
+          <div style="flex:1"><label class="ob-lbl">Position <span style="opacity:.6">(optional)</span></label>
+            <input class="ob-inp" id="ob-position" placeholder="Linebacker"></div>
+          <div style="flex:1"><label class="ob-lbl">Year <span style="opacity:.6">(optional)</span></label>
+            <input class="ob-inp" id="ob-year" placeholder="Sophomore"></div>
+        </div>
+        <div class="form-error" id="ob-1-err" style="display:none"></div>
+        <button class="submit-btn" style="margin-top:18px" onclick="obSaveProfile()" id="ob-1-btn">Continue</button>
+        <button class="ob-skip" onclick="obStep(2)">Skip for now</button>
+      </div>
+
+      <!-- 2. Photo -->
+      <div id="ob-2" style="display:none">
+        <div style="font-size:12px;color:#667;margin-bottom:14px" id="ob-why-photo"></div>
+        <div id="ob-photo-preview" style="display:none;text-align:center;margin-bottom:12px">
+          <img id="ob-photo-img" alt="" style="width:120px;height:120px;object-fit:cover;border-radius:60px;border:2px solid #e6e9ef">
+        </div>
+        <input type="file" id="ob-photo-file" accept="image/png,image/jpeg,image/webp" style="width:100%">
+        <div class="form-error" id="ob-2-err" style="display:none"></div>
+        <button class="submit-btn" style="margin-top:18px" onclick="obSavePhoto()" id="ob-2-btn">Continue</button>
+        <button class="ob-skip" onclick="obStep(3)">Skip for now</button>
+      </div>
+
+      <!-- 3. Reach. The date stamp is applied server-side; the copy says so. -->
+      <div id="ob-3" style="display:none">
+        <div style="font-size:12px;color:#667;margin-bottom:14px" id="ob-why-reach"></div>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1"><label class="ob-lbl">Instagram followers</label>
+            <input class="ob-inp" id="ob-ig" inputmode="numeric" placeholder="12,400"></div>
+          <div style="flex:1"><label class="ob-lbl">TikTok <span style="opacity:.6">(optional)</span></label>
+            <input class="ob-inp" id="ob-tt" inputmode="numeric" placeholder="3,100"></div>
+        </div>
+        <div style="background:#fff8e6;border:1px solid #f0dda6;border-radius:8px;padding:11px 13px;margin-top:14px;font-size:12px;line-height:1.5;color:#5a4a1a">
+          We record the date you enter these. Your media kit will say
+          <b>&ldquo;as of <span id="ob-today"></span>&rdquo;</b> rather than suggesting the number is live,
+          and any pitch quoting it says the same. Update it whenever it changes.
+        </div>
+        <div class="form-error" id="ob-3-err" style="display:none"></div>
+        <button class="submit-btn" style="margin-top:18px" onclick="obSaveReach()" id="ob-3-btn">Finish</button>
+        <button class="ob-skip" onclick="obFinish()">Skip for now</button>
+      </div>
     </div>
 
     <!-- Main form -->
@@ -383,10 +453,11 @@ async function activateAccount() {
     if (response.ok && data.token) {
       localStorage.setItem('athlete_token', data.token);
       localStorage.setItem('athlete_user', JSON.stringify(data.athlete || {}));
-      btn.textContent = 'Account activated! Redirecting…';
+      btn.textContent = 'Account activated!';
       document.getElementById('main-form').style.display = 'none';
-      document.getElementById('success-state').style.display = 'block';
-      setTimeout(function() { window.location.href = '/athlete-dashboard.html'; }, 1500);
+      // Straight into the three steps rather than the dashboard. Landing on an
+      // empty dashboard is where a half-set-up profile stays half set up.
+      obStart();
     } else {
       showActivateError(data.message || data.error || 'Activation failed. Please try again.');
       btn.disabled = false;
@@ -414,6 +485,134 @@ function showActivateError(msg) {
   el.style.display = 'block';
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
+// ── THE THREE STEPS AFTER ACTIVATION ──────────────────────────────────────
+// Every save is skippable and every skip is recorded by absence, not by a flag:
+// /api/athlete/onboarding/status reports what is missing by reading the row, so
+// there is no "skipped" state to get out of sync with the data.
+var OB_TOTAL = 3;
+var obToken = null;
+
+function obAuth() {
+  return { 'Content-Type': 'application/json',
+           'Authorization': 'Bearer ' + (obToken || localStorage.getItem('athlete_token') || '') };
+}
+function obStep(n) {
+  for (var i = 1; i <= OB_TOTAL; i++) {
+    var el = document.getElementById('ob-' + i);
+    if (el) el.style.display = (i === n ? 'block' : 'none');
+  }
+  var bar = document.getElementById('ob-bar');
+  if (bar) bar.style.width = Math.round(((n - 1) / OB_TOTAL) * 100) + '%';
+}
+function obErr(step, msg) {
+  var e = document.getElementById('ob-' + step + '-err');
+  if (!e) return;
+  if (!msg) { e.style.display = 'none'; return; }
+  e.textContent = msg; e.style.display = 'block';
+}
+
+async function obStart() {
+  obToken = localStorage.getItem('athlete_token');
+  // Hide every other state explicitly rather than assuming none is showing.
+  ['loading-state', 'error-state', 'main-form', 'success-state'].forEach(function (id) {
+    var el = document.getElementById(id); if (el) el.style.display = 'none';
+  });
+  document.getElementById('ob-wrap').style.display = 'block';
+  var d = new Date();
+  var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var todayEl = document.getElementById('ob-today');
+  if (todayEl) todayEl.textContent = d.getDate() + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear();
+  // WHY each step is asked comes from the server, so the reason and the rule it
+  // serves cannot drift apart.
+  try {
+    var r = await fetch('/api/athlete/onboarding/status', { headers: obAuth() });
+    if (r.ok) {
+      var s = await r.json();
+      if (s.why) {
+        var m = { dob: 'ob-why-dob', photo: 'ob-why-photo', reach: 'ob-why-reach' };
+        for (var k in m) { var el = document.getElementById(m[k]); if (el && s.why[k]) el.textContent = s.why[k]; }
+      }
+    }
+  } catch (e) { /* the steps still work without the copy */ }
+  obStep(1);
+}
+
+async function obSaveProfile() {
+  obErr(1, null);
+  var btn = document.getElementById('ob-1-btn');
+  var dob = (document.getElementById('ob-dob').value || '').trim();
+  if (!dob) { obErr(1, 'Add your date of birth, or skip and your agent can add it later.'); return; }
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    var r = await fetch('/api/athlete/onboarding/profile', {
+      method: 'POST', headers: obAuth(),
+      body: JSON.stringify({ dob: dob,
+        position: (document.getElementById('ob-position').value || '').trim(),
+        year: (document.getElementById('ob-year').value || '').trim() }) });
+    var d = await r.json();
+    if (!r.ok) { obErr(1, d.error || 'Could not save that.'); btn.disabled = false; btn.textContent = 'Continue'; return; }
+    obStep(2);
+  } catch (e) { obErr(1, 'Network error. Try again.'); }
+  btn.disabled = false; btn.textContent = 'Continue';
+}
+
+async function obSavePhoto() {
+  obErr(2, null);
+  var f = document.getElementById('ob-photo-file').files[0];
+  if (!f) { obErr(2, 'Pick a photo, or skip this step.'); return; }
+  // Checked here as well as on the server: a 6MB phone photo should fail before
+  // it is base64-encoded and pushed over the wire, not after.
+  if (f.size > 3 * 1024 * 1024) { obErr(2, 'That image is over 3MB. Please use a smaller one.'); return; }
+  var btn = document.getElementById('ob-2-btn');
+  btn.disabled = true; btn.textContent = 'Uploading…';
+  try {
+    var dataUrl = await new Promise(function (res, rej) {
+      var fr = new FileReader();
+      fr.onload = function () { res(fr.result); };
+      fr.onerror = function () { rej(new Error('read failed')); };
+      fr.readAsDataURL(f);
+    });
+    var r = await fetch('/api/athlete/onboarding/photo', {
+      method: 'POST', headers: obAuth(), body: JSON.stringify({ photo: dataUrl }) });
+    var d = await r.json();
+    if (!r.ok) { obErr(2, d.error || 'Could not save that photo.'); btn.disabled = false; btn.textContent = 'Continue'; return; }
+    var pv = document.getElementById('ob-photo-preview');
+    document.getElementById('ob-photo-img').src = dataUrl;
+    pv.style.display = 'block';
+    obStep(3);
+  } catch (e) { obErr(2, 'Could not read that file. Try another.'); }
+  btn.disabled = false; btn.textContent = 'Continue';
+}
+
+async function obSaveReach() {
+  obErr(3, null);
+  var ig = (document.getElementById('ob-ig').value || '').trim();
+  var tt = (document.getElementById('ob-tt').value || '').trim();
+  if (!ig && !tt) { obErr(3, 'Add at least one follower count, or skip.'); return; }
+  var btn = document.getElementById('ob-3-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    var body = {};
+    if (ig) body.instagram = ig;
+    if (tt) body.tiktok = tt;
+    // reachAsOf and reachSource are stamped SERVER-SIDE. Nothing here sends them:
+    // a client that could set its own date could date a stale number today.
+    var r = await fetch('/api/athlete/onboarding/reach', {
+      method: 'POST', headers: obAuth(), body: JSON.stringify(body) });
+    var d = await r.json();
+    if (!r.ok) { obErr(3, d.error || 'Could not save those numbers.'); btn.disabled = false; btn.textContent = 'Finish'; return; }
+    obFinish();
+  } catch (e) { obErr(3, 'Network error. Try again.'); btn.disabled = false; btn.textContent = 'Finish'; }
+}
+
+function obFinish() {
+  var bar = document.getElementById('ob-bar');
+  if (bar) bar.style.width = '100%';
+  document.getElementById('ob-wrap').style.display = 'none';
+  document.getElementById('success-state').style.display = 'block';
+  setTimeout(function () { window.location.href = '/athlete-dashboard.html'; }, 1200);
+}
+
 </script>
 </body>
 </html>
