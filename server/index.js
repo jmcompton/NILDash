@@ -6162,9 +6162,14 @@ app.post('/api/athlete/onboarding/profile', verifyAthleteToken, async (req, res)
     if (year !== undefined) patch.year = String(year || '').trim() || null;
     if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to save.' });
 
+    // A REAL VALUE UNMARKS THE SEEDED ONE IT REPLACES, on the same write. A seed
+    // marker that outlives the fabricated value is worse than none: it reports a
+    // real birthday as demo data and gets ignored from then on.
+    const SEED = require('./services/seedMarker');
     await store.pool.query(
-      `UPDATE athletes SET data = data || $2::jsonb, updated_at = NOW() WHERE id = $1`,
-      [req.athlete.id, JSON.stringify(patch)]);
+      `UPDATE athletes SET data = ${SEED.clearSql('(data || $2::jsonb)', '$3::text[]')}, updated_at = NOW()
+        WHERE id = $1`,
+      [req.athlete.id, JSON.stringify(patch), Object.keys(patch)]);
     console.log(`[athlete/onboarding] athlete=${req.athlete.id} profile saved (dob=${patch.dob ? 'yes' : 'no'})`);
     res.json({ ok: true, saved: Object.keys(patch) });
   } catch (e) {
@@ -6230,9 +6235,12 @@ app.post('/api/athlete/onboarding/reach', verifyAthleteToken, async (req, res) =
     patch.reachSource = 'athlete';
     patch.reachAsOf = new Date().toISOString().slice(0, 10);
 
+    // Same rule as the profile step: a real number unmarks the seeded one.
+    const SEED = require('./services/seedMarker');
     await store.pool.query(
-      `UPDATE athletes SET data = data || $2::jsonb, updated_at = NOW() WHERE id = $1`,
-      [req.athlete.id, JSON.stringify(patch)]);
+      `UPDATE athletes SET data = ${SEED.clearSql('(data || $2::jsonb)', '$3::text[]')}, updated_at = NOW()
+        WHERE id = $1`,
+      [req.athlete.id, JSON.stringify(patch), Object.keys(patch)]);
     console.log(`[athlete/onboarding] athlete=${req.athlete.id} reach saved as of ${patch.reachAsOf}`);
     const RP = require('./services/reachProvenance');
     res.json({ ok: true, asOf: patch.reachAsOf, note: RP.reachProvenance(patch).note });
