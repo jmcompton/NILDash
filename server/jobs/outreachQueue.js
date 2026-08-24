@@ -668,7 +668,7 @@ async function fillAgent(pool, agent, opts) {
 
   if (!dry) {
     await pool.query(
-      `UPDATE outreach_queue_runs SET filled = $3, spent_usd = $4, details = $5
+      `UPDATE outreach_queue_runs SET filled = $3, spent_usd = $4, details = $5, finished_at = NOW()
         WHERE agent_id = $1 AND run_date = $2`,
       [agent.id, runDate, filled, budget.spent(), JSON.stringify(details)]).catch((e) =>
         console.error('[queue] failed to persist run details:', e.message));
@@ -685,8 +685,16 @@ async function run(opts = {}) {
       `SELECT id, name FROM users WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
   let filled = 0, spent = 0;
   for (const a of agents) {
-    const r = await fillAgent(pool, a, opts).catch((e) => {
+    const r = await fillAgent(pool, a, opts).catch(async (e) => {
       console.error(`[queue] agent=${a.id} failed: ${e.message}`);
+      // A run that THREW is still a run that ended. Without this stamp the row
+      // stays finished_at NULL forever and every reader has to treat a crashed
+      // night as one still in progress -- which would hold the morning email
+      // back on a run that is never coming back.
+      await pool.query(
+        `UPDATE outreach_queue_runs SET finished_at = NOW(), note = COALESCE(note, $3)
+          WHERE agent_id = $1 AND run_date = $2 AND finished_at IS NULL`,
+        [a.id, opts.runDate || today(), 'the run stopped early: ' + e.message]).catch(() => {});
       return { filled: 0, spent: 0 };
     });
     filled += r.filled; spent += r.spent;

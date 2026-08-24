@@ -27,8 +27,28 @@
 // day would also sweep up whatever the agent did by hand at 4pm and credit it
 // to the team. The bracket opens slightly BEFORE the run because ladderPrewarm
 // warms contacts while the scan is still being written.
+//
+// WHY THE WINDOW NOW CLOSES ON finished_at. It used to close a flat 12 hours
+// after the claim, and that is how the daily email and the home page came to
+// disagree about the same morning. Neither was wrong and neither used a
+// different query -- they ran at different times against a window that was still
+// open. The night claims at 1am Central; the email goes at 7am and counts what
+// exists then; the agent opens the app at midday and GET /outreach-queue kicks
+// off runOnDemandFills, which places the slots the night deliberately left empty.
+// Those cards and drafts land before 1pm, so the old window counted them as part
+// of "last night" -- the page reported the night PLUS the work the page itself
+// had just caused. Two pitches at 7am, fourteen by noon, same query.
+//
+// Closing on finished_at makes the sentence mean one thing: what the overnight
+// run produced. Everything the day adds is counted separately, in `added`, and
+// said in its own words rather than backdated into the night.
 const SHIFT_PRE_HOURS = 2;
+// Only for rows written before finished_at existed, and as the ceiling on a run
+// that never stamped an end.
 const SHIFT_POST_HOURS = 12;
+// Artifacts that land just after the last athlete -- the details UPDATE and the
+// trailing cache writes -- belong to the run, not to the morning.
+const SHIFT_GRACE_MIN = 15;
 
 // ── Caps ─────────────────────────────────────────────────────────────────────
 // A queue item may never contain a pile. "155 pitches waiting on your approval"
@@ -74,7 +94,7 @@ async function buildShiftReport(pool, agentId) {
   const n = (v) => (v === null || v === undefined ? 0 : Number(v));
 
   const run = await one('run',
-    `SELECT run_date, filled, note, details, created_at
+    `SELECT run_date, filled, note, details, created_at, finished_at
        FROM outreach_queue_runs WHERE agent_id = $1
       ORDER BY run_date DESC LIMIT 1`, [agentId]);
 
@@ -95,15 +115,27 @@ async function buildShiftReport(pool, agentId) {
 
   if (!run) {
     return {
-      run: { ran: false, reason: 'no-run-recorded' },
-      sentence: null, roles: [], coverage: null,
+      run: { ran: false, reason: 'no-run-recorded', inProgress: false, finished: false },
+      sentence: null, roles: [], coverage: null, added: null,
       needsYou, moving, draftAudit, closer: closerBlock, errors: errs,
     };
   }
 
   const details = Array.isArray(run.details) ? run.details : [];
-  const from = new Date(new Date(run.created_at).getTime() - SHIFT_PRE_HOURS * 3600e3);
-  const to = new Date(new Date(run.created_at).getTime() + SHIFT_POST_HOURS * 3600e3);
+  const startedMs = new Date(run.created_at).getTime();
+  const from = new Date(startedMs - SHIFT_PRE_HOURS * 3600e3);
+  // The ceiling is still 12 hours, so a run that stamped no end (a crash before
+  // the catch, or a row written before finished_at existed) degrades to the old
+  // behaviour instead of counting forever.
+  const ceiling = startedMs + SHIFT_POST_HOURS * 3600e3;
+  const finishedMs = run.finished_at ? new Date(run.finished_at).getTime() : null;
+  const to = new Date(finishedMs
+    ? Math.min(finishedMs + SHIFT_GRACE_MIN * 60e3, ceiling)
+    : ceiling);
+  // A run still in flight is not a run that produced these numbers. Say so
+  // rather than presenting a partial night as a finished one -- and the email
+  // path holds off entirely on this flag.
+  const inProgress = !finishedMs && Date.now() < ceiling;
   const W = [agentId, from, to];
 
   const scoutKept = await one('scout-kept',
@@ -223,11 +255,36 @@ async function buildShiftReport(pool, agentId) {
 
   const roles = buildRoleCards(stat);
 
+  // ── WHAT THE DAY ADDED, SINCE THE RUN ENDED ───────────────────────────────
+  // Opening the queue triggers runOnDemandFills, which places the slots the
+  // night deliberately left empty. That work is real and the page must show it
+  // -- it is simply not what the overnight run did, so it gets its own line
+  // instead of being backdated into the sentence. This is the number that used
+  // to make the page and the 7am email disagree.
+  const added = await one('added-since',
+    `SELECT
+       (SELECT COUNT(*)::int FROM outreach_queue
+         WHERE agent_id = $1 AND created_at >= $2)                        AS cards,
+       (SELECT COUNT(*)::int FROM outreach_logs
+         WHERE agent_id = $1 AND status = 'draft' AND created_at >= $2)   AS drafts`,
+    [agentId, to]);
+  const addedCards = n(added && added.cards);
+  const addedDrafts = n(added && added.drafts);
+  const addedBits = [];
+  if (addedCards) addedBits.push(plural(addedCards, 'card'));
+  if (addedDrafts) addedBits.push(plural(addedDrafts, 'pitch', 'pitches'));
+  const addedBlock = (addedCards || addedDrafts)
+    ? { cards: addedCards, drafts: addedDrafts,
+        line: cap(listify(addedBits)) + ' added since, while you were working.' }
+    : null;
+
   return {
     run: {
       ran: true, runDate: run.run_date, startedAt: run.created_at,
+      finishedAt: run.finished_at || null, finished: !!finishedMs, inProgress,
       windowFrom: from, windowTo: to, note: run.note || null,
     },
+    added: addedBlock,
     sentence, stat, coverage, roles, needsYou, moving, draftAudit,
     closer: closerBlock,
     analyst: await buildAnalystBlock(pool, agentId, from, to).catch((e) => {
@@ -324,9 +381,31 @@ async function buildCloserBlock(pool, agentId) {
 
   const auto = await Closer.autoModeProgress(pool, agentId);
 
+  // WHO THE WAITING PITCHES ARE FOR. The page builds the full batch through
+  // Closer.buildBatch and renders every draft body; the email cannot approve
+  // anything and should not carry ten message bodies, but "13 pitches waiting"
+  // with no names is not something an agent can act on either. This is the same
+  // grouping the page shows, reduced to what fits in an inbox: the athlete, how
+  // many, and the first businesses by name.
+  const byAthlete = (await pool.query(
+    `SELECT l.athlete_id,
+            COALESCE(a.data->>'name','an athlete') AS athlete_name,
+            COUNT(*)::int AS n,
+            (ARRAY_AGG(l.brand_name ORDER BY l.created_at ASC))[1:3] AS brands
+       FROM outreach_logs l
+       LEFT JOIN athletes a ON a.id = l.athlete_id
+      WHERE l.agent_id = $1 AND l.status = 'draft' AND l.approved_at IS NULL
+        AND l.cadence_stopped_at IS NULL
+      GROUP BY l.athlete_id, a.data->>'name'
+      ORDER BY COUNT(*) DESC, athlete_name ASC`, [agentId])).rows;
+
   return {
     budget,
     pendingApproval: Number(pending) || 0,
+    byAthlete: byAthlete.map((r) => ({
+      athleteId: r.athlete_id, name: r.athlete_name,
+      count: Number(r.n) || 0, brands: (r.brands || []).filter(Boolean),
+    })),
     scheduled: Number(scheduled.n) || 0,
     nextSendAt: scheduled.next || null,
     failed: failed.map((f) => ({ brand: f.brand_name, why: f.send_error })),

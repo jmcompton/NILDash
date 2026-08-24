@@ -31,18 +31,54 @@ function deepLink(appUrl, item) {
   return base + '/?view=' + encodeURIComponent(view) + (t.id ? '&focus=' + encodeURIComponent(t.id) : '');
 }
 
+// ── THE SUBJECT ──────────────────────────────────────────────────────────────
+// It says what happened, not how many rows are on a list. "1 thing need you this
+// morning" was both ungrammatical and uninformative: it counted the internal
+// item array, so a brand replying and five queue cards sitting there read
+// identically. The order below is the order the work matters in -- a reply
+// outranks everything, because someone is waiting on an answer.
+function nameOnly(line) {
+  // "Ourisman Chevrolet of Bowie replied about Kaden House" -> the brand.
+  const m = String(line || '').match(/^(.*?) replied\b/);
+  return m ? m[1] : null;
+}
+function buildSubject(r, replies, waiting) {
+  if (replies.length === 1) {
+    const brand = nameOnly(replies[0].line);
+    const head = brand ? `${brand} replied` : 'A brand replied';
+    return waiting ? `${head} — and ${waiting} pitch${waiting === 1 ? '' : 'es'} ready` : head;
+  }
+  if (replies.length > 1) return `${replies.length} brands replied`;
+  if (waiting) return `${waiting} pitch${waiting === 1 ? '' : 'es'} ready to send`;
+  const queued = (r.needsYou && r.needsYou.items || []).find((it) => it.kind === 'queue');
+  if (queued) return `${queued.count} outreach card${queued.count === 1 ? '' : 's'} ready to work`;
+  if (!(r.run && r.run.ran)) return 'NILDash: your team has not run yet';
+  return 'Your team worked last night — nothing needs you';
+}
+
 function renderShiftEmail(report, opts = {}) {
   const appUrl = opts.appUrl || 'https://mynildash.com';
   const name = opts.agentName ? String(opts.agentName).split(/\s+/)[0] : null;
   const r = report || {};
-  const needs = (r.needsYou && r.needsYou.items) || [];
+  const allItems = (r.needsYou && r.needsYou.items) || [];
   const overflow = (r.needsYou && r.needsYou.overflow) || 0;
+  // Replies get their own block at the top, so they are pulled OUT of the list
+  // rather than rendered twice. A reply is a human sitting in an inbox waiting
+  // on an answer; it was previously just another card in a stack of three, and
+  // an agent skimming on a phone would never have seen it.
+  const replies = allItems.filter((it) => it.kind === 'reply');
+  const closer = r.closer || {};
+  const waiting = Number(closer.pendingApproval) || 0;
+  const forWhom = Array.isArray(closer.byAthlete) ? closer.byAthlete : [];
+  // The approve item and the Ready to send block are the same pile of drafts.
+  // Printing both gave the email two different counts of one thing -- "10
+  // pitches ready for you" above "14 pitches waiting on your approval" -- which
+  // is the drift this whole pass exists to remove. Ready to send owns it,
+  // because it is the one that names who they are for.
+  const needs = allItems.filter((it) =>
+    it.kind !== 'reply' && !(waiting > 0 && it.kind === 'approve'));
 
-  // SUBJECT carries the decision count, because that is what makes an agent open
-  // it. "Your NILDash report" is what makes them archive it.
-  const subject = needs.length
-    ? `${needs.length} thing${needs.length === 1 ? '' : 's'} need you this morning`
-    : (r.run && r.run.ran ? 'Your team worked last night — nothing needs you' : 'NILDash: your team has not run yet');
+  const subject = buildSubject(r, replies, waiting);
 
   const P = 'margin:0 0 12px;font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#1a2230';
   const MUTED = 'margin:0;font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#6b7c99';
@@ -61,18 +97,48 @@ function renderShiftEmail(report, opts = {}) {
       parts.push(`<p style="${MUTED};margin-bottom:16px">${esc(r.coverage.line)} · `
         + `<a href="${esc(appUrl)}/?view=shift-detail" style="color:#3f7d1f">See the detail</a></p>`);
     }
+    // A partial night, said out loud. The report is a live count and the run can
+    // still be writing when this goes out; without this line the numbers above
+    // would quietly disagree with the page an hour later.
+    if (r.run.inProgress) {
+      parts.push(`<p style="${MUTED};margin-bottom:16px">Last night's run was still going when this was sent, `
+        + `so there may be more by the time you open it.</p>`);
+    }
   } else {
     parts.push(`<p style="${P}"><b>Your team has not run yet.</b></p>`
       + `<p style="${MUTED};margin-bottom:16px">Add a client and run a Deal Scan to start the overnight run.</p>`);
   }
 
-  // ── 2. NEEDS YOU ─────────────────────────────────────────────────────────
-  parts.push(`</td></tr><tr><td style="padding:0 24px">
-  <div style="border-top:1px solid #eef1f6;padding-top:16px">
+  parts.push(`</td></tr><tr><td style="padding:0 24px">`);
+
+  // ── 2. A BRAND REPLIED ───────────────────────────────────────────────────
+  // Above everything, in its own colour, one block per reply. This is the most
+  // important thing that can appear in this email and it used to be buried in
+  // the NEEDS YOU stack -- or, when other items outranked it on the page, an
+  // agent reading only the email would never learn it had happened at all.
+  if (replies.length) {
+    parts.push(`<div style="border-top:1px solid #eef1f6;padding-top:16px;margin-bottom:4px">
+  <p style="margin:0 0 10px;font:600 13px/1 -apple-system,Arial,sans-serif;color:#3f7d1f;letter-spacing:.02em">${replies.length === 1 ? 'A BRAND REPLIED' : replies.length + ' BRANDS REPLIED'}</p>`);
+    for (const it of replies) {
+      parts.push(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px">
+<tr><td style="padding:12px 14px;background:#f3f8ec;border:1px solid #d6e6bf;border-radius:9px">
+  <p style="margin:0 0 9px;font:600 16px/1.4 -apple-system,Arial,sans-serif;color:#1a2230">${esc(it.line)}</p>
+  <a href="${esc(deepLink(appUrl, it))}" style="display:inline-block;background:#84CC16;color:#0b0f0a;text-decoration:none;font:600 13px/1 -apple-system,Arial,sans-serif;padding:9px 15px;border-radius:7px">${esc(it.actionLabel || 'Read and reply')}</a>
+</td></tr></table>`);
+    }
+    parts.push('</div>');
+  }
+
+  // ── 3. NEEDS YOU ─────────────────────────────────────────────────────────
+  parts.push(`<div style="border-top:1px solid #eef1f6;padding-top:16px">
   <p style="margin:0 0 10px;font:600 13px/1 -apple-system,Arial,sans-serif;color:#0f1722;letter-spacing:.02em">NEEDS YOU</p>`);
 
   if (!needs.length) {
-    parts.push(`<p style="${MUTED};padding:6px 0 4px">Nothing needs you right now. No replies waiting, no drafts to approve.</p>`);
+    // "No replies waiting" must not be printed above a block that just showed
+    // one. The reply block owns that half of the sentence now.
+    parts.push(`<p style="${MUTED};padding:6px 0 4px">${replies.length
+      ? 'Nothing else needs you. No drafts to approve, no cards waiting.'
+      : 'Nothing needs you right now. No replies waiting, no drafts to approve.'}</p>`);
   } else {
     for (const it of needs) {
       parts.push(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px">
@@ -90,7 +156,41 @@ function renderShiftEmail(report, opts = {}) {
   }
   parts.push('</div>');
 
-  // ── 3. MOVING ────────────────────────────────────────────────────────────
+  // ── 4. READY TO SEND ─────────────────────────────────────────────────────
+  // The email's only action used to be "Open queue", which told the agent
+  // nothing about what was actually waiting under their name. This carries the
+  // page's grouping: athlete, how many, and the first businesses by name. Not
+  // the message bodies -- those cannot be approved or edited from an inbox, and
+  // ten of them would bury everything above. One button, one decision, same as
+  // the page: approval is per batch and never per message.
+  if (waiting > 0) {
+    const capNote = closer.budget && closer.budget.blocked
+      ? esc(closer.line || '')
+      : (closer.budget
+        ? `${closer.budget.used} of ${closer.budget.cap} emails used today. DMs and calls are not affected by this.`
+        : '');
+    parts.push(`<div style="border-top:1px solid #eef1f6;margin-top:18px;padding-top:16px">
+  <p style="margin:0 0 4px;font:600 13px/1 -apple-system,Arial,sans-serif;color:#0f1722;letter-spacing:.02em">READY TO SEND</p>
+  <p style="${MUTED};margin-bottom:12px">${waiting} pitch${waiting === 1 ? '' : 'es'} waiting on your approval${forWhom.length ? ` across ${forWhom.length} athlete${forWhom.length === 1 ? '' : 's'}` : ''}.</p>`);
+
+    for (const g of forWhom.slice(0, 6)) {
+      const brands = (g.brands || []).map(esc).join(', ');
+      const more = Math.max(0, g.count - (g.brands || []).length);
+      parts.push(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px">
+<tr><td style="padding:9px 12px;background:#f8fafc;border:1px solid #e8edf4;border-radius:9px">
+  <p style="margin:0 0 2px;font:600 14px/1.4 -apple-system,Arial,sans-serif;color:#1a2230">${esc(g.name)} · ${g.count} pitch${g.count === 1 ? '' : 'es'}</p>
+  <p style="${MUTED};font-size:12px">${brands}${more > 0 ? ` and ${more} more` : ''}</p>
+</td></tr></table>`);
+    }
+    if (forWhom.length > 6) {
+      parts.push(`<p style="${MUTED};margin:2px 0 10px">and ${forWhom.length - 6} more athlete${forWhom.length - 6 === 1 ? '' : 's'}.</p>`);
+    }
+    parts.push(`<a href="${esc(appUrl)}/?view=home#ready-to-send" style="display:inline-block;background:#84CC16;color:#0b0f0a;text-decoration:none;font:600 13px/1 -apple-system,Arial,sans-serif;padding:10px 16px;border-radius:7px;margin-top:2px">Read them and approve</a>
+  <p style="${MUTED};font-size:12px;margin-top:9px">You do not pick the time. Approved pitches go out when the recipient is most likely to read them. ${capNote}</p>
+</div>`);
+  }
+
+  // ── 5. MOVING ────────────────────────────────────────────────────────────
   const mv = r.moving;
   if (mv && (mv.earned || mv.inFlight)) {
     parts.push(`<div style="border-top:1px solid #eef1f6;margin-top:18px;padding-top:16px">
@@ -121,11 +221,30 @@ function renderShiftEmail(report, opts = {}) {
     textLines.push(r.sentence);
     if (r.coverage && r.coverage.line) textLines.push(r.coverage.line);
   } else textLines.push('Your team has not run yet.');
+  if (r.run && r.run.ran && r.run.inProgress) {
+    textLines.push("Last night's run was still going when this was sent.");
+  }
+  if (replies.length) {
+    textLines.push('', replies.length === 1 ? 'A BRAND REPLIED' : replies.length + ' BRANDS REPLIED');
+    for (const it of replies) textLines.push('  - ' + it.line + '  ' + deepLink(appUrl, it));
+  }
   textLines.push('', 'NEEDS YOU');
-  if (!needs.length) textLines.push('  Nothing needs you right now.');
-  else {
+  if (!needs.length) {
+    textLines.push(replies.length ? '  Nothing else needs you.' : '  Nothing needs you right now.');
+  } else {
     for (const it of needs) textLines.push('  - ' + it.line + '  ' + deepLink(appUrl, it));
     if (overflow > 0) textLines.push('  ' + overflow + ' more waiting.');
+  }
+  if (waiting > 0) {
+    textLines.push('', 'READY TO SEND',
+      '  ' + waiting + ' pitch' + (waiting === 1 ? '' : 'es') + ' waiting on your approval.');
+    for (const g of forWhom.slice(0, 6)) {
+      const more = Math.max(0, g.count - (g.brands || []).length);
+      textLines.push('  - ' + g.name + ' · ' + g.count + ' pitch' + (g.count === 1 ? '' : 'es')
+        + ((g.brands || []).length ? ': ' + g.brands.join(', ') + (more > 0 ? ' and ' + more + ' more' : '') : ''));
+    }
+    if (forWhom.length > 6) textLines.push('  and ' + (forWhom.length - 6) + ' more athletes.');
+    textLines.push('  ' + String(appUrl).replace(/\/+$/, '') + '/?view=home#ready-to-send');
   }
   if (mv && (mv.earned || mv.inFlight)) {
     textLines.push('', 'MOVING', '  ' + money(mv.earned) + ' earned · ' + money(mv.inFlight) + ' in flight');

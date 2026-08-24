@@ -4220,6 +4220,13 @@ if (process.env.NODE_ENV === 'production') scheduleDailySocialDiscovery();
 // it now" is simpler than N timers that drift. shift_report_sends makes a double
 // fire a no-op, which matters because a restart re-arms this.
 const REPORT_TICK_MS = 15 * 60 * 1000;
+// How long past the chosen hour the report may still go out. This covers two
+// cases that both used to lose the day's email entirely: the process being down
+// for the whole of 7am, and a nightly run that has not finished writing yet (see
+// the deferral below). Bounded rather than open-ended because a "good morning"
+// report arriving at 11pm is not a morning report -- past this the day is
+// skipped, which is the honest outcome.
+const REPORT_LATE_HOURS = 4;
 
 async function _sendDueShiftReports() {
   const { renderShiftEmail } = require('./services/shiftEmail');
@@ -4240,15 +4247,43 @@ async function _sendDueShiftReports() {
     const tz = u.report_tz || sw.DEFAULT_TZ;
     let p;
     try { p = sw.partsIn(now, tz); } catch (_) { continue; }
-    // Fire in the tick that contains the chosen hour, not on the exact minute.
-    if (p.hour !== Number(u.hour)) continue;
+    // Fire in the tick that contains the chosen hour, and keep trying for a few
+    // hours after it. shift_report_sends is what makes at most one go out, so a
+    // wider gate can only turn a missed day into a late one.
+    const hour = Number(u.hour);
+    const late = p.hour - hour;
+    if (late < 0 || late >= REPORT_LATE_HOURS) continue;
     const localDate = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
     try {
+      // DO NOT MAIL A NIGHT THAT IS STILL BEING WRITTEN. This is what made the
+      // 7am email and the midday page disagree: the report is a live count, the
+      // email fires on a clock, and a run claimed at 1am Central can still be
+      // placing cards at 7am. The email reported two pitches; the page, read
+      // later, reported fourteen from the same query.
+      //
+      // Skip the tick WITHOUT claiming the day and try again in fifteen minutes.
+      // On the last hour we are allowed to be late, send anyway with the run
+      // marked unfinished -- an email that never arrives is worse than one that
+      // arrives with a caveat.
+      let stillRunning = false;
+      const inFlight = await store.pool.query(
+        `SELECT 1 FROM outreach_queue_runs
+          WHERE agent_id = $1 AND finished_at IS NULL
+            AND created_at > NOW() - INTERVAL '12 hours' LIMIT 1`, [u.id])
+        .catch(() => ({ rows: [] }));
+      if (inFlight.rows[0]) {
+        if (late < REPORT_LATE_HOURS - 1) {
+          console.log(`[shift-report/send] agent=${u.id} deferring, last night's run has not finished`);
+          continue;
+        }
+        stillRunning = true;
+      }
       const claim = await store.pool.query(
         `INSERT INTO shift_report_sends (agent_id, local_date) VALUES ($1,$2)
          ON CONFLICT (agent_id, local_date) DO NOTHING RETURNING agent_id`, [u.id, localDate]);
       if (!claim.rowCount) continue;   // already sent this local day
       const rep = await shiftReport.buildShiftReport(store.pool, u.id);
+      if (stillRunning && rep.run) rep.run.inProgress = true;
       const mail = renderShiftEmail(rep, { appUrl, agentName: u.name });
       // Reply-To is the agent's own address: a reply to the report should reach
       // them, not a noreply black hole.

@@ -746,6 +746,28 @@ async function init() {
     )
   `).then(async () => {
     await pool.query(`ALTER TABLE outreach_queue_runs ADD COLUMN IF NOT EXISTS details JSONB DEFAULT '[]'::jsonb`).catch(() => {});
+    // WHEN THE RUN STOPPED. created_at is the claim, taken before the first
+    // lookup, so on its own it cannot tell a finished night from one still
+    // writing -- filled defaults to 0 and details to [], which is exactly what
+    // an in-flight run looks like too. The daily email fires on a clock and was
+    // reporting whatever existed at 7am as though the night were over; the shift
+    // window also ran 12 hours past the claim and swept up the on-demand fills
+    // the agent's own page load triggers at midday. Both need an end.
+    const added = await pool.query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'outreach_queue_runs' AND column_name = 'finished_at'`).catch(() => null);
+    await pool.query(`ALTER TABLE outreach_queue_runs ADD COLUMN IF NOT EXISTS finished_at TIMESTAMPTZ`).catch(() => {});
+    // BACKFILL, ONCE. Every run that already existed when this column was added
+    // is finished by definition -- only the new code stamps an end. Without this
+    // the morning after the deploy, every agent's report would read last night's
+    // row as still in flight and hold the email back for hours before sending it
+    // with a caveat that was never true.
+    if (!(added && added.rowCount)) {
+      const b = await pool.query(
+        `UPDATE outreach_queue_runs SET finished_at = created_at WHERE finished_at IS NULL`)
+        .catch(() => ({ rowCount: 0 }));
+      if (b.rowCount) console.log(`[init] backfilled finished_at on ${b.rowCount} outreach_queue_runs row(s)`);
+    }
     console.log('[init] outreach_queue_runs table ready');
   }).catch(e => console.error('[init] outreach_queue_runs:', e.message));
 

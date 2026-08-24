@@ -16869,11 +16869,22 @@ function srRenderSentence(d, el) {
     return;
   }
   var cov = d.coverage || {};
+  // The sentence is the OVERNIGHT RUN and nothing else. Opening the queue kicks
+  // off on-demand fills, and those used to land inside the shift window and get
+  // counted as part of last night -- which is how this page and the 7am email
+  // came to report different numbers from the same query. They are counted
+  // separately now and said in their own line, so the work still shows up
+  // without being backdated into the night.
   el.innerHTML = '<div class="sr-head">'
     + '<div class="sr-sentence">' + hmEsc(d.sentence) + '</div>'
     + '<div class="sr-sub">' + (cov.line ? hmEsc(cov.line) + ' · ' : '')
     + '<a href="#" class="sr-link" onclick="srOpenDetail();return false">See the detail</a>'
-    + '</div></div>';
+    + '</div>'
+    + (d.run.inProgress
+      ? '<div class="sr-sub">Still running now, so this will grow.</div>' : '')
+    + (d.added && d.added.line
+      ? '<div class="sr-sub">' + hmEsc(d.added.line) + '</div>' : '')
+    + '</div>';
 }
 
 function srRenderMoving(d, el) {
