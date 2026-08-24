@@ -79,9 +79,17 @@ function sourceNote(contact) {
 //   Confident = 'high' WITH a sourceUrl (an official or business-owned page)
 //   Likely    = 'medium', or 'high' with no sourceUrl to point at
 //   Fallback  = a row with no name attached
+// CORROBORATION OUTRANKS THE SOURCE'S OWN OPINION OF ITSELF. `confidence` is a
+// field the extracting model sets about its own answer, and it said 'high' just
+// as readily for the Adweek editor it found in an article about a bakery. Two
+// independent sources naming the same person is evidence; one source calling
+// itself confident is not.
 function confidenceLabel(contact) {
   const c = contact || {};
   if (!c.name || !String(c.name).trim()) return 'Fallback';
+  const CR = require('./contactRank');
+  if (CR.corroborationOf(c) >= 2) return 'Confirmed';
+  if (CR.isUnconfirmed(c)) return 'Unconfirmed';
   if (c.confidence === 'high' && c.sourceUrl) return 'Confident';
   return 'Likely';
 }
@@ -121,6 +129,7 @@ function crossDomainNote(email, bizDomain, rootFn) {
 // Deliberately narrow: it matches explicit support roles only, never a bare
 // unrecognized title, so a "Chiropractor" or "Dentist" who is actually the owner is
 // never swept into staff.
+const _CR = require('./contactRank');
 const STAFF_TITLE_RE = /\b(assistant|receptionist|front desk|hygienist|technician|tech|aide|intern|clerk|cashier|server|waitstaff|host|hostess|barista|stylist|shampoo|massage therapist|patient (care|coordinator)|office coordinator|sales associate|team member|crew member)\b/i;
 function isStaffTitle(title) {
   const t = String(title || '').trim();
@@ -246,6 +255,11 @@ function buildContactLadder(res, opts = {}) {
       // Name attribution only. Rendered as "Name: Confident", never as a claim
       // about the phone or email.
       confidence: confidenceLabel(c),
+      // Carried onto the row so the card, the pitch and the greeting guard all
+      // read the same judgement rather than each re-deriving one.
+      unconfirmed: c.unconfirmed === undefined ? _CR.isUnconfirmed(c) : !!c.unconfirmed,
+      corroboration: _CR.corroborationOf(c),
+      sources: c.sources || (c.source ? [c.source] : []),
       affiliationScope: c.affiliationScope || null,
       affiliationEvidence: c.affiliationEvidence || null,
       sourceNote: sourceNote(c) + (igHandle && personalHandleOwner === c ? '. Instagram handle matches this name, so it is likely their personal account' : ''),

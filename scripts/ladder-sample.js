@@ -22,6 +22,10 @@
 //   --json            emit the rows as JSON instead of a table
 //   --in-tok <n>      input tokens assumed per web search, for the cost model
 //                     (default 6000 -- see COST below)
+//   --no-cache        run with no database on purpose, and say so. Without this
+//                     the script REFUSES to start when DATABASE_URL is unset,
+//                     because the cache is what makes a re-run free and
+//                     repeatable and its absence is silent.
 //   --carrier <name>  classify each number as mobile / landline / voip.
 //                     Only 'numverify' today; needs NUMVERIFY_API_KEY. OFF by
 //                     default, so a run never spends on this by accident.
@@ -403,6 +407,40 @@ async function main() {
     console.error('  node scripts/ladder-sample.js --city Fayetteville --state AR');
     process.exit(2);
   }
+  // ── NO DATABASE, NO RUN ──────────────────────────────────────────────────
+  // getBrandContacts caches every result for 30 days, which is what makes a
+  // second run of the same list cost nothing and return the same answer. Every
+  // cache failure in store.js is caught and swallowed -- getBrandEvidence returns
+  // null, saveBrandEvidence only logs -- so with no DATABASE_URL, pg falls back
+  // to localhost:5432, every read misses, every write fails, and this script
+  // silently runs the full live fan-out instead. That is exactly what happened:
+  // three runs of the same twenty Birmingham businesses, three live samples,
+  // three different answers, and three times the bill.
+  //
+  // A run that silently costs money because an environment variable is missing
+  // is the same class of problem as a test that passes because a string moved.
+  // Refuse, and say what to do about it.
+  const _noCache = process.argv.indexOf('--no-cache') > -1;
+  if (!_noCache && !process.env.DATABASE_URL && !process.env.PGHOST) {
+    console.error('DATABASE_URL is not set.');
+    console.error('');
+    console.error('This script caches every lookup, and that cache is what makes a re-run');
+    console.error('free and repeatable. Without a database every read misses and every');
+    console.error('write fails -- silently -- so this would run the full live fan-out and');
+    console.error('bill you for it, again, and still not agree with the last run.');
+    console.error('');
+    console.error('  DATABASE_URL=... node scripts/ladder-sample.js --city ... --state ...');
+    console.error('  railway run node scripts/ladder-sample.js --city ... --state ...');
+    console.error('');
+    console.error('Check the cache first:  node scripts/cache-doctor.js');
+    console.error('Measuring cold on purpose? --no-cache says so out loud.');
+    process.exit(2);
+  }
+  if (_noCache) {
+    console.log('RUNNING WITHOUT A CACHE ON PURPOSE (--no-cache). Every lookup is live');
+    console.log('and billed, and a re-run will not match this one.\n');
+  }
+
   const { all, run } = readList(opts.file, opts.limit);
   const region = opts.city + ', ' + opts.state;
 

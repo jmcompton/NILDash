@@ -1200,21 +1200,14 @@ function _normalizePhone(p) {
 // Rank a title by decision-making authority (lower = more senior). Owner and
 // franchisee lead for local businesses; marketing/partnerships leadership leads
 // for larger brands.
+// ONE DEFINITION OF TITLE AUTHORITY, in services/contactRank.js. This used to be
+// its own regex ladder that matched \bowner\b and ignored everything around it,
+// so "Building owner (per news)" -- a landlord -- and "Company contact (not
+// confirmed owner)" -- a title that says in words that we do not know who this
+// is -- both ranked 0, identically to a real owner from the business's own site.
+// contactRank checks the disqualifiers FIRST, which is the fix.
 function _contactAuthorityRank(title) {
-  const t = String(title || '').toLowerCase();
-  // Registered agent is often a lawyer or filing service, not a decision maker:
-  // keep it but rank it LAST. Check first so "registered agent" is never caught
-  // by a looser rule below.
-  if (/registered agent/.test(t)) return 9;
-  if (/\bowner\b|founder|proprietor|principal|\bceo\b|president/.test(t)) return 0;
-  if (/franchis/.test(t)) return 1;
-  // Officers and LLC members named in a state filing rank just under owner.
-  if (/\bofficer\b|\bmember\b|managing member|\bpartner\b|\bdirector\b(?!.*marketing)|\btreasurer\b|\bsecretary\b|incorporator/.test(t)) return 2;
-  if (/general manager|\bgm\b|managing director|\bmanaging\b/.test(t)) return 3;
-  if (/(marketing|brand|partnership|sponsorship)[^.]*(director|vp|vice president|head|chief|lead)|\bcmo\b|director of marketing/.test(t)) return 4;
-  if (/marketing manager|partnerships? (manager|lead|coordinator)|brand manager/.test(t)) return 5;
-  if (/manager|coordinator|specialist/.test(t)) return 6;
-  return 7;
+  return _CR.authorityOf(title).rank;
 }
 
 // SHORT FORMS THAT ARE NOT SCHOOL NAMES AT ALL.
@@ -1357,6 +1350,7 @@ function _phoneLocalityOk(phone, reportedState, regionState) {
 // small local business rarely has a "Meet the Team" page, but its owner's name
 // is published across several of these. Each is searched in PARALLEL so total
 // per-brand wall time stays close to a single search.
+const _CR = require('./services/contactRank');
 const _CONTACT_SOURCES = ['registry', 'facebook', 'maps', 'news', 'chamber', 'site', 'linkedin'];
 
 // Source order for the DEEP contact ladder, tuned from production hit rates. Wave 1
@@ -1428,7 +1422,14 @@ function deepContactCtx(opts) {
 // v5: contacts carry affiliationScope, and a parent-or-brand person is no longer
 // a contact at all. A v4 row was written before any of that existed, so serving
 // one would keep handing back the parent's executives for another seven days.
-const _CONTACTS_CACHE_VERSION = 5;
+// v6: deterministic ranking. v5 rows were written by the old comparator, which
+// ranked "Building owner (per news)" and "Company contact (not confirmed owner)"
+// as equal to a real owner and let arrival order pick between them -- so a v5 row
+// can carry a landlord or an Adweek editor as the addressee, and those are
+// exactly the rows the agent is about to send under their own name. They also
+// predate the `sources` array, so corroboration cannot be counted on them and
+// every contact would read as unconfirmed. Re-run rather than serve them.
+const _CONTACTS_CACHE_VERSION = 6;
 
 // Test seam (see _searchContactSource). Production leaves this null.
 let _contactSearchImpl = null;
@@ -1648,6 +1649,16 @@ async function _contactWebSearchRaw(prompt, sys) {
   const msg = await client.messages.create({
     model: MODEL_FAST,
     max_tokens: CONTACT_SEARCH_MAX_TOKENS,
+    // TEMPERATURE 0. This is EXTRACTION, not writing: pull the named people off
+    // the pages the search returned. There was no temperature set here at all,
+    // so it ran at the API default of 1.0 and the same page yielded a different
+    // person on a re-read. Sampling buys nothing when the task has one right
+    // answer, and it cost us three different owners for the same bakery.
+    //
+    // It does NOT make the pipeline fully deterministic on its own -- the web
+    // search itself can return different pages -- which is why the ranking below
+    // is a total order rather than relying on this.
+    temperature: 0,
     system: sys,
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: CONTACT_SEARCH_MAX_USES }],
     messages: [{ role: 'user', content: prompt }],
@@ -1823,28 +1834,43 @@ async function _searchContactSource(source, brand, loc, domain, regionState) {
 function _mergeNameKey(name) {
   return String(name || '').toLowerCase().replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim();
 }
+// CORROBORATION IS COUNTED HERE. Two sources independently naming the same
+// person is the strongest signal we have that the name is right, and it was
+// being thrown away: the merge kept one row and discarded which sources had
+// agreed. `sources` accumulates every distinct source that named them, and
+// contactRank uses it to break ties and to decide whether a contact is
+// confirmed enough to greet by first name.
+//
+// The merge no longer depends on arrival order either. It used to keep whichever
+// row arrived first when ranks tied, and rows arrive in network-completion
+// order; now a tie falls to contactRank.compareContacts, which is a total order.
 function _mergeContacts(all) {
+  const CR = _CR;
   const byKey = new Map();
   for (const c of all) {
     const key = _mergeNameKey(c.name);
     if (!key) continue;
     const ex = byKey.get(key);
-    if (!ex) { byKey.set(key, { ...c }); continue; }
-    if (_contactAuthorityRank(c.title) < _contactAuthorityRank(ex.title)) {
-      const merged = { ...c };
-      merged.email = c.email || ex.email;
-      merged.emailSource = merged.email === (c.email) ? c.emailSource : ex.emailSource;
-      merged.phone = c.phone || ex.phone;
-      merged.linkedinUrl = c.linkedinUrl || ex.linkedinUrl || null;
-      byKey.set(key, merged);
-    } else {
-      ex.email = ex.email || c.email;
-      if (!ex.emailSource && c.email) ex.emailSource = c.emailSource;
-      ex.phone = ex.phone || c.phone;
-      ex.linkedinUrl = ex.linkedinUrl || c.linkedinUrl || null;
+    if (!ex) {
+      byKey.set(key, { ...c, sources: c.source ? [c.source] : [] });
+      continue;
     }
+    // Union of sources survives whichever row wins the field comparison.
+    const sources = Array.from(new Set([].concat(ex.sources || [], c.sources || [], c.source ? [c.source] : [])));
+    // Which row's TITLE and provenance to keep. Not "lower rank wins" any more:
+    // a tie on rank used to fall through to insertion order.
+    const keepIncoming = CR.compareContacts({ ...c, sources }, { ...ex, sources }) < 0;
+    const base = keepIncoming ? { ...c } : ex;
+    const other = keepIncoming ? ex : c;
+    base.email = base.email || other.email;
+    if (!base.emailSource && base.email === other.email) base.emailSource = other.emailSource;
+    base.phone = base.phone || other.phone;
+    base.linkedinUrl = base.linkedinUrl || other.linkedinUrl || null;
+    base.sources = sources;
+    byKey.set(key, base);
   }
-  return [...byKey.values()];
+  // Sorted on the way out so no caller can depend on insertion order.
+  return CR.rankContacts([...byKey.values()]);
 }
 
 async function _fetchBrandContacts(brand, website, force = false, locationHint = '', opts = {}) {
@@ -1997,8 +2023,18 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
       },
     }
   );
-  for (const r of _waveRun.results) results.push(r);
-  console.log(`[brand-contacts] fanout brand=${brand} sources=${results.length}/${sourceOrder.length} waveSize=${_waveRun.waveSize} totalMs=${Date.now() - _cStart}`);
+  // FIXED ORDER BEFORE ANYTHING READS THEM. runSourceWaves pushes each result
+  // from inside its own .then(), so `_waveRun.results` is in network-COMPLETION
+  // order -- whichever source answered first. That ordering flowed into the merge
+  // and then into a sort with no deterministic tie-break, which is how the same
+  // business named a different person on each run. Sorting by the configured
+  // source order here makes everything downstream reproducible; which sources ran
+  // is still latency-dependent (the straggler cut and the wall budget), but what
+  // we do with the ones we got no longer is.
+  const _byOrder = _waveRun.results.slice().sort((a, b) =>
+    sourceOrder.indexOf(a.source) - sourceOrder.indexOf(b.source));
+  for (const r of _byOrder) results.push(r);
+  console.log(`[brand-contacts] fanout brand=${brand} sources=${results.length}/${sourceOrder.length} waveSize=${_waveRun.waveSize} totalMs=${Date.now() - _cStart} order=${results.map((r) => r.source).join(',')}`);
   if (manualLadder) {
     const _t1 = _mergeContacts(results.flatMap((x) => x.contacts))
       .some((c) => _TIER1_RANKS.indexOf(_contactAuthorityRank(c.title)) !== -1);
@@ -2020,12 +2056,26 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   for (const c of named) {
     if (c.phone && !_localityCheck(c.phone, null).ok) c.phone = null;
   }
-  // Rank: owner/founder, then officer/member, GM, marketing, registered agent
-  // last. Prefer a high-confidence source on ties.
-  named.sort((a, b) =>
-    (_contactAuthorityRank(a.title) - _contactAuthorityRank(b.title)) ||
-    ((a.confidence === 'high' ? 0 : 1) - (b.confidence === 'high' ? 0 : 1))
-  );
+  // THE TOTAL ORDER. Authority, then how hedged the title is, then how many
+  // sources agreed, then which source, then a stable name tie-break that never
+  // returns 0 for two different people. The old comparator ended in a tie for
+  // "Owner" vs "Owner (per news)" and let sort stability -- i.e. arrival order --
+  // pick the addressee.
+  named = _CR.rankContacts(named);
+  // Mark what we cannot stand behind in writing. A single third-party source
+  // naming someone is a lead worth calling, not a fact worth putting in a
+  // greeting; greetingGuard reads this and opens with "Hi," instead.
+  for (const c of named) {
+    c.unconfirmed = _CR.isUnconfirmed(c);
+    c.corroboration = _CR.corroborationOf(c);
+  }
+  const _unconf = named.filter((c) => c.unconfirmed).length;
+  if (named.length) {
+    console.log(`[brand-contacts] brand=${brand} ranked: `
+      + named.map((c) => `${c.name} [${(c.title || 'no title')}] src=${(c.sources || [c.source]).join('+')}`
+        + `${c.unconfirmed ? ' UNCONFIRMED' : ''}`).join(' | ')
+      + ` (${_unconf}/${named.length} unconfirmed)`);
+  }
   named = named.slice(0, 4);
 
   // Business inbox. The published business-level email was previously labeled a

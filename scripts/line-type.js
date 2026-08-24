@@ -135,7 +135,12 @@ function providerFor(name, env) {
   const e = env || process.env;
   if (!name) return { provider: null, label: null };
   if (String(name).toLowerCase() === 'numverify') {
-    const key = e.NUMVERIFY_API_KEY;
+    // TRIMMED. This was passed straight to encodeURIComponent, so a trailing
+    // newline from a .env file or a shell export went up the wire as %0A and
+    // every call came back http=401 -- which reads exactly like a bad key, and
+    // meant line type came back "unknown" for all 20 numbers without anything
+    // saying why.
+    const key = String(e.NUMVERIFY_API_KEY || '').trim();
     if (!key) {
       console.error('--carrier numverify needs NUMVERIFY_API_KEY in the environment.');
       console.error('Free key, 100 lookups a month, no card: https://numverify.com/product');

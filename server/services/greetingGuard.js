@@ -221,6 +221,15 @@ function greetableContacts(contacts) {
     // The source told us it could not tie this person to this business. That is
     // the same claim the placeholder title makes, in a structured field.
     if (c.affiliationScope === 'unclear') return false;
+    // UNCORROBORATED. One third-party source naming someone is a lead worth a
+    // phone call, not a fact worth opening a letter with. This is the field that
+    // would have caught David Griner -- an Adweek editor named once, in an
+    // article, as the "owner" of a bakery. Corroborated by a second source, or
+    // stated by the business's own website, and it is greetable; otherwise the
+    // pitch opens "Hi,". contactRank sets it; recomputed here when it is absent
+    // so a legacy row is judged by the same rule rather than waved through.
+    const CR = require('./contactRank');
+    if (c.unconfirmed === undefined ? CR.isUnconfirmed(c) : c.unconfirmed) return false;
     // An address that was pattern-matched rather than published is not a
     // confirmed way to reach this person. Absent means a legacy row from before
     // the field existed, and is treated as before.
