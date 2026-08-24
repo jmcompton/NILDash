@@ -10209,6 +10209,98 @@ app.post('/api/admin/retire-stale-queue', requireAuth, async (req, res) => {
 // table: nothing in the codebase writes it, no job populates it, and no model
 // touches it. Every row needs a citation and the form will not submit without
 // one, because a rule without a source is an opinion.
+// ── IS PRODUCTION ACTUALLY HITTING THE CONTACT CACHE? ────────────────────────
+// scripts/cache-doctor.js answers this from a terminal with DATABASE_URL. This is
+// the same answer from a browser, against the real database, which is the only
+// place the question can actually be settled -- the mechanics test clean locally
+// and the failure that started this was a missing env var on a laptop.
+//
+// READ-ONLY. No probe write, unlike the script: this runs against production.
+app.get('/admin/cache-health', async (req, res) => {
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  try {
+    const V = 6;   // _CONTACTS_CACHE_VERSION
+    const lanes = (await store.pool.query(
+      `SELECT lane, COUNT(*)::int AS n,
+              COUNT(*) FILTER (WHERE refreshed_at > NOW() - INTERVAL '30 days')::int AS fresh,
+              COUNT(*) FILTER (WHERE refreshed_at > NOW() - INTERVAL '24 hours')::int AS today
+         FROM brand_evidence_cache GROUP BY lane ORDER BY n DESC`)).rows;
+    // The contacts lane, split by version. After a version bump every old row is
+    // dead weight: it is still in the table and it will never be served, so a raw
+    // row count reads as a healthy cache when nothing is actually being reused.
+    const ver = (await store.pool.query(
+      `SELECT COALESCE(evidence->>'v','none') AS v, COUNT(*)::int AS n,
+              COUNT(*) FILTER (WHERE refreshed_at > NOW() - INTERVAL '30 days')::int AS fresh
+         FROM brand_evidence_cache WHERE lane = 'contacts'
+        GROUP BY 1 ORDER BY n DESC`)).rows;
+    const usable = ver.filter((r) => String(r.v) === String(V))
+      .reduce((s, r) => s + Number(r.fresh), 0);
+    const dead = ver.filter((r) => String(r.v) !== String(V))
+      .reduce((s, r) => s + Number(r.n), 0);
+    const recent = (await store.pool.query(
+      `SELECT brand_key, outcome, COALESCE(evidence->>'v','none') AS v,
+              jsonb_array_length(COALESCE(evidence->'contacts','[]'::jsonb)) AS named,
+              ROUND(EXTRACT(EPOCH FROM (NOW() - refreshed_at))/3600.0, 1) AS age_h
+         FROM brand_evidence_cache WHERE lane = 'contacts'
+        ORDER BY refreshed_at DESC LIMIT 25`)).rows;
+
+    const verdict = !lanes.length
+      ? ['EMPTY', 'Nothing has ever been cached. Every lookup is running live and being billed.']
+      : usable > 0
+        ? ['REUSABLE', `${usable} contacts row(s) at v${V} and inside the 30-day window. These are being served.`]
+        : ['REWARMING', `No usable contacts rows yet. Expected right after a version bump — v${V} `
+            + `invalidated every earlier row on purpose, so the next scan of each business pays once and then caches.`];
+
+    res.set('Content-Type', 'text/html').send(`<!doctype html><meta charset="utf-8">
+<title>Cache health</title>
+<style>
+ body{font:14px/1.5 -apple-system,system-ui,sans-serif;margin:28px;max-width:900px;color:#111}
+ h1{font-size:19px;margin:0 0 4px} .sub{color:#666;margin-bottom:20px}
+ table{border-collapse:collapse;width:100%;margin-bottom:22px}
+ th,td{border-bottom:1px solid #e6e9ef;padding:7px 9px;text-align:left;font-size:13px}
+ th{background:#f7f9fc;font-weight:600}
+ .v{padding:14px 16px;border-radius:9px;margin-bottom:22px;font-size:14px}
+ .REUSABLE{background:#f2f9ec;border:1px solid #cfe4b6}
+ .REWARMING{background:#fff8e6;border:1px solid #f0dda6}
+ .EMPTY{background:#fdecec;border:1px solid #f2c2c2}
+ .dead{color:#a33} code{background:#f3f5f9;padding:1px 5px;border-radius:4px}
+ .note{color:#666;font-size:12.5px;margin-top:-12px;margin-bottom:22px}
+</style>
+<h1>Cache health</h1>
+<div class="sub">Is production reusing contact lookups, or paying for them again?</div>
+
+<div class="v ${verdict[0]}"><b>${verdict[0]}</b> &mdash; ${esc(verdict[1])}</div>
+
+<h3>By lane</h3>
+<table><tr><th>lane</th><th>rows</th><th>fresh (30d)</th><th>written today</th></tr>
+${lanes.map((l) => `<tr><td>${esc(l.lane)}</td><td>${l.n}</td><td>${l.fresh}</td><td>${l.today}</td></tr>`).join('')
+  || '<tr><td colspan="4">no rows at all</td></tr>'}</table>
+
+<h3>Contacts lane, by pipeline version</h3>
+<table><tr><th>version</th><th>rows</th><th>fresh (30d)</th><th>served?</th></tr>
+${ver.map((r) => `<tr><td>v${esc(r.v)}</td><td>${r.n}</td><td>${r.fresh}</td>
+  <td>${String(r.v) === String(V) ? 'yes' : '<span class="dead">no &mdash; older than the current pipeline, never served</span>'}</td></tr>`).join('')
+  || '<tr><td colspan="4">none</td></tr>'}</table>
+<div class="note">${dead} row(s) are stale by version and will never be read. They are not a leak &mdash;
+they age out of the 30-day window on their own &mdash; but they do mean a row count alone
+overstates how much is reusable.</div>
+
+<h3>Most recent 25</h3>
+<table><tr><th>age</th><th>v</th><th>named</th><th>outcome</th><th>key</th></tr>
+${recent.map((r) => `<tr><td>${r.age_h}h</td><td>v${esc(r.v)}</td><td>${r.named}</td>
+  <td>${esc(r.outcome)}</td><td><code>${esc(r.brand_key)}</code></td></tr>`).join('')
+  || '<tr><td colspan="5">none</td></tr>'}</table>
+
+<div class="note">A cache HIT never writes a row, so "written today" counts misses that were
+just paid for. Falling toward zero on a stable roster is the cache working. From a terminal:
+<code>DATABASE_URL=... node scripts/cache-doctor.js</code></div>`);
+  } catch (e) {
+    console.error('[admin/cache-health]', e.message);
+    res.status(500).send('cache-health failed: ' + esc(e.message));
+  }
+});
+
 app.get('/admin/state-rules', async (req, res) => {
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
