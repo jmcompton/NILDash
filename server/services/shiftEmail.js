@@ -22,6 +22,19 @@ function money(n) {
 const KIND_LABEL = { reply: 'Brand replied', approve: 'Waiting on approval', queue: 'Ready to work',
   compliance: 'On hold' };
 
+// The queue block's heading. "Ready to work" sitting under a headline that says
+// the run found nothing reads as a contradiction, because on a quiet night every
+// one of those cards is carryover. When none of them came from last night the
+// heading says so, and the line beneath carries the split.
+function queueLabel(it) {
+  if (!it || it.kind !== 'queue') return null;
+  const fresh = Number(it.fresh) || 0;
+  const carried = Number(it.carried) || 0;
+  if (!fresh && carried) return 'Waiting from earlier runs';
+  if (fresh && carried) return 'Ready to work — some carried over';
+  return 'Ready to work';
+}
+
 // Deep links. Each one lands on the screen that resolves the item, not the home
 // page -- an email that says "3 replies" and drops you on a dashboard has made
 // you do the work twice.
@@ -64,7 +77,14 @@ function buildSubject(r, replies, waiting) {
   if (replies.length > 1) return `${replies.length} brands replied`;
   if (waiting) return `${waiting} pitch${waiting === 1 ? '' : 'es'} ready to send`;
   const queued = (r.needsYou && r.needsYou.items || []).find((it) => it.kind === 'queue');
-  if (queued) return `${queued.count} outreach card${queued.count === 1 ? '' : 's'} ready to work`;
+  // THE SUBJECT STAYS ON THE BACKLOG. A stale pile is worth a nudge on the
+  // quietest morning, which is exactly when nothing new arrived to nudge about.
+  // `total` is the real count; `count` is capped at ITEM_MAX for display, so
+  // reading that here made the subject understate a backlog over ten.
+  if (queued) {
+    const n = Number(queued.total) || Number(queued.count) || 0;
+    return `${n} outreach card${n === 1 ? '' : 's'} ready to work`;
+  }
   if (!(r.run && r.run.ran)) return 'NILDash: your team has not run yet';
   return 'Your team worked last night — nothing needs you';
 }
@@ -161,7 +181,7 @@ function renderShiftEmail(report, opts = {}) {
     for (const it of needs) {
       parts.push(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:10px">
 <tr><td style="padding:10px 12px;background:#f8fafc;border:1px solid #e8edf4;border-radius:9px">
-  <p style="margin:0 0 2px;font:600 10px/1.4 -apple-system,Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:${it.kind === 'compliance' ? (it.severity === 'block' ? '#b91c1c' : '#b45309') : '#6b7c99'}">${esc(it.kind === 'compliance' && it.severity === 'block' ? 'Cannot send' : (KIND_LABEL[it.kind] || 'Needs a decision'))}</p>
+  <p style="margin:0 0 2px;font:600 10px/1.4 -apple-system,Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:${it.kind === 'compliance' ? (it.severity === 'block' ? '#b91c1c' : '#b45309') : '#6b7c99'}">${esc(it.kind === 'compliance' && it.severity === 'block' ? 'Cannot send' : (queueLabel(it) || KIND_LABEL[it.kind] || 'Needs a decision'))}</p>
   <p style="margin:0 0 ${(it.detail || it.reason) ? '2' : '9'}px;font:15px/1.4 -apple-system,Arial,sans-serif;color:#1a2230">${esc(it.line)}</p>
   ${it.detail ? `<p style="${MUTED};font-size:12px;margin-bottom:${it.reason ? '2' : '9'}px">${esc(it.detail)}</p>` : ''}
   ${it.reason ? `<p style="${MUTED};font-size:12px;margin-bottom:9px">${esc(it.reason)}</p>` : ''}

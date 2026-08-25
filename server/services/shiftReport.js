@@ -79,6 +79,31 @@ function listify(parts) {
   return parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
 }
 
+// THE RUN WINDOW, DERIVED IN ONE PLACE. It used to be computed inline, after
+// buildNeedsYou had already run, so anything inside buildNeedsYou had no way to
+// ask "was this created by the run I am reporting on?" -- which is exactly how
+// the queue count came to mean something different from every other number in
+// the email. Two derivations of the same window would drift; there is one.
+// Returns null when there is no run to report on, which is a real state and not
+// an error: nothing can be "new this run" when no run happened.
+function runWindow(run) {
+  if (!run) return null;
+  const startedMs = new Date(run.created_at).getTime();
+  const from = new Date(startedMs - SHIFT_PRE_HOURS * 3600e3);
+  // The ceiling is still 12 hours, so a run that stamped no end (a crash before
+  // the catch, or a row written before finished_at existed) degrades to the old
+  // behaviour instead of counting forever.
+  const ceiling = startedMs + SHIFT_POST_HOURS * 3600e3;
+  const finishedMs = run.finished_at ? new Date(run.finished_at).getTime() : null;
+  const to = new Date(finishedMs
+    ? Math.min(finishedMs + SHIFT_GRACE_MIN * 60e3, ceiling)
+    : ceiling);
+  // A run still in flight is not a run that produced these numbers. Say so
+  // rather than presenting a partial night as a finished one -- and the email
+  // path holds off entirely on this flag.
+  return { from, to, finishedMs, inProgress: !finishedMs && Date.now() < ceiling };
+}
+
 function makeQuery(pool, errs) {
   return async (label, sql, params) => {
     try { return (await pool.query(sql, params || [])).rows; }
@@ -98,7 +123,10 @@ async function buildShiftReport(pool, agentId) {
        FROM outreach_queue_runs WHERE agent_id = $1
       ORDER BY run_date DESC LIMIT 1`, [agentId]);
 
-  const needsYou = await buildNeedsYou(pool, agentId, q);
+  // Derived here, before buildNeedsYou, because the queue count needs it to tell
+  // a card this run placed from one that has been sitting there for three nights.
+  const win = runWindow(run);
+  const needsYou = await buildNeedsYou(pool, agentId, q, win);
   const moving = await buildMoving(pool, agentId, q);
   const draftAudit = await buildDraftAudit(pool, agentId, q);
 
@@ -122,20 +150,9 @@ async function buildShiftReport(pool, agentId) {
   }
 
   const details = Array.isArray(run.details) ? run.details : [];
-  const startedMs = new Date(run.created_at).getTime();
-  const from = new Date(startedMs - SHIFT_PRE_HOURS * 3600e3);
-  // The ceiling is still 12 hours, so a run that stamped no end (a crash before
-  // the catch, or a row written before finished_at existed) degrades to the old
-  // behaviour instead of counting forever.
-  const ceiling = startedMs + SHIFT_POST_HOURS * 3600e3;
-  const finishedMs = run.finished_at ? new Date(run.finished_at).getTime() : null;
-  const to = new Date(finishedMs
-    ? Math.min(finishedMs + SHIFT_GRACE_MIN * 60e3, ceiling)
-    : ceiling);
-  // A run still in flight is not a run that produced these numbers. Say so
-  // rather than presenting a partial night as a finished one -- and the email
-  // path holds off entirely on this flag.
-  const inProgress = !finishedMs && Date.now() < ceiling;
+  // Same window buildNeedsYou was given. Destructured rather than recomputed:
+  // the queue count and the coverage line disagreeing is the whole bug.
+  const { from, to, finishedMs, inProgress } = win;
   const W = [agentId, from, to];
 
   const scoutKept = await one('scout-kept',
@@ -455,7 +472,9 @@ function buildRoleCards(s) {
 // TWO TYPES OF ITEM, NOT THREE. The brief asked for a compliance-hold row and
 // there is no such mechanism here: nothing holds an outreach and no table
 // records a hold. Rendering it would mean inventing the state it reports.
-async function buildNeedsYou(pool, agentId, q) {
+// win: the run window from runWindow(), or null when no run has been recorded.
+// Only the queue count uses it, and only to say when a card arrived.
+async function buildNeedsYou(pool, agentId, q, win) {
   const items = [];
 
   // ── COMPLIANCE HOLDS, ABOVE EVERYTHING ───────────────────────────────────
@@ -553,16 +572,52 @@ async function buildNeedsYou(pool, agentId, q) {
     });
   }
 
+  // ── THE QUEUE, SPLIT BY WHEN THE CARD ARRIVED ──────────────────────────────
+  // This counted `state = 'queued'` with NO time filter, while the headline and
+  // the coverage line count the SAME TABLE windowed to the run. Both numbers were
+  // right and they answered different questions, so a quiet night produced an
+  // email that read:
+  //
+  //   subject   5 outreach cards ready to work
+  //   headline  Your team ran last night and found nothing new to work.
+  //   coverage  Across 0 of 1 athletes — 1 had nothing new to work
+  //
+  // A card leaves 'queued' only when the AGENT acts (sent, or skipped), never on
+  // a timer, so the unwindowed count is a standing backlog by construction. It is
+  // the right number for the subject -- a stale pile is worth a nudge on the
+  // quietest morning -- and the wrong number to print under a headline about last
+  // night without saying which is which.
   const queued = await q('needs-queue',
-    `SELECT COUNT(*)::int AS n FROM outreach_queue
-      WHERE agent_id = $1 AND state = 'queued'`, [agentId]);
+    `SELECT COUNT(*)::int AS n,
+            COUNT(*) FILTER (WHERE $2::timestamptz IS NOT NULL
+                               AND created_at >= $2 AND created_at < $3)::int AS fresh
+       FROM outreach_queue
+      WHERE agent_id = $1 AND state = 'queued'`,
+    [agentId, win ? win.from : null, win ? win.to : null]);
   const queuedN = queued && queued[0] ? Number(queued[0].n) : 0;
+  // With no run recorded nothing can be new, so everything reads as carried over.
+  const freshN = queued && queued[0] ? Number(queued[0].fresh) : 0;
+  const carriedN = Math.max(0, queuedN - freshN);
   if (queuedN > 0) {
     const shown = Math.min(queuedN, ITEM_MAX);
+    // THREE SHAPES, AND THE MIDDLE ONE IS THE BUG. All-carryover must never say
+    // "found last night"; all-fresh must not be hedged into sounding stale.
+    let line;
+    if (freshN && carriedN) {
+      line = `${plural(freshN, 'new outreach card')} from last night, `
+        + `${num(carriedN)} still waiting from earlier runs`;
+    } else if (freshN) {
+      line = `${plural(freshN, 'outreach card')} ready to work`;
+    } else {
+      line = `${plural(carriedN, 'outreach card')} still waiting from earlier runs`;
+    }
     items.push({
       kind: 'queue', id: 'queue', priority: 2,
-      count: shown, heldBack: Math.max(0, queuedN - shown),
-      line: `${plural(shown, 'outreach card')} ready to work`,
+      // count stays the DISPLAY count (capped) so nothing downstream that reads it
+      // changes meaning; total is the real backlog, which is what the subject wants.
+      count: shown, total: queuedN, fresh: freshN, carried: carriedN,
+      heldBack: Math.max(0, queuedN - shown),
+      line,
       detail: queuedN > ITEM_MAX ? `${queuedN} in the queue — the rest wait` : null,
       actionLabel: 'Open queue', target: { view: 'outreach' },
     });
