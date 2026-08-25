@@ -4208,15 +4208,18 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <button onclick="emailModule.connectGmail()" style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
           <span style="font-size:18px">📧</span> Connect Gmail
         </button>
-        <button onclick="emailModule.connectOutlook()" style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+        <!-- Hidden until the provider behind them works. email.js owns the
+             switch (OUTLOOK_ENABLED / IMAP_ENABLED) and un-hides these; hidden
+             in the markup means a cached page shows too little, never too much. -->
+        <button id="email-connect-outlook" onclick="emailModule.connectOutlook()" style="display:none;align-items:center;gap:8px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
           <span style="font-size:18px">📨</span> Connect Outlook / M365
         </button>
-        <button onclick="emailModule.showImapConnectModal()" style="display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+        <button id="email-connect-imap" onclick="emailModule.showImapConnectModal()" style="display:none;align-items:center;gap:8px;padding:10px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
           <span style="font-size:18px">📬</span> Other (Yahoo, iCloud, IMAP)
         </button>
       </div>
       <div style="margin-top:12px;font-size:10px;color:var(--muted);line-height:1.5">
-        🔒 Credentials are encrypted with AES-256. NILDash never stores plaintext tokens. OAuth providers (Gmail, Outlook) never expose your password.
+        🔒 Credentials are encrypted with AES-256. NILDash never stores plaintext tokens. Connecting Gmail uses Google OAuth — NILDash never sees your password.
       </div>
     </div>
   </div>

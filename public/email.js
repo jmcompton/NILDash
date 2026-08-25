@@ -14,6 +14,28 @@
 // works via gmail.send, and connecting Gmail still powers send + calendar.
 const INBOX_SYNC_ENABLED = false;
 
+// ── PROVIDERS THAT ACTUALLY WORK ─────────────────────────────────────────────
+// Gmail sends. The other two do not, and both fail AFTER the agent has committed
+// something: Outlook errors on the first redirect because @azure/msal-node is not
+// installed, and IMAP accepts the mailbox password, reports "connected", then
+// throws on every send. A button that fails once the password is typed is worse
+// than no button, so both are off at the source until the provider behind them
+// is proven end to end.
+//
+// Flip a flag to true and its button reappears -- markup and handlers are intact,
+// nothing was deleted. Server routes stay live so a half-finished OAuth round
+// trip still lands somewhere sane.
+const OUTLOOK_ENABLED = false;   // needs: npm packages, Azure app, messageId story
+const IMAP_ENABLED    = false;   // needs: createTransport fix, config keys, TLS verify
+
+// The markup ships hidden; a live provider un-hides its own button. Hidden by
+// default means a stale cached page shows too little, never too much.
+function applyProviderFlags() {
+  const show = (id, on) => { const el = document.getElementById(id); if (el && on) el.style.display = ''; };
+  show('email-connect-outlook', OUTLOOK_ENABLED);
+  show('email-connect-imap', IMAP_ENABLED);
+}
+
 // ── State ────────────────────────────────────────────────────────────────────
 const EmailState = {
   accounts:        [],
@@ -123,11 +145,16 @@ function connectGmail() {
   window.location.href = '/api/email/oauth/gmail';
 }
 
+// Both handlers fail closed as well as hidden. The button is the normal way in,
+// but a browser holding a cached copy of index.html from before this change
+// still has the old markup, and that agent must not reach a broken flow.
 function connectOutlook() {
+  if (!OUTLOOK_ENABLED) { emailToast('Outlook is not available yet — connect Gmail for now'); return; }
   window.location.href = '/api/email/oauth/outlook';
 }
 
 function showImapConnectModal() {
+  if (!IMAP_ENABLED) { emailToast('Other providers are not available yet — connect Gmail for now'); return; }
   const modal = document.getElementById('email-imap-modal');
   if (modal) { modal.style.display = 'flex'; }
 }
@@ -507,9 +534,18 @@ function formatEmailDate(date) {
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 async function initEmailModule() {
+  applyProviderFlags();
   handleEmailOAuthRedirect();
   await loadEmailAccounts();
   await loadEmailInbox();
+}
+
+// Also on load, so a provider that gets switched on appears whether or not the
+// agent has opened Settings yet this session.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', applyProviderFlags);
+} else {
+  applyProviderFlags();
 }
 
 function closeThread() {
