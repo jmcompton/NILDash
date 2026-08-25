@@ -1998,6 +1998,27 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-who{font-size:15px;margin:0 0 7px}
 .hq-who .role{color:var(--muted,#9a9a8e)}
 .hq-why{font-size:14.5px;line-height:1.5;color:var(--muted,#9a9a8e);margin:0;max-width:58ch}
+/* ── THE EMAIL, ONE CLICK AWAY ──────────────────────────────────────────────
+   Approving something you have not read is not approval. Collapsed so the card
+   stays a three-second read, expandable in place so reading it never means
+   leaving the page or losing your spot in the list. No editor, no picker:
+   the agent reads and approves, or skips. */
+.hq-peek{appearance:none;background:none;border:0;padding:8px 0 0;cursor:pointer;
+  font:inherit;font-size:13px;color:var(--accent,#C8F135);display:flex;align-items:center;gap:6px}
+.hq-peek:focus-visible{outline:2px solid var(--accent,#C8F135);outline-offset:3px;border-radius:4px}
+.hq-peek .car{transition:transform .15s ease;display:inline-block;font-size:10px}
+.hq-peek[aria-expanded="true"] .car{transform:rotate(90deg)}
+.hq-mail{margin-top:12px;padding-top:12px;border-top:1px solid var(--line,#26261f);
+  font-size:14px;line-height:1.55}
+.hq-mail dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0 0 12px}
+.hq-mail dt{color:var(--dim,#63635a);font-size:12px;text-transform:uppercase;
+  letter-spacing:.05em;padding-top:2px}
+.hq-mail dd{margin:0;color:var(--text,#F0EDE6);overflow-wrap:anywhere}
+.hq-body p{margin:0 0 9px;color:var(--muted,#9a9a8e);max-width:62ch}
+.hq-body p:last-child{margin-bottom:0}
+.hq-kit{margin-top:10px;font-size:13px;color:var(--dim,#63635a)}
+.hq-kit b{color:var(--muted,#9a9a8e);font-weight:500}
+@media (prefers-reduced-motion:reduce){.hq-peek .car{transition:none}}
 /* THE APPROVE BAR IS FIXED, NOT STICKY, AND THE REASON IS ONE DECLARATION.
    .main carries overflow-x:hidden (line ~233). Per spec, when one axis is not
    `visible` the other computes to `auto`, so .main becomes a scroll CONTAINER --
@@ -19821,18 +19842,48 @@ function hqRender() {
   html += '<h1 class="hq-name">' + hqEscape(d.athlete.name) + '</h1>';
   html += '<p class="hq-sub">' + (d.cards.length
     ? d.cards.length + ' to approve' : 'Nothing to approve today')
+    // The pile behind the five, said in words on the page that can act on it.
+    + (d.heldBack ? ' &middot; ' + d.heldBack + ' more waiting' : '')
     + (d.athlete.school ? ' &middot; ' + hqEscape(d.athlete.school) : '') + '</p>';
 
   if (!d.cards.length) {
-    html += '<div class="hq-done"><p class="hq-why" style="margin:0">'
-      + 'Slots full &mdash; work these before new ones arrive.</p></div>';
+    // A FAILED READ IS NOT AN EMPTY QUEUE. buildHome wraps every query, so a
+    // broken one returns no rows -- which looks exactly like a clear morning.
+    // It reports what failed instead of telling the agent there is no work.
+    html += d.errors && d.errors.length
+      ? '<div class="hq-done"><p class="hq-why" style="margin:0 0 10px">Could not read today\'s outreach: '
+        + hqEscape(d.errors[0]) + '</p><button class="hq-approve" onclick="hqLoad(HQ.selected)">Try again</button></div>'
+      : '<div class="hq-done"><p class="hq-why" style="margin:0">'
+        + 'Slots full &mdash; work these before new ones arrive.</p></div>';
   } else {
-    html += '<div class="hq-cards">' + d.cards.map(function (c) {
+    html += '<div class="hq-cards">' + d.cards.map(function (c, i) {
+      // The email is rendered from TEXT PARAGRAPHS the server derived, escaped
+      // here. The page never injects stored markup, and what a recipient reads
+      // is the words anyway.
+      var body = (c.body || []).map(function (para) {
+        return '<p>' + hqEscape(para) + '</p>';
+      }).join('');
+      var mailId = 'hq-mail-' + i;
       return '<div class="hq-card">'
         + '<p class="hq-biz">' + hqEscape(c.business) + '</p>'
         + (c.contact ? '<p class="hq-who">' + hqEscape(c.contact)
             + (c.role ? ' <span class="role">&middot; ' + hqEscape(c.role) + '</span>' : '') + '</p>' : '')
         + (c.why ? '<p class="hq-why">' + hqEscape(c.why) + '</p>' : '')
+        + '<button class="hq-peek" type="button" aria-expanded="false" aria-controls="' + mailId + '"'
+        + ' onclick="hqPeek(this)"><span class="car">&#9654;</span><span class="lbl">Read the email</span></button>'
+        + '<div class="hq-mail" id="' + mailId + '" hidden>'
+        + '<dl>'
+        + '<dt>To</dt><dd>' + hqEscape(c.to || 'no address on this draft')
+        + (c.contact ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(c.contact) + ')</span>' : '') + '</dd>'
+        + '<dt>Subject</dt><dd>' + hqEscape(c.subject || 'no subject') + '</dd>'
+        + '</dl>'
+        + '<div class="hq-body">' + (body || '<p>This draft has no body yet.</p>') + '</div>'
+        // Says what approval will ACTUALLY do. approveBatch appends the kit at
+        // approval, so a preview that omitted it would be a different email.
+        + '<p class="hq-kit">' + (c.mediaKit
+            ? 'Media kit <b>attached</b> &mdash; ' + hqEscape(c.mediaKit)
+            : 'Media kit <b>not attached</b>. It is a setting, in Settings.') + '</p>'
+        + '</div>'
         + '</div>';
     }).join('') + '</div>';
   }
@@ -19853,6 +19904,19 @@ function hqRender() {
     btn.disabled = false;
   }
   btn.onclick = hqApprove;
+}
+
+// Expand or collapse one card's email. No state kept anywhere: the button and
+// the panel are the state, which is why re-rendering the list cannot leave a
+// card open with its own contents underneath.
+function hqPeek(btn) {
+  var panel = document.getElementById(btn.getAttribute('aria-controls'));
+  if (!panel) return;
+  var open = btn.getAttribute('aria-expanded') === 'true';
+  btn.setAttribute('aria-expanded', String(!open));
+  panel.hidden = open;
+  var lbl = btn.querySelector('.lbl');
+  if (lbl) lbl.textContent = open ? 'Read the email' : 'Hide the email';
 }
 
 async function hqApprove() {

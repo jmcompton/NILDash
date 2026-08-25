@@ -31,6 +31,13 @@
 // Two and three are combined when neither is substantial alone. Nothing is
 // invented: a card with no usable source shows two lines, not a filled-in one.
 
+// Home shows five cards per athlete and no more. The cap of five that already
+// existed is on outreach_queue -- the RESEARCH pile -- while drafts live in
+// outreach_logs with no cap at all, so a roster nobody worked for a fortnight
+// arrived at Home with 14 and 63 cards on two athletes. A page carrying 63
+// decisions is not a page carrying one.
+const SHOWN_MAX = parseInt(process.env.HOME_CARDS_PER_ATHLETE, 10) || 5;
+
 const MIN_USEFUL = 40;       // shorter than this says nothing an agent can act on
 const MAX_LEN = 220;         // longer than this is not a three-second read
 
@@ -121,13 +128,21 @@ function deriveWhy(card) {
 // One query per concern, no per-card work. Athletes carry their own count so the
 // tabs need nothing else; cards are only built for the athlete being shown.
 async function buildHome(pool, agentId, opts = {}) {
-  const q = async (sql, params) => {
+  // A SWALLOWED QUERY MUST NOT LOOK LIKE AN EMPTY QUEUE. Every read here is
+  // wrapped, and a wrapped read that throws returns [] -- which renders as
+  // "nothing to approve today", the same thing a genuinely clear morning
+  // renders. One typo in a column name and the agent is told there is no work.
+  // Errors are collected and returned so the page can say the difference.
+  const errs = [];
+  const q = async (label, sql, params) => {
     try { return (await pool.query(sql, params)).rows; } catch (e) {
-      console.error('[home] ' + e.message); return [];
+      console.error('[home] ' + label + ': ' + e.message);
+      errs.push(label + ': ' + e.message);
+      return [];
     }
   };
 
-  const athletes = await q(
+  const athletes = await q('athletes',
     `SELECT a.id, a.data->>'name' AS name, a.data->>'school' AS school,
             a.data->>'dob' AS dob,
             COUNT(l.id) FILTER (
@@ -144,11 +159,14 @@ async function buildHome(pool, agentId, opts = {}) {
     || null;
 
   let cards = [];
+  let pendingTotal = 0;
   if (selected) {
-    cards = await q(
-      `SELECT l.id, l.brand_name, l.body_html,
+    cards = await q('cards',
+      `SELECT l.id, l.brand_name, l.body_html, l.subject,
+              l.sent_to_email AS to_email,
+              l.athlete_id,
               q.contact_name, q.contact_title, q.why,
-              m.reasoning
+              m.reasoning, m.compatibility_score
          FROM outreach_logs l
          LEFT JOIN LATERAL (
            SELECT contact_name, contact_title, why FROM outreach_queue q2
@@ -157,7 +175,7 @@ async function buildHome(pool, agentId, opts = {}) {
             ORDER BY q2.created_at DESC LIMIT 1
          ) q ON TRUE
          LEFT JOIN LATERAL (
-           SELECT reasoning FROM brand_match_scores m2
+           SELECT reasoning, compatibility_score FROM brand_match_scores m2
             WHERE m2.agent_id = l.agent_id AND m2.athlete_id = l.athlete_id
               AND LOWER(m2.brand_name) = LOWER(l.brand_name)
             ORDER BY m2.created_at DESC LIMIT 1
@@ -165,7 +183,34 @@ async function buildHome(pool, agentId, opts = {}) {
         WHERE l.agent_id = $1 AND l.athlete_id = $2
           AND l.status = 'draft' AND l.approved_at IS NULL
           AND l.cadence_stopped_at IS NULL
-        ORDER BY l.created_at ASC`, [agentId, selected]);
+        -- FIVE, HIGHEST FIT FIRST. The cap of five is on outreach_queue, which
+        -- is the RESEARCH pile; drafts live in outreach_logs and have no cap at
+        -- all, so an athlete nobody worked for a fortnight arrived at Home with
+        -- 63 cards. A page with 63 decisions on it is not a page with one.
+        -- Ordered by the match score the Scout already computed, then oldest
+        -- first so the tie-break is stable and a draft cannot jump the queue by
+        -- being rewritten.
+        ORDER BY m.compatibility_score DESC NULLS LAST, l.created_at ASC
+        LIMIT $3`, [agentId, selected, SHOWN_MAX]);
+    const t = await q('pending-total',
+      `SELECT COUNT(*)::int AS n FROM outreach_logs
+        WHERE agent_id = $1 AND athlete_id = $2 AND status = 'draft'
+          AND approved_at IS NULL AND cadence_stopped_at IS NULL`, [agentId, selected]);
+    pendingTotal = (t[0] && t[0].n) || 0;
+  }
+
+  // ── WHAT WILL ACTUALLY BE SENT ────────────────────────────────────────────
+  // The media kit is appended at APPROVAL by closer.approveBatch, so the card
+  // has to know the same answer or the preview shows one email and the business
+  // receives another. Same two reads, same rule: the setting is on, and this
+  // athlete has a kit built.
+  let kitUrl = null;
+  if (cards.length && selected) {
+    const on = (await q('kit-setting', `SELECT COALESCE(attach_media_kit, false) AS on FROM users WHERE id = $1`, [agentId]))[0];
+    if (on && on.on) {
+      const k = (await q('kit-slug', `SELECT slug FROM media_kits WHERE athlete_id = $1 AND slug IS NOT NULL LIMIT 1`, [selected]))[0];
+      if (k && k.slug) kitUrl = `${process.env.APP_URL || 'https://mynildash.com'}/kit/${k.slug}`;
+    }
   }
 
   const who = athletes.find((a) => a.id === selected) || null;
@@ -176,7 +221,14 @@ async function buildHome(pool, agentId, opts = {}) {
   const blocked = !!(who && !who.dob);
 
   return {
-    athletes: athletes.map((a) => ({ id: a.id, name: a.name, count: a.pending })),
+    // The tab count MATCHES THE SCREEN. Showing 63 on a tab that renders five
+    // is the same defect as the shift report's two counts of one pile. The true
+    // backlog is reported separately, per athlete, and said in words below the
+    // name rather than as a second number competing with the first.
+    athletes: athletes.map((a) => ({
+      id: a.id, name: a.name,
+      count: Math.min(a.pending, SHOWN_MAX), pending: a.pending,
+    })),
     selected,
     athlete: who ? { id: who.id, name: who.name, school: who.school } : null,
     // Written without a pronoun. We do not hold one for an athlete, and a
@@ -195,10 +247,29 @@ async function buildHome(pool, agentId, opts = {}) {
         role: c.contact_title || null,
         why: w.text,
         whyFrom: w.from,
+        // ── THE EMAIL ITSELF ─────────────────────────────────────────────
+        // Collapsed on the card, one click away, because approving something
+        // you have not read is not approval. Sent as TEXT PARAGRAPHS rather
+        // than the stored HTML: the page never injects markup it did not
+        // build, and what a recipient reads is the words anyway.
+        to: c.to_email || null,
+        subject: c.subject || null,
+        body: stripHtml(c.body_html).split('\n').map((s) => s.trim()).filter(Boolean),
+        // Shown because approveBatch will append it. If this said "no" and the
+        // approval added one, the preview would be a different email.
+        mediaKit: kitUrl,
       };
     }),
+    // Five is the ceiling; this is the pile behind it. Reported so the backlog
+    // is visible on the page that can act on it, rather than only in a count
+    // that silently grew.
+    shown: cards.length, pending: pendingTotal,
+    heldBack: Math.max(0, pendingTotal - cards.length),
     canApprove: !blocked && cards.length > 0,
+    // Empty because there is nothing, or empty because a read failed. Never
+    // the same thing on the page.
+    errors: errs,
   };
 }
 
-module.exports = { buildHome, deriveWhy, fromPitch, fromStored, stripHtml, sentences, MAX_LEN };
+module.exports = { buildHome, deriveWhy, fromPitch, fromStored, stripHtml, sentences, MAX_LEN, SHOWN_MAX };
