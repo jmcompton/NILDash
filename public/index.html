@@ -1953,7 +1953,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="content">
 
       <!-- SELECT ATHLETE BAR (shown on AI views) -->
-      <div id="athleteBar" style="margin-bottom:6px;padding:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <!-- ACTIVE CLIENT. Shown by showView() on exactly four views: command, deals,
+           rate, negotiate. It is NOT on Home -- Home has athlete tabs, and two
+           selectors for one thing is the confusion the redesign removes.
+           Default is now display:none rather than flex: showView sets the value
+           explicitly either way, so this only removes the flash of a dropdown on
+           first paint before showView runs. -->
+      <div id="athleteBar" style="margin-bottom:6px;padding:0;display:none;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="font-size:11px;color:var(--muted);letter-spacing:0.06em;text-transform:uppercase">Active client:</span>
         <select class="select-sm" id="activeAthlete" onchange="onAthleteChange()" style="width:220px">
           <option value="">Select a client...</option>
@@ -1992,9 +1998,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-who{font-size:15px;margin:0 0 7px}
 .hq-who .role{color:var(--muted,#9a9a8e)}
 .hq-why{font-size:14.5px;line-height:1.5;color:var(--muted,#9a9a8e);margin:0;max-width:58ch}
-.hq-bar{position:sticky;bottom:0;background:var(--bg,#0A0A08);
-  border-top:1px solid var(--line,#26261f);margin-top:26px}
-.hq-bar-in{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0}
+/* THE APPROVE BAR IS FIXED, NOT STICKY, AND THE REASON IS ONE DECLARATION.
+   .main carries overflow-x:hidden (line ~233). Per spec, when one axis is not
+   `visible` the other computes to `auto`, so .main becomes a scroll CONTAINER --
+   but it has min-height:100vh and auto height, so it grows instead of scrolling
+   and the BODY is what actually scrolls. position:sticky resolves against the
+   nearest scrolling ancestor, which is therefore .main: a scrollport that never
+   scrolls, so the bar never sticks and just sits at the end of the cards.
+   Removing overflow-x:hidden would fix the sticky and reintroduce horizontal
+   overflow on every view, so the bar is anchored to the viewport instead and
+   offset by the sidebar using the SAME width and breakpoint .main uses. */
+.hq-bar{position:fixed;left:200px;right:0;bottom:0;z-index:40;
+  background:var(--bg,#0A0A08);border-top:1px solid var(--line,#26261f)}
+.hq-bar-in{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:14px 36px;max-width:1100px}
+@media(max-width:768px){.hq-bar{left:0}.hq-bar-in{padding:12px 14px}}
+/* Room for it, so the last card is never sitting under the button. */
+#view-home.active{padding-bottom:86px}
 .hq-approve{appearance:none;border:0;cursor:pointer;background:var(--accent,#C8F135);
   color:#0B0F0A;font-weight:500;font-size:15.5px;padding:13px 22px;border-radius:9px}
 .hq-approve:disabled{opacity:.4;cursor:not-allowed}
