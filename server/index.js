@@ -1795,6 +1795,30 @@ app.get('/api/onboarding/check-school', requireAuth, (req, res) => {
 // GET builds tonight's batch. POST approves it. There is deliberately no
 // per-message send endpoint here: forty clicks a night is data entry, not
 // review, and by the sixth nobody is reading.
+// HOME. Everything the page renders, in one request: the athlete tabs with
+// their counts, the selected athlete's cards, and whether approve is available.
+// The send cap rides along because it is the one number on the page and it
+// belongs beside the button, not on a separate fetch that can arrive late.
+app.get('/api/agent/home', requireAuth, async (req, res) => {
+  try {
+    const Home = require('./services/homeQueue');
+    const sendGuard = require('./services/sendGuard');
+    const out = await Home.buildHome(store.pool, req.session.userId,
+      { athleteId: req.query.athlete || null });
+    const guard = await sendGuard.status(store.pool, req.session.userId).catch(() => null);
+    out.cap = guard
+      ? { left: Math.max(0, guard.remaining), cap: guard.cap, blocked: !!guard.blocked,
+          line: guard.blocked
+            ? (guard.blockedReason || 'Sending is paused for today')
+            : `${Math.max(0, guard.remaining)} of ${guard.cap} emails left today` }
+      : null;
+    res.json(out);
+  } catch (e) {
+    console.error('[home]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/agent/closer/batch', requireAuth, async (req, res) => {
   try {
     res.json(await Closer.buildBatch(store.pool, req.session.userId));
