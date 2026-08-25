@@ -3479,6 +3479,30 @@ async function ensureMarketSightings() {
   // The names a market scan produced that are not businesses. Kept rather than
   // discarded: a scan returning placeholders is a broken scan, and the count is
   // the only way the agent finds out.
+  // ── DOES THIS ADDRESS ACCEPT MAIL? ────────────────────────────────────────
+  // One row per address, not per draft: a verification is a fact about the
+  // mailbox and the same business recurs across athletes and months. Written at
+  // DRAFT time so a bad address never reaches a card an agent is asked to
+  // approve, and read by Home to hold the definite failures back.
+  //
+  // result is deliberately three-valued:
+  //   valid    a verifier confirmed the mailbox
+  //   invalid  the domain takes no mail, or the verifier said undeliverable
+  //   unknown  catch-all, or the check could not be run. NOT a failure -- most
+  //            small businesses sit on catch-all Workspace/365 domains and no
+  //            verifier can answer for them. The card shows it and the agent
+  //            decides, which is the same stance the compliance gate takes.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_verification (
+      email       TEXT PRIMARY KEY,
+      result      TEXT NOT NULL CHECK (result IN ('valid','invalid','unknown')),
+      detail      TEXT,
+      source      TEXT,
+      checked_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] email_verification table ready'))
+    .catch(e => console.error('[init] email_verification:', e.message));
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS market_business_rejected (
       market_key    TEXT NOT NULL,

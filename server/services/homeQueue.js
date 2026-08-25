@@ -199,6 +199,55 @@ async function buildHome(pool, agentId, opts = {}) {
     pendingTotal = (t[0] && t[0].n) || 0;
   }
 
+  // ── A KNOWN-BAD ADDRESS NEVER REACHES A CARD ──────────────────────────────
+  // Two ways an address is known bad before anybody looks at it:
+  //
+  //   SUPPRESSED  it bounced. That is not an opinion, it is a fact the mail
+  //               server told us. closer.buildBatch checked this and Home did
+  //               not, so a bounced address could be approved again -- the
+  //               fastest way there is to lose the sending reputation the
+  //               40-a-night ceiling exists to protect.
+  //   VERIFIED    the verifier said undeliverable. Only a definite NO holds a
+  //               card back; accept-all and unknown do not (see below), because
+  //               catch-all domains are disproportionately the small local
+  //               businesses this product exists to reach.
+  //
+  // Held back, counted and reported -- never silently dropped. A card that
+  // vanishes with no explanation is how a roster quietly stops being worked.
+  const withheld = [];
+  if (cards.length) {
+    const addrs = cards.map((c) => c.to_email).filter(Boolean);
+    let suppressed = new Set();
+    if (addrs.length) {
+      try {
+        const suppression = require('./suppression');
+        suppressed = await suppression.suppressedSet(pool, addrs);
+      } catch (e) { errs.push('suppression: ' + e.message); }
+    }
+    const verdicts = new Map();
+    if (addrs.length) {
+      for (const r of await q('verification',
+        `SELECT email, result FROM email_verification WHERE email = ANY($1::text[])`,
+        [addrs.map((a) => String(a).trim().toLowerCase())])) {
+        verdicts.set(r.email, r.result);
+      }
+    }
+    cards = cards.filter((c) => {
+      const a = c.to_email ? String(c.to_email).trim().toLowerCase() : null;
+      if (a && suppressed.has(a)) {
+        withheld.push({ business: c.brand_name, why: 'this address bounced before' });
+        return false;
+      }
+      if (a && verdicts.get(a) === 'invalid') {
+        withheld.push({ business: c.brand_name, why: 'the address does not accept mail' });
+        return false;
+      }
+      // Everything else rides, carrying what we know about it.
+      c._verified = a ? (verdicts.get(a) || null) : null;
+      return true;
+    });
+  }
+
   // ── WHAT WILL ACTUALLY BE SENT ────────────────────────────────────────────
   // The media kit is appended at APPROVAL by closer.approveBatch, so the card
   // has to know the same answer or the preview shows one email and the business
@@ -258,13 +307,21 @@ async function buildHome(pool, agentId, opts = {}) {
         // Shown because approveBatch will append it. If this said "no" and the
         // approval added one, the preview would be a different email.
         mediaKit: kitUrl,
+        // PROCEED AND SAY WHAT WE DO NOT KNOW -- the same stance the compliance
+        // gate and the domain gate take. 'valid' means a verifier confirmed the
+        // mailbox; null or 'unknown' means it could not be confirmed, which for
+        // a catch-all domain is the only answer any verifier can give. The card
+        // says so and the agent decides. Verified-bad never gets this far.
+        verified: c._verified || null,
       };
     }),
     // Five is the ceiling; this is the pile behind it. Reported so the backlog
     // is visible on the page that can act on it, rather than only in a count
     // that silently grew.
     shown: cards.length, pending: pendingTotal,
-    heldBack: Math.max(0, pendingTotal - cards.length),
+    heldBack: Math.max(0, pendingTotal - cards.length - withheld.length),
+    // Held back for a REASON, not just over the five-card line.
+    withheld,
     canApprove: !blocked && cards.length > 0,
     // Empty because there is nothing, or empty because a read failed. Never
     // the same thing on the page.

@@ -2016,6 +2016,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-mail dd{margin:0;color:var(--text,#F0EDE6);overflow-wrap:anywhere}
 .hq-body p{margin:0 0 9px;color:var(--muted,#9a9a8e);max-width:62ch}
 .hq-body p:last-child{margin-bottom:0}
+.hq-vrf{font-size:12px;color:var(--dim,#63635a);margin-top:2px}
 .hq-kit{margin-top:10px;font-size:13px;color:var(--dim,#63635a)}
 .hq-kit b{color:var(--muted,#9a9a8e);font-weight:500}
 @media (prefers-reduced-motion:reduce){.hq-peek .car{transition:none}}
@@ -19873,8 +19874,16 @@ function hqRender() {
         + ' onclick="hqPeek(this)"><span class="car">&#9654;</span><span class="lbl">Read the email</span></button>'
         + '<div class="hq-mail" id="' + mailId + '" hidden>'
         + '<dl>'
+        // VERIFIED-BAD ADDRESSES NEVER GET HERE -- buildHome holds those cards
+        // back. So this only ever says "confirmed" or "could not confirm", and
+        // the second one is the honest answer for a catch-all domain rather
+        // than a warning about the address.
         + '<dt>To</dt><dd>' + hqEscape(c.to || 'no address on this draft')
-        + (c.contact ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(c.contact) + ')</span>' : '') + '</dd>'
+        + (c.contact ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(c.contact) + ')</span>' : '')
+        + (c.to ? '<div class="hq-vrf">' + (c.verified === 'valid'
+            ? 'Mailbox confirmed'
+            : 'Not confirmed &mdash; this domain accepts all mail, so no check can tell') + '</div>' : '')
+        + '</dd>'
         + '<dt>Subject</dt><dd>' + hqEscape(c.subject || 'no subject') + '</dd>'
         + '</dl>'
         + '<div class="hq-body">' + (body || '<p>This draft has no body yet.</p>') + '</div>'

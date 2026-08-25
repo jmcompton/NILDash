@@ -88,7 +88,44 @@ async function attach(pool, { agentId, ids = null, limit = 500 } = {}) {
   if (!rows.length) return { considered: 0, attached: 0, missing: 0, details: [] };
 
   const found = await lookupMany(pool, rows.map((r) => r.brand_name));
-  const out = { considered: rows.length, attached: 0, missing: 0, corporate: 0, details: [] };
+  const out = { considered: rows.length, attached: 0, missing: 0, corporate: 0,
+    unverifiable: 0, rejected: 0, details: [] };
+
+  // ── VERIFY BEFORE THE ADDRESS IS EVER STAMPED ON A ROW ────────────────────
+  // This is THE place, because it is the single point where an address becomes
+  // part of a draft -- the nightly path and the backfill both come through here.
+  // Checking at send time instead would mean an agent had already approved an
+  // email to a dead mailbox, which is exactly the thing the approve card is
+  // supposed to be a decision about.
+  //
+  // MX first (free, no vendor), then Hunter for whatever cleared it, both
+  // cached per address for ninety days so the same local business costs nothing
+  // on the second athlete. A verdict of `invalid` means the address is NOT
+  // attached: the draft keeps no address, says why, and never reaches a card.
+  // `unknown` -- which is what every verifier returns for a catch-all domain,
+  // and therefore for a large share of small local businesses -- attaches
+  // normally and is marked on the card. Proceed, and say what you do not know.
+  let verdicts = new Map();
+  try {
+    const EV = require('./emailVerify');
+    const hunter = require('./hunterLookup');
+    const addrs = rows.map((r) => {
+      const h = found.get(String(r.brand_name || '').trim().toLowerCase());
+      return h && h.email;
+    }).filter(Boolean);
+    if (addrs.length) {
+      verdicts = await EV.verifyMany(pool, addrs, {
+        // Injected rather than imported inside emailVerify, so that file never
+        // owns a key or a budget and can be tested with no network at all.
+        verifier: (e) => hunter.verifyEmail(e),
+      });
+    }
+  } catch (e) {
+    // A verification pass that could not run must not stop addresses being
+    // attached -- that would turn an outage into an empty queue. It degrades to
+    // the behaviour that existed before this check did.
+    console.error('[draftAddress] verification pass failed:', e.message);
+  }
   for (const r of rows) {
     const hit = found.get(String(r.brand_name || '').trim().toLowerCase());
     if (!hit) {
@@ -96,6 +133,16 @@ async function attach(pool, { agentId, ids = null, limit = 500 } = {}) {
       out.details.push({ id: r.id, brand: r.brand_name, result: 'no-address' });
       continue;
     }
+    // A DEFINITE NO IS THE ONLY THING THAT STOPS AN ATTACH.
+    const v = verdicts.get(String(hit.email).trim().toLowerCase());
+    if (v && v.result === 'invalid') {
+      out.rejected++;
+      out.details.push({ id: r.id, brand: r.brand_name, result: 'rejected',
+        email: hit.email, why: v.detail || 'the address does not accept mail' });
+      console.log(`[draftAddress] ${r.brand_name}: ${hit.email} NOT attached — ${v.detail}`);
+      continue;
+    }
+    if (!v || v.result === 'unknown') out.unverifiable++;
     await pool.query(
       `UPDATE outreach_logs
           SET sent_to_email = $2, email_kind = $3, updated_at = NOW()
@@ -105,7 +152,8 @@ async function attach(pool, { agentId, ids = null, limit = 500 } = {}) {
     out.attached++;
     if (hit.corporate) out.corporate++;
     out.details.push({ id: r.id, brand: r.brand_name, result: 'attached',
-      email: hit.email, kind: hit.kind });
+      email: hit.email, kind: hit.kind,
+      verified: v ? v.result : 'unknown' });
   }
   return out;
 }

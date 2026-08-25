@@ -245,8 +245,61 @@ async function findDomainEmails(domain, opts = {}) {
   return out;
 }
 
+// ── THE VERIFIER ────────────────────────────────────────────────────────────
+// A DIFFERENT ENDPOINT ON THE SAME ACCOUNT. Domain Search asks "who works here";
+// this asks "does this one mailbox accept mail". It lives here rather than in a
+// second vendor so it inherits the key, the monthly budget and the failure
+// vocabulary this file already owns -- a second vendor for one field is a second
+// bill, a second outage and a second thing to reason about.
+//
+// The per-address CACHE is not here: emailVerify owns it, keyed by address
+// rather than by domain, because a verification is a fact about a mailbox.
+//
+// Returns { ok, status, why }. ok:false means the CALL failed and the caller
+// must treat it as unknown -- never as a bad address. Spending is refused
+// rather than overrun when the monthly budget is gone, for the same reason the
+// search path refuses: a run that quietly costs money is the problem this
+// budget exists to prevent.
+const VERIFY_URL = 'https://api.hunter.io/v2/email-verifier';
+
+async function verifyEmail(email) {
+  const key = process.env.HUNTER_API_KEY;
+  if (!key) return { ok: false, why: 'no Hunter key configured' };
+  const addr = String(email || '').trim().toLowerCase();
+  if (!addr) return { ok: false, why: 'no address' };
+
+  const b = await budgetStatus().catch(() => null);
+  if (b && b.remaining <= 0) {
+    console.warn(`[hunter-verify] refused: monthly budget spent (${b.used}/${b.budget})`);
+    return { ok: false, why: `this month's Hunter budget is spent (${b.used}/${b.budget})` };
+  }
+
+  const url = `${VERIFY_URL}?email=${encodeURIComponent(addr)}&api_key=${encodeURIComponent(key)}`;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    const resp = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!resp.ok) {
+      const why = resp.status === 401 || resp.status === 403 ? 'Hunter rejected the key'
+        : resp.status === 429 ? 'Hunter rate limited or out of credits'
+          : `Hunter returned HTTP ${resp.status}`;
+      console.warn(`[hunter-verify] ${addr}: ${why}`);
+      return { ok: false, why };
+    }
+    const j = await resp.json();
+    const status = j && j.data && j.data.status;
+    console.log(`[hunter-verify] ${addr} -> ${status || 'no status'}`);
+    return { ok: true, status: status || null, score: (j && j.data && j.data.score) || null };
+  } catch (e) {
+    const why = (e && e.name === 'AbortError') ? 'Hunter timed out' : `Hunter call failed: ${e.message}`;
+    console.warn(`[hunter-verify] ${addr}: ${why}`);
+    return { ok: false, why };
+  }
+}
+
 module.exports = {
-  findDomainEmails, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
+  findDomainEmails, verifyEmail, VERIFY_URL, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
   creditsThisMonth, budgetStatus, MONTHLY_BUDGET,
   _resetBudgetCache: () => { _budgetCache = { at: 0, used: 0 }; _reserved = 0; _inflight = null; },
 };
