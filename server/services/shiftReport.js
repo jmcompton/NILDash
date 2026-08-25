@@ -302,6 +302,21 @@ async function buildShiftReport(pool, agentId) {
       windowFrom: from, windowTo: to, note: run.note || null,
     },
     added: addedBlock,
+    // Names a market scan produced that are not businesses. A scan returning
+    // "Core Physical Therapy (or similar local PT/chiro near campus)" is a
+    // broken scan, and rejecting those silently would hide that from the only
+    // person who can act on it. Scoped to THIS agent's markets, and to the run
+    // window, so it reads as "last night's scan produced N of these".
+    scanRejects: await one('scan-rejects',
+      `SELECT COUNT(*)::int AS n,
+              COUNT(DISTINCT market_key)::int AS markets,
+              (ARRAY_AGG(brand ORDER BY last_seen_at DESC))[1:3] AS examples
+         FROM market_business_rejected
+        WHERE last_seen_at >= $2 AND last_seen_at < $3
+          AND market_key IN (SELECT DISTINCT market_key FROM market_business_seen)`, W)
+      .then((r) => (r && r.n ? { count: r.n, markets: r.markets, examples: r.examples || [],
+        line: `${plural(r.n, 'name')} the market scan produced were not businesses and were rejected` } : null))
+      .catch(() => null),
     sentence, stat, coverage, roles, needsYou, moving, draftAudit,
     closer: closerBlock,
     analyst: await buildAnalystBlock(pool, agentId, from, to).catch((e) => {

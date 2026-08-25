@@ -261,7 +261,11 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
      card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
      card.instagramScope, card.phone, card.phoneAskFor, card.dmText, card.channel,
      card.angle, card.angleKey, card.categoryKey, card.ask,
-     card.lane || 'local', card.programUrl || null,
+     // NOT `card.lane || 'local'`. A card whose lane was never determined is
+     // recorded as unknown (NULL) rather than asserted to be local -- writing
+     // 'local' here is how an unknown became a fact in the database, and every
+     // reader downstream then believed it.
+     card.lane || null, card.programUrl || null,
      card.sponsorSignal || null, card.sponsorNote || null]);
   return (ins.rowCount || 0) > 0;
 }
@@ -406,7 +410,20 @@ async function fillAthlete(pool, ctx) {
       // storefront, and pointed at a national brand they resolve it to whatever
       // shop is nearby. That lane costs money per candidate too, so running it
       // on the wrong lane is a wrong answer we pay for.
-      if (cand.lane && cand.lane !== 'local') {
+      // NO LANE, NO ROUTE. The branch below routes on `cand.lane !== 'local'`,
+      // so a candidate with no lane used to FALL THROUGH INTO THE LOCAL PATH --
+      // a Places lookup on the brand name, which for a national brand resolves
+      // its corporate HQ and costs money to get wrong. An undetermined lane is
+      // not a local lane; it is a candidate we cannot route, and it is reported
+      // rather than guessed at.
+      if (!cand.lane) {
+        const why = 'no lane recorded for this brand, so it cannot be routed';
+        say(`${cand.brand_name}: skipped, ${why}`);
+        tried.push({ brand: cand.brand_name, result: 'rejected', reason: why,
+          lane: null, places: { found: false }, risk: 'normal' });
+        continue;
+      }
+      if (cand.lane !== 'local') {
         const pbar = Q.passesProgramBar(cand);
         if (!pbar.ok) {
           say(`${cand.brand_name}: skipped, ${pbar.reason}`);
@@ -570,7 +587,10 @@ async function fillAthlete(pool, ctx) {
       // The lane is a PROPERTY of the result, and the sponsorship signal is why
       // this one outranked the rest. Both recorded, so the card can say "they
       // already did a deal at Auburn" instead of showing a rank.
-      card.lane = cand.lane || 'local';
+      // The lane the candidate arrived with, never a default. By the time a
+      // candidate reaches here the Scout has justified its lane per pool; if it
+      // somehow has none, the guard above this loop has already skipped it.
+      card.lane = cand.lane || null;
       card.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
       card.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
       if (dry) { say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; break; }

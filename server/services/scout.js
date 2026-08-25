@@ -173,11 +173,25 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
   };
 
   // a. Brands a scan already surfaced for this athlete and nobody has queued.
+  // AN UNKNOWN LANE IS NOT A LOCAL LANE. This read
+  //   COALESCE(be.lane,'local') = 'local'
+  // so every brand_engagement row whose lane was never recorded was claimed by
+  // the local pool. brand_engagement.lane is nullable with no default
+  // (store.js), and a Deal Scan that does not stamp one leaves it NULL -- so
+  // Liquid I.V., a national DTC brand, entered the local lane for Kaden House,
+  // Amber Bretton and Marcus Johnson at once, one NULL row each. From there the
+  // local path runs a Places lookup on the brand name, resolves the corporate
+  // HQ, and the card reads "Local · Sunnyvale" for an athlete in Maryland.
+  //
+  // The honest state for a brand whose lane was never determined is UNKNOWN, and
+  // unknown is excluded rather than assumed in. This SHRINKS the local pool and
+  // pushes some athletes into the empty-slate skip. That is the intended trade:
+  // an honest gap beats a wrong pitch sent under the agent's own name.
   const shown = await q('shown',
-    `SELECT be.brand_key, be.brand_name, 'shown' AS pool
+    `SELECT be.brand_key, be.brand_name, be.lane, 'shown' AS pool
        FROM brand_engagement be
       WHERE be.athlete_id = $1 AND be.state = 'shown'
-        AND COALESCE(be.lane,'local') = 'local'
+        AND be.lane = 'local'
         AND NOT EXISTS (SELECT 1 FROM outreach_queue q
                          WHERE q.athlete_id = be.athlete_id AND q.brand_key = be.brand_key)
       ORDER BY be.last_shown_at DESC NULLS LAST
@@ -197,13 +211,34 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
       ORDER BY m.last_seen_at DESC NULLS LAST
       LIMIT $3`, [athlete.marketKey, athlete.id, limit * 4]) : [];
 
+  // EACH POOL EARNS ITS LANE, rather than everything being stamped local on the
+  // way out. The blanket `lane: 'local'` here was the second of four places that
+  // turned "we do not know" into "it is local".
+  //
+  //   shown        carries be.lane, and the WHERE above already restricts that
+  //                to 'local'. Read from the row rather than reasserted, so if
+  //                that filter is ever loosened this does not silently relabel.
+  //   market-pool  local BY CONSTRUCTION: the row exists because a market scan
+  //                for THIS market_key found it, and the query is scoped to
+  //                athlete.marketKey (canonicalRegion of the athlete's market),
+  //                so a business found scanning one market cannot surface as a
+  //                candidate in another.
+  //
+  // Anything that somehow arrives with no lane is dropped, not defaulted.
   const rows = [];
   const seenKeys = new Set();
+  const laneless = [];
   for (const r of shown.concat(seen)) {
     const k = normBrand(r.brand_name);
     if (!k || seenKeys.has(k)) continue;
+    const lane = r.pool === 'market-pool' ? 'local' : (r.lane || null);
+    if (lane !== 'local') { laneless.push(r.brand_name); continue; }
     seenKeys.add(k);
-    rows.push({ ...r, lane: 'local' });
+    rows.push({ ...r, lane });
+  }
+  if (laneless.length) {
+    console.log(`[scout/local] athlete=${athlete.id} dropped ${laneless.length} candidate(s) with no `
+      + `recorded lane: ${laneless.slice(0, 5).join(', ')}`);
   }
   // Exhausted means BOTH pools are dry, which is the signal to widen the radius
   // on the next market build rather than to give up.

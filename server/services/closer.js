@@ -96,7 +96,8 @@ async function buildBatch(pool, agentId, opts = {}) {
             a.data->>'school' AS school,
             COALESCE(c.email, l.sent_to_email) AS to_email,
             q.lane, q.contact_name, q.contact_title,
-            COALESCE(e.location, p.evidence->>'address') AS biz_address
+            a.data AS athlete_data,
+            e.location AS biz_address
        FROM outreach_logs l
        JOIN athletes a ON a.id = l.athlete_id
        LEFT JOIN brand_contacts c ON c.id = l.contact_id
@@ -106,11 +107,20 @@ async function buildBatch(pool, agentId, opts = {}) {
           WHERE q2.athlete_id = l.athlete_id AND LOWER(q2.brand_name) = LOWER(l.brand_name)
           ORDER BY q2.created_at DESC LIMIT 1
        ) q ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT evidence FROM brand_evidence_cache b
-          WHERE b.lane = 'places' AND LOWER(b.brand) = LOWER(l.brand_name)
-          ORDER BY b.refreshed_at DESC LIMIT 1
-       ) p ON TRUE
+       -- THE ADDRESS MUST BE FROM THIS ATHLETE'S MARKET, OR THERE IS NO ADDRESS.
+       -- This matched on brand name alone and took the most recently refreshed
+       -- row, ignoring the region that is part of every places cache key
+       -- (placesLookup._key builds "<brand> | <canonicalRegion> | <v>"). The
+       -- cache is global, so the row it found could have been written for a
+       -- different athlete in a different state -- which is how one shared
+       -- Liquid I.V. row printed "Sunnyvale" on cards for Maryland, Connecticut
+       -- and Alabama at the same time.
+       --
+       -- The places fallback is resolved in a SECOND PASS below, not here. It
+       -- has to be scoped to the ATHLETE'S OWN market key, and this query spans
+       -- many athletes with different markets, so one bound parameter cannot do
+       -- it -- and canonicalRegion, which builds the key, is JS. Enrichment
+       -- (e.location) is per-draft and stays.
       WHERE l.agent_id = $1
         AND l.status = 'draft'
         AND l.approved_at IS NULL
@@ -118,6 +128,18 @@ async function buildBatch(pool, agentId, opts = {}) {
         AND l.athlete_id = ANY($2::text[])
       ORDER BY l.created_at ASC`,
     [agentId, [...wanted.keys()]])).rows;
+
+  // ── THE ADDRESS, FROM THIS ATHLETE'S MARKET ONLY ──────────────────────────
+  // The places lane is a GLOBAL cache keyed "<brand> | <canonicalRegion> | <v>".
+  // The old join matched on brand name alone and took the most recently
+  // refreshed row, so one shared Liquid I.V. row printed "Sunnyvale" on cards
+  // for Maryland, Connecticut and Alabama at the same time -- an address from
+  // another athlete's market, presented as this business's location.
+  //
+  // Matched on the brand AND the athlete's own market key now. No row for this
+  // brand in this market means no address and no city on the card, which is the
+  // honest answer: we have not looked this business up here.
+  await attachRegionalAddresses(pool, drafts);
 
   // ONE QUERY FOR THE BOUNCE LIST, not one per draft.
   const suppressed = await suppression.suppressedSet(pool, drafts.map((d) => d.to_email));
@@ -201,12 +223,72 @@ async function buildBatch(pool, agentId, opts = {}) {
 
 // local + the town, so "local" is never just a category. DTC and national have
 // no city by definition and must not be given one.
+// The badge on a card. The lane is READ, never assumed: this used to be
+// `(d.lane || 'local')`, which printed "Local" over a national brand whose lane
+// was never recorded -- the last of four places that turned an unknown into a
+// fact, and the one the agent actually reads.
+//
+// Legacy rows written before the lane fix still carry NULL, so this has to say
+// something. It says it does not know, which is checkable, rather than "Local",
+// which is a claim about the world that may be false.
 function laneLabel(d) {
-  const lane = (d.lane || 'local').toLowerCase();
-  if (lane === 'social') return 'DTC';
-  if (lane === 'national') return 'National';
+  const raw = d && d.lane ? String(d.lane).toLowerCase() : null;
+  if (!raw) return 'Lane not recorded';
+  if (raw === 'social') return 'DTC';
+  if (raw === 'national') return 'National';
+  if (raw !== 'local') return raw.charAt(0).toUpperCase() + raw.slice(1);
+  // Only a LOCAL card gets a city, and only its own -- see the region-scoped
+  // join that produces biz_address. No address means no city, not a borrowed one.
   const city = cityOf(d.biz_address);
   return city ? 'Local · ' + city : 'Local';
+}
+
+// Fill d.biz_address from the places cache, matched on brand AND the athlete's
+// own market key. Mutates the rows. Enrichment-supplied addresses are left
+// alone: those are per-draft and already belong to this business.
+//
+// One query for the whole batch rather than one per draft, and it asks for the
+// exact keys it wants rather than scanning by brand name -- the key IS the
+// scope, so an exact-key lookup cannot borrow from another market by accident.
+async function attachRegionalAddresses(pool, drafts) {
+  const need = drafts.filter((d) => d && !d.biz_address && d.brand_name);
+  if (!need.length) return;
+  const AR = require('./athleteRecord');
+  const { canonicalRegion } = require('./regionKey');
+  const marketOf = new Map();                 // athlete_id -> canonical market key
+  for (const d of need) {
+    if (marketOf.has(d.athlete_id)) continue;
+    let key = null;
+    try {
+      const rec = AR.resolveAthlete(d.athlete_data || { school: d.school });
+      key = rec && rec.market ? canonicalRegion(rec.market) : null;
+    } catch (_) { key = null; }
+    marketOf.set(d.athlete_id, key);
+  }
+  // "<brand> | <region> | " is the prefix placesLookup._key builds; the version
+  // suffix varies, so this matches the prefix and takes the freshest.
+  const prefixes = [];
+  for (const d of need) {
+    const mk = marketOf.get(d.athlete_id);
+    if (!mk) continue;
+    d._placesPrefix = `${String(d.brand_name).trim().toLowerCase()} | ${String(mk).toLowerCase()} | `;
+    prefixes.push(d._placesPrefix);
+  }
+  if (!prefixes.length) return;
+  const rows = (await pool.query(
+    `SELECT brand_key, evidence->>'address' AS address
+       FROM brand_evidence_cache
+      WHERE lane = 'places'
+        AND evidence->>'address' IS NOT NULL
+        AND LOWER(brand_key) LIKE ANY($1::text[])
+      ORDER BY refreshed_at DESC`,
+    [prefixes.map((p) => p + '%')])).rows;
+  for (const d of need) {
+    if (!d._placesPrefix) continue;
+    const hit = rows.find((r) => String(r.brand_key).toLowerCase().startsWith(d._placesPrefix));
+    if (hit) d.biz_address = hit.address;
+    delete d._placesPrefix;
+  }
 }
 
 function cityOf(address) {

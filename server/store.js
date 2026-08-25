@@ -3469,6 +3469,21 @@ async function ensureMarketSightings() {
     )
   `).then(() => console.log('[init] market_business_seen table ready'))
     .catch(e => console.error('[init] market_business_seen:', e.message));
+
+  // The names a market scan produced that are not businesses. Kept rather than
+  // discarded: a scan returning placeholders is a broken scan, and the count is
+  // the only way the agent finds out.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS market_business_rejected (
+      market_key    TEXT NOT NULL,
+      brand         TEXT NOT NULL,
+      reason        TEXT,
+      first_seen_at TIMESTAMPTZ DEFAULT NOW(),
+      last_seen_at  TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (market_key, brand)
+    )
+  `).then(() => console.log('[init] market_business_rejected table ready'))
+    .catch(e => console.error('[init] market_business_rejected:', e.message));
 }
 
 const NEW_WINDOW_DAYS = 30;
@@ -3476,10 +3491,61 @@ const NEW_WINDOW_DAYS = 30;
 // Returns a Set of brand names that are newcomers to this market, then records
 // every brand passed in. Read-then-write order is deliberate: recording first
 // would stamp everything with first_seen = now and nothing would ever be new.
+// ── IS THIS THE NAME OF A COMPANY, OR THE MODEL THINKING OUT LOUD? ──────────
+// "Core Physical Therapy (or similar local PT/chiro near campus)" was queued as
+// a business. Nothing between the market scan's model output and a queued card
+// asked whether the string names a real company: rows were written verbatim,
+// and normBrand in scout.js only lowercases and strips punctuation, which makes
+// it a dedupe key rather than a validator.
+//
+// These are the shapes a model produces when it is hedging instead of naming.
+// Deliberately narrow -- a real business called "Smith & Sons (Est. 1974)" must
+// survive, so the parenthetical rules require a hedge WORD inside the brackets,
+// not merely brackets.
+const PLACEHOLDER_MAX_LEN = 60;   // longer than any plausible business name
+const PLACEHOLDER_RULES = [
+  { why: 'hedged alternative in brackets', re: /\((?=[^)]*\b(?:or|and)\s+(?:a\s+|any\s+)?similar\b)[^)]*\)/i },
+  { why: 'hedged alternative in brackets', re: /\((?=[^)]*\bor\s+(?:a|an|another|other)\b)[^)]*\)/i },
+  { why: 'describes a location instead of naming one', re: /\b(?:near|around|close to|by)\s+campus\b/i },
+  { why: 'gives an example rather than a name', re: /\b(?:e\.?g\.?|i\.?e\.?|for example|such as|etc\.?)\b/i },
+  { why: 'a category with a slash, not a business', re: /\w\/\w/ },
+  { why: 'trailing slash', re: /\/\s*$/ },
+];
+function placeholderReason(name) {
+  const s = String(name || '').trim();
+  if (!s) return 'empty';
+  // Specific rules first: length is the catch-all, and "longer than 60
+  // characters" tells whoever reads the log far less than "hedged alternative
+  // in brackets" about what the scan actually did wrong.
+  for (const r of PLACEHOLDER_RULES) if (r.re.test(s)) return r.why;
+  if (s.length > PLACEHOLDER_MAX_LEN) return `longer than ${PLACEHOLDER_MAX_LEN} characters`;
+  return null;
+}
+
 async function markMarketNewcomers(marketKey, brands) {
   const out = new Set();
   try {
-    const list = Array.from(new Set((brands || []).filter(Boolean).map(b => String(b).trim())));
+    const raw = Array.from(new Set((brands || []).filter(Boolean).map(b => String(b).trim())));
+    // REJECTED, NOT SILENTLY DROPPED. A market scan producing placeholders means
+    // that scan returned junk, and binning it quietly hides the fact from the
+    // agent whose market it was. The rejection is recorded so the shift report
+    // can say how many a scan threw away.
+    const list = [];
+    const rejected = [];
+    for (const b of raw) {
+      const why = placeholderReason(b);
+      if (why) rejected.push({ brand: b, why }); else list.push(b);
+    }
+    if (rejected.length) {
+      console.warn(`[market-seen] ${marketKey}: rejected ${rejected.length} placeholder name(s): `
+        + rejected.map((r) => `"${r.brand.slice(0, 48)}" (${r.why})`).join('; '));
+      await pool.query(
+        `INSERT INTO market_business_rejected (market_key, brand, reason)
+         SELECT $1, u.brand, u.reason FROM UNNEST($2::text[], $3::text[]) AS u(brand, reason)
+         ON CONFLICT (market_key, brand) DO UPDATE SET reason = EXCLUDED.reason, last_seen_at = NOW()`,
+        [marketKey, rejected.map((r) => r.brand), rejected.map((r) => r.why)]).catch((e) =>
+        console.error('[market-seen] could not record rejections:', e.message));
+    }
     if (!marketKey || !list.length) return out;
 
     const est = await pool.query(
@@ -3735,6 +3801,7 @@ module.exports = {
   ensureDealOutcomes, saveDealOutcome, getBenchmarks, followerBand,
   ensureFeedbackColumns, logScanShown, getScanSignal, applyScanSignal,
   ensureMarketSightings, markMarketNewcomers, NEW_WINDOW_DAYS,
+  placeholderReason, PLACEHOLDER_MAX_LEN,
   findNationalBrand, scoreNationalBrandFit,
   pool
 };
