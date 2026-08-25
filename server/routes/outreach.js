@@ -666,9 +666,13 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
       to: [toEmail], subject: log.subject, bodyHtml: log.body_html, replyTo, messageId,
     });
   }
-  // messageId travels back so the caller stores exactly what went on the wire.
+  // messageId travels back so the caller stores exactly what went on the wire --
+  // and when the provider reports what it actually stamped, that wins over what
+  // we minted. Graph can refuse a caller-supplied Message-ID, and storing the id
+  // we asked for rather than the id that shipped would silently break reply
+  // matching. Gmail and IMAP report no such field, so this is unchanged for them.
   // replyTo travels back too, so the caller records what actually went out.
-  return { ...(result || {}), messageId, replyTo };
+  return { ...(result || {}), messageId: (result && result.messageId) || messageId, replyTo };
 }
 
 module.exports = router;

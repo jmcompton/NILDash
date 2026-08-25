@@ -100,7 +100,12 @@ function buildSend(pool, cache, { dry }) {
       ? await provider.sendEmail(account.email_address, account.accessToken,
           account.refreshToken ? JSON.parse(account.refreshToken) : {}, args)
       : await provider.sendEmail(account.accessToken, account.refreshToken, args);
-    return { ...(res || {}), messageId, replyTo };
+    // A provider that reports the Message-ID it actually put on the wire wins
+    // over the one we minted. Graph can refuse our stamp, and storing the id we
+    // wanted rather than the id that shipped would break reply matching for
+    // exactly the messages that got a reply. Gmail and IMAP report no such
+    // field, so for them this is the minted id, unchanged.
+    return { ...(res || {}), messageId: (res && res.messageId) || messageId, replyTo };
   };
 }
 
