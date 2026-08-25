@@ -1819,6 +1819,20 @@ app.get('/api/agent/home', requireAuth, async (req, res) => {
   }
 });
 
+// The media kit setting. One switch, read at approval time, so flipping it
+// changes what goes out tonight rather than only what is written tomorrow.
+app.post('/api/agent/settings/media-kit', requireAuth, async (req, res) => {
+  try {
+    const on = req.body && req.body.on === true;
+    await store.pool.query(`UPDATE users SET attach_media_kit = $2 WHERE id = $1`,
+      [req.session.userId, on]);
+    res.json({ ok: true, on });
+  } catch (e) {
+    console.error('[settings/media-kit]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/agent/closer/batch', requireAuth, async (req, res) => {
   try {
     res.json(await Closer.buildBatch(store.pool, req.session.userId));
@@ -1837,7 +1851,10 @@ app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
     const ids = Array.isArray(req.body.ids) ? req.body.ids : [];
     const skip = Array.isArray(req.body.skip) ? req.body.skip : [];
     if (!ids.length) return res.status(400).json({ error: 'nothing to approve' });
-    const out = await Closer.approveBatch(store.pool, req.session.userId, { ids, skip });
+    // Home approves one athlete at a time and says which. The server filters to
+    // that athlete rather than trusting the posted id list.
+    const out = await Closer.approveBatch(store.pool, req.session.userId,
+      { ids, skip, athleteId: req.body.athleteId || null });
     res.json(out);
   } catch (e) {
     console.error('[closer/approve]', e.message);

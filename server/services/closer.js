@@ -336,6 +336,10 @@ async function approveBatch(pool, agentId, opts = {}) {
   const skip = new Set((opts.skip || []).map(String));
   const ids = (opts.ids || []).map(String).filter((id) => !skip.has(id));
   if (!ids.length) return { approved: 0, scheduled: 0, skipped: skip.size, note: 'nothing approved' };
+  // Home approves ONE athlete at a time, and the scoping is enforced here rather
+  // than trusted from the id list the browser posted. A client that sends
+  // somebody else's draft ids gets them filtered out, not approved.
+  const athleteId = opts.athleteId ? String(opts.athleteId) : null;
 
   const guard = await sendGuard.status(pool, agentId, opts);
   if (guard.blocked) return { approved: 0, scheduled: 0, blocked: true, note: guard.blockedReason };
@@ -351,12 +355,58 @@ async function approveBatch(pool, agentId, opts = {}) {
        JOIN athletes a ON a.id = l.athlete_id
        LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
       WHERE l.agent_id = $1 AND l.id = ANY($2::text[])
+        AND ($3::text IS NULL OR l.athlete_id = $3)
         AND l.status = 'draft' AND l.approved_at IS NULL
         AND l.cadence_stopped_at IS NULL`,
-    [agentId, allowed])).rows;
+    [agentId, allowed, athleteId])).rows;
+
+  // ── THE MEDIA KIT IS A SETTING, NOT A DECISION MADE 45 TIMES A MORNING ────
+  // It used to be a per-send toggle in the outreach modal that appended a line
+  // to the body by hand. Home has no per-card actions, so the choice moved to
+  // where a choice like this belongs: once, on the account. Off by default.
+  //
+  // Appended at APPROVAL, not at draft time, so flipping the setting changes
+  // what goes out tonight rather than only what is written from tomorrow.
+  let kitByAthlete = null;
+  if (rows.length) {
+    const on = (await pool.query(
+      `SELECT COALESCE(attach_media_kit, false) AS on FROM users WHERE id = $1`, [agentId])
+      .catch(() => ({ rows: [] }))).rows[0];
+    if (on && on.on) {
+      kitByAthlete = new Map();
+      const kits = (await pool.query(
+        `SELECT athlete_id, slug FROM media_kits
+          WHERE athlete_id = ANY($1::text[]) AND slug IS NOT NULL`,
+        [Array.from(new Set(rows.map((r) => r.athlete_id)))]).catch(() => ({ rows: [] }))).rows;
+      for (const k of kits) kitByAthlete.set(k.athlete_id, k.slug);
+    }
+  }
+  const KIT_BASE = process.env.APP_URL || 'https://mynildash.com';
+  const kitLineFor = (r) => {
+    if (!kitByAthlete) return null;
+    const slug = kitByAthlete.get(r.athlete_id);
+    if (!slug) return null;                       // no kit built yet: nothing to attach
+    const url = `${KIT_BASE}/kit/${slug}`;
+    // Never twice. A draft that already carries the link keeps the one it has.
+    if (r.body_html && r.body_html.indexOf(url) !== -1) return null;
+    return `<p>Media kit: <a href="${url}">${url}</a></p>`;
+  };
 
   let scheduled = 0;
   const when = [];
+  // THE ARITHMETIC HAS TO CLOSE. This reported `approved` and `scheduled` and
+  // nothing else, so three populations vanished between what the agent clicked
+  // and what went out: ids over the cap (explained by `note`), ids the SELECT
+  // filtered away (already approved, cadence-stopped, another athlete's), and
+  // rows that got no send slot. An agent approving 64 must never be shown a
+  // number that silently accounts for 36 of them.
+  const dropped = [];
+  const foundIds = new Set(rows.map((r) => String(r.id)));
+  for (const id of allowed) {
+    if (!foundIds.has(String(id))) {
+      dropped.push({ id, why: 'not an approvable draft any more' });
+    }
+  }
   for (const r of rows) {
     // THE WINDOW IS COMPUTED PER MESSAGE, in the RECIPIENT's timezone, because
     // it is the business owner's Tuesday morning that matters and a roster can
@@ -364,21 +414,37 @@ async function approveBatch(pool, agentId, opts = {}) {
     const slot = sendWindow.nextSendSlot(opts.now || new Date(), {
       businessAddress: r.biz_address, athleteSchoolState: r.school, key: r.id,
     });
-    if (!slot) continue;
+    if (!slot) { dropped.push({ id: r.id, brand: r.brand_name, why: 'no send slot in the next window' }); continue; }
+    const kit = kitLineFor(r);
     await pool.query(
       `UPDATE outreach_logs
           SET status = 'approved', approved_at = NOW(), approved_by = $2,
-              scheduled_send_at = $3, send_timezone = $4, updated_at = NOW()
+              scheduled_send_at = $3, send_timezone = $4,
+              body_html = COALESCE($5, body_html), updated_at = NOW()
         WHERE id = $1`,
-      [r.id, agentId, slot.at, slot.timezone]);
+      [r.id, agentId, slot.at, slot.timezone,
+        kit ? String(r.body_html || '') + kit : null]);
     scheduled++;
     when.push({ id: r.id, brand: r.brand_name, at: slot.at, tz: slot.timezone });
   }
+  // Every id posted lands in exactly one bucket: scheduled, unchecked, over the
+  // cap, or dropped with a reason. scheduled + skipped + overflow + dropped
+  // equals what came in, and the note says so in words.
+  const bits = [];
+  if (overflow > 0) {
+    bits.push(`${overflow} left for tomorrow: approving them would have gone past tonight's ${guard.cap}-email ceiling`);
+  }
+  if (dropped.length) {
+    const noSlot = dropped.filter((d) => /send slot/.test(d.why)).length;
+    if (noSlot) bits.push(`${noSlot} had no send time in the next window and stay as drafts`);
+    const stale = dropped.length - noSlot;
+    if (stale) bits.push(`${stale} were no longer waiting on approval`);
+  }
   return {
     approved: rows.length, scheduled, skipped: skip.size, overflow,
-    when,
-    note: overflow > 0
-      ? `${overflow} left for tomorrow: approving them would have gone past tonight's ${guard.cap}-email ceiling`
+    dropped, requested: ids.length, when,
+    note: bits.length
+      ? bits.join('. ').replace(/^./, (ch) => ch.toUpperCase()) + '.'
       : null,
   };
 }

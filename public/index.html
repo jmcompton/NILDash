@@ -1961,33 +1961,76 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div>
 
       <!--  HOME  -->
+      <style>
+/* ── HOME. One job, so one small stylesheet. Tokens are the app's own. ── */
+.hq-tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;
+  border-bottom:1px solid var(--line,#26261f);margin-bottom:24px}
+.hq-tabs::-webkit-scrollbar{display:none}
+.hq-tab{appearance:none;background:none;border:0;cursor:pointer;font:inherit;
+  color:var(--muted,#9a9a8e);padding:10px 14px 12px;white-space:nowrap;
+  border-bottom:2px solid transparent;margin-bottom:-1px;
+  display:flex;align-items:baseline;gap:7px;transition:color .12s ease}
+.hq-tab:hover{color:var(--text,#F0EDE6)}
+.hq-tab .n{font-variant-numeric:tabular-nums;font-size:13px;color:var(--dim,#63635a);
+  background:var(--surf,#1C1C17);border-radius:999px;padding:2px 7px}
+.hq-tab[aria-selected="true"]{color:var(--text,#F0EDE6);font-weight:500;
+  border-bottom-color:var(--accent,#C8F135)}
+.hq-tab[aria-selected="true"] .n{background:rgba(200,241,53,.12);color:var(--accent,#C8F135)}
+.hq-tab:focus-visible{outline:2px solid var(--accent,#C8F135);outline-offset:-2px;border-radius:4px}
+.hq-block{display:flex;gap:10px;align-items:baseline;background:rgba(255,184,0,.08);
+  border:1px solid rgba(255,184,0,.28);border-radius:9px;padding:11px 14px;
+  margin-bottom:20px;font-size:14.5px;color:var(--text,#F0EDE6)}
+.hq-block a{color:var(--gold,#FFB800);text-decoration:underline;text-underline-offset:2px}
+.hq-name{font-family:'Syne',sans-serif;font-weight:700;font-size:27px;line-height:1.15;
+  letter-spacing:-.015em;margin:0 0 3px;text-wrap:balance}
+.hq-sub{color:var(--muted,#9a9a8e);font-size:14.5px;margin:0 0 20px}
+.hq-cards{display:flex;flex-direction:column;gap:10px}
+.hq-card{background:var(--card,#121210);border:1px solid var(--line,#26261f);
+  border-radius:11px;padding:15px 17px}
+.hq-biz{font-family:'Syne',sans-serif;font-weight:600;font-size:18px;line-height:1.25;
+  letter-spacing:-.01em;margin:0 0 4px}
+.hq-who{font-size:15px;margin:0 0 7px}
+.hq-who .role{color:var(--muted,#9a9a8e)}
+.hq-why{font-size:14.5px;line-height:1.5;color:var(--muted,#9a9a8e);margin:0;max-width:58ch}
+.hq-bar{position:sticky;bottom:0;background:var(--bg,#0A0A08);
+  border-top:1px solid var(--line,#26261f);margin-top:26px}
+.hq-bar-in{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0}
+.hq-approve{appearance:none;border:0;cursor:pointer;background:var(--accent,#C8F135);
+  color:#0B0F0A;font-weight:500;font-size:15.5px;padding:13px 22px;border-radius:9px}
+.hq-approve:disabled{opacity:.4;cursor:not-allowed}
+.hq-cap{font-size:13.5px;color:var(--muted,#9a9a8e);font-variant-numeric:tabular-nums;text-align:right}
+.hq-done{background:var(--card,#121210);border:1px solid var(--line,#26261f);
+  border-radius:11px;padding:18px}
+</style>
       <div id="view-home" class="view active">
 
-        <!-- ══ ZONE 1 — WHAT YOUR TEAM DID ══
-             Five role cards, every number counted from rows that exist. A role
-             with nothing behind it renders "Nothing to report" rather than a
-             zero, because a zero reads as work that found nothing. -->
-        <!-- ══ 1. ONE SENTENCE ══
-             Not five cards. The five role cards live on the detail page behind
-             the link below, because five cards plus a queue is five competing
-             calls to action and this page is meant to have one. -->
-        <div id="sr-sentence"></div>
+        <!-- ══ HOME IS ONE JOB: APPROVE TODAY'S OUTREACH ══
+             Athlete tabs, that athlete's cards, one approve. Everything that
+             used to be here either moved or shrank to a line, by one rule: if
+             an agent who has never seen the codebase cannot understand it in
+             three seconds, it does not belong on this page.
 
-        <!-- ══ 2. NEEDS YOU ══ Five items, hard cap. Overflow is one line. -->
-        <div id="sr-needs"></div>
+               shift-report sentence   -> Outreach, which is where watching happens
+               coverage counts         -> gone. The tabs carry the only count that
+                                          changes what the agent does next.
+               ready-to-send list      -> gone. The cards ARE the queue; printing
+                                          both gave the page two counts of one pile.
+               dates of birth          -> one line, and only when it blocks
+               weekly floor            -> gone
+               email cap               -> one line, beside the button
+               admin dropdown, fill    -> gone from this view
 
-        <!-- ══ THE ONE DECISION ══ Tonight's email batch. Approve all, or
-             uncheck a few and approve the rest. There is no per-message send
-             button anywhere: forty clicks a night is data entry, not review. -->
-        <div id="sr-dobgap"></div>
-      <div id="sr-closer"></div>
-
-        <!-- ══ 3. MOVING ══ Two figures: earned, and in flight. -->
-        <div id="sr-moving"></div>
-
-        <!-- The add-client CTA survives because with no clients there is nothing
-             else on this page at all. It renders only in that empty state. -->
-        <div id="home-client-cta" style="margin-top:14px"></div>
+             No per-card actions. No recipient picker: the ladder ranks by
+             confidence and channel and that ranking is the work. No media-kit
+             toggle: it is a setting on the account, read at approval. -->
+        <div id="home-tabs" class="hq-tabs" role="tablist" aria-label="Athletes"></div>
+        <div id="home-panel"></div>
+        <div id="home-bar" class="hq-bar" hidden>
+          <div class="hq-bar-in">
+            <button class="hq-approve" id="home-approve" type="button"></button>
+            <div class="hq-cap" id="home-cap"></div>
+          </div>
+        </div>
 
       </div>
 
@@ -6931,6 +6974,9 @@ async function showView(id, btn) {
   if (id === 'pdf-scan') loadPdfScanAthletes();
   if (id === 'add-athlete') { const tp = document.getElementById('a_tags'); if (tp && !tp.innerHTML) renderTagPicker('a_tags', []); }
   if (id === 'rate') { try { loadBenchmarks(); } catch(e) {} }
+  // Home fetches on every show rather than once: approving changes what is
+  // on it, and a stale queue is the one thing this page must never render.
+  if (id === 'home') { try { hqLoad(HQ.selected); } catch (e) {} }
 }
 
 // ── Local deal benchmarks ───────────────────────────────────────────────────
@@ -19689,6 +19735,147 @@ var growthModule = (function() {
     spUpdateCount,
   };
 })();
+</script>
+
+<script>
+// ── HOME ────────────────────────────────────────────────────────────────────
+// One fetch, one render, one action. No per-card handlers, because there are no
+// per-card actions: the recipient is the ladder's top pick and the media kit is
+// a setting, so nothing on a card is a decision.
+var HQ = { data: null, selected: null, busy: false };
+
+function hqEscape(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+
+async function hqLoad(athleteId) {
+  var url = '/api/agent/home' + (athleteId ? '?athlete=' + encodeURIComponent(athleteId) : '');
+  var panel = document.getElementById('home-panel');
+  try {
+    var r = await fetch(url, { credentials: 'same-origin' });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'could not load');
+    HQ.data = d; HQ.selected = d.selected;
+    hqRender();
+  } catch (e) {
+    // Says what broke and offers the retry. Never an empty page, which reads
+    // as "no work today" when it means "the request failed".
+    if (panel) {
+      panel.innerHTML = '<div class="hq-done"><p class="hq-why" style="margin:0 0 10px">'
+        + 'Could not load today\'s outreach: ' + hqEscape(e.message) + '</p>'
+        + '<button class="hq-approve" onclick="hqLoad()">Try again</button></div>';
+    }
+    var bar = document.getElementById('home-bar'); if (bar) bar.hidden = true;
+  }
+}
+
+function hqRender() {
+  var d = HQ.data; if (!d) return;
+  var tabs = document.getElementById('home-tabs');
+  var panel = document.getElementById('home-panel');
+  var bar = document.getElementById('home-bar');
+
+  tabs.innerHTML = (d.athletes || []).map(function (a) {
+    return '<button class="hq-tab" role="tab" type="button" aria-selected="'
+      + (a.id === d.selected) + '" data-a="' + hqEscape(a.id) + '">'
+      + hqEscape(a.name) + ' <span class="n">' + (a.count || 0) + '</span></button>';
+  }).join('');
+  Array.prototype.forEach.call(tabs.querySelectorAll('.hq-tab'), function (t) {
+    t.onclick = function () { hqLoad(t.getAttribute('data-a')); };
+  });
+
+  if (!d.athlete) {
+    panel.innerHTML = '<div class="hq-done"><p class="hq-why" style="margin:0">'
+      + 'No athletes yet. Add one to start.</p></div>';
+    bar.hidden = true;
+    return;
+  }
+
+  var html = '';
+  if (d.blocker) {
+    html += '<div class="hq-block"><span>' + hqEscape(d.blocker.text) + '</span>'
+      + '<a href="' + hqEscape(d.blocker.href || '#') + '">' + hqEscape(d.blocker.cta) + '</a></div>';
+  }
+  html += '<h1 class="hq-name">' + hqEscape(d.athlete.name) + '</h1>';
+  html += '<p class="hq-sub">' + (d.cards.length
+    ? d.cards.length + ' to approve' : 'Nothing to approve today')
+    + (d.athlete.school ? ' &middot; ' + hqEscape(d.athlete.school) : '') + '</p>';
+
+  if (!d.cards.length) {
+    html += '<div class="hq-done"><p class="hq-why" style="margin:0">'
+      + 'Slots full &mdash; work these before new ones arrive.</p></div>';
+  } else {
+    html += '<div class="hq-cards">' + d.cards.map(function (c) {
+      return '<div class="hq-card">'
+        + '<p class="hq-biz">' + hqEscape(c.business) + '</p>'
+        + (c.contact ? '<p class="hq-who">' + hqEscape(c.contact)
+            + (c.role ? ' <span class="role">&middot; ' + hqEscape(c.role) + '</span>' : '') + '</p>' : '')
+        + (c.why ? '<p class="hq-why">' + hqEscape(c.why) + '</p>' : '')
+        + '</div>';
+    }).join('') + '</div>';
+  }
+  panel.innerHTML = html;
+
+  var btn = document.getElementById('home-approve');
+  var capEl = document.getElementById('home-cap');
+  bar.hidden = false;
+  capEl.textContent = d.cap ? d.cap.line : '';
+  if (d.blocker) {
+    btn.textContent = 'Blocked for ' + String(d.athlete.name).split(' ')[0];
+    btn.disabled = true;
+  } else if (!d.cards.length) {
+    btn.textContent = 'Nothing to approve';
+    btn.disabled = true;
+  } else {
+    btn.textContent = 'Approve ' + d.cards.length + ' for ' + d.athlete.name;
+    btn.disabled = false;
+  }
+  btn.onclick = hqApprove;
+}
+
+async function hqApprove() {
+  if (HQ.busy) return;
+  var d = HQ.data; if (!d || !d.cards.length) return;
+  var btn = document.getElementById('home-approve');
+  HQ.busy = true; btn.disabled = true; btn.textContent = 'Scheduling\u2026';
+  try {
+    var r = await fetch('/api/agent/closer/approve', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: d.cards.map(function (c) { return c.id; }),
+                             athleteId: d.selected, skip: [] }),
+    });
+    var out = await r.json();
+    if (!r.ok) throw new Error(out.error || 'could not approve');
+    // SAY WHAT ACTUALLY WENT, NOT WHAT WAS CLICKED. `scheduled` is the number
+    // written; `note` accounts for every id that did not make it -- over the
+    // cap, no send slot, or no longer a draft. An agent must never read "5
+    // scheduled" when 3 were.
+    document.getElementById('home-panel').innerHTML =
+      '<div class="hq-done"><p class="hq-biz" style="margin:0 0 6px">'
+      + out.scheduled + (out.scheduled === 1 ? ' pitch scheduled' : ' pitches scheduled') + '</p>'
+      + '<p class="hq-why" style="margin:0">They go out Tuesday to Thursday, mid-morning where each business is.</p>'
+      + (out.note ? '<p class="hq-why" style="margin:8px 0 0">' + hqEscape(out.note) + '</p>' : '')
+      + '</div>';
+    document.getElementById('home-bar').hidden = true;
+    setTimeout(function () { hqLoad(HQ.selected); }, 1400);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Approve ' + d.cards.length + ' for ' + d.athlete.name;
+    document.getElementById('home-panel').insertAdjacentHTML('beforeend',
+      '<p class="hq-why" style="color:var(--red,#FF3D5A);margin-top:10px">Could not schedule: '
+      + hqEscape(e.message) + '</p>');
+  }
+  HQ.busy = false;
+}
+</script>
+<script>
+// First paint. Home is the landing view, so it loads without waiting for a tab click.
+document.addEventListener("DOMContentLoaded", function () {
+  if (document.getElementById("home-tabs")) { try { hqLoad(); } catch (e) {} }
+});
 </script>
 </body>
 </html>

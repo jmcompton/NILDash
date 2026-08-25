@@ -1725,6 +1725,12 @@ async function init() {
     )`).then(() => console.log('[init] market_deepen_log table ready'))
     .catch((e) => console.error('[init] market_deepen_log:', e.message));
 
+  // Attach the athlete's media kit to every approved email, or do not. A
+  // setting on the account rather than a toggle in a modal: the same answer 45
+  // times a morning is a setting, and a per-send choice is only a choice the
+  // first time. Off by default -- an attachment nobody asked for is a link a
+  // spam filter reads before a person does.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS attach_media_kit BOOLEAN DEFAULT false`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS lane TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS program_url TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS sponsor_signal TEXT`).catch(() => {});
