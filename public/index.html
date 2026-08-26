@@ -2010,6 +2010,23 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-vrf{font-size:12px;color:var(--dim,#63635a);margin-top:2px}
 .hq-kit{margin-top:10px;font-size:13px;color:var(--dim,#63635a)}
 .hq-kit b{color:var(--muted,#9a9a8e);font-weight:500}
+/* Editing. Borrows the card's own tokens rather than introducing a second
+   palette: same border, same radius, same accent as .hq-peek focus. */
+.hq-editbtn{appearance:none;background:none;border:0;padding:6px 0 0;cursor:pointer;
+  font:500 12px/1 'DM Sans',sans-serif;color:var(--dim,#63635a);text-decoration:underline}
+.hq-editbtn:hover{color:var(--accent,#C8F135)}
+.hq-editbtn:focus-visible{outline:2px solid var(--accent,#C8F135);outline-offset:3px;border-radius:4px}
+.hq-lbl{display:block;font:500 11px/1 'DM Sans',sans-serif;color:var(--dim,#63635a);
+  text-transform:uppercase;letter-spacing:.06em;margin:10px 0 5px}
+.hq-in,.hq-ta{width:100%;box-sizing:border-box;background:var(--bg,#0A0A08);
+  border:1px solid var(--line,#26261f);border-radius:6px;padding:9px 11px;
+  color:var(--text,#F0EDE6);font:14px/1.6 'DM Sans',sans-serif;outline:none}
+.hq-ta{resize:vertical;min-height:180px}
+.hq-in:focus,.hq-ta:focus{border-color:var(--accent,#C8F135)}
+.hq-ebtns{display:flex;align-items:center;gap:9px;margin-top:10px}
+.hq-estatus{font-size:12px;color:var(--red,#FF3D5A)}
+.hq-edited{font-size:11px;color:var(--dim,#63635a);border:1px solid var(--line,#26261f);
+  border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle}
 @media (prefers-reduced-motion:reduce){.hq-peek .car{transition:none}}
 /* THE APPROVE BAR IS FIXED, NOT STICKY, AND THE REASON IS ONE DECLARATION.
    .main carries overflow-x:hidden (line ~233). Per spec, when one axis is not
@@ -19776,6 +19793,10 @@ var growthModule = (function() {
 // a setting, so nothing on a card is a decision.
 var HQ = { data: null, selected: null, busy: false };
 
+// An id inside an inline onclick. JSON-quoted then attribute-escaped, so a
+// brand id containing a quote cannot break out of the handler.
+function hqAttr(v) { return hqEscape(JSON.stringify(String(v))).replace(/&quot;/g, '&quot;'); }
+
 function hqEscape(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -19876,9 +19897,29 @@ function hqRender() {
         // statement about somebody's mail server that we have not earned.
         + (c.to ? '<div class="hq-vrf">' + hqEscape(c.verifiedNote || 'Not checked yet') + '</div>' : '')
         + '</dd>'
-        + '<dt>Subject</dt><dd>' + hqEscape(c.subject || 'no subject') + '</dd>'
+        + '<dt>Subject</dt><dd><span class="hq-subj" id="hq-subj-' + hqEscape(c.id) + '">'
+        + hqEscape(c.subject || 'no subject') + '</span>'
+        + (c.edited ? ' <span class="hq-edited">edited</span>' : '') + '</dd>'
         + '</dl>'
+        // ── EDIT IN PLACE ────────────────────────────────────────────────
+        // The same shape as srSaveDraft on the shift-detail page: a textarea
+        // where the text was, Save and Cancel, no modal and no navigation. The
+        // agent keeps their position in a list they are halfway through.
+        + '<div class="hq-read" id="hq-read-' + hqEscape(c.id) + '">'
         + '<div class="hq-body">' + (body || '<p>This draft has no body yet.</p>') + '</div>'
+        + '<button class="hq-editbtn" type="button" onclick="hqEdit(' + hqAttr(c.id) + ')">Edit</button>'
+        + '</div>'
+        + '<div class="hq-edit" id="hq-edit-' + hqEscape(c.id) + '" hidden>'
+        + '<label class="hq-lbl">Subject</label>'
+        + '<input class="hq-in" id="hq-esubj-' + hqEscape(c.id) + '" value="' + hqEscape(c.subject || '') + '">'
+        + '<label class="hq-lbl">Message</label>'
+        + '<textarea class="hq-ta" id="hq-ebody-' + hqEscape(c.id) + '" rows="10">'
+        + hqEscape(c.bodyText || '') + '</textarea>'
+        + '<div class="hq-ebtns">'
+        + '<button class="hm-btn primary" type="button" onclick="hqSaveEdit(' + hqAttr(c.id) + ', this)">Save</button>'
+        + '<button class="hm-btn ghost" type="button" onclick="hqCancelEdit(' + hqAttr(c.id) + ')">Cancel</button>'
+        + '<span class="hq-estatus" id="hq-est-' + hqEscape(c.id) + '"></span>'
+        + '</div></div>'
         // Says what approval will ACTUALLY do. approveBatch appends the kit at
         // approval, so a preview that omitted it would be a different email.
         + '<p class="hq-kit">' + (c.mediaKit
@@ -19918,6 +19959,85 @@ function hqPeek(btn) {
   panel.hidden = open;
   var lbl = btn.querySelector('.lbl');
   if (lbl) lbl.textContent = open ? 'Read the email' : 'Hide the email';
+}
+
+// ── EDITING A CARD ──────────────────────────────────────────────────────────
+// Reuses the pattern srSaveDraft already established: edit where the text is,
+// save in place, update the in-memory card so the row shows what was saved, no
+// re-fetch and no lost scroll position.
+//
+// TEXT, NEVER MARKUP. The textarea holds the words; the server turns them back
+// into paragraphs. This page never posts HTML that would end up in an email a
+// business reads.
+function hqEdit(id) {
+  var read = document.getElementById('hq-read-' + id);
+  var edit = document.getElementById('hq-edit-' + id);
+  if (!read || !edit) return;
+  read.hidden = true; edit.hidden = false;
+  var ta = document.getElementById('hq-ebody-' + id);
+  if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+
+function hqCancelEdit(id) {
+  var read = document.getElementById('hq-read-' + id);
+  var edit = document.getElementById('hq-edit-' + id);
+  if (!read || !edit) return;
+  // Put the fields back to what is saved, so cancelling twice cannot leave a
+  // half-typed draft sitting in the box.
+  var card = (HQ.data && HQ.data.cards || []).filter(function (c) { return c.id === id; })[0];
+  if (card) {
+    var si = document.getElementById('hq-esubj-' + id);
+    var ta = document.getElementById('hq-ebody-' + id);
+    if (si) si.value = card.subject || '';
+    if (ta) ta.value = card.bodyText || '';
+  }
+  edit.hidden = true; read.hidden = false;
+}
+
+async function hqSaveEdit(id, btn) {
+  var si = document.getElementById('hq-esubj-' + id);
+  var ta = document.getElementById('hq-ebody-' + id);
+  var st = document.getElementById('hq-est-' + id);
+  if (!si || !ta) return;
+  var subject = si.value.trim();
+  var bodyText = ta.value;
+  if (!bodyText.trim()) { if (st) st.textContent = 'The message cannot be empty.'; return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  if (st) st.textContent = '';
+  try {
+    var r = await fetch(API_BASE + '/api/outreach/logs/' + encodeURIComponent(id), {
+      method: 'PATCH', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      // body_text, not body_html: the server escapes and paragraphs it.
+      body: JSON.stringify({ subject: subject, body_text: bodyText }),
+    });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'could not save');
+    // Update the card in place from what the SERVER stored, not from what was
+    // typed -- if the two ever disagree, the row should show the one that will
+    // actually be sent.
+    var cards = (HQ.data && HQ.data.cards) || [];
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].id !== id) continue;
+      cards[i].subject = d.subject || '';
+      cards[i].bodyText = hqStripHtml(d.body_html || '');
+      cards[i].body = cards[i].bodyText.split(/\n\s*\n+/).map(function (x) { return x.trim(); }).filter(Boolean);
+      cards[i].edited = !!d.edited_before_approval;
+    }
+    hqRender(HQ.data);
+    if (typeof showToast === 'function') showToast('Saved');
+  } catch (e) {
+    if (st) st.textContent = 'Could not save: ' + e.message;
+    if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+  }
+}
+
+// Mirrors the server's stripHtml closely enough for a re-render; the server
+// remains the source of truth and the next page load re-reads it.
+function hqStripHtml(html) {
+  var d = document.createElement('div');
+  d.innerHTML = String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div)>/gi, '\n');
+  return (d.textContent || '').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
 }
 
 async function hqApprove() {

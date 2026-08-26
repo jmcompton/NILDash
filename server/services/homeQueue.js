@@ -198,6 +198,7 @@ async function buildHome(pool, agentId, opts = {}) {
   if (selected) {
     cards = await q('cards',
       `SELECT l.id, l.brand_name, l.body_html, l.subject,
+              l.edited_before_approval,
               l.sent_to_email AS to_email,
               l.athlete_id,
               q.contact_name, q.contact_title, q.why,
@@ -421,6 +422,13 @@ async function buildHome(pool, agentId, opts = {}) {
         to: c.to_email || null,
         subject: c.subject || null,
         body: stripHtml(c.body_html).split('\n').map((s) => s.trim()).filter(Boolean),
+        // The same words as one editable string. The card edits TEXT and posts
+        // text; the server turns it back into paragraphs, so the page never
+        // sends markup that ends up in an email a business reads.
+        bodyText: stripHtml(c.body_html).split('\n').map((x) => x.trim()).filter(Boolean).join('\n\n'),
+        // Shown on the card so an agent can see at a glance which of these they
+        // have already rewritten.
+        edited: !!c.edited_before_approval,
         // Shown because approveBatch will append it. If this said "no" and the
         // approval added one, the preview would be a different email.
         mediaKit: kitUrl,

@@ -1604,6 +1604,18 @@ async function init() {
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_error TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS send_attempts INT DEFAULT 0`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS edited_before_approval BOOLEAN DEFAULT FALSE`).catch(() => {});
+  // ── WHAT THE MODEL WROTE, KEPT ─────────────────────────────────────────────
+  // edited_before_approval says THAT an agent changed something. These say what
+  // it said before, which is the only way to learn what agents actually rewrite
+  // -- the greeting, the ask, the length, the claim about the business.
+  //
+  // WRITTEN ONCE, ON THE FIRST EDIT, via COALESCE. Not at draft creation: that
+  // would mean touching every writer (draftPrewarm, workflowOrchestrator, the
+  // closer cadence) and a row missed by one of them would silently record the
+  // first edit as the original. Capturing at the edit means the pre-edit value
+  // is right there in the same statement, and a second edit cannot overwrite it.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS original_subject TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS original_body_html TEXT`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_logs_due
                       ON outreach_logs (scheduled_send_at)
                    WHERE status = 'approved' AND scheduled_send_at IS NOT NULL`).catch(() => {});

@@ -483,9 +483,27 @@ router.post('/logs/:id/send', async (req, res) => {
  * PATCH /api/outreach/logs/:id
  * Update subject/body before sending (user edits the draft).
  */
+// Text -> paragraphs, escaped. Home edits the WORDS and sends text, never
+// markup, so nothing a page posts can become HTML in an email a business reads.
+// Blank lines separate paragraphs, which is the shape pitchWriter already
+// produces and what the card preview renders.
+function textToHtml(t) {
+  const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(t || '').replace(/\r\n/g, '\n').split(/\n\s*\n+/)
+    .map((p) => p.trim()).filter(Boolean)
+    .map((p) => '<p>' + esc(p).replace(/\n/g, '<br>') + '</p>')
+    .join('');
+}
+
 router.patch('/logs/:id', async (req, res) => {
   try {
-    const { subject, body_html } = req.body;
+    const { subject } = req.body;
+    // body_text is the Home path; body_html is the existing one. Text wins when
+    // both are sent, because the safer contract should not be the one that loses.
+    const body_html = (typeof req.body.body_text === 'string')
+      ? textToHtml(req.body.body_text)
+      : req.body.body_html;
     // AN EDIT IS THE SIGNAL, so it is recorded. Auto mode unlocks on a run of
     // approvals the agent did NOT have to touch; without this flag there is no
     // evidence either way and the offer would be a guess. Only counts as an edit
@@ -501,10 +519,18 @@ router.patch('/logs/:id', async (req, res) => {
 
     const r = await pool.query(
       `UPDATE outreach_logs SET subject=$1, body_html=$2, updated_at=NOW(),
-              edited_before_approval = edited_before_approval OR $5
+              edited_before_approval = edited_before_approval OR $5,
+              -- COALESCE, so the first edit records what the model wrote and no
+              -- later edit can overwrite it. $6/$7 are the PRE-edit values read
+              -- above, and they are only written when the text actually changed
+              -- -- opening a draft and saving it untouched must not stamp an
+              -- "original" that is identical to the current text.
+              original_subject   = COALESCE(original_subject,   CASE WHEN $5 THEN $6 END),
+              original_body_html = COALESCE(original_body_html, CASE WHEN $5 THEN $7 END)
        WHERE id=$3 AND agent_id=$4 AND status='draft'
        RETURNING *`,
-      [subject, body_html, req.params.id, req.principal.id, changed]
+      [subject, body_html, req.params.id, req.principal.id, changed,
+        (prev && prev.subject) || null, (prev && prev.body_html) || null]
     );
     if (!r.rows[0]) return res.status(404).json({ error: 'Draft not found or already sent' });
     res.json(r.rows[0]);
