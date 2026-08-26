@@ -63,7 +63,17 @@ const QUEUE_MAX = 5;
 // makes the Writer look productive, and ages into a pitch that references a
 // season that already ended. Past this it expires (status='expired'), which is
 // a status change and not a delete -- the body is kept.
-const DRAFT_EXPIRY_DAYS = parseInt(process.env.DRAFT_EXPIRY_DAYS, 10) || 21;
+//
+// SEVEN, DOWN FROM TWENTY-ONE. Twenty-one days was long enough that at the
+// current write rate nothing ever reached it, so the sweep ran four times a day
+// and expired nothing while the pile grew.
+//
+// AND SEVEN DAYS IS A CEILING, NOT A CURE. Expiry bounds the pile at roughly
+// one week of output -- at 27 drafts a night that is about 190, which is ABOVE
+// where the pile sits today. It stops the pile being unbounded; it does not
+// make it smaller. The number that decides the size of the pile is the write
+// rate, not this constant.
+const DRAFT_EXPIRY_DAYS = parseInt(process.env.DRAFT_EXPIRY_DAYS, 10) || 7;
 
 // Numbers read better spelled out below ten in a sentence, and as digits at ten
 // and above. That is ordinary prose style, and this sentence is prose.
