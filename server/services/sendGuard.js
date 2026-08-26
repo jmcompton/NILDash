@@ -83,7 +83,12 @@ async function status(pool, agentId, opts = {}) {
         WHERE agent_id = $1 AND local_date = $2`, [agentId, day]);
     const row = r.rows[0];
     const used = row ? Number(row.sent) : 0;
-    const effCap = row ? Number(row.cap) : cap;
+    // THE LIVE CAP WINS OVER THE SNAPSHOT. agent_send_budget.cap is a copy taken
+    // on the first send of the day, so reading it back meant a limit raised at
+    // 9am did not apply until tomorrow -- the agent whose ceiling you just
+    // raised keeps being told they are at 40 of 40. users.daily_email_cap is the
+    // setting; this row is a counter.
+    const effCap = cap;
     return {
       day, tz, cap: effCap, used,
       remaining: Math.max(0, effCap - used),
@@ -111,8 +116,13 @@ async function reserve(pool, agentId, opts = {}) {
       `INSERT INTO agent_send_budget (agent_id, local_date, sent, cap, last_send_at)
        VALUES ($1, $2, 1, $3, NOW())
        ON CONFLICT (agent_id, local_date) DO UPDATE
-         SET sent = agent_send_budget.sent + 1, last_send_at = NOW()
-       WHERE agent_send_budget.sent < agent_send_budget.cap
+         -- cap is re-stamped from the live per-account setting, and the WHERE
+         -- tests against EXCLUDED rather than the stored copy. Without this the
+         -- ceiling an agent is held to is whatever it was on their first send of
+         -- the day, so raising a limit took effect tomorrow rather than now.
+         -- Still one atomic statement: the increment IS the check.
+         SET sent = agent_send_budget.sent + 1, cap = EXCLUDED.cap, last_send_at = NOW()
+       WHERE agent_send_budget.sent < EXCLUDED.cap
          AND agent_send_budget.blocked_at IS NULL
        RETURNING sent, cap`,
       [agentId, day, cap]);
