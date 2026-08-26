@@ -6975,7 +6975,38 @@ async function sendAthleteReport() {
   }
 }
 
+// ── THE PROGRAMS TAB ────────────────────────────────────────────────────────
+// THIS IS THE SWITCH. Set to true and the tab comes back, whole. Nothing else
+// needs changing: #view-programs, progLoadSchools/progRenderSportToggle, the
+// /api/programs/* routes and every row of programs data are untouched.
+//
+// HIDDEN, NOT REMOVED, and that is not just tidiness. applyAthleteChrome finds
+// the Programs button by its onclick and inserts the athlete-mode Rate
+// Calculator and Compliance buttons after it. Take the button out of the DOM and
+// that querySelector returns null, insertBefore never runs, and both views go
+// unreachable for athletes with no error anywhere.
+var PROGRAMS_ENABLED = false;
+
+function applyProgramsFlag() {
+  if (PROGRAMS_ENABLED) return;
+  document.querySelectorAll('.nav-item').forEach(function (b) {
+    if ((b.getAttribute('onclick') || '').indexOf("showView('programs'") >= 0) b.style.display = 'none';
+  });
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', applyProgramsFlag);
+} else {
+  applyProgramsFlag();
+}
+
 async function showView(id, btn) {
+  // The button is hidden, so this is the direct-hit case: a bookmark, a stale
+  // link, or anything else still calling showView('programs'). Home, not a dead
+  // view and not a 404 -- showView is the only router in this app, so this is the
+  // one place a direct hit can be caught.
+  if (id === 'programs' && !PROGRAMS_ENABLED) {
+    return showView('home', document.getElementById('homeNavBtn'));
+  }
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
   if (id === 'settings') { setTimeout(loadReportSettings, 60); }
