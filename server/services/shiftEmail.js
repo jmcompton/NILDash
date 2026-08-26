@@ -244,6 +244,19 @@ function renderShiftEmail(report, opts = {}) {
   </tr></table></div>`);
   }
 
+  // ── 5b. ATHLETES THE RUN CRASHED ON ──────────────────────────────────────
+  // Above the fold-ish and in red, because this is not a status line: it is work
+  // that did not happen for a named client, and the agent would otherwise find
+  // out by noticing an empty section days later.
+  const ft = r.faults;
+  if (ft && ft.line) {
+    parts.push(`<div style="border-top:1px solid #eef1f6;margin-top:18px;padding-top:16px">
+  <p style="margin:0;font:600 13px/1.5 -apple-system,Arial,sans-serif;color:#b23c17">${esc(ft.line)}</p>
+  <p style="${MUTED};font-size:12px;margin-top:6px">Nothing was retried — the rest of the roster ran
+  normally. ${esc(ft.count === 1 ? 'This athlete' : 'These athletes')} will be picked up on the next run.</p>
+  </div>`);
+  }
+
   // ── 6. WHAT EXPIRED ──────────────────────────────────────────────────────
   // NOTHING DISAPPEARS SILENTLY. Drafts nobody sent expire after a week, and an
   // agent who watched a pile of pitches shrink with no explanation would
@@ -318,6 +331,8 @@ function renderShiftEmail(report, opts = {}) {
   if (mv && (mv.earned || mv.inFlight)) {
     textLines.push('', 'MOVING', '  ' + money(mv.earned) + ' earned · ' + money(mv.inFlight) + ' in flight');
   }
+  if (ft && ft.line) textLines.push('', '  ' + ft.line,
+    '  Nothing was retried; the rest of the roster ran normally.');
   if (vb && vb.line) textLines.push('', '  ' + vb.line);
   if (da && da.expiredRecent > 0) {
     textLines.push('', '  ' + da.expiredRecent + ' draft' + (da.expiredRecent === 1 ? '' : 's')

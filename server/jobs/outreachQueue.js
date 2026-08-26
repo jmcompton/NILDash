@@ -662,20 +662,56 @@ async function fillAgent(pool, agent, opts) {
     // race decided by the roster's ORDER BY. Unspent share flows forward
     // automatically because this divides the REMAINING pot, not the original.
     budget.openFor(athletes.length - ai2);
-    const r = await fillAthlete(pool, {
-      agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
-      athleteProfile: athleteProfile(ath), agentFirstName: agentFirst,
-      // The raw stored athlete, for the widened re-scan only. getDealRecommendations
-      // reads school/sport/instagram/tiktok off the record itself.
-      athleteRow: ath.data || null,
-      // Resolved per athlete. Passing opts.region here meant passing undefined.
-      budget, region: regionForAthlete(ath), dryRun: dry,
-      // FIVE a night now. See NIGHTLY_SLOTS: this is what caps the slate the
-      // Scout is asked for, so raising it is what lets the night evaluate
-      // dozens of businesses rather than three.
-      maxSlots: Q.NIGHTLY_SLOTS,
-      onProgress: (m) => console.log('[queue] ' + m),
-    });
+
+    // ── ONE ATHLETE'S CRASH COSTS ONE ATHLETE ────────────────────────────────
+    // run() already wraps fillAgent so one agent cannot take down the others.
+    // This loop had no such wrapper, so a throw anywhere inside fillAthlete --
+    // a Places timeout, a malformed athlete row, a null deref in the ladder --
+    // ended the night for EVERY athlete after it in the roster. On a roster of
+    // forty-five, an exception on the second athlete cost forty-three.
+    //
+    // The failure is recorded and skipped. NOT retried: a lookup that threw has
+    // usually already spent, and running it again spends again for the same
+    // answer.
+    let r = null;
+    try {
+      r = await fillAthlete(pool, {
+        agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
+        athleteProfile: athleteProfile(ath), agentFirstName: agentFirst,
+        // The raw stored athlete, for the widened re-scan only. getDealRecommendations
+        // reads school/sport/instagram/tiktok off the record itself.
+        athleteRow: ath.data || null,
+        // Resolved per athlete. Passing opts.region here meant passing undefined.
+        budget, region: regionForAthlete(ath), dryRun: dry,
+        // FIVE a night now. See NIGHTLY_SLOTS: this is what caps the slate the
+        // Scout is asked for, so raising it is what lets the night evaluate
+        // dozens of businesses rather than three.
+        maxSlots: Q.NIGHTLY_SLOTS,
+        onProgress: (m) => console.log('[queue] ' + m),
+      });
+    } catch (e) {
+      console.error(`[queue] agent=${agent.id} athlete=${ath.id} (${ath.name}) failed: ${e.message}`);
+      details.push({
+        athleteId: ath.id, athleteName: ath.name, filled: 0, open: null,
+        // `error` is the field the shift report looks for. `note` carries the
+        // same thing in words so any older reader that only knows about notes
+        // still says something true rather than "no reason recorded".
+        error: e.message || String(e),
+        note: 'this athlete was skipped: ' + (e.message || String(e)),
+        tried: [], paused: false,
+        // Whatever it spent before it threw. Dropping this would make the
+        // per-night cost read low by exactly the amount the crash wasted.
+        spentUsd: Math.round((budget.spent() - before) * 10000) / 10000,
+        spendLog: [],
+      });
+      // NO recordAttempt ON AN ERROR, deliberately. That counter feeds the
+      // three-strikes backoff that pauses an athlete, and an exception is
+      // evidence about OUR code, not about this athlete's market. A bug that
+      // threw for everyone would otherwise pause the whole roster in three
+      // nights and look like a market problem.
+      continue;
+    }
+
     filled += r.filled;
     details.push({
       athleteId: ath.id, athleteName: ath.name, filled: r.filled, open: r.open,

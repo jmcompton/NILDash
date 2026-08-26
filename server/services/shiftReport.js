@@ -280,11 +280,39 @@ async function buildShiftReport(pool, agentId) {
   const blankReasons = Object.keys(reasonCounts)
     .sort((a, b) => reasonCounts[b] - reasonCounts[a])
     .map((why) => ({ why, athletes: reasonCounts[why] }));
+
+  // ── ATHLETES THE RUN CRASHED ON ──────────────────────────────────────────
+  // A FAULT, NOT AN EMPTY MARKET, and the two must not read alike. An athlete
+  // with no local businesses left and an athlete whose lookup threw both end the
+  // night with zero cards; the first is an honest answer and the second is a bug
+  // nobody is looking at. Before this, the only way to notice the second was for
+  // an agent to spot that someone had no cards again.
+  //
+  // Named individually rather than counted, because the fix is usually specific
+  // to the athlete -- a malformed row, a school that resolves to nothing, a
+  // market that times out.
+  const errored = details
+    .filter((d) => d && d.error)
+    .map((d) => ({ athleteId: d.athleteId, athleteName: d.athleteName || 'an athlete', error: String(d.error) }));
+  const faults = errored.length ? {
+    count: errored.length,
+    athletes: errored,
+    line: errored.length === 1
+      ? `${errored[0].athleteName} was skipped by an error last night, so they got nothing: ${errored[0].error}`
+      : `${errored.length} athletes were skipped by errors last night and got nothing: `
+        + listify(errored.slice(0, 4).map((e) => e.athleteName))
+        + (errored.length > 4 ? ` and ${errored.length - 4} more` : ''),
+  } : null;
+
   const coverage = {
     attempted, withWork, blank, blankNames, blankReasons,
+    // Counted out of the coverage denominator's story: an athlete the run
+    // crashed on was not "attempted and found nothing", it was not finished.
+    errored: errored.length,
     line: !attempted ? null
       : (blank > 0
         ? `Across ${withWork} of ${attempted} athletes — ${blank} had nothing new to work`
+          + (errored.length ? `, ${errored.length} of them because the run hit an error` : '')
         : `Across ${plural(attempted, 'athlete')}`),
   };
 
@@ -335,7 +363,7 @@ async function buildShiftReport(pool, agentId) {
       .then((r) => (r && r.n ? { count: r.n, markets: r.markets, examples: r.examples || [],
         line: `${plural(r.n, 'name')} the market scan produced were not businesses and were rejected` } : null))
       .catch(() => null),
-    sentence, stat, coverage, roles, needsYou, moving, draftAudit, verifyBudget,
+    sentence, stat, coverage, faults, roles, needsYou, moving, draftAudit, verifyBudget,
     closer: closerBlock,
     analyst: await buildAnalystBlock(pool, agentId, from, to).catch((e) => {
       errs.push('analyst: ' + e.message); return null;
