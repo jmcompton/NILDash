@@ -38,6 +38,30 @@
 // decisions is not a page carrying one.
 const SHOWN_MAX = parseInt(process.env.HOME_CARDS_PER_ATHLETE, 10) || 5;
 
+// OVER-FETCH, WITH A CEILING. The gate below throws cards away -- no address, a
+// bounced one, one the verifier called undeliverable -- so fetching exactly five
+// would hand back three. Fetching to backfill is right; fetching without a
+// ceiling is how one athlete's page starts addressing and verifying a pile of
+// sixty. Three slates is the compromise: enough that a normal night still fills
+// the page, few enough that the worst case is bounded and knowable.
+const FETCH_MAX = Math.min(
+  parseInt(process.env.HOME_FETCH_MULTIPLIER, 10) || 3, 6) * SHOWN_MAX;
+
+// A page load, not a batch job. The whole addressing pass gets this long and
+// then reports what it has.
+const ATTACH_DEADLINE_MS = parseInt(process.env.HOME_ATTACH_DEADLINE_MS, 10) || 2500;
+
+// The same screen the scraper uses, so "a usable address" means one thing in
+// this codebase rather than two. Wrapped because siteEmail opens a pg pool at
+// require time and a page builder has no business dragging one in on a bad day.
+function screen(addr) {
+  try {
+    return require('./siteEmail').screenEmail(addr, null);
+  } catch (e) {
+    return { ok: true };   // cannot screen: do not invent a rejection
+  }
+}
+
 const MIN_USEFUL = 40;       // shorter than this says nothing an agent can act on
 const MAX_LEN = 220;         // longer than this is not a three-second read
 
@@ -191,12 +215,63 @@ async function buildHome(pool, agentId, opts = {}) {
         -- first so the tie-break is stable and a draft cannot jump the queue by
         -- being rewritten.
         ORDER BY m.compatibility_score DESC NULLS LAST, l.created_at ASC
-        LIMIT $3`, [agentId, selected, SHOWN_MAX]);
+        LIMIT $3`, [agentId, selected, FETCH_MAX]);
     const t = await q('pending-total',
       `SELECT COUNT(*)::int AS n FROM outreach_logs
         WHERE agent_id = $1 AND athlete_id = $2 AND status = 'draft'
           AND approved_at IS NULL AND cadence_stopped_at IS NULL`, [agentId, selected]);
     pendingTotal = (t[0] && t[0].n) || 0;
+  }
+
+  // ── ADDRESS THE DRAFTS BEFORE JUDGING THEM ────────────────────────────────
+  //
+  // THIS IS A WORKAROUND. It is not the fix, and it should not be allowed to
+  // become one by sitting here quietly. See docs/known-issues.md, "Draft
+  // addressing races the contact ladder".
+  //
+  // The root cause is ordering, not this file. draftPrewarm.draftOne calls
+  // draftAddress.lookupOne AFTER its model call -- five to fifteen seconds in --
+  // while ladderPrewarm.warmOne, the only thing that runs the deep lookup that
+  // WRITES the siteemail row that lookupOne reads, takes about thirty. Both are
+  // fired at the same moment after the scan response. So the draft reads the
+  // cache before the ladder has written to it, and is born with no address. On
+  // top of that ladderPrewarm only warms TOP_N = 3 cards per lane while
+  // draftPrewarm drafts 12, so nine of every twelve never had an address source
+  // created for them at all.
+  //
+  // Calling attach here papers over both: by the time an agent opens Home the
+  // ladder has long since finished, so the row that was missing at insert is
+  // usually there now. The real fix is to make the draft wait for, or trigger,
+  // its own address lookup -- at which point this call becomes a cheap no-op
+  // rather than the thing holding the feature up.
+  if (cards.length && selected) {
+    try {
+      const DA = require('./draftAddress');
+      const VB = require('./verifyBudget');
+      const res = await DA.attach(pool, {
+        agentId,
+        ids: cards.map((c) => c.id),
+        athleteId: selected,
+        budget: VB.PER_ATHLETE_DAY,
+        // A PAGE LOAD, NOT A BATCH JOB. Past this the remaining addresses come
+        // back `unknown`, which shows the card and marks it unverified. An agent
+        // staring at a spinner because a resolver is slow is a worse outcome
+        // than a card that says what it does not know.
+        deadlineMs: ATTACH_DEADLINE_MS,
+      });
+      if (res && res.attached) {
+        // Re-read only what changed, rather than re-running the whole card query.
+        const filled = await q('addressed',
+          `SELECT id, sent_to_email FROM outreach_logs WHERE id = ANY($1::text[])`,
+          [cards.map((c) => c.id)]);
+        const byId = new Map(filled.map((r) => [r.id, r.sent_to_email]));
+        for (const c of cards) if (byId.has(c.id)) c.to_email = byId.get(c.id);
+      }
+    } catch (e) {
+      // An addressing pass that could not run must not empty the page. The gate
+      // below still holds; the cards simply arrive as they were.
+      errs.push('addressing: ' + e.message);
+    }
   }
 
   // ── A KNOWN-BAD ADDRESS NEVER REACHES A CARD ──────────────────────────────
@@ -234,18 +309,36 @@ async function buildHome(pool, agentId, opts = {}) {
     }
     cards = cards.filter((c) => {
       const a = c.to_email ? String(c.to_email).trim().toLowerCase() : null;
-      if (a && suppressed.has(a)) {
+      // NO ADDRESS IS NOT A PASS. Both guards below were written `if (a && ...)`
+      // to catch a known-BAD address, and a card with NO address fell straight
+      // through the middle of them onto the page -- an approve button over an
+      // empty recipient. This is the gate that was missing.
+      if (!a) {
+        withheld.push({ business: c.brand_name, why: 'no email address found for this business yet' });
+        return false;
+      }
+      // Shape, role words and domain match, from the screen the scraper already
+      // uses. One definition of "usable address" in the codebase, not two.
+      const s = screen(a);
+      if (!s.ok) {
+        withheld.push({ business: c.brand_name, why: s.reason });
+        return false;
+      }
+      if (suppressed.has(a)) {
         withheld.push({ business: c.brand_name, why: 'this address bounced before' });
         return false;
       }
-      if (a && verdicts.get(a) === 'invalid') {
+      if (verdicts.get(a) === 'invalid') {
         withheld.push({ business: c.brand_name, why: 'the address does not accept mail' });
         return false;
       }
       // Everything else rides, carrying what we know about it.
-      c._verified = a ? (verdicts.get(a) || null) : null;
+      c._verified = verdicts.get(a) || null;
       return true;
     });
+    // BACK DOWN TO THE SLATE. The query over-fetched so the filter could throw
+    // work away and still leave five; anything past five waits for tomorrow.
+    if (cards.length > SHOWN_MAX) cards = cards.slice(0, SHOWN_MAX);
   }
 
   // ── WHAT WILL ACTUALLY BE SENT ────────────────────────────────────────────

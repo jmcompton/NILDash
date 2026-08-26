@@ -76,7 +76,11 @@ async function lookupOne(pool, brand) {
 // ONLY WHERE IT IS MISSING. An address already on a row was put there by
 // something that knew more than this does -- the workflow path attaches a real
 // contact_id -- and must not be overwritten by a site-wide generic inbox.
-async function attach(pool, { agentId, ids = null, limit = 500 } = {}) {
+// opts.athleteId + opts.budget turn on the per-athlete-per-day credit ceiling
+// (see verifyBudget.js). opts.deadlineMs bounds the whole verification pass, so
+// a caller in front of a page load can never hang on a resolver.
+async function attach(pool, opts = {}) {
+  const { agentId, ids = null, limit = 500 } = opts;
   const rows = (await pool.query(
     `SELECT id, brand_name FROM outreach_logs
       WHERE agent_id = $1
@@ -89,7 +93,7 @@ async function attach(pool, { agentId, ids = null, limit = 500 } = {}) {
 
   const found = await lookupMany(pool, rows.map((r) => r.brand_name));
   const out = { considered: rows.length, attached: 0, missing: 0, corporate: 0,
-    unverifiable: 0, rejected: 0, details: [] };
+    unverifiable: 0, rejected: 0, creditsSpent: 0, creditsSkipped: 0, details: [] };
 
   // ── VERIFY BEFORE THE ADDRESS IS EVER STAMPED ON A ROW ────────────────────
   // This is THE place, because it is the single point where an address becomes
@@ -106,19 +110,50 @@ async function attach(pool, { agentId, ids = null, limit = 500 } = {}) {
   // and therefore for a large share of small local businesses -- attaches
   // normally and is marked on the card. Proceed, and say what you do not know.
   let verdicts = new Map();
+  let budgetNote = null;
   try {
     const EV = require('./emailVerify');
     const hunter = require('./hunterLookup');
+    const emailToBusiness = new Map();
     const addrs = rows.map((r) => {
       const h = found.get(String(r.brand_name || '').trim().toLowerCase());
+      if (h && h.email) emailToBusiness.set(String(h.email).trim().toLowerCase(), r.brand_name);
       return h && h.email;
     }).filter(Boolean);
     if (addrs.length) {
+      // ── WHAT THIS CALL IS ALLOWED TO SPEND ────────────────────────────────
+      // Only when a caller asks for it. The Closer's batch prep passes no
+      // athleteId and no budget, so the approve-time path is unchanged: it is
+      // spending on mail that is about to go out, which is what a credit is
+      // for. Home passes both, because it is spending on mail somebody is only
+      // LOOKING at.
+      let verifier = (e) => hunter.verifyEmail(e);
+      let lim = null;
+      if (opts.athleteId && Number.isFinite(opts.budget)) {
+        const VB = require('./verifyBudget');
+        await VB.ensureTable(pool);
+        const day = await VB.dayFor(pool, agentId);
+        const already = await VB.spentToday(pool, opts.athleteId, day);
+        lim = VB.limiter(pool, {
+          agentId, athleteId: opts.athleteId, day,
+          budget: Math.max(0, opts.budget - already),
+          emailToBusiness, verifier,
+        });
+        verifier = lim.verifier;
+        budgetNote = { budget: opts.budget, alreadySpentToday: already, day };
+      }
       verdicts = await EV.verifyMany(pool, addrs, {
         // Injected rather than imported inside emailVerify, so that file never
         // owns a key or a budget and can be tested with no network at all.
-        verifier: (e) => hunter.verifyEmail(e),
+        verifier,
+        deadlineMs: opts.deadlineMs || null,
       });
+      if (lim) {
+        budgetNote.spent = lim.spent();
+        budgetNote.skipped = lim.skipped();
+        out.creditsSpent = lim.spent();
+        out.creditsSkipped = lim.skipped();
+      }
     }
   } catch (e) {
     // A verification pass that could not run must not stop addresses being
@@ -154,6 +189,12 @@ async function attach(pool, { agentId, ids = null, limit = 500 } = {}) {
     out.details.push({ id: r.id, brand: r.brand_name, result: 'attached',
       email: hit.email, kind: hit.kind,
       verified: v ? v.result : 'unknown' });
+  }
+  if (budgetNote) {
+    out.budget = budgetNote;
+    console.log(`[draftAddress] athlete=${opts.athleteId} verification credits: `
+      + `spent=${budgetNote.spent || 0} skipped=${budgetNote.skipped || 0} `
+      + `alreadySpentToday=${budgetNote.alreadySpentToday} budget=${budgetNote.budget} day=${budgetNote.day}`);
   }
   return out;
 }

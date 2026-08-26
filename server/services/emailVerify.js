@@ -123,6 +123,16 @@ function mapHunter(status) {
 // verifyMany(pool, emails, opts) -> Map(email -> { result, detail, source })
 // opts.verifier lets a test supply Hunter's answer; production injects the real
 // one from hunterLookup so this file never owns a key or a budget.
+// CONCURRENCY, because a caller can now be a page load. This ran strictly one
+// address at a time, which was fine behind an overnight job and is not fine in
+// front of an agent waiting for Home: fifteen addresses became fifteen serial
+// round trips. The work is almost entirely network wait, so a small fan-out
+// costs nothing and turns the total into roughly the slowest one.
+const CONCURRENCY = parseInt(process.env.EMAIL_VERIFY_CONCURRENCY, 10) || 5;
+
+// A DEADLINE, because a page must not be able to hang on a resolver. Past it,
+// addresses not yet checked come back `unknown` and nothing is written -- the
+// same answer an outage gives, for the same reason.
 async function verifyMany(pool, emails, opts = {}) {
   const list = Array.from(new Set((emails || []).map(norm).filter(Boolean)));
   const out = new Map();
@@ -130,44 +140,85 @@ async function verifyMany(pool, emails, opts = {}) {
 
   const known = opts.force ? new Map() : await cached(pool, list);
   const memo = new Map();
+  const deadline = opts.deadlineMs ? Date.now() + opts.deadlineMs : null;
+  const outOfTime = () => deadline !== null && Date.now() > deadline;
 
-  for (const email of list) {
+  const one = async (email) => {
     const hit = known.get(email);
-    if (hit) { out.set(email, { result: hit.result, detail: hit.detail, source: hit.source, cached: true }); continue; }
+    if (hit) { out.set(email, { result: hit.result, detail: hit.detail, source: hit.source, cached: true }); return; }
+
+    if (outOfTime()) {
+      out.set(email, { result: 'unknown', detail: 'the check ran out of time', source: 'deadline' });
+      return;
+    }
 
     const mx = await hasMx(domainOf(email), memo);
     if (mx.ok === false) {
       await record(pool, email, 'invalid', mx.why, 'mx');
       out.set(email, { result: 'invalid', detail: mx.why, source: 'mx' });
-      continue;
+      return;
     }
     if (mx.ok === null) {
       // Could not check. Not cached -- a resolver blip must not mark an address
       // for ninety days.
       out.set(email, { result: 'unknown', detail: mx.why, source: 'mx' });
-      continue;
+      return;
     }
 
     if (typeof opts.verifier !== 'function') {
       // MX passed and there is no verifier configured. That is genuinely all we
       // know, and it is not cached as a finding for the same reason.
       out.set(email, { result: 'unknown', detail: 'no mailbox verifier configured', source: 'mx' });
-      continue;
+      return;
+    }
+
+    if (outOfTime()) {
+      out.set(email, { result: 'unknown', detail: 'the check ran out of time', source: 'deadline' });
+      return;
     }
 
     let v = null;
-    try { v = await opts.verifier(email); } catch (e) {
+    try {
+      // THE DEADLINE HAS TO BOUND THE CALL, NOT JUST PRECEDE IT. Checking the
+      // clock and then awaiting an 8-second vendor timeout means the deadline
+      // was never a deadline: one hung request and the page waits the full
+      // eight. Raced against whatever time is left, so the worst case for a
+      // caller in front of a page is the deadline it asked for.
+      const left = deadline === null ? null : Math.max(0, deadline - Date.now());
+      v = left === null
+        ? await opts.verifier(email)
+        : await Promise.race([
+          opts.verifier(email),
+          new Promise((res) => setTimeout(
+            () => res({ ok: false, why: 'the verifier did not answer in time' }), left)),
+        ]);
+    } catch (e) {
       console.warn('[email-verify] verifier failed for ' + email + ': ' + e.message);
     }
     if (!v || v.ok === false) {
-      // The call failed. Not a verdict, not cached.
+      // The call failed, or a budget refused it. Not a verdict, not cached.
       out.set(email, { result: 'unknown', detail: (v && v.why) || 'the verifier could not be reached', source: 'hunter' });
-      continue;
+      return;
     }
     const m = mapHunter(v.status);
     await record(pool, email, m.result, m.detail, 'hunter');
     out.set(email, { ...m, source: 'hunter' });
-  }
+  };
+
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= list.length) return;
+      try { await one(list[i]); } catch (e) {
+        // One bad address must not lose the whole batch.
+        console.warn('[email-verify] ' + list[i] + ': ' + e.message);
+        if (!out.has(list[i])) out.set(list[i], { result: 'unknown', detail: e.message, source: 'error' });
+      }
+    }
+  };
+  const lanes = Math.max(1, Math.min(opts.concurrency || CONCURRENCY, list.length));
+  await Promise.all(Array.from({ length: lanes }, worker));
   return out;
 }
 
