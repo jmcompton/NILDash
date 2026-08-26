@@ -1732,6 +1732,21 @@ async function init() {
   // spam filter reads before a person does.
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS attach_media_kit BOOLEAN DEFAULT false`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS lane TEXT`).catch(() => {});
+  // ── THE SAME BUSINESS, ONCE PER ATHLETE ────────────────────────────────────
+  // brand_key was never an identity: the market pool wrote a display name into
+  // it, so "Cahaba Brewing Company" and "Cahaba Brewing Co." were two brands.
+  // identity_key is brandIdentity.keyOf -- place_id, else root domain, else
+  // normalised name plus market -- and the partial index below is what makes a
+  // regression fail loudly instead of quietly producing two cards.
+  //
+  // PARTIAL, on state='queued' only, matching uq_outreach_queue_open. A card
+  // that was sent or skipped must never block the same business being queued
+  // again months later; the ledger decides that, not this index.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS identity_key TEXT`).catch(() => {});
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_outreach_queue_identity
+    ON outreach_queue (athlete_id, identity_key)
+    WHERE state = 'queued' AND identity_key IS NOT NULL`)
+    .catch((e) => console.error('[init] outreach_queue identity index:', e.message));
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS program_url TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS sponsor_signal TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS sponsor_note TEXT`).catch(() => {});

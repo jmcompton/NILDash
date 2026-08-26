@@ -36,6 +36,7 @@ const { buildContactLadder } = require('../services/contactLadder');
 const { lookupPlace } = require('../services/placesLookup');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
+const BI = require('../services/brandIdentity');
 const AR = require('../services/athleteRecord');
 const Scout = require('../services/scout');
 const Deepen = require('../services/marketDeepen');
@@ -248,16 +249,25 @@ async function matchFor(pool, agentId, athleteId, brandName) {
 // partial unique index on (athlete_id, slot) WHERE state='queued' is what makes
 // a double-fill a no-op rather than a duplicate.
 async function insertCard(pool, { agentId, athleteId, slot, card }) {
+  // ONE IDENTITY, WRITTEN TO BOTH COLUMNS. outreach_queue.brand_key is NOT NULL,
+  // and the market pool now honestly reports that it has no key -- so without
+  // this the fix for the lie would simply move the lie into a constraint
+  // violation. The identity key is a REAL key (place, domain, or normalised
+  // name plus market), which is what brand_key was always supposed to hold and
+  // what the display name never was. Downstream readers of brand_key --
+  // draftPrewarm's one-draft-per-brand index among them -- get the improvement
+  // for free.
+  const identity = BI.keyOf(card.identity || card);
   const ins = await pool.query(
     `INSERT INTO outreach_queue
        (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
         source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
         dm_text, channel, state, angle, angle_key, category_key, ask, lane, program_url,
-        sponsor_signal, sponsor_note)
+        sponsor_signal, sponsor_note, identity_key)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20,
-             $21,$22,$23,$24)
+             $21,$22,$23,$24,$25)
      ON CONFLICT DO NOTHING RETURNING id`,
-    [agentId, athleteId, slot, card.brandKey, card.brandName, card.why, card.contactName,
+    [agentId, athleteId, slot, card.brandKey || identity, card.brandName, card.why, card.contactName,
      card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
      card.instagramScope, card.phone, card.phoneAskFor, card.dmText, card.channel,
      card.angle, card.angleKey, card.categoryKey, card.ask,
@@ -266,8 +276,18 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
      // 'local' here is how an unknown became a fact in the database, and every
      // reader downstream then believed it.
      card.lane || null, card.programUrl || null,
-     card.sponsorSignal || null, card.sponsorNote || null]);
-  return (ins.rowCount || 0) > 0;
+     card.sponsorSignal || null, card.sponsorNote || null,
+     // The identity the unique index enforces. ON CONFLICT DO NOTHING already
+     // covers the slot index, so a duplicate business now lands on
+     // uq_outreach_queue_identity and returns no row -- the caller sees `false`
+     // and reports it, exactly as it does for a taken slot.
+     identity]);
+  const wrote = (ins.rowCount || 0) > 0;
+  if (!wrote) {
+    console.log(`[queue] athlete=${athleteId} slot=${slot} "${card.brandName}" not written `
+      + `(identity=${identity} already queued, or the slot was taken)`);
+  }
+  return wrote;
 }
 
 async function fillAthlete(pool, ctx) {

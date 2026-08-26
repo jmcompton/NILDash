@@ -200,8 +200,16 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
   // b. THE POOL THAT WAS NEVER READ. Businesses the market scan discovered and
   //    passed over, plus any discovered since. This is what stops a market going
   //    quiet: the scan found them, we simply never came back to them.
+  // brand_key IS NULL, DELIBERATELY. This read `m.brand AS brand_key`, which is
+  // a lie about what a brand_key is: market_business_seen is PRIMARY KEY
+  // (market_key, brand) and holds no stable identifier at all. Every consumer
+  // that later compared brand_key inherited a display name pretending to be an
+  // identity -- including draftPrewarm's one-draft-per-brand index, which is why
+  // the same business could be drafted twice. The market_key travels instead, so
+  // brandIdentity can build an honest name-plus-market key from it.
   const seen = athlete.marketKey ? await q('seen',
-    `SELECT m.brand AS brand_name, m.brand AS brand_key, 'market-pool' AS pool
+    `SELECT m.brand AS brand_name, NULL::text AS brand_key, $1::text AS market_key,
+            'market-pool' AS pool
        FROM market_business_seen m
       WHERE m.market_key = $1
         AND NOT EXISTS (SELECT 1 FROM brand_engagement be
@@ -305,6 +313,8 @@ async function nationalCandidates(pool, { limit, store }) {
 
 // ── The slate ────────────────────────────────────────────────────────────────
 // One mixed list, ranked across lanes. Lane is a property of a result.
+const BI = require('./brandIdentity');
+
 async function assembleSlate(pool, ctx) {
   const { agentId, athlete, store } = ctx;
   const limit = ctx.limit || SLATE_MAX;
@@ -346,23 +356,78 @@ async function assembleSlate(pool, ctx) {
   // makes more likely, not less. Without this the athlete gets two pitches to
   // the same owner on the same night. Deduped after ranking so the surviving
   // copy is the one with the better score and its lane label.
-  const takenBrand = new Set();
-  const scored = [];
-  let collapsed = 0;
-  for (const c of ranked) {
-    const k = normBrand(c.brand_name) || normBrand(c.brand_key);
-    if (!k) continue;
-    if (takenBrand.has(k)) { collapsed++; continue; }
-    takenBrand.add(k);
-    scored.push(c);
+  // IDENTITY, NOT THE DISPLAY NAME. This compared
+  //   normBrand(c.brand_name) || normBrand(c.brand_key)
+  // which preferred the one field that varies and used brand_key only as a
+  // fallback -- so two rows carrying the SAME place_id under "Cahaba Brewing
+  // Company" and "Cahaba Brewing Co." were two businesses as far as this loop
+  // was concerned. normBrand collapsed 0 of 9 realistic variant pairs.
+  //
+  // brandIdentity.dedupe matches on ANY shared identity -- place_id, root
+  // domain, or normalised name plus market -- which is what makes the two-pool
+  // case work: brand_engagement supplies a place_id and the market pool supplies
+  // only a name, and comparing strongest-to-strongest they never touch.
+  const deduped = BI.dedupe(ranked, { market: athlete.marketKey || null });
+  const scored = deduped.kept.filter((c) => c.brand_name || c.brand_key);
+  const collapsed = deduped.collapses.length;
+  // EVERY collapse, named. Both names, both keys, both pools and which basis
+  // decided it, so the name fallback can be judged on evidence rather than
+  // trusted -- if it is quietly merging businesses that are not the same, these
+  // lines are where that shows up first.
+  for (const x of deduped.collapses) console.log(BI.describeCollapse(x, 'slate'));
+  if (collapsed) {
+    const byBasis = {};
+    for (const x of deduped.collapses) byBasis[x.basis] = (byBasis[x.basis] || 0) + 1;
+    console.log(`[slate] athlete=${athlete.id} collapsed ${collapsed} duplicate(s): `
+      + Object.entries(byBasis).map(([b, n]) => `${n} on ${b}`).join(', '));
   }
+
+  // ── AND NOT ONE THIS ATHLETE HAS ALREADY HAD ─────────────────────────────
+  // The pool queries exclude on exact lowercase strings, which is the same
+  // weakness as the slate dedupe and fails on exactly the same variants: a
+  // business queued last night as "Cahaba Brewing Co." does not match a market
+  // pool row reading "Cahaba Brewing Company", so it comes back tonight.
+  //
+  // Compared on identity, so a name variant cannot walk past it. Scoped to the
+  // athlete, because a business one athlete has been pitched is still a fair
+  // target for another.
+  let priorKeys = new Set();
+  try {
+    const prior = (await pool.query(
+      `SELECT brand_name, brand_key, identity_key, 'queued' AS why
+         FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'
+       UNION ALL
+       SELECT brand_name, brand_key, NULL AS identity_key, 'contacted' AS why
+         FROM brand_engagement
+        WHERE athlete_id = $1 AND state IN ('contacted','replied','closed','retired')`,
+      [athlete.id])).rows;
+    for (const r of (prior || [])) {
+      if (r.identity_key) { priorKeys.add(r.identity_key); continue; }
+      for (const id of BI.identitiesOf(r, { market: athlete.marketKey || null })) priorKeys.add(id.key);
+    }
+  } catch (e) { console.error('[slate] prior lookup:', e.message); }
+
+  const beforePrior = scored.length;
+  const fresh = [];
+  for (const c of scored) {
+    const ids = BI.identitiesOf(c, { market: athlete.marketKey || null });
+    const clash = ids.find((id) => priorKeys.has(id.key));
+    if (clash) {
+      console.log(`[slate] athlete=${athlete.id} skipping "${c.brand_name}" — already queued or `
+        + `contacted for this athlete (matched ${clash.key}, basis=${clash.basis}, pool=${c.pool || c.lane})`);
+      continue;
+    }
+    fresh.push(c);
+  }
+  const repeats = beforePrior - fresh.length;
+  if (repeats) console.log(`[slate] athlete=${athlete.id} dropped ${repeats} business(es) already seen by this athlete`);
 
   // Interleave under a soft lane cap so one lane cannot take the whole slate
   // while another has something better waiting.
   const picks = [];
   const chosen = new Set();
   const perLane = {};
-  for (const c of scored) {
+  for (const c of fresh) {
     if (picks.length >= limit) break;
     perLane[c.lane] = perLane[c.lane] || 0;
     if (perLane[c.lane] >= LANE_SOFT_CAP) continue;
@@ -370,7 +435,7 @@ async function assembleSlate(pool, ctx) {
   }
   // Soft cap: if the slate is short only because of it, fill from what is left.
   if (picks.length < limit) {
-    for (const c of scored) {
+    for (const c of fresh) {
       if (picks.length >= limit) break;
       if (chosen.has(c)) continue;
       chosen.add(c); picks.push(c);
