@@ -1763,6 +1763,18 @@ async function init() {
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS reply_html TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS reply_from TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS reply_subject TEXT`).catch(() => {});
+  // THE ACKNOWLEDGEMENT. Capture was rich -- reply_text, reply_from, replied_at,
+  // last_inbound_at -- and there was no counterpart for "the agent dealt with
+  // this", so a captured reply sat in NEEDS YOU and owned the report subject
+  // line for as long as the row lived. The one designed exit was
+  // status <> 'closed', and nothing in the codebase ever wrote that status; the
+  // complete set ever written is draft, approved, sent, replied, expired.
+  //
+  // A SEPARATE COLUMN, NOT A STATUS. `status` encodes where a message is in the
+  // send state machine; "a human has seen the answer" is a different fact about
+  // the same row, and folding it into status would make 'replied' and 'handled'
+  // mutually exclusive when they are not.
+  await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS reply_handled_at TIMESTAMPTZ`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS last_inbound_kind TEXT`).catch(() => {});
 

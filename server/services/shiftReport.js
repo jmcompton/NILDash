@@ -543,12 +543,20 @@ async function buildNeedsYou(pool, agentId, q, win) {
     });
   }
 
+  // ONE EXIT, AND IT IS ONE A PERSON TAKES. This filtered on
+  // COALESCE(status,'') <> 'closed', and nothing anywhere ever wrote 'closed' to
+  // outreach_logs -- the complete set of values written is draft, approved,
+  // sent, replied, expired. So the condition was always true, the query had no
+  // time bound, and a captured reply stayed in NEEDS YOU permanently and kept
+  // owning the report's subject line via buildSubject. reply_handled_at is the
+  // acknowledgement that was missing; it is set only by the agent pressing the
+  // button on the row.
   const replies = await q('needs-replies',
     `SELECT l.id, l.brand_name, l.replied_at, a.data->>'name' AS athlete_name
        FROM outreach_logs l
        LEFT JOIN athletes a ON a.id = l.athlete_id
       WHERE l.agent_id = $1 AND l.replied_at IS NOT NULL
-        AND COALESCE(l.status,'') <> 'closed'
+        AND l.reply_handled_at IS NULL
       ORDER BY l.replied_at DESC LIMIT $2`, [agentId, ITEM_MAX]);
   for (const r of (replies || [])) {
     items.push({
@@ -714,7 +722,14 @@ async function buildDraftAudit(pool, agentId, q) {
             COUNT(*) FILTER (WHERE status = 'expired')::int                     AS expired,
             MIN(created_at) FILTER (WHERE status = 'draft')                     AS oldest_draft,
             COUNT(*) FILTER (WHERE status = 'draft'
-              AND created_at < NOW() - ($2 || ' days')::interval)::int          AS stale
+              AND created_at < NOW() - ($2 || ' days')::interval)::int          AS stale,
+            -- WHAT WENT, SINCE THE LAST TIME THEY LOOKED. The sweep runs every
+            -- six hours on its own clock, not on the run window, so this is
+            -- measured in days rather than against the overnight run. A daily
+            -- report reading "in the last day" is the same unit the agent is
+            -- already holding in their head.
+            COUNT(*) FILTER (WHERE status = 'expired'
+              AND updated_at >= NOW() - INTERVAL '24 hours')::int               AS expired_recent
        FROM outreach_logs WHERE agent_id = $1`, [agentId, String(DRAFT_EXPIRY_DAYS)]);
   const row = r && r[0];
   if (!row) return null;
@@ -725,6 +740,7 @@ async function buildDraftAudit(pool, agentId, q) {
   return {
     pending, everSent, allRows: all,
     expired: Number(row.expired) || 0,
+    expiredRecent: Number(row.expired_recent) || 0,
     stale: Number(row.stale) || 0,
     expiryDays: DRAFT_EXPIRY_DAYS,
     sendThroughPct: all ? Math.round((everSent / all) * 1000) / 10 : null,

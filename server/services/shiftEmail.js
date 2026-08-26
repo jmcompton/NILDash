@@ -244,6 +244,19 @@ function renderShiftEmail(report, opts = {}) {
   </tr></table></div>`);
   }
 
+  // ── 6. WHAT EXPIRED ──────────────────────────────────────────────────────
+  // NOTHING DISAPPEARS SILENTLY. Drafts nobody sent expire after a week, and an
+  // agent who watched a pile of pitches shrink with no explanation would
+  // reasonably assume the product lost them. Says what went, why, and that the
+  // text is still there -- expiry is a status change, not a delete.
+  const da = r.draftAudit;
+  if (da && da.expiredRecent > 0) {
+    parts.push(`<div style="border-top:1px solid #eef1f6;margin-top:18px;padding-top:16px">
+  <p style="${MUTED};font-size:12px;margin:0">${esc(da.expiredRecent)} draft${da.expiredRecent === 1 ? '' : 's'}
+  expired in the last day after ${esc(da.expiryDays)} days with no send. Nothing was deleted — they are still
+  readable in Outreach.</p></div>`);
+  }
+
   parts.push(`</td></tr>
 <tr><td style="padding:18px 24px 22px">
   <p style="${MUTED};font-size:11px;border-top:1px solid #eef1f6;padding-top:14px">
@@ -291,6 +304,11 @@ function renderShiftEmail(report, opts = {}) {
   }
   if (mv && (mv.earned || mv.inFlight)) {
     textLines.push('', 'MOVING', '  ' + money(mv.earned) + ' earned · ' + money(mv.inFlight) + ' in flight');
+  }
+  if (da && da.expiredRecent > 0) {
+    textLines.push('', '  ' + da.expiredRecent + ' draft' + (da.expiredRecent === 1 ? '' : 's')
+      + ' expired in the last day after ' + da.expiryDays + ' days with no send.'
+      + ' Nothing was deleted — they are still readable in Outreach.');
   }
 
   return { subject, html, text: textLines.join('\n') };

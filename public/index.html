@@ -1092,6 +1092,9 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .sr-btn{flex:none;background:#84CC16;border:none;color:#0b0f0a;font-family:'DM Sans',sans-serif;
   font-size:12px;font-weight:600;padding:8px 13px;border-radius:8px;cursor:pointer;white-space:nowrap}
 .sr-btn:hover{filter:brightness(1.07)}
+.sr-btn-quiet{background:transparent;border:1px solid var(--border2);color:var(--muted);margin-left:8px}
+.sr-btn-quiet:hover{filter:none;border-color:#84CC16;color:#dbe4f0}
+.sr-btn-quiet:disabled{opacity:.5;cursor:default}
 .sr-empty{padding:20px 15px;text-align:center;font-size:13px;color:var(--muted);line-height:1.6}
 .sr-empty b{color:#84CC16;font-weight:600}
 .sr-sentence{font-family:'Syne',sans-serif;font-size:23px;font-weight:700;color:var(--text);
@@ -17123,6 +17126,14 @@ function srRenderNeeds(d, el) {
       + (isHold && it.reason ? '<div class="sr-hold-why">' + hmEsc(it.reason) + '</div>' : '')
       + '</div>'
       + '<button class="sr-btn" onclick="srAct(' + i + ')">' + hmEsc(it.actionLabel || 'Open') + '</button>'
+      // ONE ACTION, ON THE REPLY ROW ONLY. A reply is the one item here with no
+      // other way out: an approval leaves when it is approved and a hold leaves
+      // when it is resolved, but nothing the agent does about a reply -- opening
+      // it, answering it from their own inbox, closing the deal -- ever touched
+      // the row. So it sat here forever and owned the subject line.
+      + (it.kind === 'reply'
+        ? '<button class="sr-btn sr-btn-quiet" onclick="srReplyHandled(\'' + hmEsc(it.id) + '\', this)">Handled</button>'
+        : '')
       + '</div>';
   }).join('');
   // Overflow is ONE QUIET LINE. Never a second list.
@@ -17132,6 +17143,24 @@ function srRenderNeeds(d, el) {
     + '<div class="sr-needs-head"><span class="sr-needs-title">Needs you</span>'
     + '<span class="sr-count">' + items.length + '</span></div>'
     + rows + more + '</div>';
+}
+
+// Mark a captured reply as dealt with. The row goes on saying "Handled…" until
+// the reload confirms it, because an optimistic removal that failed server-side
+// would hide a live reply -- the exact failure this button exists to end.
+async function srReplyHandled(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Handled…'; }
+  try {
+    var r = await fetch(API_BASE + '/api/outreach/logs/' + encodeURIComponent(id) + '/reply-handled', {
+      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handled: true })
+    });
+    if (!r.ok) throw new Error((await r.json().catch(function () { return {}; })).error || 'Could not save');
+    if (typeof loadAgentHomeV2 === 'function') await loadAgentHomeV2();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Handled'; }
+    showToast('Could not mark it handled: ' + e.message);
+  }
 }
 
 // ── Daily report settings ────────────────────────────────────────────────────

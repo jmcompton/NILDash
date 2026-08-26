@@ -549,6 +549,42 @@ router.post('/logs/:id/replied', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/outreach/logs/:id/reply-handled
+ * Body: { handled: boolean } (default true).
+ *
+ * Clears a captured reply out of NEEDS YOU. This is the only thing that does --
+ * the shift report's reply query filters on reply_handled_at IS NULL, and the
+ * only writer of that column is this route.
+ *
+ * DELIBERATELY NOT status='closed'. `status` tracks where a message is in the
+ * send state machine (draft, approved, sent, replied, expired) and a row can be
+ * both 'replied' and handled at once. Overloading status would have made those
+ * two facts exclusive.
+ *
+ * Reversible: handled=false puts it back. Marking something handled by mistake
+ * must not hide a real reply forever, which is the failure this whole column
+ * exists to end.
+ */
+router.post('/logs/:id/reply-handled', async (req, res) => {
+  try {
+    const handled = req.body.handled !== false;
+    const r = await pool.query(
+      `UPDATE outreach_logs
+          SET reply_handled_at = CASE WHEN $3 THEN NOW() ELSE NULL END, updated_at = NOW()
+        WHERE id = $1 AND agent_id = $2 AND replied_at IS NOT NULL
+        RETURNING id, replied_at, reply_handled_at`,
+      [req.params.id, req.principal.id, handled]);
+    // A row that never had a reply cannot be handled, and saying so is better
+    // than a silent 200 that leaves the item sitting there.
+    if (!r.rows[0]) return res.status(404).json({ error: 'No captured reply on this outreach' });
+    res.json({ ok: true, ...r.rows[0] });
+  } catch (e) {
+    console.error('[outreach/reply-handled]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Follow-ups ────────────────────────────────────────────────────────────────
 
 /**
