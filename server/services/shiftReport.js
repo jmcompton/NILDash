@@ -139,6 +139,14 @@ async function buildShiftReport(pool, agentId) {
   const needsYou = await buildNeedsYou(pool, agentId, q, win);
   const moving = await buildMoving(pool, agentId, q);
   const draftAudit = await buildDraftAudit(pool, agentId, q);
+  // THE HUNTER MONTH, WHEN IT IS RUNNING OUT. Reported here because this email
+  // is the one thing an agent reads every morning without being asked to. Null
+  // when there is nothing to say, so a healthy month adds no noise.
+  let verifyBudget = null;
+  try {
+    const a = await require('./verifyBudget').accountStatus(pool);
+    if (a && a.low) verifyBudget = a;
+  } catch (e) { errs.push('verify-budget: ' + e.message); }
 
   // THE CLOSER BLOCK IS BUILT ONCE, FOR BOTH PATHS. An agent whose overnight run
   // has not happened yet still has drafts waiting on the one decision and still
@@ -155,7 +163,7 @@ async function buildShiftReport(pool, agentId) {
     return {
       run: { ran: false, reason: 'no-run-recorded', inProgress: false, finished: false },
       sentence: null, roles: [], coverage: null, added: null,
-      needsYou, moving, draftAudit, closer: closerBlock, errors: errs,
+      needsYou, moving, draftAudit, verifyBudget, closer: closerBlock, errors: errs,
     };
   }
 
@@ -327,7 +335,7 @@ async function buildShiftReport(pool, agentId) {
       .then((r) => (r && r.n ? { count: r.n, markets: r.markets, examples: r.examples || [],
         line: `${plural(r.n, 'name')} the market scan produced were not businesses and were rejected` } : null))
       .catch(() => null),
-    sentence, stat, coverage, roles, needsYou, moving, draftAudit,
+    sentence, stat, coverage, roles, needsYou, moving, draftAudit, verifyBudget,
     closer: closerBlock,
     analyst: await buildAnalystBlock(pool, agentId, from, to).catch((e) => {
       errs.push('analyst: ' + e.message); return null;

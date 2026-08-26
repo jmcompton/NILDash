@@ -62,6 +62,17 @@ function screen(addr) {
   }
 }
 
+// Three states, three different sentences, and only one of them is entitled to
+// say anything about the business's mail server.
+function verifyNote(v) {
+  if (!v) return 'Not checked yet';
+  if (v.result === 'valid') return 'Mailbox confirmed';
+  if (v.result === 'unknown' && v.source === 'hunter') {
+    return 'Not confirmed — this domain accepts all mail, so no check can tell';
+  }
+  return 'Not checked yet';
+}
+
 const MIN_USEFUL = 40;       // shorter than this says nothing an agent can act on
 const MAX_LEN = 220;         // longer than this is not a three-second read
 
@@ -244,6 +255,7 @@ async function buildHome(pool, agentId, opts = {}) {
   // usually there now. The real fix is to make the draft wait for, or trigger,
   // its own address lookup -- at which point this call becomes a cheap no-op
   // rather than the thing holding the feature up.
+  let verifyBudget = null;
   if (cards.length && selected) {
     try {
       const DA = require('./draftAddress');
@@ -259,6 +271,12 @@ async function buildHome(pool, agentId, opts = {}) {
         // than a card that says what it does not know.
         deadlineMs: ATTACH_DEADLINE_MS,
       });
+      // Surfaced on the payload, not just in a log. An account ceiling that only
+      // announces itself in stdout is a ceiling nobody finds out about until the
+      // cards quietly stop being verified.
+      if (res && res.budget && res.budget.account && res.budget.account.low) {
+        verifyBudget = res.budget.account;
+      }
       if (res && res.attached) {
         // Re-read only what changed, rather than re-running the whole card query.
         const filled = await q('addressed',
@@ -301,10 +319,16 @@ async function buildHome(pool, agentId, opts = {}) {
     }
     const verdicts = new Map();
     if (addrs.length) {
+      // SOURCE AS WELL AS RESULT. Without it every unchecked address looked
+      // identical to a checked catch-all, and the card said so out loud -- "this
+      // domain accepts all mail, so no check can tell" -- about businesses
+      // nobody had checked. That is an unfounded claim about someone's mail
+      // server, and it is the difference between "we asked and could not tell"
+      // and "we never asked".
       for (const r of await q('verification',
-        `SELECT email, result FROM email_verification WHERE email = ANY($1::text[])`,
+        `SELECT email, result, source FROM email_verification WHERE email = ANY($1::text[])`,
         [addrs.map((a) => String(a).trim().toLowerCase())])) {
-        verdicts.set(r.email, r.result);
+        verdicts.set(r.email, { result: r.result, source: r.source });
       }
     }
     cards = cards.filter((c) => {
@@ -328,7 +352,7 @@ async function buildHome(pool, agentId, opts = {}) {
         withheld.push({ business: c.brand_name, why: 'this address bounced before' });
         return false;
       }
-      if (verdicts.get(a) === 'invalid') {
+      if ((verdicts.get(a) || {}).result === 'invalid') {
         withheld.push({ business: c.brand_name, why: 'the address does not accept mail' });
         return false;
       }
@@ -405,7 +429,10 @@ async function buildHome(pool, agentId, opts = {}) {
         // mailbox; null or 'unknown' means it could not be confirmed, which for
         // a catch-all domain is the only answer any verifier can give. The card
         // says so and the agent decides. Verified-bad never gets this far.
-        verified: c._verified || null,
+        verified: (c._verified && c._verified.result) || null,
+        // Said once, here, so the page cannot invent its own wording for a
+        // state it does not fully understand.
+        verifiedNote: verifyNote(c._verified),
       };
     }),
     // Five is the ceiling; this is the pile behind it. Reported so the backlog
@@ -415,6 +442,9 @@ async function buildHome(pool, agentId, opts = {}) {
     heldBack: Math.max(0, pendingTotal - cards.length - withheld.length),
     // Held back for a REASON, not just over the five-card line.
     withheld,
+    // null unless the month's verification share is running out. The page shows
+    // it because the alternative is finding out from a support ticket.
+    verifyBudget,
     canApprove: !blocked && cards.length > 0,
     // Empty because there is nothing, or empty because a read failed. Never
     // the same thing on the page.

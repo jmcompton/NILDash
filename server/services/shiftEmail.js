@@ -257,6 +257,19 @@ function renderShiftEmail(report, opts = {}) {
   readable in Outreach.</p></div>`);
   }
 
+  // ── THE VERIFICATION BUDGET, WHEN IT IS NEARLY GONE ──────────────────────
+  // Amber rather than muted: this is not a status line, it is a thing that needs
+  // a decision -- raise the Hunter plan, lower the per-athlete number, or accept
+  // more unverified cards. Silent while the month is healthy.
+  const vb = r.verifyBudget;
+  if (vb && vb.line) {
+    parts.push(`<div style="border-top:1px solid #eef1f6;margin-top:18px;padding-top:16px">
+  <p style="margin:0;font:600 12px/1.5 -apple-system,Arial,sans-serif;color:${vb.exhausted ? '#b23c17' : '#8a6d1f'}">
+  ${esc(vb.line)}</p>
+  <p style="${MUTED};font-size:11px;margin-top:6px">Address finding is unaffected —
+  ${esc(vb.ladderReserve)} lookups a month are held back for it.</p></div>`);
+  }
+
   parts.push(`</td></tr>
 <tr><td style="padding:18px 24px 22px">
   <p style="${MUTED};font-size:11px;border-top:1px solid #eef1f6;padding-top:14px">
@@ -305,6 +318,7 @@ function renderShiftEmail(report, opts = {}) {
   if (mv && (mv.earned || mv.inFlight)) {
     textLines.push('', 'MOVING', '  ' + money(mv.earned) + ' earned · ' + money(mv.inFlight) + ' in flight');
   }
+  if (vb && vb.line) textLines.push('', '  ' + vb.line);
   if (da && da.expiredRecent > 0) {
     textLines.push('', '  ' + da.expiredRecent + ' draft' + (da.expiredRecent === 1 ? '' : 's')
       + ' expired in the last day after ' + da.expiryDays + ' days with no send.'

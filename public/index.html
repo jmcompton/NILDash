@@ -19870,9 +19870,11 @@ function hqRender() {
         // than a warning about the address.
         + '<dt>To</dt><dd>' + hqEscape(c.to || 'no address on this draft')
         + (c.contact ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(c.contact) + ')</span>' : '')
-        + (c.to ? '<div class="hq-vrf">' + (c.verified === 'valid'
-            ? 'Mailbox confirmed'
-            : 'Not confirmed &mdash; this domain accepts all mail, so no check can tell') + '</div>' : '')
+        // The wording comes from the server (homeQueue.verifyNote) because only
+        // it knows whether the address was CHECKED and came back accept-all, or
+        // was never checked at all. Claiming the former about the latter is a
+        // statement about somebody's mail server that we have not earned.
+        + (c.to ? '<div class="hq-vrf">' + hqEscape(c.verifiedNote || 'Not checked yet') + '</div>' : '')
         + '</dd>'
         + '<dt>Subject</dt><dd>' + hqEscape(c.subject || 'no subject') + '</dd>'
         + '</dl>'

@@ -134,13 +134,24 @@ async function attach(pool, opts = {}) {
         await VB.ensureTable(pool);
         const day = await VB.dayFor(pool, agentId);
         const already = await VB.spentToday(pool, opts.athleteId, day);
+        // THE SMALLER OF THE TWO, AND THE ACCOUNT WINS. A per-athlete number
+        // sized for eight athletes is not a ceiling on a roster of forty-five;
+        // the month's remaining share is.
+        const acct = await VB.accountStatus(pool);
+        const perAthleteLeft = Math.max(0, opts.budget - already);
         lim = VB.limiter(pool, {
           agentId, athleteId: opts.athleteId, day,
-          budget: Math.max(0, opts.budget - already),
+          budget: Math.min(perAthleteLeft, acct.remaining),
           emailToBusiness, verifier,
         });
         verifier = lim.verifier;
-        budgetNote = { budget: opts.budget, alreadySpentToday: already, day };
+        budgetNote = {
+          budget: opts.budget, alreadySpentToday: already, day,
+          perAthleteLeft, account: acct,
+          // Which limit actually bit, so a thin slate can be explained rather
+          // than guessed at.
+          boundBy: acct.remaining < perAthleteLeft ? 'account-month' : 'athlete-day',
+        };
       }
       verdicts = await EV.verifyMany(pool, addrs, {
         // Injected rather than imported inside emailVerify, so that file never
@@ -192,9 +203,13 @@ async function attach(pool, opts = {}) {
   }
   if (budgetNote) {
     out.budget = budgetNote;
+    const a = budgetNote.account || {};
     console.log(`[draftAddress] athlete=${opts.athleteId} verification credits: `
       + `spent=${budgetNote.spent || 0} skipped=${budgetNote.skipped || 0} `
-      + `alreadySpentToday=${budgetNote.alreadySpentToday} budget=${budgetNote.budget} day=${budgetNote.day}`);
+      + `alreadySpentToday=${budgetNote.alreadySpentToday} budget=${budgetNote.budget} `
+      + `boundBy=${budgetNote.boundBy} monthUsed=${a.verifyUsed}/${a.verifyCap} `
+      + `ladder=${a.ladderUsed} accountLeft=${a.remaining} day=${budgetNote.day}`);
+    if (a.low) console.warn('[verify-budget] ' + a.line);
   }
   return out;
 }
