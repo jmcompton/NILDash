@@ -657,7 +657,29 @@ async function buildNeedsYou(pool, agentId, q, win) {
 
 // ── MOVING ───────────────────────────────────────────────────────────────────
 // Two figures: earned, and in flight.
+//
+// OFF. Both figures sum `deals` for the agent over all time, and four different
+// things land in that table without a person vouching for any of them:
+//
+//   - the demo seeder writes five demo-deal-% rows, 800 closed and 6,300 open;
+//   - the Outreach Engine auto-creates a Prospecting deal per scanned brand;
+//   - the public media-kit inquiry form books the MIDPOINT of a budget bracket
+//     an anonymous submitter picked from a dropdown, so "$5,000+" is $7,500 of
+//     "in flight" that nobody has agreed to;
+//   - and the dead-stage filter is dead code. It excludes Lost/Dead/Rejected/
+//     Declined, and the pipeline UI offers Prospecting, Outreach Sent,
+//     Negotiating, Closing and Closed -- none of the four. So no deal can ever
+//     leave "in flight" except by being closed or deleted, and the number can
+//     only go up.
+//
+// One switch rather than three, because buildMoving returning null is already
+// the "nothing to show" path that the email block, the plain-text line and
+// srRenderMoving all handle. Turning it back on is MOVING_ENABLED=1, and it
+// should not go on until a deal in that table means a person agreed to a number.
+const MOVING_ENABLED = process.env.MOVING_ENABLED === '1';
+
 async function buildMoving(pool, agentId, q) {
+  if (!MOVING_ENABLED) return null;
   // deals is a JSONB table -- id, athlete_id, agent_id, data -- with no value or
   // status COLUMN. The stage and value live in data, and the expressions below
   // are the same ones home-metrics uses, so "earned" here is the number the rest
@@ -729,4 +751,5 @@ module.exports = {
   buildShiftReport, buildNeedsYou, buildMoving, buildDraftAudit, expireStaleDrafts,
   buildRoleCards, num, plural, listify, cap,
   ITEM_MAX, QUEUE_MAX, DRAFT_EXPIRY_DAYS, SHIFT_PRE_HOURS, SHIFT_POST_HOURS,
+  MOVING_ENABLED,
 };
