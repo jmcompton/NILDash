@@ -275,8 +275,13 @@ async function buildHome(pool, agentId, opts = {}) {
       // Surfaced on the payload, not just in a log. An account ceiling that only
       // announces itself in stdout is a ceiling nobody finds out about until the
       // cards quietly stop being verified.
-      if (res && res.budget && res.budget.account && res.budget.account.low) {
-        verifyBudget = res.budget.account;
+      //
+      // `unknown` AS WELL AS `low`. A credit log that cannot be READ is a fault,
+      // not a spent month, and the page must not render the two the same way --
+      // see verifyBudget.accountStatus.
+      const acct = res && res.budget && res.budget.account;
+      if (acct && (acct.low || acct.unknown)) {
+        verifyBudget = acct;
       }
       if (res && res.attached) {
         // Re-read only what changed, rather than re-running the whole card query.
