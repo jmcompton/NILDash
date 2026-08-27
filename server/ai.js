@@ -2731,7 +2731,19 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // exactly the ground truth that must not be wrong. Null when nothing passed;
   // websiteDropped says what was rejected so the card can show it.
   return { contacts: res.contacts, notAffiliated: res.notAffiliated || [], genericInbox: res.genericInbox, personalInbox: res.personalInbox || null, instagram: res.instagram || null, instagramScope: res.instagramScope || null, businessPhone: res.businessPhone, siteEmail: res.siteEmail || null, approach, mapsUrl, website: effectiveWebsite, websiteDropped,
-    websiteResolved, addressLadder: res.addressLadder || null };
+    websiteResolved, addressLadder: res.addressLadder || null,
+    // WAS COMPUTED AND THEN DROPPED. `source` two lines above this used res.cached
+    // for the log line, but the returned object rebuilt itself from an explicit
+    // field list that omitted it -- so every caller read `undefined`. The nightly
+    // job records `cached: !!out.cached` into spendLog, which made the measured
+    // cache-hit rate 0.0% over 152 lookups no matter what the cache actually did,
+    // and pushed every genuine hit down the paid branch of the pricing.
+    //
+    // It is ONE LANE'S ANSWER: whether the contacts row was served from cache.
+    // A single lookup also reads places, siteemail and the ladder's rows, so the
+    // authoritative counts are meter.cacheHits / meter.cacheMisses. Kept because
+    // "did the expensive contacts fan-out re-run" is still worth knowing on its own.
+    cached: !!res.cached };
 }
 
 // Build the "Approach" line. References the real person, else the honest phone

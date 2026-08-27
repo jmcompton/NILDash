@@ -413,15 +413,39 @@ function priceOf(meter) {
 }
 
 // Roll a night's lookups into the per-athlete figure the audit asked for.
+//
+// FREE MEANS COST NOTHING, NOT "the contacts boolean was true". `paid` used to
+// filter on `x.cached`, a per-brand flag that was undefined on every row for as
+// long as it existed -- so paidLookups equalled lookups, cachedLookups was
+// always zero, and perPaidLookupUsd divided by the wrong denominator. A lookup
+// that cost $0 is free whatever any flag says, and one that cost something is
+// not free even if part of it was served from cache.
 function costSummary(spendLogs) {
   const flat = [].concat(...(spendLogs || []).filter(Boolean));
-  const paid = flat.filter((x) => x && !x.cached);
+  const paid = flat.filter((x) => x && Number(x.cost) > 0);
   const total = flat.reduce((n, x) => n + (Number(x.cost) || 0), 0);
   const athletes = (spendLogs || []).filter((l) => Array.isArray(l) && l.length).length;
+  // The authoritative cache measurement: every read a lookup made, not one
+  // boolean about one lane. A single lookup reads contacts, places, siteemail
+  // and the ladder's rows, so these are counts rather than a yes/no.
+  const hits = flat.reduce((n, x) => n + (Number(x.cacheHits) || 0), 0);
+  const misses = flat.reduce((n, x) => n + (Number(x.cacheMisses) || 0), 0);
+  const reads = hits + misses;
+  // Lookups the meter could not measure at all, charged the ceiling. Reported
+  // rather than folded in, because a ceiling charge is a failed measurement and
+  // an average that hides them is flattering itself.
+  const unmetered = flat.filter((x) => x && x.metered === false).length;
   return {
     lookups: flat.length,
     paidLookups: paid.length,
+    // Cost nothing: every read it made was a hit.
+    freeLookups: flat.length - paid.length,
+    // Kept under the old name so nothing downstream breaks, now meaning the same
+    // thing the name always claimed.
     cachedLookups: flat.length - paid.length,
+    cacheReads: reads, cacheHits: hits, cacheMisses: misses,
+    cacheHitPct: reads ? Math.round((hits / reads) * 1000) / 10 : null,
+    unmeteredLookups: unmetered,
     totalUsd: Math.round(total * 10000) / 10000,
     perPaidLookupUsd: paid.length ? Math.round((total / paid.length) * 10000) / 10000 : 0,
     perAthleteUsd: athletes ? Math.round((total / athletes) * 10000) / 10000 : 0,

@@ -530,21 +530,52 @@ async function fillAthlete(pool, ctx) {
       // has to price the worst case or the cap is not a cap; what is DEDUCTED is
       // what the lookup actually used. Charging the ceiling flat is what made
       // $0.50 buy eight lookups no matter how cheap they really were.
-      // A ZERO ON AN UNCACHED LOOKUP IS A BROKEN METER, NOT A FREE LOOKUP.
-      // The meter runs on AsyncLocalStorage; if a call path ever escapes the
-      // context the counts come back empty, and charging that as $0 would
-      // silently switch off both the cap AND the backoff -- which only records a
-      // night that actually spent. So an uncached lookup is never free: it falls
-      // back to the ceiling and says the measurement failed.
-      let realCost = out.cached ? 0 : Q.priceOf(meter);
-      if (!out.cached && realCost <= 0) {
+      //
+      // ── PRICED FROM THE METER, NOT FROM A BOOLEAN ─────────────────────────
+      //
+      // This read `out.cached ? 0 : Q.priceOf(meter)`, and getBrandContacts did
+      // not return `cached` at all -- so the flag was undefined on every lookup.
+      // A lookup served entirely from cache took the paid branch, priced at $0
+      // from an empty meter, tripped the broken-meter guard below, and was
+      // charged the $0.06 CEILING: more than the $0.0422 an average real lookup
+      // costs. Cache hits were the most expensive lookups in the system.
+      //
+      // The meter is the better source even now that the flag is fixed, because
+      // one lookup makes SEVERAL cache reads -- contacts, places, siteemail, the
+      // ladder's own rows -- and a single per-brand boolean cannot describe a
+      // partial hit. priceOf already returns 0 when nothing was called, which is
+      // exactly what a full hit looks like, so no special case is needed for it.
+      const touched = meter
+        && (meter.cacheHits || meter.cacheMisses || meter.webSearches || meter.aiCalls);
+      let realCost = Q.priceOf(meter);
+      // A LOOKUP THAT TOUCHED NOTHING AT ALL IS A BROKEN METER, NOT A FREE ONE.
+      // The meter runs on AsyncLocalStorage; if a call path escapes the context
+      // the counts come back empty, and charging that as $0 would silently switch
+      // off both the cap AND the backoff -- which only records a night that
+      // actually spent. Every real lookup reads the cache at least once, so zero
+      // cache reads AND zero calls means the measurement failed, not that the
+      // work was free. This is now the only route to the ceiling.
+      if (!touched) {
         realCost = LOOKUP_CEILING_USD;
-        console.warn(`[queue] ${cand.brand_name}: lookup was not cached but the meter `
-          + 'recorded no calls; charging the ceiling rather than treating it as free');
+        console.warn(`[queue] ${cand.brand_name}: the meter recorded no cache reads and no `
+          + 'calls; charging the ceiling rather than treating the lookup as free');
       }
       if (realCost > 0) budget.spend(realCost);
-      spendLog.push({ brand: cand.brand_name, cached: !!out.cached, cost: realCost,
-        webSearches: meter ? meter.webSearches : 0, aiCalls: meter ? meter.aiCalls : 0 });
+      spendLog.push({ brand: cand.brand_name,
+        // The contacts lane's own answer: did the expensive fan-out re-run.
+        cached: !!out.cached,
+        cost: realCost,
+        webSearches: meter ? meter.webSearches : 0, aiCalls: meter ? meter.aiCalls : 0,
+        // THE REAL CACHE MEASUREMENT. scanMeter has counted these all along and
+        // this line threw them away, leaving a per-brand boolean as the only
+        // record -- which is both too coarse for a multi-read lookup and, until
+        // the fix above, always false. Recorded per lookup so a night's hit rate
+        // is arithmetic over the run rather than a grep of the logs.
+        cacheHits: meter ? meter.cacheHits : 0,
+        cacheMisses: meter ? meter.cacheMisses : 0,
+        // Said out loud when the meter itself failed, so a ceiling charge is
+        // never mistaken for a measurement.
+        metered: !!touched });
 
       const ladder = buildContactLadder(out, {
         rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain,
@@ -738,9 +769,18 @@ async function fillAgent(pool, agent, opts) {
   // real search and model counts rather than the ceiling.
   const cost = Q.costSummary(details.map((d) => d.spendLog));
   console.log(`[queue] agent=${agent.id} COST $${cost.totalUsd.toFixed(4)} over `
-    + `${cost.lookups} lookup(s) (${cost.paidLookups} paid, ${cost.cachedLookups} cached) `
+    + `${cost.lookups} lookup(s) (${cost.paidLookups} paid, ${cost.freeLookups} free) `
     + `= $${cost.perPaidLookupUsd.toFixed(4)}/paid lookup, `
     + `$${cost.perAthleteUsd.toFixed(4)}/athlete across ${cost.athletes} athlete(s)`);
+  // THE CACHE, ON ITS OWN LINE AND FROM READS RATHER THAN A FLAG. Every lookup
+  // makes several cache reads; this is the ratio over all of them, which is the
+  // number any cost projection actually depends on.
+  console.log(`[queue] agent=${agent.id} CACHE ${cost.cacheHits}/${cost.cacheReads} reads hit`
+    + `${cost.cacheHitPct === null ? '' : ` (${cost.cacheHitPct}%)`}`
+    + (cost.unmeteredLookups
+      ? ` — WARNING: ${cost.unmeteredLookups} lookup(s) recorded nothing at all and were `
+        + 'charged the ceiling; those are failed measurements, not measured costs'
+      : ''));
 
   if (!dry) {
     await pool.query(
