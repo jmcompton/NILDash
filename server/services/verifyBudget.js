@@ -107,6 +107,13 @@ async function dayFor(pool, agentId) {
   }
 }
 
+// Returns a count, or NULL when the log cannot be read.
+//
+// IT USED TO RETURN THE FULL DAILY BUDGET on failure, which made an unreadable
+// log look exactly like an athlete who had already spent their three. That is
+// the same mistake accountStatus made below and it fails the same way: a fault
+// wearing the costume of a normal budget state, so nobody goes looking.
+// Null means "unknown" and the caller has to decide what to do about it.
 async function spentToday(pool, athleteId, day) {
   try {
     const r = await pool.query(
@@ -114,34 +121,69 @@ async function spentToday(pool, athleteId, day) {
         WHERE athlete_id = $1 AND local_date = $2`, [athleteId, day]);
     return (r.rows[0] && r.rows[0].n) || 0;
   } catch (e) {
-    console.error('[verifyBudget] spentToday:', e.message);
-    // A budget we cannot read must not hand out unlimited credits.
-    return PER_ATHLETE_DAY;
+    console.error('[verifyBudget] spentToday FAULT (cannot read the credit log): ' + e.message);
+    return null;
   }
 }
 
 // ── WHERE THE ACCOUNT STANDS THIS MONTH ─────────────────────────────────────
 // Both consumers, counted together, because they draw on one Hunter account and
 // a ceiling that can only see half of it is not a ceiling.
+// ── A READ FAILURE IS A FAULT, NOT A BUDGET STATE ───────────────────────────
+//
+// This used to catch a failed COUNT and assign `verifyUsed = VERIFY_MONTHLY_CAP`.
+// The reasoning was "an unreadable budget must not read as plenty left", which is
+// right; the implementation was wrong, because the value it chose was
+// indistinguishable from a real, fully-spent month.
+//
+// In production the table did not exist, so every read threw, so every shift
+// report since the feature shipped said "1200 of 1200 checks used — verification
+// is paused for the rest of the month". Not one credit had been spent. The
+// number was the cap, printed back as though it were a measurement.
+//
+// The fix is not to flip the fallback to zero -- that would licence unmetered
+// spending on a broken counter, which is the other half of this same incident.
+// It is to have a THIRD state. `unknown` is not `exhausted`: it stops spending,
+// like exhausted does, but it says something an engineer can act on rather than
+// something an agent will read as a bill.
 async function accountStatus(pool) {
   let verifyUsed = 0;
   let ladderUsed = 0;
+  let fault = null;
   try {
     const r = await pool.query(
       `SELECT COUNT(*)::int AS n FROM email_verify_credit_log
         WHERE checked_at >= date_trunc('month', NOW())`);
     verifyUsed = (r.rows[0] && r.rows[0].n) || 0;
   } catch (e) {
-    console.error('[verifyBudget] accountStatus verify:', e.message);
-    // Fail safe, the same way hunterLookup does: an unreadable budget must not
-    // read as "plenty left".
-    verifyUsed = VERIFY_MONTHLY_CAP;
+    fault = e.message;
+    // LOUD. This is a broken counter, and it is the only line that says so.
+    console.error('[verifyBudget] FAULT: the verification credit log could not be read — '
+      + e.message + '. Verification is OFF until this is fixed. This is NOT a spent budget.');
   }
   try {
     ladderUsed = await require('./hunterLookup').creditsThisMonth(false);
   } catch (e) {
     console.error('[verifyBudget] accountStatus ladder:', e.message);
     ladderUsed = 0;
+  }
+
+  if (fault) {
+    return {
+      // Never a number. A caller that prints these gets a blank or a dash, not a
+      // figure it will be believed about.
+      verifyUsed: null, ladderUsed, accountUsed: null,
+      accountMonthly: ACCOUNT_MONTHLY, verifyCap: VERIFY_MONTHLY_CAP,
+      ladderReserve: Math.round(ACCOUNT_MONTHLY * LADDER_RESERVE_PCT),
+      // remaining=0 stops the spending, because we cannot count what we spend
+      // and unmetered verification is the other bug in this incident. `unknown`
+      // is what tells every reader WHY it stopped.
+      remaining: 0, usedPct: null,
+      unknown: true, exhausted: false, low: false, fault,
+      line: 'Address verification is switched off because its credit log could not be '
+        + 'read (' + fault + '). Nothing has been spent and no month has run out — '
+        + 'this is a fault to fix, not a bill. Cards still appear, marked unverified.',
+    };
   }
 
   const accountUsed = verifyUsed + ladderUsed;
@@ -158,6 +200,7 @@ async function accountStatus(pool) {
     verifyUsed, ladderUsed, accountUsed, accountMonthly: ACCOUNT_MONTHLY,
     verifyCap: VERIFY_MONTHLY_CAP, ladderReserve: reserve,
     remaining, usedPct: Math.round(usedPct * 1000) / 10,
+    unknown: false, fault: null,
     low: remaining <= 0 || usedPct >= WARN_AT_PCT,
     exhausted: remaining <= 0,
     // Said in words once, here, so every surface that reports this says the same
@@ -171,6 +214,10 @@ async function accountStatus(pool) {
   };
 }
 
+// Returns true when the credit was written. FALSE MATTERS: this used to swallow
+// the error, so on a broken log every credit was spent and none was counted --
+// which is precisely how the account could empty while every counter in the
+// product reported it healthy. The caller refuses to spend when this is false.
 async function record(pool, { agentId, athleteId, business, email, day, source }) {
   try {
     await pool.query(
@@ -179,7 +226,12 @@ async function record(pool, { agentId, athleteId, business, email, day, source }
        VALUES ($1,$2,$3,$4,$5,$6)`,
       [agentId || null, athleteId || null, business || null,
         String(email || '').trim().toLowerCase(), source || 'home', day]);
-  } catch (e) { console.error('[verifyBudget] record:', e.message); }
+    return true;
+  } catch (e) {
+    console.error('[verifyBudget] FAULT: could not record a verification credit — '
+      + e.message + '. Refusing to spend it.');
+    return false;
+  }
 }
 
 // ── The gate a caller wraps its verifier in ─────────────────────────────────
@@ -191,28 +243,75 @@ async function record(pool, { agentId, athleteId, business, email, day, source }
 // Hunter. emailVerify turns that into `unknown`, which is NOT cached and does
 // NOT hold a card back, so an exhausted budget costs accuracy on the card and
 // nothing else.
-function limiter(pool, { agentId, athleteId, day, budget, emailToBusiness, verifier }) {
-  let left = Math.max(0, budget);
+// ── TWO CEILINGS, AND ONE OF THEM IS PER ATHLETE ────────────────────────────
+//
+// `accountLeft` is the month's remaining share, shared by everything this call
+// verifies. `perAthlete` is a Map of athleteId -> credits left today, and an
+// address is charged to the athlete whose draft it belongs to.
+//
+// IT USED TO BE A SINGLE COUNTER because the only budgeted caller verified one
+// athlete's cards. The Closer's backfill verifies up to 300 drafts spanning the
+// whole roster in one call, so a single counter would either starve it at three
+// or, as it actually did, be skipped entirely.
+//
+// `emailToAthlete` is how an address finds its athlete. An address with no
+// athlete -- there should be none, but a NULL athlete_id is possible -- is
+// charged against the account ceiling and logged with a null athlete rather than
+// being waved through.
+function limiter(pool, opts = {}) {
+  const { agentId, athleteId, day, emailToBusiness, emailToAthlete, verifier } = opts;
+  // Single-athlete callers keep the old shape: one budget, one athlete.
+  const per = opts.perAthlete instanceof Map ? new Map(opts.perAthlete) : new Map();
+  if (!per.size && athleteId) per.set(athleteId, Math.max(0, opts.budget || 0));
+  let accountLeft = Number.isFinite(opts.accountLeft)
+    ? Math.max(0, opts.accountLeft)
+    : Math.max(0, opts.budget || 0);
   let spent = 0;
   let skipped = 0;
+  const source = opts.source || 'home';
+
   return {
     spent: () => spent,
-    left: () => left,
+    left: () => accountLeft,
     skipped: () => skipped,
+    perAthleteLeft: () => new Map(per),
     verifier: async (email) => {
-      if (left <= 0) {
+      const addr = String(email || '').trim().toLowerCase();
+      const who = (emailToAthlete && emailToAthlete.get(addr)) || athleteId || null;
+      if (accountLeft <= 0) {
+        skipped++;
+        return { ok: false, why: "this month's verification share is spent" };
+      }
+      const mine = who && per.has(who) ? per.get(who) : (who ? 0 : accountLeft);
+      if (who && mine <= 0) {
         skipped++;
         return { ok: false, why: 'the daily verification budget for this athlete is spent' };
       }
-      left--;                       // before the await, deliberately
+      // Decremented BEFORE the await, deliberately, so two concurrent lookups
+      // cannot both spend the last credit -- the same rule the send ceiling
+      // follows.
+      accountLeft--;
+      if (who) per.set(who, mine - 1);
+
+      const business = (emailToBusiness && emailToBusiness.get(addr)) || null;
+      // Recorded at the moment the credit is committed, not after the answer
+      // comes back: a lookup that times out still cost a credit and still
+      // belongs in the burn report.
+      //
+      // AND IF IT CANNOT BE RECORDED, IT IS NOT SPENT. An unrecordable credit is
+      // an invisible one, and invisible credits are how the account emptied
+      // while every counter read healthy. The refusal is returned as `unknown`,
+      // so the card appears unverified rather than not at all.
+      const wrote = await record(pool, { agentId, athleteId: who, business, email: addr, day, source });
+      if (!wrote) {
+        accountLeft = 0;              // stop the whole pass, not just this one
+        if (who) per.set(who, mine);  // give the credit back, it was never spent
+        skipped++;
+        return { ok: false, why: 'the verification credit log is not writable, so nothing is being spent' };
+      }
       spent++;
-      const business = (emailToBusiness && emailToBusiness.get(String(email).trim().toLowerCase())) || null;
-      // Logged at the moment the credit is committed, not after the answer comes
-      // back: a lookup that times out still cost a credit and still belongs in
-      // the burn report.
-      await record(pool, { agentId, athleteId, business, email, day, source: 'home' });
-      console.log(`[verify-credit] athlete=${athleteId || '-'} business=${business || '-'} `
-        + `email=${email} at=${new Date().toISOString()} left=${left}`);
+      console.log(`[verify-credit] source=${source} athlete=${who || '-'} business=${business || '-'} `
+        + `email=${addr} at=${new Date().toISOString()} accountLeft=${accountLeft}`);
       return verifier(email);
     },
   };

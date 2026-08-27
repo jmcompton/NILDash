@@ -165,7 +165,10 @@ async function buildShiftReport(pool, agentId) {
   let verifyBudget = null;
   try {
     const a = await require('./verifyBudget').accountStatus(pool);
-    if (a && a.low) verifyBudget = a;
+    // `unknown` as well as `low`. A broken counter is more urgent than a nearly
+    // spent month, and the old code could not tell them apart -- it reported a
+    // failed read as "1200 of 1200 used" every morning for weeks.
+    if (a && (a.low || a.unknown)) verifyBudget = a;
   } catch (e) { errs.push('verify-budget: ' + e.message); }
 
   // THE CLOSER BLOCK IS BUILT ONCE, FOR BOTH PATHS. An agent whose overnight run

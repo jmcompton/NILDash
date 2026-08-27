@@ -3542,6 +3542,45 @@ async function ensureMarketSightings() {
   `).then(() => console.log('[init] email_verification table ready'))
     .catch(e => console.error('[init] email_verification:', e.message));
 
+  // ── WHERE VERIFICATION CREDITS ACTUALLY WENT ──────────────────────────────
+  //
+  // CREATED HERE, IN THE NORMAL PATH, because the lazy version never ran. It
+  // lived in verifyBudget.ensureTable, called from exactly one branch of
+  // draftAddress.attach, behind `if (opts.athleteId && Number.isFinite(budget))`
+  // -- and its CREATE was .catch()-swallowed. In production the table did not
+  // exist at all: to_regclass returned NULL.
+  //
+  // The consequence was not a missing log. It was a shift report that said
+  // "1200 of 1200 checks used" every morning since the feature shipped, because
+  // accountStatus caught the failed COUNT and assigned the cap. A read failure
+  // presented as a spent month, and verification was reported as paused while
+  // nothing had been spent at all.
+  //
+  // A table that only exists if a particular code path happens to run is a table
+  // that does not exist. It is created with the rest of them now.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_verify_credit_log (
+      id          BIGSERIAL PRIMARY KEY,
+      agent_id    TEXT,
+      athlete_id  TEXT,
+      business    TEXT,
+      email       TEXT,
+      source      TEXT,
+      local_date  DATE NOT NULL,
+      checked_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `).then(async () => {
+    // The per-athlete-per-day budget is a COUNT over these two columns, run on
+    // every Home build, so it is indexed rather than left to a sequential scan
+    // that grows for the life of the account.
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_verify_credit_athlete_day
+      ON email_verify_credit_log (athlete_id, local_date)`).catch(() => {});
+    // The month's account total, and the burn report, both read by time.
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_verify_credit_at
+      ON email_verify_credit_log (checked_at DESC)`).catch(() => {});
+    console.log('[init] email_verify_credit_log table ready');
+  }).catch(e => console.error('[init] email_verify_credit_log:', e.message));
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS market_business_rejected (
       market_key    TEXT NOT NULL,

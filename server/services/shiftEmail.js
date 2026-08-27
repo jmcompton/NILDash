@@ -294,11 +294,16 @@ function renderShiftEmail(report, opts = {}) {
   // more unverified cards. Silent while the month is healthy.
   const vb = r.verifyBudget;
   if (vb && vb.line) {
+    // A FAULT READS DIFFERENTLY FROM A BILL. `unknown` means the credit log could
+    // not be read, so nothing has been spent and no month has run out -- the old
+    // code had no such state and rendered that case as an exhausted budget in
+    // red, which is a number an agent would reasonably have acted on.
     parts.push(`<div style="border-top:1px solid #eef1f6;margin-top:18px;padding-top:16px">
-  <p style="margin:0;font:600 12px/1.5 -apple-system,Arial,sans-serif;color:${vb.exhausted ? '#b23c17' : '#8a6d1f'}">
+  <p style="margin:0;font:600 12px/1.5 -apple-system,Arial,sans-serif;color:${vb.unknown || vb.exhausted ? '#b23c17' : '#8a6d1f'}">
   ${esc(vb.line)}</p>
-  <p style="${MUTED};font-size:11px;margin-top:6px">Address finding is unaffected —
-  ${esc(vb.ladderReserve)} lookups a month are held back for it.</p></div>`);
+  <p style="${MUTED};font-size:11px;margin-top:6px">${vb.unknown
+    ? 'Nothing has been spent. Address finding is unaffected.'
+    : 'Address finding is unaffected — ' + esc(vb.ladderReserve) + ' lookups a month are held back for it.'}</p></div>`);
   }
 
   parts.push(`</td></tr>

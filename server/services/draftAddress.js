@@ -81,8 +81,11 @@ async function lookupOne(pool, brand) {
 // a caller in front of a page load can never hang on a resolver.
 async function attach(pool, opts = {}) {
   const { agentId, ids = null, limit = 500 } = opts;
+  // athlete_id comes back now because the credit ceiling is per athlete per day
+  // and the backfill spans the whole roster. Without it the Closer's 300-draft
+  // pass had no athlete to charge, which is why it ran unbudgeted.
   const rows = (await pool.query(
-    `SELECT id, brand_name FROM outreach_logs
+    `SELECT id, brand_name, athlete_id FROM outreach_logs
       WHERE agent_id = $1
         AND (sent_to_email IS NULL OR sent_to_email = '')
         AND status IN ('draft','approved')
@@ -115,42 +118,82 @@ async function attach(pool, opts = {}) {
     const EV = require('./emailVerify');
     const hunter = require('./hunterLookup');
     const emailToBusiness = new Map();
+    const emailToAthlete = new Map();
     const addrs = rows.map((r) => {
       const h = found.get(String(r.brand_name || '').trim().toLowerCase());
-      if (h && h.email) emailToBusiness.set(String(h.email).trim().toLowerCase(), r.brand_name);
+      if (h && h.email) {
+        const a = String(h.email).trim().toLowerCase();
+        emailToBusiness.set(a, r.brand_name);
+        // First draft to claim an address owns the credit. The same business
+        // reached for two athletes is one lookup and one charge, because the
+        // verdict caches for ninety days and the second read is free.
+        if (r.athlete_id && !emailToAthlete.has(a)) emailToAthlete.set(a, r.athlete_id);
+      }
       return h && h.email;
     }).filter(Boolean);
     if (addrs.length) {
       // ── WHAT THIS CALL IS ALLOWED TO SPEND ────────────────────────────────
-      // Only when a caller asks for it. The Closer's batch prep passes no
-      // athleteId and no budget, so the approve-time path is unchanged: it is
-      // spending on mail that is about to go out, which is what a credit is
-      // for. Home passes both, because it is spending on mail somebody is only
-      // LOOKING at.
+      //
+      // EVERY CALLER, ALWAYS. This used to read
+      // `if (opts.athleteId && Number.isFinite(opts.budget))`, and the comment
+      // under it argued that the Closer's batch prep was "spending on mail that
+      // is about to go out, which is what a credit is for".
+      //
+      // The argument was wrong twice over. First, the backfill runs on a PAGE
+      // LOAD -- GET /api/agent/closer/batch -- not at send time, so it is
+      // spending on mail nobody has approved. Second and worse, opting out of
+      // the limiter also opted out of the LOG, so up to 300 credits per call
+      // were spent and none was counted. hunterLookup's own ceiling could not
+      // see them either: it counts brand_evidence_cache lane 'hunter', which is
+      // Domain Search, and verification never writes that lane. Four page loads
+      // was the month, silently, with every counter in the product reading
+      // healthy right up to Hunter's 429.
+      //
+      // A credit nobody counts is a credit nobody can defend. There is no
+      // unbudgeted path now.
       let verifier = (e) => hunter.verifyEmail(e);
       let lim = null;
-      if (opts.athleteId && Number.isFinite(opts.budget)) {
+      {
         const VB = require('./verifyBudget');
-        await VB.ensureTable(pool);
         const day = await VB.dayFor(pool, agentId);
-        const already = await VB.spentToday(pool, opts.athleteId, day);
-        // THE SMALLER OF THE TWO, AND THE ACCOUNT WINS. A per-athlete number
-        // sized for eight athletes is not a ceiling on a roster of forty-five;
-        // the month's remaining share is.
         const acct = await VB.accountStatus(pool);
-        const perAthleteLeft = Math.max(0, opts.budget - already);
+        const perAthleteBudget = Number.isFinite(opts.budget) ? opts.budget : VB.PER_ATHLETE_DAY;
+
+        // One spentToday per athlete in this batch, not per draft.
+        const athleteIds = Array.from(new Set(
+          [opts.athleteId, ...emailToAthlete.values()].filter(Boolean)));
+        const per = new Map();
+        let meterFault = null;
+        for (const aid of athleteIds) {
+          const already = await VB.spentToday(pool, aid, day);
+          // NULL MEANS THE LOG COULD NOT BE READ. Not "already spent" -- that
+          // conflation is the same defect as accountStatus assigning the cap.
+          // We cannot meter, so we do not spend, and we say which it is.
+          if (already === null) { meterFault = 'the verification credit log could not be read'; break; }
+          per.set(aid, Math.max(0, perAthleteBudget - already));
+        }
+
+        const accountLeft = meterFault ? 0 : Math.max(0, acct.remaining || 0);
         lim = VB.limiter(pool, {
-          agentId, athleteId: opts.athleteId, day,
-          budget: Math.min(perAthleteLeft, acct.remaining),
-          emailToBusiness, verifier,
+          agentId, athleteId: opts.athleteId || null, day,
+          perAthlete: per, accountLeft,
+          emailToBusiness, emailToAthlete, verifier,
+          // Which caller spent it, so the burn report can name the page rather
+          // than leaving "where did 300 credits go" to be reconstructed.
+          source: opts.source || (opts.athleteId ? 'home' : 'closer-backfill'),
         });
         verifier = lim.verifier;
+        const perTotal = Array.from(per.values()).reduce((s, n) => s + n, 0);
         budgetNote = {
-          budget: opts.budget, alreadySpentToday: already, day,
-          perAthleteLeft, account: acct,
+          budget: perAthleteBudget, day, athletes: athleteIds.length,
+          perAthleteLeft: perTotal, account: acct,
+          source: opts.source || (opts.athleteId ? 'home' : 'closer-backfill'),
+          meterFault: meterFault || (acct.unknown ? acct.fault : null),
           // Which limit actually bit, so a thin slate can be explained rather
           // than guessed at.
-          boundBy: acct.remaining < perAthleteLeft ? 'account-month' : 'athlete-day',
+          boundBy: meterFault ? 'meter-fault'
+            : acct.unknown ? 'meter-fault'
+              : accountLeft < perTotal ? 'account-month' : 'athlete-day',
         };
       }
       verdicts = await EV.verifyMany(pool, addrs, {
@@ -204,12 +247,20 @@ async function attach(pool, opts = {}) {
   if (budgetNote) {
     out.budget = budgetNote;
     const a = budgetNote.account || {};
-    console.log(`[draftAddress] athlete=${opts.athleteId} verification credits: `
-      + `spent=${budgetNote.spent || 0} skipped=${budgetNote.skipped || 0} `
-      + `alreadySpentToday=${budgetNote.alreadySpentToday} budget=${budgetNote.budget} `
-      + `boundBy=${budgetNote.boundBy} monthUsed=${a.verifyUsed}/${a.verifyCap} `
-      + `ladder=${a.ladderUsed} accountLeft=${a.remaining} day=${budgetNote.day}`);
-    if (a.low) console.warn('[verify-budget] ' + a.line);
+    console.log(`[draftAddress] source=${budgetNote.source} athletes=${budgetNote.athletes} `
+      + `verification credits: spent=${budgetNote.spent || 0} skipped=${budgetNote.skipped || 0} `
+      + `perAthleteLeft=${budgetNote.perAthleteLeft} budget=${budgetNote.budget}/athlete/day `
+      + `boundBy=${budgetNote.boundBy} monthUsed=${a.verifyUsed == null ? 'unknown' : a.verifyUsed}`
+      + `/${a.verifyCap} ladder=${a.ladderUsed} accountLeft=${a.remaining} day=${budgetNote.day}`);
+    // A FAULT IS NOT A BUDGET. Said separately and at error level, because the
+    // whole point of this pass is that "we could not count" must never again be
+    // reported as "the month is spent".
+    if (budgetNote.meterFault) {
+      console.error('[verify-budget] FAULT: ' + budgetNote.meterFault
+        + ' — verification is off and NOTHING has been spent.');
+    } else if (a.low) {
+      console.warn('[verify-budget] ' + a.line);
+    }
   }
   return out;
 }

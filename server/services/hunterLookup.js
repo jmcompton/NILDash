@@ -89,9 +89,52 @@ async function creditsThisMonth(force) {
   return _budgetCache.used + _reserved;
 }
 
+// ── THE OTHER CONSUMER ──────────────────────────────────────────────────────
+//
+// creditsThisMonth counts lane 'hunter' rows, which are Domain Search and only
+// Domain Search. Mailbox VERIFICATION draws on the same Hunter plan and writes
+// no such row, so this ceiling was blind to it: verifyEmail called budgetStatus
+// before every check, and that check's own spend never moved the number it was
+// checking. The account could empty while the guard reported plenty left, and
+// the first sign was Hunter returning 429 to the lookups that mattered.
+//
+// email_verify_credit_log is the counter for that consumer -- one row per credit
+// committed, written before the call goes out.
+let _verifyCache = { at: 0, used: 0 };
+
+async function verifyCreditsThisMonth(force) {
+  if (force || Date.now() - _verifyCache.at >= BUDGET_TTL_MS) {
+    try {
+      const r = await store.pool.query(
+        `SELECT COUNT(*)::int AS n FROM email_verify_credit_log
+          WHERE checked_at >= date_trunc('month', NOW())`);
+      _verifyCache = { at: Date.now(), used: r.rows[0].n };
+    } catch (e) {
+      console.error('[hunter] verification credit read failed: ' + e.message);
+      // ZERO, AND THIS ONE IS NOT THE SAME MISTAKE. When the log is unreadable,
+      // verifyBudget.accountStatus returns `unknown` and the limiter refuses to
+      // spend, so no verification is happening -- zero is the accurate figure
+      // for that state, not an optimistic guess. Blocking the LADDER because
+      // verification's counter broke would take down the thing that finds
+      // addresses in the first place.
+      _verifyCache = { at: Date.now(), used: 0 };
+    }
+  }
+  return _verifyCache.used;
+}
+
+// Both consumers, against one plan. This is what every ceiling check reads.
+async function accountUsedThisMonth(force) {
+  const [ladder, verify] = await Promise.all([
+    creditsThisMonth(force), verifyCreditsThisMonth(force),
+  ]);
+  return { ladder, verify, used: ladder + verify };
+}
+
 async function budgetStatus() {
-  const used = await creditsThisMonth(true);
-  return { used, budget: MONTHLY_BUDGET, remaining: Math.max(0, MONTHLY_BUDGET - used) };
+  const a = await accountUsedThisMonth(true);
+  return { used: a.used, ladderUsed: a.ladder, verifyUsed: a.verify,
+    budget: MONTHLY_BUDGET, remaining: Math.max(0, MONTHLY_BUDGET - a.used) };
 }
 
 // Outcomes written to brand_evidence_cache.outcome. OK and NONE are answers;
@@ -176,9 +219,12 @@ async function findDomainEmails(domain, opts = {}) {
   // A reservation that never becomes a request (the fetch throws before leaving
   // the machine) is reconciled down by the next DB read. Over-reserving is the
   // safe direction; over-spending is not.
-  const used = await creditsThisMonth();
-  if (used >= MONTHLY_BUDGET) {
-    console.warn(`[hunter] @${key} SKIPPED: monthly budget spent (${used}/${MONTHLY_BUDGET})`);
+  // BOTH CONSUMERS. Domain Search and mailbox verification bill the same plan,
+  // so a ceiling that counted only Domain Search was not a ceiling on the plan.
+  const acct = await accountUsedThisMonth();
+  if (acct.used >= MONTHLY_BUDGET) {
+    console.warn(`[hunter] @${key} SKIPPED: monthly budget spent (${acct.used}/${MONTHLY_BUDGET}`
+      + ` — ${acct.ladder} domain searches, ${acct.verify} verifications)`);
     return null;
   }
   _reserved++;
@@ -270,7 +316,8 @@ async function verifyEmail(email) {
 
   const b = await budgetStatus().catch(() => null);
   if (b && b.remaining <= 0) {
-    console.warn(`[hunter-verify] refused: monthly budget spent (${b.used}/${b.budget})`);
+    console.warn(`[hunter-verify] refused: monthly budget spent (${b.used}/${b.budget}`
+      + ` — ${b.ladderUsed} domain searches, ${b.verifyUsed} verifications)`);
     return { ok: false, why: `this month's Hunter budget is spent (${b.used}/${b.budget})` };
   }
 
@@ -300,6 +347,6 @@ async function verifyEmail(email) {
 
 module.exports = {
   findDomainEmails, verifyEmail, VERIFY_URL, OUTCOME, ANSWERED, LANE, CACHE_DAYS,
-  creditsThisMonth, budgetStatus, MONTHLY_BUDGET,
+  creditsThisMonth, verifyCreditsThisMonth, accountUsedThisMonth, budgetStatus, MONTHLY_BUDGET,
   _resetBudgetCache: () => { _budgetCache = { at: 0, used: 0 }; _reserved = 0; _inflight = null; },
 };

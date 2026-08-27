@@ -252,9 +252,8 @@ async function buildHome(pool, agentId, opts = {}) {
         // Surfaced on the payload, not just in a log. An account ceiling that
         // only announces itself in stdout is a ceiling nobody finds out about
         // until the cards quietly stop being verified.
-        if (res && res.budget && res.budget.account && res.budget.account.low) {
-          verifyBudget = res.budget.account;
-        }
+        const acct = res && res.budget && res.budget.account;
+        if (acct && (acct.low || acct.unknown)) verifyBudget = acct;
       } catch (e) {
         // An addressing pass that could not run must not empty the page. The
         // gate still holds; the cards simply arrive as they were.
