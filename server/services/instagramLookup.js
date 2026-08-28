@@ -46,6 +46,28 @@ const HANDLE_RE = /instagram\.com\/(?:#!\/)?@?([A-Za-z0-9._]{2,30})/gi;
 
 function _cacheKey(domain) { return domain + ' | ' + CACHE_V; }
 
+// ── AND A KEY FOR A BUSINESS WITH NO DOMAIN ─────────────────────────────────
+//
+// The domain was the only key, and `if (!website) return null` was the first
+// line of the lookup -- so a business whose site never resolved got no handle,
+// and with no handle the card fell through to `call`. That is most of a local
+// slate: a shop with a Facebook page and no site, a site behind Cloudflare, a
+// name Places could not match to a domain. Nearly all of them are on Instagram.
+//
+// The search half of this file never needed a domain. It searches for
+// "<brand> <city> instagram" and accepts a handle only against a real profile
+// citation. It was simply unreachable.
+//
+// The name key is deliberately NOT the domain key: a business found both ways
+// gets two rows, which costs one extra search once and keeps the domain key
+// byte-identical so no existing row is orphaned.
+function _nameKey(brand, loc) {
+  const b = _squash(brand);
+  if (!b) return null;
+  const city = _squash(String(loc || '').split(',')[0]);
+  return 'name:' + b + (city ? '@' + city : '') + ' | ' + CACHE_V;
+}
+
 // ── ownership ────────────────────────────────────────────────────────────────
 function _squash(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 function _tokens(s) {
@@ -178,13 +200,28 @@ async function _searchForHandle(brand, loc, webSearch) {
 // and any legacy caller behave as they did.
 async function findInstagram(website, opts) {
   const o = opts || {};
-  if (!website) return null;
-  let url = String(website).trim();
-  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-  let domain;
-  try { domain = new URL(url).hostname.replace(/^www\./, '').toLowerCase(); } catch (_) { return null; }
+  // A DOMAIN IS NOW OPTIONAL. It used to be required, and required first: the
+  // function returned null before it had looked at anything else. See _nameKey.
+  let url = null;
+  let domain = null;
+  if (website) {
+    let u = String(website).trim();
+    if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+    try {
+      domain = new URL(u).hostname.replace(/^www\./, '').toLowerCase();
+      url = u;
+    } catch (_) { url = null; domain = null; }   // unparseable: fall back to the name
+  }
+  // The search half needs a brand to verify against and a searcher to run. With
+  // neither a site to scrape nor those two, there is no question to ask.
+  const canSearch = !!(o.brand && typeof o.webSearch === 'function');
+  if (!url && !canSearch) return null;
 
-  const key = _cacheKey(domain);
+  const key = domain ? _cacheKey(domain) : _nameKey(o.brand, o.loc);
+  if (!key) return null;
+  // What the log line calls this lookup. The domain when there is one, the brand
+  // and city when there is not, so "found=0" is traceable to a business either way.
+  const label = domain || `"${o.brand}"${o.loc ? ' in ' + String(o.loc).split(',')[0] : ''}`;
   try {
     const cached = await store.getBrandEvidence(key, 'instagram', CACHE_DAYS);
     if (cached && cached.evidence) {
@@ -197,22 +234,25 @@ async function findInstagram(website, opts) {
     }
   } catch (_) { /* fall through */ }
 
-  // 1. the site itself
+  // 1. the site itself — only when there is one. No site is not a failure now,
+  //    it is simply a lookup that starts at step 2.
   let html = null;
-  try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    const resp = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NILDashBot/1.0)' } });
-    clearTimeout(t);
-    if (!resp.ok) console.warn('[instagram] ' + domain + ' http=' + resp.status);
-    else html = await resp.text();
-  } catch (e) { console.warn('[instagram] ' + domain + ' error=' + e.message); }
+  if (url) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+      const resp = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NILDashBot/1.0)' } });
+      clearTimeout(t);
+      if (!resp.ok) console.warn('[instagram] ' + label + ' http=' + resp.status);
+      else html = await resp.text();
+    } catch (e) { console.warn('[instagram] ' + label + ' error=' + e.message); }
+  }
 
   const scraped = _extractHandle(html, o.brand, o.loc);
   let out = null;
   if (scraped) {
     out = { handle: scraped.handle, scope: scraped.scope, source: 'site', ownerName: null, bookingEmail: null, evidenceKind: null };
-  } else if (o.brand && typeof o.webSearch === 'function') {
+  } else if (canSearch) {
     // 2. only now, and only when there is a brand to verify against
     const found = await _searchForHandle(o.brand, o.loc, o.webSearch);
     if (found) {
@@ -233,12 +273,15 @@ async function findInstagram(website, opts) {
   }
 
   if (!out) {
-    try { await store.saveBrandEvidence(key, 'instagram', website, null, { found: false }, 'NONE'); } catch (_) {}
-    console.log('[instagram] ' + domain + ' found=0');
+    // The brand rides along so a name-keyed row is readable in the table without
+    // reverse-engineering the key.
+    try { await store.saveBrandEvidence(key, 'instagram', o.brand || website || null, website || null, { found: false }, 'NONE'); } catch (_) {}
+    console.log('[instagram] ' + label + ' found=0' + (domain ? '' : ' (no domain — searched by name)'));
     return null;
   }
-  try { await store.saveBrandEvidence(key, 'instagram', website, null, Object.assign({ found: true }, out), 'OK'); } catch (_) {}
-  console.log('[instagram] ' + domain + ' found=1 handle=' + out.handle + ' scope=' + out.scope + ' via=' + out.source
+  try { await store.saveBrandEvidence(key, 'instagram', o.brand || website || null, website || null, Object.assign({ found: true }, out), 'OK'); } catch (_) {}
+  console.log('[instagram] ' + label + ' found=1 handle=' + out.handle + ' scope=' + out.scope + ' via=' + out.source
+    + (domain ? '' : ' key=name')
     + (out.ownerName ? ' bioOwner="' + out.ownerName + '"' : ''));
   return out;
 }
