@@ -75,15 +75,32 @@ function buildSubject(r, replies, waiting) {
     return waiting ? `${head} — and ${waiting} pitch${waiting === 1 ? '' : 'es'} ready` : head;
   }
   if (replies.length > 1) return `${replies.length} brands replied`;
-  if (waiting) return `${waiting} pitch${waiting === 1 ? '' : 'es'} ready to send`;
-  const queued = (r.needsYou && r.needsYou.items || []).find((it) => it.kind === 'queue');
+
   // THE SUBJECT STAYS ON THE BACKLOG. A stale pile is worth a nudge on the
   // quietest morning, which is exactly when nothing new arrived to nudge about.
-  // `total` is the real count; `count` is capped at ITEM_MAX for display, so
+  // `total` is the real count; `count` was capped at ITEM_MAX for display, so
   // reading that here made the subject understate a backlog over ten.
+  //
+  // AND IT IS THE WHOLE PILE. `waiting` is email drafts only -- the part that
+  // approving actually sends -- and at an 18% email share it is a minority of
+  // the morning. Naming it alone told an agent with four calls, three DMs and
+  // two drafts that they had "2 pitches ready to send", which is a smaller
+  // morning than they have and a different number from the one Home shows them
+  // thirty seconds later. It only owns the subject when it IS the whole pile.
+  const items = (r.needsYou && r.needsYou.items) || [];
+  const ready = items.find((it) => it.kind === 'approve');
+  const readyN = ready ? (Number(ready.total) || Number(ready.count) || 0) : 0;
+  if (readyN) {
+    if (waiting && readyN === waiting) {
+      return `${waiting} pitch${waiting === 1 ? '' : 'es'} ready to send`;
+    }
+    return `${readyN} card${readyN === 1 ? '' : 's'} ready to work`;
+  }
+  if (waiting) return `${waiting} pitch${waiting === 1 ? '' : 'es'} ready to send`;
+  const queued = items.find((it) => it.kind === 'queue');
   if (queued) {
     const n = Number(queued.total) || Number(queued.count) || 0;
-    return `${n} outreach card${n === 1 ? '' : 's'} ready to work`;
+    return `${n} programme application${n === 1 ? '' : 's'} waiting`;
   }
   if (!(r.run && r.run.ran)) return 'NILDash: your team has not run yet';
   return 'Your team worked last night — nothing needs you';
@@ -108,13 +125,14 @@ function renderShiftEmail(report, opts = {}) {
   const closer = r.closer || {};
   const waiting = Number(closer.pendingApproval) || 0;
   const forWhom = Array.isArray(closer.byAthlete) ? closer.byAthlete : [];
-  // The approve item and the Ready to send block are the same pile of drafts.
-  // Printing both gave the email two different counts of one thing -- "10
-  // pitches ready for you" above "14 pitches waiting on your approval" -- which
-  // is the drift this whole pass exists to remove. Ready to send owns it,
-  // because it is the one that names who they are for.
-  const needs = allItems.filter((it) =>
-    it.kind !== 'reply' && !(waiting > 0 && it.kind === 'approve'));
+  // THEY ARE NO LONGER THE SAME PILE, so both are printed. The approve item is
+  // every card an agent can act on today -- email, DM and call; Ready to send is
+  // the email subset, which is the only part approving actually sends. The email
+  // number appears in both and is the same number in both, because both come
+  // from one call to ./actionable. Suppressing the item, as this did when the two
+  // really were one pile, would now hide the 82% of the morning that is a phone
+  // call or a handle.
+  const needs = allItems.filter((it) => it.kind !== 'reply');
 
   const subject = buildSubject(r, replies, waiting);
 

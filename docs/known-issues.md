@@ -86,3 +86,92 @@ When one of those lands, the `attach` call in `buildHome` becomes a cheap no-op
 - `brand_evidence_cache.brand` is `opts.brand || siteRoot`, so a row written
   without a brand keys on a domain and can never join a brand name. The join is
   also exact-on-lowercase, so "Trak Shak" and "Trak Shak Inc" miss each other.
+
+---
+
+## The morning queue has no score that spans its two tables
+
+**Status:** designed around, in `server/services/actionable.js`.
+**Opened:** 2026-08-26.
+
+### What happens
+
+Home is one queue built from two tables — `outreach_logs` email drafts and
+`outreach_queue` call and DM cards. Ordering them together needs one comparable
+ranking, and the obvious candidate does not work.
+
+`brand_match_scores` **has no `brand_key` column at all.** Every reader joins it
+on `athlete_id` plus an exact lowercase `brand_name` — the same name-only
+matching that `brandIdentity.js` replaced everywhere else, and which collapsed
+0 of 9 realistic variant pairs when it was measured. Measured in production, it
+reaches **2 of 49** non-programme queue cards (4%). Email drafts, written after
+a scan, mostly do carry a score.
+
+So `ORDER BY compatibility_score DESC NULLS LAST` over the union puts nearly
+every email above nearly every call and DM card, and quietly rebuilds the
+single-channel page the mixed queue exists to replace. **The score is not used.**
+
+### What is used instead
+
+A four-rung ladder, every rung of which means the same thing on both tables:
+
+1. **Starved** — older than the promotion age (7 days; 6 for email drafts,
+   because `DRAFT_EXPIRY_DAYS` deletes them at 7 and a card promoted on the
+   morning it is expired was never really promoted).
+2. **Reach** — how likely this card is to reach a human, scored per channel: a
+   confirmed mailbox, a storefront handle, a number with a name to ask for.
+3. **A stated reason** — binary. Scoring the *quality* of a reason would have to
+   weigh a sponsor note against a pitch opener, and sponsor notes exist only on
+   queue cards, so any such scale is a channel preference in disguise.
+4. **Oldest first**, then the id. `created_at` is the only column that is
+   literally the same on both tables.
+
+Plus a floor of two email slots in every five, because an email is the only card
+that sends itself and at an 18% email share a pure ranking yields an all-DM page.
+
+### The weak spot
+
+Cross-table deduplication can only ever fire on the **weakest** basis.
+`outreach_logs` has no `brand_key` column, so an email draft's identity is its
+normalised name (plus a `dom:` key when the joined `company_enrichment` row
+happens to carry a website). A queue card carries a real `place:` or `dom:` key.
+The two therefore overlap on `name:` and nothing else — which is why every
+cross-table collapse logs `key=(no key)` on the winning side. That is not log
+noise; it is the finding.
+
+### What the real fix looks like
+
+Give `outreach_logs` a `brand_key` written at draft time from
+`brandIdentity.identityOf`, and give `brand_match_scores` the same. Both make the
+collapse certain rather than probable, and the second would restore a genuinely
+shared score to rung 2 of the ladder.
+
+---
+
+## Programme cards are excluded from Home, not solved
+
+**Status:** deliberate, v1.
+**Opened:** 2026-08-26.
+
+72 of 121 queued cards in production are `channel='program'` — applications to a
+brand's athlete programme, with no person on the other end. They are excluded
+from the mixed Home queue because "five cards for this athlete" would otherwise
+mean two different kinds of work. They still render on the Outreach tab and are
+counted separately in the shift report, so they are excluded rather than lost —
+but 60% of a night's output currently has no place on the page an agent opens
+every morning. That is a product decision waiting to be made, not a bug.
+
+---
+
+## Call cards have no script
+
+**Status:** cut from v1, deliberately.
+**Opened:** 2026-08-26.
+
+A call card on Home shows a number, who to ask for, and the reason — and nothing
+else. There is no `call_script` column on `outreach_queue` and nothing writes
+one; `dm_text` is only written when the nightly job marks a card `dmable`
+(`server/jobs/outreachQueue.js`). A templated script would be a sentence we
+invented, presented as something the product prepared, so none is shown. The fix
+is a column plus a generation arm in the nightly job alongside the DM arm, and a
+backfill decision for the call cards already queued.

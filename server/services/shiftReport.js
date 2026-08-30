@@ -136,7 +136,27 @@ async function buildShiftReport(pool, agentId) {
   // Derived here, before buildNeedsYou, because the queue count needs it to tell
   // a card this run placed from one that has been sitting there for three nights.
   const win = runWindow(run);
-  const needsYou = await buildNeedsYou(pool, agentId, q, win);
+
+  // ── THE ONE COUNT OF THE PILE ─────────────────────────────────────────────
+  // This report used to count the morning's work in THREE places -- the approve
+  // item (raw outreach_logs drafts), the Ready to send block (the same rows with
+  // two more conditions) and the queue item (every queued card of every channel)
+  // -- while Home counted a fourth way, gating on a usable address. All four were
+  // computed correctly and no two agreed, so an agent read "118 pitches ready"
+  // in an email and opened a page showing five.
+  //
+  // ./actionable is now the only thing that decides what an agent can act on
+  // today, and Home calls the identical function. Every number below is derived
+  // from this one object rather than from its own query.
+  const A = require('./actionable');
+  const act = await A.countActionable(pool, agentId, { tag: 'report' }).catch((e) => {
+    errs.push('actionable: ' + e.message);
+    return { total: 0, byChannel: { email: 0, dm: 0, call: 0 }, program: 0,
+      perAthlete: new Map(), withheld: [], errors: [] };
+  });
+  for (const e of (act.errors || [])) errs.push(e);
+
+  const needsYou = await buildNeedsYou(pool, agentId, q, win, act);
   const moving = await buildMoving(pool, agentId, q);
   const draftAudit = await buildDraftAudit(pool, agentId, q);
   // THE HUNTER MONTH, WHEN IT IS RUNNING OUT. Reported here because this email
@@ -158,7 +178,7 @@ async function buildShiftReport(pool, agentId) {
   // Named closerBlock, not closer: `closer` further down is the Closer's SENT and
   // REPLIED counts for the sentence, which is a different thing from the send
   // ceiling and the batch waiting on approval.
-  const closerBlock = await buildCloserBlock(pool, agentId).catch((e) => {
+  const closerBlock = await buildCloserBlock(pool, agentId, act).catch((e) => {
     errs.push('closer: ' + e.message); return null;
   });
 
@@ -429,16 +449,22 @@ async function buildAnalystBlock(pool, agentId, from, to) {
 // the agent believes forty went out. Both states surface here -- the ordinary
 // "you have used 12 of 40" and the two failure modes that stop sending
 // altogether, a reached ceiling and a provider refusal.
-async function buildCloserBlock(pool, agentId) {
+async function buildCloserBlock(pool, agentId, act) {
   const sendGuard = require('./sendGuard');
   const Closer = require('./closer');
   const budget = await sendGuard.status(pool, agentId);
 
-  // Waiting on the ONE decision. Not per message -- the count is the point.
-  const pending = (await pool.query(
-    `SELECT COUNT(*)::int AS n FROM outreach_logs
-      WHERE agent_id = $1 AND status = 'draft' AND approved_at IS NULL
-        AND cadence_stopped_at IS NULL`, [agentId])).rows[0].n;
+  // ── WAITING ON THE ONE DECISION, AND ONLY WHAT THAT DECISION SENDS ────────
+  // This counted every outreach_logs draft, so it reported a pile that Home
+  // refuses to show: 19 of 20 drafts are born with no address, and a draft with
+  // no address is not "ready to send" by any reading of the phrase. It now comes
+  // from the same gate Home applies, and counts EMAIL only -- approving is the
+  // action that makes an email send itself, and a call card has no send at all.
+  const pending = act ? Number(act.byChannel.email) || 0
+    : (await pool.query(
+      `SELECT COUNT(*)::int AS n FROM outreach_logs
+        WHERE agent_id = $1 AND status = 'draft' AND approved_at IS NULL
+          AND cadence_stopped_at IS NULL`, [agentId])).rows[0].n;
 
   // Approved and waiting for the recipient's Tuesday morning.
   const scheduled = (await pool.query(
@@ -468,25 +494,30 @@ async function buildCloserBlock(pool, agentId) {
   // with no names is not something an agent can act on either. This is the same
   // grouping the page shows, reduced to what fits in an inbox: the athlete, how
   // many, and the first businesses by name.
-  const byAthlete = (await pool.query(
-    `SELECT l.athlete_id,
-            COALESCE(a.data->>'name','an athlete') AS athlete_name,
-            COUNT(*)::int AS n,
-            (ARRAY_AGG(l.brand_name ORDER BY l.created_at ASC))[1:3] AS brands
-       FROM outreach_logs l
-       LEFT JOIN athletes a ON a.id = l.athlete_id
-      WHERE l.agent_id = $1 AND l.status = 'draft' AND l.approved_at IS NULL
-        AND l.cadence_stopped_at IS NULL
-      GROUP BY l.athlete_id, a.data->>'name'
-      ORDER BY COUNT(*) DESC, athlete_name ASC`, [agentId])).rows;
+  // The names, joined onto the counts the gate produced. The counts themselves
+  // come from `act` -- deriving them from a second query is exactly how this
+  // block came to disagree with the item above it.
+  const names = (await pool.query(
+    `SELECT a.id, COALESCE(a.data->>'name','an athlete') AS athlete_name
+       FROM athletes a WHERE a.agent_id = $1`, [agentId])).rows;
+  const nameOf = new Map(names.map((r) => [r.id, r.athlete_name]));
+  const byAthlete = act
+    ? Array.from(act.perAthlete.entries())
+      .filter(([, v]) => v.email > 0)
+      .map(([id, v]) => ({ athleteId: id, name: nameOf.get(id) || 'an athlete',
+        count: v.email, brands: (v.brands || []).filter(Boolean) }))
+      .sort((x, y) => y.count - x.count || String(x.name).localeCompare(String(y.name)))
+    : [];
 
   return {
     budget,
     pendingApproval: Number(pending) || 0,
-    byAthlete: byAthlete.map((r) => ({
-      athleteId: r.athlete_id, name: r.athlete_name,
-      count: Number(r.n) || 0, brands: (r.brands || []).filter(Boolean),
-    })),
+    // EVERYTHING an agent can act on, not only the part that emails. At an 18%
+    // email share, a block that reports only pitches tells an agent their morning
+    // is nearly empty when there are forty calls and DMs waiting.
+    readyToWork: act ? Number(act.total) || 0 : 0,
+    mix: act ? act.byChannel : { email: 0, dm: 0, call: 0 },
+    byAthlete,
     scheduled: Number(scheduled.n) || 0,
     nextSendAt: scheduled.next || null,
     failed: failed.map((f) => ({ brand: f.brand_name, why: f.send_error })),
@@ -538,7 +569,7 @@ function buildRoleCards(s) {
 // records a hold. Rendering it would mean inventing the state it reports.
 // win: the run window from runWindow(), or null when no run has been recorded.
 // Only the queue count uses it, and only to say when a card arrived.
-async function buildNeedsYou(pool, agentId, q, win) {
+async function buildNeedsYou(pool, agentId, q, win, act) {
   const items = [];
 
   // ── COMPLIANCE HOLDS, ABOVE EVERYTHING ───────────────────────────────────
@@ -607,90 +638,50 @@ async function buildNeedsYou(pool, agentId, q, win) {
     });
   }
 
-  // Approvals. THE 155 PROBLEM: one item may represent at most ITEM_MAX, and the
-  // ones it represents are the highest-fit, so what the agent sees first is what
-  // is most worth sending -- not simply the oldest thing in the pile.
-  // FIT COMES FROM THE NATURAL KEY, not a foreign key: outreach_logs carries no
-  // match_score_id (that column is on automation_runs), so the score is joined on
-  // the agent + athlete + brand it was computed for. A draft with no score sorts
-  // last rather than being dropped -- an unscored pitch is still a pitch.
-  const pending = await q('needs-drafts',
-    `SELECT l.id, l.brand_name, l.created_at,
-            COALESCE(m.compatibility_score, 0) AS fit,
-            a.data->>'name' AS athlete_name
-       FROM outreach_logs l
-       LEFT JOIN LATERAL (
-         SELECT compatibility_score FROM brand_match_scores s
-          WHERE s.agent_id = l.agent_id AND s.athlete_id = l.athlete_id
-            AND LOWER(s.brand_name) = LOWER(l.brand_name)
-          ORDER BY s.compatibility_score DESC LIMIT 1
-       ) m ON TRUE
-       LEFT JOIN athletes a ON a.id = l.athlete_id
-      WHERE l.agent_id = $1 AND l.status = 'draft'
-      ORDER BY COALESCE(m.compatibility_score,0) DESC, l.created_at ASC`, [agentId]);
-  const pendingAll = pending || [];
-  if (pendingAll.length) {
-    const show = pendingAll.slice(0, ITEM_MAX);
+  // ── THE MORNING'S WORK, AS ONE PILE ───────────────────────────────────────
+  //
+  // This was two items and they double-counted nothing but described the same
+  // morning twice in incompatible units: an `approve` item counting raw
+  // outreach_logs drafts, and a `queue` item counting every queued card of every
+  // channel. Home, meanwhile, showed a gated, mixed, deduplicated five.
+  //
+  // One item now, from ./actionable -- the identical call Home makes -- so the
+  // email and the page describe one pile. The channel breakdown is on the line
+  // because "23 ready to work" without it is the sentence that made an agent
+  // expect twenty-three approvals and find four.
+  const readyTotal = act ? Number(act.total) || 0 : 0;
+  if (readyTotal > 0) {
+    const mix = act.byChannel || {};
+    const bits = [];
+    if (mix.email) bits.push(`${num(mix.email)} to approve and send`);
+    if (mix.dm) bits.push(`${num(mix.dm)} to DM`);
+    if (mix.call) bits.push(`${num(mix.call)} to call`);
     items.push({
-      kind: 'approve', id: 'drafts', priority: 1,
-      count: show.length, heldBack: Math.max(0, pendingAll.length - show.length),
-      line: `${plural(show.length, 'pitch', 'pitches')} ready for you`,
-      detail: pendingAll.length > ITEM_MAX
-        ? `highest-fit ${show.length} of ${pendingAll.length} — the rest wait`
-        : null,
-      actionLabel: 'Review', target: { view: 'outreach' },
-      ids: show.map((r) => r.id),
-      at: show[show.length - 1] && show[show.length - 1].created_at,
+      kind: 'approve', id: 'ready', priority: 1,
+      count: readyTotal, total: readyTotal, mix,
+      // Kept for anything downstream that reads it; nothing is capped here any
+      // more, because the cap belongs to the page that renders five.
+      heldBack: 0,
+      line: `${plural(readyTotal, 'card')} ready to work`,
+      detail: bits.length ? listify(bits) : null,
+      actionLabel: 'Open the morning queue', target: { view: 'home' },
     });
   }
 
-  // ── THE QUEUE, SPLIT BY WHEN THE CARD ARRIVED ──────────────────────────────
-  // This counted `state = 'queued'` with NO time filter, while the headline and
-  // the coverage line count the SAME TABLE windowed to the run. Both numbers were
-  // right and they answered different questions, so a quiet night produced an
-  // email that read:
-  //
-  //   subject   5 outreach cards ready to work
-  //   headline  Your team ran last night and found nothing new to work.
-  //   coverage  Across 0 of 1 athletes — 1 had nothing new to work
-  //
-  // A card leaves 'queued' only when the AGENT acts (sent, or skipped), never on
-  // a timer, so the unwindowed count is a standing backlog by construction. It is
-  // the right number for the subject -- a stale pile is worth a nudge on the
-  // quietest morning -- and the wrong number to print under a headline about last
-  // night without saying which is which.
-  const queued = await q('needs-queue',
-    `SELECT COUNT(*)::int AS n,
-            COUNT(*) FILTER (WHERE $2::timestamptz IS NOT NULL
-                               AND created_at >= $2 AND created_at < $3)::int AS fresh
-       FROM outreach_queue
-      WHERE agent_id = $1 AND state = 'queued'`,
-    [agentId, win ? win.from : null, win ? win.to : null]);
-  const queuedN = queued && queued[0] ? Number(queued[0].n) : 0;
-  // With no run recorded nothing can be new, so everything reads as carried over.
-  const freshN = queued && queued[0] ? Number(queued[0].fresh) : 0;
-  const carriedN = Math.max(0, queuedN - freshN);
-  if (queuedN > 0) {
-    const shown = Math.min(queuedN, ITEM_MAX);
-    // THREE SHAPES, AND THE MIDDLE ONE IS THE BUG. All-carryover must never say
-    // "found last night"; all-fresh must not be hedged into sounding stale.
-    let line;
-    if (freshN && carriedN) {
-      line = `${plural(freshN, 'new outreach card')} from last night, `
-        + `${num(carriedN)} still waiting from earlier runs`;
-    } else if (freshN) {
-      line = `${plural(freshN, 'outreach card')} ready to work`;
-    } else {
-      line = `${plural(carriedN, 'outreach card')} still waiting from earlier runs`;
-    }
+  // ── PROGRAMME APPLICATIONS, COUNTED APART ─────────────────────────────────
+  // A programme card is an application to a brand's athlete programme, not an
+  // approach to a business, and it has no person on the other end. It is
+  // excluded from the mixed queue on Home for that reason. Excluded is not
+  // dropped: 72 of the 121 queued cards in production are these, and an agent
+  // who is never told about them has lost most of a night's work.
+  const programs = act ? Number(act.program) || 0 : 0;
+  if (programs > 0) {
     items.push({
-      kind: 'queue', id: 'queue', priority: 2,
-      // count stays the DISPLAY count (capped) so nothing downstream that reads it
-      // changes meaning; total is the real backlog, which is what the subject wants.
-      count: shown, total: queuedN, fresh: freshN, carried: carriedN,
-      heldBack: Math.max(0, queuedN - shown),
-      line,
-      detail: queuedN > ITEM_MAX ? `${queuedN} in the queue — the rest wait` : null,
+      kind: 'queue', id: 'programs', priority: 2,
+      count: Math.min(programs, ITEM_MAX), total: programs,
+      heldBack: Math.max(0, programs - ITEM_MAX),
+      line: `${plural(programs, 'programme application')} waiting`,
+      detail: 'These are applications, not approaches — they live on the Outreach tab.',
       actionLabel: 'Open queue', target: { view: 'outreach' },
     });
   }

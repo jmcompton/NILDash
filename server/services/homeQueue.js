@@ -31,11 +31,23 @@
 // Two and three are combined when neither is substantial alone. Nothing is
 // invented: a card with no usable source shows two lines, not a filled-in one.
 
-// Home shows five cards per athlete and no more. The cap of five that already
-// existed is on outreach_queue -- the RESEARCH pile -- while drafts live in
-// outreach_logs with no cap at all, so a roster nobody worked for a fortnight
-// arrived at Home with 14 and 63 cards on two athletes. A page carrying 63
-// decisions is not a page carrying one.
+// ── TWO TABLES, ONE QUEUE ───────────────────────────────────────────────────
+// Home used to read outreach_logs and nothing else, so it showed the 18% of a
+// night's work that is emailable and hid the rest. The nightly job writes call
+// and DM cards into outreach_queue and has no email branch at all. Which table a
+// card came from is not a fact about the agent's morning; it is an accident of
+// which code path produced it.
+//
+// Everything about WHICH cards count, in what order, and which business wins
+// when both tables hold one, lives in ./actionable -- shared with the shift
+// report so the page and the email cannot print different numbers for one pile.
+const A = require('./actionable');
+
+// Home shows five cards per athlete and no more, whatever the channel. The cap
+// of five that already existed is on outreach_queue -- the RESEARCH pile --
+// while drafts live in outreach_logs with no cap at all, so a roster nobody
+// worked for a fortnight arrived at Home with 14 and 63 cards on two athletes.
+// A page carrying 63 decisions is not a page carrying one.
 const SHOWN_MAX = parseInt(process.env.HOME_CARDS_PER_ATHLETE, 10) || 5;
 
 // OVER-FETCH, WITH A CEILING. The gate below throws cards away -- no address, a
@@ -50,17 +62,6 @@ const FETCH_MAX = Math.min(
 // A page load, not a batch job. The whole addressing pass gets this long and
 // then reports what it has.
 const ATTACH_DEADLINE_MS = parseInt(process.env.HOME_ATTACH_DEADLINE_MS, 10) || 2500;
-
-// The same screen the scraper uses, so "a usable address" means one thing in
-// this codebase rather than two. Wrapped because siteEmail opens a pg pool at
-// require time and a page builder has no business dragging one in on a bad day.
-function screen(addr) {
-  try {
-    return require('./siteEmail').screenEmail(addr, null);
-  } catch (e) {
-    return { ok: true };   // cannot screen: do not invent a rejection
-  }
-}
 
 // Three states, three different sentences, and only one of them is entitled to
 // say anything about the business's mail server.
@@ -177,63 +178,30 @@ async function buildHome(pool, agentId, opts = {}) {
     }
   };
 
-  const athletes = await q('athletes',
+  const roster = await q('athletes',
     `SELECT a.id, a.data->>'name' AS name, a.data->>'school' AS school,
-            a.data->>'dob' AS dob,
-            COUNT(l.id) FILTER (
-              WHERE l.status = 'draft' AND l.approved_at IS NULL
-                AND l.cadence_stopped_at IS NULL)::int AS pending
+            a.data->>'dob' AS dob
        FROM athletes a
-       LEFT JOIN outreach_logs l ON l.athlete_id = a.id AND l.agent_id = $1
       WHERE a.agent_id = $1
-      GROUP BY a.id, a.data
       ORDER BY a.created_at ASC`, [agentId]);
+
+  // WHICH ATHLETE TO OPEN ON needs the same answer as the tab counts, and the
+  // tab counts are no longer a COUNT(*) this file can write: an actionable card
+  // is one that passed a channel-aware gate, and the count that ignored that gate
+  // was the reason a tab said 63 over a page showing five. This is the one read
+  // that decides both -- and the identical read the shift report makes.
+  const roll = await A.countActionable(pool, agentId).catch((e) => {
+    errs.push('counts: ' + e.message);
+    return { total: 0, byChannel: {}, program: 0, perAthlete: new Map(), withheld: [], errors: [] };
+  });
+  for (const e of (roll.errors || [])) errs.push(e);
+  const pendingOf = (id) => (roll.perAthlete.get(id) || {}).total || 0;
+
+  const athletes = roster.map((a) => ({ ...a, pending: pendingOf(a.id) }));
 
   const selected = opts.athleteId
     || (athletes.find((a) => a.pending > 0) || athletes[0] || {}).id
     || null;
-
-  let cards = [];
-  let pendingTotal = 0;
-  if (selected) {
-    cards = await q('cards',
-      `SELECT l.id, l.brand_name, l.body_html, l.subject,
-              l.edited_before_approval,
-              l.sent_to_email AS to_email,
-              l.athlete_id,
-              q.contact_name, q.contact_title, q.why,
-              m.reasoning, m.compatibility_score
-         FROM outreach_logs l
-         LEFT JOIN LATERAL (
-           SELECT contact_name, contact_title, why FROM outreach_queue q2
-            WHERE q2.athlete_id = l.athlete_id
-              AND LOWER(q2.brand_name) = LOWER(l.brand_name)
-            ORDER BY q2.created_at DESC LIMIT 1
-         ) q ON TRUE
-         LEFT JOIN LATERAL (
-           SELECT reasoning, compatibility_score FROM brand_match_scores m2
-            WHERE m2.agent_id = l.agent_id AND m2.athlete_id = l.athlete_id
-              AND LOWER(m2.brand_name) = LOWER(l.brand_name)
-            ORDER BY m2.created_at DESC LIMIT 1
-         ) m ON TRUE
-        WHERE l.agent_id = $1 AND l.athlete_id = $2
-          AND l.status = 'draft' AND l.approved_at IS NULL
-          AND l.cadence_stopped_at IS NULL
-        -- FIVE, HIGHEST FIT FIRST. The cap of five is on outreach_queue, which
-        -- is the RESEARCH pile; drafts live in outreach_logs and have no cap at
-        -- all, so an athlete nobody worked for a fortnight arrived at Home with
-        -- 63 cards. A page with 63 decisions on it is not a page with one.
-        -- Ordered by the match score the Scout already computed, then oldest
-        -- first so the tie-break is stable and a draft cannot jump the queue by
-        -- being rewritten.
-        ORDER BY m.compatibility_score DESC NULLS LAST, l.created_at ASC
-        LIMIT $3`, [agentId, selected, FETCH_MAX]);
-    const t = await q('pending-total',
-      `SELECT COUNT(*)::int AS n FROM outreach_logs
-        WHERE agent_id = $1 AND athlete_id = $2 AND status = 'draft'
-          AND approved_at IS NULL AND cadence_stopped_at IS NULL`, [agentId, selected]);
-    pendingTotal = (t[0] && t[0].n) || 0;
-  }
 
   // ── ADDRESS THE DRAFTS BEFORE JUDGING THEM ────────────────────────────────
   //
@@ -251,125 +219,68 @@ async function buildHome(pool, agentId, opts = {}) {
   // draftPrewarm drafts 12, so nine of every twelve never had an address source
   // created for them at all.
   //
-  // Calling attach here papers over both: by the time an agent opens Home the
-  // ladder has long since finished, so the row that was missing at insert is
-  // usually there now. The real fix is to make the draft wait for, or trigger,
-  // its own address lookup -- at which point this call becomes a cheap no-op
-  // rather than the thing holding the feature up.
+  // IT RUNS FIRST, AND ONLY ON EMAIL DRAFTS. Before, because the gate below
+  // rejects an addressless draft and attach is what supplies the address; only
+  // on email, because a call card never wanted one and spending a verification
+  // credit looking for it is spending the account's month on nothing.
+  //
+  // OLDEST FIRST. The budget is three lookups an athlete a day, so this chooses
+  // which drafts get them. Oldest is the same tie-break the ranking uses and the
+  // same intent as the starvation promotion: the pile's tail is what goes unseen.
   let verifyBudget = null;
-  if (cards.length && selected) {
-    try {
-      const DA = require('./draftAddress');
-      const VB = require('./verifyBudget');
-      const res = await DA.attach(pool, {
-        agentId,
-        ids: cards.map((c) => c.id),
-        athleteId: selected,
-        budget: VB.PER_ATHLETE_DAY,
-        // A PAGE LOAD, NOT A BATCH JOB. Past this the remaining addresses come
-        // back `unknown`, which shows the card and marks it unverified. An agent
-        // staring at a spinner because a resolver is slow is a worse outcome
-        // than a card that says what it does not know.
-        deadlineMs: ATTACH_DEADLINE_MS,
-      });
-      // Surfaced on the payload, not just in a log. An account ceiling that only
-      // announces itself in stdout is a ceiling nobody finds out about until the
-      // cards quietly stop being verified.
-      //
-      // `unknown` AS WELL AS `low`. A credit log that cannot be READ is a fault,
-      // not a spent month, and the page must not render the two the same way --
-      // see verifyBudget.accountStatus.
-      const acct = res && res.budget && res.budget.account;
-      if (acct && (acct.low || acct.unknown)) {
-        verifyBudget = acct;
+  if (selected) {
+    const unaddressed = await q('to-address',
+      `SELECT l.id FROM outreach_logs l
+        WHERE ${A.EMAIL_WHERE} AND l.athlete_id = $2
+          AND (l.sent_to_email IS NULL OR l.sent_to_email = '')
+        ORDER BY l.created_at ASC LIMIT $3`, [agentId, selected, FETCH_MAX]);
+    if (unaddressed.length) {
+      try {
+        const DA = require('./draftAddress');
+        const VB = require('./verifyBudget');
+        const res = await DA.attach(pool, {
+          agentId,
+          ids: unaddressed.map((r) => r.id),
+          athleteId: selected,
+          budget: VB.PER_ATHLETE_DAY,
+          // A PAGE LOAD, NOT A BATCH JOB. Past this the remaining addresses come
+          // back `unknown`, which withholds the card and names it. An agent
+          // staring at a spinner because a resolver is slow is a worse outcome
+          // than a page that says what it does not know.
+          deadlineMs: ATTACH_DEADLINE_MS,
+        });
+        // Surfaced on the payload, not just in a log. An account ceiling that
+        // only announces itself in stdout is a ceiling nobody finds out about
+        // until the cards quietly stop being verified.
+        const acct = res && res.budget && res.budget.account;
+        if (acct && (acct.low || acct.unknown)) verifyBudget = acct;
+      } catch (e) {
+        // An addressing pass that could not run must not empty the page. The
+        // gate still holds; the cards simply arrive as they were.
+        errs.push('addressing: ' + e.message);
       }
-      if (res && res.attached) {
-        // Re-read only what changed, rather than re-running the whole card query.
-        const filled = await q('addressed',
-          `SELECT id, sent_to_email FROM outreach_logs WHERE id = ANY($1::text[])`,
-          [cards.map((c) => c.id)]);
-        const byId = new Map(filled.map((r) => [r.id, r.sent_to_email]));
-        for (const c of cards) if (byId.has(c.id)) c.to_email = byId.get(c.id);
-      }
-    } catch (e) {
-      // An addressing pass that could not run must not empty the page. The gate
-      // below still holds; the cards simply arrive as they were.
-      errs.push('addressing: ' + e.message);
     }
   }
 
-  // ── A KNOWN-BAD ADDRESS NEVER REACHES A CARD ──────────────────────────────
-  // Two ways an address is known bad before anybody looks at it:
-  //
-  //   SUPPRESSED  it bounced. That is not an opinion, it is a fact the mail
-  //               server told us. closer.buildBatch checked this and Home did
-  //               not, so a bounced address could be approved again -- the
-  //               fastest way there is to lose the sending reputation the
-  //               40-a-night ceiling exists to protect.
-  //   VERIFIED    the verifier said undeliverable. Only a definite NO holds a
-  //               card back; accept-all and unknown do not (see below), because
-  //               catch-all domains are disproportionately the small local
-  //               businesses this product exists to reach.
-  //
-  // Held back, counted and reported -- never silently dropped. A card that
-  // vanishes with no explanation is how a roster quietly stops being worked.
-  const withheld = [];
-  if (cards.length) {
-    const addrs = cards.map((c) => c.to_email).filter(Boolean);
-    let suppressed = new Set();
-    if (addrs.length) {
-      try {
-        const suppression = require('./suppression');
-        suppressed = await suppression.suppressedSet(pool, addrs);
-      } catch (e) { errs.push('suppression: ' + e.message); }
-    }
-    const verdicts = new Map();
-    if (addrs.length) {
-      // SOURCE AS WELL AS RESULT. Without it every unchecked address looked
-      // identical to a checked catch-all, and the card said so out loud -- "this
-      // domain accepts all mail, so no check can tell" -- about businesses
-      // nobody had checked. That is an unfounded claim about someone's mail
-      // server, and it is the difference between "we asked and could not tell"
-      // and "we never asked".
-      for (const r of await q('verification',
-        `SELECT email, result, source FROM email_verification WHERE email = ANY($1::text[])`,
-        [addrs.map((a) => String(a).trim().toLowerCase())])) {
-        verdicts.set(r.email, { result: r.result, source: r.source });
-      }
-    }
-    cards = cards.filter((c) => {
-      const a = c.to_email ? String(c.to_email).trim().toLowerCase() : null;
-      // NO ADDRESS IS NOT A PASS. Both guards below were written `if (a && ...)`
-      // to catch a known-BAD address, and a card with NO address fell straight
-      // through the middle of them onto the page -- an approve button over an
-      // empty recipient. This is the gate that was missing.
-      if (!a) {
-        withheld.push({ business: c.brand_name, why: 'no email address found for this business yet' });
-        return false;
-      }
-      // Shape, role words and domain match, from the screen the scraper already
-      // uses. One definition of "usable address" in the codebase, not two.
-      const s = screen(a);
-      if (!s.ok) {
-        withheld.push({ business: c.brand_name, why: s.reason });
-        return false;
-      }
-      if (suppressed.has(a)) {
-        withheld.push({ business: c.brand_name, why: 'this address bounced before' });
-        return false;
-      }
-      if ((verdicts.get(a) || {}).result === 'invalid') {
-        withheld.push({ business: c.brand_name, why: 'the address does not accept mail' });
-        return false;
-      }
-      // Everything else rides, carrying what we know about it.
-      c._verified = verdicts.get(a) || null;
-      return true;
-    });
-    // BACK DOWN TO THE SLATE. The query over-fetched so the filter could throw
-    // work away and still leave five; anything past five waits for tomorrow.
-    if (cards.length > SHOWN_MAX) cards = cards.slice(0, SHOWN_MAX);
+  // ── THE MIXED QUEUE ───────────────────────────────────────────────────────
+  // Loaded AFTER attach, so anything the addressing pass just rescued is read
+  // back from the database rather than patched in memory -- which is also what
+  // keeps the shift report, reading the same rows a minute later, in agreement.
+  let cards = [];
+  let withheld = [];
+  let pendingTotal = 0;
+  if (selected) {
+    const got = await A.load(pool, agentId, { athleteId: selected, full: true });
+    for (const e of (got.errors || [])) errs.push(e);
+    const all = got.byAthlete.get(selected) || [];
+    // Already scoped to this athlete by the load, and already carrying a reason
+    // per channel rather than one sentence about email addresses.
+    withheld = got.withheld || [];
+    pendingTotal = all.length;
+    // FIVE, BY THE LADDER, WITH TWO HELD FOR EMAIL. See actionable.select.
+    cards = A.select(all, { max: SHOWN_MAX });
   }
+
 
   // ── WHAT WILL ACTUALLY BE SENT ────────────────────────────────────────────
   // The media kit is appended at APPROVAL by closer.approveBatch, so the card
@@ -411,54 +322,104 @@ async function buildHome(pool, agentId, opts = {}) {
           + 'so nothing can be approved yet.', cta: 'Add it', href: '/?view=athletes' }
       : null,
     cards: cards.map((c) => {
-      const w = deriveWhy(c);
-      return {
+      // deriveWhy reads a card's own vocabulary; the normalised card uses one
+      // name per concept across two schemas, so it is handed the three sources
+      // by the names it knows.
+      const w = deriveWhy({ body_html: c.bodyHtml, why: c.why, reasoning: c.reasoning });
+      const card = {
+        // NAMESPACED. `email:<uuid>` or `queue:<serial>`, because the two tables
+        // have separate id spaces and a bare id in a mixed list cannot say which
+        // one it belongs to. See actionable.parseId.
         id: c.id,
+        // ON EVERY CARD, not only the ones that are not email. A badge that
+        // appears on the exceptions teaches an agent that unbadged means normal;
+        // a badge on all three teaches them to read it.
+        channel: c.channel,
         business: c.brand_name,
-        contact: c.contact_name || null,
-        role: c.contact_title || null,
+        contact: c.contactName || null,
+        role: c.contactTitle || null,
         why: w.text,
         whyFrom: w.from,
-        // ── THE EMAIL ITSELF ─────────────────────────────────────────────
+        // Why this one outranked the rest, in words. Queue-only: it is evidence
+        // of a tie to the school, and it is the most useful line on the card
+        // when we hold it.
+        sponsorNote: c.sponsorNote || null,
+        // Said in words why an owner is only a probable match, rather than
+        // leaving the agent to wonder why a confident-looking card ranks low.
+        sourceNote: (c.affiliationScope === 'unclear' && c.sourceNote) || null,
+      };
+
+      if (c.channel === 'email') {
+        // ── THE EMAIL ITSELF ───────────────────────────────────────────────
         // Collapsed on the card, one click away, because approving something
         // you have not read is not approval. Sent as TEXT PARAGRAPHS rather
         // than the stored HTML: the page never injects markup it did not
         // build, and what a recipient reads is the words anyway.
-        to: c.to_email || null,
-        subject: c.subject || null,
-        body: stripHtml(c.body_html).split('\n').map((s) => s.trim()).filter(Boolean),
+        card.to = c.toEmail || null;
+        card.subject = c.subject || null;
+        card.body = stripHtml(c.bodyHtml).split('\n').map((s) => s.trim()).filter(Boolean);
         // The same words as one editable string. The card edits TEXT and posts
         // text; the server turns it back into paragraphs, so the page never
         // sends markup that ends up in an email a business reads.
-        bodyText: stripHtml(c.body_html).split('\n').map((x) => x.trim()).filter(Boolean).join('\n\n'),
+        card.bodyText = card.body.join('\n\n');
         // Shown on the card so an agent can see at a glance which of these they
         // have already rewritten.
-        edited: !!c.edited_before_approval,
+        card.edited = !!c.edited;
         // Shown because approveBatch will append it. If this said "no" and the
         // approval added one, the preview would be a different email.
-        mediaKit: kitUrl,
+        card.mediaKit = kitUrl;
         // PROCEED AND SAY WHAT WE DO NOT KNOW -- the same stance the compliance
         // gate and the domain gate take. 'valid' means a verifier confirmed the
         // mailbox; null or 'unknown' means it could not be confirmed, which for
         // a catch-all domain is the only answer any verifier can give. The card
         // says so and the agent decides. Verified-bad never gets this far.
-        verified: (c._verified && c._verified.result) || null,
+        card.verified = (c.verified && c.verified.result) || null;
         // Said once, here, so the page cannot invent its own wording for a
         // state it does not fully understand.
-        verifiedNote: verifyNote(c._verified),
-      };
+        card.verifiedNote = verifyNote(c.verified);
+      } else if (c.channel === 'dm') {
+        // The message, editable, and the handle the button opens. The same two
+        // things the Outreach tab has had all along -- moved here so the agent
+        // does not have to know there is a second page.
+        card.dmText = c.dmText || '';
+        card.handle = c.instagram || null;
+        // A brand account is a real channel and it is NOT this storefront. Shown
+        // and labelled rather than quietly used as though it were the owner.
+        card.handleIsBrand = c.instagramScope === 'brand';
+        // NO MEDIA KIT LINE ON A DM. approveBatch appends the kit to body_html
+        // and a DM has none; appending it to the message instead would lengthen
+        // something the agent is about to paste into a box with a limit.
+        card.mediaKit = null;
+      } else if (c.channel === 'call') {
+        // v1 IS THIN AND SAYS SO. A number, who to ask for, and the reason --
+        // no script, because there is no call_script column and nothing writes
+        // one. Scoped and deliberately cut rather than faked with a template.
+        card.phone = c.phone || null;
+        card.askFor = c.phoneAskFor || c.contactName || null;
+        card.mediaKit = null;
+      }
+      return card;
     }),
     // Five is the ceiling; this is the pile behind it. Reported so the backlog
     // is visible on the page that can act on it, rather than only in a count
     // that silently grew.
     shown: cards.length, pending: pendingTotal,
-    heldBack: Math.max(0, pendingTotal - cards.length - withheld.length),
+    heldBack: Math.max(0, pendingTotal - cards.length),
+    // WHAT THE FIVE ARE MADE OF, so the approve bar can say how many of them it
+    // actually acts on. Approving does not clear this page any more: it schedules
+    // the email cards and leaves the DM and call cards for the agent to work.
+    mix: cards.reduce((m, c) => { m[c.channel] = (m[c.channel] || 0) + 1; return m; },
+      { email: 0, dm: 0, call: 0 }),
     // Held back for a REASON, not just over the five-card line.
     withheld,
+    // Excluded from this queue, NOT dropped: a programme application is not an
+    // approach to a business and has no person on the other end. Counted so the
+    // page can point at where they live rather than losing them.
+    programs: roll.program || 0,
     // null unless the month's verification share is running out. The page shows
     // it because the alternative is finding out from a support ticket.
     verifyBudget,
-    canApprove: !blocked && cards.length > 0,
+    canApprove: !blocked && cards.some((c) => c.channel === 'email'),
     // Empty because there is nothing, or empty because a read failed. Never
     // the same thing on the page.
     errors: errs,

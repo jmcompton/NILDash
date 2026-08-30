@@ -1857,6 +1857,15 @@ app.post('/api/agent/closer/approve', requireAuth, async (req, res) => {
       { ids, skip, athleteId: req.body.athleteId || null });
     res.json(out);
   } catch (e) {
+    // A REJECTED ID IS THE CLIENT'S FAULT, NOT A FAULT. approveBatch throws
+    // rather than filtering when it is handed something that is not an email
+    // draft -- a call or DM card from the mixed Home queue -- because filtering
+    // would report success for work it did not do. It is a 400 with the sentence
+    // the agent should read, not a 500 that reads as the server falling over.
+    if (e && e.badId) {
+      console.warn('[closer/approve] rejected id:', e.message);
+      return res.status(400).json({ error: e.message });
+    }
     console.error('[closer/approve]', e.message);
     res.status(500).json({ error: e.message });
   }

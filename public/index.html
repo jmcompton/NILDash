@@ -2027,6 +2027,20 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-estatus{font-size:12px;color:var(--red,#FF3D5A)}
 .hq-edited{font-size:11px;color:var(--dim,#63635a);border:1px solid var(--line,#26261f);
   border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle}
+/* THE CHANNEL BADGE, ON EVERY CARD. Borrows .hq-edited's shape so it reads as
+   the same class of label rather than a second decoration system. The three
+   channels are distinguished by BORDER, not by fill: a filled chip on every
+   card would compete with the accent the approve bar owns, and the badge is
+   there to be read once, not to shout. */
+.hq-chan{font-size:11px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;
+  border:1px solid var(--line,#26261f);border-radius:4px;padding:2px 6px;margin-left:8px;
+  vertical-align:middle;color:var(--dim,#63635a);white-space:nowrap}
+.hq-chan.email{color:var(--accent,#C8F135);border-color:rgba(200,241,53,.35)}
+.hq-chan.dm{color:#9db4ff;border-color:rgba(157,180,255,.35)}
+.hq-chan.call{color:#f0c98a;border-color:rgba(240,201,138,.35)}
+/* A DM's message box is not a whole email; it does not need 180px of it. */
+.hq-card.dm .hq-ta{min-height:96px}
+.hq-note{margin:6px 0 0;font-size:13px;color:var(--dim,#63635a);max-width:62ch}
 @media (prefers-reduced-motion:reduce){.hq-peek .car{transition:none}}
 /* THE APPROVE BAR IS FIXED, NOT STICKY, AND THE REASON IS ONE DECLARATION.
    .main carries overflow-x:hidden (line ~233). Per spec, when one axis is not
@@ -19793,9 +19807,11 @@ var growthModule = (function() {
 // a setting, so nothing on a card is a decision.
 var HQ = { data: null, selected: null, busy: false };
 
-// An id inside an inline onclick. JSON-quoted then attribute-escaped, so a
-// brand id containing a quote cannot break out of the handler.
-function hqAttr(v) { return hqEscape(JSON.stringify(String(v))).replace(/&quot;/g, '&quot;'); }
+// NO ID GOES INTO AN INLINE HANDLER ANY MORE. Card ids are namespaced
+// ("email:<uuid>", "queue:41"), and quoting an arbitrary id into an onclick was
+// always one escaping mistake away from a broken handler. Handlers take the
+// card's POSITION in the rendered list -- an integer, which cannot be quoted
+// wrong -- and look the id up from HQ.data when they need it.
 
 function hqEscape(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -19852,8 +19868,17 @@ function hqRender() {
       + '<a href="' + hqEscape(d.blocker.href || '#') + '">' + hqEscape(d.blocker.cta) + '</a></div>';
   }
   html += '<h1 class="hq-name">' + hqEscape(d.athlete.name) + '</h1>';
+  // "TO APPROVE" WAS TRUE WHEN EVERY CARD WAS AN EMAIL. It is now the count of
+  // a mixed queue, most of which is not approved at all -- it is called or
+  // messaged. The line says the work, and the mix underneath says its shape.
+  var mix = d.mix || {};
+  var mixBits = [];
+  if (mix.email) mixBits.push(mix.email + ' email');
+  if (mix.dm) mixBits.push(mix.dm + ' DM');
+  if (mix.call) mixBits.push(mix.call + ' call');
   html += '<p class="hq-sub">' + (d.cards.length
-    ? d.cards.length + ' to approve' : 'Nothing to approve today')
+    ? d.cards.length + ' to work' + (mixBits.length ? ' · ' + mixBits.join(', ') : '')
+    : 'Nothing to work today')
     // The pile behind the five, said in words on the page that can act on it.
     + (d.heldBack ? ' &middot; ' + d.heldBack + ' more waiting' : '')
     + (d.athlete.school ? ' &middot; ' + hqEscape(d.athlete.school) : '') + '</p>';
@@ -19868,66 +19893,18 @@ function hqRender() {
       : '<div class="hq-done"><p class="hq-why" style="margin:0">'
         + 'Slots full &mdash; work these before new ones arrive.</p></div>';
   } else {
+    // ONE INDEX PER CARD, USED FOR EVERY DOM ID. Card ids are namespaced now
+    // ("email:<uuid>", "queue:41") and a colon in an id is a live grenade for
+    // anything that later reaches for querySelector. The index is the DOM
+    // identity; the namespaced id stays on the wire where it belongs.
     html += '<div class="hq-cards">' + d.cards.map(function (c, i) {
-      // The email is rendered from TEXT PARAGRAPHS the server derived, escaped
-      // here. The page never injects stored markup, and what a recipient reads
-      // is the words anyway.
-      var body = (c.body || []).map(function (para) {
-        return '<p>' + hqEscape(para) + '</p>';
-      }).join('');
-      var mailId = 'hq-mail-' + i;
-      return '<div class="hq-card">'
-        + '<p class="hq-biz">' + hqEscape(c.business) + '</p>'
-        + (c.contact ? '<p class="hq-who">' + hqEscape(c.contact)
-            + (c.role ? ' <span class="role">&middot; ' + hqEscape(c.role) + '</span>' : '') + '</p>' : '')
-        + (c.why ? '<p class="hq-why">' + hqEscape(c.why) + '</p>' : '')
-        + '<button class="hq-peek" type="button" aria-expanded="false" aria-controls="' + mailId + '"'
-        + ' onclick="hqPeek(this)"><span class="car">&#9654;</span><span class="lbl">Read the email</span></button>'
-        + '<div class="hq-mail" id="' + mailId + '" hidden>'
-        + '<dl>'
-        // VERIFIED-BAD ADDRESSES NEVER GET HERE -- buildHome holds those cards
-        // back. So this only ever says "confirmed" or "could not confirm", and
-        // the second one is the honest answer for a catch-all domain rather
-        // than a warning about the address.
-        + '<dt>To</dt><dd>' + hqEscape(c.to || 'no address on this draft')
-        + (c.contact ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(c.contact) + ')</span>' : '')
-        // The wording comes from the server (homeQueue.verifyNote) because only
-        // it knows whether the address was CHECKED and came back accept-all, or
-        // was never checked at all. Claiming the former about the latter is a
-        // statement about somebody's mail server that we have not earned.
-        + (c.to ? '<div class="hq-vrf">' + hqEscape(c.verifiedNote || 'Not checked yet') + '</div>' : '')
-        + '</dd>'
-        + '<dt>Subject</dt><dd><span class="hq-subj" id="hq-subj-' + hqEscape(c.id) + '">'
-        + hqEscape(c.subject || 'no subject') + '</span>'
-        + (c.edited ? ' <span class="hq-edited">edited</span>' : '') + '</dd>'
-        + '</dl>'
-        // ── EDIT IN PLACE ────────────────────────────────────────────────
-        // The same shape as srSaveDraft on the shift-detail page: a textarea
-        // where the text was, Save and Cancel, no modal and no navigation. The
-        // agent keeps their position in a list they are halfway through.
-        + '<div class="hq-read" id="hq-read-' + hqEscape(c.id) + '">'
-        + '<div class="hq-body">' + (body || '<p>This draft has no body yet.</p>') + '</div>'
-        + '<button class="hq-editbtn" type="button" onclick="hqEdit(' + hqAttr(c.id) + ')">Edit</button>'
-        + '</div>'
-        + '<div class="hq-edit" id="hq-edit-' + hqEscape(c.id) + '" hidden>'
-        + '<label class="hq-lbl">Subject</label>'
-        + '<input class="hq-in" id="hq-esubj-' + hqEscape(c.id) + '" value="' + hqEscape(c.subject || '') + '">'
-        + '<label class="hq-lbl">Message</label>'
-        + '<textarea class="hq-ta" id="hq-ebody-' + hqEscape(c.id) + '" rows="10">'
-        + hqEscape(c.bodyText || '') + '</textarea>'
-        + '<div class="hq-ebtns">'
-        + '<button class="hm-btn primary" type="button" onclick="hqSaveEdit(' + hqAttr(c.id) + ', this)">Save</button>'
-        + '<button class="hm-btn ghost" type="button" onclick="hqCancelEdit(' + hqAttr(c.id) + ')">Cancel</button>'
-        + '<span class="hq-estatus" id="hq-est-' + hqEscape(c.id) + '"></span>'
-        + '</div></div>'
-        // Says what approval will ACTUALLY do. approveBatch appends the kit at
-        // approval, so a preview that omitted it would be a different email.
-        + '<p class="hq-kit">' + (c.mediaKit
-            ? 'Media kit <b>attached</b> &mdash; ' + hqEscape(c.mediaKit)
-            : 'Media kit <b>not attached</b>. It is a setting, in Settings.') + '</p>'
-        + '</div>'
-        + '</div>';
+      return hqRenderCard(c, i);
     }).join('') + '</div>';
+    if (d.programs) {
+      html += '<p class="hq-sub" style="margin-top:14px">' + d.programs
+        + (d.programs === 1 ? ' programme application is' : ' programme applications are')
+        + ' waiting on the Outreach tab. They are applications, not approaches.</p>';
+    }
   }
   panel.innerHTML = html;
 
@@ -19935,18 +19912,214 @@ function hqRender() {
   var capEl = document.getElementById('home-cap');
   bar.hidden = false;
   capEl.textContent = d.cap ? d.cap.line : '';
+  // ── THE BAR ACTS ON THE EMAIL CARDS AND SAYS SO ───────────────────────────
+  // Approving schedules a send. A DM and a call have no send -- they are work
+  // the agent does, with their own button on their own card. A bar that said
+  // "Approve 5" over a queue of one email and four DMs would be claiming to
+  // clear a page it can only clear a fifth of.
+  var emails = (d.cards || []).filter(function (c) { return c.channel === 'email'; }).length;
+  var others = (d.cards || []).length - emails;
   if (d.blocker) {
     btn.textContent = 'Blocked for ' + String(d.athlete.name).split(' ')[0];
     btn.disabled = true;
-  } else if (!d.cards.length) {
-    btn.textContent = 'Nothing to approve';
+  } else if (!emails) {
+    btn.textContent = others ? 'Nothing to approve — work these on the cards' : 'Nothing to approve';
     btn.disabled = true;
   } else {
-    btn.textContent = 'Approve ' + d.cards.length + ' for ' + d.athlete.name;
+    btn.textContent = 'Approve ' + emails + (emails === 1 ? ' email' : ' emails')
+      + ' for ' + d.athlete.name;
     btn.disabled = false;
   }
   btn.onclick = hqApprove;
 }
+
+// ── ONE CARD, THREE CHANNELS ────────────────────────────────────────────────
+//
+// Home is a mixed queue: the nightly job writes call and DM cards, a Deal Scan
+// writes email drafts, and which table a card came from is not a fact about the
+// agent's morning. The shared parts -- business, person, why -- are rendered
+// once; only the action differs, because only the action actually differs.
+//
+// THE BADGE IS ON EVERY CARD, including email. A badge that appears only on the
+// exceptions teaches an agent that an unbadged card is the normal one; a badge
+// on all three teaches them to read it before deciding what the card costs them.
+var HQ_CH = {
+  email: { label: 'Email', cls: 'email' },
+  dm: { label: 'Instagram DM', cls: 'dm' },
+  call: { label: 'Call', cls: 'call' },
+};
+
+function hqRenderCard(c, i) {
+  var ch = HQ_CH[c.channel] || { label: c.channel || 'Card', cls: 'call' };
+  var head = '<div class="hq-card ' + ch.cls + '">'
+    + '<p class="hq-biz">' + hqEscape(c.business)
+    + ' <span class="hq-chan ' + ch.cls + '">' + hqEscape(ch.label) + '</span></p>'
+    + (c.contact ? '<p class="hq-who">' + hqEscape(c.contact)
+        + (c.role ? ' <span class="role">&middot; ' + hqEscape(c.role) + '</span>' : '') + '</p>' : '')
+    + (c.why ? '<p class="hq-why">' + hqEscape(c.why) + '</p>' : '')
+    // Evidence of a tie to the school is the most useful line on a card when we
+    // hold it, so it is not buried behind the fold with the message.
+    + (c.sponsorNote ? '<p class="hq-why"><b>' + hqEscape(c.sponsorNote) + '</b></p>' : '')
+    + (c.sourceNote ? '<p class="hq-note">' + hqEscape(c.sourceNote) + '</p>' : '');
+
+  if (c.channel === 'email') return head + hqEmailBody(c, i) + '</div>';
+  if (c.channel === 'dm') return head + hqDmBody(c, i) + '</div>';
+  return head + hqCallBody(c, i) + '</div>';
+}
+
+function hqEmailBody(c, i) {
+  // The email is rendered from TEXT PARAGRAPHS the server derived, escaped here.
+  // The page never injects stored markup, and what a recipient reads is the
+  // words anyway.
+  var body = (c.body || []).map(function (para) {
+    return '<p>' + hqEscape(para) + '</p>';
+  }).join('');
+  var mailId = 'hq-mail-' + i;
+  return '<button class="hq-peek" type="button" aria-expanded="false" aria-controls="' + mailId + '"'
+    + ' onclick="hqPeek(this)"><span class="car">&#9654;</span><span class="lbl">Read the email</span></button>'
+    + '<div class="hq-mail" id="' + mailId + '" hidden>'
+    + '<dl>'
+    // VERIFIED-BAD ADDRESSES NEVER GET HERE -- the gate holds those cards back.
+    // So this only ever says "confirmed" or "could not confirm", and the second
+    // one is the honest answer for a catch-all domain rather than a warning
+    // about the address.
+    + '<dt>To</dt><dd>' + hqEscape(c.to || 'no address on this draft')
+    + (c.contact ? ' <span style="color:var(--dim,#63635a)">(' + hqEscape(c.contact) + ')</span>' : '')
+    // The wording comes from the server (homeQueue.verifyNote) because only it
+    // knows whether the address was CHECKED and came back accept-all, or was
+    // never checked at all. Claiming the former about the latter is a statement
+    // about somebody's mail server that we have not earned.
+    + (c.to ? '<div class="hq-vrf">' + hqEscape(c.verifiedNote || 'Not checked yet') + '</div>' : '')
+    + '</dd>'
+    + '<dt>Subject</dt><dd><span class="hq-subj" id="hq-subj-' + i + '">'
+    + hqEscape(c.subject || 'no subject') + '</span>'
+    + (c.edited ? ' <span class="hq-edited">edited</span>' : '') + '</dd>'
+    + '</dl>'
+    // ── EDIT IN PLACE ──────────────────────────────────────────────────────
+    // The same shape as srSaveDraft on the shift-detail page: a textarea where
+    // the text was, Save and Cancel, no modal and no navigation. The agent keeps
+    // their position in a list they are halfway through.
+    + '<div class="hq-read" id="hq-read-' + i + '">'
+    + '<div class="hq-body">' + (body || '<p>This draft has no body yet.</p>') + '</div>'
+    + '<button class="hq-editbtn" type="button" onclick="hqEdit(' + i + ')">Edit</button>'
+    + '</div>'
+    + '<div class="hq-edit" id="hq-edit-' + i + '" hidden>'
+    + '<label class="hq-lbl">Subject</label>'
+    + '<input class="hq-in" id="hq-esubj-' + i + '" value="' + hqEscape(c.subject || '') + '">'
+    + '<label class="hq-lbl">Message</label>'
+    + '<textarea class="hq-ta" id="hq-ebody-' + i + '" rows="10">'
+    + hqEscape(c.bodyText || '') + '</textarea>'
+    + '<div class="hq-ebtns">'
+    + '<button class="hm-btn primary" type="button" onclick="hqSaveEdit(' + i + ', this)">Save</button>'
+    + '<button class="hm-btn ghost" type="button" onclick="hqCancelEdit(' + i + ')">Cancel</button>'
+    + '<span class="hq-estatus" id="hq-est-' + i + '"></span>'
+    + '</div></div>'
+    // Says what approval will ACTUALLY do. approveBatch appends the kit at
+    // approval, so a preview that omitted it would be a different email.
+    + '<p class="hq-kit">' + (c.mediaKit
+        ? 'Media kit <b>attached</b> &mdash; ' + hqEscape(c.mediaKit)
+        : 'Media kit <b>not attached</b>. It is a setting, in Settings.') + '</p>'
+    + '</div>';
+}
+
+// The DM, editable, plus the one button that copies it and opens the handle.
+// This is the Outreach tab's hqCopyAndOpen moved onto Home -- same endpoint,
+// same save-before-copy contract -- so an agent never has to know there is a
+// second page holding four fifths of their morning.
+function hqDmBody(c, i) {
+  return (c.handleIsBrand
+    ? '<p class="hq-note">@' + hqEscape(c.handle)
+      + ' is the national brand account, not this location.</p>'
+    : '<p class="hq-who">@' + hqEscape(c.handle) + '</p>')
+    + '<textarea class="hq-ta" id="hq-dm-' + i + '" rows="5">' + hqEscape(c.dmText || '') + '</textarea>'
+    + '<div class="hq-ebtns">'
+    + '<button class="hm-btn primary" type="button" onclick="hqCopyDm(' + i + ', this)">'
+    + 'Copy DM &amp; open Instagram</button>'
+    + '<button class="hm-btn ghost" type="button" onclick="hqCardDone(' + i + ', this)">Mark done</button>'
+    + '<button class="hm-btn ghost" type="button" onclick="hqCardSkip(' + i + ', this)">Skip</button>'
+    + '<span class="hq-estatus" id="hq-est-' + i + '"></span>'
+    + '</div>';
+}
+
+// v1 IS THIN AND SAYS SO: a number, who to ask for, and the reason. There is no
+// call_script column on outreach_queue and nothing writes one, so there is no
+// script here -- a templated one would be a sentence we invented presented as
+// something the product prepared.
+function hqCallBody(c, i) {
+  var tel = String(c.phone || '').replace(/[^0-9+]/g, '');
+  return '<p class="hq-who"><b>' + hqEscape(c.phone || 'no number') + '</b>'
+    + (c.askFor ? ' <span class="role">&middot; ask for ' + hqEscape(c.askFor) + '</span>' : '') + '</p>'
+    + '<div class="hq-ebtns">'
+    + (tel ? '<a class="hm-btn primary" style="text-decoration:none" href="tel:' + hqEscape(tel) + '">Call</a>' : '')
+    + '<button class="hm-btn ghost" type="button" onclick="hqCardDone(' + i + ', this)">Mark done</button>'
+    + '<button class="hm-btn ghost" type="button" onclick="hqCardSkip(' + i + ', this)">Skip</button>'
+    + '<span class="hq-estatus" id="hq-est-' + i + '"></span>'
+    + '</div>';
+}
+
+// ── ACTING ON A CARD THAT IS NOT AN EMAIL ───────────────────────────────────
+//
+// "Approve" is not the verb here. Approving an email draft schedules a send that
+// happens without the agent; a DM or a call is work the AGENT does, and the
+// button means "I did it". They are different actions on different tables with
+// different state machines, so they are different buttons -- the bulk bar below
+// touches only the email cards and says how many that is.
+//
+// These reuse the endpoints the Outreach tab has always used. The queue id is
+// unwrapped from its namespace here, at the one boundary that knows the card's
+// table, rather than by the server guessing.
+function hqRawId(id, ns) {
+  var s = String(id || '');
+  return s.indexOf(ns + ':') === 0 ? s.slice(ns.length + 1) : s;
+}
+
+function hqCardAt(i) { return (HQ.data && HQ.data.cards || [])[i] || null; }
+
+function hqCopyDm(i, btn) {
+  var c = hqCardAt(i); if (!c) return;
+  var ta = document.getElementById('hq-dm-' + i);
+  var text = ta ? ta.value : (c.dmText || '');
+  var done = function () {
+    if (typeof showToast === 'function') showToast('DM copied');
+    if (c.handle) window.open('https://www.instagram.com/' + String(c.handle).replace(/^@/, ''), '_blank', 'noopener');
+  };
+  // Save the edit first, so what is copied and what is stored can never disagree.
+  fetch(API_BASE + '/api/agent/outreach-queue/' + encodeURIComponent(hqRawId(c.id, 'queue')), {
+    method: 'PATCH', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dmText: text }),
+  }).catch(function () {});
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, done);
+  else { if (ta) { ta.select(); try { document.execCommand('copy'); } catch (e) {} } done(); }
+}
+
+async function hqQueueAction(i, btn, path, body) {
+  var c = hqCardAt(i); if (!c) return;
+  var st = document.getElementById('hq-est-' + i);
+  if (btn) btn.disabled = true;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/outreach-queue/'
+      + encodeURIComponent(hqRawId(c.id, 'queue')) + '/' + path, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    var d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'could not save');
+    // THE SLOT IS NOW FREE and stays free until tonight's run -- that is the
+    // existing queue contract, and it is why this reloads rather than refilling.
+    hqLoad(HQ.selected);
+  } catch (e) {
+    if (st) st.textContent = 'Could not save: ' + e.message;
+    if (btn) btn.disabled = false;
+  }
+}
+
+function hqCardDone(i, btn) {
+  var c = hqCardAt(i); if (!c) return;
+  hqQueueAction(i, btn, 'sent', { via: c.channel === 'dm' ? 'dm' : 'call' });
+}
+function hqCardSkip(i, btn) { hqQueueAction(i, btn, 'skip', {}); }
 
 // Expand or collapse one card's email. No state kept anywhere: the button and
 // the panel are the state, which is why re-rendering the list cannot leave a
@@ -19969,35 +20142,39 @@ function hqPeek(btn) {
 // TEXT, NEVER MARKUP. The textarea holds the words; the server turns them back
 // into paragraphs. This page never posts HTML that would end up in an email a
 // business reads.
-function hqEdit(id) {
-  var read = document.getElementById('hq-read-' + id);
-  var edit = document.getElementById('hq-edit-' + id);
+// KEYED BY POSITION, NOT BY ID. Card ids are namespaced ("email:<uuid>") and a
+// colon is not safe in a DOM id for anything that later uses querySelector. The
+// index addresses the DOM; the namespaced id is looked up from it for the wire.
+function hqEdit(i) {
+  var read = document.getElementById('hq-read-' + i);
+  var edit = document.getElementById('hq-edit-' + i);
   if (!read || !edit) return;
   read.hidden = true; edit.hidden = false;
-  var ta = document.getElementById('hq-ebody-' + id);
+  var ta = document.getElementById('hq-ebody-' + i);
   if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
 }
 
-function hqCancelEdit(id) {
-  var read = document.getElementById('hq-read-' + id);
-  var edit = document.getElementById('hq-edit-' + id);
+function hqCancelEdit(i) {
+  var read = document.getElementById('hq-read-' + i);
+  var edit = document.getElementById('hq-edit-' + i);
   if (!read || !edit) return;
   // Put the fields back to what is saved, so cancelling twice cannot leave a
   // half-typed draft sitting in the box.
-  var card = (HQ.data && HQ.data.cards || []).filter(function (c) { return c.id === id; })[0];
+  var card = hqCardAt(i);
   if (card) {
-    var si = document.getElementById('hq-esubj-' + id);
-    var ta = document.getElementById('hq-ebody-' + id);
+    var si = document.getElementById('hq-esubj-' + i);
+    var ta = document.getElementById('hq-ebody-' + i);
     if (si) si.value = card.subject || '';
     if (ta) ta.value = card.bodyText || '';
   }
   edit.hidden = true; read.hidden = false;
 }
 
-async function hqSaveEdit(id, btn) {
-  var si = document.getElementById('hq-esubj-' + id);
-  var ta = document.getElementById('hq-ebody-' + id);
-  var st = document.getElementById('hq-est-' + id);
+async function hqSaveEdit(i, btn) {
+  var card = hqCardAt(i); if (!card) return;
+  var si = document.getElementById('hq-esubj-' + i);
+  var ta = document.getElementById('hq-ebody-' + i);
+  var st = document.getElementById('hq-est-' + i);
   if (!si || !ta) return;
   var subject = si.value.trim();
   var bodyText = ta.value;
@@ -20005,7 +20182,10 @@ async function hqSaveEdit(id, btn) {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   if (st) st.textContent = '';
   try {
-    var r = await fetch(API_BASE + '/api/outreach/logs/' + encodeURIComponent(id), {
+    // The outreach_logs route takes the BARE draft id; the namespace exists so a
+    // mixed list can say which table a card is from, and this is the boundary
+    // that knows the answer.
+    var r = await fetch(API_BASE + '/api/outreach/logs/' + encodeURIComponent(hqRawId(card.id, 'email')), {
       method: 'PATCH', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       // body_text, not body_html: the server escapes and paragraphs it.
@@ -20016,14 +20196,10 @@ async function hqSaveEdit(id, btn) {
     // Update the card in place from what the SERVER stored, not from what was
     // typed -- if the two ever disagree, the row should show the one that will
     // actually be sent.
-    var cards = (HQ.data && HQ.data.cards) || [];
-    for (var i = 0; i < cards.length; i++) {
-      if (cards[i].id !== id) continue;
-      cards[i].subject = d.subject || '';
-      cards[i].bodyText = hqStripHtml(d.body_html || '');
-      cards[i].body = cards[i].bodyText.split(/\n\s*\n+/).map(function (x) { return x.trim(); }).filter(Boolean);
-      cards[i].edited = !!d.edited_before_approval;
-    }
+    card.subject = d.subject || '';
+    card.bodyText = hqStripHtml(d.body_html || '');
+    card.body = card.bodyText.split(/\n\s*\n+/).map(function (x) { return x.trim(); }).filter(Boolean);
+    card.edited = !!d.edited_before_approval;
     hqRender(HQ.data);
     if (typeof showToast === 'function') showToast('Saved');
   } catch (e) {
@@ -20043,14 +20219,21 @@ function hqStripHtml(html) {
 async function hqApprove() {
   if (HQ.busy) return;
   var d = HQ.data; if (!d || !d.cards.length) return;
+  // ONLY THE EMAIL CARDS. The server REJECTS a queue id on this endpoint rather
+  // than filtering it -- see closer.unwrapEmailIds -- so posting the whole list
+  // would fail the batch outright instead of approving the part that can be
+  // approved. Filtering here is not defence in depth for a silent server; the
+  // server is loud, and this is the client agreeing with it.
+  var ids = d.cards.filter(function (c) { return c.channel === 'email'; })
+    .map(function (c) { return c.id; });
+  if (!ids.length) return;
   var btn = document.getElementById('home-approve');
   HQ.busy = true; btn.disabled = true; btn.textContent = 'Scheduling\u2026';
   try {
     var r = await fetch('/api/agent/closer/approve', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: d.cards.map(function (c) { return c.id; }),
-                             athleteId: d.selected, skip: [] }),
+      body: JSON.stringify({ ids: ids, athleteId: d.selected, skip: [] }),
     });
     var out = await r.json();
     if (!r.ok) throw new Error(out.error || 'could not approve');
@@ -20058,17 +20241,25 @@ async function hqApprove() {
     // written; `note` accounts for every id that did not make it -- over the
     // cap, no send slot, or no longer a draft. An agent must never read "5
     // scheduled" when 3 were.
-    document.getElementById('home-panel').innerHTML =
-      '<div class="hq-done"><p class="hq-biz" style="margin:0 0 6px">'
+    // APPROVING NO LONGER CLEARS THE PAGE. It schedules the email cards; the DM
+    // and call cards are still there and still the agent's to work. Wiping the
+    // panel would tell them the morning was over with four fifths of it left, so
+    // the result is announced above the queue and the queue is reloaded.
+    var left = d.cards.length - ids.length;
+    document.getElementById('home-panel').insertAdjacentHTML('afterbegin',
+      '<div class="hq-done" style="margin-bottom:14px"><p class="hq-biz" style="margin:0 0 6px">'
       + out.scheduled + (out.scheduled === 1 ? ' pitch scheduled' : ' pitches scheduled') + '</p>'
-      + '<p class="hq-why" style="margin:0">They go out Tuesday to Thursday, mid-morning where each business is.</p>'
+      + '<p class="hq-why" style="margin:0">They go out Tuesday to Thursday, mid-morning where each business is.'
+      + (left ? ' ' + left + (left === 1 ? ' card is' : ' cards are') + ' still yours to work below.' : '')
+      + '</p>'
       + (out.note ? '<p class="hq-why" style="margin:8px 0 0">' + hqEscape(out.note) + '</p>' : '')
-      + '</div>';
+      + '</div>');
     document.getElementById('home-bar').hidden = true;
     setTimeout(function () { hqLoad(HQ.selected); }, 1400);
   } catch (e) {
     btn.disabled = false;
-    btn.textContent = 'Approve ' + d.cards.length + ' for ' + d.athlete.name;
+    btn.textContent = 'Approve ' + ids.length + (ids.length === 1 ? ' email' : ' emails')
+      + ' for ' + d.athlete.name;
     document.getElementById('home-panel').insertAdjacentHTML('beforeend',
       '<p class="hq-why" style="color:var(--red,#FF3D5A);margin-top:10px">Could not schedule: '
       + hqEscape(e.message) + '</p>');

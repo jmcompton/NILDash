@@ -24,6 +24,8 @@
 const sendGuard = require('./sendGuard');
 const suppression = require('./suppression');
 const sendWindow = require('./sendWindow');
+// Namespaced card ids, so a call or DM card can never be mistaken for a draft.
+const A = require('./actionable');
 
 // ── THE CADENCE ──────────────────────────────────────────────────────────────
 // One message rarely gets it done, and five is harassment. Three touches over a
@@ -332,9 +334,40 @@ function summariseDropped(dropped) {
 // ── The one decision ─────────────────────────────────────────────────────────
 // approve everything in the batch except `skip`. The agent unchecks a few and
 // approves the rest; that is the whole interaction.
+// ── ONLY EMAIL DRAFTS COME THROUGH HERE ─────────────────────────────────────
+//
+// Home is a MIXED queue now: five cards an athlete drawn from outreach_logs
+// (email drafts) and outreach_queue (call and DM cards). This function approves
+// outreach_logs rows and nothing else, and the danger is that it cannot tell.
+//
+// outreach_logs.id is TEXT; outreach_queue.id is a SERIAL integer; the SELECT
+// below matches `l.id = ANY($2::text[])`. Hand it a queue id and one of two
+// things happens, both silent: it matches nothing and the card fails to approve
+// with no error anywhere, or -- if a draft id ever collides with an integer --
+// it approves an UNRELATED draft and a real email goes to a real business.
+//
+// So ids arrive namespaced (actionable.tagId) and anything not an email draft is
+// REJECTED, not filtered. A filtered id is a no-op the caller reads as success;
+// a thrown one reaches the agent as a sentence. The only tolerance is for a bare,
+// unprefixed id: a page cached before this shipped posts those, and Home has only
+// ever shown email drafts to such a page, so a bare id is read as an email draft.
+function unwrapEmailIds(ids) {
+  return (ids || []).map((raw) => {
+    const { ns, rawId } = A.parseId(raw, A.NS.EMAIL);
+    if (ns !== A.NS.EMAIL) {
+      throw new A.BadId(
+        `${raw} is a ${ns} card, not an email draft — it cannot be approved and sent. `
+        + 'Call and DM cards are marked done on the card itself.');
+    }
+    return rawId;
+  });
+}
+
 async function approveBatch(pool, agentId, opts = {}) {
-  const skip = new Set((opts.skip || []).map(String));
-  const ids = (opts.ids || []).map(String).filter((id) => !skip.has(id));
+  // THROWS BEFORE ANY WRITE. Both lists are unwrapped up front so a bad id in
+  // the skip list cannot quietly widen what gets approved.
+  const skip = new Set(unwrapEmailIds(opts.skip || []).map(String));
+  const ids = unwrapEmailIds(opts.ids || []).map(String).filter((id) => !skip.has(id));
   if (!ids.length) return { approved: 0, scheduled: 0, skipped: skip.size, note: 'nothing approved' };
   // Home approves ONE athlete at a time, and the scoping is enforced here rather
   // than trusted from the id list the browser posted. A client that sends
