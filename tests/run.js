@@ -51,6 +51,7 @@ const SEND_PATH = new Set([
   'replycapture.js', 'replyhandled.js', 'namedreply.js',
   'draftexpiry.js', 'homegate.js', 'verify.js', 'acctceiling.js',
   'creditfault.js',     // credits are counted before they are spent
+  'sendscope.js',       // a mailbox that cannot send never claims it can
 ]);
 
 const args = process.argv.slice(2);
