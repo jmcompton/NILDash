@@ -2355,13 +2355,23 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
   // serially it was adding ~8s to the wall time of a deep call. Failure-tolerant:
   // resolves to null.
   let _igPromise = null;
-  if (_deep && effectiveWebsite) {
+  // NO LONGER GATED ON A RESOLVED DOMAIN. This read `_deep && effectiveWebsite`,
+  // which meant a business whose website never resolved was never asked about at
+  // all -- and with no handle, buildCard falls straight through to `call`. That
+  // is most of a local slate: no site, a site behind a bot wall, or a name Places
+  // could not match to a domain. Nearly all of those businesses are on Instagram.
+  //
+  // findInstagram takes it from here: it scrapes the site when there is one and
+  // searches by name and city when there is not, under the same ownership and
+  // citation rules either way. A brand is required because the ownership test is
+  // what stops a plausible-looking guess reaching an athlete's DMs.
+  if (_deep && (effectiveWebsite || brand)) {
     try {
       const { findInstagram } = require('./services/instagramLookup');
       // brand + loc drive the ownership test on the scraped handle AND the
       // search fallback, which only runs when the scrape misses. webSearch is
       // injected rather than imported so instagramLookup never depends on ai.js.
-      _igPromise = findInstagram(effectiveWebsite, {
+      _igPromise = findInstagram(effectiveWebsite || null, {
         brand, loc: locationHint, webSearch: _contactWebSearchRaw,
       }).catch(() => null);
     } catch (_) { _igPromise = null; }
