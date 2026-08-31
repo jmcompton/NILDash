@@ -258,14 +258,49 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
   // draftPrewarm's one-draft-per-brand index among them -- get the improvement
   // for free.
   const identity = BI.keyOf(card.identity || card);
+
+  // ── AN EMAIL CARD WRITES A DRAFT, NOT A SECOND SEND PATH ──────────────────
+  //
+  // outreach_logs already owns sending, and it owns all of it: sendGuard's daily
+  // ceiling, sendWindow's per-recipient timing, releaseDue, the follow-up
+  // cadence, reply capture, bounce suppression, the media kit, and the editable
+  // draft. Giving outreach_queue its own send would mean two state machines over
+  // one business, which is how a brand gets pitched twice.
+  //
+  // So the card creates the draft and holds its id. The queue row is the slot and
+  // the record of the night; the draft is the message that goes out.
+  //
+  // WRITTEN FIRST, DELIBERATELY. If the draft insert fails we have not yet
+  // written a card claiming an address it cannot send to -- the athlete simply
+  // gets no card for this business tonight, which is the same outcome as any
+  // other failed step and is reported the same way.
+  let logId = null;
+  if (card.channel === 'email' && card.email) {
+    logId = 'oq-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    try {
+      await pool.query(
+        `INSERT INTO outreach_logs
+           (id, agent_id, athlete_id, brand_name, brand_key, subject, body_html, status, source,
+            sent_to_email, email_kind, angle, angle_key, category_key, ask, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'draft','nightly-queue',$8,$9,$10,$11,$12,$13,NOW(),NOW())`,
+        [logId, agentId, athleteId, card.brandName, card.brandKey || identity,
+          card.subject, textToParagraphs(card.emailBody),
+          card.email, card.emailKind || null,
+          card.angle || null, card.angleKey || null, card.categoryKey || null, card.ask || null]);
+    } catch (e) {
+      console.error(`[queue] athlete=${athleteId} "${card.brandName}" email draft failed: ${e.message}`);
+      return false;
+    }
+  }
+
   const ins = await pool.query(
     `INSERT INTO outreach_queue
        (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
         source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
         dm_text, channel, state, angle, angle_key, category_key, ask, lane, program_url,
-        sponsor_signal, sponsor_note, identity_key)
+        sponsor_signal, sponsor_note, identity_key, email, email_kind, outreach_log_id)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20,
-             $21,$22,$23,$24,$25)
+             $21,$22,$23,$24,$25,$26,$27,$28)
      ON CONFLICT DO NOTHING RETURNING id`,
     [agentId, athleteId, slot, card.brandKey || identity, card.brandName, card.why, card.contactName,
      card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
@@ -281,13 +316,39 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
      // covers the slot index, so a duplicate business now lands on
      // uq_outreach_queue_identity and returns no row -- the caller sees `false`
      // and reports it, exactly as it does for a taken slot.
-     identity]);
+     identity, card.email || null, card.emailKind || null, logId]);
   const wrote = (ins.rowCount || 0) > 0;
   if (!wrote) {
     console.log(`[queue] athlete=${athleteId} slot=${slot} "${card.brandName}" not written `
       + `(identity=${identity} already queued, or the slot was taken)`);
+    // THE DRAFT GOES WITH IT. A card that lost the slot race must not leave an
+    // orphaned draft behind: Home reads outreach_logs directly, so an orphan
+    // would appear as an approvable email for a business this athlete is not
+    // being shown. Cadence-stopped rather than deleted -- the row and its reason
+    // survive, which is the same stance every other retirement in this codebase
+    // takes.
+    if (logId) {
+      await pool.query(
+        `UPDATE outreach_logs SET cadence_stopped_at = NOW(),
+            cadence_stop_reason = 'the queue slot was taken before this card was written',
+            updated_at = NOW()
+          WHERE id = $1`, [logId]).catch((e) =>
+        console.error('[queue] could not stop the orphaned draft ' + logId + ': ' + e.message));
+    }
   }
   return wrote;
+}
+
+// Plain text to the paragraph HTML outreach_logs stores. Same shape the draft
+// writer produces, so a nightly draft and a Deal Scan draft render identically
+// and the editable-draft round trip (body_html -> text -> body_html) is stable.
+function textToParagraphs(text) {
+  const esc = (s) => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(text || '').split(/\n\s*\n+/)
+    .map((p) => p.trim()).filter(Boolean)
+    .map((p) => '<p>' + esc(p).replace(/\n/g, '<br>') + '</p>')
+    .join('');
 }
 
 async function fillAthlete(pool, ctx) {
@@ -582,6 +643,10 @@ async function fillAthlete(pool, ctx) {
         category: null, brand: cand.brand_name, instagramScope: out.instagramScope || null,
       });
       const ig = { instagram: out.instagram || null, instagramScope: out.instagramScope || null };
+      // DECIDED BEFORE THE WRITER RUNS, because the writer is told the channel and
+      // writes differently for one. buildCard reaches the same answer from the
+      // same two inputs further down; this is the same function, called early.
+      const channel = Q.channelFor(ladder, ig);
       const bar = Q.passesBar(ladder, ig);
       if (!bar.ok) {
         say(`${cand.brand_name}: skipped, ${bar.reason}`);
@@ -614,7 +679,11 @@ async function fillAthlete(pool, ctx) {
           athlete: ctx.athleteProfile || { name: athleteName },
           deal: match,
           agentFirstName: ctx.agentFirstName || null,
-          channel: 'dm',
+          // NOT HARDCODED 'dm' ANY MORE. pitchWriter branches on this -- "The
+          // channel: email or an Instagram DM" -- so writing an email in DM voice
+          // is a real quality difference, not a label. A programme card is still
+          // written as a DM because that is what gets pasted into a form.
+          channel: channel === 'email' ? 'email' : 'dm',
           learnedAngles: await PW.learnedAngles(pool,
             PW.playbookFor((place && place.primaryType) || null).key).catch(() => []),
         }, { oneShot: (p2, sys, mt) => ai.oneShot(p2, sys, mt, ai.MODEL_GEN) });
@@ -870,7 +939,7 @@ async function status(pool) {
 
 module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor,
-  athleteState, recordAttempt,
+  athleteState, recordAttempt, insertCard, textToParagraphs,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
 };

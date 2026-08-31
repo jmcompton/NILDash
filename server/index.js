@@ -9398,7 +9398,11 @@ app.post('/api/agent/outreach-queue/:id/sent', requireAuth, async (req, res) => 
     // reached through its athlete-program page, not a handle or a phone. It was
     // being collapsed into 'call', which recorded the wrong thing about how the
     // outreach actually went out.
-    const VIA = ['dm', 'call', 'program'];
+    // 'email' joins them. An email card is worked by approving its draft, which
+    // sends through outreach_logs -- but an agent may also mark it done by hand
+    // (they replied on the phone, the address bounced, they used another route),
+    // and the ledger has to be able to record how it actually went out.
+    const VIA = ['dm', 'call', 'program', 'email'];
     const via = VIA.indexOf(req.body.via) === -1 ? 'call' : req.body.via;
     const r = await store.pool.query(
       `UPDATE outreach_queue SET state = 'sent', sent_at = NOW(), sent_via = $3, updated_at = NOW()

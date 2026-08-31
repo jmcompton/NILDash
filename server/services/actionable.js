@@ -140,15 +140,25 @@ function emailSql(full, athleteScoped) {
     ? `l.id, l.athlete_id, l.brand_name, l.created_at, l.sent_to_email,
        l.subject, l.body_html, l.edited_before_approval,
        e.website,
-       c.contact_name, c.contact_title, c.why, m.reasoning`
+       c.contact_name, c.contact_title, c.why, c.instagram, c.instagram_scope,
+       c.phone, c.phone_ask_for, m.reasoning`
     : `l.id, l.athlete_id, l.brand_name, l.created_at, l.sent_to_email, e.website`;
   const joins = full
     ? `LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
        LEFT JOIN LATERAL (
-         SELECT contact_name, contact_title, why FROM outreach_queue q2
+         -- EVERY CHANNEL THE QUEUE HOLDS FOR THIS BUSINESS, not just the labels.
+         -- A local business with an inbox AND a handle is an email card, and the
+         -- handle has to travel with it or the agent loses a route the moment the
+         -- address bounces. Joined on the card the draft came FROM where there is
+         -- one (outreach_log_id), falling back to the name for drafts written by
+         -- a Deal Scan, which have no card behind them.
+         SELECT contact_name, contact_title, why, instagram, instagram_scope,
+                phone, phone_ask_for
+           FROM outreach_queue q2
           WHERE q2.athlete_id = l.athlete_id
-            AND LOWER(q2.brand_name) = LOWER(l.brand_name)
-          ORDER BY q2.created_at DESC LIMIT 1
+            AND (q2.outreach_log_id = l.id
+                 OR LOWER(q2.brand_name) = LOWER(l.brand_name))
+          ORDER BY (q2.outreach_log_id = l.id) DESC, q2.created_at DESC LIMIT 1
        ) c ON TRUE
        LEFT JOIN LATERAL (
          SELECT reasoning FROM brand_match_scores m2
@@ -183,6 +193,10 @@ function normEmail(r) {
     edited: !!r.edited_before_approval,
     contactName: r.contact_name || null, contactTitle: r.contact_title || null,
     why: r.why || null, reasoning: r.reasoning || null,
+    // Carried, not used for routing. This card is an email; these are what the
+    // agent falls back to if it bounces or nobody answers.
+    instagram: r.instagram || null, instagramScope: r.instagram_scope || null,
+    phone: r.phone || null, phoneAskFor: r.phone_ask_for || null,
     verified: null,   // filled by the gate
   };
 }
