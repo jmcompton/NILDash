@@ -282,8 +282,10 @@ const OPTS = (brand, loc) => ({ brand, loc, webSearch });
     const AI = fs.readFileSync(R + 'server/ai.js', 'utf8');
     ok('ai.js sets instagramScope on the result', /res\.instagramScope = ig\.scope/.test(AI));
     ok('  and returns it from getBrandContacts', /instagramScope: res\.instagramScope/.test(AI));
+    // `effectiveWebsite || null` since the name-and-city lookup landed: a domain
+    // is optional now, and the guard must not read the fallback as a break.
     ok('  and passes brand + webSearch into the lookup',
-      /findInstagram\(effectiveWebsite, \{[\s\S]{0,120}webSearch: _contactWebSearchRaw/.test(AI));
+      /findInstagram\(effectiveWebsite \|\| null, \{[\s\S]{0,160}webSearch: _contactWebSearchRaw/.test(AI));
     ok('  a bio-derived owner is scoped unclear, never Tier 1',
       /source: 'instagram',[\s\S]{0,80}affiliationScope: 'unclear'/.test(AI));
     ok('  and a bio address is never labelled published',

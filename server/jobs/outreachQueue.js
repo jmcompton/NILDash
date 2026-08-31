@@ -34,6 +34,7 @@ const scanMeter = require('../scanMeter');
 const ai = require('../ai');
 const { buildContactLadder } = require('../services/contactLadder');
 const { lookupPlace } = require('../services/placesLookup');
+const { findInstagram } = require('../services/instagramLookup');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
 const BI = require('../services/brandIdentity');
@@ -418,9 +419,16 @@ async function fillAthlete(pool, ctx) {
     : null;
   if (noMarket) say(`${athleteName}: ${noMarketNote} — social and national only`);
 
-  let open = Q.slotsToFill((await pool.query(
-    `SELECT slot, state FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
-    [athleteId])).rows);
+  // The same read answers two questions, so it asks both at once: which slots are
+  // free, and how many program applications this athlete is ALREADY holding. The
+  // second is what caps the lane -- see PROGRAM_SLOT_CAP. Counting only what this
+  // run places would let five consecutive nights build five forms.
+  const heldRows = (await pool.query(
+    `SELECT slot, state, channel FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
+    [athleteId])).rows;
+  const heldPrograms = heldRows.filter((r) => r && r.channel === 'program').length;
+  let programsPlaced = 0;
+  let open = Q.slotsToFill(heldRows);
   if (!open.length) {
     // Says the real number. It said "three" while SLOTS_PER_ATHLETE was five,
     // which made a full athlete look like a bug in the slot count.
@@ -533,7 +541,54 @@ async function fillAthlete(pool, ctx) {
         continue;
       }
       if (cand.lane !== 'local') {
-        const pbar = Q.passesProgramBar(cand);
+        // ── THE CAP, CHECKED BEFORE THE MONEY ───────────────────────────────
+        // A candidate that HAS a program page can only ever become a program
+        // card, so once the one program slot is spoken for there is nothing to
+        // look up and nothing to spend. A candidate WITHOUT one is not capped by
+        // this at all -- it can only become a DM -- so it falls through.
+        if (cand.programUrl && Q.programCapReached(heldPrograms + programsPlaced)) {
+          const why = `already holding ${heldPrograms + programsPlaced} program application`
+            + `, which is the cap of ${Q.PROGRAM_SLOT_CAP} per athlete`;
+          say(`${cand.brand_name}: skipped, ${why}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', reason: why,
+            lane: cand.lane, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+
+        // ── THE HANDLE ──────────────────────────────────────────────────────
+        // This lane used to spend nothing, which is exactly why it produced
+        // nothing but forms: without asking, a brand with no program page was
+        // simply dropped. One search, cached 30 days by brand name, and the
+        // national brands repeat across the whole roster so the first athlete
+        // pays and the rest read it back. No `loc` on purpose -- a DTC brand has
+        // no city, and handing one to handleVerdict makes it hunt for a place
+        // qualifier that was never going to be there.
+        let pig = null, pmeter = null;
+        try {
+          const m = await scanMeter.run(async () => findInstagram(cand.website || null, {
+            brand: cand.brand_name, loc: null, webSearch: ai.webSearchJson,
+          }));
+          pig = m.result; pmeter = m.meter;
+        } catch (e) {
+          say(`${cand.brand_name}: instagram lookup failed (${e.message})`);
+          pig = null; pmeter = null;
+        }
+        // Same rule as the local lane: charge what the meter measured, and treat
+        // a meter that recorded nothing at all as a broken measurement rather
+        // than as free work. The ceiling here is one web search, not $0.06 --
+        // this lookup cannot fan out the way the contact ladder does.
+        const ptouched = pmeter
+          && (pmeter.cacheHits || pmeter.cacheMisses || pmeter.webSearches || pmeter.aiCalls);
+        let pcost = Q.priceOf(pmeter);
+        if (!ptouched) pcost = Q.USD_PER_WEB_SEARCH;
+        if (pcost > 0) budget.spend(pcost);
+        spendLog.push({ brand: cand.brand_name, lane: cand.lane, cost: pcost,
+          cached: !!(ptouched && pmeter.cacheHits && !pmeter.webSearches && !pmeter.aiCalls),
+          webSearches: pmeter ? pmeter.webSearches : 0, aiCalls: pmeter ? pmeter.aiCalls : 0,
+          cacheHits: pmeter ? pmeter.cacheHits : 0, cacheMisses: pmeter ? pmeter.cacheMisses : 0,
+          metered: !!ptouched });
+
+        const pbar = Q.passesProgramBar(cand, pig);
         if (!pbar.ok) {
           say(`${cand.brand_name}: skipped, ${pbar.reason}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', reason: pbar.reason,
@@ -567,15 +622,24 @@ async function fillAthlete(pool, ctx) {
             lane: cand.lane, places: { found: false }, risk: 'normal' });
           continue;
         }
+        const pcard = Q.buildProgramCard(cand, ppitch, athleteName, pig);
         tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
-          lane: cand.lane, places: { found: false }, risk: 'normal' });
-        const pcard = Q.buildProgramCard(cand, ppitch, athleteName);
+          lane: cand.lane, channel: pcard.channel, places: { found: false }, risk: 'normal' });
         pcard.lane = cand.lane;
         pcard.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
         pcard.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
-        if (dry) { say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`); placed = true; filled++; break; }
+        if (dry) {
+          say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`);
+          if (pcard.channel === 'program') programsPlaced++;
+          placed = true; filled++; break;
+        }
         const pins = await insertCard(pool, { agentId, athleteId, slot, card: pcard });
-        if (pins) { placed = true; filled++; say(`slot ${slot}: ${pcard.brandName} (program)`); break; }
+        if (pins) {
+          // Counted only when the row actually landed, so a card lost to the
+          // open-slot unique index does not burn the athlete's one program slot.
+          if (pcard.channel === 'program') programsPlaced++;
+          placed = true; filled++; say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`); break;
+        }
         continue;
       }
 

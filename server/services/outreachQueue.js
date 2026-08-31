@@ -359,19 +359,40 @@ function buildCard(cand, ladder, ig) {
 // These brands are not reached the way a local business is. There is no owner to
 // name, no main line to call, and a Places lookup on them resolves to whichever
 // storefront happens to be nearby -- the exact mistake store.findNationalBrand
-// exists to prevent. What makes one actionable is a program page we can point
-// the agent at, so that is the bar.
-function passesProgramBar(cand) {
+// exists to prevent.
+//
+// A NON-LOCAL BRAND IS REACHABLE TWO WAYS, AND WE ONLY EVER COUNTED ONE.
+// The bar used to be: no athlete-program page, no card. That dropped every brand
+// whose entire presence IS its Instagram -- GoNutre, RYZE, CWENCH, most of the
+// social index. Those brands were never un-pitchable; they were un-pitchable BY
+// FORM. With a handle we can verify, they are a DM, exactly like a local business
+// whose address we could not find -- and a DM outranks a form anyway, because a
+// DM is a conversation with someone and a form is homework.
+function passesProgramBar(cand, ig) {
   const c = cand || {};
-  if (!c.programUrl) {
-    return { ok: false,
-      reason: 'they spend on NIL but we hold no athlete-program page for them, so there is nowhere to send this' };
-  }
-  return { ok: true, reason: null };
+  const handle = (ig && ig.handle) ? ig.handle : null;
+  // The page wins when there is one: a brand running a real athlete program has
+  // told us how it wants to be approached, and that is not by DM.
+  if (c.programUrl) return { ok: true, reason: null, channel: 'program' };
+  if (handle) return { ok: true, reason: null, channel: 'dm' };
+  return { ok: false, channel: null,
+    reason: 'they spend on NIL but we hold no athlete-program page for them and could '
+      + 'not verify an Instagram account, so there is nowhere to send this' };
 }
 
-function buildProgramCard(cand, pitch, athleteName) {
+// ── HOW MANY FORMS ONE ATHLETE SHOULD BE HOLDING ─────────────────────────────
+// One. 86 of 155 queued cards were program applications, because the national
+// lane never runs out: it quietly backfilled every slot the local lane could not
+// produce, and the agent opened a queue of five and found four forms. A program
+// card is the weakest thing we make -- nobody is on the other end of it -- so it
+// gets one slot out of five and the rest are LEFT EMPTY rather than filled with a
+// second one. An empty slot is honest about a thin market. A second form is not.
+const PROGRAM_SLOT_CAP = 1;
+function programCapReached(held) { return (Number(held) || 0) >= PROGRAM_SLOT_CAP; }
+
+function buildProgramCard(cand, pitch, athleteName, ig) {
   const c = cand || {};
+  const handle = (ig && ig.handle) ? ig.handle : null;
   return {
     brandKey: c.brand_key || null,
     brandName: c.brand_name || null,
@@ -380,11 +401,16 @@ function buildProgramCard(cand, pitch, athleteName) {
     contactTitle: null,
     sourceNote: c.offerSummary || null,
     affiliationScope: null,
-    instagram: null,
-    instagramScope: null,
+    // ON THE PROGRAM CARD TOO, not just on the ones the handle rescued. An agent
+    // filling in a brand's form has nowhere to follow up; with the handle on the
+    // card they can send the DM as well, from the same card, in the same minute.
+    instagram: handle,
+    instagramScope: handle ? (ig.scope || 'business') : null,
     phone: null,
     phoneAskFor: null,
-    channel: 'program',
+    // A brand with a page is a form. A brand with only a handle is a DM. This is
+    // the whole of the routing change -- everything else about the card is the same.
+    channel: c.programUrl ? 'program' : 'dm',
     programUrl: c.programUrl || null,
     // Written the same way a DM is, by the same writer, under the same lint --
     // the ban on naming a price and the ban on inventing an athlete fact do not
@@ -551,7 +577,7 @@ module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
   inboxOf, channelFor, subjectFor,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL,
-  passesProgramBar, buildProgramCard,
+  passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   waitingOnYou, writeDm, askFirstName, namedRows,
   prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,
