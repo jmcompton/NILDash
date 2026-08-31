@@ -1762,6 +1762,30 @@ async function init() {
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS program_url TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS sponsor_signal TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS sponsor_note TEXT`).catch(() => {});
+  // ── EMAIL AS A CHANNEL ──────────────────────────────────────────────────────
+  // The card carried a handle and a phone and threw the address away. passesBar
+  // has always counted a general inbox as a way in -- `reachable = !!(handle ||
+  // phone || inbox)` -- and then buildCard, whose whole channel decision was
+  // `dmable ? 'dm' : 'call'`, dropped it on the floor. A local business with an
+  // inbox and no handle became a call card and the address was gone.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_kind TEXT`).catch(() => {});
+  // THE LINK TO THE DRAFT THAT WILL ACTUALLY SEND IT.
+  //
+  // An email card does NOT get a second send path. outreach_logs already owns
+  // sending: sendGuard's daily ceiling, sendWindow's per-recipient timing,
+  // releaseDue, the follow-up cadence, reply capture, bounce suppression and the
+  // editable-draft work. A queue row that could also send is how one business
+  // gets pitched twice.
+  //
+  // So an email card writes an outreach_logs draft and holds its id. The queue
+  // row is the slot and the record; the draft is the message. Deliberately NOT a
+  // foreign key: a draft that expires or is cadence-stopped must not take the
+  // card's history with it, and ON DELETE SET NULL would silently unlink rather
+  // than say so.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS outreach_log_id TEXT`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_queue_log
+    ON outreach_queue (outreach_log_id) WHERE outreach_log_id IS NOT NULL`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_queue_angle
                       ON outreach_queue (category_key, angle_key) WHERE angle_key IS NOT NULL`).catch(() => {});
   await pool.query(`ALTER TABLE outreach_logs ADD COLUMN IF NOT EXISTS angle TEXT`).catch(() => {});

@@ -10,10 +10,24 @@
 // about nine times in ten, a phone essentially always but almost always the shop
 // line, and a personal email approximately never. So:
 //
-//   handle  -> a DM card, with the message already written
-//   no handle -> a call card, "ask for Bryan" on the main line
-//   email   -> NEVER SHOWN. An email box that is empty 100% of the time makes the
-//              product look broken and teaches an agent to ignore the card.
+//   email   -> an EMAIL card, which writes an outreach_logs draft and sends
+//              itself once approved
+//   no email, a handle -> a DM card, with the message already written
+//   neither -> a call card, "ask for Bryan" on the main line
+//
+// EMAIL WAS "NEVER SHOWN", AND THAT WAS RIGHT UNTIL IT WASN'T. The original
+// note here read: "An email box that is empty 100% of the time makes the product
+// look broken and teaches an agent to ignore the card." That was measured on
+// twenty Birmingham businesses where a PERSONAL email was approximately never
+// found -- and it stayed true of personal mailboxes. What changed is that the
+// contact ladder now finds GENERAL inboxes, passesBar has counted one as
+// reachable for a long time, and buildCard was still throwing the address away
+// on the floor between the two. An empty box teaches an agent to ignore a card;
+// a box we filled in and then deleted is worse.
+//
+// The order is about what the agent's morning costs. An email is approved and
+// sends itself; a DM is a copy, a tab and a paste; a call is several minutes and
+// a person. Cheapest actionable channel wins, and the others stay on the card.
 //
 // TIER 2 COUNTS. The affiliation check demotes a contact to Tier 2 when the source
 // names them for the business but states no tie to the address -- which is what
@@ -239,6 +253,47 @@ function writeDm(athleteName, brandName, why) {
     + `. Worth a quick conversation?`;
 }
 
+// ── THE ADDRESS THE CARD USED TO THROW AWAY ─────────────────────────────────
+// Tier 3 is "Business channels": contactLadder puts personalInbox and
+// genericInbox there, both carrying `.email`. passesBar has always counted one
+// as reachable. Nothing ever read it back out.
+//
+// A NAMED PERSON'S MAILBOX FIRST. contactLadder pushes personalInbox ahead of
+// genericInbox in the tier, so first-wins is that preference, not an accident.
+function inboxOf(ladder) {
+  const t3 = ((ladder && ladder.tiers) || []).find((t) => t.tier === 3);
+  const row = ((t3 && t3.rows) || []).find((r) => r && r.email);
+  if (!row) return null;
+  return { email: String(row.email).trim().toLowerCase(), kind: row.kind || row.label || null };
+}
+
+// ── EMAIL, THEN DM, THEN CALL ───────────────────────────────────────────────
+//
+// The order is about what the agent's morning costs them, not about which
+// channel we like. An email card is approved and sends itself: the send window,
+// the cadence, the media kit and the reply capture are all automatic. A DM is a
+// copy, a tab and a paste. A call is a person and several minutes. So the
+// cheapest actionable channel wins, and the others stay ON the card as fallbacks
+// rather than being discarded.
+//
+// A brand-scoped handle is not a route to this location, so it never becomes the
+// DM -- it is shown and labelled. That rule predates this and is unchanged.
+function channelFor(ladder, ig) {
+  if (inboxOf(ladder)) return 'email';
+  const handle = (ig && ig.instagram) || null;
+  if (handle && (ig && ig.instagramScope) !== 'brand') return 'dm';
+  return 'call';
+}
+
+// A plain subject, built rather than written. writePitch returns a message and
+// an angle and has never returned a subject; asking it for one means changing a
+// contract the DM and programme lanes share. This matches the house rule the
+// draft writer is given -- short, plain, no exclamation points, names the
+// business -- and a written subject is a follow-up, not a blocker.
+function subjectFor(brandName) {
+  return 'Quick idea for ' + String(brandName || 'your business').trim();
+}
+
 // One card. `cand` is the scan candidate, `ladder` the built contact ladder, `ig`
 // the Instagram record ({ instagram, instagramScope }).
 function buildCard(cand, ladder, ig) {
@@ -250,6 +305,8 @@ function buildCard(cand, ladder, ig) {
   // A brand account is a real channel but it is not a route to this location, so
   // it never becomes the DM. The handle is kept and labelled.
   const dmable = !!handle && scope !== 'brand';
+  const inbox = inboxOf(ladder);
+  const channel = channelFor(ladder, ig);
   const phone = (ladder && ladder.mainLine && ladder.mainLine.phone)
     || rows.map((r) => r.phone).find(Boolean) || null;
 
@@ -262,11 +319,17 @@ function buildCard(cand, ladder, ig) {
     // Carried so the card can say, in words, why an owner is only Tier 2.
     sourceNote: top.sourceNote || null,
     affiliationScope: top.affiliationScope || null,
+    // EVERY CHANNEL WE HOLD, ON EVERY CARD. Only one of them decides the
+    // `channel`; the rest stay so an agent whose email bounces has the handle
+    // and the number in front of them rather than a dead card.
     instagram: handle,
     instagramScope: scope,
     phone,
     phoneAskFor: top.name ? askFirstName(top.name) : null,
-    channel: dmable ? 'dm' : 'call',
+    email: inbox ? inbox.email : null,
+    emailKind: inbox ? inbox.kind : null,
+    subject: channel === 'email' ? subjectFor(c.brand || c.brandName) : null,
+    channel,
     // Only written when it can actually be sent. A DM drafted for a corporate
     // account is a message nobody should paste.
     //
@@ -274,7 +337,15 @@ function buildCard(cand, ladder, ig) {
     // is present the card carries the reasoned message AND the angle behind it;
     // when it is absent (model unreachable) the plain fallback is used and the
     // angle stays null, so nothing downstream can mistake one for the other.
-    dmText: dmable ? (c.pitch && c.pitch.message
+    dmText: dmable && channel === 'dm' ? (c.pitch && c.pitch.message
+      ? c.pitch.message
+      : writeDm(c.athleteName, c.brand || c.brandName, c.rationale)) : null,
+    // THE SAME PITCH, ADDRESSED DIFFERENTLY. An email card's body is what the
+    // writer produced for this pairing; it becomes the outreach_logs draft that
+    // actually sends. Kept under its own name so nothing that reads dm_text --
+    // the Outreach tab's copy button, the shift report's "DM scripts written" --
+    // starts counting emails as DMs.
+    emailBody: channel === 'email' ? (c.pitch && c.pitch.message
       ? c.pitch.message
       : writeDm(c.athleteName, c.brand || c.brandName, c.rationale)) : null,
     angle: (c.pitch && c.pitch.angle) || null,
@@ -478,6 +549,7 @@ function waitingOnYou(rows, nowMs) {
 
 module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
+  inboxOf, channelFor, subjectFor,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL,
   passesProgramBar, buildProgramCard,
   waitingOnYou, writeDm, askFirstName, namedRows,

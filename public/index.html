@@ -19994,6 +19994,20 @@ function hqEmailBody(c, i) {
     + '<dt>Subject</dt><dd><span class="hq-subj" id="hq-subj-' + i + '">'
     + hqEscape(c.subject || 'no subject') + '</span>'
     + (c.edited ? ' <span class="hq-edited">edited</span>' : '') + '</dd>'
+    // ── THE OTHER WAYS IN ──────────────────────────────────────────────────
+    // A business with an inbox AND a handle is an email card, because email is
+    // the only channel that sends itself. The handle and the number stay on the
+    // card so a bounce leaves the agent with a route rather than a dead end.
+    + ((c.handle || c.phone)
+      ? '<dt>Also</dt><dd>'
+        + (c.handle ? '@' + hqEscape(c.handle)
+            + (c.handleIsBrand ? ' <span style="color:var(--dim,#63635a)">(national account)</span>' : '') : '')
+        + (c.handle && c.phone ? ' &middot; ' : '')
+        + (c.phone ? hqEscape(c.phone)
+            + (c.askFor ? ' <span style="color:var(--dim,#63635a)">(ask for '
+              + hqEscape(c.askFor) + ')</span>' : '') : '')
+        + '</dd>'
+      : '')
     + '</dl>'
     // ── EDIT IN PLACE ──────────────────────────────────────────────────────
     // The same shape as srSaveDraft on the shift-detail page: a textarea where

@@ -377,6 +377,15 @@ async function buildHome(pool, agentId, opts = {}) {
         // Said once, here, so the page cannot invent its own wording for a
         // state it does not fully understand.
         card.verifiedNote = verifyNote(c.verified);
+        // ── THE OTHER WAYS IN, KEPT ON AN EMAIL CARD ──────────────────────
+        // A local business with an inbox AND a handle is an email card, because
+        // email is the only channel that sends itself. That is a routing choice,
+        // not a reason to forget the handle: an address that bounces used to
+        // leave the agent with a dead card and no second route.
+        card.handle = c.instagram || null;
+        card.handleIsBrand = c.instagramScope === 'brand';
+        card.phone = c.phone || null;
+        card.askFor = c.phoneAskFor || c.contactName || null;
       } else if (c.channel === 'dm') {
         // The message, editable, and the handle the button opens. The same two
         // things the Outreach tab has had all along -- moved here so the agent

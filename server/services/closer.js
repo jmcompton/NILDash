@@ -459,6 +459,21 @@ async function approveBatch(pool, agentId, opts = {}) {
         kit ? String(r.body_html || '') + kit : null]);
     scheduled++;
     when.push({ id: r.id, brand: r.brand_name, at: slot.at, tz: slot.timezone });
+
+    // ── THE QUEUE SLOT THIS DRAFT CAME FROM IS NOW WORKED ────────────────────
+    // A nightly email card writes an outreach_logs draft and holds its id
+    // (jobs/outreachQueue.insertCard). Approving the draft is the agent acting on
+    // that card, so the slot frees the same way marking a DM sent frees one --
+    // otherwise an email card would hold its slot forever and the athlete would
+    // lose one of five for good.
+    //
+    // Best-effort: a failure here must not unschedule an email that is already
+    // approved. It costs a slot until the next run, and it says so.
+    await pool.query(
+      `UPDATE outreach_queue
+          SET state = 'sent', sent_at = NOW(), sent_via = 'email', updated_at = NOW()
+        WHERE outreach_log_id = $1 AND state = 'queued'`, [r.id])
+      .catch((e) => console.error('[closer] could not free the queue slot for ' + r.id + ':', e.message));
   }
   // Every id posted lands in exactly one bucket: scheduled, unchecked, over the
   // cap, or dropped with a reason. scheduled + skipped + overflow + dropped
