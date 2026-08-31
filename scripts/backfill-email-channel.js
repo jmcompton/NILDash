@@ -86,8 +86,14 @@ async function undo(pool) {
 }
 
 (async () => {
+  // store.js runs its migrations on require, asynchronously. Ending the pool out
+  // from under them prints a screen of "Cannot use a pool after calling end" and,
+  // on a database that has not been migrated yet, could cut one short. Same wait
+  // scripts/cache-doctor.js uses, and the same process.exit ending
+  // scripts/clear-duplicate-cards.js uses instead of closing the pool by hand.
+  await new Promise((r) => setTimeout(r, 2500));
   const pool = store.pool;
-  if (UNDO) { await undo(pool); await pool.end().catch(() => {}); return; }
+  if (UNDO) { await undo(pool); process.exit(0); }
 
   // Every queued call card that has no address on it yet, with whatever the
   // contact ladder cached for that brand at the time.
@@ -95,8 +101,12 @@ async function undo(pool) {
     `SELECT q.id, q.agent_id, q.athlete_id, q.brand_name, q.brand_key, q.why,
             q.dm_text, q.angle, q.angle_key, q.category_key, q.ask,
             COALESCE(a.data->>'name','an athlete') AS athlete,
-            b.evidence->>'email' AS cached_email,
-            b.evidence->>'kind'  AS cached_kind
+            -- The card's own address wins when it has one. After --undo a card
+            -- is back to 'call' but KEEPS the address it recovered (nothing is
+            -- deleted), so requiring the address to be missing here would make
+            -- --undo a one-way door: re-applying would find nothing.
+            COALESCE(NULLIF(q.email,''), b.evidence->>'email') AS cached_email,
+            COALESCE(q.email_kind, b.evidence->>'kind')        AS cached_kind
        FROM outreach_queue q
        LEFT JOIN athletes a ON a.id = q.athlete_id
        LEFT JOIN LATERAL (
@@ -106,7 +116,6 @@ async function undo(pool) {
           ORDER BY b2.refreshed_at DESC LIMIT 1
        ) b ON TRUE
       WHERE q.state = 'queued' AND q.channel = 'call'
-        AND (q.email IS NULL OR q.email = '')
         AND ($1::text IS NULL OR q.agent_id = $1)
       ORDER BY athlete, q.brand_name`, [AGENT])).rows;
 
@@ -122,7 +131,7 @@ async function undo(pool) {
   const held = [];
   for (const r of rows) {
     const raw = r.cached_email ? String(r.cached_email).trim().toLowerCase() : null;
-    if (!raw) { held.push({ ...r, why: 'no cached address for this brand' }); continue; }
+    if (!raw) { held.push({ ...r, why: 'no address for this brand, cached or otherwise' }); continue; }
     const s = screen(raw);
     if (!s.ok) { held.push({ ...r, why: s.reason || 'the address did not pass the screen' }); continue; }
     if (suppressed.has(raw)) { held.push({ ...r, why: 'this address bounced before' }); continue; }
@@ -154,13 +163,36 @@ async function undo(pool) {
 
   if (!APPLY) {
     console.log('\nDRY RUN. Add --apply to write. Reverse with --undo --apply.');
-    await pool.end().catch(() => {});
-    return;
+    process.exit(0);
   }
 
   let flipped = 0;
   let failed = 0;
+  let linkedN = 0;
   for (const p of plan) {
+    // ── CREATE, OR LINK ─────────────────────────────────────────────────────
+    // idx_outreach_logs_draft_key is UNIQUE on (athlete_id, brand_key) WHERE
+    // status='draft'. A Deal Scan may already hold that slot, and an --undo of
+    // this very script leaves a stopped draft still holding it. Point the card at
+    // the draft that exists rather than forcing a second one.
+    const existing = (await pool.query(
+      `SELECT id, cadence_stopped_at FROM outreach_logs
+        WHERE athlete_id = $1 AND brand_key = $2 AND status = 'draft' LIMIT 1`,
+      [p.athlete_id, p.brand_key]).catch(() => ({ rows: [] }))).rows[0];
+    if (existing) {
+      await pool.query(
+        `UPDATE outreach_logs SET cadence_stopped_at = NULL, cadence_stop_reason = NULL,
+            sent_to_email = COALESCE(NULLIF(sent_to_email,''), $2), updated_at = NOW()
+          WHERE id = $1`, [existing.id, p.email]).catch(() => {});
+      await pool.query(
+        `UPDATE outreach_queue
+            SET channel = 'email', email = $2, email_kind = $3, outreach_log_id = $4,
+                updated_at = NOW()
+          WHERE id = $1 AND state = 'queued'`, [p.id, p.email, p.kind, existing.id]);
+      linkedN++;
+      flipped++;
+      continue;
+    }
     const logId = 'bf-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     try {
       // The draft first: a card claiming an address it cannot send to is worse
@@ -193,7 +225,8 @@ async function undo(pool) {
     }
   }
   console.log(`\nFlipped ${flipped} card(s) to email.`
+    + (linkedN ? ` ${linkedN} linked to a draft that already existed rather than writing a second.` : '')
     + (failed ? ` ${failed} failed and were left as call cards.` : '')
     + `\nEvery one keeps its phone, handle, contact and why. Reverse with --undo --apply.`);
-  await pool.end().catch(() => {});
+  process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

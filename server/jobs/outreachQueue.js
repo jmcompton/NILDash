@@ -275,7 +275,35 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
   // gets no card for this business tonight, which is the same outcome as any
   // other failed step and is reported the same way.
   let logId = null;
+  let linked = false;
   if (card.channel === 'email' && card.email) {
+    // ── CREATE, OR LINK ───────────────────────────────────────────────────
+    // idx_outreach_logs_draft_key is UNIQUE on (athlete_id, brand_key) WHERE
+    // status='draft': one live draft per athlete per business, which is the
+    // right rule and predates this. A Deal Scan may already have written one,
+    // and an --undo of the backfill leaves a stopped draft still occupying that
+    // slot. Inserting blindly hits the constraint; the answer is not to force a
+    // second draft but to point the card at the one that exists.
+    const existing = (await pool.query(
+      `SELECT id, cadence_stopped_at FROM outreach_logs
+        WHERE athlete_id = $1 AND brand_key = $2 AND status = 'draft'
+        LIMIT 1`, [athleteId, card.brandKey || identity]).catch(() => ({ rows: [] }))).rows[0];
+    if (existing) {
+      logId = existing.id;
+      linked = true;
+      // A draft stopped by an earlier undo or a lost slot race is revived when a
+      // card claims it again -- otherwise the card would link to something Home
+      // will never show.
+      if (existing.cadence_stopped_at) {
+        await pool.query(
+          `UPDATE outreach_logs SET cadence_stopped_at = NULL, cadence_stop_reason = NULL,
+              sent_to_email = COALESCE(NULLIF(sent_to_email,''), $2), updated_at = NOW()
+            WHERE id = $1`, [logId, card.email]).catch(() => {});
+      }
+      console.log(`[queue] athlete=${athleteId} "${card.brandName}" linked to the existing draft ${logId}`);
+    }
+  }
+  if (card.channel === 'email' && card.email && !linked) {
     logId = 'oq-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     try {
       await pool.query(
@@ -327,7 +355,7 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
     // being shown. Cadence-stopped rather than deleted -- the row and its reason
     // survive, which is the same stance every other retirement in this codebase
     // takes.
-    if (logId) {
+    if (logId && !linked) {
       await pool.query(
         `UPDATE outreach_logs SET cadence_stopped_at = NOW(),
             cadence_stop_reason = 'the queue slot was taken before this card was written',
