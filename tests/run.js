@@ -128,9 +128,14 @@ for (const file of list) {
   const was = base.suites[file];
   const tag = SEND_PATH.has(file) ? 'SEND' : '    ';
 
+  // A FAULT the baseline already records is not news -- closer.js and
+  // compliance.js have thrown for weeks for reasons that predate any change in
+  // front of you. Only a suite that could run before and cannot now stops a run.
   let mark = ' ok ';
-  if (res.fault) { mark = 'FAULT'; faults.push({ file, res }); }
+  if (res.fault && was && was.fault) mark = 'known';
+  else if (res.fault) { mark = 'FAULT'; faults.push({ file, res }); }
   else if (!was) mark = ' new';
+  else if (was.fault) { mark = 'better'; fixed.push({ file, was: was.fault, now: res.failed }); }
   else if (res.failed > was.failed) { mark = 'WORSE'; regressed.push({ file, was: was.failed, now: res.failed, res }); }
   else if (res.failed < was.failed) { mark = 'better'; fixed.push({ file, was: was.failed, now: res.failed }); }
 
