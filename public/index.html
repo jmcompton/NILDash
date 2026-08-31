@@ -1999,6 +1999,10 @@ tbody td{padding:11px 14px;vertical-align:middle}
 .hq-peek:focus-visible{outline:2px solid var(--accent,#C8F135);outline-offset:3px;border-radius:4px}
 .hq-peek .car{transition:transform .15s ease;display:inline-block;font-size:10px}
 .hq-peek[aria-expanded="true"] .car{transform:rotate(90deg)}
+/* Read and Edit sit on one line at card level. .hq-peek is a flex row itself,
+   so the wrapper aligns their baselines rather than stacking them. */
+.hq-cardactions{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.hq-cardactions .hq-editbtn{padding-top:8px}
 .hq-mail{margin-top:12px;padding-top:12px;border-top:1px solid var(--line,#26261f);
   font-size:14px;line-height:1.55}
 .hq-mail dl{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:0 0 12px}
@@ -19975,8 +19979,21 @@ function hqEmailBody(c, i) {
     return '<p>' + hqEscape(para) + '</p>';
   }).join('');
   var mailId = 'hq-mail-' + i;
-  return '<button class="hq-peek" type="button" aria-expanded="false" aria-controls="' + mailId + '"'
+  // ── EDIT IS A CARD-LEVEL ACTION, NOT A NESTED ONE ──────────────────────
+  // It used to live inside the disclosure, two clicks deep: Read the email,
+  // then Edit. That was fine when every card on Home was an email and they all
+  // behaved alike. On the mixed queue a DM card puts its editable box straight
+  // on the card, so side by side the email card read as read-only -- the
+  // feature was there and looked like it had been removed.
+  //
+  // The disclosure itself stays shut. Four expanded email bodies is not a queue
+  // an agent can scan, so Edit OPENS the panel on its way to the fields rather
+  // than the panel being open by default.
+  return '<div class="hq-cardactions">'
+    + '<button class="hq-peek" type="button" aria-expanded="false" aria-controls="' + mailId + '"'
     + ' onclick="hqPeek(this)"><span class="car">&#9654;</span><span class="lbl">Read the email</span></button>'
+    + '<button class="hq-editbtn" type="button" onclick="hqEdit(' + i + ')">Edit</button>'
+    + '</div>'
     + '<div class="hq-mail" id="' + mailId + '" hidden>'
     + '<dl>'
     // VERIFIED-BAD ADDRESSES NEVER GET HERE -- the gate holds those cards back.
@@ -20015,7 +20032,6 @@ function hqEmailBody(c, i) {
     // their position in a list they are halfway through.
     + '<div class="hq-read" id="hq-read-' + i + '">'
     + '<div class="hq-body">' + (body || '<p>This draft has no body yet.</p>') + '</div>'
-    + '<button class="hq-editbtn" type="button" onclick="hqEdit(' + i + ')">Edit</button>'
     + '</div>'
     + '<div class="hq-edit" id="hq-edit-' + i + '" hidden>'
     + '<label class="hq-lbl">Subject</label>'
@@ -20159,10 +20175,30 @@ function hqPeek(btn) {
 // KEYED BY POSITION, NOT BY ID. Card ids are namespaced ("email:<uuid>") and a
 // colon is not safe in a DOM id for anything that later uses querySelector. The
 // index addresses the DOM; the namespaced id is looked up from it for the wire.
+// Open the email panel and leave the disclosure button telling the truth about
+// it. Two things can open it -- the button itself and Edit -- and an
+// aria-expanded that disagrees with what is on screen is worse than no label.
+function hqOpenMail(i) {
+  var panel = document.getElementById('hq-mail-' + i);
+  if (!panel || !panel.hidden) return;
+  panel.hidden = false;
+  var btn = document.querySelector('[aria-controls="hq-mail-' + i + '"]');
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'true');
+    var lbl = btn.querySelector('.lbl');
+    if (lbl) lbl.textContent = 'Hide the email';
+  }
+}
+
 function hqEdit(i) {
   var read = document.getElementById('hq-read-' + i);
   var edit = document.getElementById('hq-edit-' + i);
   if (!read || !edit) return;
+  // THE BUTTON IS OUTSIDE THE PANEL NOW, so it has to open it. Without this the
+  // fields would be revealed inside a container that is still hidden and the
+  // click would do nothing visible -- which is the exact complaint that moved
+  // the button out here.
+  hqOpenMail(i);
   read.hidden = true; edit.hidden = false;
   var ta = document.getElementById('hq-ebody-' + i);
   if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
