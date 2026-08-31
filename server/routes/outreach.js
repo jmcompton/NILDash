@@ -475,7 +475,20 @@ router.post('/logs/:id/send', async (req, res) => {
     res.json({ ok: true, message: 'Email sent successfully' });
   } catch (e) {
     console.error('[outreach/send]', e.message);
-    res.status(500).json({ error: e.message });
+    // ── THE SAME FAILURE, DESCRIBED THE SAME WAY ──────────────────────────
+    // This returned e.message raw, so the agent read Google's own words --
+    // "Request had insufficient authentication scopes" -- with no hint that
+    // reconnecting was the fix, while the NIGHTLY path ran the identical failure
+    // through sendGuard and produced a sentence a person could act on. One
+    // classifier now serves both. Our own pre-send refusal is already written
+    // for a human, so it passes through unchanged.
+    const sendGuard = require('../services/sendGuard');
+    const c = sendGuard.classifyError(e);
+    const mine = /^SCOPE_MISSING: /.test(e.message || '');
+    const msg = mine ? e.message.replace(/^SCOPE_MISSING: /, '')
+      : (c.kind === 'other' ? e.message : c.detail);
+    res.status(c.kind === 'scope' || mine ? 400 : 500)
+      .json({ error: msg, reason: mine ? 'scope' : c.kind });
   }
 });
 
@@ -673,6 +686,18 @@ async function sendViaEmailService(req, emailAccountId, toEmail, log) {
   const emailStore = require('../services/emailStore');
   const account = await emailStore.getEmailAccountWithTokens(emailAccountId);
   if (!account || account.user_id !== req.principal.id) throw new Error('Email account not found');
+
+  // ── REFUSE BEFORE GOOGLE DOES ───────────────────────────────────────────
+  // No network call: this reads the scope set stored at connect time. Only a
+  // KNOWN false blocks -- an account connected before we stored scopes is
+  // unknown, not broken, and still goes to the provider, where the classifier
+  // below catches it. Blocking on unknown would have emptied every agent's From
+  // picker on the deploy that added the column.
+  if (emailStore.knownCannotSend(account)) {
+    throw new Error('SCOPE_MISSING: ' + (account.email_address || 'This mailbox')
+      + ' is connected but did not grant permission to send email. Reconnect Google from '
+      + 'Settings and tick "Send email on your behalf".');
+  }
 
   const accessToken  = account.accessToken  || null;
   const refreshToken = account.refreshToken || null;

@@ -140,11 +140,28 @@ router.get('/oauth/gmail/callback', async (req, res) => {
     const accountId = 'ea_' + crypto.randomBytes(8).toString('hex');
     const { pool } = require('../store');
 
+    // ── SAVE IT, BUT DO NOT LET IT CLAIM IT CAN SEND ──────────────────────
+    //
+    // gmail.send is a SENSITIVE scope with its own checkbox on Google's consent
+    // screen. Untick it and everything here still succeeds -- and the agent
+    // finds out at the moment they press Send on a real pitch to a real
+    // business, which is the one moment it must not be a surprise.
+    //
+    // The row is still written, deliberately. Declining email is a legitimate
+    // choice and calendar.events may well have been granted; refusing the whole
+    // connection would take Calendar away from someone who only said no to
+    // email. So it is saved, marked can_send = false, kept out of the From
+    // picker, and the redirect below says exactly which box to tick.
     await emailStore.saveEmailAccount(
       accountId, userId, 'gmail',
       tokens.email, tokens.displayName,
-      tokens.accessToken, tokens.refreshToken, tokens.expiry
+      tokens.accessToken, tokens.refreshToken, tokens.expiry,
+      tokens.grantedScopes, tokens.canSend
     );
+    if (tokens.canSend === false) {
+      console.warn(`[gmail callback] user=${userId} ${tokens.email} granted `
+        + `[${(tokens.grantedScopes || []).join(', ')}] — NO gmail.send, marked non-sending`);
+    }
 
     // COMBINED GOOGLE FLOW: this single consent requests gmail.send +
     // calendar.events + userinfo.email, so the SAME refresh token also powers the
@@ -163,6 +180,15 @@ router.get('/oauth/gmail/callback', async (req, res) => {
     // Getting Started checklist: Gmail/Calendar connected
     require('../store').markChecklistItem(userId, 'connect_google').catch(() => {});
 
+    // A connection that cannot send is not a successful connection to anyone
+    // trying to send. It reports as its own outcome, with the fix in the text.
+    if (tokens.canSend === false) {
+      const why = 'Google connected, but permission to send email was not granted. '
+        + 'Reconnect and tick "Send email on your behalf" on the Google screen.';
+      return res.redirect(back
+        ? withMarker(back, 'emailScopeMissing=gmail&emailError=' + encodeURIComponent(why))
+        : '/#settings?emailScopeMissing=gmail&emailError=' + encodeURIComponent(why));
+    }
     res.redirect(back ? withMarker(back, 'emailConnected=gmail') : '/#settings?emailConnected=gmail');
   } catch (e) {
     console.error('[gmail callback]', e.message);

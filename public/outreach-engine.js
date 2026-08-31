@@ -1269,9 +1269,26 @@ async function loadEmailAccountsIntoDropdown() {
     updateMailboxNotice(false);
     return;
   }
+
+  // ── A MAILBOX THAT CANNOT SEND IS NOT A FROM ADDRESS ────────────────────
+  // canSend === false means we asked Google and gmail.send was not granted --
+  // picking it produces "insufficient authentication scopes" AFTER the agent has
+  // written the pitch. canSend === null means we never asked (connected before we
+  // stored scopes); those stay in the list, because emptying the picker on a
+  // guess is worse than the failure it would prevent.
+  const sendable = accounts.filter(a => a.canSend !== false);
+  const blocked  = accounts.filter(a => a.canSend === false);
+  if (!sendable.length) {
+    renderFromSlotScopeMissing(slot, blocked[0]);
+    updateMailboxNotice('scope');
+    return;
+  }
   slot.innerHTML = '<select id="outreach-from-account" style="' + FROM_SELECT_CSS + '">'
-    + accounts.map(a => `<option value="${escHtml(a.id)}">${escHtml(a.email_address)} (${escHtml(a.provider)})</option>`).join('')
-    + '</select>';
+    + sendable.map(a => `<option value="${escHtml(a.id)}">${escHtml(a.email_address)} (${escHtml(a.provider)})</option>`).join('')
+    + '</select>'
+    + (blocked.length ? `<div style="font-size:10px;color:#fbbf24;margin-top:4px;line-height:1.5">`
+        + `${escHtml(blocked[0].email_address)} is connected but cannot send — reconnect it and tick `
+        + `&ldquo;Send email on your behalf&rdquo;.</div>` : '');
   updateMailboxNotice(true);
 }
 
@@ -1285,6 +1302,25 @@ function renderFromSlotConnect(slot) {
     </button>
     <div style="font-size:10px;color:var(--muted,#888);margin-top:4px;line-height:1.5">
       Your draft is saved. You will come straight back here.
+    </div>`;
+}
+
+// Connected, but Google withheld gmail.send. The distinction from "no mailbox"
+// matters: this agent thinks they are set up, so the copy has to name the exact
+// checkbox rather than tell them to connect something they already connected.
+function renderFromSlotScopeMissing(slot, acct) {
+  const who = acct && acct.email_address ? escHtml(acct.email_address) : 'Your Google account';
+  slot.innerHTML = `
+    <div style="margin-top:4px;padding:8px 10px;background:var(--surface,#111);
+                border:1px solid #fbbf24;border-radius:6px">
+      <div style="font-size:11px;color:#fbbf24;line-height:1.5">
+        ${who} is connected, but did not grant permission to send email.
+        Reconnect and tick &ldquo;Send email on your behalf&rdquo; on the Google screen.
+      </div>
+      <button type="button" onclick="window.outreachEngine.connectGmail()"
+              style="margin-top:6px;padding:4px 10px;background:var(--accent,#84CC16);
+                     border:1px solid var(--accent,#84CC16);border-radius:5px;color:#0b0f0a;
+                     font-size:11px;font-weight:700;cursor:pointer;min-height:28px">Reconnect Google</button>
     </div>`;
 }
 
@@ -1304,14 +1340,33 @@ function renderFromSlotError(slot, msg) {
 // Lives in the modal shell above the body, so it survives setModalState and
 // renderRunResult replacing the body, and it is on screen during generation rather
 // than only once there is a finished draft to be disappointed about.
-//   connected === false  no mailbox: say so now
-//   connected === true   nothing to say
-//   connected === null   unknown (the accounts request failed): say THAT, not "no"
+//   connected === false    no mailbox: say so now
+//   connected === true     nothing to say
+//   connected === null     unknown (the accounts request failed): say THAT, not "no"
+//   connected === 'scope'  a mailbox IS connected but cannot send. Its own state,
+//                          because telling someone to connect a mailbox they have
+//                          already connected reads as the product being broken.
 function updateMailboxNotice(connected) {
   const el = document.getElementById('outreach-mailbox-notice');
   if (!el) return;
   if (connected === true) { el.style.display = 'none'; el.innerHTML = ''; return; }
   el.style.display = 'block';
+  if (connected === 'scope') {
+    el.innerHTML = `
+      <div style="padding:10px 20px;background:rgba(251,191,36,0.10);border-bottom:1px solid rgba(251,191,36,0.35);
+                  display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px;font-size:12px;color:#fbbf24;line-height:1.5">
+          Your Google account is connected but did not grant permission to send email,
+          so this draft cannot go out yet. Reconnect and tick &ldquo;Send email on your behalf&rdquo;.
+        </div>
+        <button type="button" onclick="window.outreachEngine.connectGmail()"
+                style="padding:6px 14px;background:var(--accent,#84CC16);border:1px solid var(--accent,#84CC16);
+                       border-radius:6px;color:#0b0f0a;font-size:12px;font-weight:700;cursor:pointer;min-height:32px">
+          Reconnect Google
+        </button>
+      </div>`;
+    return;
+  }
   if (connected === null) {
     el.innerHTML = `
       <div style="padding:10px 20px;background:rgba(251,191,36,0.10);border-bottom:1px solid rgba(251,191,36,0.35);
@@ -1341,7 +1396,9 @@ async function checkMailboxForNotice() {
     const r = await fetch('/api/email/accounts');
     if (!r.ok) { updateMailboxNotice(null); return; }
     const accounts = await r.json();
-    updateMailboxNotice(Array.isArray(accounts) && accounts.length > 0);
+    if (!Array.isArray(accounts) || !accounts.length) { updateMailboxNotice(false); return; }
+    // Having a mailbox is no longer the same as being able to send from one.
+    updateMailboxNotice(accounts.some(a => a.canSend !== false) ? true : 'scope');
   } catch (e) { updateMailboxNotice(null); }
 }
 

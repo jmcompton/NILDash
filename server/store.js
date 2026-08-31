@@ -1171,6 +1171,37 @@ async function init() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `).catch(e => console.error('Email tables init error:', e.message));
+
+  // ── WHAT GOOGLE ACTUALLY GRANTED ─────────────────────────────────────────
+  //
+  // IN THE NORMAL INIT PATH ON PURPOSE. email_verify_credit_log was created
+  // outside it, to_regclass returned NULL in production for weeks, and the read
+  // failure presented as a spent month -- 1200 of 1200 credits. A column added
+  // anywhere but here is a column that exists on every machine except the one
+  // that matters.
+  //
+  // Google returns the granted scope set in the token exchange response and we
+  // discarded it, so a mailbox that could not send was indistinguishable from
+  // one that could until the moment an agent pressed Send on a real pitch.
+  //
+  // NULL IS A THIRD STATE. Rows written before this column mean UNKNOWN, not
+  // MISSING -- the same distinction accountStatus needed. Nothing may treat an
+  // un-audited account as broken; scripts/audit-gmail-scopes.js is what turns
+  // unknown into a fact.
+  await pool.query(
+    `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS granted_scopes TEXT[]`
+  ).catch(e => console.error('[init] email_accounts.granted_scopes:', e.message));
+  // Set false ONLY when we have looked and the send scope was absent. Left NULL
+  // when we have never looked, so "we do not know" and "it cannot send" are not
+  // the same value in the picker or in the send path.
+  await pool.query(
+    `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS can_send BOOLEAN`
+  ).catch(e => console.error('[init] email_accounts.can_send:', e.message));
+  await pool.query(
+    `ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS scopes_checked_at TIMESTAMPTZ`
+  ).catch(e => console.error('[init] email_accounts.scopes_checked_at:', e.message));
+  console.log('[init] email_accounts scope columns ready');
+
   // Email indexes for performance
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_accounts_user ON email_accounts(user_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails(thread_id)`).catch(() => {});

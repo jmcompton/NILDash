@@ -17,11 +17,30 @@ try {
 // the combined "Connect Google" flow (send email + push calendar events); one
 // consent covers both. Do NOT add gmail.readonly / gmail.compose (RESTRICTED —
 // would force a CASA assessment) or userinfo.profile (unused; email is enough).
+const SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
 const SCOPES = [
-  'https://www.googleapis.com/auth/gmail.send',
+  SEND_SCOPE,
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/userinfo.email',
 ];
+
+// ── ASKING IS NOT GETTING ───────────────────────────────────────────────────
+// gmail.send is a SENSITIVE scope, so Google renders it as its own checkbox on
+// the consent screen. Untick it and the exchange still succeeds: a real token, a
+// real refresh token, a working Calendar grant -- and a 403 the first time
+// anyone presses Send. The granted set is the only thing that answers "can this
+// mailbox send", and it comes back in the token response, once, here.
+function parseGrantedScopes(tokens) {
+  const raw = tokens && tokens.scope;
+  if (!raw) return null;                       // Google said nothing: unknown, not empty
+  const list = String(raw).split(/\s+/).map((s) => s.trim()).filter(Boolean);
+  return list.length ? list : null;
+}
+// null in => null out. "We never looked" must not collapse into "it cannot send".
+function hasSendScope(scopes) {
+  if (!Array.isArray(scopes)) return null;
+  return scopes.includes(SEND_SCOPE);
+}
 
 function isAvailable() {
   return !!(google &&
@@ -64,13 +83,30 @@ async function exchangeCode(code) {
   const oauth2 = google.oauth2({ version: 'v2', auth: client });
   const profile = await oauth2.userinfo.get();
 
+  const grantedScopes = parseGrantedScopes(tokens);
   return {
     accessToken:  tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiry:       tokens.expiry_date ? new Date(tokens.expiry_date) : null,
     email:        profile.data.email,
     displayName:  profile.data.name || profile.data.email,
+    // Carried out of the exchange rather than dropped on the floor. This return
+    // used to end at displayName, which is how the one fact that decides whether
+    // a mailbox can send was thrown away at the exact moment we held it.
+    grantedScopes,
+    canSend: hasSendScope(grantedScopes),
   };
+}
+
+// Ask Google what a token is actually good for. Used by the audit script on
+// accounts that predate the column, where there is nothing stored to read.
+// Read-only: it inspects a token, it does not send or refresh anything.
+async function tokenScopes(accessToken) {
+  const r = await fetch('https://oauth2.googleapis.com/tokeninfo?access_token='
+    + encodeURIComponent(accessToken));
+  if (!r.ok) throw new Error('tokeninfo ' + r.status + ' ' + (await r.text()).slice(0, 200));
+  const body = await r.json();
+  return parseGrantedScopes(body);
 }
 
 /**
@@ -306,4 +342,5 @@ function buildMimeMessage({ from, to, cc, subject, bodyHtml, threadId, attachmen
   return lines.join('\r\n');
 }
 
-module.exports = { isAvailable, getAuthUrl, exchangeCode, refreshAccessToken, fetchMessages, sendEmail };
+module.exports = { isAvailable, getAuthUrl, exchangeCode, refreshAccessToken, fetchMessages, sendEmail,
+  SEND_SCOPE, SCOPES, parseGrantedScopes, hasSendScope, tokenScopes };

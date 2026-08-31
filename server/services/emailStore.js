@@ -9,11 +9,18 @@ const { encrypt, decrypt } = require('./crypto');
 
 // ── Email Accounts ──────────────────────────────────────────────────────────
 
-async function saveEmailAccount(id, userId, provider, emailAddress, displayName, accessToken, refreshToken, tokenExpiry) {
-  await pool.query(`
+// grantedScopes / canSend are OPTIONAL and default to null, which means UNKNOWN.
+// Every caller that has the answer passes it; IMAP and any caller that does not
+// leaves it null rather than guessing, because a guess here decides whether a
+// mailbox appears in the From picker.
+async function saveEmailAccount(id, userId, provider, emailAddress, displayName, accessToken, refreshToken, tokenExpiry, grantedScopes, canSend) {
+  const scopes = Array.isArray(grantedScopes) && grantedScopes.length ? grantedScopes : null;
+  const send = (canSend === true || canSend === false) ? canSend : null;
+  const r = await pool.query(`
     INSERT INTO email_accounts
-      (id, user_id, provider, email_address, display_name, access_token_enc, refresh_token_enc, token_expiry, status, updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'active',NOW())
+      (id, user_id, provider, email_address, display_name, access_token_enc, refresh_token_enc, token_expiry, status,
+       granted_scopes, can_send, scopes_checked_at, updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'active',$9,$10,CASE WHEN $9::text[] IS NULL THEN NULL ELSE NOW() END,NOW())
     ON CONFLICT (user_id, email_address) DO UPDATE SET
       provider        = EXCLUDED.provider,
       display_name    = EXCLUDED.display_name,
@@ -21,14 +28,42 @@ async function saveEmailAccount(id, userId, provider, emailAddress, displayName,
       refresh_token_enc = EXCLUDED.refresh_token_enc,
       token_expiry    = EXCLUDED.token_expiry,
       status          = 'active',
+      -- A RECONNECT MUST BE ABLE TO CLEAR A BAD ANSWER, not just set a good one.
+      -- COALESCE(EXCLUDED, existing) would pin a stale false forever the moment
+      -- someone reconnected through a path that does not know the scopes.
+      granted_scopes  = EXCLUDED.granted_scopes,
+      can_send        = EXCLUDED.can_send,
+      scopes_checked_at = EXCLUDED.scopes_checked_at,
       updated_at      = NOW()
+    RETURNING id
   `, [
     id, userId, provider, emailAddress, displayName,
     encrypt(accessToken),
     encrypt(refreshToken),
     tokenExpiry || null,
+    scopes, send,
   ]);
-  return getEmailAccount(id);
+  // ── READ BACK THE ROW THAT WAS ACTUALLY WRITTEN ─────────────────────────
+  // The conflict target is (user_id, email_address), not id. Every reconnect
+  // mints a fresh accountId, so on a RECONNECT the upsert updates the ORIGINAL
+  // row and the new id matches nothing -- this returned getEmailAccount(id) and
+  // handed back null every time anyone reconnected a mailbox they already had.
+  // The callback then re-read by the same dead id (routes/email.js) and skipped
+  // the post-connect sync without saying so. RETURNING id is the row that exists.
+  const realId = (r.rows[0] && r.rows[0].id) || id;
+  return getEmailAccount(realId);
+}
+
+// Record what an audit found, without touching tokens. Used by
+// scripts/audit-gmail-scopes.js --write to retire the NULL state on rows that
+// predate the column.
+async function recordGrantedScopes(id, grantedScopes, canSend) {
+  const scopes = Array.isArray(grantedScopes) && grantedScopes.length ? grantedScopes : null;
+  const send = (canSend === true || canSend === false) ? canSend : null;
+  await pool.query(
+    `UPDATE email_accounts
+        SET granted_scopes = $2, can_send = $3, scopes_checked_at = NOW(), updated_at = NOW()
+      WHERE id = $1`, [id, scopes, send]);
 }
 
 async function getEmailAccount(id) {
@@ -83,8 +118,34 @@ async function deleteEmailAccount(id, userId) {
 }
 
 // Strip encrypted token columns before returning to callers
+// ── ONE ANSWER TO "CAN THIS MAILBOX SEND" ───────────────────────────────────
+//
+// THREE STATES, NOT TWO. The picker and the send path have to agree, and both
+// have to distinguish a mailbox we KNOW cannot send from one we have never
+// asked about. Every account connected before granted_scopes existed is the
+// second kind, and treating those as broken would empty the From picker for the
+// whole roster on deploy.
+//
+//   true   we looked and gmail.send is there
+//   false  we looked and it is NOT there -- keep it out of the picker
+//   null   we have never looked. Proceed. The send path is still guarded by the
+//          error classifier, which is the net under this.
+function sendability(row) {
+  if (!row) return null;
+  if (row.can_send === true || row.can_send === false) return row.can_send;
+  if (Array.isArray(row.granted_scopes) && row.granted_scopes.length) {
+    return row.granted_scopes.includes('https://www.googleapis.com/auth/gmail.send');
+  }
+  return null;
+}
+// Only a hard false blocks. Unknown is not a refusal.
+function knownCannotSend(row) { return sendability(row) === false; }
+
 function sanitizeAccount(row) {
   const { access_token_enc, refresh_token_enc, ...safe } = row;
+  // Derived here so every reader -- the accounts endpoint, the From picker, the
+  // send path -- gets the same answer from the same function.
+  safe.canSend = sendability(row);
   return safe;
 }
 
@@ -249,6 +310,7 @@ module.exports = {
   saveEmailAccount, getEmailAccount, getEmailAccountsByUser,
   getEmailAccountWithTokens, updateAccountTokens, updateAccountStatus,
   updateSyncCursor, deleteEmailAccount,
+  recordGrantedScopes, sendability, knownCannotSend,
   // Emails
   saveEmail, getEmailsByThread, getEmailsByAthlete, markEmailRead, searchEmails,
   // Threads

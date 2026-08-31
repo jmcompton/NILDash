@@ -193,6 +193,21 @@ function classifyError(err) {
     return { kind: 'quota', retryable: false,
       detail: 'the mail provider refused on quota' };
   }
+  // ── A MISSING SCOPE IS NOT A REJECTED CONNECTION ────────────────────────
+  // Google answers an ungranted gmail.send with 403 "Request had insufficient
+  // authentication scopes", which fell through to the generic auth branch below
+  // and came out as "needs reconnecting". True, but it is the same sentence we
+  // print for a revoked token -- and a plain reconnect does NOT fix this one,
+  // because gmail.send is a sensitive scope with its own checkbox that the agent
+  // has to tick. The instruction has to name the checkbox or they will reconnect,
+  // decline it again, and land back here.
+  //
+  // AHEAD of the 401/403 branch on purpose: order is the whole behaviour.
+  if (/insufficient authentication scopes|insufficientpermissions|insufficient_scope|accessnotconfigured/.test(reason)) {
+    return { kind: 'scope', retryable: false,
+      detail: 'the mailbox is connected but was not given permission to send email — '
+        + 'reconnect Google and tick "Send email on your behalf"' };
+  }
   if (code === 401 || code === 403) {
     return { kind: 'auth', retryable: false,
       detail: 'the mailbox connection was rejected, so it needs reconnecting' };

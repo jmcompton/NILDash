@@ -736,6 +736,11 @@
       "failed": 0,
       "total": 30,
       "fault": null
+    },
+    "sendscope.js": {
+      "failed": 0,
+      "total": 44,
+      "fault": null
     }
   }
 }
