@@ -17508,6 +17508,27 @@ function hqEsc(v) {
 }
 function hqIgLink(h) { return 'https://www.instagram.com/' + String(h || '').replace(/^@/, ''); }
 
+// ── PUT A PAUSED ATHLETE BACK IN TONIGHT'S RUN ──────────────────────────────
+// The pause used to have no exit anywhere in the product: the page stated a
+// reason and there was no button, no endpoint, and no timer. This is the manual
+// one; the nightly retry is the automatic one and does not need anybody to
+// notice. Optimistic on the button only -- the queue is re-read from the server
+// so the roster reflects what actually happened rather than what we hoped.
+async function hqResumeAthlete(athleteId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Resuming\u2026'; }
+  try {
+    var r = await fetch(API_BASE + '/api/outreach-queue/athletes/'
+      + encodeURIComponent(athleteId) + '/resume', { method: 'POST', credentials: 'include' });
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Could not resume');
+    if (typeof showToast === 'function') showToast(d.message || 'Back in tonight\u2019s run', 'success');
+    if (typeof hqLoad === 'function') hqLoad();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Resume this athlete'; }
+    if (typeof showToast === 'function') showToast('Could not resume: ' + e.message, 'error');
+  }
+}
+
 function hqCard(c) {
   var isDm = c.channel === 'dm';
   // A social, DTC or national brand has no owner to call and no local handle.
@@ -17596,7 +17617,10 @@ function renderOutreachQueue(data) {
   // This has to outrank the ordinary empty state: "we gave up, here is why" is
   // a different message from "tonight's run will try again".
   var pausedByAthlete = {};
-  ((data && data.paused) || []).forEach(function (p) { pausedByAthlete[p.athleteId] = p.reason; });
+  // The whole row, not just the sentence. A reason with no action is what six
+  // athletes read every morning for nine days while nothing in the product could
+  // clear the pause.
+  ((data && data.paused) || []).forEach(function (p) { pausedByAthlete[p.athleteId] = p; });
 
   // The selected tab persists across every re-render -- a poll tick, a
   // mark-sent refresh, an admin fill completion -- the same way the admin fill
@@ -17629,8 +17653,17 @@ function renderOutreachQueue(data) {
     } else if (pausedByAthlete[_hqSelectedAthlete]) {
       // PAUSED BEATS THE ORDINARY EMPTY STATE. Nothing is being spent here, and
       // saying so is the whole point of backing off rather than retrying.
-      h.push('<div class="hq-card paused"><div class="hq-why" style="margin:0">'
-        + hqEsc(pausedByAthlete[_hqSelectedAthlete]) + '</div></div>');
+      var _p = pausedByAthlete[_hqSelectedAthlete];
+      h.push('<div class="hq-card paused">'
+        + '<div class="hq-why" style="margin:0 0 10px">' + hqEsc(_p.reason || '') + '</div>'
+        + (_p.days ? '<div class="hq-why" style="margin:0 0 10px;opacity:.8">Paused '
+            + _p.days + ' day' + (_p.days === 1 ? '' : 's') + ' ago'
+            + (_p.retryNote ? ' \u2014 ' + hqEsc(_p.retryNote) : '') + '.</div>' : '')
+        + (_p.canResume
+            ? '<button type="button" class="hq-editbtn" onclick="hqResumeAthlete(\''
+                + hqEsc(_hqSelectedAthlete) + '\', this)">Resume this athlete</button>'
+            : '')
+        + '</div>');
     } else {
       // NEVER A BLANK SPACE. detail.note is the actual reason from the last
       // nightly (or button) run; detail.tried is every business it considered

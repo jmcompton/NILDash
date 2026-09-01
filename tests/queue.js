@@ -359,7 +359,13 @@ const CAND = (over) => Object.assign({
       (JOB.match(/UPDATE outreach_queue_runs.*/) || [])[0]);
 
     const H = fs.readFileSync(R + 'public/index.html', 'utf8');
-    const js = H.slice(H.indexOf('function renderOutreachQueue'), H.indexOf('function renderOutreachQueue') + 3500);
+    // A FIXED BYTE WINDOW IS NOT A FUNCTION. This sliced 3500 characters from the
+    // function's start, so adding the paused-athlete block to the empty state
+    // pushed `detail.note` past the boundary and the guard failed on a renderer
+    // that had not changed. Sliced to the next top-level function instead.
+    const _rq = H.indexOf('function renderOutreachQueue');
+    const _end = H.indexOf('\nfunction ', _rq + 10);
+    const js = H.slice(_rq, _end > _rq ? _end : _rq + 8000);
     // Since the tabs rewrite the roster is iterated with .map (one tab each)
     // rather than .forEach (one stacked section each); same requirement, that
     // EVERY roster athlete is accounted for, not just ones the server grouped.

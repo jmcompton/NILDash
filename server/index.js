@@ -6978,6 +6978,40 @@ app.get('/api/agent/calendar/google/connect', requireAuth, async (req, res) => {
 // the full consent flow again: the OAuth URL builder always sends prompt=consent
 // with access_type=offline, so Google re-shows the account chooser and consent
 // screen with all scopes rather than silently re-authorizing.
+// POST /api/outreach-queue/athletes/:athleteId/resume — put a paused athlete
+// back in the nightly run.
+//
+// THE PAUSE HAD NO EXIT. One statement in the codebase cleared paused_at, inside
+// a function a paused athlete could never reach, so an athlete three thin nights
+// past signup was removed from the product permanently and the page could only
+// state a reason. There are three exits now: the automatic retry, the script,
+// and this. The agent owns their roster and does not need to wait a week for a
+// timer when they already know the market changed.
+app.post('/api/outreach-queue/athletes/:athleteId/resume', requireAuth, async (req, res) => {
+  try {
+    const agentId = req.session.userId;
+    // SCOPED TO THIS AGENT'S ROSTER. Resuming is cheap and reversible, but it
+    // spends money on the next run, so it may only be done to your own athletes.
+    const own = await store.pool.query(
+      `SELECT id, data->>'name' AS name FROM athletes WHERE id = $1 AND agent_id = $2`,
+      [req.params.athleteId, agentId]);
+    if (!own.rows[0]) return res.status(404).json({ error: 'Athlete not found' });
+
+    const OQjob = require('./jobs/outreachQueue');
+    const released = await OQjob.releasePause(store.pool, req.params.athleteId, 'agent');
+    // Not an error: an athlete who is already running is the state the caller
+    // wanted. Saying "failed" for that would teach agents to distrust the button.
+    res.json({ ok: true, resumed: released, alreadyRunning: !released,
+      athleteName: own.rows[0].name || null,
+      message: released
+        ? `${own.rows[0].name || 'This athlete'} is back in tonight's run.`
+        : `${own.rows[0].name || 'This athlete'} was already running.` });
+  } catch (e) {
+    console.error('[queue/resume]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/agent/google/disconnect', requireAuth, async (req, res) => {
   try {
     const userId = req.session.userId;
@@ -8116,7 +8150,11 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
           // The DB claim is shared with the nightly job, which widens the same
           // markets from a different process. Without it each process keeps its
           // own in-memory allowance and one market gets widened twice a day.
-          const _dbClaim = await MarketDeepen.claimDeepen(store.pool, loaded.athleteObj.school, { source: 'dealscan' });
+          // Per athlete, matching the nightly job. Both processes still share the
+          // market's MAX_PER_MARKET budget, which is what stops one school being
+          // widened all day from two directions.
+          const _dbClaim = await MarketDeepen.claimDeepen(store.pool, loaded.athleteObj.school,
+            { athleteId: loaded.athleteObj.id, source: 'dealscan' });
           if (_dbClaim && _autoDeepenAllowed(_dk) && _deepenRateCheck(_dk).ok) {
             _autoDeepenRecord(_dk); _deepenRateRecord(_dk);
             try {
@@ -9278,14 +9316,30 @@ app.get('/api/agent/outreach-queue', requireAuth, async (req, res) => {
     // PAUSED ATHLETES, so the page can say "we stopped trying, and why" rather
     // than showing the same empty slot every morning with no explanation.
     const pausedRows = await store.pool.query(
-      `SELECT s.athlete_id, s.consecutive_failures, s.paused_reason
+      `SELECT s.athlete_id, s.consecutive_failures, s.paused_reason, s.paused_at,
+              a.data->>'name' AS athlete_name
          FROM outreach_queue_athlete_state s
          JOIN athletes a ON a.id = s.athlete_id
         WHERE a.agent_id = $1 AND s.paused_at IS NOT NULL`, [agentId]).catch(() => ({ rows: [] }));
-    const paused = (pausedRows.rows || []).map((p) => ({
-      athleteId: p.athlete_id,
-      reason: p.paused_reason || OQ.pausedNote(p.consecutive_failures),
-    }));
+    // ── A REASON WITH NO ACTION IS A DEAD END ────────────────────────────────
+    // This returned a sentence and nothing else, and nothing in the product could
+    // clear paused_at -- so the page said "we stopped trying" every morning with
+    // no way to say "try again". Six athletes read that for nine days. The row
+    // now carries how long they have been held, when we come back on our own,
+    // and that the agent can override both.
+    const paused = (pausedRows.rows || []).map((p) => {
+      const rel = OQ.pauseRelease(p);
+      return {
+        athleteId: p.athlete_id,
+        athleteName: p.athlete_name || null,
+        reason: p.paused_reason || OQ.pausedNote(p.consecutive_failures),
+        pausedAt: p.paused_at,
+        days: rel.days,
+        nextRetryAt: rel.nextRetryAt,
+        retryNote: OQ.pausedUntilNote(rel),
+        canResume: true,
+      };
+    });
 
     res.json({ groups, waiting: OQ.waitingOnYou(rows), outcomes: OQ.OUTCOMES, lastRun, paused });
 

@@ -108,7 +108,11 @@ async function main() {
   ok('  THE SECOND CLAIM DOES NOT — one pass per market per day',
     (await Deepen.claimDeepen(P, 'rf-Test University', { source: 'dealscan' })) === false);
   const g2 = await Deepen.canDeepen(P, 'rf-Test University');
-  ok('  and the guard says why in words', g2.ok === false && /one pass per market per 24h/.test(g2.reason), g2);
+  // The claim is per athlete per market now -- one athlete at a school no longer
+  // blocks the rest of the roster. With no athleteId this is the market-wide row,
+  // which is still one pass per window, and still says so.
+  ok('  and the guard says why in words',
+    g2.ok === false && /one pass per market per 24h/.test(g2.reason), g2);
   ok('  athletes at the SAME school share the market key',
     Deepen.marketKey('rf-Test University') === Deepen.marketKey('  RF-TEST   University  '),
     [Deepen.marketKey('rf-Test University'), Deepen.marketKey('  RF-TEST   University  ')]);

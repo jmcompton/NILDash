@@ -1448,6 +1448,25 @@ async function init() {
     )
   `).then(() => console.log('[init] outreach_queue_athlete_state table ready'))
     .catch(e => console.error('[init] outreach_queue_athlete_state:', e.message));
+  // ── WHO LET THEM BACK IN, AND WHEN ────────────────────────────────────────
+  // The pause had no exit at all: one statement in the codebase cleared
+  // paused_at, inside a function a paused athlete could never reach. Six
+  // athletes sat at zero for nine days. Now there are three exits -- the
+  // automatic retry, the agent's Resume button, and the script -- so which one
+  // fired has to be on the row, or the next diagnosis is guesswork again.
+  await pool.query(`ALTER TABLE outreach_queue_athlete_state
+    ADD COLUMN IF NOT EXISTS released_at TIMESTAMPTZ`).catch(e =>
+    console.error('[init] athlete_state.released_at:', e.message));
+  await pool.query(`ALTER TABLE outreach_queue_athlete_state
+    ADD COLUMN IF NOT EXISTS release_source TEXT`).catch(e =>
+    console.error('[init] athlete_state.release_source:', e.message));
+  // How many times this athlete has been round the pause loop. A market that is
+  // genuinely dead looks different from one bad night, and only this tells them
+  // apart -- without it, an athlete retried every 7 days forever is invisible.
+  await pool.query(`ALTER TABLE outreach_queue_athlete_state
+    ADD COLUMN IF NOT EXISTS pause_count INT NOT NULL DEFAULT 0`).catch(e =>
+    console.error('[init] athlete_state.pause_count:', e.message));
+  console.log('[init] outreach_queue_athlete_state release columns ready');
   // PER ATHLETE PER DAY, not per open. An agent flipping between athletes all
   // morning must not re-trigger a paid fill every time they come back to one,
   // so the row is claimed on the first open of the day and every later open
@@ -1767,6 +1786,24 @@ async function init() {
       deepen_count INT NOT NULL DEFAULT 0
     )`).then(() => console.log('[init] market_deepen_log table ready'))
     .catch((e) => console.error('[init] market_deepen_log:', e.message));
+  // ── ONE WIDEN PER MARKET WAS ONE WIDEN, PERIOD ────────────────────────────
+  // The claim was keyed on the market alone, so the first athlete at a school
+  // widened and every athlete behind them was told "not widening" and handed an
+  // empty slate. With 45 clients over a handful of schools that is most of a
+  // roster. The key is now (market, athlete); existing rows take athlete_id = ''
+  // and become the per-market budget row, so no market loses its history.
+  await pool.query(`ALTER TABLE market_deepen_log
+    ADD COLUMN IF NOT EXISTS athlete_id TEXT NOT NULL DEFAULT ''`)
+    .catch((e) => console.error('[init] market_deepen_log.athlete_id:', e.message));
+  await pool.query(`DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conname = 'market_deepen_log_pkey'
+                    AND array_length(conkey, 1) = 1) THEN
+        ALTER TABLE market_deepen_log DROP CONSTRAINT market_deepen_log_pkey;
+        ALTER TABLE market_deepen_log ADD PRIMARY KEY (market_key, athlete_id);
+      END IF;
+    END $$;`).catch((e) => console.error('[init] market_deepen_log pkey:', e.message));
+  console.log('[init] market_deepen_log per-athlete key ready');
 
   // Attach the athlete's media kit to every approved email, or do not. A
   // setting on the account rather than a toggle in a modal: the same answer 45

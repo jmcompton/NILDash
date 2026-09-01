@@ -90,9 +90,55 @@ const DEFAULT_ONDEMAND_USD = 0.15;
 // spends forever on an athlete it cannot fill is the worst of both.
 const BACKOFF_NIGHTS = 3;
 
+// ── AND THEN COME BACK ──────────────────────────────────────────────────────
+//
+// The pause had NO EXIT. Exactly one statement in the codebase cleared
+// paused_at -- inside recordAttempt, on its filled > 0 branch -- and fillAthlete
+// returned before ever reaching recordAttempt when an athlete was paused. Both
+// call sites also guard on `!r.paused`. So a paused athlete could not place a
+// card, and only placing a card could unpause them: an athlete removed from the
+// product permanently, three thin nights after signing up, with the page showing
+// a reason and no way to act on it.
+//
+// Two exits now, and the automatic one is the one that matters, because it does
+// not depend on anyone noticing.
+const PAUSE_RETRY_DAYS = parseInt(process.env.OUTREACH_QUEUE_PAUSE_RETRY_DAYS, 10) || 7;
+
+// Should this paused athlete be tried again tonight? A market is not a fixed
+// object -- businesses open, a scan widens, the social index grows -- so a pause
+// is a "not now", never a verdict.
+function pauseRelease(state, opts = {}) {
+  const days = Number(opts.retryDays) || PAUSE_RETRY_DAYS;
+  const now = opts.now ? new Date(opts.now).getTime() : Date.now();
+  if (!state || !state.paused_at) return { paused: false, retry: false, days: 0, nextRetryAt: null };
+  // pg hands back a Date; Date.parse takes a string. Getting this wrong is what
+  // sorted email cards above queue cards in the Home ladder, so it is spelled out.
+  const at = state.paused_at instanceof Date ? state.paused_at.getTime()
+    : Date.parse(state.paused_at);
+  if (!isFinite(at)) {
+    // An unreadable timestamp must not mean "paused forever". Retry, and say so.
+    return { paused: true, retry: true, days: 0, nextRetryAt: null, unreadable: true };
+  }
+  const heldDays = Math.floor((now - at) / 86400000);
+  const nextRetryAt = new Date(at + days * 86400000);
+  return { paused: true, retry: heldDays >= days, days: heldDays, nextRetryAt, retryDays: days };
+}
+
 function pausedNote(failures) {
   return 'paused after ' + (failures || BACKOFF_NIGHTS) + ' nights where nothing passed the bar. '
-    + 'Nothing is being spent on this athlete until their scan has new businesses — run a Deal Scan to refresh it.';
+    + 'Nothing is being spent on this athlete until their market has something new — '
+    + 'we try again automatically in ' + PAUSE_RETRY_DAYS + ' days, or resume them now to try tonight.';
+}
+
+// What the page says while an athlete is held. Names the date, because "paused"
+// with no end is indistinguishable from broken.
+function pausedUntilNote(rel) {
+  if (!rel || !rel.paused) return null;
+  if (!rel.nextRetryAt) return 'we will try again on the next run';
+  const d = rel.nextRetryAt;
+  if (rel.retry) return 'due to be retried on tonight\'s run';
+  return 'we try again automatically on '
+    + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 // ── Predict failure before paying for it ─────────────────────────────────────
@@ -579,6 +625,7 @@ module.exports = {
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   waitingOnYou, writeDm, askFirstName, namedRows,
+  pauseRelease, pausedUntilNote, PAUSE_RETRY_DAYS,
   prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,
   WAITING_AFTER_DAYS, OUTCOMES,

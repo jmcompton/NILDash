@@ -39,6 +39,9 @@ const EMPTY = {
   SLOTS_FULL: 'slots-full',
   PAUSED: 'paused',
   CAPPED: 'capped-out',
+  // OURS, NOT THEIRS. A night whose failures were all lookups that threw says
+  // nothing about the market, and must never read as one that was worked out.
+  FAULT: 'our-fault',
 };
 const EMPTY_TEXT = {
   [EMPTY.NO_MARKET]: 'no school we could match, so the local lane has no town to work in — and no social or national fit either',
@@ -47,6 +50,7 @@ const EMPTY_TEXT = {
   [EMPTY.SLOTS_FULL]: 'all slots already hold work you have not actioned yet',
   [EMPTY.PAUSED]: 'paused after repeated nights with nothing to show',
   [EMPTY.CAPPED]: 'the nightly spend cap was reached before this athlete',
+  [EMPTY.FAULT]: 'every attempt failed on our side, so nothing was learned about this market',
 };
 
 function normBrand(s) {

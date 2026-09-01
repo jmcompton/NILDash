@@ -62,6 +62,13 @@ const CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_AGENT_CAP_USD) || Q.DEFAUL
 // cap is false before the first lookup. On-demand would have claimed its day,
 // filled nothing, and reported "budget cap reached" every single time.
 const LOOKUP_CEILING_USD = parseFloat(process.env.OUTREACH_QUEUE_LOOKUP_USD) || 0.06;
+// ── WHEN A RUN IS THE SUSPECT, NOT THE MARKETS ──────────────────────────────
+// Below this many athletes there is no roster-level signal to read: two failing
+// out of two is an ordinary Tuesday on a small account. At or above it, a share
+// this high means the run failed, not the towns. Deliberately strict -- the cost
+// of a false positive is one night nobody is paused.
+const SYSTEMIC_MIN_ATHLETES = parseInt(process.env.OUTREACH_QUEUE_SYSTEMIC_MIN, 10) || 3;
+const SYSTEMIC_FAIL_SHARE = parseFloat(process.env.OUTREACH_QUEUE_SYSTEMIC_SHARE) || 0.8;
 
 // ── Time, in Central, without a timezone library ─────────────────────────────
 // Same trick as server/services/weeklyDigest.js: the server runs UTC and Central
@@ -127,11 +134,47 @@ async function athleteState(pool, athleteId) {
   return r.rows[0] || null;
 }
 
+// ── LET A PAUSED ATHLETE BACK IN ────────────────────────────────────────────
+// The only statement that cleared paused_at lived inside recordAttempt's
+// filled > 0 branch, and a paused athlete returned from fillAthlete before ever
+// reaching it -- so the exit condition required doing the thing the pause
+// prevented. Six athletes sat at zero for nine days. This is the exit, callable
+// from the nightly retry, the agent's Resume button, and the script alike.
+//
+// consecutive_failures goes back to 0 deliberately: a resumed athlete gets a
+// full three nights to prove the market, not one. Re-pausing on the first thin
+// night would make the retry theatre.
+async function releasePause(pool, athleteId, source) {
+  const r = await pool.query(
+    `UPDATE outreach_queue_athlete_state
+        SET paused_at = NULL, paused_reason = NULL, consecutive_failures = 0,
+            released_at = NOW(), release_source = $2, updated_at = NOW()
+      WHERE athlete_id = $1 AND paused_at IS NOT NULL
+      RETURNING athlete_id`,
+    [athleteId, String(source || 'unknown').slice(0, 60)]
+  ).catch((e) => { console.error('[queue] releasePause:', e.message); return { rowCount: 0 }; });
+  if (r.rowCount) console.log(`[queue] athlete=${athleteId} RESUMED (${source})`);
+  return r.rowCount > 0;
+}
+
 // Record what an attempt that ACTUALLY SPENT produced. A night with no
 // candidates costs nothing and must not count toward the pause, or an athlete
 // waiting on their first Deal Scan would be paused for a problem that is not
 // theirs. Idempotent per date: re-running the same day cannot double-count.
-async function recordAttempt(pool, athleteId, { filled, spent, runDate }) {
+//
+// ── AND A NIGHT THAT FAILED BECAUSE OF US IS NOT THEIR FAILURE ─────────────
+// On 2026-08-23 six athletes on one roster tripped this counter inside eight
+// minutes. Nothing about their markets changed that night; NIGHTLY_SLOTS was 1,
+// the deliverable lint demanded a quantifier, and the sign-off regex \bjohn\b
+// could not match "JohnMark" -- so every pitch that agent's roster produced was
+// rejected by our own rules, and the backoff wrote it down as six thin markets.
+// f1b11aa fixed the rules the next day. The pause outlived the bug by nine days.
+//
+// `faults` is the count of failures this athlete's night suffered that were OURS
+// -- a lookup that threw, a provider outage, a writer that could not run. A
+// night whose failures were all faults teaches nothing about the market and is
+// not counted.
+async function recordAttempt(pool, athleteId, { filled, spent, runDate, faults, tried, systemic }) {
   if (filled > 0) {
     await pool.query(
       `INSERT INTO outreach_queue_athlete_state (athlete_id, consecutive_failures, last_attempt_date, paused_at, paused_reason, updated_at)
@@ -143,6 +186,24 @@ async function recordAttempt(pool, athleteId, { filled, spent, runDate }) {
     return;
   }
   if (!(spent > 0)) return;   // nothing was spent, so nothing was learned
+
+  // THE RUN ITSELF WAS BROKEN. Decided across the whole roster by fillAgent, not
+  // here: one athlete cannot tell a thin market from a systemic failure, but a
+  // run where most of the roster failed the same way can. This is the guard that
+  // would have stopped 2026-08-23, and it is checked before anything else.
+  if (systemic) {
+    console.warn(`[queue] athlete=${athleteId} not counted toward the backoff — `
+      + 'the run failed across the roster, which is our problem, not this market');
+    return;
+  }
+  // EVERY failure this athlete had was ours. A night that only produced errors
+  // measured our uptime, not their market.
+  const triedN = Array.isArray(tried) ? tried.length : 0;
+  if (faults > 0 && triedN > 0 && faults >= triedN) {
+    console.warn(`[queue] athlete=${athleteId} not counted toward the backoff — `
+      + `all ${faults} of ${triedN} attempts failed on our side`);
+    return;
+  }
 
   const r = await pool.query(
     `INSERT INTO outreach_queue_athlete_state (athlete_id, consecutive_failures, last_attempt_date, updated_at)
@@ -397,9 +458,26 @@ async function fillAthlete(pool, ctx) {
   // repeatedly-failing athlete stops consuming budget entirely.
   const state = await athleteState(pool, athleteId);
   if (state && state.paused_at) {
-    const note = state.paused_reason || Q.pausedNote(state.consecutive_failures);
-    say(`${athleteName}: ${note}`);
-    return { filled: 0, open: 0, tried, note, paused: true };
+    // ── A PAUSE IS A "NOT NOW", NEVER A VERDICT ────────────────────────────
+    // Markets are not fixed objects: businesses open, a scan widens the radius,
+    // the social index grows -- and sometimes the only thing that was broken was
+    // us. This used to return unconditionally, and since nothing else in the
+    // codebase cleared paused_at, that return was the end of the athlete.
+    const rel = Q.pauseRelease(state);
+    if (rel.retry) {
+      await releasePause(pool, athleteId,
+        rel.unreadable ? 'auto:unreadable-timestamp' : `auto:${rel.days}d`);
+      say(`${athleteName}: paused ${rel.days} day${rel.days === 1 ? '' : 's'} ago — `
+        + 'trying again tonight');
+      // Deliberately NOT returning. The whole point is that the night proceeds.
+    } else {
+      const note = (state.paused_reason || Q.pausedNote(state.consecutive_failures))
+        + ' (' + Q.pausedUntilNote(rel) + ')';
+      say(`${athleteName}: ${note}`);
+      return { filled: 0, open: 0, tried, note, paused: true,
+        emptyReason: Scout.EMPTY.PAUSED,
+        pausedAt: state.paused_at, pausedDays: rel.days, nextRetryAt: rel.nextRetryAt };
+    }
   }
 
   // NO MARKET SILENCES THE LOCAL LANE, NOT THE ATHLETE. An athlete whose school
@@ -434,7 +512,7 @@ async function fillAthlete(pool, ctx) {
     // which made a full athlete look like a bug in the slot count.
     const msg = `all ${Q.SLOTS_PER_ATHLETE} slots already hold work you have not actioned`;
     say(`${athleteName}: ${msg}`);
-    return { filled: 0, open: 0, tried, note: msg };
+    return { filled: 0, open: 0, tried, note: msg, emptyReason: Scout.EMPTY.SLOTS_FULL };
   }
   // The night guarantees ONE fresh card so the page is never empty; slots 2-3
   // are built on demand when the agent actually opens this athlete's queue.
@@ -463,10 +541,14 @@ async function fillAthlete(pool, ctx) {
   // 45 clients is most of the roster, most nights. The Scout knows the pool is
   // spent, so it says so here, once per market per 24h across both processes.
   if (slate.localExhausted && profile.hasLocalMarket && !ctx.noWiden) {
-    const gate = await Deepen.canDeepen(pool, profile.school);
+    // PER ATHLETE, NOT PER MARKET. The market-level claim meant the first athlete
+    // at a school widened and every athlete behind them was told "not widening"
+    // and handed an empty slate -- which with 45 clients over a handful of
+    // schools is most of a roster. The market still has a budget; see MAX_PER_MARKET.
+    const gate = await Deepen.canDeepen(pool, profile.school, { athleteId });
     if (!gate.ok) {
       say(`${athleteName}: local pool is spent — not widening (${gate.reason})`);
-    } else if (await Deepen.claimDeepen(pool, profile.school, { source: 'nightly' })) {
+    } else if (await Deepen.claimDeepen(pool, profile.school, { athleteId, source: 'nightly' })) {
       say(`${athleteName}: local pool is spent — widening the search to neighbouring towns`);
       try {
         const athObj = { id: athleteId, ...(ctx.athleteRow || {}) };
@@ -519,7 +601,8 @@ async function fillAthlete(pool, ctx) {
         // made one athlete's spending stop everyone after them.
         const potGone = !budget.canSpendFromPot(LOOKUP_CEILING_USD);
         return { filled, open: open.length, cappedOut: potGone, shareSpent: !potGone,
-          tried, note: why, spendLog };
+          tried, note: why, spendLog, emptyReason: Scout.EMPTY.CAPPED,
+          faults: tried.filter((t) => t && t.fault).length };
       }
       // ── THE LANE DECIDES THE ROUTE ──────────────────────────────────────
       // A social or national brand goes nowhere near Places or the contact
@@ -676,7 +759,10 @@ async function fillAthlete(pool, ctx) {
         meter = m.meter;
       } catch (e) {
         say(`${cand.brand_name}: lookup failed (${e.message})`);
-        tried.push({ brand: cand.brand_name, result: 'error', reason: e.message, places: facts, risk: pre.risk });
+        // fault: OUR failure, not this market's. Counted separately so a night of
+        // outages cannot pause an athlete whose businesses we never reached.
+        tried.push({ brand: cand.brand_name, result: 'error', reason: e.message, fault: true,
+          places: facts, risk: pre.risk });
         continue;
       }
       // RESERVED AT THE CEILING, CHARGED AT COST. The affordability check above
@@ -815,11 +901,23 @@ async function fillAthlete(pool, ctx) {
     }
     if (!placed) say(`slot ${slot}: nothing passed the bar in ${Q.MAX_ATTEMPTS_PER_SLOT} attempts`);
   }
+  // OUR FAILURES, COUNTED. A lookup that threw is not a business that could not
+  // be reached; it is a night we could not measure. recordAttempt refuses to
+  // pause an athlete whose whole night was this.
+  const faults = tried.filter((t) => t && t.fault).length;
   const note = filled > 0 ? null
     : tried.length
       ? `${tried.length} business${tried.length > 1 ? 'es' : ''} tried, none passed the bar`
+        + (faults ? ` (${faults} failed on our side, not theirs)` : '')
       : 'no candidates were tried';
-  return { filled, open: open.length, tried, note, spendLog };
+  // STRUCTURED, NOT JUST PROSE. emptyReason was computed by the Scout and thrown
+  // away before it reached the run row, so every diagnosis had to pattern-match
+  // an English sentence -- and a partial fill, which has no note at all, could
+  // not be classified from the database whatsoever.
+  const emptyReason = filled > 0 ? null
+    : faults && faults >= tried.length && tried.length ? Scout.EMPTY.FAULT
+      : tried.length ? Scout.EMPTY.BELOW_BAR : Scout.EMPTY.MARKET_EXHAUSTED;
+  return { filled, open: open.length, tried, note, spendLog, faults, emptyReason };
 }
 
 async function fillAgent(pool, agent, opts) {
@@ -839,6 +937,8 @@ async function fillAgent(pool, agent, opts) {
     [agent.id])).rows;
   const agentFirst = String(agent.name || '').trim().split(/\s+/)[0] || null;
   let filled = 0;
+  // Banked per athlete, settled once at the end. See the note at the push.
+  const attempts = [];
   // ONE ROW PER ATHLETE, even the ones that got nothing. Without this an athlete
   // the job found zero candidates for left no trace anywhere -- not a queued
   // card, not a reason -- so the page had nothing to show but blank space, which
@@ -908,15 +1008,34 @@ async function fillAgent(pool, agent, opts) {
     details.push({
       athleteId: ath.id, athleteName: ath.name, filled: r.filled, open: r.open,
       note: r.note || null, tried: r.tried || [], paused: !!r.paused,
+      // ── THE STRUCTURED CAUSE, WHICH USED TO BE COMPUTED AND DROPPED ───────
+      // The Scout returns a named emptyReason and fillAthlete passes it back;
+      // this push listed neither, so every diagnosis had to pattern-match the
+      // English in `note` -- and a partial fill has no note at all, so a
+      // one-card athlete could not be classified from the database at all.
+      emptyReason: r.emptyReason || null,
+      noMarket: !!r.noMarket,
+      // How many of this athlete's attempts failed on OUR side. The number that
+      // would have made 2026-08-23 legible the next morning.
+      faults: r.faults || 0,
+      // Only present when held: how long, and when we come back automatically.
+      pausedDays: r.pausedDays || null,
+      nextRetryAt: r.nextRetryAt || null,
       // The measured figure for THIS athlete, so "what does a night cost per
       // athlete" is answerable from the run row rather than estimated.
       spentUsd: Math.round((budget.spent() - before) * 10000) / 10000,
       spendLog: r.spendLog || [],
     });
-    // Only a night that actually spent teaches us anything about this athlete,
-    // and a paused one spent nothing by definition.
+    // ── THE BACKOFF IS DECIDED AFTER THE RUN, NOT DURING IT ────────────────
+    // This called recordAttempt inline, so each athlete was judged in isolation
+    // -- and in isolation nothing can tell a thin market from a night when our
+    // own rules were rejecting everything. On 2026-08-23 six athletes on one
+    // roster tripped the three-night counter inside eight minutes, which no
+    // per-athlete rule could ever have caught. The attempt is banked here and
+    // the whole roster is looked at once the run is done.
     if (!dry && !r.paused) {
-      await recordAttempt(pool, ath.id, { filled: r.filled, spent: budget.spent() - before, runDate });
+      attempts.push({ athleteId: ath.id, filled: r.filled,
+        spent: budget.spent() - before, faults: r.faults || 0, tried: r.tried || [] });
     }
     // Only the AGENT'S cap ends the night. An athlete who used their share is
     // done for the evening; the next one still has theirs.
@@ -924,6 +1043,40 @@ async function fillAgent(pool, agent, opts) {
       console.log('[queue] nightly cap reached, stopping the run');
       break;
     }
+  }
+
+  // ── SETTLE THE BACKOFF ACROSS THE WHOLE ROSTER ────────────────────────────
+  //
+  // On 2026-08-23 six athletes on one roster hit exactly three consecutive
+  // failures within eight minutes of each other. Nothing about six markets
+  // changed in eight minutes. NIGHTLY_SLOTS was 1, the deliverable lint demanded
+  // a quantifier followed by a noun, and the sign-off regex \bjohn\b could not
+  // match "JohnMark" -- so every pitch that agent's roster produced was rejected
+  // by our own rules, and the counter recorded six thin markets. f1b11aa fixed
+  // the rules the next day; the pause outlived the bug by nine days because
+  // nothing could clear it.
+  //
+  // A per-athlete rule cannot see this. Only the roster can: when nearly every
+  // athlete who spent money placed nothing, the run is the suspect, not the
+  // markets. Being wrong here is cheap -- nobody is paused tonight and the next
+  // night counts normally -- while being wrong the other way removes a third of
+  // a customer's roster from the product silently.
+  const spentAttempts = attempts.filter((a) => a.spent > 0);
+  const failedAttempts = spentAttempts.filter((a) => a.filled === 0);
+  const systemic = spentAttempts.length >= SYSTEMIC_MIN_ATHLETES
+    && failedAttempts.length / spentAttempts.length >= SYSTEMIC_FAIL_SHARE;
+  if (systemic) {
+    console.error(`[queue] agent=${agent.id} SYSTEMIC FAILURE: `
+      + `${failedAttempts.length} of ${spentAttempts.length} athletes that spent money placed `
+      + 'nothing. Not counting tonight toward anyone\'s backoff — a whole roster does not '
+      + 'go thin in one night, and the last time this happened it paused six athletes for '
+      + 'nine days.');
+  }
+  for (const a of attempts) {
+    await recordAttempt(pool, a.athleteId, {
+      filled: a.filled, spent: a.spent, runDate,
+      faults: a.faults, tried: a.tried, systemic,
+    });
   }
 
   // THE MEASURED ANSWER TO "WHAT DOES A NIGHT COST". Printed every run, from
@@ -1016,7 +1169,10 @@ async function fillOnDemand(pool, ath, opts = {}) {
   // An on-demand attempt that spent and placed nothing counts toward the same
   // backoff as a night: the athlete is equally unfillable either way.
   if (!r.paused) {
-    await recordAttempt(pool, ath.id, { filled: r.filled, spent: budget.spent(), runDate });
+    // One athlete on its own: there is no roster to compare against, so systemic
+    // is false by construction. The per-athlete fault rule still applies.
+    await recordAttempt(pool, ath.id, { filled: r.filled, spent: budget.spent(), runDate,
+      faults: r.faults || 0, tried: r.tried || [], systemic: false });
   }
   console.log(`[queue/ondemand] athlete=${ath.id} filled=${r.filled} spent=$${budget.spent().toFixed(2)} of $${ONDEMAND_CAP_USD.toFixed(2)}`);
   return { filled: r.filled, spent: budget.spent(), claimed: true, note: r.note, tried: r.tried, paused: !!r.paused };
@@ -1031,7 +1187,7 @@ async function status(pool) {
 
 module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor,
-  athleteState, recordAttempt, insertCard, textToParagraphs,
+  athleteState, recordAttempt, releasePause, insertCard, textToParagraphs,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
 };

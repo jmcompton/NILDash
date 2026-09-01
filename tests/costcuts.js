@@ -97,7 +97,15 @@ ok('  and the nightly cap is the bigger, separate one',
   Q.DEFAULT_AGENT_NIGHTLY_USD);
 ok('BACKOFF_NIGHTS is 3', Q.BACKOFF_NIGHTS === 3, Q.BACKOFF_NIGHTS);
 ok('pausedNote says it has STOPPED spending', /Nothing is being spent/.test(Q.pausedNote(3)), Q.pausedNote(3));
-ok('  and tells the agent the way out', /Deal Scan/.test(Q.pausedNote(3)));
+// THE WAY OUT CHANGED, AND IT IS A BETTER ONE. This required the words "Deal
+// Scan", i.e. the agent doing something manual -- which, when nothing in the
+// codebase could clear paused_at, was not actually a way out at all. Six
+// athletes read that sentence for nine days. The note now names the automatic
+// retry AND the manual override, so the guard checks for an exit, not for a
+// particular instruction.
+ok('  and tells the agent the way out',
+  /try again automatically/i.test(Q.pausedNote(3)) && /resume/i.test(Q.pausedNote(3)),
+  Q.pausedNote(3));
 
 ok('the nightly loop passes maxSlots: NIGHTLY_SLOTS', /maxSlots: Q\.NIGHTLY_SLOTS/.test(jobSrc));
 ok('fillAthlete honours maxSlots', /if \(ctx\.maxSlots && open\.length > ctx\.maxSlots\)/.test(jobSrc));
@@ -123,7 +131,8 @@ ok('a filled night RESETS the counter and clears the pause',
 ok('the same date cannot double-count',
   /WHEN outreach_queue_athlete_state\.last_attempt_date = \$2/.test(jobSrc));
 ok('pausing happens at BACKOFF_NIGHTS', /if \(failures >= Q\.BACKOFF_NIGHTS\)/.test(jobSrc));
-ok('on-demand failures count toward the same backoff', /if \(!r\.paused\) \{\s*\n\s*await recordAttempt/.test(jobSrc));
+ok('on-demand failures count toward the same backoff',
+  /if \(!r\.paused\) \{[\s\S]{0,400}?await recordAttempt/.test(jobSrc));
 
 // route + client
 const idxSrc = fs.readFileSync(REPO + 'server/index.js', 'utf8');
