@@ -158,6 +158,13 @@ async function init() {
       school_tier TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- ── COLUMNS ADDED AFTER THE TABLE SHIPPED ────────────────────────────
+    -- CREATE TABLE IF NOT EXISTS is a NO-OP on an existing table, so every
+    -- column added to this block after the table first shipped exists on new
+    -- databases and nowhere else. deal_comps.brand is exactly that: the Top NIL
+    -- lane has been failing with "column brand does not exist" on every athlete
+    -- for a week, and getCompsByBrand's catch returned [] so nothing said so.
+    -- Same failure mode as email_verify_credit_log. The ALTERs are below.
     CREATE TABLE IF NOT EXISTS deal_comps (
       id SERIAL PRIMARY KEY,
       sport TEXT,
@@ -180,6 +187,24 @@ async function init() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  // Every column the CREATE above added after deal_comps first shipped. On a new
+  // database these are no-ops; on production they are the difference between the
+  // Top NIL lane working and it throwing on every athlete, every run.
+  for (const sql of [
+    `ALTER TABLE deal_comps ADD COLUMN IF NOT EXISTS brand TEXT`,
+    `ALTER TABLE deal_comps ADD COLUMN IF NOT EXISTS athlete_name TEXT`,
+    `ALTER TABLE deal_comps ADD COLUMN IF NOT EXISTS auto_ingested BOOLEAN DEFAULT false`,
+    `ALTER TABLE deal_comps ADD COLUMN IF NOT EXISTS year_in_school TEXT`,
+    `ALTER TABLE deal_comps ADD COLUMN IF NOT EXISTS draft_status TEXT`,
+    `ALTER TABLE deal_comps ADD COLUMN IF NOT EXISTS ppg NUMERIC`,
+    `ALTER TABLE deal_comps ADD COLUMN IF NOT EXISTS rpg NUMERIC`,
+    `ALTER TABLE deal_comps ADD COLUMN IF NOT EXISTS apg NUMERIC`,
+    `ALTER TABLE deal_comps ADD COLUMN IF NOT EXISTS source TEXT`,
+  ]) await pool.query(sql).catch((e) => console.error('[init] deal_comps:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_deal_comps_brand
+    ON deal_comps (LOWER(brand)) WHERE brand IS NOT NULL AND brand <> ''`).catch(() => {});
+  console.log('[init] deal_comps columns ready');
+
   // ── Athlete Contracts + Deliverables + Calendar (production-grade, idempotent) ─
   await pool.query(`
     CREATE TABLE IF NOT EXISTS athlete_contracts (
@@ -1570,6 +1595,17 @@ async function init() {
   // scheduling URL is kept apart from the free text so it can be HYPERLINKED
   // rather than pasted as a bare string, and so the body can reference "my
   // scheduling link below" knowing there is one.
+  // ── WHEN A CARD NOBODY WORKED WAS RETIRED ────────────────────────────────
+  // state='expired' frees the slot; expired_at is what the 30-day cooldown is
+  // measured from, so the same business is not re-offered to the same athlete
+  // tomorrow, re-paid for, and expired again next week.
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS expired_at TIMESTAMPTZ`)
+    .catch((e) => console.error('[init] outreach_queue.expired_at:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_queue_expired
+    ON outreach_queue (athlete_id, expired_at) WHERE state = 'expired'`)
+    .catch((e) => console.error('[init] idx_outreach_queue_expired:', e.message));
+  console.log('[init] outreach_queue expiry column ready');
+
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS signature_text TEXT`)
     .catch((e) => console.error('[init] users.signature_text:', e.message));
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS scheduling_url TEXT`)
@@ -3959,7 +3995,19 @@ function _socialBaseMatch(athlete) {
         AND (sports @> ARRAY[$1]::text[] OR sports @> ARRAY['all']::text[])
         AND tier_min <= $2
         AND tier_max >= $3`;
-  return { where, params: [sport, reach * 1.25, reach * 0.75] };
+  // ── INTEGER COLUMNS TAKE INTEGERS ────────────────────────────────────────
+  //
+  // tier_min and tier_max are INTEGER. reach * 1.25 is only a whole number when
+  // reach is divisible by four, so for roughly three athletes in four this threw
+  //   invalid input syntax for type integer: 15521.25
+  // and getSocialBrandPool's catch returned [] -- the social lane silently
+  // producing nothing for most of the roster, which looked exactly like a thin
+  // social index rather than a type error.
+  //
+  // Rounded OUTWARD on both ends, so the band is never narrower than it was
+  // meant to be. At most one follower wider, and the direction that errs toward
+  // offering a brand rather than withholding one.
+  return { where, params: [sport, Math.ceil(reach * 1.25), Math.floor(reach * 0.75)] };
 }
 
 // FULL eligible Social pool for an athlete, fit-ordered (small DTC brands first,

@@ -1368,6 +1368,22 @@ function _validDob(v) {
 
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
+  // ── AN ATHLETE WITHOUT A SCHOOL IS A RECORD THE PIPELINE CANNOT USE ──────
+  // Enforced HERE and not only in the form, because the form is not the
+  // boundary. Cooper Farrall saved with school:'' when AI Lookup came back
+  // without one, and every nightly run since has reported no local market and
+  // produced zero cards for him. Nothing at the point of saving said a word.
+  //
+  // The school need not be one we RECOGNISE -- an unmapped school is geocoded to
+  // its town (services/schoolGeocode) and the local lane runs there. It must
+  // exist, because there is nothing to geocode otherwise.
+  if (!String((req.body && req.body.school) || '').trim()) {
+    return res.status(400).json({
+      error: 'A school is required. The nightly run uses it to find local businesses, '
+        + 'so an athlete saved without one gets no cards.',
+      field: 'school',
+    });
+  }
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa, over18,
           instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name, dob,
           schoolRestrictions } = req.body;

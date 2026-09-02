@@ -24,6 +24,11 @@
 
 // Up to five per athlete per night, drawn from wherever the fit is best.
 const SLATE_MAX = 5;
+// How long a business stays off THIS athlete's slate after a card for it expired
+// unworked. Mirrors services/outreachQueue.EXPIRE_COOLDOWN_DAYS; read from the
+// environment here too so the two cannot be set apart by a deploy that only
+// updates one of them.
+const EXPIRE_COOLDOWN_DAYS = parseInt(process.env.OUTREACH_QUEUE_COOLDOWN_DAYS, 10) || 30;
 
 // A lane never takes the whole slate on its own unless the others are empty.
 // Without this a market with 200 unworked businesses would crowd out the social
@@ -401,10 +406,20 @@ async function assembleSlate(pool, ctx) {
       `SELECT brand_name, brand_key, identity_key, 'queued' AS why
          FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'
        UNION ALL
+       -- ── THE COOLDOWN ON A RETIRED CARD ────────────────────────────────
+       -- An expired card frees its slot, which is the point. Without this line
+       -- it would also become immediately re-offerable: the same business back
+       -- on the slate the very next run, paid for again, expiring again seven
+       -- days later. A treadmill that costs money and never produces a deal.
+       SELECT brand_name, brand_key, identity_key, 'expired' AS why
+         FROM outreach_queue
+        WHERE athlete_id = $1 AND state = 'expired'
+          AND COALESCE(expired_at, updated_at, created_at) > NOW() - ($2 || ' days')::interval
+       UNION ALL
        SELECT brand_name, brand_key, NULL AS identity_key, 'contacted' AS why
          FROM brand_engagement
         WHERE athlete_id = $1 AND state IN ('contacted','replied','closed','retired')`,
-      [athlete.id])).rows;
+      [athlete.id, String(ctx.expireCooldownDays || EXPIRE_COOLDOWN_DAYS)])).rows;
     for (const r of (prior || [])) {
       if (r.identity_key) { priorKeys.add(r.identity_key); continue; }
       for (const id of BI.identitiesOf(r, { market: athlete.marketKey || null })) priorKeys.add(id.key);
@@ -459,4 +474,5 @@ async function assembleSlate(pool, ctx) {
 module.exports = {
   assembleSlate, schoolSponsorSignals, localCandidates, socialCandidates, nationalCandidates,
   normBrand, SLATE_MAX, LANE_SOFT_CAP, EMPTY, EMPTY_TEXT, SIGNAL_WEIGHT,
+  EXPIRE_COOLDOWN_DAYS,
 };

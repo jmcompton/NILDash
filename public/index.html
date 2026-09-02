@@ -6550,6 +6550,24 @@ async function addAthlete() {
   const name = document.getElementById('a_name').value.trim();
   const err  = document.getElementById('addAthleteError');
   if (!name) { err.textContent = 'Name is required'; return; }
+  // ── A SCHOOL IS NOT OPTIONAL ──────────────────────────────────────────────
+  // Only the name was required, so an athlete whose AI Lookup came back without
+  // a school saved with school:'' -- a record the pipeline cannot use. The
+  // nightly run then reported "no school we could match" and produced zero cards
+  // every night, and nothing at the point of saving said anything was wrong.
+  //
+  // The school does not have to be one we RECOGNISE any more: an unmapped school
+  // is geocoded to its town and the local lane runs there. It does have to
+  // exist, because without it there is nothing to geocode.
+  const schoolEl = document.getElementById('a_school');
+  const school = schoolEl ? schoolEl.value.trim() : '';
+  if (!school) {
+    err.textContent = 'A school is required. Deal Scan and the nightly run use it to find '
+      + 'local businesses, so an athlete without one gets no cards. '
+      + 'AI Lookup did not find one, so please enter it.';
+    if (schoolEl) { schoolEl.focus(); schoolEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    return;
+  }
   err.textContent = '';
   // Disable the Save button for the duration of the request so a slow save can't
   // be double-clicked into duplicate clients. Re-enabled in finally (success or error).
@@ -10591,7 +10609,23 @@ async function fetchFromUrl() {
 function _applyLookupCandidate(data) {
   // Fill every form field with the candidate's data
   if (data.name)     document.getElementById('a_name').value = data.name;
-  if (data.school)   document.getElementById('a_school').value = data.school;
+  // ── SAY IT WHEN THE LOOKUP HAD NO SCHOOL ────────────────────────────────
+  // athleteLookup returns `school: a.school || normSchool`, so a web-search hit
+  // with no school and no school typed into the form yields null -- and this
+  // used to skip the field silently. The agent saw a filled-in form and had no
+  // reason to think anything was missing, and the athlete saved unusable.
+  const _schoolEl = document.getElementById('a_school');
+  if (data.school) {
+    if (_schoolEl) _schoolEl.value = data.school;
+  } else if (_schoolEl && !_schoolEl.value.trim()) {
+    _schoolEl.placeholder = 'Lookup could not find a school — please enter it';
+    _schoolEl.style.borderColor = '#f59e0b';
+    var _ls = document.getElementById('lookup-status');
+    if (_ls) {
+      _ls.innerHTML = '<span style="color:#f59e0b">Filled what we found, but no school. '
+        + 'Enter it before saving — the nightly run needs it to find local businesses.</span>';
+    }
+  }
   if (data.position) document.getElementById('a_pos').value = data.position;
   if (data.stats)    document.getElementById('a_stats').value = data.stats;
   if (data.instagram)document.getElementById('a_ig').value = data.instagram;

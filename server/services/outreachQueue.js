@@ -49,13 +49,38 @@
 // which is why the last athlete processed was told "budget cap reached
 // ($0.48 of $0.50)" -- $0.48 is exactly eight lookups.
 //
-// $3.00 buys fifty. At $99 a month that is about 1.5% of one agent's revenue if
-// every night ran to the cap, and nights do not: cached lookups are free and
-// most businesses resolve from cache after the first pass.
+// $8.00 buys roughly 130 lookups at the ceiling, and far more in practice:
+// cached lookups are free and most businesses resolve from cache after the first
+// pass. It was $3.00, which a five-slot roster of 45 athletes can exhaust before
+// the last athletes are reached -- and an athlete who gets nothing because the
+// roster ran out of money before their turn is indistinguishable, from the page,
+// from an athlete whose market is empty.
 //
 // It is still a CAP, not a target. A slot that cannot be filled inside it stays
 // empty and says which limit stopped it.
-const DEFAULT_AGENT_NIGHTLY_USD = parseFloat(process.env.OUTREACH_QUEUE_AGENT_CAP_USD) || 3.00;
+const DEFAULT_AGENT_NIGHTLY_USD = parseFloat(process.env.OUTREACH_QUEUE_AGENT_CAP_USD) || 8.00;
+
+// ── A CARD NOBODY WORKED IS NOT WORK ────────────────────────────────────────
+//
+// uq_outreach_queue_open holds one queued row per (athlete, slot), so a card the
+// agent never touched holds its slot forever. Five untouched cards is a
+// permanently full queue and a nightly run that reports "all 5 slots already
+// hold work you have not actioned" every morning -- correct, and useless.
+//
+// After this many days a queued card is EXPIRED. It keeps every field it had;
+// only the state changes, so the record of what was offered survives.
+const EXPIRE_AFTER_DAYS = parseInt(process.env.OUTREACH_QUEUE_EXPIRE_DAYS, 10) || 7;
+
+// ── AND IT DOES NOT COME BACK TOMORROW ──────────────────────────────────────
+//
+// Expiring a card frees the slot, and the slate's prior-exclusion only looks at
+// QUEUED cards and contacted brands -- so without a cooldown the same business
+// would be re-offered to the same athlete on the very next run, re-paid for, and
+// expire again seven days later. A treadmill that costs money.
+//
+// Thirty days is long enough that the market has moved and short enough that a
+// business is not written off for a quarter because nobody got to it in a week.
+const EXPIRE_COOLDOWN_DAYS = parseInt(process.env.OUTREACH_QUEUE_COOLDOWN_DAYS, 10) || 30;
 // A slot must not burn the whole cap on candidates that all fail the bar.
 const MAX_ATTEMPTS_PER_SLOT = 3;
 // Five per athlete per night, and five means five WORTH SENDING. The filler
@@ -74,7 +99,7 @@ const OUTCOMES = ['no_reply', 'replied', 'closed'];
 // multiplied by three, not a shortage of supply.
 //
 // It was 1 to stop the night spending on cards nobody opens. That reasoning has
-// been overtaken twice: the cap is now $3.00 rather than $0.50, and it is
+// been overtaken twice: the cap is now $8.00 rather than $0.50, and it is
 // allocated per athlete rather than raced for, so five slots cannot let the
 // first athlete eat the roster's budget.
 const NIGHTLY_SLOTS = 5;
@@ -659,4 +684,5 @@ module.exports = {
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,
   WAITING_AFTER_DAYS, OUTCOMES,
   NIGHTLY_SLOTS, DEFAULT_ONDEMAND_USD, BACKOFF_NIGHTS,
+  EXPIRE_AFTER_DAYS, EXPIRE_COOLDOWN_DAYS,
 };

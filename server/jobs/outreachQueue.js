@@ -36,6 +36,12 @@ const { buildContactLadder } = require('../services/contactLadder');
 const { lookupPlace } = require('../services/placesLookup');
 const { findInstagram } = require('../services/instagramLookup');
 const SIG = require('../services/signature');
+const SchoolGeo = require('../services/schoolGeocode');
+// The same normaliser the Scout and the contact cache key on, so a geocoded
+// market lands in the same bucket a mapped one would.
+let canonicalRegionOf = (x) => String(x || '').trim().toLowerCase();
+try { canonicalRegionOf = require('../services/regionKey').canonicalRegion || canonicalRegionOf; }
+catch (_) { try { canonicalRegionOf = require('../ai').canonicalRegion || canonicalRegionOf; } catch (_2) {} }
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
 const BI = require('../services/brandIdentity');
@@ -123,6 +129,41 @@ async function claimNight(pool, agentId, runDate, force) {
     `INSERT INTO outreach_queue_runs (agent_id, run_date) VALUES ($1,$2)
      ON CONFLICT (agent_id, run_date) DO NOTHING`, [agentId, runDate]);
   return (r.rowCount || 0) > 0;
+}
+
+// ── RETIRE WHAT NOBODY WORKED ───────────────────────────────────────────────
+//
+// uq_outreach_queue_open is UNIQUE on (athlete_id, slot) WHERE state='queued', so
+// a card the agent never touched holds its slot forever. Five untouched cards is
+// a permanently full queue reporting "all 5 slots already hold work you have not
+// actioned" every morning: correct, and useless.
+//
+// Run BEFORE the slots are counted, so tonight's fill sees the space this frees
+// rather than finding out tomorrow.
+//
+// NOTHING IS DELETED. The row keeps its brand, its pitch, its contact and its
+// reason; only the state moves to 'expired'. The record of what was offered and
+// never worked is the evidence for whether seven days is the right number.
+async function expireStaleCards(pool, opts = {}) {
+  const days = Number(opts.days) || Q.EXPIRE_AFTER_DAYS;
+  const scope = opts.agentId ? 'AND agent_id = $2' : '';
+  const params = opts.agentId ? [String(days), opts.agentId] : [String(days)];
+  const r = await pool.query(
+    `UPDATE outreach_queue
+        SET state = 'expired', expired_at = NOW(), updated_at = NOW()
+      WHERE state = 'queued'
+        AND created_at < NOW() - ($1 || ' days')::interval
+        ${scope}
+      RETURNING athlete_id, brand_name`, params
+  ).catch((e) => { console.error('[queue] expireStaleCards:', e.message); return { rows: [] }; });
+
+  if (r.rows.length) {
+    const byAthlete = {};
+    for (const x of r.rows) byAthlete[x.athlete_id] = (byAthlete[x.athlete_id] || 0) + 1;
+    console.log(`[queue] expired ${r.rows.length} card(s) older than ${days} days across `
+      + `${Object.keys(byAthlete).length} athlete(s); their slots are free for tonight`);
+  }
+  return { expired: r.rows.length, rows: r.rows };
 }
 
 // ── Backoff state ────────────────────────────────────────────────────────────
@@ -299,6 +340,43 @@ function athleteProfile(ath) {
 function regionForAthlete(athlete) {
   const rec = AR.resolveAthlete(athlete, { schoolLocation: resolveSchoolLoc });
   return rec.market || '';
+}
+
+// ── AND WHEN THE SHIPPED MAP HAS NEVER HEARD OF THEIR SCHOOL ────────────────
+// The map holds ~200 names, heavily D1. Bentley University is a real D2 school
+// in Waltham and is not on it, so its athletes got no local lane at all. A
+// school name is a place; Places can resolve it. The map still wins where it has
+// an answer -- this runs only where it had none, which is the case that used to
+// produce silence.
+async function regionForAthleteAsync(athlete) {
+  const direct = regionForAthlete(athlete);
+  if (direct) return { region: direct, geocoded: false };
+  const school = (athlete && athlete.data && athlete.data.school)
+    || (athlete && athlete.school) || '';
+  if (!SchoolGeo.usable(school)) return { region: '', geocoded: false };
+  const hit = await SchoolGeo.geocodeSchool(school, { lookupPlace, store }).catch(() => null);
+  if (!hit) return { region: '', geocoded: false };
+  return { region: hit.market, geocoded: true, geocodeSource: hit.source };
+}
+
+// THE REGION AND THE PROFILE HAVE TO AGREE. localCandidates returns nothing when
+// athlete.hasLocalMarket is false, and that flag comes from the shipped map --
+// so passing a geocoded region while leaving the profile saying "no market"
+// would run the local lane against a town the Scout refuses to search. Both are
+// resolved here, once, together.
+async function localContextFor(ath) {
+  const profile = athleteProfile(ath);
+  const r = await regionForAthleteAsync(ath);
+  if (r.geocoded && r.region) {
+    profile.market = r.region;
+    profile.marketKey = canonicalRegionOf(r.region);
+    profile.hasLocalMarket = true;
+    profile.schoolGeocoded = true;
+    // The page said "we could not match this school". It can now say what we did
+    // about it instead, which is the difference between a dead end and a note.
+    profile.localLaneNote = null;
+  }
+  return { region: r.region, profile, geocoded: !!r.geocoded };
 }
 
 // The rationale the scan already wrote, which is the same sentence that justifies
@@ -550,6 +628,11 @@ async function fillAthlete(pool, ctx) {
   // free, and how many program applications this athlete is ALREADY holding. The
   // second is what caps the lane -- see PROGRAM_SLOT_CAP. Counting only what this
   // run places would let five consecutive nights build five forms.
+  // BEFORE THE SLOTS ARE COUNTED. Expiring after would free space tonight's run
+  // could not use, and the agent would wait another day for a queue that was
+  // already empty.
+  await expireStaleCards(pool, { agentId });
+
   const heldRows = (await pool.query(
     `SELECT slot, state, channel FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
     [athleteId])).rows;
@@ -1031,16 +1114,19 @@ async function fillAgent(pool, agent, opts) {
     // The failure is recorded and skipped. NOT retried: a lookup that threw has
     // usually already spent, and running it again spends again for the same
     // answer.
+    // Region and profile together, so a geocoded school gives a local lane the
+    // Scout will actually search. One Places call, cached 180 days per school.
+    const _ctx = await localContextFor(ath);
     let r = null;
     try {
       r = await fillAthlete(pool, {
         agentId: agent.id, athleteId: ath.id, athleteName: ath.name,
-        athleteProfile: athleteProfile(ath), agentFirstName: agentFirst,
+        athleteProfile: _ctx.profile, agentFirstName: agentFirst,
         // The raw stored athlete, for the widened re-scan only. getDealRecommendations
         // reads school/sport/instagram/tiktok off the record itself.
         athleteRow: ath.data || null,
         // Resolved per athlete. Passing opts.region here meant passing undefined.
-        budget, region: regionForAthlete(ath), dryRun: dry,
+        budget, region: _ctx.region, dryRun: dry,
         // FIVE a night now. See NIGHTLY_SLOTS: this is what caps the slate the
         // Scout is asked for, so raising it is what lets the night evaluate
         // dozens of businesses rather than three.
@@ -1224,15 +1310,16 @@ async function fillOnDemand(pool, ath, opts = {}) {
   if (!(claim.rowCount > 0)) return { filled: 0, spent: 0, claimed: false };
 
   const budget = Q.newBudget(ONDEMAND_CAP_USD);
+  const _ctx = await localContextFor(ath);
   const r = await fillAthlete(pool, {
     agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
-    athleteProfile: athleteProfile(ath), agentFirstName: ath.agent_first_name || null,
+    athleteProfile: _ctx.profile, agentFirstName: ath.agent_first_name || null,
     signature: SIG.signatureOf(ath),
     // The raw record, same as the nightly path. Without it the on-demand fill
     // wrote pitches with no Instagram link and no content line -- a quietly
     // different message depending on which path produced the card.
     athleteRow: ath.data || null,
-    budget, region: regionForAthlete(ath),
+    budget, region: _ctx.region,
     // ON-DEMAND NEVER WIDENS. This runs while the agent is watching, on a $0.15
     // cap; a deep search pass costs more than the whole on-demand budget and
     // would stall the page. Widening is the night's job.
@@ -1263,7 +1350,8 @@ async function status(pool) {
 
 module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor,
-  athleteState, recordAttempt, releasePause, insertCard, textToParagraphs,
+  athleteState, recordAttempt, releasePause, expireStaleCards,
+  insertCard, textToParagraphs,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
 };
