@@ -143,8 +143,13 @@ function main() {
 
   // ── THE JOB SUPPLIES WHAT THE VOICE NEEDS ─────────────────────────────────
   const job = fs.readFileSync(ROOT + 'server/jobs/outreachQueue.js', 'utf8');
+  // Now athlete_self_deals ONLY -- athlete_deal_pipeline is the legacy table a
+  // guarded migration folded into it, so counting it read a table that has been
+  // migrated away from. Counted by STAGE, because a Prospecting row is a brand
+  // we intend to pitch, not a partnership.
   ok('the job counts real partnerships rather than assuming them',
-    /FROM athlete_deal_pipeline/.test(job) && /partnershipCount = Number/.test(job), null);
+    /FROM athlete_self_deals/.test(job) && /partnershipCount = Number/.test(job)
+      && !/FROM athlete_deal_pipeline/.test(job), null);
   ok('  and claims none when the count cannot be read',
     /the pitch will not claim any/.test(job), null);
   ok('  reading it once per athlete, not once per candidate',

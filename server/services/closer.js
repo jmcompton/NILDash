@@ -22,6 +22,7 @@
 // was missing, and it is the only thing that calls the provider.
 
 const sendGuard = require('./sendGuard');
+const PIPE = require('./pipeline');
 const suppression = require('./suppression');
 const sendWindow = require('./sendWindow');
 // Namespaced card ids, so a call or DM card can never be mistaken for a draft.
@@ -383,6 +384,12 @@ async function approveBatch(pool, agentId, opts = {}) {
 
   const rows = (await pool.query(
     `SELECT l.id, l.body_html, l.subject, l.athlete_id, l.brand_name,
+            -- Carried so the pipeline row records who the email actually went
+            -- to, rather than creating a board entry with no contact on it.
+            -- sent_to_email is the only recipient column outreach_logs has;
+            -- there is no to_email, and selecting one would throw here and take
+            -- every approve down with it.
+            l.sent_to_email,
             e.location AS biz_address, a.data->>'school' AS school
        FROM outreach_logs l
        JOIN athletes a ON a.id = l.athlete_id
@@ -474,6 +481,27 @@ async function approveBatch(pool, agentId, opts = {}) {
           SET state = 'sent', sent_at = NOW(), sent_via = 'email', updated_at = NOW()
         WHERE outreach_log_id = $1 AND state = 'queued'`, [r.id])
       .catch((e) => console.error('[closer] could not free the queue slot for ' + r.id + ':', e.message));
+
+    // ── AND ONTO THE PIPELINE BOARD ────────────────────────────────────────
+    // Approving is the agent acting on the card. It meant the same thing as
+    // marking a DM sent and wrote nothing to any deal table, so an agent who
+    // approved five drafts opened the Pipeline and found it empty. Forward-only,
+    // so approving a follow-up to a brand already in Negotiating leaves it there.
+    //
+    // Best-effort, like the slot free above: an email that is already scheduled
+    // must not be unscheduled because a board write failed. The backfill can
+    // recover a missing row; it cannot un-send an email.
+    try {
+      await PIPE.enterOutreachSent(pool, {
+        athleteId: r.athlete_id, agentId,
+        brandName: r.brand_name,
+        contactEmail: r.sent_to_email || null,
+        note: 'Email approved and scheduled',
+        source: 'outreach_logs',
+      });
+    } catch (e) {
+      console.error('[closer] pipeline write failed for ' + r.id + ':', e.message);
+    }
   }
   // Every id posted lands in exactly one bucket: scheduled, unchecked, over the
   // cap, or dropped with a reason. scheduled + skipped + overflow + dropped

@@ -1613,6 +1613,101 @@ app.patch('/api/athletes/:id/note', requireAuth, async (req, res) => {
 // ── Agent-wide deals (used by Pipeline tab) ────────────────────
 // Returns all deals for the current agent across all athletes.
 // Same data source as /api/agent/home-data so Pipeline and Home stay in sync.
+// ── THE PIPELINE BOARD ───────────────────────────────────────────────────────
+// athlete_self_deals is the pipeline. The board used to read `deals`, which
+// nothing in the outreach flow writes, which is why working five cards left it
+// empty.
+//
+// `deals` rows still appear, marked manualEntry, because an agent who logged a
+// deal by hand must not open this tomorrow and find it gone. They are shown, not
+// merged: a manual row for a brand that already has a pipeline row is dropped in
+// favour of the pipeline one, so a brand never appears twice. Migrating `deals`
+// properly belongs with the analytics change.
+app.get('/api/agent/pipeline', requireAuth, async (req, res) => {
+  try {
+    const agentId = req.session.userId;
+    const rows = (await store.pool.query(
+      `SELECT d.*, a.data->>'name' AS athlete_name
+         FROM athlete_self_deals d
+         JOIN athletes a ON a.id = d.athlete_id
+        WHERE a.agent_id = $1
+        ORDER BY d.updated_at DESC NULLS LAST, d.created_at DESC`, [agentId])).rows;
+
+    const deals = rows.map((r) => ({
+      id: r.id, athleteId: r.athlete_id, athleteName: r.athlete_name || null,
+      brand: r.brand_name, brandName: r.brand_name,
+      // Normalised on the way OUT as well as on the way in, so a row written by
+      // something that has not been updated yet still lands in the right column
+      // rather than vanishing off the board.
+      stage: PIPE.normalizeStage(r.stage) || PIPE.FIRST,
+      rawStage: r.stage,
+      value: r.value == null ? null : Number(r.value),
+      category: r.category || null,
+      contactName: r.contact_name || null, contactEmail: r.contact_email || null,
+      source: r.source || null, notes: r.notes || null,
+      stageHistory: Array.isArray(r.stage_history) ? r.stage_history : [],
+      createdAt: r.created_at, updatedAt: r.updated_at,
+      manualEntry: false,
+    }));
+
+    const seen = new Set(deals.map((d) => d.athleteId + '|' + String(d.brand || '').trim().toLowerCase()));
+    try {
+      const legacy = await store.getDealsByAgent(agentId);
+      for (const d of (legacy || [])) {
+        const brand = String(d.brand || d.brandName || '').trim();
+        if (!brand) continue;
+        const key = (d.athleteId || d.athlete_id) + '|' + brand.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deals.push({
+          id: 'manual:' + d.id, athleteId: d.athleteId || d.athlete_id || null,
+          athleteName: d.athleteName || null,
+          brand, brandName: brand,
+          stage: PIPE.normalizeStage(d.stage) || PIPE.FIRST, rawStage: d.stage || null,
+          value: d.value == null ? null : Number(d.value) || null,
+          category: d.category || null, contactName: null, contactEmail: null,
+          source: d.source || 'manual', notes: d.notes || null, stageHistory: [],
+          createdAt: d.createdAt || null, updatedAt: d.updatedAt || null,
+          manualEntry: true,
+        });
+      }
+    } catch (e) { console.warn('[agent/pipeline] manual deals unavailable:', e.message); }
+
+    res.json({ stages: PIPE.STAGES, lost: PIPE.LOST, deals });
+  } catch (e) {
+    console.error('[agent/pipeline]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /api/agent/pipeline/:id — move a deal by hand. The agent owns the board
+// from Outreach Sent onward; outreach only ever puts things ON it.
+app.patch('/api/agent/pipeline/:id', requireAuth, async (req, res) => {
+  try {
+    const stage = PIPE.normalizeStage(req.body && req.body.stage);
+    if (!stage) return res.status(400).json({ error: 'Unknown stage' });
+    // Scoped to the caller's own roster.
+    const own = await store.pool.query(
+      `SELECT d.id, d.stage, d.stage_history FROM athlete_self_deals d
+         JOIN athletes a ON a.id = d.athlete_id
+        WHERE d.id = $1 AND a.agent_id = $2`, [req.params.id, req.session.userId]);
+    if (!own.rows[0]) return res.status(404).json({ error: 'Deal not found' });
+    const cur = own.rows[0];
+    // A HAND MOVE MAY GO BACKWARD. The forward-only rule exists to stop an
+    // automatic write undoing an agent's judgement; it is not there to stop the
+    // agent correcting their own mistake.
+    const history = Array.isArray(cur.stage_history) ? cur.stage_history.slice() : [];
+    history.push({ stage, date: new Date().toISOString(), note: 'Moved by agent' });
+    const r = await store.pool.query(
+      `UPDATE athlete_self_deals SET stage = $1, stage_history = $2, updated_at = NOW()
+        WHERE id = $3 RETURNING *`, [stage, JSON.stringify(history), cur.id]);
+    res.json({ ok: true, deal: r.rows[0] });
+  } catch (e) {
+    console.error('[agent/pipeline PATCH]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/agent/deals', requireAuth, async (req, res) => {
   try {
     const deals = await store.getDealsByAgent(req.session.userId);
@@ -9361,6 +9456,9 @@ app.post('/api/agent/brand-contacts', requireAuth, requireAgentSubscription, aiL
 // lookup, and if the request path could do it, an agent skipping three cards in
 // one sitting would trigger three lookups. The nightly job is the only filler.
 const OQ = require('./services/outreachQueue');
+// The five canonical stages and the only create-or-advance write. Every Home
+// action funnels through it so the board cannot disagree with the queue.
+const PIPE = require('./services/pipeline');
 
 // On-demand fills ride the same enable flag as the nightly job: one switch
 // controls every path that can spend on the queue.
@@ -9587,7 +9685,33 @@ app.post('/api/agent/outreach-queue/:id/sent', requireAuth, async (req, res) => 
       `UPDATE brand_engagement SET contacted_via = $3, updated_at = NOW()
         WHERE athlete_id = $1 AND brand_key = $2`,
       [card.athlete_id, card.brand_key, 'queue_' + via]).catch(() => {});
-    res.json(card);
+
+    // ── AND INTO THE PIPELINE ──────────────────────────────────────────────
+    // brand_engagement is the ledger that stops the Scout re-pitching a brand.
+    // It is not a pipeline and nothing renders it as one, so an agent who worked
+    // five cards opened the Pipeline board and found it empty. Working a card IS
+    // the outreach, whichever channel it went out on.
+    //
+    // Never backward: an agent marking a DM sent on a brand they are already
+    // negotiating with has not undone the negotiation.
+    let pipeline = null;
+    try {
+      pipeline = await PIPE.enterOutreachSent(store.pool, {
+        athleteId: card.athlete_id, agentId: card.agent_id,
+        brandName: card.brand_name,
+        contactName: card.contact_name || null,
+        contactEmail: card.email || null,
+        note: 'Outreach sent by ' + via,
+        source: 'outreach_queue',
+      });
+    } catch (e) {
+      // A pipeline write must not fail the action the agent just took. The card
+      // is already marked sent; losing the board entry is recoverable by the
+      // backfill, losing the send is not.
+      console.error('[queue/sent] pipeline write failed:', e.message);
+    }
+    res.json({ ...card, pipeline: pipeline && pipeline.ok
+      ? { stage: pipeline.to, created: !!pipeline.created, advanced: !!pipeline.advanced } : null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -9636,6 +9760,18 @@ app.post('/api/agent/outreach-queue/:id/outcome', requireAuth, async (req, res) 
         agentId: card.agent_id, brandKey: card.brand_key, brandName: card.brand_name,
         lane: card.lane || null, outcome, source: 'queue_outcome',
       });
+      // The board moves with the outcome. A reply is a conversation, which is
+      // Negotiating; a close is Closed. Still forward-only, so an agent who has
+      // already dragged the card to Closing is not pulled back by ticking
+      // "replied" afterwards.
+      try {
+        await PIPE.enterStage(store.pool, {
+          athleteId: card.athlete_id, agentId: card.agent_id, brandName: card.brand_name,
+          stage: outcome === 'closed' ? 'Closed' : 'Negotiating',
+          note: outcome === 'closed' ? 'Marked closed on the card' : 'They replied',
+          source: 'outreach_queue',
+        });
+      } catch (e) { console.error('[queue/outcome] pipeline write failed:', e.message); }
     } else {
       await store.pool.query(
         `UPDATE brand_engagement SET outcome = $3, outcome_at = NOW(), updated_at = NOW()

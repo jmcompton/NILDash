@@ -571,11 +571,20 @@ async function fillAthlete(pool, ctx) {
   // which is the safe direction.
   let partnershipCount = 0;
   try {
+    // ── athlete_self_deals ONLY ──────────────────────────────────────────
+    // This also counted athlete_deal_pipeline, which is the LEGACY table: a
+    // guarded migration folded it into athlete_self_deals and the comment on
+    // /api/athlete/deals/from-scan calls self_deals the single source of truth.
+    // Counting both meant reading a table that has been migrated away from --
+    // near-empty, contributing nothing, and one more place to keep in step.
+    //
+    // Counted by STAGE, not by row: a Prospecting row is a brand we intend to
+    // pitch, not a partnership. "Already has several NIL partnerships" is a
+    // claim made to a real business, so only a deal that actually closed counts.
     const pc = await pool.query(
-      `SELECT (SELECT COUNT(*) FROM athlete_deal_pipeline
-                WHERE athlete_id = $1 AND status IN ('closed','won','active','signed'))
-            + (SELECT COUNT(*) FROM athlete_self_deals WHERE athlete_id = $1) AS n`,
-      [athleteId]);
+      `SELECT COUNT(*)::int AS n FROM athlete_self_deals
+        WHERE athlete_id = $1 AND stage = ANY($2::text[])`,
+      [athleteId, ['Closed', 'Closing']]);
     partnershipCount = Number(pc.rows[0] && pc.rows[0].n) || 0;
   } catch (e) {
     console.warn(`[queue] ${athleteName}: could not count partnerships (${e.message}); `

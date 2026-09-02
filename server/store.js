@@ -1010,14 +1010,50 @@ async function init() {
   //             Paid → Completed (plus terminal "Lost"). These UPDATEs are
   //             idempotent: new code never writes the old labels, so after the
   //             first run no rows match and re-running is a no-op. No data lost.
-  const _stageRemap = [
-    `UPDATE athlete_self_deals SET stage='Pitched'  WHERE stage='Contacted'`,
-    `UPDATE athlete_self_deals SET stage='In Talks'  WHERE stage='Negotiating'`,
-    `UPDATE athlete_self_deals SET stage='Agreed'    WHERE stage='Signed'`,
-  ];
-  for (const sql of _stageRemap) {
-    await pool.query(sql).catch(e => console.error('[init] self_deals stage remap:', e.message));
-  }
+  // ── THE REMAP THAT RAN ON EVERY BOOT IS GONE ─────────────────────────────
+  //
+  // It was three unguarded UPDATEs -- Contacted->Pitched, Negotiating->In Talks,
+  // Signed->Agreed -- executed on every start. The athlete-side send wrote
+  // 'Contacted', so a row's stage depended on whether the server had rebooted
+  // since it was written, and the Pipeline board (Prospecting / Outreach Sent /
+  // Negotiating / Closing / Closed) matched neither name. Four vocabularies for
+  // one concept, one of them rewriting itself underneath running code.
+  //
+  // Replaced by a ONE-TIME, GUARDED migration into the five canonical stages in
+  // services/pipeline.js. Guarded by app_flags so it runs once and never again:
+  // a migration that repeats is just the old remap with better manners.
+  await pool.query(`CREATE TABLE IF NOT EXISTS app_flags (key TEXT PRIMARY KEY, applied_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+  try {
+    const done = await pool.query(`SELECT 1 FROM app_flags WHERE key = 'self_deals_canonical_stages_v1'`);
+    if (!done.rows.length) {
+      const PL = require('./services/pipeline');
+      // Read the distinct stages actually present rather than assuming the list.
+      // A name nobody wrote costs nothing to skip; a name we did not expect is
+      // exactly what this has to catch.
+      const present = (await pool.query(
+        `SELECT DISTINCT stage FROM athlete_self_deals WHERE stage IS NOT NULL`)).rows
+        .map((r) => r.stage);
+      let moved = 0;
+      const unknown = [];
+      for (const st of present) {
+        const canon = PL.normalizeStage(st);
+        if (!canon) { unknown.push(st); continue; }   // LEFT ALONE, never guessed at
+        if (canon === st) continue;
+        const r = await pool.query(
+          `UPDATE athlete_self_deals SET stage = $1, updated_at = NOW() WHERE stage = $2`,
+          [canon, st]);
+        moved += r.rowCount || 0;
+        console.log(`[init] self_deals stage "${st}" -> "${canon}" (${r.rowCount} row(s))`);
+      }
+      if (unknown.length) {
+        console.warn('[init] self_deals stages left as-is because they map to nothing known: '
+          + unknown.join(', ') + '. Add them to services/pipeline.js LEGACY if they are real.');
+      }
+      await pool.query(`INSERT INTO app_flags (key) VALUES ('self_deals_canonical_stages_v1')
+                        ON CONFLICT (key) DO NOTHING`);
+      console.log(`[init] self_deals stages canonicalised (${moved} row(s) moved)`);
+    }
+  } catch (e) { console.error('[init] self_deals stage canonicalisation:', e.message); }
 
   // One-time data migration: fold any pre-existing Deal Scan pipeline rows
   // (athlete_deal_pipeline) into Brand Tracker (athlete_self_deals) as

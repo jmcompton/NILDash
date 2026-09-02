@@ -10427,26 +10427,31 @@ Write 5 specific talking points formatted as a numbered list. Each point should 
 
 //  PIPELINE 
 async function loadPipeline() {
-  const stages = ['Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
-  let allDeals = [];
+  // ── ONE SOURCE ──────────────────────────────────────────────────────────
+  // This read /api/agent/deals, which serves the `deals` table -- and nothing in
+  // the outreach flow writes it. An agent who approved five emails and marked
+  // three DMs sent opened this board and found it empty, which is the bug.
+  //
+  // /api/agent/pipeline serves athlete_self_deals, which every Home action now
+  // writes, and folds in manual `deals` entries so nothing an agent logged by
+  // hand disappears. The stage list comes from the server so the board and the
+  // writers cannot drift apart again.
+  const res = await fetch(`${API_BASE}/api/agent/pipeline`, { credentials: 'include' })
+    .then(r => r.ok ? r.json() : null).catch(() => null);
+  const stages = (res && Array.isArray(res.stages) && res.stages.length)
+    ? res.stages
+    : ['Prospecting','Outreach Sent','Negotiating','Closing','Closed'];
+  let allDeals = (res && Array.isArray(res.deals)) ? res.deals : [];
+
   var filterEl = document.getElementById('pipe-filter-client');
   var filterActive = filterEl && filterEl.checked;
-
   if (filterActive && selectedAthleteId) {
-    // Single-athlete filter: fetch just the selected athlete's deals
-    const ath = athletes.find(a => a.id === selectedAthleteId);
-    allDeals = await fetch(`${API_BASE}/api/athletes/${selectedAthleteId}/deals`)
-      .then(r => r.json()).catch(() => []);
-    if (ath) allDeals = allDeals.map(d => ({...d, athleteName: ath.name}));
-  } else {
-    // Agent-wide: use /api/agent/deals which mirrors the Home dashboard source of truth
-    const raw = await fetch(`${API_BASE}/api/agent/deals`).then(r => r.json()).catch(() => []);
-    const safeRaw = Array.isArray(raw) ? raw : [];
-    // Attach athlete names from loaded roster
-    const athMap = {};
-    (athletes || []).forEach(a => { athMap[a.id] = a.name; });
-    allDeals = safeRaw.map(d => ({...d, athleteName: athMap[d.athleteId || d.athlete_id] || d.athleteName || '—'}));
+    allDeals = allDeals.filter(d => d.athleteId === selectedAthleteId);
   }
+  // Names come back on the row now, but a roster lookup still fills any gap.
+  const athMap = {};
+  (athletes || []).forEach(a => { athMap[a.id] = a.name; });
+  allDeals = allDeals.map(d => ({ ...d, athleteName: d.athleteName || athMap[d.athleteId] || '—' }));
 
   window._pipelineDeals = allDeals;
   // Total Pipeline = ACTIVE deals only (exclude Closed/Lost) to match Home's $12K/15.
@@ -10473,8 +10478,15 @@ async function moveDeal(dealId, athleteId, currentStage, stages) {
   const idx = stages.indexOf(currentStage);
   const nextStage = stages[idx + 1];
   if (!nextStage) { showToast('Already at final stage'); return; }
-  await fetch(`${API_BASE}/api/deals/${dealId}`, {
-    method:'PATCH', headers:{'Content-Type':'application/json'},
+  // A manual `deals` row keeps its own endpoint; a pipeline row goes to the
+  // pipeline. Told apart by the id prefix the server puts on manual entries, so
+  // the board cannot PATCH one table with the other's id.
+  const isManual = String(dealId).indexOf('manual:') === 0;
+  const url = isManual
+    ? `${API_BASE}/api/deals/${encodeURIComponent(String(dealId).slice(7))}`
+    : `${API_BASE}/api/agent/pipeline/${encodeURIComponent(dealId)}`;
+  await fetch(url, {
+    method:'PATCH', headers:{'Content-Type':'application/json'}, credentials:'include',
     body: JSON.stringify({ stage: nextStage })
   });
   showToast('Moved to ' + nextStage);

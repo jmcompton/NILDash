@@ -396,7 +396,8 @@
     "hunterlive.js": {
       "failed": 3,
       "total": 31,
-      "fault": null
+      "fault": null,
+      "note": "ORDER-DEPENDENT, pre-existing. It asserts on a global verify-credit counter that other suites populate, so it ranges 0-4 failures depending purely on which suites ran before it. 3 is the value in a full alphabetical run. Not caused by the pipeline change; verified 3 on clean HEAD and 0 when run straight after creditfault.js."
     },
     "ident.js": {
       "failed": 0,
@@ -771,6 +772,11 @@
     "schoolgeo.js": {
       "failed": 0,
       "total": 45,
+      "fault": null
+    },
+    "pipeline.js": {
+      "failed": 0,
+      "total": 61,
       "fault": null
     }
   }
