@@ -217,7 +217,25 @@ const MIN_EMAIL_CONFIDENCE = 0.6;
 
 function greetableContacts(contacts) {
   return (Array.isArray(contacts) ? contacts : []).filter((c) => {
-    if (!c || !c.name || !c.email) return false;
+    // ── A NAME IS GREETABLE. AN ADDRESS IS HOW WE REACH THEM. ──────────────
+    //
+    // This required `c.email` -- the contact's OWN published address -- so a
+    // named owner the ladder found through a chamber listing, with a business
+    // line and a general inbox, opened "Hi,". That is most of the local lane.
+    // The ladder finds these people; we were throwing the name away at the last
+    // step and greeting nobody.
+    //
+    // Naming the person is the single biggest close-rate lever a brand-side
+    // reader identified, and there is nothing dishonest about writing "Hi Ronda,"
+    // to info@ when we know Ronda owns the place -- it is what a person doing
+    // this by hand would type.
+    //
+    // EVERY NAME-VERIFICATION RULE BELOW IS UNTOUCHED. This drops the
+    // requirement that we hold their personal address; it does not lower the bar
+    // on whether we know who they are. The David Griner case -- an Adweek editor
+    // named once in an article as a bakery's "owner" -- is caught by the
+    // `unconfirmed` rule further down, not by this one.
+    if (!c || !c.name) return false;
     // The source told us it could not tie this person to this business. That is
     // the same claim the placeholder title makes, in a structured field.
     if (c.affiliationScope === 'unclear') return false;
@@ -230,10 +248,34 @@ function greetableContacts(contacts) {
     // so a legacy row is judged by the same rule rather than waved through.
     const CR = require('./contactRank');
     if (c.unconfirmed === undefined ? CR.isUnconfirmed(c) : c.unconfirmed) return false;
-    // An address that was pattern-matched rather than published is not a
-    // confirmed way to reach this person. Absent means a legacy row from before
-    // the field existed, and is treated as before.
-    if (c.emailKind && c.emailKind !== 'published') return false;
+    // ── POSITIVE EVIDENCE OF WHO THEY ARE ─────────────────────────────────
+    //
+    // The rule above is a NEGATIVE test: isUnconfirmed rejects hedged titles,
+    // placeholders and recognisable third-party single sources. It does not
+    // reject a contact with NO provenance at all -- its last line returns
+    // hasKnownProvenance(c), so a row carrying nothing but a name, a title and a
+    // pattern-guessed address comes back "confirmed" by falling through.
+    //
+    // That was the shape the old `emailKind === 'published'` rule was really
+    // catching, and dropping it opened exactly that hole: greetguard.js and
+    // hunterback.js both failed on a Hunter-derived address earning a first name.
+    //
+    // So the question is asked positively instead. We may greet someone when we
+    // have real evidence of their identity:
+    //
+    //   two independent sources agree, or
+    //   the business's own website names them, or
+    //   we hold a PUBLISHED address for them -- publishing the address is itself
+    //   publishing the name
+    //
+    // A pattern-matched or Hunter-derived address is none of those. It is a
+    // guess at how to reach a person, not evidence that the person is who we
+    // think. An address with no emailKind at all is a legacy row from before the
+    // field existed and is treated as it was before.
+    const CRid = require('./contactRank');
+    const corroborated = CRid.corroborationOf(c) >= 2 || CRid.isSelfAttested(c);
+    const publishedAddress = !!c.email && (!c.emailKind || c.emailKind === 'published');
+    if (!corroborated && !publishedAddress) return false;
     // The model invented this contact rather than finding it.
     if (c.source === 'ai_inference') return false;
     if (c.confidence_score !== undefined && c.confidence_score !== null

@@ -269,6 +269,23 @@ function passesBar(ladder, ig) {
     via: handle ? 'handle' : phone ? 'phone' : 'inbox' };
 }
 
+// ── THE NAME WE ARE ALLOWED TO GREET ────────────────────────────────────────
+// One function, so the prompt's instruction and the guard's enforcement cannot
+// drift apart. Returns '' when nobody on the ladder is verified enough to name,
+// which is the case the bare "Hi," exists for.
+//
+// The guard's own rules decide -- corroborated by two sources, or named by the
+// business's own website, with a real role title and not model-invented. This
+// does not relax any of them; it just asks the question in one place.
+function greetNameOf(ladder) {
+  try {
+    const GG = require('./greetingGuard');
+    const rows = namedRows(ladder);
+    const ok = GG.greetableContacts(rows);
+    return ok.length ? GG.salutationName(ok[0].name) : '';
+  } catch (_) { return ''; }
+}
+
 // Who to ask for on a shared line. Mirrors askName in contactLadder: keep an
 // honorific with the surname, otherwise the first name.
 function askFirstName(fullName) {
@@ -290,11 +307,15 @@ function askFirstName(fullName) {
 //
 // Anything this produces is marked angle=null, so the shift report and the
 // reply-learning never mistake a fallback for a reasoned pitch.
-function writeDm(athleteName, brandName, why) {
+function writeDm(athleteName, brandName, why, greetName) {
   const who = String(athleteName || 'a college athlete I work with').trim();
   const angle = String(why || '').trim().replace(/\s+/g, ' ');
   const first = angle ? angle.split(/(?<=[.!?])\s/)[0] : '';
-  return `Hi, I work with ${who} on the NIL side and had an idea for ${brandName}`
+  // The fallback opened "Hi," even when the ladder had named the owner. Only a
+  // name the greeting guard cleared reaches this, so an unverified one still
+  // gets the bare greeting rather than a guess.
+  const hi = greetName ? `Hi ${greetName},` : 'Hi,';
+  return `${hi} I work with ${who} on the NIL side and had an idea for ${brandName}`
     + (first ? `, ${first.charAt(0).toLowerCase()}${first.slice(1).replace(/\.$/, '')}` : '')
     + `. Worth a quick conversation?`;
 }
@@ -351,6 +372,10 @@ function buildCard(cand, ladder, ig) {
   // A brand account is a real channel but it is not a route to this location, so
   // it never becomes the DM. The handle is kept and labelled.
   const dmable = !!handle && scope !== 'brand';
+  // The name we are allowed to open with, or ''. Computed once here so the card,
+  // the DM fallback and the email fallback all greet the same person -- or all
+  // greet nobody.
+  const _greet = greetNameOf(ladder);
   const inbox = inboxOf(ladder);
   const channel = channelFor(ladder, ig);
   const phone = (ladder && ladder.mainLine && ladder.mainLine.phone)
@@ -372,6 +397,10 @@ function buildCard(cand, ladder, ig) {
     instagramScope: scope,
     phone,
     phoneAskFor: top.name ? askFirstName(top.name) : null,
+    // Empty when nobody on the ladder was verified enough to name. The card
+    // records WHO the pitch opens to, so "Hi," is visibly a decision rather than
+    // a missing field.
+    greetName: _greet || null,
     email: inbox ? inbox.email : null,
     emailKind: inbox ? inbox.kind : null,
     subject: channel === 'email' ? subjectFor(c.brand || c.brandName) : null,
@@ -385,7 +414,7 @@ function buildCard(cand, ladder, ig) {
     // angle stays null, so nothing downstream can mistake one for the other.
     dmText: dmable && channel === 'dm' ? (c.pitch && c.pitch.message
       ? c.pitch.message
-      : writeDm(c.athleteName, c.brand || c.brandName, c.rationale)) : null,
+      : writeDm(c.athleteName, c.brand || c.brandName, c.rationale, _greet)) : null,
     // THE SAME PITCH, ADDRESSED DIFFERENTLY. An email card's body is what the
     // writer produced for this pairing; it becomes the outreach_logs draft that
     // actually sends. Kept under its own name so nothing that reads dm_text --
@@ -393,7 +422,7 @@ function buildCard(cand, ladder, ig) {
     // starts counting emails as DMs.
     emailBody: channel === 'email' ? (c.pitch && c.pitch.message
       ? c.pitch.message
-      : writeDm(c.athleteName, c.brand || c.brandName, c.rationale)) : null,
+      : writeDm(c.athleteName, c.brand || c.brandName, c.rationale, _greet)) : null,
     angle: (c.pitch && c.pitch.angle) || null,
     angleKey: (c.pitch && c.pitch.angleKey) || null,
     categoryKey: (c.pitch && c.pitch.categoryKey) || null,
@@ -624,7 +653,7 @@ module.exports = {
   inboxOf, channelFor, subjectFor,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
-  waitingOnYou, writeDm, askFirstName, namedRows,
+  waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf,
   pauseRelease, pausedUntilNote, PAUSE_RETRY_DAYS,
   prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,

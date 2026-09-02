@@ -850,6 +850,10 @@ async function fillAthlete(pool, ctx) {
             userRatingCount: place ? place.userRatingCount : null,
             ownerName: (Q.namedRows(ladder)[0] || {}).name || null,
             ownerTitle: (Q.namedRows(ladder)[0] || {}).title || null,
+            // The verified first name, or ''. Only a contact the greeting guard
+            // cleared gets here, so the prompt's instruction and the enforcement
+            // that runs after the model cannot disagree.
+            greetFirstName: Q.greetNameOf(ladder) || null,
             siteSummary: (out && out.siteEmail && out.siteEmail.sourceUrl) ? null : null,
             isFranchise: !!(out && out.siteEmail && out.siteEmail.corporate),
             sponsorsLocal: null,

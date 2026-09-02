@@ -464,7 +464,25 @@ function describeBusiness(b) {
       + (b.userRatingCount >= 300 ? ' (well established locally)'
         : b.userRatingCount < 40 ? ' (few reviews, may be new or small)' : ''));
   }
+  // ── THE NAME, AND WHAT TO DO WITH IT ─────────────────────────────────────
+  // The ladder finds these people -- Ronda Perkins, Daniel Eggers -- and the
+  // prompt listed the name without ever saying to USE it, so pitches opened
+  // "Hi," to a business whose owner we could name. Naming the reader is the
+  // single biggest close-rate lever a brand-side reader identified.
+  //
+  // greetFirstName is set by the caller ONLY when the greeting guard has cleared
+  // the contact, so this instruction and the enforcement downstream cannot
+  // disagree. Absent means we could not verify who they are, and the model is
+  // told to open "Hi," rather than left to guess.
   if (b.ownerName) L.push('Person to write to: ' + b.ownerName + (b.ownerTitle ? ', ' + b.ownerTitle : ''));
+  if (b.greetFirstName) {
+    L.push('OPEN THE MESSAGE WITH: "Hi ' + b.greetFirstName + ',"  — this name is verified, use it.');
+  } else if (b.ownerName) {
+    L.push('We could not verify this person well enough to greet them by name. Open with "Hi," '
+      + 'and do not use their name anywhere in the message.');
+  } else {
+    L.push('No verified name. Open with "Hi," exactly.');
+  }
   if (b.siteSummary) L.push('What their own website says: ' + b.siteSummary);
   if (b.sponsorsLocal) L.push('They already sponsor local teams or events.');
   if (b.isFranchise || b.corporate) L.push('Part of a chain, so the local operator may not control the budget.');
@@ -536,6 +554,9 @@ HARD RULES FOR THE MESSAGE:
 - Name the DELIVERABLE, never the price. "Two feed posts and an appearance at your location" is a real ask. "Would love to send over a short overview" is not.
 - NEVER put a dollar amount, a rate, a fee or a budget in the message. Not a range, not "starting at", not "around". Money comes up after they reply, and the agent handles it from there. A number in a cold message turns a conversation into a negotiation before there is anything to negotiate about.
 - Sign off with the agent's first name on its own line.
+- THE GREETING IS DICTATED, NOT CHOSEN. THE BUSINESS block above tells you exactly
+  what to open with. Follow it literally. A name you were not given is a name you
+  invented, and it reaches a real business under the agent's own name.
 
 NEVER invent a fact about the athlete. Use only what is listed under THE ATHLETE. If no hometown is listed, do not name one. If no position is listed, do not name one. If no follower count is listed, do not cite one. A missing field is not a gap to fill, and a plausible guess is still a lie told to a real business under this athlete's name.
 

@@ -752,6 +752,11 @@
       "failed": 0,
       "total": 48,
       "fault": null
+    },
+    "greetname.js": {
+      "failed": 0,
+      "total": 26,
+      "fault": null
     }
   }
 }
