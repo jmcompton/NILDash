@@ -258,6 +258,30 @@ async function candidatesFor(pool, athleteId, limit) {
 // above this is gone; see regionForAthlete below for why.
 // ONE ATHLETE RECORD, shared with the Writer and the market diagnostic. Every
 // field is present or explicitly null; nothing here fills a blank.
+// ── WHAT THEY POST, NOT WHEN ────────────────────────────────────────────────
+// The content line is what a business is actually buying, and it has to be
+// schedule-free: agents report that anything anchored on the season or a
+// practice calendar is wrong more often than right, and wrong to a business that
+// follows the team costs the pitch. Interests and product wants are what we
+// already hold that describes CONTENT rather than a date.
+function contentThemesOf(row, profile) {
+  const r = row || {};
+  const p = profile || {};
+  const bits = [];
+  const tags = Array.isArray(r.tags) ? r.tags : (Array.isArray(p.tags) ? p.tags : []);
+  for (const t of tags.slice(0, 6)) {
+    // Tags are stored "industry:sub"; the sub-part is the readable half.
+    const readable = String(t).split(':').pop().replace(/[-_]+/g, ' ').trim();
+    if (readable) bits.push(readable);
+  }
+  if (r.productWants) bits.push(String(r.productWants).slice(0, 120));
+  const sport = r.sport || p.sport;
+  // A generic floor, so the line is never empty. Training and day-in-the-life
+  // are true of essentially every college athlete and name no date.
+  if (!bits.length) return sport ? `training, ${String(sport).toLowerCase()} content, day in the life` : '';
+  return bits.join(', ');
+}
+
 function athleteProfile(ath) {
   return AR.resolveAthlete(ath, { schoolLocation: resolveSchoolLoc });
 }
@@ -456,6 +480,26 @@ async function fillAthlete(pool, ctx) {
   // PAUSED ATHLETES COST NOTHING. Checked before the slot query, before the
   // candidate query, and long before any lookup -- the whole point is that a
   // repeatedly-failing athlete stops consuming budget entirely.
+  // ── WHAT WE MAY CLAIM ABOUT THIS ATHLETE'S PARTNERSHIPS ──────────────────
+  // "already has several NIL partnerships and is looking to expand" is a claim
+  // about a real athlete made to a real business, so it is grounded in deals we
+  // actually hold rather than asserted because it reads well. Read once per
+  // athlete, not once per candidate. A failure here means we claim nothing,
+  // which is the safe direction.
+  let partnershipCount = 0;
+  try {
+    const pc = await pool.query(
+      `SELECT (SELECT COUNT(*) FROM athlete_deal_pipeline
+                WHERE athlete_id = $1 AND status IN ('closed','won','active','signed'))
+            + (SELECT COUNT(*) FROM athlete_self_deals WHERE athlete_id = $1) AS n`,
+      [athleteId]);
+    partnershipCount = Number(pc.rows[0] && pc.rows[0].n) || 0;
+  } catch (e) {
+    console.warn(`[queue] ${athleteName}: could not count partnerships (${e.message}); `
+      + 'the pitch will not claim any');
+    partnershipCount = 0;
+  }
+
   const state = await athleteState(pool, athleteId);
   if (state && state.paused_at) {
     // ── A PAUSE IS A "NOT NOW", NEVER A VERDICT ────────────────────────────
@@ -689,7 +733,9 @@ async function fillAthlete(pool, ctx) {
               siteSummary: cand.offerSummary || null,
               isFranchise: false, sponsorsLocal: null,
             },
-            athlete: ctx.athleteProfile || { name: athleteName },
+            athlete: { ...(ctx.athleteProfile || { name: athleteName }), partnershipCount,
+              instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,
+              contentThemes: contentThemesOf(ctx.athleteRow, ctx.athleteProfile) },
             deal: pmatch,
             agentFirstName: ctx.agentFirstName || null,
             channel: 'dm',
@@ -858,7 +904,9 @@ async function fillAthlete(pool, ctx) {
             isFranchise: !!(out && out.siteEmail && out.siteEmail.corporate),
             sponsorsLocal: null,
           },
-          athlete: ctx.athleteProfile || { name: athleteName },
+          athlete: { ...(ctx.athleteProfile || { name: athleteName }), partnershipCount,
+            instagramHandle: (ctx.athleteRow && ctx.athleteRow.instagramHandle) || null,
+            contentThemes: contentThemesOf(ctx.athleteRow, ctx.athleteProfile) },
           deal: match,
           agentFirstName: ctx.agentFirstName || null,
           // NOT HARDCODED 'dm' ANY MORE. pitchWriter branches on this -- "The
@@ -1160,6 +1208,10 @@ async function fillOnDemand(pool, ath, opts = {}) {
   const r = await fillAthlete(pool, {
     agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
     athleteProfile: athleteProfile(ath), agentFirstName: ath.agent_first_name || null,
+    // The raw record, same as the nightly path. Without it the on-demand fill
+    // wrote pitches with no Instagram link and no content line -- a quietly
+    // different message depending on which path produced the card.
+    athleteRow: ath.data || null,
     budget, region: regionForAthlete(ath),
     // ON-DEMAND NEVER WIDENS. This runs while the agent is watching, on a $0.15
     // cap; a deep search pass costs more than the whole on-demand budget and

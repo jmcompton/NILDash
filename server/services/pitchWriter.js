@@ -128,6 +128,20 @@ const DELIVERABLE_RE = new RegExp(
   + '|(?:' + DELIVERABLE_VERBS + ')'
   + '|(?:' + DELIVERABLE_NOUNS + ')\\s+(?:about|for|at|with|of)\\b)', 'i');
 
+// ── THE SEASON IS USUALLY WRONG ─────────────────────────────────────────────
+// A pitch that anchors on "before the season starts" or "during spring practice"
+// is guessing at a calendar we do not hold, and agents report it is wrong more
+// often than not. Wrong once, to a business that follows the team, costs the
+// pitch. The athlete's value does not depend on what week it is.
+const SEASON_TIMING = [
+  /\bbefore (?:the )?season\b/i, /\b(?:this|next|the) season starts\b/i,
+  /\bspring (?:practice|ball|game)\b/i, /\bfall camp\b/i, /\btwo[- ]a[- ]days\b/i,
+  /\bduring (?:the )?(?:season|preseason|offseason|off[- ]season)\b/i,
+  /\b(?:home|away) (?:game|games) (?:this|next)\b/i, /\bgame week\b/i,
+  /\bbowl (?:game|season)\b/i, /\bmarch madness\b/i, /\bkicks? off (?:in|on|next)\b/i,
+  /\bahead of (?:the )?(?:season|opener)\b/i, /\bpractice schedule\b/i,
+];
+
 const CORPORATE_FILLER = [
   /\bleverag(e|es|ing)\b/i, /\bseamless(ly)?\b/i, /\bcircle(s|d)? back\b/i,
   /\bsynerg(y|ies|istic)\b/i, /\btouch base\b/i, /\breach out\b/i, /\bbandwidth\b/i,
@@ -144,8 +158,18 @@ function stripSignOff(text) {
   return String(text || '').replace(/\n+[ \t]*[A-Za-z][A-Za-z.'\- ]{0,30}[ \t]*$/, '').trim();
 }
 
+// The athlete's Instagram link is a REFERENCE, not a sentence, exactly as the
+// sign-off is a line rather than a sentence. Counting it pushed a correctly
+// structured five-part pitch over the maximum and lost it to a retry.
+function stripProfileLink(text) {
+  return String(text || '')
+    .replace(/^[ \t]*(?:https?:\/\/)?(?:www\.)?instagram\.com\/[A-Za-z0-9._]+\/?[ \t]*$/gim, '')
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function sentenceCount(text) {
-  return stripSignOff(text).split(/(?<=[.?])\s+/).map((s) => s.trim()).filter((s) => s.length > 1).length;
+  return stripProfileLink(stripSignOff(text))
+    .split(/(?<=[.?])\s+/).map((s) => s.trim()).filter((s) => s.length > 1).length;
 }
 
 function lintMessage(msg, opts = {}) {
@@ -165,16 +189,37 @@ function lintMessage(msg, opts = {}) {
   for (const re of CORPORATE_FILLER) {
     if (re.test(t)) { problems.push('contains corporate filler: ' + (t.match(re) || [''])[0]); break; }
   }
+  // We do not hold this athlete's schedule, so any sentence that depends on it is
+  // a guess made to a business that very likely knows the real answer.
+  for (const re of SEASON_TIMING) {
+    if (re.test(t)) {
+      problems.push('anchors on the season or practice schedule ("'
+        + (t.match(re) || [''])[0] + '"), which we do not hold and get wrong');
+      break;
+    }
+  }
   const n = sentenceCount(t);
   if (n > 5) problems.push(`${n} sentences, maximum is five`);
-  if (n < 3) problems.push(`${n} sentences, minimum is three`);
+  // Four, not three: the prescribed shape is opener, where they are, what they
+  // post, and the closing question. A three-sentence version has dropped one of
+  // them, and the one it usually drops is the content line -- the part a business
+  // is actually buying.
+  if (n < 4) problems.push(`${n} sentences, minimum is four`);
   if (t.length > 700) problems.push('too long for a DM');
   // NO MONEY. Checked here rather than trusted to the prompt, because this is
   // the one rule where a single slip reaches a real business as a real number.
   const price = containsPrice(t);
   if (price) problems.push(`names a price ("${price.trim()}") — outreach names the deliverable, never the money`);
-  // A concrete ask names something countable that gets made or done.
-  if (opts.requireDeliverable !== false && !DELIVERABLE_RE.test(t)) {
+  // ── THE DELIVERABLE LINT IS OFF FOR THIS VOICE, DELIBERATELY ────────────
+  // It demanded a countable deliverable, and the voice agents asked for sells
+  // POTENTIAL rather than a package: a first message that hands over a menu can
+  // be declined in one word. So requireDeliverable now defaults OFF and the
+  // callers that still want it opt in.
+  //
+  // This is also the rule that rejected 5 pitches in the run that paused six
+  // athletes for nine days (f1b11aa), so it is worth saying plainly that it is
+  // now off by default rather than merely loosened again.
+  if (opts.requireDeliverable === true && !DELIVERABLE_RE.test(t)) {
     problems.push('the message never says what the athlete would actually do');
   }
   // The sign-off has to be the agent's own first name.
@@ -531,7 +576,30 @@ function describeAthlete(a) {
     }
   }
   if (a.stats) L.push('On the field: ' + a.stats);
+  // ── WHAT MAY BE SAID ABOUT EXISTING PARTNERSHIPS ─────────────────────────
+  // "already has several NIL partnerships and is looking to expand" is the line
+  // agents asked for, and it is a CLAIM about a real athlete made to a real
+  // business. So it is only offered when we hold deals to back it. With none on
+  // file the athlete is still worth pitching and the honest version still sells
+  // forward motion -- it just does not assert a track record that does not exist.
+  const deals = Number(a.partnershipCount) || 0;
+  if (deals >= 2) {
+    L.push('Existing partnerships: SAY EXACTLY "already has several NIL partnerships '
+      + 'and is looking to expand". We hold ' + deals + ' on file.');
+  } else if (deals === 1) {
+    L.push('Existing partnerships: SAY EXACTLY "already has an NIL partnership and is '
+      + 'looking to expand". We hold 1 on file. Do not say "several".');
+  } else {
+    L.push('Existing partnerships: NONE on file. Say "is building out their NIL '
+      + 'partnerships for this year" or similar. Do NOT claim they already have any.');
+  }
   if (Array.isArray(a.tags) && a.tags.length) L.push('Posts about: ' + a.tags.join(', '));
+  // The content line. Concrete and schedule-free: what they post, not when.
+  if (a.contentThemes) L.push('Content they make: ' + a.contentThemes);
+  if (a.instagramHandle) {
+    L.push('Instagram link, to go on its own line at the end of the message: '
+      + 'https://instagram.com/' + String(a.instagramHandle).replace(/^@+/, ''));
+  }
   if (a.productWants) L.push('Wants to work with: ' + a.productWants);
   if (a.notes) L.push('Notes: ' + a.notes);
   return L.join('\n');
@@ -543,15 +611,41 @@ You are not a copywriter and you are not a chatbot. You are a sales manager who 
 
 Before writing anything, decide the ANGLE: the one real connection between what this specific athlete uniquely offers and what this specific business actually needs. If there is no real connection, say so and write nothing. A weak pitch costs more than no pitch, because this business only gives one first impression.
 
+── THE SHAPE OF THE MESSAGE ──────────────────────────────────────────────────
+
+This structure comes from agents who send these for a living. Follow it in order.
+
+1. OPEN BY NAMING THE ATHLETE, not yourself and not the business:
+   "I wanted to call your attention to [athlete], [position] on the [team]."
+2. ONE LINE ON WHERE THEY ARE: the ATHLETE block tells you exactly what may be
+   said about their existing partnerships. Use its wording. Do not upgrade it.
+3. ONE LINE ON WHAT THEY POST: training, game days, day in the life, whatever
+   the ATHLETE block actually lists. This is what a business is buying.
+4. THE CLOSE, as a question:
+   "Would you like to learn more about this NIL opportunity with [athlete]?"
+5. The athlete's Instagram link on its own line, when one is given.
+
+DO NOT WRITE ABOUT THE BRAND. Not what they do, not how long they have been
+there, not how well reviewed they are, not why they would be a good fit. They
+know their own business better than we do and every sentence spent describing it
+back to them is a sentence that says we are padding. The business details in
+this prompt are for YOUR judgement about whether to pitch at all, and for the
+angle field. They are not material for the message.
+
+SELL THE POTENTIAL, NOT A PACKAGE. Do not offer "a small number of posts" or
+enumerate a deliverable. This is a first message; the point is to open a
+conversation about what this athlete could do for them, not to hand them a
+menu they can decline in one word.
+
+DO NOT REFERENCE THE SEASON, practice, game week, or any date. We do not hold
+this athlete's schedule and it is wrong more often than it is right.
+
 HARD RULES FOR THE MESSAGE:
-- Three to five sentences. Never longer.
+- Four to five sentences, plus the link line. Never longer.
 - No em dashes. No exclamation marks.
 - Never open with "I hope this finds you well", "I wanted to reach out", or "my name is".
 - No corporate words. Nothing leverages, nothing is seamless, nobody circles back, nothing is a game-changer.
-- Do not compliment the business before getting to the point. One short specific observation is fine; a paragraph of flattery is not.
-- One idea per message. Do not stack offers.
 - Use contractions. Write how a person talks.
-- Name the DELIVERABLE, never the price. "Two feed posts and an appearance at your location" is a real ask. "Would love to send over a short overview" is not.
 - NEVER put a dollar amount, a rate, a fee or a budget in the message. Not a range, not "starting at", not "around". Money comes up after they reply, and the agent handles it from there. A number in a cold message turns a conversation into a negotiation before there is anything to negotiate about.
 - Sign off with the agent's first name on its own line.
 - THE GREETING IS DICTATED, NOT CHOSEN. THE BUSINESS block above tells you exactly
@@ -596,9 +690,9 @@ Return ONLY JSON, in exactly this order:
 {
   "angle": "one sentence naming the real connection between THIS athlete and THIS business",
   "angleKey": "two-to-four word slug for the angle, lowercase, hyphenated",
-  "ask": "the concrete deliverable and number you are asking for",
+  "ask": "what you would propose if they reply — for the agent's card, NOT for the message itself",
   "confidence": "strong" | "thin",
-  "message": "the message itself, three to five sentences, signed off"
+  "message": "the message itself, four to five sentences in the prescribed order, the Instagram link on its own line, signed off"
 }
 
 If there is no real connection worth pitching, return instead:
@@ -612,7 +706,7 @@ async function writePitch(ctx, opts = {}) {
   const oneShot = opts.oneShot;
   if (typeof oneShot !== 'function') throw new Error('writePitch requires opts.oneShot');
   const agentFirst = String(ctx.agentFirstName || 'JohnMark').trim().split(/\s+/)[0];
-  const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable !== false };
+  const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable === true };
 
   const attempt = async (extra) => {
     const raw = await oneShot(buildPrompt(ctx) + (extra || ''), SYSTEM, 900, opts.model);

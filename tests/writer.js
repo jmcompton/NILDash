@@ -81,14 +81,11 @@ async function main() {
     ['seamless', 'It is seamless work. Second here. Third 5 here.\n\nJohnMark', /corporate filler/],
     ['circle back', 'Let me circle back. Second here. Third 5 here.\n\nJohnMark', /corporate filler/],
     ['six sentences', 'One here. Two here. Three here. Four here. Five 5 here. Six here.\n\nJohnMark', /maximum is five/],
-    ['two sentences', 'One thing here. Two 5 things here.\n\nJohnMark', /minimum is three/],
-    // The rule loosened: naming what the athlete would DO is enough, in any
-    // shape, so the fixture has to be genuinely vague rather than merely
-    // unquantified. This one names no action at all, which is the case the
-    // check exists for.
-    ['never says what the athlete would do',
-      'One thing here. Two things here. Three things here.\n\nJohnMark',
-      /never says what the athlete would actually do/],
+    // THE MINIMUM IS FOUR NOW. The prescribed shape is opener, where the athlete
+    // is, what they post, and the closing question; a three-sentence version has
+    // dropped one, and it is usually the content line.
+    ['two sentences', 'One thing here. Two 5 things here.\n\nJohnMark', /minimum is four/],
+
     ['a dollar amount', 'One here. Two posts for $500. Third here.\n\nJohnMark', /names a price/],
     ['a spelled-out amount', 'One here. Two posts for 500 dollars. Third here.\n\nJohnMark', /names a price/],
     ['a rate', 'One here. Our rate covers two posts. Third here.\n\nJohnMark', /names a price/],
@@ -100,7 +97,19 @@ async function main() {
     const r = L(msg);
     ok(`rejects: ${name}`, !r.ok && r.problems.some((p) => re.test(p)), r.problems);
   }
-  ok('contractions are allowed', L("It's a fit. You'd get two posts and an appearance. He's local.\n\nJohnMark").ok);
+  ok('contractions are allowed',
+    L("It's a fit. You'd get two posts and an appearance. He's local. Want to hear more?\n\nJohnMark").ok,
+    L("It's a fit. You'd get two posts and an appearance. He's local. Want to hear more?\n\nJohnMark").problems);
+  // ── THE DELIVERABLE RULE IS OPT-IN NOW ──────────────────────────────────
+  // The voice agents asked for sells POTENTIAL rather than a package, so a
+  // message that names no countable deliverable is correct rather than broken.
+  // The check still exists for callers that want it, and is still tested.
+  const vague = 'One thing here. Two things here. Three things here. Four here.\n\nJohnMark';
+  ok('a message naming no deliverable passes by default', L(vague).ok, L(vague).problems);
+  ok('  and still fails when a caller opts in',
+    W.lintMessage(vague, { signOff: 'JohnMark', requireDeliverable: true }).problems
+      .some((p) => /never says what the athlete would actually do/.test(p)),
+    W.lintMessage(vague, { signOff: 'JohnMark', requireDeliverable: true }).problems);
 
   // ── MONEY NEVER APPEARS, COUNTS STILL DO ────────────────────────────────
   ok('a follower count is NOT a price', W.containsPrice('35,000 followers') === null);
@@ -149,7 +158,11 @@ async function main() {
   ok('  because a number in the context window ends up in the copy', !/\$\d/.test(p),
     (p.match(/\$\d[^\n]{0,40}/) || [])[0]);
   ok('the system prompt forbids naming a price', /NEVER put a dollar amount/.test(W.SYSTEM));
-  ok('  and asks for the deliverable instead', /Name the DELIVERABLE, never the price/.test(W.SYSTEM));
+  // "Name the DELIVERABLE, never the price" is gone with the voice rewrite: a
+  // first message that hands over a package can be declined in one word. The
+  // price half of that rule is unchanged and asserted directly above.
+  ok('  and asks for potential rather than a package',
+    /SELL THE POTENTIAL, NOT A PACKAGE/.test(W.SYSTEM));
   ok('  a 312-review business is called established', /well established locally/.test(p));
   ok('  and a 9-review one is flagged as new or small',
     /may be new or small/.test(W.buildPrompt({ business: { name: 'X', rating: 5, userRatingCount: 9 } })));
