@@ -4198,6 +4198,38 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div class="page-title">Settings</div>
     <div class="page-sub">Manage integrations, connected accounts, and preferences</div>
 
+    <!-- ══ SIGNATURE — the only part of an outbound message that is the same
+         every time. Set once here, appended to every pitch. Deliberately NOT
+         written by the model: a signature that varies is a signature nobody
+         trusts, and a scheduling link a model retypes is one that will
+         eventually be retyped wrong. ══ -->
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px;margin-bottom:20px;max-width:700px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">Your signature</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:16px">
+        Goes at the end of every pitch we write for you. When you set a scheduling link,
+        the message can point at it: &ldquo;use my scheduling link below to set up a call&rdquo;.
+      </div>
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">Signature</label>
+        <textarea id="sig-text" rows="4" placeholder="JohnMark Compton&#10;NILDash&#10;(205) 555-1212"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:inherit;font-size:13px;padding:10px;resize:vertical"></textarea>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Your name, and whatever you want under it. Plain text.</div>
+      </div>
+      <div style="margin-bottom:12px">
+        <label class="form-label-sm">Scheduling link</label>
+        <input id="sig-url" class="input-sm" placeholder="https://calendly.com/yourname" style="width:100%">
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Becomes a clickable link, not a pasted address. Leave blank if you do not use one.</div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="run-btn" style="padding:8px 18px" onclick="saveSignature()">Save signature</button>
+        <span id="sig-status" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:6px">How it will look at the end of a pitch</div>
+        <div id="sig-preview" style="font-size:12px;color:var(--text);line-height:1.6;min-height:18px"></div>
+      </div>
+    </div>
+
     <!-- ══ DAILY REPORT — the ONE thing an agent sets about it: when it lands.
          Outreach send timing is deliberately NOT here. The team holds overnight
          drafts and releases them into business hours in the recipient's own
@@ -7121,7 +7153,7 @@ async function showView(id, btn) {
   }
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
-  if (id === 'settings') { setTimeout(loadReportSettings, 60); }
+  if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); }
   if (id === 'outreach') { setTimeout(loadOutreachQueue, 60); }
       if (id === 'commission') setTimeout(renderCommission, 100);
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -17303,6 +17335,59 @@ async function srReplyHandled(id, btn) {
   } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Handled'; }
     showToast('Could not mark it handled: ' + e.message);
+  }
+}
+
+// ── The agent's signature ────────────────────────────────────────────────────
+// Loaded and saved as one block. The preview renders the SERVER's version, not
+// the textarea's, so what is shown is what will actually be appended -- a
+// scheduling link the server refused must not preview as though it saved.
+async function loadSignature() {
+  var t = document.getElementById('sig-text');
+  var u = document.getElementById('sig-url');
+  if (!t || !u) return;
+  try {
+    var r = await fetch(API_BASE + '/api/agent/signature', { credentials: 'include' });
+    if (!r.ok) return;
+    var d = await r.json();
+    t.value = d.signatureText || '';
+    u.value = d.schedulingUrl || '';
+    renderSignaturePreview(d);
+  } catch (e) { /* Settings still works without it */ }
+}
+
+function renderSignaturePreview(d) {
+  var el = document.getElementById('sig-preview');
+  if (!el) return;
+  if (!d || !(d.previewHtml || d.previewText)) {
+    el.innerHTML = '<span style="color:var(--muted)">Nothing set yet, so pitches end at your first name.</span>';
+    return;
+  }
+  el.innerHTML = d.previewHtml || '';
+}
+
+async function saveSignature() {
+  var t = document.getElementById('sig-text');
+  var u = document.getElementById('sig-url');
+  var st = document.getElementById('sig-status');
+  if (!t || !u) return;
+  if (st) { st.style.color = 'var(--muted)'; st.textContent = 'Saving...'; }
+  try {
+    var r = await fetch(API_BASE + '/api/agent/signature', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ signatureText: t.value, schedulingUrl: u.value }),
+    });
+    var d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Could not save');
+    // Echo the SERVER's normalised values back, so a link it tidied up is what
+    // the agent sees rather than what they typed.
+    t.value = d.signatureText || '';
+    u.value = d.schedulingUrl || '';
+    renderSignaturePreview(d);
+    if (st) { st.style.color = 'var(--accent)'; st.textContent = 'Saved. Every new pitch will use it.'; }
+    if (typeof showToast === 'function') showToast('Signature saved', 'success');
+  } catch (e) {
+    if (st) { st.style.color = '#f87171'; st.textContent = e.message; }
   }
 }
 

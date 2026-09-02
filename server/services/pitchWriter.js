@@ -623,6 +623,10 @@ This structure comes from agents who send these for a living. Follow it in order
    the ATHLETE block actually lists. This is what a business is buying.
 4. THE CLOSE, as a question:
    "Would you like to learn more about this NIL opportunity with [athlete]?"
+   When the prompt says a scheduling link is present, the close may point at it:
+   "...or use my scheduling link below to set up a call." Only say that when you
+   are told there is one. Referring a business to a link that is not there is
+   worse than not offering a call at all.
 5. The athlete's Instagram link on its own line, when one is given.
 
 DO NOT WRITE ABOUT THE BRAND. Not what they do, not how long they have been
@@ -648,6 +652,10 @@ HARD RULES FOR THE MESSAGE:
 - Use contractions. Write how a person talks.
 - NEVER put a dollar amount, a rate, a fee or a budget in the message. Not a range, not "starting at", not "around". Money comes up after they reply, and the agent handles it from there. A number in a cold message turns a conversation into a negotiation before there is anything to negotiate about.
 - Sign off with the agent's first name on its own line.
+- DO NOT WRITE A SIGNATURE, a title, a company, a phone number or any link other
+  than the athlete's Instagram. The agent's signature block is appended after you,
+  exactly as they typed it. Anything you invent there is a second signature on the
+  same email.
 - THE GREETING IS DICTATED, NOT CHOSEN. THE BUSINESS block above tells you exactly
   what to open with. Follow it literally. A name you were not given is a name you
   invented, and it reaches a real business under the agent's own name.
@@ -684,6 +692,10 @@ WHAT THIS CATEGORY TYPICALLY WANTS
 ${play.wants}. A fitting ask looks like: ${play.ask}.
 ${dealLines.length ? '\nWHAT WE ALREADY WORKED OUT\n' + dealLines.join('\n') + '\n' : ''}${learned}
 The agent's first name, for the sign-off: ${ctx.agentFirstName || 'JohnMark'}
+${ctx.hasSchedulingLink
+    ? 'The agent HAS a scheduling link, and it is appended below your message. You may '
+      + 'invite them to use it: "use my scheduling link below to set up a call".'
+    : 'The agent has NO scheduling link. Do not mention one, and do not refer to anything "below".'}
 The channel: ${ctx.channel === 'email' ? 'email' : 'an Instagram DM'}
 
 Return ONLY JSON, in exactly this order:

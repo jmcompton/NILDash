@@ -1565,6 +1565,16 @@ async function init() {
   // a "good morning" note at 1am).
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_hour INT DEFAULT 7`).catch(() => {});
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_tz TEXT`).catch(() => {});
+  // ── THE AGENT'S SIGNATURE ────────────────────────────────────────────────
+  // Set once in Settings and appended to every pitch. Two fields, not one: the
+  // scheduling URL is kept apart from the free text so it can be HYPERLINKED
+  // rather than pasted as a bare string, and so the body can reference "my
+  // scheduling link below" knowing there is one.
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS signature_text TEXT`)
+    .catch((e) => console.error('[init] users.signature_text:', e.message));
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS scheduling_url TEXT`)
+    .catch((e) => console.error('[init] users.scheduling_url:', e.message));
+  console.log('[init] users signature columns ready');
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS report_enabled BOOLEAN DEFAULT TRUE`).catch(() => {});
   // One row per agent per local day. The double-send guard: recurring work runs
   // on in-process timers, so a restart or a second instance can otherwise fire

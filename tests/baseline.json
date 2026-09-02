@@ -762,6 +762,11 @@
       "failed": 0,
       "total": 31,
       "fault": null
+    },
+    "signature.js": {
+      "failed": 0,
+      "total": 39,
+      "fault": null
     }
   }
 }

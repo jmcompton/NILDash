@@ -35,6 +35,7 @@ const ai = require('../ai');
 const { buildContactLadder } = require('../services/contactLadder');
 const { lookupPlace } = require('../services/placesLookup');
 const { findInstagram } = require('../services/instagramLookup');
+const SIG = require('../services/signature');
 const Q = require('../services/outreachQueue');
 const PW = require('../services/pitchWriter');
 const BI = require('../services/brandIdentity');
@@ -467,6 +468,10 @@ function textToParagraphs(text) {
 
 async function fillAthlete(pool, ctx) {
   const { agentId, athleteId, athleteName, budget, region } = ctx;
+  // Passed down from the run so it is read once for the whole roster rather than
+  // once per business. `has` is what the writer needs; the block itself is
+  // appended after the model, never written by it.
+  const signature = ctx.signature || { has: false, hasLink: false, text: '', url: '' };
   const say = ctx.onProgress || (() => {});
   const dry = !!ctx.dryRun;
   // Every business actually tried, with the real reason it was or was not
@@ -738,6 +743,7 @@ async function fillAthlete(pool, ctx) {
               contentThemes: contentThemesOf(ctx.athleteRow, ctx.athleteProfile) },
             deal: pmatch,
             agentFirstName: ctx.agentFirstName || null,
+            hasSchedulingLink: !!signature.hasLink,
             channel: 'dm',
             learnedAngles: await PW.learnedAngles(pool, PW.playbookFor(cand.category || null).key).catch(() => []),
           }, { oneShot: (p2, sys, mt) => ai.oneShot(p2, sys, mt, ai.MODEL_GEN) });
@@ -751,6 +757,9 @@ async function fillAthlete(pool, ctx) {
             lane: cand.lane, places: { found: false }, risk: 'normal' });
           continue;
         }
+        // The signature is APPENDED, never written by the model. Idempotent, so a
+        // regenerated or re-saved draft cannot end up signed twice.
+        if (ppitch && ppitch.message) ppitch.message = SIG.appendText(ppitch.message, signature);
         const pcard = Q.buildProgramCard(cand, ppitch, athleteName, pig);
         tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
           lane: cand.lane, channel: pcard.channel, places: { found: false }, risk: 'normal' });
@@ -909,6 +918,7 @@ async function fillAthlete(pool, ctx) {
             contentThemes: contentThemesOf(ctx.athleteRow, ctx.athleteProfile) },
           deal: match,
           agentFirstName: ctx.agentFirstName || null,
+          hasSchedulingLink: !!signature.hasLink,
           // NOT HARDCODED 'dm' ANY MORE. pitchWriter branches on this -- "The
           // channel: email or an Instagram DM" -- so writing an email in DM voice
           // is a real quality difference, not a label. A programme card is still
@@ -929,6 +939,7 @@ async function fillAthlete(pool, ctx) {
         continue;
       }
 
+      if (pitch && pitch.message) pitch.message = SIG.appendText(pitch.message, signature);
       const card = Q.buildCard({
         brandKey: cand.brand_key, brand: cand.brand_name,
         rationale: (match && match.reasoning) || null,
@@ -988,6 +999,9 @@ async function fillAgent(pool, agent, opts) {
        FROM athletes WHERE agent_id = $1 ORDER BY created_at ASC`,
     [agent.id])).rows;
   const agentFirst = String(agent.name || '').trim().split(/\s+/)[0] || null;
+  // ONCE PER RUN. The signature is the same for every card this agent gets, so
+  // reading it per business would be 45 identical queries a night.
+  const signature = SIG.signatureOf(agent);
   let filled = 0;
   // Banked per athlete, settled once at the end. See the note at the push.
   const attempts = [];
@@ -1030,7 +1044,7 @@ async function fillAgent(pool, agent, opts) {
         // FIVE a night now. See NIGHTLY_SLOTS: this is what caps the slate the
         // Scout is asked for, so raising it is what lets the night evaluate
         // dozens of businesses rather than three.
-        maxSlots: Q.NIGHTLY_SLOTS,
+        maxSlots: Q.NIGHTLY_SLOTS, signature,
         onProgress: (m) => console.log('[queue] ' + m),
       });
     } catch (e) {
@@ -1162,9 +1176,14 @@ async function fillAgent(pool, agent, opts) {
 async function run(opts = {}) {
   const pool = store.pool;
   const agents = opts.agentId
-    ? (await pool.query(`SELECT id, name FROM users WHERE id = $1`, [opts.agentId])).rows
+    // signature_text / scheduling_url travel with the agent so fillAgent can read
+    // them once rather than querying per business.
+    ? (await pool.query(
+      `SELECT id, name, signature_text, scheduling_url FROM users WHERE id = $1`,
+      [opts.agentId])).rows
     : (await pool.query(
-      `SELECT id, name FROM users WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
+      `SELECT id, name, signature_text, scheduling_url FROM users
+        WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
   let filled = 0, spent = 0;
   for (const a of agents) {
     const r = await fillAgent(pool, a, opts).catch(async (e) => {
@@ -1208,6 +1227,7 @@ async function fillOnDemand(pool, ath, opts = {}) {
   const r = await fillAthlete(pool, {
     agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
     athleteProfile: athleteProfile(ath), agentFirstName: ath.agent_first_name || null,
+    signature: SIG.signatureOf(ath),
     // The raw record, same as the nightly path. Without it the on-demand fill
     // wrote pitches with no Instagram link and no content line -- a quietly
     // different message depending on which path produced the card.

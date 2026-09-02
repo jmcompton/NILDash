@@ -2132,6 +2132,55 @@ app.post('/api/agent/report-settings', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── THE SIGNATURE ────────────────────────────────────────────────────────────
+// Set once, appended to every pitch. The model never writes it: a signature that
+// varies is a signature nobody trusts, and a scheduling link a model retypes is
+// one that will eventually be retyped wrong.
+app.get('/api/agent/signature', requireAuth, async (req, res) => {
+  try {
+    const SIG = require('./services/signature');
+    const r = await store.pool.query(
+      'SELECT name, signature_text, scheduling_url FROM users WHERE id = $1', [req.session.userId]);
+    const u = r.rows[0] || {};
+    const sig = SIG.signatureOf(u);
+    res.json({
+      signatureText: sig.text, schedulingUrl: sig.url,
+      hasSignature: sig.has, maxChars: SIG.MAX_SIGNATURE_CHARS,
+      // What it will actually look like on a pitch, so Settings can show it
+      // rather than describe it.
+      previewText: SIG.renderText(sig), previewHtml: SIG.renderHtml(sig),
+      agentName: u.name || null,
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/agent/signature', requireAuth, async (req, res) => {
+  try {
+    const SIG = require('./services/signature');
+    const b = req.body || {};
+    const text = SIG.cleanSignatureText(b.signatureText);
+    // A URL that will not parse is REFUSED rather than quietly dropped. Saving
+    // an empty string where the agent typed something looks like it worked and
+    // then silently omits the link from every email they send.
+    const rawUrl = String(b.schedulingUrl == null ? '' : b.schedulingUrl).trim();
+    const url = SIG.validSchedulingUrl(rawUrl);
+    if (rawUrl && !url) {
+      return res.status(400).json({
+        error: 'That scheduling link is not a web address we can link to. '
+          + 'It should look like https://calendly.com/yourname.' });
+    }
+    await store.pool.query(
+      'UPDATE users SET signature_text = $2, scheduling_url = $3, updated_at = NOW() WHERE id = $1',
+      [req.session.userId, text || null, url || null]);
+    const sig = SIG.signatureOf({ signature_text: text, scheduling_url: url });
+    res.json({ ok: true, signatureText: sig.text, schedulingUrl: sig.url,
+      previewText: SIG.renderText(sig), previewHtml: SIG.renderHtml(sig) });
+  } catch (e) {
+    console.error('[agent/signature]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Preview, so the email can be read without waiting for 7am.
 app.get('/api/agent/report-preview', requireAuth, async (req, res) => {
   try {
@@ -9314,7 +9363,11 @@ async function runOnDemandFills(agentId) {
   const aths = await store.pool.query(
     `SELECT a.id, a.agent_id, a.data, a.data->>'name' AS name,
             a.data->>'hometown' AS hometown, a.data->>'school' AS school,
-            split_part(COALESCE(u.name,''), ' ', 1) AS agent_first_name
+            split_part(COALESCE(u.name,''), ' ', 1) AS agent_first_name,
+            -- The signature travels with the on-demand row too, or a card built
+            -- while the agent watches goes out unsigned while the nightly ones
+            -- are signed.
+            u.signature_text, u.scheduling_url
        FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
       WHERE a.agent_id = $1 ORDER BY a.created_at ASC`, [agentId]);
   for (const ath of aths.rows || []) {
