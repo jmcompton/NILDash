@@ -180,7 +180,11 @@ async function buildHome(pool, agentId, opts = {}) {
 
   const roster = await q('athletes',
     `SELECT a.id, a.data->>'name' AS name, a.data->>'school' AS school,
-            a.data->>'dob' AS dob
+            a.data->>'dob' AS dob,
+            -- The over-18 checkbox that replaced the date-of-birth requirement.
+            -- Without it here, who.over18 is undefined and the blocker below
+            -- fires for every athlete who answered the question the new way.
+            a.data->>'over18' AS over18
        FROM athletes a
       WHERE a.agent_id = $1
       ORDER BY a.created_at ASC`, [agentId]);
@@ -227,6 +231,29 @@ async function buildHome(pool, agentId, opts = {}) {
   // OLDEST FIRST. The budget is three lookups an athlete a day, so this chooses
   // which drafts get them. Oldest is the same tie-break the ranking uses and the
   // same intent as the starvation promotion: the pile's tail is what goes unseen.
+  // Which of this agent's athletes are held, how long, and when the automatic
+  // retry comes back. Read here so Home can offer the action rather than only
+  // state a reason.
+  let paused = [];
+  try {
+    const PQ = require('./outreachQueue');
+    const pr = await pool.query(
+      `SELECT s.athlete_id, s.consecutive_failures, s.paused_reason, s.paused_at,
+              a.data->>'name' AS athlete_name
+         FROM outreach_queue_athlete_state s
+         JOIN athletes a ON a.id = s.athlete_id
+        WHERE a.agent_id = $1 AND s.paused_at IS NOT NULL`, [agentId]);
+    paused = (pr.rows || []).map((p) => {
+      const rel = PQ.pauseRelease(p);
+      return {
+        athleteId: p.athlete_id, athleteName: p.athlete_name || null,
+        reason: p.paused_reason || PQ.pausedNote(p.consecutive_failures),
+        days: rel.days, nextRetryAt: rel.nextRetryAt,
+        retryNote: PQ.pausedUntilNote(rel), canResume: true,
+      };
+    });
+  } catch (e) { errs.push('paused: ' + e.message); }
+
   let verifyBudget = null;
   if (selected) {
     const unaddressed = await q('to-address',
@@ -301,7 +328,17 @@ async function buildHome(pool, agentId, opts = {}) {
   // THE ONLY BLOCKING LINE ON THE PAGE, and only when it blocks. The compliance
   // gate needs a date of birth to decide anything, so without one nothing for
   // this athlete can be approved. Named as the thing to fix, not as a status.
-  const blocked = !!(who && !who.dob);
+  // ── AND THE CHECKBOX COUNTS ───────────────────────────────────────────────
+  // This read `!who.dob` alone, which was correct until the date of birth stopped
+  // being the only way to answer the age question. An agent who ticked "18 or
+  // over" on Add Client still saw "no date of birth on file, so nothing can be
+  // approved yet" -- a blocking line on the one page they read every morning,
+  // about a question they had already answered.
+  // jsonb ->> returns TEXT, so the checkbox arrives as 'true'/'false', never a
+  // boolean. Comparing to === true would have made this fix do nothing at all.
+  const ageKnown = !!(who && (who.dob || who.over18 === 'true' || who.over18 === 'false'
+    || who.over18 === true || who.over18 === false));
+  const blocked = !ageKnown && !!who;
 
   return {
     // The tab count MATCHES THE SCREEN. Showing 63 on a tab that renders five
@@ -318,9 +355,16 @@ async function buildHome(pool, agentId, opts = {}) {
     // blocking line on the one page an agent reads every morning is the last
     // place to guess at one.
     blocker: blocked
-      ? { text: `${(who.name || 'This athlete').split(' ')[0]} has no date of birth on file, `
-          + 'so nothing can be approved yet.', cta: 'Add it', href: '/?view=athletes' }
+      ? { text: `${(who.name || 'This athlete').split(' ')[0]} has no age on file, `
+          + 'so nothing can be approved yet. Tick "18 or over" on their profile, '
+          + 'or add a date of birth.', cta: 'Fix it', href: '/?view=athletes' }
       : null,
+    // ── PAUSED ATHLETES, ON THE PAGE THAT WORKS CARDS ──────────────────────
+    // This lived only on the Outreach tab's queue renderer, which is being
+    // removed -- and it carries the ONLY Resume button in the product, the
+    // manual exit from a pause that had no exit at all. Moved here rather than
+    // deleted with the rest of that block.
+    paused,
     cards: cards.map((c) => {
       // deriveWhy reads a card's own vocabulary; the normalised card uses one
       // name per concept across two schemas, so it is handed the three sources

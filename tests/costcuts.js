@@ -148,9 +148,15 @@ ok('on-demand is gated on the same ENABLED flag as the nightly job',
   /function OQfillOnDemandEnabled\(\)[\s\S]{0,160}require\('\.\/jobs\/outreachQueue'\)\.ENABLED/.test(idxSrc));
 
 const htmlSrc = fs.readFileSync(REPO + 'public/index.html', 'utf8');
-ok('the client reads data.paused', /\(\(data && data\.paused\) \|\| \[\]\)\.forEach/.test(htmlSrc));
-ok('paused outranks the ordinary empty state', /\} else if \(pausedByAthlete\[_hqSelectedAthlete\]\) \{/.test(htmlSrc));
-ok('the paused tab is visually marked', /pausedByAthlete\[a\.id\] \? ' paused' : ''/.test(htmlSrc));
+// ── THESE MOVED TO HOME ─────────────────────────────────────────────────────
+// The Outreach tab carried a second copy of the morning queue, and the paused
+// surface lived on it. That copy is gone -- Home is the only place cards are
+// worked -- so the same three claims are asserted against Home's renderer. The
+// BEHAVIOUR is unchanged: a paused athlete is marked on their tab, and opening
+// them shows why and offers Resume rather than an ordinary empty queue.
+ok('the client reads data.paused', /\(d\.paused \|\| \[\]\)\.forEach/.test(htmlSrc));
+ok('paused outranks the ordinary empty state', /if \(!d\.cards\.length && _paused\) \{/.test(htmlSrc));
+ok('the paused tab is visually marked', /_pausedIds\[a\.id\] \? ' paused' : ''/.test(htmlSrc));
 
 OUT.push(''); OUT.push('failures: ' + FAIL);
 console.log(OUT.join('\n'));

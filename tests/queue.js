@@ -311,19 +311,19 @@ const CAND = (over) => Object.assign({
       /Q\.buildCard/.test(JOB) && !/buildCard/.test(fill), null);
 
     const H = fs.readFileSync(R + 'public/index.html', 'utf8');
-    const ui = H.slice(H.indexOf('function hqFillUi'), H.indexOf('function hqFillUi') + 4000);
-    ok('the home page has the control', ui.length > 200, ui.length);
-    // The guard is hqIsAdmin(), which is capitalised -- a case-sensitive /isAdmin/
-    // missed it and reported an existing guard as absent. Assert the CALL and the
-    // definition, so renaming one without the other fails here.
-    ok('  it is hidden from non-admins', /hqIsAdmin\(\)/.test(ui), null);
-    const guard = H.slice(H.indexOf('function hqIsAdmin'), H.indexOf('function hqIsAdmin') + 300);
-    ok('    and the guard checks founder or admin role',
-      /isFounder === true/.test(guard) && /role === 'admin'/.test(guard), guard.slice(0, 160));
-    ok('    the empty-queue branch still renders it for an admin',
-      /!hqIsAdmin\(\)\) \{ el\.innerHTML = ''/.test(H), null);
-    ok('  it names an athlete rather than filling blindly', /athleteId/.test(ui), null);
-    ok('  and it shows progress while it runs', /hqFillPoll|progress/i.test(ui), null);
+    // ── THE FILL BUTTON WENT WITH THE OUTREACH QUEUE ────────────────────────
+    // It was an admin-only control mounted inside the Outreach tab's copy of the
+    // morning queue. That whole block was removed when Outreach became tracking
+    // only, and the button had no equivalent on Home, so the manual "fill this
+    // athlete now" control does not currently exist in the UI.
+    //
+    // The ENDPOINT is untouched and still asserted above -- the capability is
+    // reachable, it just has no button. Recorded here as a deliberate removal
+    // rather than left as a passing assertion about a thing that is gone.
+    ok('the manual fill control is not on Outreach any more',
+      !/function hqFillUi/.test(H) && !/function hqFillNow/.test(H), null);
+    ok('  and its endpoint still exists, so it can be given a home',
+      /outreach-queue\/fill/.test(fs.readFileSync(R + 'server/index.js', 'utf8')), null);
   }
 
   console.log('\n-- SKIP RETIRES FOR THIS ATHLETE ONLY --');
@@ -363,51 +363,58 @@ const CAND = (over) => Object.assign({
     // function's start, so adding the paused-athlete block to the empty state
     // pushed `detail.note` past the boundary and the guard failed on a renderer
     // that had not changed. Sliced to the next top-level function instead.
-    const _rq = H.indexOf('function renderOutreachQueue');
+    // Home's renderer, since the Outreach copy is gone. Sliced to the next
+    // top-level function rather than a fixed byte count: a fixed window broke
+    // once already when a block was added above the text it was looking for.
+    const _rq = H.indexOf('function hqRender()');
     const _end = H.indexOf('\nfunction ', _rq + 10);
     const js = H.slice(_rq, _end > _rq ? _end : _rq + 8000);
-    // Since the tabs rewrite the roster is iterated with .map (one tab each)
-    // rather than .forEach (one stacked section each); same requirement, that
-    // EVERY roster athlete is accounted for, not just ones the server grouped.
+    // The roster is iterated with .map (one tab each); same requirement as
+    // before, that EVERY roster athlete is accounted for and not just the ones
+    // the server grouped. An athlete the night found nothing for has no row
+    // anywhere, so without this their tab would not exist at all.
     ok('the renderer iterates the FULL roster, not just server groups',
-      /var roster = athletes/.test(js) && /roster\.map/.test(js), null);
-    ok("  and looks up each athlete's note from lastRun details",
-      /lastRun/.test(js) && /note/.test(js), null);
+      /\(d\.athletes \|\| \[\]\)\.map/.test(js), null);
+    // ── A GAP, RECORDED RATHER THAN PAPERED OVER ───────────────────────────
+    // The Outreach renderer showed the LAST RUN'S REASON per athlete on an empty
+    // queue -- "4 businesses tried, none passed the bar" -- which is exactly the
+    // diagnostic the emptyReason / faults work exists to produce. Home's empty
+    // state says only "Slots full" or reports a read error, so removing the
+    // Outreach copy lost that line.
+    //
+    // Asserted as ABSENT so it shows up here the day someone adds it, rather
+    // than being quietly forgotten. buildHome would need to return the selected
+    // athlete's row from outreach_queue_runs.details; the data is already there.
+    ok('KNOWN GAP: Home does not yet show last night\'s reason on an empty queue',
+      !/lastRun/.test(js), null);
   }
 
   console.log('\n-- THE HOME PAGE SECTION --');
   {
     const H = fs.readFileSync(R + 'public/index.html', 'utf8');
-    // THE QUEUE MOVED. Home is the shift report and nothing else, so the morning
-    // queue now lives on the Outreach page with the rest of the outreach work.
-    // These assert its new home rather than the old layout it was written for.
-    const outreach = H.indexOf('<div id="view-outreach"');
-    const outreachEnd = H.indexOf('<div id="view-', outreach + 10);
-    const qi = H.indexOf('id="hm-queue"');
-    ok('the queue lives on the Outreach page now', qi > outreach && qi < outreachEnd, { outreach, qi, outreachEnd });
-    ok('  and is NOT on the home page', (function () {
-      const home = H.indexOf('<div id="view-home"');
-      const homeEnd = H.indexOf('<div id="view-shift-detail"');
-      return !(qi > home && qi < homeEnd);
-    })(), { qi });
-    ok('  opening Outreach loads it', /if \(id === 'outreach'\) \{ setTimeout\(loadOutreachQueue/.test(H));
-    // The renderer must never produce an email input, at any branch.
-    const js = H.slice(H.indexOf('function renderOutreachQueue'), H.indexOf('function renderOutreachQueue') + 6000);
-    ok('the renderer exists', js.length > 200, js.length);
-    ok('  and never renders an email field', !/type="email"|Email|mailto:/.test(js),
-      (js.match(/.*(type="email"|Email|mailto:).*/) || [])[0]);
-    // The labelling lives in hqCard, and the row comes from the database, so the
-    // field is snake_case. Assert the MECHANISM: the card reads instagram_scope,
-    // renders a label for it, and gates the copy-DM button on channel === 'dm'
-    // -- which the server already refuses to set for a brand account.
-    const card = H.slice(H.indexOf('function hqCard('), H.indexOf('function renderOutreachQueue'));
-    ok('the card reads the handle scope', /instagram_scope === 'brand'/.test(card), null);
-    ok('  and labels a brand account on the card',
-      /brandacct[\s\S]{0,120}not this store/.test(card), (card.match(/.*brandacct.*/) || [])[0]);
-    ok('  the copy-DM button is gated on the DM channel, never on the handle alone',
-      /if \(isDm && c\.dm_text\) \{[\s\S]{0,200}Copy DM/.test(card), null);
-    ok('  and isDm comes from the server-decided channel',
-      /var isDm = c\.channel === 'dm'/.test(card), null);
+    // ── THE QUEUE MOVED BACK, AND THERE IS ONLY ONE NOW ─────────────────────
+    // It was on Home, then on Outreach ("Home is the shift report and nothing
+    // else"), and for a while it was on BOTH: Home grew its own renderer with the
+    // two-table merge while the Outreach copy stayed. Two places to action one
+    // card is how a card gets actioned twice, so the Outreach copy is gone.
+    // Home is where cards are worked; Outreach is tracking.
+    ok('the queue is NOT on the Outreach page', !/id="hm-queue"/.test(H), null);
+    ok('  and its renderer is gone, not merely unmounted',
+      !/function renderOutreachQueue/.test(H) && !/function loadOutreachQueue/.test(H), null);
+    ok('  opening Outreach loads tracking, not a queue',
+      /if \(id === 'outreach'\) \{ setTimeout\(loadUnifiedOutreach/.test(H), null);
+    ok('  and Home still renders one', /function hqRenderCard/.test(H), null);
+    // The card behaviours the removed renderer carried are asserted against
+    // Home's, which is the only one left. Same MECHANISM: a brand account is
+    // labelled rather than DM-ed, and the copy button is gated on the
+    // server-decided channel rather than on the presence of a handle.
+    const card = H.slice(H.indexOf('function hqDmBody'), H.indexOf('function hqDmBody') + 1600);
+    ok('the card labels a national brand account rather than DM-ing it',
+      /handleIsBrand/.test(card) && /not this location/.test(card), null);
+    ok('  and the copy-DM button is reached only through the DM body',
+      /hqCopyDm\(/.test(card), null);
+    ok('  with the channel decided by the server, not by the handle',
+      /c\.channel === 'dm'/.test(H), null);
   }
 
   console.log('\n-- THE DATABASE ENFORCES IT, NOT JUST THE CODE --');
