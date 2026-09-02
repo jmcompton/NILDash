@@ -1343,6 +1343,17 @@ function _validRestrictions(v) {
   return v.map((x) => String(x || '').trim().toLowerCase()).filter((x) => known.has(x));
 }
 
+// ── THE OVER-18 ANSWER ──────────────────────────────────────────────────────
+// Three states, and the third is not a "no". An athlete nobody has answered for
+// is UNKNOWN, which is what the gate has always held on; only an explicit tick
+// or untick is a fact. Coercing undefined to false would mark every existing
+// athlete on every roster a minor overnight.
+function _validOver18(v) {
+  if (v === true || v === 'true') return true;
+  if (v === false || v === 'false') return false;
+  return undefined;
+}
+
 function _validDob(v) {
   if (!v) return '';
   const s = String(v).trim();
@@ -1357,7 +1368,7 @@ function _validDob(v) {
 
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
-  const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa,
+  const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa, over18,
           instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name, dob,
           schoolRestrictions } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
@@ -1429,10 +1440,18 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     // gate already handles. Empty means not on file, which HOLDS restricted
     // categories rather than assuming an adult.
     dob: _validDob(dob),
+    // WHETHER THE AGENT SAYS THIS ATHLETE IS 18+. Requiring a date of birth meant
+    // every new athlete was held on every restricted category until somebody went
+    // and found a birthday -- a wall between signing a client and working for
+    // them. The agent knows whether their own client is eighteen; they do not
+    // always know the date. A real dob still wins over this wherever both exist.
+    over18: _validOver18(over18),
     // AGENT-SUPPLIED SCHOOL RESTRICTIONS. Filtered to the categories the gate
     // actually knows, so a typo cannot create a rule that blocks everything and
     // matches nothing. This is what the agent says their school restricts; it is
     // never checked with the school and the record says so wherever it appears.
+    // The Add Client form no longer collects these -- the compliance agent owns
+    // category policy -- but anything already stored is preserved and still read.
     schoolRestrictions: _validRestrictions(schoolRestrictions),
     // Interest tags ("industry:sub" strings) and product wants feed Deal Scan.
     tags: Array.isArray(tags) ? tags.filter(t => typeof t === 'string').slice(0, 40) : [],
@@ -1542,6 +1561,12 @@ app.put('/api/athletes/:id', requireAuth, async (req, res) => {
   // straight through here and the compliance gate would resolve minor status
   // from it -- an unvalidated date is worse than none, because none holds.
   if ('dob' in patch) patch.dob = _validDob(patch.dob);
+  // undefined means "no answer given", and must not overwrite an answer already
+  // on file -- so the key is dropped rather than written as a null.
+  if ('over18' in patch) {
+    const o = _validOver18(patch.over18);
+    if (o === undefined) delete patch.over18; else patch.over18 = o;
+  }
   if ('schoolRestrictions' in patch) patch.schoolRestrictions = _validRestrictions(patch.schoolRestrictions);
   const updated = await store.saveAthlete(req.params.id, { ...existing, ...patch });
   res.json(updated);
@@ -3317,10 +3342,26 @@ app.post('/api/ai/player-fetch', requireAuth, aiLimiter, async (req, res) => {
 
       if (!rawName) return res.json({ found: false, error: 'Could not parse player name from URL — try the AI Lookup button instead.' });
 
+      // ── THE SEASON THE PROMPT ASKS FOR ────────────────────────────────────
+      // The example format was hardcoded "2023 | 2024 | 2025", so the model
+      // anchored on it and returned a career log that stopped a year short --
+      // an athlete's CURRENT season, the one a brand actually cares about, was
+      // missing from every lookup. The years are computed now, so this ages with
+      // the product instead of drifting one season further behind every autumn.
+      //
+      // A college season is named for the year it STARTS: the 2026 season runs
+      // autumn 2026 to spring 2027. Before August the season in progress is the
+      // one that started last year.
+      const _now = new Date();
+      const _seasonYear = _now.getMonth() + 1 >= 8 ? _now.getFullYear() : _now.getFullYear() - 1;
+      const _years = [_seasonYear - 3, _seasonYear - 2, _seasonYear - 1, _seasonYear];
+
       const prompt = `You are a college sports database. Look up: ${rawName}${sport ? ' (' + sport + ')' : ''}.
 
-Pull ALL available seasons of stats — do not limit to one year. Format the stats field as a full career log:
-"2023: [stats] | 2024: [stats] | 2025: [stats if available]"
+Pull ALL available seasons of stats — do not limit to one year. Format the stats field as a full career log, OLDEST FIRST:
+"${_years.map((y) => y + ': [stats]').join(' | ')}"
+
+THE CURRENT SEASON IS ${_seasonYear}. It matters more than any other season, because it is the one a brand is being pitched on. Include it if you have any data for it at all, even partial. If your data does not reach ${_seasonYear}, say so explicitly in the notes field ("no ${_seasonYear} data available") rather than silently returning ${_seasonYear - 1} as though it were current — a stale season presented as the current one is worse than an honest gap.
 
 For each season include the actual numbers (PPG/RPG/APG for basketball, rush yards/TDs/YPC or rec/yards/TDs for football, ERA/AVG/HR for baseball, etc). If a season is unavailable in your training data, omit it — do not fabricate numbers.
 
@@ -3339,7 +3380,7 @@ Return this JSON:
   "sport": "sport",
   "position": "position abbreviation",
   "year": "eligibility year (Freshman/Sophomore/Junior/Senior/Grad Transfer)",
-  "stats": "full career stats log: 2023: X | 2024: X | 2025: X",
+  "stats": "full career stats log, oldest first, ending at ${_seasonYear} if there is any data for it",
   "height": "e.g. 6-1",
   "weight": "e.g. 215 lbs",
   "hometown": "city, state",
@@ -3347,11 +3388,11 @@ Return this JSON:
   "tiktok": 0,
   "engagement": 0,
   "schoolTier": "p4-top10|p4-mid|p4-lower|mid-top|mid-lower|highmajor-top",
-  "notes": "recruiting ranking, awards by season, transfer history, draft projection"
+  "notes": "recruiting ranking, awards by season, transfer history, draft projection, and an explicit note if there is no ${_seasonYear} data"
 }
 
 Return ONLY the JSON. No markdown, no explanation.`;
-      const raw = await ai.oneShot(prompt, 'You are a precise college sports database. Return only verified career statistics across all seasons. Never fabricate numbers. Return only valid JSON.', 5000);
+      const raw = await ai.oneShot(prompt, 'You are a precise college sports database. Return only verified career statistics across all seasons, including the current one. Never fabricate numbers, and never present an older season as the current one. Return only valid JSON.', 5000);
       const cleaned = raw.replace(/```json/g,'').replace(/```/g,'').trim();
       const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return res.json({ found: false });

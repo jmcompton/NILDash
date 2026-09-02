@@ -542,6 +542,10 @@ async function complianceGate(pool, log, opts = {}) {
     brandName: log.brand_name,
     evidence: log.places_evidence || null,
     dob: log.dob || null,
+    // Used only when dob is absent. The agent attests their own client is 18+;
+    // a date of birth, when we have one, always wins over it.
+    over18: log.over18 === true || log.over18 === 'true' ? true
+      : (log.over18 === false || log.over18 === 'false' ? false : undefined),
     // Carried so the gate can tell "this athlete has no birthday on file" from
     // "this athlete does not exist". Different faults, different fixes, and they
     // must not both read as a hold.
@@ -601,6 +605,7 @@ async function releaseDue(pool, opts = {}) {
   const due = (await pool.query(
     `SELECT l.*, a.data->>'name' AS athlete_name, e.location AS biz_address,
             a.data->>'school' AS school, a.data->>'dob' AS dob,
+            a.data->>'over18' AS over18,
             a.data->'schoolRestrictions' AS school_restrictions,
             -- The Places record for this business, for the compliance gate. Same
             -- join buildBatch already uses for the address; lane='places'

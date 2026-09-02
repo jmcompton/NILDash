@@ -209,6 +209,31 @@ function ageFrom(dob, now, opts = {}) {
       detail: opts.sourceDetail || 'the athlete record could not be read' };
   }
   if (dob === undefined || dob === null || dob === '') {
+    // ── THE ATTESTATION, WHEN THERE IS NO BIRTHDAY ─────────────────────────
+    //
+    // Requiring a date of birth meant every new athlete was held on every
+    // restricted category until an agent went and found a birthday, which for a
+    // roster of 45 is a wall between signing a client and doing anything for
+    // them. The agent knows whether their own client is eighteen; they do not
+    // always know the date.
+    //
+    // A DOB STILL WINS when we have one -- it is checkable and this is not, so
+    // this only ever fills a gap, never overrides. `source` travels with the
+    // answer so the compliance log records WHICH kind of evidence decided a
+    // send, and an attested adult can be told apart from a verified one later.
+    //
+    // What this does NOT do is open the hard categories. Every restricted
+    // category's `adult` severity is 'hold' or 'block', never 'pass', so an
+    // attested adult still gets a human decision on alcohol, tobacco, cannabis,
+    // gambling and firearms. It moves them from block to hold, not to send.
+    if (opts.over18 === true) {
+      return { known: true, minor: false, years: null, reason: null, source: 'attested' };
+    }
+    // An explicit "no" is stronger information than silence and is treated as
+    // such: a known minor, blocked outright rather than merely held.
+    if (opts.over18 === false) {
+      return { known: true, minor: true, years: null, reason: null, source: 'attested' };
+    }
     return { known: false, minor: null, years: null, reason: 'absent' };
   }
   const d = new Date(dob);
@@ -220,7 +245,8 @@ function ageFrom(dob, now, opts = {}) {
   const m = ref.getUTCMonth() - d.getUTCMonth();
   if (m < 0 || (m === 0 && ref.getUTCDate() < d.getUTCDate())) years--;
   if (years < 0 || years > 120) return bad(`the stored date of birth implies an age of ${years}`);
-  return { known: true, minor: years < 18, years, reason: null };
+  // A real date, so `source` says so -- the attestation above never reaches here.
+  return { known: true, minor: years < 18, years, reason: null, source: 'dob' };
 }
 
 // The severity table. Unknown age is ITS OWN ROW and always at least a hold: we
@@ -267,6 +293,8 @@ async function evaluate(pool, ctx) {
     const age = ageFrom(ctx.dob, ctx.now, {
       sourceUnreadable: !!ctx.athleteUnreadable,
       sourceDetail: ctx.athleteUnreadableDetail,
+      // The agent's over-18 answer, used only when no date of birth is on file.
+      over18: ctx.over18,
     });
 
     // ── THE SOURCE ITSELF IS BROKEN. ERROR, NOT HOLD. ───────────────────────
@@ -455,7 +483,9 @@ async function recordFindings(pool, ctx, result) {
             source: f.source || 'rule',
             schoolRestrictions: Array.isArray(ctx.schoolRestrictions) ? ctx.schoolRestrictions : [],
             dob: ctx.dob ? 'on file' : null,      // the VALUE never goes in the log
-            age: ageFrom(ctx.dob, ctx.now),
+            // WHICH kind of evidence decided this, so an attested adult is never
+            // mistaken for a verified one when someone audits a send later.
+            age: ageFrom(ctx.dob, ctx.now, { over18: ctx.over18 }),
             placesTypes: (ctx.evidence && ctx.evidence.types) || null,
             school: ctx.school || null, stateCode: ctx.stateCode || null,
             failedClosed: !!result.failedClosed,

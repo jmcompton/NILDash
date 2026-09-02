@@ -1865,7 +1865,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('roster',this)">
         <span class="nav-dot-item"></span>My Roster
       </button>
-      <button class="nav-item" onclick="showView('add-athlete',this)" id="addAthleteNavBtn">
+      <button class="nav-item" onclick="resetAthleteForm();showView('add-athlete',this)" id="addAthleteNavBtn">
         <span class="nav-dot-item"></span>Add Client
       </button>
       <!-- AI Command: held in the sidebar pending a placement decision -->
@@ -3494,27 +3494,33 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <input class="input-sm" id="a_hometown" placeholder="e.g. Johns Creek, GA">
             <div style="font-size:10px;color:var(--muted);margin-top:2px">Deal Scan also searches the hometown market when this is set.</div>
           </div>
-          <!-- DATE OF BIRTH. The compliance gate cannot rule out that an athlete
-               is a minor without this, so a restricted-category business is HELD.
-               Blank stays blank: an agent who does not know must not be nudged
-               into guessing, because a wrong date resolves minor status wrongly
-               and a blank one is already safe. -->
+          <!-- AGE. The gate needs to know whether this athlete is a minor; it does
+               not need a birthday to know that, and requiring one held every new
+               athlete on every restricted category until somebody went and found
+               a date. An agent knows whether their own client is eighteen.
+
+               The date of birth stays, optional, and still WINS when present --
+               it is checkable and the checkbox is not, so the attestation only
+               ever fills a gap. Defaulted from class year on the reasoning that a
+               sophomore or above is over 18 far more often than not; a freshman
+               is left unticked because that is the case where it is genuinely a
+               coin toss. -->
+          <div class="form-group-sm">
+            <label class="form-label-sm">Age</label>
+            <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;padding:6px 0">
+              <input type="checkbox" id="a_over18" onchange="this.dataset.touched='1'" style="margin-top:2px;flex:0 0 auto">
+              <span style="font-size:12px;line-height:1.5">This athlete is 18 or over</span>
+            </label>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">
+              Untick for a minor. Alcohol, tobacco, cannabis, gambling and firearms are still
+              reviewed by a person either way — this decides whether they are held for review
+              or blocked outright.
+            </div>
+          </div>
           <div class="form-group-sm">
             <label class="form-label-sm">Date of birth <span style="color:var(--muted);font-weight:400">(optional)</span></label>
             <input class="input-sm" id="a_dob" type="date">
-            <div style="font-size:10px;color:var(--muted);margin-top:2px">Without it, pitches to alcohol, tobacco, cannabis, gambling and firearms businesses are held. Leave blank if you do not know.</div>
-          </div>
-
-          <!-- SCHOOL RESTRICTIONS, AGENT-SUPPLIED. We hold no school policy data
-               and are not going to scrape it from behind a student login. The
-               agent often knows. Every label on this block says who said so. -->
-          <div class="form-group-sm">
-            <label class="form-label-sm">Categories this school restricts</label>
-            <div style="font-size:10px;color:var(--muted);margin-bottom:6px">
-              What <b>you</b> know of their policy. We do not check this with the school and never say we have.
-              Anything ticked here blocks outreach to that category for this athlete.
-            </div>
-            <div id="a_school_restrictions" class="cat-toggles"></div>
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">Only if you have it. A real date always overrides the box above.</div>
           </div>
           <div class="form-group-sm">
             <label class="form-label-sm">Interests</label>
@@ -3588,7 +3594,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
           </div>
           <div class="form-group-sm"><label class="form-label-sm">Notes</label><input class="input-sm" id="a_notes" placeholder="Draft year, brand restrictions, etc."></div>
           <div class="form-group-sm"><label class="form-label-sm">Year</label>
-            <select class="select-sm" id="a_year">
+            <select class="select-sm" id="a_year" onchange="acYearChanged()">
               <option value="">Unknown</option>
               <option value="Freshman">Freshman</option>
               <option value="Sophomore">Sophomore</option>
@@ -6326,6 +6332,42 @@ async function refreshAthleteStats(id, btn) {
 
 let _editingAthleteId = null;
 
+// ── A NEW CLIENT STARTS EMPTY ───────────────────────────────────────────────
+//
+// showView('add-athlete') only ever SHOWED the pane. editAthlete fills every
+// field on it, and nothing cleared them again -- so opening Add Client after
+// editing someone presented that athlete's followers, engagement rate, school
+// and stats as the defaults for the next one. The engagement rate was the field
+// people noticed, because it is the only one that looks plausible rather than
+// obviously wrong: 4.8% for an athlete nobody had measured.
+//
+// The only reset that existed ran AFTER a successful create, which is the one
+// moment the form is already being left.
+function resetAthleteForm() {
+  _editingAthleteId = null;
+  _statFetchedSource = null;
+  [
+    'a_name', 'a_legal_name', 'a_pos', 'a_school', 'a_email', 'a_parent_email',
+    'a_ig', 'a_tt', 'a_eng', 'a_notes', 'a_handle', 'a_hometown', 'a_productwants',
+    'a_dob', 'a_stats', 'a_transfer_reason', 'a_gpa',
+    'a_ppg', 'a_rpg', 'a_apg', 'a_fgpct', 'a_bpg', 'a_spg', 'a_per', 'a_draft',
+  ].forEach((id) => { const e = document.getElementById(id); if (e) e.value = ''; });
+  ['a_tier', 'a_sport', 'a_year'].forEach((id) => {
+    const e = document.getElementById(id); if (e) e.selectedIndex = 0;
+  });
+  const o18 = document.getElementById('a_over18');
+  if (o18) { o18.checked = false; delete o18.dataset.touched; }
+  if (typeof renderTagPicker === 'function') renderTagPicker('a_tags', []);
+  // The per-field provenance labels describe numbers that are now gone. Leaving
+  // them would caption an empty box with where the LAST athlete's figure came from.
+  ['a-ig-src', 'a-eng-src', 'a-fetch-status'].forEach((id) => {
+    const e = document.getElementById(id); if (e) e.innerHTML = '';
+  });
+  const err = document.getElementById('addAthleteError'); if (err) err.textContent = '';
+  const btn = document.getElementById('saveAthleteBtn');
+  if (btn) { btn.textContent = 'Save Client →'; btn.setAttribute('onclick', 'addAthlete()'); }
+}
+
 async function editAthlete(id) {
   _editingAthleteId = id;
   const a = athletes.find(x => x.id === id);
@@ -6340,7 +6382,6 @@ async function editAthlete(id) {
   const aEmailEl = document.getElementById('a_email'); if (aEmailEl) aEmailEl.value = a.email || '';
   const aPEmailEl = document.getElementById('a_parent_email'); if (aPEmailEl) aPEmailEl.value = a.parentEmail || '';
   const aDobEl = document.getElementById('a_dob'); if (aDobEl) aDobEl.value = a.dob || '';
-  renderCatToggles('a_school_restrictions', a.schoolRestrictions || []);
   document.getElementById('a_tier').value = a.schoolTier || 'p4-mid';
   document.getElementById('a_ig').value = a.instagram || '';
   document.getElementById('a_tt').value = a.tiktok || '';
@@ -6362,6 +6403,15 @@ async function editAthlete(id) {
   const draftEl = document.getElementById('a_draft'); if (draftEl) draftEl.value = a.draftStatus || '';
   const yearEl = document.getElementById('a_year');
   if (yearEl && a.year) { for (let o of yearEl.options) { if (o.value === a.year) { yearEl.value = a.year; break; } } }
+  // AN ANSWER ALREADY ON FILE IS NEVER OVERWRITTEN BY THE DEFAULT. Editing an
+  // athlete an agent has explicitly marked a minor must not silently flip them
+  // back to adult because their year says sophomore.
+  const o18El = document.getElementById('a_over18');
+  if (o18El) {
+    o18El.checked = (a.over18 === true || a.over18 === 'true') ? true
+      : (a.over18 === false || a.over18 === 'false') ? false
+      : acOver18Default(a.year);
+  }
   const statsEl = document.getElementById('a_stats');
   if (statsEl) statsEl.value = a.stats || '';
   const trEl = document.getElementById('a_transfer_reason');
@@ -6371,6 +6421,26 @@ async function editAthlete(id) {
   if (btn) { btn.textContent = 'Update Client →'; btn.setAttribute('onclick', `updateAthlete('${id}')`); }
   document.getElementById('addAthleteError').textContent = '';
   showToast('Editing ' + a.name + ' — make changes and click Update');
+}
+
+// ── OVER 18, DEFAULTED FROM CLASS YEAR ──────────────────────────────────────
+// A sophomore or above is over 18 far more often than not, so defaulting saves
+// the agent a click on most of a roster. A freshman is genuinely a coin toss and
+// an unknown year tells us nothing, so both start unticked -- a default that is
+// wrong half the time is worse than no default, because it gets trusted.
+//
+// This is a DEFAULT, not a rule: it only ever sets the box on a form the agent
+// is about to look at, and anything they set by hand wins from then on.
+function acOver18Default(year) {
+  const y = String(year || '').trim().toLowerCase();
+  return /soph|junior|\bjr\b|senior|\bsr\b|grad/.test(y);
+}
+// Only moves the box while the agent has not touched it themselves.
+function acYearChanged() {
+  const o18 = document.getElementById('a_over18');
+  const yr = document.getElementById('a_year');
+  if (!o18 || !yr || o18.dataset.touched === '1') return;
+  o18.checked = acOver18Default(yr.value);
 }
 
 // ── School restriction toggles ───────────────────────────────────────────────
@@ -6419,7 +6489,11 @@ async function updateAthlete(id) {
     transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
     hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
     dob: (document.getElementById('a_dob') ? document.getElementById('a_dob').value : '').trim(),
-    schoolRestrictions: catTogglesValue('a_school_restrictions'),
+    // schoolRestrictions is deliberately NOT sent. The section is gone from this
+    // form -- the compliance agent owns category policy now -- and the server
+    // merges ({...existing, ...patch}), so omitting the key leaves whatever an
+    // agent previously ticked untouched rather than silently wiping it.
+    over18: document.getElementById('a_over18') ? !!document.getElementById('a_over18').checked : undefined,
     tags: tagPickerValue('a_tags'),
     productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
     instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
@@ -6471,7 +6545,9 @@ async function addAthlete() {
         gpa: document.getElementById('a_gpa') ? document.getElementById('a_gpa').value : '',
         hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
         dob: (document.getElementById('a_dob') ? document.getElementById('a_dob').value : '').trim(),
-        schoolRestrictions: catTogglesValue('a_school_restrictions'),
+        // See the update payload: the restrictions section is gone from this form,
+        // so the key is not sent and nothing already stored is overwritten.
+        over18: document.getElementById('a_over18') ? !!document.getElementById('a_over18').checked : undefined,
         tags: tagPickerValue('a_tags'),
         productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
         instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
@@ -6494,7 +6570,8 @@ async function addAthlete() {
     showToast(' ' + data.name + ' added to roster!');
     ['a_name','a_legal_name','a_pos','a_school','a_email','a_parent_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants','a_dob'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     renderTagPicker('a_tags', []);
-    renderCatToggles('a_school_restrictions', []);
+    const _o18 = document.getElementById('a_over18');
+    if (_o18) { _o18.checked = false; delete _o18.dataset.touched; }
     _statFetchedSource = null;
     const igSrc = document.getElementById('a-ig-src'); if (igSrc) igSrc.textContent = '';
     const engSrc = document.getElementById('a-eng-src'); if (engSrc) engSrc.textContent = '';

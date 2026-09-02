@@ -747,6 +747,11 @@
       "failed": 0,
       "total": 43,
       "fault": null
+    },
+    "over18.js": {
+      "failed": 0,
+      "total": 48,
+      "fault": null
     }
   }
 }
