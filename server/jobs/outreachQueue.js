@@ -33,7 +33,7 @@ const store = require('../store');
 const scanMeter = require('../scanMeter');
 const ai = require('../ai');
 const { buildContactLadder } = require('../services/contactLadder');
-const { lookupPlace } = require('../services/placesLookup');
+const { lookupPlace, lookupPlaceResult } = require('../services/placesLookup');
 const { findInstagram } = require('../services/instagramLookup');
 const SIG = require('../services/signature');
 const SchoolGeo = require('../services/schoolGeocode');
@@ -354,7 +354,12 @@ async function regionForAthleteAsync(athlete) {
   const school = (athlete && athlete.data && athlete.data.school)
     || (athlete && athlete.school) || '';
   if (!SchoolGeo.usable(school)) return { region: '', geocoded: false };
-  const hit = await SchoolGeo.geocodeSchool(school, { lookupPlace, store }).catch(() => null);
+  // lookupPlaceResult, not lookupPlace: geocodeSchool WRITES ITS ANSWER DOWN for
+  // six months, so it has to be able to tell "there is no such place" from "we
+  // could not ask". Handed the bare lookupPlace it refuses to cache anything
+  // negative at all, which is safe but re-pays for every unresolved school
+  // nightly.
+  const hit = await SchoolGeo.geocodeSchool(school, { lookupPlaceResult, store }).catch(() => null);
   if (!hit) return { region: '', geocoded: false };
   return { region: hit.market, geocoded: true, geocodeSource: hit.source };
 }

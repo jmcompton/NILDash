@@ -73,44 +73,179 @@ async function main() {
   ok('a real school name IS usable', SG.usable('Bentley University') === true);
 
   // ── THE GEOCODE ITSELF, WITH PLACES STUBBED ───────────────────────────────
+  // A campus result, shaped like what _mapPlace really returns: Places labels a
+  // university with a `types` array, and that is what tells a campus from a car
+  // showroom of the same name.
+  const CAMPUS = {
+    name: 'Bentley University', types: ['university', 'point_of_interest', 'establishment'],
+    address: '175 Forest St, Waltham, MA 02452, USA',
+  };
+  const memoStore = () => {
+    const memo = {};
+    return {
+      memo,
+      getBrandEvidence: async (k, lane) => memo[lane + ':' + k] || null,
+      saveBrandEvidence: async (k, lane, brand, site, ev) => {
+        memo[lane + ':' + k] = { evidence: ev, refreshed_at: new Date().toISOString() };
+      },
+    };
+  };
+
   let calls = 0;
-  const lookupPlace = async (name) => {
+  // The REAL contract: { ok, place, reason }. ok:false means we could not ask.
+  const lookupPlaceResult = async (name) => {
     calls++;
-    if (/bentley/i.test(name)) return { address: '175 Forest St, Waltham, MA 02452, USA' };
-    return null;
+    if (/bentley/i.test(name)) return { ok: true, place: CAMPUS, reason: 'found' };
+    return { ok: true, place: null, reason: 'not-found' };
   };
-  const memo = {};
-  const fakeStore = {
-    getBrandEvidence: async (k, lane) => memo[lane + ':' + k] || null,
-    saveBrandEvidence: async (k, lane, brand, site, ev) => { memo[lane + ':' + k] = { evidence: ev }; },
-  };
-  const hit = await SG.geocodeSchool('Bentley University', { lookupPlace, store: fakeStore });
+  const fakeStore = memoStore();
+  const hit = await SG.geocodeSchool('Bentley University', { lookupPlaceResult, store: fakeStore });
   ok('AN UNMAPPED SCHOOL GEOCODES TO ITS TOWN',
     hit && hit.market === 'Waltham, MA', hit);
   ok('  and the athlete gets a local lane there', !!(hit && hit.city && hit.state), hit);
 
   calls = 0;
-  const again = await SG.geocodeSchool('Bentley University', { lookupPlace, store: fakeStore });
+  const again = await SG.geocodeSchool('Bentley University', { lookupPlaceResult, store: fakeStore });
   ok('  CACHED, so a roster of 45 at one school is one lookup',
     again && again.market === 'Waltham, MA' && calls === 0, { again, calls });
 
   calls = 0;
-  const miss = await SG.geocodeSchool('Not A Real School Anywhere', { lookupPlace, store: fakeStore });
+  const miss = await SG.geocodeSchool('Not A Real School Anywhere', { lookupPlaceResult, store: fakeStore });
   ok('a name Places cannot place returns null rather than a guess', miss === null);
   calls = 0;
-  await SG.geocodeSchool('Not A Real School Anywhere', { lookupPlace, store: fakeStore });
+  await SG.geocodeSchool('Not A Real School Anywhere', { lookupPlaceResult, store: fakeStore });
   ok('  and the negative is cached too, so it is not re-searched nightly', calls === 0, calls);
 
-  // A network failure must NOT be written down as "not a school".
-  const throwing = async () => { throw new Error('places down'); };
-  const memo2 = {};
-  const store2 = {
-    getBrandEvidence: async (k, lane) => memo2[lane + ':' + k] || null,
-    saveBrandEvidence: async (k, lane, b, w, ev) => { memo2[lane + ':' + k] = { evidence: ev }; },
-  };
-  const failed = await SG.geocodeSchool('Bentley University', { lookupPlace: throwing, store: store2 });
-  ok('A LOOKUP FAILURE IS NOT CACHED AS "NOT A SCHOOL"',
-    failed === null && Object.keys(memo2).length === 0, memo2);
+  // ── THE BENTLEY BUG ───────────────────────────────────────────────────────
+  //
+  // lookupPlace returns null four ways and NEVER THROWS. The old suite proved
+  // this with a stub that threw, so it proved the one failure mode that cannot
+  // happen while the four that do fell straight into the branch that writes
+  // { found: false }. One timeout on one night removed a real campus.
+  for (const [why, res] of [
+    ['no API key', { ok: false, place: null, reason: 'no-api-key' }],
+    ['an HTTP 429', { ok: false, place: null, reason: 'http-429' }],
+    ['a 500', { ok: false, place: null, reason: 'http-500' }],
+    ['a timeout', { ok: false, place: null, reason: 'error:The operation was aborted' }],
+    ['a stub returning nothing at all', undefined],
+  ]) {
+    const s = memoStore();
+    const out = await SG.geocodeSchool('Bentley University',
+      { lookupPlaceResult: async () => res, store: s });
+    ok('A LOOKUP THAT COULD NOT RUN IS NOT CACHED AS "NOT A SCHOOL": ' + why,
+      out === null && Object.keys(s.memo).length === 0, s.memo);
+  }
+  // Kept because a future deps implementation might throw, even though the real
+  // one does not -- which is exactly why it could never have caught this.
+  {
+    const s = memoStore();
+    const out = await SG.geocodeSchool('Bentley University',
+      { lookupPlaceResult: async () => { throw new Error('places down'); }, store: s });
+    ok('  and a thrown lookup is still not cached',
+      out === null && Object.keys(s.memo).length === 0, s.memo);
+  }
+  // AND THE RETRY ACTUALLY HAPPENS. Not caching is only half the fix; the next
+  // night has to ask again and succeed.
+  {
+    const s = memoStore();
+    let n = 0;
+    const flaky = async () => (++n === 1
+      ? { ok: false, place: null, reason: 'http-429' }
+      : { ok: true, place: CAMPUS, reason: 'found' });
+    const first = await SG.geocodeSchool('Bentley University', { lookupPlaceResult: flaky, store: s });
+    const second = await SG.geocodeSchool('Bentley University', { lookupPlaceResult: flaky, store: s });
+    ok('  SO THE NEXT NIGHT RECOVERS', first === null && second && second.market === 'Waltham, MA',
+      { first, second });
+  }
+
+  // ── A BARE lookupPlace CANNOT TELL, SO IT MAY NOT WRITE ───────────────────
+  // The old wiring. Kept working, but it can no longer record a negative,
+  // because from a bare null there is no way to know whether it earned one.
+  {
+    const s = memoStore();
+    const out = await SG.geocodeSchool('Nowhere At All',
+      { lookupPlace: async () => null, store: s });
+    ok('the legacy lookupPlace shape still runs', out === null);
+    ok('  but records NOTHING, because it cannot tell an outage from an absence',
+      Object.keys(s.memo).length === 0, s.memo);
+  }
+
+  // ── THE NEGATIVE EXPIRES IN A FORTNIGHT, NOT SIX MONTHS ───────────────────
+  // NEGATIVE_CACHE_DAYS was declared, exported, and named in the file's own
+  // header -- and nothing read it. Negatives came back through the 180-day
+  // positive window, so a name recorded as "not a school" was held till spring.
+  ok('the negative window is 14 days', SG.NEGATIVE_CACHE_DAYS === 14, SG.NEGATIVE_CACHE_DAYS);
+  ok('  and the positive window is 180', SG.CACHE_DAYS === 180, SG.CACHE_DAYS);
+  {
+    const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
+    const mk = (age) => ({
+      getBrandEvidence: async () => ({ evidence: { found: false }, refreshed_at: daysAgo(age) }),
+      saveBrandEvidence: async () => {},
+    });
+    let asked = 0;
+    const ask = async () => { asked++; return { ok: true, place: CAMPUS, reason: 'found' }; };
+
+    asked = 0;
+    const fresh = await SG.geocodeSchool('Bentley University', { lookupPlaceResult: ask, store: mk(3) });
+    ok('a 3-day-old negative is still trusted', fresh === null && asked === 0, { fresh, asked });
+
+    asked = 0;
+    const stale = await SG.geocodeSchool('Bentley University', { lookupPlaceResult: ask, store: mk(30) });
+    ok('  A 30-DAY-OLD NEGATIVE IS RE-CHECKED, not held till spring',
+      stale && stale.market === 'Waltham, MA' && asked === 1, { stale, asked });
+
+    asked = 0;
+    const noTs = await SG.geocodeSchool('Bentley University', {
+      lookupPlaceResult: ask,
+      store: { getBrandEvidence: async () => ({ evidence: { found: false } }), saveBrandEvidence: async () => {} },
+    });
+    ok('  and a negative with no readable timestamp is not trusted either',
+      noTs && asked === 1, { noTs, asked });
+  }
+
+  // ── WE FOUND SOMETHING. IS IT A SCHOOL? ───────────────────────────────────
+  // The query is a bare name with no location hint and no type restriction, and
+  // the first result was taken on trust. "Bentley" is also a car marque; a
+  // showroom would have been accepted and its town pitched as the athlete's
+  // market, with nothing on the page to say so.
+  ok('Places types identify a campus',
+    SG.looksLikeSchool({ types: ['university', 'establishment'] }) === true);
+  ok('  a college too', SG.looksLikeSchool({ types: ['college'] }) === true);
+  ok('  and primaryType counts', SG.looksLikeSchool({ types: [], primaryType: 'university' }) === true);
+  ok('A CAR DEALERSHIP IS NOT A CAMPUS',
+    SG.looksLikeSchool({ types: ['car_dealer', 'store', 'establishment'] }) === false);
+  // MISSING EVIDENCE IS NOT EVIDENCE OF ABSENCE. A row with no types at all --
+  // an older cached shape -- must not be refused, or every school predating the
+  // types field would suddenly stop resolving.
+  ok('  but a result carrying NO types is not refused', SG.looksLikeSchool({ types: [] }) === true);
+  ok('  nor is one with no types field at all', SG.looksLikeSchool({}) === true);
+  {
+    const s = memoStore();
+    const showroom = {
+      name: 'Bentley Boston', types: ['car_dealer', 'store'],
+      address: '69 Boston Post Rd W, Marlborough, MA 01752, USA',
+    };
+    const out = await SG.geocodeSchool('Bentley University', {
+      lookupPlaceResult: async () => ({ ok: true, place: showroom, reason: 'found' }), store: s });
+    ok('SO A SHOWROOM NEVER BECOMES AN ATHLETE\'S MARKET', out === null, out);
+    ok('  and that IS an answer, so it is cached',
+      Object.keys(s.memo).length === 1
+        && /non-school/.test(JSON.stringify(s.memo)), s.memo);
+  }
+
+  // ── AND THE JOB HANDS IT THE SHAPE THAT CAN TELL ──────────────────────────
+  {
+    const jobSrc = fs.readFileSync(ROOT + 'server/jobs/outreachQueue.js', 'utf8');
+    ok('the run passes lookupPlaceResult, not the bare lookupPlace',
+      /geocodeSchool\(school, \{ lookupPlaceResult, store \}\)/.test(jobSrc), null);
+    const pl = fs.readFileSync(ROOT + 'server/services/placesLookup.js', 'utf8');
+    ok('  which Places exports', /module\.exports = \{ lookupPlace, lookupPlaceResult,/.test(pl), null);
+    ok('  reporting ok:false for an HTTP error', /reason: 'http-' \+ resp\.status/.test(pl), null);
+    ok('  and ok:false for a timeout or abort', /reason: 'error:' \+ e\.message/.test(pl), null);
+    ok('  while a genuine miss stays ok:true', /\{ ok: true, place: null, reason: 'not-found' \}/.test(pl), null);
+    ok('  and lookupPlace keeps its old contract for every other caller',
+      /return \(await lookupPlaceResult\(brand, locationHint\)\)\.place;/.test(pl), null);
+  }
 
   // ── THE INTEGER BUG ───────────────────────────────────────────────────────
   // reach*1.25 is only whole when reach divides by four, so this threw for most

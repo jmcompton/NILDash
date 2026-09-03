@@ -50,16 +50,41 @@ function _mapPlace(p, fallbackName) {
   };
 }
 
-async function lookupPlace(brand, locationHint = '') {
+// ── "NOTHING" AND "WE COULD NOT ASK" ARE DIFFERENT ANSWERS ──────────────────
+//
+// lookupPlace returns null four ways -- no API key, an HTTP error, a timeout or
+// abort, and Places genuinely having no such place -- and never throws. A caller
+// holding only that null cannot tell a place that does not exist from a call
+// that did not happen, so any caller that REMEMBERS a null remembers our own
+// outage as a fact about the world.
+//
+// That is exactly what happened to Bentley University: schoolGeocode wrapped
+// this call in a try/catch so that a failed lookup would not be cached as "not a
+// school", and because this function never throws, that catch could not fire.
+// Every failure landed in the branch that writes the negative.
+//
+// So the honest shape is returned here and lookupPlace becomes a thin wrapper
+// over it, unchanged for every existing caller:
+//
+//   { ok: false, place: null, reason }  we could not ask -- REMEMBER NOTHING
+//   { ok: true,  place: null, reason }  we asked; there is no such place
+//   { ok: true,  place: {...}, reason } we asked; here it is
+//
+// This function decides caching for its own lane on the same rule: a live
+// "found=0" is cached (it is an answer), an HTTP error or a timeout is not.
+async function lookupPlaceResult(brand, locationHint = '') {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY;
-  if (!apiKey || !brand || !String(brand).trim()) return null;
+  if (!apiKey) return { ok: false, place: null, reason: 'no-api-key' };
+  if (!brand || !String(brand).trim()) return { ok: false, place: null, reason: 'no-query' };
 
   const cacheKey = _key(brand, locationHint);
   try {
     const cached = await store.getBrandEvidence(cacheKey, 'places', CACHE_DAYS);
     if (cached && cached.evidence) {
       const ev = cached.evidence;
-      return ev.found === false ? null : ev;
+      return ev.found === false
+        ? { ok: true, place: null, reason: 'cached-not-found' }
+        : { ok: true, place: ev, reason: 'cache' };
     }
   } catch (_) { /* fall through to live lookup */ }
 
@@ -79,24 +104,36 @@ async function lookupPlace(brand, locationHint = '') {
       body: JSON.stringify({ textQuery: query, maxResultCount: 1 }),
     });
     clearTimeout(t);
-    if (!resp.ok) { console.warn('[places] brand=' + brand + ' http=' + resp.status); return null; }
+    // NOT CACHED, and now not silently indistinguishable from an empty result
+    // either. A 429 or a 500 says nothing whatsoever about the place.
+    if (!resp.ok) {
+      console.warn('[places] brand=' + brand + ' http=' + resp.status);
+      return { ok: false, place: null, reason: 'http-' + resp.status };
+    }
     data = await resp.json();
   } catch (e) {
     console.warn('[places] brand=' + brand + ' error=' + e.message);
-    return null;
+    return { ok: false, place: null, reason: 'error:' + e.message };
   }
 
   const p = data && Array.isArray(data.places) && data.places[0];
   if (!p) {
     try { await store.saveBrandEvidence(cacheKey, 'places', brand, null, { found: false }, 'NONE'); } catch (_) {}
     console.log('[places] brand=' + brand + ' found=0');
-    return null;
+    return { ok: true, place: null, reason: 'not-found' };
   }
 
   const out = _mapPlace(p, brand);
   try { await store.saveBrandEvidence(cacheKey, 'places', brand, out.website, out, 'OK'); } catch (_) {}
   console.log('[places] brand=' + brand + ' found=1 id=' + (out.place_id ? 'y' : 'n') + ' phone=' + (out.phone ? 'y' : 'n') + ' site=' + (out.website ? 'y' : 'n'));
-  return out;
+  return { ok: true, place: out, reason: 'found' };
+}
+
+// The original contract, unchanged: the place, or null for any reason at all.
+// Every existing caller keeps working; callers that need to know WHY -- which
+// means any caller that writes the answer down -- use lookupPlaceResult.
+async function lookupPlace(brand, locationHint = '') {
+  return (await lookupPlaceResult(brand, locationHint)).place;
 }
 
 // Geocode any query to { lat, lng } using the Places API (NEW) searchText. The
@@ -250,4 +287,4 @@ async function lookupPlaceById(placeId) {
   }
 }
 
-module.exports = { lookupPlace, autocompletePlaces, lookupPlaceById, geocodePlace };
+module.exports = { lookupPlace, lookupPlaceResult, autocompletePlaces, lookupPlaceById, geocodePlace };

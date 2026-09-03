@@ -1662,6 +1662,37 @@ async function init() {
   `).then(() => console.log('[init] shift_report_sends table ready'))
     .catch(e => console.error('[init] shift_report_sends:', e.message));
 
+  // ── The same idea for the ATHLETE report ──────────────────────────────────
+  // One row per report sent to an athlete's family, which is what
+  // /api/athlete-report/status reads to say who is overdue for an update.
+  //
+  // CREATED HERE RATHER THAN IN THE SEND HANDLER. It used to be created inline
+  // by POST /api/athlete-report/send, under the name `athlete_reports` -- which
+  // store.js above already uses for the athlete SHARE LINK, an unrelated table
+  // with an incompatible shape. CREATE TABLE IF NOT EXISTS is a no-op on an
+  // existing table, so that CREATE never ran, the INSERT under it named four
+  // columns that do not exist, and the status query read a sent_at that was
+  // never there. Both failures were caught and logged, so every athlete report
+  // went unrecorded and the "overdue" nudge showed an empty list forever.
+  //
+  // A table only the write path creates is a table the read path can miss, so
+  // it is made at boot like every other.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS athlete_report_sends (
+      id SERIAL PRIMARY KEY,
+      athlete_id TEXT,
+      agent_id TEXT,
+      period_start TIMESTAMPTZ,
+      period_end TIMESTAMPTZ,
+      recipients TEXT,
+      summary JSONB,
+      sent_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] athlete_report_sends table ready'))
+    .catch(e => console.error('[init] athlete_report_sends:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_athlete_report_sends_agent
+    ON athlete_report_sends(agent_id, athlete_id)`).catch(() => {});
+
   // ── Held outreach ─────────────────────────────────────────────────────────
   // A draft cleared to send is STAMPED with a release time rather than going out
   // at 3am. See services/sendWindow.js for why, and for the rule.
@@ -2324,6 +2355,29 @@ async function init() {
   await ensureDealOutcomes();
   await ensureFeedbackColumns();
   await ensureMarketSightings();
+
+  // ── EVERY COLUMN THAT ONLY EXISTS ON A FRESH DATABASE ─────────────────────
+  //
+  // LAST, deliberately: every CREATE TABLE above has run, so any table this
+  // deployment is ever going to have now exists and can be compared against
+  // what it is supposed to contain.
+  //
+  // CREATE TABLE IF NOT EXISTS is a no-op on an existing table, so all 937
+  // columns declared in the blocks above reach a fresh database and none of them
+  // reaches production unless somebody also remembered an ALTER. Four times now
+  // somebody did not, and each time it surfaced a week later as `column "x" does
+  // not exist` inside a catch that returns [] -- deal_comps.brand, then
+  // deal_comps.school, then email_verify_credit_log, then market_deepen_log.
+  //
+  // This diffs the committed manifest against information_schema in ONE query
+  // and adds only what is genuinely absent. Nothing missing is the normal case
+  // and costs a single SELECT. See services/schemaReconcile for the guardrails.
+  try {
+    await require('./services/schemaReconcile').reconcile(pool);
+  } catch (e) {
+    // A safety net that throws must not be the reason the process will not boot.
+    console.error('[schema] reconcile skipped: ' + e.message);
+  }
   console.log('Database tables ready');
 }
 

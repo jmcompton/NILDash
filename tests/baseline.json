@@ -649,6 +649,11 @@
       "total": 60,
       "fault": null
     },
+    "schemasweep.js": {
+      "failed": 0,
+      "total": 40,
+      "fault": null
+    },
     "school.js": {
       "failed": 1,
       "total": 84,
@@ -656,7 +661,7 @@
     },
     "schoolgeo.js": {
       "failed": 0,
-      "total": 45,
+      "total": 75,
       "fault": null
     },
     "scout.js": {

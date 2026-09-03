@@ -2666,14 +2666,30 @@ app.post('/api/athlete-report/send', requireAuth, async (req, res) => {
       html: athleteReport.renderReportHtml(data),
     });
 
+    // ── athlete_report_sends, NOT athlete_reports ─────────────────────────────
+    // This CREATE and store.js's both claimed the name `athlete_reports`, for two
+    // entirely different tables: store.js's is the SHARE LINK an agent sends an
+    // athlete (id TEXT, agent_message, expires_at) and this one is a LOG OF
+    // REPORTS SENT (id SERIAL, period_start/end, recipients, summary, sent_at).
+    //
+    // store.js's runs at boot, so it always won. This CREATE has therefore been
+    // a no-op on every deployment, and the INSERT under it named six columns of
+    // which four do not exist -- caught, logged, and dropped. Every athlete
+    // report ever sent went unlogged, and /api/athlete-report/status, which
+    // reads MAX(sent_at), threw on every call and returned an empty list, so
+    // the "overdue for an update" nudge has never shown anything.
+    //
+    // NOTHING TO MIGRATE. The insert never once succeeded, so the log starts
+    // empty either way. Named to match shift_report_sends, which is the same
+    // idea for the other report.
     await store.pool.query(`
-      CREATE TABLE IF NOT EXISTS athlete_reports (
+      CREATE TABLE IF NOT EXISTS athlete_report_sends (
         id SERIAL PRIMARY KEY, athlete_id TEXT, agent_id TEXT,
         period_start TIMESTAMPTZ, period_end TIMESTAMPTZ,
         recipients TEXT, summary JSONB, sent_at TIMESTAMPTZ DEFAULT NOW()
       )`).catch(() => {});
     await store.pool.query(
-      `INSERT INTO athlete_reports (athlete_id, agent_id, period_start, period_end, recipients, summary)
+      `INSERT INTO athlete_report_sends (athlete_id, agent_id, period_start, period_end, recipients, summary)
        VALUES ($1,$2,$3,$4,$5,$6)`,
       [athleteId, req.session.userId, since, until, to.join(', '),
        JSON.stringify({ pitched: data.pitched.length, replies: data.replies.length, earned: data.earned.period })]
@@ -2692,9 +2708,12 @@ app.post('/api/athlete-report/send', requireAuth, async (req, res) => {
 app.get('/api/athlete-report/status', requireAuth, async (req, res) => {
   try {
     const r = await store.pool.query(
+      // athlete_report_sends: athlete_reports is the share-link table and has no
+      // sent_at at all, so this query threw on every call and the catch below
+      // returned an empty roster -- which renders as "nobody is overdue".
       `SELECT a.id, a.data->>'name' AS name, MAX(r.sent_at) AS last_sent
          FROM athletes a
-         LEFT JOIN athlete_reports r ON r.athlete_id = a.id AND r.agent_id = $1
+         LEFT JOIN athlete_report_sends r ON r.athlete_id = a.id AND r.agent_id = $1
         WHERE a.agent_id = $1
         GROUP BY a.id, a.data->>'name'
         ORDER BY MAX(r.sent_at) ASC NULLS FIRST`, [req.session.userId]);
