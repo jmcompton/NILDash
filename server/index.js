@@ -8481,7 +8481,25 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // Flag businesses that have not been seen in this market before, so a
     // rescan has something to show for itself instead of the same list again.
     try {
-      const mk = _deepenMarketKey(loaded.athleteObj.school);
+      // ── KEYED BY THE TOWN, WHICH IS WHAT THE SCOUT READS ───────────────────
+      // This wrote under _deepenMarketKey(school) -- "auburn-university" -- and
+      // scout.js reads market_business_seen under canonicalRegion(market) --
+      // "auburn, al". The two have never matched, so every business a scan
+      // discovered and passed over was filed in a namespace nothing queries.
+      // The local pool the Scout falls back on has therefore always been empty,
+      // which is why a widen that found 159 businesses still produced a slate
+      // of 0 local.
+      //
+      // ONE FUNCTION NOW, in regionKey, called by the writer and the reader.
+      const { marketPoolKey } = require('./services/regionKey');
+      const AR = require('./services/athleteRecord');
+      const { resolveSchool } = require('./services/schoolResolver');
+      const _rec = AR.resolveAthlete(loaded.athleteObj, { schoolLocation: resolveSchool });
+      const mk = marketPoolKey(_rec.market);
+      // NO KEY, NO WRITE. Filing under a school slug because the town did not
+      // resolve is what created the orphaned namespace in the first place.
+      if (!mk) throw new Error('no market for ' + (loaded.athleteObj.school || 'this athlete')
+        + ' — not recording a market pool under a key nothing reads');
       const newcomers = await store.markMarketNewcomers(mk, recommendations.map(o => o.brand));
       let nNew = 0;
       for (const o of recommendations) {

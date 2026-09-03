@@ -271,9 +271,17 @@ function passesBar(ladder, ig) {
   const phone = (ladder && ladder.mainLine && ladder.mainLine.phone)
     || rows.map((r) => r.phone).find(Boolean) || null;
 
-  // Tier 3 channels: a general inbox or a named mailbox is a way in.
-  const t3 = ((ladder && ladder.tiers) || []).find((t) => t.tier === 3);
-  const inbox = !!(t3 && (t3.rows || []).some((r) => r && (r.email || /inbox|mailbox|email/i.test(r.title || ''))));
+  // AN ADDRESS ON ANY TIER IS A WAY IN. This looked at tier 3 alone, the same
+  // defect inboxOf had: a business whose only contact was a named owner with a
+  // published address and no phone was declared unreachable and thrown away,
+  // while we were holding the one thing that reaches them. Same function as the
+  // channel decision, so the bar and the routing cannot disagree about whether
+  // we have an address.
+  const inbox = emailRowsOf(ladder).length > 0
+    // The title test stays: tier 3's floor row and some older shapes announce a
+    // mailbox in words without carrying the address itself.
+    || (((ladder && ladder.tiers) || []).find((t) => t.tier === 3) || { rows: [] })
+      .rows.some((r) => r && /inbox|mailbox|email/i.test(r.title || ''));
 
   const reachable = !!(handle || phone || inbox);
   if (!reachable) {
@@ -289,9 +297,13 @@ function passesBar(ladder, ig) {
   }
   // Reachable. Whether we can NAME anyone decides how the pitch opens, and the
   // greeting guard is what enforces that downstream.
+  // SAME ORDER AS channelFor. This read handle -> phone -> inbox, so a business
+  // with an address AND a phone was reported as reached by phone while the card
+  // it produced was an email. The bar and the channel now answer in the same
+  // order, because they are describing one decision.
   return { ok: true, reason: null, named: rows.length > 0,
     greeting: rows.length ? 'named' : 'generic',
-    via: handle ? 'handle' : phone ? 'phone' : 'inbox' };
+    via: emailRowsOf(ladder).length ? 'inbox' : handle ? 'handle' : phone ? 'phone' : 'inbox' };
 }
 
 // ── THE NAME WE ARE ALLOWED TO GREET ────────────────────────────────────────
@@ -345,18 +357,66 @@ function writeDm(athleteName, brandName, why, greetName) {
     + `. Worth a quick conversation?`;
 }
 
-// ── THE ADDRESS THE CARD USED TO THROW AWAY ─────────────────────────────────
-// Tier 3 is "Business channels": contactLadder puts personalInbox and
-// genericInbox there, both carrying `.email`. passesBar has always counted one
-// as reachable. Nothing ever read it back out.
+// ── EVERY TIER HOLDS ADDRESSES, NOT JUST THE LAST ONE ───────────────────────
 //
-// A NAMED PERSON'S MAILBOX FIRST. contactLadder pushes personalInbox ahead of
-// genericInbox in the tier, so first-wins is that preference, not an accident.
+// This searched TIER 3 ONLY, and tier 3 is "Business channels" -- the unattached
+// mailboxes: personalInbox, the address off the website, genericInbox. A NAMED
+// PERSON'S OWN ADDRESS lives on their row in tier 1 or tier 2, and every one of
+// those was invisible.
+//
+// So the best address we hold was the one we could not see. A night of 31 cards
+// produced ZERO email cards while the ladder was holding
+// ronda@trevssportsbar.com, rebennett@downtownac.com and jeffassadi@yahoo.com --
+// all three attached to a named owner, all three in tier 2, all three queued as
+// call cards for an agent to dial by hand.
+//
+// The tiers are ALREADY in preference order, best first, and tier 3's rows are
+// already ordered personalInbox -> website -> generic. So walking them in order
+// and taking the first address is exactly the right precedence with no new
+// ranking: the owner's own mailbox beats an unattached personal-looking one,
+// which beats the address on the website, which beats info@.
+//
+// ── WHICH KINDS MAY CARRY A CARD ────────────────────────────────────────────
+//
+// Tier 3 rows are hardcoded emailKind 'published'. Tier 1 and 2 rows are not:
+// they carry whatever the source was, and two of those are a model's word.
+// 'searched' is a claim with a citation and 'unverified' means we do not know
+// where it came from, so neither becomes a send -- an invented address is a
+// bounce against the AGENT'S OWN sending domain, which is not a cost worth
+// paying to save a phone call. They stay ON the card as fallbacks, the same way
+// every other channel does.
+//
+// An allow-list, not a default, for the same reason emailKind itself is one.
+const SENDABLE_EMAIL_KINDS = new Set([
+  'published',   // a source found it printed for this person or business
+  'hunter',      // paid domain lookup: a real mailbox, matched by surname
+  'bio',         // off an Instagram profile; a real address, weaker provenance
+]);
+
+// Every row on the ladder that carries an address we would send to, best first.
+function emailRowsOf(ladder) {
+  const out = [];
+  for (const t of ((ladder && ladder.tiers) || [])) {
+    for (const r of (t.rows || [])) {
+      if (!r || !r.email) continue;
+      // null kind means an older row shape that predates emailKind. Tier 3 sets
+      // it explicitly, so in practice this is only tier 1/2 rows built before
+      // the field existed -- treated as published, which is what they were.
+      const kind = r.emailKind || 'published';
+      if (!SENDABLE_EMAIL_KINDS.has(kind)) continue;
+      out.push({ email: String(r.email).trim().toLowerCase(), kind, tier: t.tier, row: r });
+    }
+  }
+  return out;
+}
+
 function inboxOf(ladder) {
-  const t3 = ((ladder && ladder.tiers) || []).find((t) => t.tier === 3);
-  const row = ((t3 && t3.rows) || []).find((r) => r && r.email);
-  if (!row) return null;
-  return { email: String(row.email).trim().toLowerCase(), kind: row.kind || row.label || null };
+  const hit = emailRowsOf(ladder)[0];
+  if (!hit) return null;
+  // `kind` is the PROVENANCE now, not a label. It used to read
+  // `row.kind || row.label`, neither of which tier 3 sets, so every email card
+  // ever built recorded emailKind null.
+  return { email: hit.email, kind: hit.kind };
 }
 
 // ── EMAIL, THEN DM, THEN CALL ───────────────────────────────────────────────
@@ -489,6 +549,33 @@ function passesProgramBar(cand, ig) {
 // second one. An empty slot is honest about a thin market. A second form is not.
 const PROGRAM_SLOT_CAP = 1;
 function programCapReached(held) { return (Number(held) || 0) >= PROGRAM_SLOT_CAP; }
+
+// ── AND ONE BRAND IS NOT EVERY ATHLETE'S PROGRAM CARD ───────────────────────
+//
+// PROGRAM_SLOT_CAP is per athlete, so it says nothing about the roster. The
+// social and national lanes are ranked almost identically for every athlete on
+// a roster -- the index is the same, the fit scores barely move -- so the single
+// highest-ranked brand with a program page wins the one program slot for
+// EVERYBODY. On a nine-athlete roster that was Lenny & Larry's, nine times, on
+// one night.
+//
+// The ceiling is about the RECIPIENT, not the roster, which is why it does not
+// scale with athlete count: nine applications landing at one brand in one night
+// from one agency reads as spam and burns the relationship for all nine. Two
+// does not. A roster of 45 needs 23 distinct program brands to fill every slot,
+// and if the index cannot supply them the later athletes get no program card --
+// which is the right outcome. A program card is the weakest thing we make; an
+// empty slot is honest, and a 45th application to one brand is not.
+const PROGRAM_BRAND_NIGHTLY_MAX = parseInt(process.env.OUTREACH_PROGRAM_BRAND_MAX, 10) || 2;
+function programBrandCapReached(placedForBrand) {
+  return (Number(placedForBrand) || 0) >= PROGRAM_BRAND_NIGHTLY_MAX;
+}
+// The tally's key. Lowercased and squeezed so "Lenny & Larry's" and
+// "Lenny and Larry's" cannot each spend the brand's whole allowance.
+function programBrandKey(name) {
+  return String(name || '').toLowerCase()
+    .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim() || null;
+}
 
 function buildProgramCard(cand, pitch, athleteName, ig) {
   const c = cand || {};
@@ -675,9 +762,10 @@ function waitingOnYou(rows, nowMs) {
 
 module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
-  inboxOf, channelFor, subjectFor,
+  inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
+  programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,
   waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf,
   pauseRelease, pausedUntilNote, PAUSE_RETRY_DAYS,
   prescreen, placesFacts, pausedNote,

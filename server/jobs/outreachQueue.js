@@ -364,6 +364,43 @@ async function regionForAthleteAsync(athlete) {
   return { region: hit.market, geocoded: true, geocodeSource: hit.source };
 }
 
+// ── PROGRAM CARDS PLACED PER BRAND, TONIGHT, ACROSS THE ROSTER ──────────────
+//
+// READ FROM THE DATABASE, not just counted in memory, so the ceiling survives a
+// restart mid-run and so an on-demand fill earlier in the day counts against the
+// same allowance as the nightly run.
+//
+// A ~20 HOUR WINDOW rather than a calendar day. The nightly run fires once and
+// its exact hour drifts; "today" in which timezone is a question with no good
+// answer here, and the thing being limited is how many applications one brand
+// receives from one agency in one burst.
+// One place to bump it, so the two placement sites cannot count differently.
+function _tallyProgram(tally, brandName) {
+  const k = Q.programBrandKey(brandName);
+  if (tally && k) tally.set(k, (tally.get(k) || 0) + 1);
+}
+
+async function loadProgramBrandTally(pool, agentId) {
+  const tally = new Map();
+  try {
+    const r = await pool.query(
+      `SELECT brand_name, COUNT(*)::int AS n
+         FROM outreach_queue
+        WHERE agent_id = $1 AND channel = 'program'
+          AND created_at > NOW() - INTERVAL '20 hours'
+        GROUP BY brand_name`, [agentId]);
+    for (const row of r.rows) {
+      const k = Q.programBrandKey(row.brand_name);
+      if (k) tally.set(k, (tally.get(k) || 0) + row.n);
+    }
+  } catch (e) {
+    // An unreadable tally must not stop the run. It fails OPEN -- the per-athlete
+    // cap still holds, and the worst case is the behaviour we had before.
+    console.error('[queue] program brand tally: ' + e.message);
+  }
+  return tally;
+}
+
 // THE REGION AND THE PROFILE HAVE TO AGREE. localCandidates returns nothing when
 // athlete.hasLocalMarket is false, and that flag comes from the shipped map --
 // so passing a geocoded region while leaving the profile saying "no market"
@@ -652,6 +689,12 @@ async function fillAthlete(pool, ctx) {
     [athleteId])).rows;
   const heldPrograms = heldRows.filter((r) => r && r.channel === 'program').length;
   let programsPlaced = 0;
+  // ── HOW MANY PROGRAM CARDS EACH BRAND ALREADY HAS TONIGHT ────────────────
+  // Shared across the whole roster, so the same brand cannot be every athlete's
+  // program card. fillAgent builds and passes one Map for the run; the on-demand
+  // path has no run to share, so it reads the same answer from the database.
+  const programBrandTally = ctx.programBrandTally
+    || await loadProgramBrandTally(pool, agentId);
   let open = Q.slotsToFill(heldRows);
   if (!open.length) {
     // Says the real number. It said "three" while SLOTS_PER_ATHLETE was five,
@@ -698,14 +741,41 @@ async function fillAthlete(pool, ctx) {
       say(`${athleteName}: local pool is spent — widening the search to neighbouring towns`);
       try {
         const athObj = { id: athleteId, ...(ctx.athleteRow || {}) };
-        await ai.getDealRecommendations(athObj, 'agent', [], 'local', { deepen: true });
-        // Re-assemble: the widened pass writes new businesses into the market
-        // pool, and re-reading is the whole point of having widened.
+        // ── THE WIDEN'S RESULTS WERE THROWN ON THE FLOOR ────────────────────
+        //
+        // This called getDealRecommendations and DISCARDED THE RETURN VALUE, on
+        // the belief -- written in the comment below it -- that "the widened
+        // pass writes new businesses into the market pool". It does not.
+        // store.markMarketNewcomers is the only writer of market_business_seen
+        // in the codebase and its only caller is the Deal Scan HTTP route.
+        //
+        // So the widen found businesses, returned them, and the job immediately
+        // re-read a table nobody had written to. Noah Carpenter's widen found
+        // 159 and Messiah Mickens's found 74; both slates came back 0 local.
+        //
+        // The results are now recorded under the same key the Scout reads, so
+        // re-assembling actually sees them -- and so the next night sees them
+        // too, which is the point of paying for a widen at all.
+        const widened = await ai.getDealRecommendations(athObj, 'agent', [], 'local', { deepen: true });
+        const brands = (Array.isArray(widened) ? widened : [])
+          .map((o) => o && o.brand).filter(Boolean);
+        if (profile.marketKey && brands.length) {
+          await store.markMarketNewcomers(profile.marketKey, brands)
+            .then(() => say(`${athleteName}: recorded ${brands.length} widened business(es) `
+              + `in the ${profile.marketKey} pool`))
+            .catch((e) => say(`${athleteName}: could not record the widened pool (${e.message})`));
+        } else if (!profile.marketKey) {
+          // Without a key there is nowhere honest to file them, and filing them
+          // under a school slug is exactly how the pool was orphaned before.
+          say(`${athleteName}: widened but has no market key, so nothing could be recorded`);
+        }
+        // Re-assemble now that the pool has actually been written to.
         slate = await Scout.assembleSlate(pool, {
           agentId, athlete: profile, store,
           limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
         });
-        say(`${athleteName}: after widening, ${slate.picks.length} candidate(s)`);
+        say(`${athleteName}: after widening, ${slate.picks.length} candidate(s) — `
+          + Object.keys(slate.laneCounts || {}).map((k) => `${slate.laneCounts[k]} ${k}`).join(', '));
       } catch (e) {
         say(`${athleteName}: widening failed (${e.message}) — carrying on with what we have`);
       }
@@ -778,6 +848,24 @@ async function fillAthlete(pool, ctx) {
         if (cand.programUrl && Q.programCapReached(heldPrograms + programsPlaced)) {
           const why = `already holding ${heldPrograms + programsPlaced} program application`
             + `, which is the cap of ${Q.PROGRAM_SLOT_CAP} per athlete`;
+          say(`${cand.brand_name}: skipped, ${why}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', reason: why,
+            lane: cand.lane, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+        // ── AND NOT THE SAME BRAND FOR THE WHOLE ROSTER ─────────────────────
+        // The per-athlete cap above says nothing about the other athletes. The
+        // social and national lanes rank almost identically for everyone on a
+        // roster, so the top program brand took the one program slot for all
+        // nine athletes on one night. Checked BEFORE the money, like the cap
+        // above: a candidate that cannot become this athlete's program card is
+        // not worth an Instagram lookup.
+        const _pbKey = Q.programBrandKey(cand.brand_name);
+        if (cand.programUrl && _pbKey
+          && Q.programBrandCapReached(programBrandTally.get(_pbKey) || 0)) {
+          const why = `${cand.brand_name} already has `
+            + `${programBrandTally.get(_pbKey)} program application(s) from this roster tonight`
+            + `, which is the cap of ${Q.PROGRAM_BRAND_NIGHTLY_MAX} per brand per night`;
           say(`${cand.brand_name}: skipped, ${why}`);
           tried.push({ brand: cand.brand_name, result: 'rejected', reason: why,
             lane: cand.lane, places: { found: false }, risk: 'normal' });
@@ -865,14 +953,15 @@ async function fillAthlete(pool, ctx) {
         pcard.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
         if (dry) {
           say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`);
-          if (pcard.channel === 'program') programsPlaced++;
+          if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
           placed = true; filled++; break;
         }
         const pins = await insertCard(pool, { agentId, athleteId, slot, card: pcard });
         if (pins) {
           // Counted only when the row actually landed, so a card lost to the
-          // open-slot unique index does not burn the athlete's one program slot.
-          if (pcard.channel === 'program') programsPlaced++;
+          // open-slot unique index does not burn the athlete's one program slot
+          // -- nor the brand's allowance across the rest of the roster.
+          if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
           placed = true; filled++; say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`); break;
         }
         continue;
@@ -1088,6 +1177,12 @@ async function fillAgent(pool, agent, opts) {
     return { filled: 0, spent: 0, claimed: false };
   }
   const budget = Q.newBudget(CAP_USD);
+  // ── ONE TALLY FOR THE WHOLE ROSTER ────────────────────────────────────────
+  // Built once and threaded through every athlete, so a brand that has already
+  // taken its allowance of program slots tonight is skipped for the rest of the
+  // roster rather than winning all nine. Seeded from the database so a restart
+  // mid-run does not reset the ceiling.
+  const programBrandTally = await loadProgramBrandTally(pool, agent.id);
   // THE WHOLE ATHLETE, not three fields. Every pitch used to say "a college
   // athlete here in your area", which throws away the only thing being sold.
   const athletes = (await pool.query(
@@ -1145,6 +1240,8 @@ async function fillAgent(pool, agent, opts) {
         // Scout is asked for, so raising it is what lets the night evaluate
         // dozens of businesses rather than three.
         maxSlots: Q.NIGHTLY_SLOTS, signature,
+        // Shared across the roster — see loadProgramBrandTally.
+        programBrandTally,
         onProgress: (m) => console.log('[queue] ' + m),
       });
     } catch (e) {

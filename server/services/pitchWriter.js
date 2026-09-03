@@ -345,13 +345,146 @@ const STAT_NOUNS = /\b(tackles?|sacks?|yards?|touchdowns?|tds?|points?|rebounds?
 
 function _words(s) { return String(s || '').toLowerCase(); }
 
+// ── ONE POSITION, SEVERAL NAMES ─────────────────────────────────────────────
+//
+// The prescribed opener is "[athlete], [position] on the [team]" and positions
+// are STORED as abbreviations -- "WR", "QB", "RB". So the voice we asked for
+// says "a wide receiver" about an athlete whose stored position is "WR", and the
+// check compared the two as strings: 'wr'.includes('wide receiver') is false and
+// so is the reverse, so the pitch was refused for saying the right thing.
+//
+// That rejected essentially every football pitch written in the new voice.
+// Compared by GROUP now, so any name for a position matches any other.
+const POSITION_GROUPS = [
+  ['quarterback', 'qb'],
+  ['running back', 'runningback', 'rb', 'tailback', 'halfback'],
+  ['wide receiver', 'receiver', 'wr', 'wideout'],
+  ['tight end', 'te'],
+  ['offensive lineman', 'lineman'],
+  ['linebacker', 'lb'],
+  ['cornerback', 'corner'],
+  ['defensive back'], ['defensive end'], ['safety'], ['edge rusher'],
+  ['kicker'], ['punter'],
+  ['point guard'], ['shooting guard'], ['small forward'], ['power forward'],
+  ['center'], ['forward'], ['guard'],
+  ['pitcher'], ['catcher'], ['shortstop'], ['outfielder'], ['infielder'],
+  ['first baseman'], ['second baseman'], ['third baseman'], ['designated hitter'],
+  ['goalkeeper', 'keeper', 'goalie'], ['midfielder'], ['striker'], ['winger'],
+  ['defender'], ['fullback'],
+  ['setter'], ['libero'], ['outside hitter'], ['middle blocker'],
+  ['sprinter'], ['distance runner'], ['thrower'], ['jumper'], ['swimmer'],
+  ['diver'], ['wrestler'], ['golfer'],
+];
+const _POS_KEY = new Map();
+for (const g of POSITION_GROUPS) for (const w of g) _POS_KEY.set(w, g[0]);
+
+// The group name for a position however it is written, or null if we do not
+// recognise it -- in which case the caller falls back to comparing the strings,
+// so an unusual stored value still works rather than matching nothing.
+function positionKey(s) {
+  const t = _words(s).replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  if (_POS_KEY.has(t)) return _POS_KEY.get(t);
+  // "Jr WR" / "WR/KR" / "starting quarterback" -- try each token and each pair.
+  const parts = t.split(' ');
+  for (let i = 0; i < parts.length; i++) {
+    const two = parts.slice(i, i + 2).join(' ');
+    if (_POS_KEY.has(two)) return _POS_KEY.get(two);
+  }
+  for (const p of parts) if (_POS_KEY.has(p)) return _POS_KEY.get(p);
+  return null;
+}
+
+// ── A WORD THAT IS ALSO AN ORDINARY WORD ────────────────────────────────────
+//
+// The match has always been on a word boundary, so this was never a substring
+// problem: "forward" in "looking forward to hearing from you" IS a whole token.
+// It is a CONTEXT problem. Every one of these is both a position (or a sport, or
+// a class year) and a perfectly ordinary thing to write to a local business:
+//
+//   "I am looking forward to hearing what you think"   -> forward
+//   "your shop on the corner of Highland"              -> corner
+//   "the community center down the road"               -> center
+//   "nine years of food safety inspections"            -> safety
+//   "your bowling alley"  "your golf shop"             -> bowling, golf
+//   "Junior's Diner"  "your senior discount"           -> junior, senior
+//
+// A pitch to a bowling alley would have been refused for the word "bowling".
+const SOFT_WORDS = new Set([
+  'forward', 'center', 'guard', 'safety', 'corner', 'keeper', 'pitcher', 'kicker',
+  'lineman', 'receiver', 'setter', 'defender', 'striker', 'thrower', 'jumper',
+  'track', 'bowling', 'golf', 'diving', 'rowing', 'tennis', 'hockey',
+  'junior', 'senior', 'redshirt',
+]);
+
+// Split into sentences so a claim can be attributed to the thing it is about.
+function _sentencesOf(text) {
+  return String(text || '').split(/(?<=[.!?])\s+|\n+/).filter((s) => s.trim());
+}
+
+// ── WHICH SENTENCES ARE ABOUT THE ATHLETE ───────────────────────────────────
+//
+// The check exists to catch the model asserting a FACT ABOUT THE ATHLETE. In the
+// prescribed voice every such sentence names them or refers back to them; the
+// rest of the pitch is about the business and the ask. A sentence that mentions
+// neither is not a claim about the athlete and is not this check's business.
+function _athleteScoped(text, athlete) {
+  const name = String((athlete && athlete.name) || '').trim();
+  const first = name.split(/\s+/)[0] || '';
+  const named = new RegExp('\\b(' + [name, first].filter((x) => x.length > 1)
+    .map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b', 'i');
+  const out = [];
+  let seenName = false;
+  for (const s of _sentencesOf(text)) {
+    const hasName = !!name && named.test(s);
+    if (hasName) seenName = true;
+    // A third-person reference AFTER the athlete has been named is still about
+    // them -- "She already has several NIL partnerships" is the voice's own
+    // second line and names nobody. "I" and "you" are the agent and the
+    // business, and never scope a claim to the athlete.
+    const refersBack = seenName && /\b(he|she|they|his|her|their|him|them)\b/i.test(s);
+    if (hasName || refersBack || !name) out.push(s);
+  }
+  return out;
+}
+
+// Does the term sit where a claim about a person actually sits? Used only for
+// SOFT_WORDS, so an unambiguous position still matches anywhere in an
+// athlete sentence and an invented one is still caught.
+const _FRAME_BEFORE = /(?:,|\b(?:a|an|the|is|as|was|plays|playing|played|starting|backup|starter|star|standout|his|her|their))\s+(?:[a-z-]+\s+){0,2}$/i;
+// "on the Auburn football team", "for the Tigers", end of clause -- and "at
+// Auburn", but only when what follows is a PROPER NOUN. "a senior at Auburn" is
+// a class-year claim; "trains at the community center at 6am" is not, and the
+// capital is what separates a school or a team from a time and a place.
+const _FRAME_AFTER = /^(?:\s*[,.;:]|\s+(?:on|for|who|and|with)\b|\s+(?:at|in)\s+(?:the\s+)?[A-Z]|\s*$)/;
+
+function _framed(sentence, word) {
+  const re = new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'ig');
+  let m;
+  while ((m = re.exec(sentence))) {
+    const before = sentence.slice(0, m.index);
+    const after = sentence.slice(m.index + m[0].length);
+    if (_FRAME_BEFORE.test(before) && _FRAME_AFTER.test(after)) return true;
+  }
+  return false;
+}
+
 // Longest-first so "wide receiver" is matched before "receiver".
-function _findVocab(text, vocab) {
-  const t = _words(text);
+//
+// `athlete` scopes the search to the sentences that are about them; passing none
+// searches the whole text, which is what the non-athlete callers want.
+function _findVocab(text, vocab, athlete) {
+  const scope = athlete === undefined ? [String(text || '')] : _athleteScoped(text, athlete);
   const hits = [];
   for (const w of vocab.slice().sort((a, b) => b.length - a.length)) {
     const re = new RegExp('\\b' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-    if (re.test(t) && !hits.some((h) => h.includes(w))) hits.push(w);
+    const found = scope.some((s) => re.test(s)
+      // An ordinary English word needs to sit in a claim frame as well as in an
+      // athlete sentence. Both gates, because either alone still misfires:
+      // "Amari trains at the community center" is athlete-scoped, and "on the
+      // corner for nine years" is framed.
+      && (!SOFT_WORDS.has(w) || _framed(s, w)));
+    if (found && !hits.some((h) => h.includes(w))) hits.push(w);
   }
   return hits;
 }
@@ -398,16 +531,25 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
   const problems = [];
 
   // ── position ──────────────────────────────────────────────────────────────
+  // Scoped to the sentences about the athlete, and compared BY GROUP so that
+  // "wide receiver" and a stored "WR" are the same position. Falls back to the
+  // string comparison when we do not recognise the stored value, so an unusual
+  // one still matches itself.
   const storedPos = _words(a.position);
-  for (const hit of _findVocab(t, POSITION_WORDS)) {
+  const storedPosKey = positionKey(a.position);
+  for (const hit of _findVocab(t, POSITION_WORDS, a)) {
     if (!storedPos) { problems.push(`claims a position ("${hit}") and we hold none`); break; }
-    if (!storedPos.includes(hit) && !hit.includes(storedPos)) {
+    const hitKey = positionKey(hit);
+    const same = storedPosKey && hitKey
+      ? storedPosKey === hitKey
+      : (storedPos.includes(hit) || hit.includes(storedPos));
+    if (!same) {
       problems.push(`says "${hit}" but the stored position is "${a.position}"`); break;
     }
   }
   // ── sport ─────────────────────────────────────────────────────────────────
   const storedSport = _words(a.sport);
-  for (const hit of _findVocab(t, SPORT_WORDS)) {
+  for (const hit of _findVocab(t, SPORT_WORDS, a)) {
     if (!storedSport) { problems.push(`names a sport ("${hit}") and we hold none`); break; }
     if (!storedSport.includes(hit) && !hit.includes(storedSport)) {
       problems.push(`says "${hit}" but the stored sport is "${a.sport}"`); break;
@@ -415,7 +557,7 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
   }
   // ── class year ────────────────────────────────────────────────────────────
   const storedYear = _words(a.year);
-  for (const hit of _findVocab(t, YEAR_WORDS)) {
+  for (const hit of _findVocab(t, YEAR_WORDS, a)) {
     if (!storedYear) { problems.push(`calls them a "${hit}" and we hold no class year`); break; }
     if (!storedYear.includes(hit) && !hit.includes(storedYear)) {
       problems.push(`says "${hit}" but the stored year is "${a.year}"`); break;
@@ -825,4 +967,5 @@ module.exports = {
   CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
   DELIVERABLE_RE, DELIVERABLE_NOUNS, DELIVERABLE_VERBS, SYSTEM, MIN_SAMPLE,
   POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
+  positionKey, POSITION_GROUPS, SOFT_WORDS,
 };

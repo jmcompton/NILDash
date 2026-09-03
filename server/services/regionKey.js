@@ -49,4 +49,31 @@ function canonicalRegion(loc) {
   return _tidy(parts.join(', '));
 }
 
-module.exports = { canonicalRegion };
+// ── THE KEY market_business_seen IS FILED UNDER ─────────────────────────────
+//
+// There were THREE functions turning a place into a key, and no two of them
+// agreed:
+//
+//   index.js  _deepenMarketKey(school)   "Auburn University" -> "auburn-university"
+//   scout.js  canonicalRegion(market)    "Auburn, AL"        -> "auburn, al"
+//   marketDeepen.marketKey(school)       "Auburn University" -> "auburn university"
+//
+// The Deal Scan WROTE the market pool under the first and the Scout READ it
+// under the second, so the pool the Scout's own comment calls "THE POOL THAT
+// WAS NEVER READ -- this is what stops a market going quiet" was, still, never
+// read. Every business a scan discovered and passed over went into a namespace
+// nothing queries.
+//
+// A BUSINESS IS IN A TOWN, NOT AT A SCHOOL, which is why the town wins: two
+// schools in one city share one pool of local businesses, because they are the
+// same businesses. marketDeepen.marketKey stays school-based on purpose -- it
+// keys a per-roster SPEND BUDGET, which is a different thing from a pool of
+// businesses.
+//
+// Named rather than left as a bare canonicalRegion call so that "what is this
+// table keyed by" has one answer with one definition.
+function marketPoolKey(market) {
+  return canonicalRegion(market) || null;
+}
+
+module.exports = { canonicalRegion, marketPoolKey };
