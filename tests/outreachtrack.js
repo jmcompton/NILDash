@@ -43,14 +43,20 @@ function main() {
   ok('  and so is its renderer', !/function renderOutreachQueue/.test(html), null);
   ok('  and its loader', !/function loadOutreachQueue/.test(html), null);
   ok('  and its card', !/\nfunction hqCard\(c\)/.test(html), null);
-  ok('  and its fill button', !/function hqFillNow/.test(html) && !/function hqFillPoll/.test(html), null);
+  // THE OUTREACH FILL BUTTON, not the capability. The admin filler is back on
+  // Home (see below) reusing two of these names for its own implementation, so
+  // this names only the entry points that were unique to the Outreach copy.
+  ok('  and its fill button', !/function hqFillNow/.test(html) && !/function hqFillUi/.test(html), null);
   ok('  and its mark-sent action', !/function hqMark\(/.test(html), null);
   ok('  and its athlete tabs', !/function hqSelectAthlete/.test(html), null);
 
   // NOT MERELY HIDDEN. A dead onclick is worse than a visible button: it looks
   // like the product is broken rather than like the feature moved.
+  // hqFillSay and hqFillPoll are NOT on this list any more: Home's own fill
+  // control uses both names for its own implementation. Every other symbol here
+  // belonged only to the removed block and must not reappear.
   for (const dead of ['renderOutreachQueue', 'loadOutreachQueue', 'hqSelectAthlete',
-    'hqMark', 'hqOutcome', 'hqFillUi', 'hqFillNow', 'hqFillSay', 'hqFillPoll',
+    'hqMark', 'hqOutcome', 'hqFillUi', 'hqFillNow',
     'hqFillDone', 'hqIsAdmin', 'hqIgLink', 'hqResumeAthlete', '_hqLastData',
     '_hqSelectedAthlete', '_hqFillLog']) {
     ok('  NO DANGLING REFERENCE to ' + dead,
@@ -75,6 +81,21 @@ function main() {
     /hqLoad\(athleteId\);/.test(html), null);
   ok('PAUSED BEATS THE ORDINARY EMPTY STATE on Home',
     /if \(!d\.cards\.length && _paused\)/.test(html), null);
+
+  // ── THE OTHER TWO THINGS THAT WENT WITH IT ────────────────────────────────
+  // The admin fill button, and the last run's per-athlete reason on an empty
+  // queue. Both were recorded as gaps when the block came out; both are on Home
+  // now. Asserted HERE, in the suite that recorded the loss, so the record of
+  // what the removal cost and the record of it being paid back sit together.
+  ok('THE ADMIN FILL BUTTON SURVIVED, ON HOME',
+    /function hqFillPanel\(d\)/.test(html) && /async function hqFill\(\)/.test(html), null);
+  ok('  gated on the server\'s answer, not the page\'s guess',
+    /!d\.canFill/.test(html) && !/currentUser\.isFounder/.test(html), null);
+  ok('THE EMPTY STATE SAYS WHY, rather than "slots full" over an empty page',
+    /function hqEmptyReason\(d\)/.test(html)
+      && !/Slots full &mdash; work these before new ones arrive/.test(html), null);
+  ok('  from the run row the nightly job already writes',
+    /lastRun/.test(fs.readFileSync(ROOT + 'server/services/homeQueue.js', 'utf8')), null);
   // hqEsc is shared with the shift report above the removed block.
   ok('hqEsc stayed, because the shift report uses it',
     /function hqEsc\(v\)/.test(html), null);

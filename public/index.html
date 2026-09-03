@@ -19793,8 +19793,7 @@ function hqRender() {
     html += d.errors && d.errors.length
       ? '<div class="hq-done"><p class="hq-why" style="margin:0 0 10px">Could not read today\'s outreach: '
         + hqEscape(d.errors[0]) + '</p><button class="hq-approve" onclick="hqLoad(HQ.selected)">Try again</button></div>'
-      : '<div class="hq-done"><p class="hq-why" style="margin:0">'
-        + 'Slots full &mdash; work these before new ones arrive.</p></div>';
+      : '<div class="hq-done">' + hqEmptyReason(d) + '</div>';
   } else {
     // ONE INDEX PER CARD, USED FOR EVERY DOM ID. Card ids are namespaced now
     // ("email:<uuid>", "queue:41") and a colon in an id is a live grenade for
@@ -19809,6 +19808,10 @@ function hqRender() {
         + ' waiting on the Outreach tab. They are applications, not approaches.</p>';
     }
   }
+  // ONE PLACE, EVERY STATE. Admin-only, and in the same spot whether the page is
+  // empty, paused or full -- a control that moves depending on what the queue
+  // happens to hold is a control nobody can find twice.
+  html += hqFillPanel(d);
   panel.innerHTML = html;
 
   var btn = document.getElementById('home-approve');
@@ -19834,6 +19837,181 @@ function hqRender() {
     btn.disabled = false;
   }
   btn.onclick = hqApprove;
+}
+
+// ── WHY THIS ATHLETE HAS NOTHING ────────────────────────────────────────────
+//
+// "Slots full — work these before new ones arrive" was the only thing an empty
+// queue ever said, and on an athlete with zero cards it is not even true: there
+// are no slots to be full of. It was written for the case where five cards are
+// already out and none can be added, and it was shown for every empty page.
+//
+// outreach_queue holds a row only for a business that PASSED the bar, so a night
+// spent on an athlete and finding nothing leaves nothing behind for the page to
+// read. The reason was computed by the nightly job, stored per athlete in
+// outreach_queue_runs.details, and read by nobody. Six athletes showed this
+// blank page for nine consecutive days.
+//
+// NOTHING IS INVENTED HERE. The sentence is the job's own; if the run row has no
+// answer for this athlete, the page says the honest smaller thing instead.
+function hqEmptyReason(d) {
+  var lr = d.lastRun;
+  var P = '<p class="hq-why" style="margin:0 0 6px">';
+  var ONLY = '<p class="hq-why" style="margin:0">';
+  // No run row at all: the job has never completed for this agent. Saying
+  // "nothing passed the bar" here would be describing work that never ran.
+  if (!lr) return ONLY + 'Nothing queued yet. Tonight’s run is the first.</p>';
+  // The run happened and this athlete was not in it -- a different fact from
+  // "we tried and found nothing", and one worth telling an agent plainly.
+  if (!lr.ran) {
+    return P + '<strong>' + hqEscape(lr.when || 'The last run') + ':</strong> '
+      + hqEscape(d.athlete.name.split(' ')[0]) + ' was not worked in that run.</p>'
+      + '<p class="hq-why" style="margin:0;opacity:.8">They are back in tonight’s.</p>';
+  }
+  if (lr.note) {
+    return P + '<strong>' + hqEscape(lr.when || 'The last run') + ':</strong> '
+      + hqEscape(lr.note) + '.</p>'
+      // OUR failures are not this market's. A night that was mostly faults says
+      // nothing about the businesses, and the page must not let it read that way.
+      + (lr.faults
+        ? '<p class="hq-why" style="margin:0;opacity:.8">'
+          + lr.faults + (lr.faults === 1 ? ' attempt' : ' attempts')
+          + ' failed on our side, so that much is not a verdict on this market.</p>'
+        : '');
+  }
+  // Cards were placed and they have all been worked. This is the one case the
+  // original sentence was actually written for.
+  if (lr.filled) {
+    return P + '<strong>' + hqEscape(lr.when || 'The last run') + ':</strong> '
+      + lr.filled + (lr.filled === 1 ? ' card' : ' cards') + ' placed, all worked.</p>'
+      + '<p class="hq-why" style="margin:0;opacity:.8">Next batch arrives overnight.</p>';
+  }
+  return ONLY + 'Nothing to work today.</p>';
+}
+
+// ── THE MANUAL FILL ─────────────────────────────────────────────────────────
+//
+// Runs the nightly job's filler for one athlete, now, so seeding a demo or
+// rescuing an athlete before a customer call never needs a terminal -- and there
+// is no terminal to reach for anyway: the production database is not reachable
+// from a laptop.
+//
+// ADMIN ONLY, AND THE SERVER SAYS SO. `d.canFill` is decided by the same
+// function the POST endpoint enforces with. The page does not read the founder
+// flag off the cached currentUser, which was the old client-side guess and does
+// not know about role='admin' at all.
+//
+// IT SPENDS REAL MONEY, against the same per-agent nightly cap the schedule
+// uses, and a deep ladder is 15-40 seconds per business. So: a confirm, a live
+// log rather than a spinner, and the button disabled while it runs.
+var HQF = { runId: null, timer: null, athleteId: null, label: '' };
+
+// Back to idle: the button's OWN label restored, not a generic one, because a
+// control that renames itself after use looks like a different control. Skipped
+// after a tab switch -- the button on screen then belongs to a different athlete
+// and was rendered fresh, so writing this run's label onto it would put one
+// athlete's name on another athlete's control.
+function hqFillIdle() {
+  if (HQF.athleteId && HQ.selected !== HQF.athleteId) return;
+  var b = document.getElementById('hq-fill-btn');
+  if (b) { b.disabled = false; if (HQF.label) b.textContent = HQF.label; }
+}
+
+function hqFillPanel(d) {
+  if (!d || !d.canFill || !d.selected) return '';
+  // A RUN SURVIVES A RE-RENDER. Home reloads for reasons that have nothing to do
+  // with the fill, and a button that came back enabled mid-run invites a second
+  // one -- two fillers on one athlete, both spending.
+  var live = HQF.runId && HQF.athleteId === d.selected;
+  var label = 'Fill ' + hqEscape(String(d.athlete && d.athlete.name || 'this athlete').split(' ')[0])
+    + '’s queue now';
+  HQF.label = label;
+  return '<div class="hq-fill" style="margin-top:18px;padding-top:14px;'
+    + 'border-top:1px solid rgba(255,255,255,.08)">'
+    + '<button type="button" class="hq-editbtn" id="hq-fill-btn" onclick="hqFill()"'
+    + (live ? ' disabled' : '') + '>' + (live ? 'Filling…' : label) + '</button>'
+    + '<span class="hq-why" style="margin-left:10px;opacity:.7">Admin — spends from '
+    + 'tonight’s budget.</span>'
+    + '<pre id="hq-fill-log" hidden style="margin:10px 0 0;padding:10px;font-size:12px;'
+    + 'line-height:1.5;white-space:pre-wrap;max-height:260px;overflow:auto;'
+    + 'background:rgba(0,0,0,.25);border-radius:8px"></pre></div>';
+}
+
+// NEVER WRITE ANOTHER ATHLETE'S LOG. Switching tabs mid-fill re-renders the
+// panel, and the new tab has a log element of its own; without this check the
+// running fill would print into it and read as though it were about the athlete
+// on screen. The run keeps going -- only its display is withheld.
+function hqFillSay(line) {
+  if (HQF.athleteId && HQ.selected !== HQF.athleteId) return;
+  var pre = document.getElementById('hq-fill-log');
+  if (!pre) return;
+  pre.hidden = false;
+  pre.textContent = line;
+  pre.scrollTop = pre.scrollHeight;
+}
+
+async function hqFill() {
+  var d = HQ.data; if (!d || !d.selected) return;
+  var btn = document.getElementById('hq-fill-btn');
+  var name = (d.athlete && d.athlete.name) || 'this athlete';
+  if (!confirm('Run tonight’s filler for ' + name + ' now?\n\n'
+    + 'This spends from the nightly budget and can take a few minutes.')) return;
+  HQF.athleteId = d.selected;
+  if (btn) { btn.disabled = true; btn.textContent = 'Filling…'; }
+  hqFillSay('Starting…');
+  try {
+    var r = await fetch(API_BASE + '/api/agent/outreach-queue/fill', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ athleteId: d.selected }),
+    });
+    var j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || 'Could not start');
+    HQF.runId = j.runId;
+    hqFillPoll();
+  } catch (e) {
+    hqFillSay('Failed to start: ' + e.message);
+    hqFillIdle();
+  }
+}
+
+// POLLED, NOT STREAMED. The endpoint hands back the WHOLE log every time, so a
+// dropped poll costs nothing and there is no partial state to reconcile.
+//
+// A CHAIN, NOT AN INTERVAL. Each poll schedules the next one only once the
+// previous has returned, so a slow server cannot stack requests, and the chain
+// ends the moment HQF.runId is cleared -- on done, on any error, and on the 404
+// the server returns once it forgets a run after thirty minutes. At most one
+// timeout is ever outstanding.
+function hqFillPoll() {
+  clearTimeout(HQF.timer);
+  HQF.timer = setTimeout(async function () {
+    if (!HQF.runId) return;
+    try {
+      var r = await fetch(API_BASE + '/api/agent/outreach-queue/fill/'
+        + encodeURIComponent(HQF.runId), { credentials: 'include' });
+      var j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'lost the run');
+      hqFillSay((j.lines || []).join('\n') || 'Working…');
+      if (!j.done) { hqFillPoll(); return; }
+      HQF.runId = null;
+      hqFillIdle();
+      if (typeof showToast === 'function') {
+        showToast(j.error ? 'Fill failed: ' + j.error
+          : j.filled + (j.filled === 1 ? ' card placed' : ' cards placed'),
+          j.error ? 'error' : 'success');
+      }
+      // RELOAD ONLY ON A PLACED CARD, and only if the agent is still looking at
+      // the athlete it ran for. Reloading after a run that placed nothing would
+      // wipe the log that says why it placed nothing.
+      if (j.filled && HQ.selected === HQF.athleteId) hqLoad(HQF.athleteId);
+    } catch (e) {
+      hqFillSay('Lost track of the run: ' + e.message
+        + '\nThe fill itself may still be running — reload in a minute.');
+      HQF.runId = null;
+      hqFillIdle();
+    }
+  }, 2500);
 }
 
 // ── ONE CARD, THREE CHANNELS ────────────────────────────────────────────────

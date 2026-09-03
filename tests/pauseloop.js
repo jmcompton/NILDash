@@ -204,10 +204,15 @@ async function main() {
   ok('  and the paused payload offers the action rather than only a reason',
     /canResume: true/.test(idx) && /retryNote:/.test(idx), null);
   const html = fs.readFileSync(ROOT + 'public/index.html', 'utf8');
+  // ON HOME, NOT ON OUTREACH. This named hqResumeAthlete and _p.days, which were
+  // the Outreach queue renderer's symbols; that renderer was removed and the
+  // button moved to Home as hqResume, over the paused row it reads from
+  // buildHome. The assertions were about the right thing under names that had
+  // stopped existing, so they failed on working code.
   ok('THE PAGE RENDERS A RESUME BUTTON ON A PAUSED ATHLETE',
-    /hqResumeAthlete\(/.test(html) && /Resume this athlete/.test(html), null);
+    /function hqResume\(athleteId, btn\)/.test(html) && /Resume this athlete/.test(html), null);
   ok('  and says how long they have been held',
-    /Paused '\s*\+\s*_p\.days/.test(html), null);
+    /Paused '[\s\S]{0,20}_paused\.days/.test(html), null);
 
   // ── THE SCRIPT ────────────────────────────────────────────────────────────
   const scr = fs.readFileSync(ROOT + 'scripts/resume-paused-athletes.js', 'utf8');

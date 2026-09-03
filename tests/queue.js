@@ -295,8 +295,10 @@ const CAND = (over) => Object.assign({
     const IDX = fs.readFileSync(R + 'server/index.js', 'utf8');
     const fill = IDX.slice(IDX.indexOf("'/api/agent/outreach-queue/fill'"), IDX.indexOf("'/api/agent/outreach-queue/fill'") + 3000);
     ok('the fill endpoint exists', fill.length > 200, fill.length);
+    // The predicate itself moved into canFillQueue so the button on Home and the
+    // 403 here cannot disagree; what this holds is that the endpoint still ASKS.
     ok('  it is ADMIN ONLY, and says so with a 403',
-      /isFounderEmail|role === 'admin'/.test(fill) && /403/.test(fill), null);
+      /canFillQueue|isFounderEmail|role === 'admin'/.test(fill) && /403/.test(fill), null);
     ok('  it returns immediately with a run id rather than blocking',
       /runId/.test(fill), null);
     ok('  and it spends under the SAME cap as the nightly job',
@@ -311,19 +313,43 @@ const CAND = (over) => Object.assign({
       /Q\.buildCard/.test(JOB) && !/buildCard/.test(fill), null);
 
     const H = fs.readFileSync(R + 'public/index.html', 'utf8');
-    // ── THE FILL BUTTON WENT WITH THE OUTREACH QUEUE ────────────────────────
+    const IDX0 = fs.readFileSync(R + 'server/index.js', 'utf8');
+    // ── THE FILL BUTTON WENT WITH THE OUTREACH QUEUE, AND CAME BACK ON HOME ──
     // It was an admin-only control mounted inside the Outreach tab's copy of the
     // morning queue. That whole block was removed when Outreach became tracking
-    // only, and the button had no equivalent on Home, so the manual "fill this
-    // athlete now" control does not currently exist in the UI.
-    //
-    // The ENDPOINT is untouched and still asserted above -- the capability is
-    // reachable, it just has no button. Recorded here as a deliberate removal
-    // rather than left as a passing assertion about a thing that is gone.
-    ok('the manual fill control is not on Outreach any more',
+    // only, and for one commit the endpoint was reachable with no button at all.
+    // It lives on Home now, which is the only page that works cards.
+    ok('the OLD Outreach fill control is still gone',
       !/function hqFillUi/.test(H) && !/function hqFillNow/.test(H), null);
-    ok('  and its endpoint still exists, so it can be given a home',
-      /outreach-queue\/fill/.test(fs.readFileSync(R + 'server/index.js', 'utf8')), null);
+    ok('THE FILL BUTTON HAS A HOME, on Home',
+      /function hqFillPanel\(d\)/.test(H) && /async function hqFill\(\)/.test(H), null);
+    ok('  posting to the endpoint that was left standing',
+      /\/api\/agent\/outreach-queue\/fill'/.test(H) && /outreach-queue\/fill/.test(IDX0), null);
+    ok('  and polling the run rather than blocking on it',
+      /function hqFillPoll\(\)/.test(H) && /outreach-queue\/fill\/'/.test(H), null);
+
+    // ── THE GATE IS ONE FUNCTION, NOT TWO EXPRESSIONS ───────────────────────
+    // The button's visibility and the endpoint's 403 have to agree. The page
+    // used to guess from currentUser.isFounder, which does not know about
+    // role='admin' -- an admin who is not a founder would never have seen a
+    // button the endpoint would happily have run for.
+    ok('ADMIN IS DECIDED ONCE, SERVER-SIDE', /function canFillQueue\(user\)/.test(IDX0), null);
+    ok('  and the fill endpoint enforces with it',
+      /canFillQueue\(_ru\)\) return res\.status\(403\)/.test(IDX0), null);
+    ok('  and Home is told the same answer',
+      /out\.canFill = canFillQueue\(/.test(IDX0), null);
+    ok('  so the page never re-derives it from currentUser',
+      /if \(!d \|\| !d\.canFill \|\| !d\.selected\) return ''/.test(H), null);
+    ok('  covering role=admin, the founder list AND the admin address',
+      /user\.role === 'admin'[\s\S]{0,120}isFounderEmail\(user\.email\)[\s\S]{0,80}ADMIN_EMAIL/
+        .test(IDX0), null);
+
+    // IT SPENDS MONEY. A confirm, and no second filler on one athlete.
+    ok('the button confirms before spending', /confirm\('Run tonight/.test(H), null);
+    ok('  and a live run survives a re-render without re-enabling itself',
+      /var live = HQF\.runId && HQF\.athleteId === d\.selected/.test(H), null);
+    ok('  and one athlete\'s log never prints under another athlete\'s name',
+      /if \(HQF\.athleteId && HQ\.selected !== HQF\.athleteId\) return;/.test(H), null);
   }
 
   console.log('\n-- SKIP RETIRES FOR THIS ATHLETE ONLY --');
@@ -375,18 +401,53 @@ const CAND = (over) => Object.assign({
     // anywhere, so without this their tab would not exist at all.
     ok('the renderer iterates the FULL roster, not just server groups',
       /\(d\.athletes \|\| \[\]\)\.map/.test(js), null);
-    // ── A GAP, RECORDED RATHER THAN PAPERED OVER ───────────────────────────
+    // ── THE GAP THAT WAS RECORDED HERE IS CLOSED ───────────────────────────
     // The Outreach renderer showed the LAST RUN'S REASON per athlete on an empty
     // queue -- "4 businesses tried, none passed the bar" -- which is exactly the
-    // diagnostic the emptyReason / faults work exists to produce. Home's empty
-    // state says only "Slots full" or reports a read error, so removing the
-    // Outreach copy lost that line.
-    //
-    // Asserted as ABSENT so it shows up here the day someone adds it, rather
-    // than being quietly forgotten. buildHome would need to return the selected
-    // athlete's row from outreach_queue_runs.details; the data is already there.
-    ok('KNOWN GAP: Home does not yet show last night\'s reason on an empty queue',
-      !/lastRun/.test(js), null);
+    // diagnostic the emptyReason / faults work exists to produce. Removing the
+    // Outreach copy lost that line, and Home's empty state said only "Slots
+    // full", which on an athlete with zero cards is not even true: there are no
+    // slots to be full of.
+    ok('HOME SHOWS LAST NIGHT\'S REASON ON AN EMPTY QUEUE',
+      /hqEmptyReason\(d\)/.test(js) && /function hqEmptyReason\(d\)/.test(H), null);
+    ok('  and the old blanket sentence is gone from the empty state',
+      !/Slots full &mdash; work these before new ones arrive/.test(H), null);
+
+    const ER = H.slice(H.indexOf('function hqEmptyReason(d)'),
+      H.indexOf('\nfunction ', H.indexOf('function hqEmptyReason(d)') + 10));
+    // FOUR DIFFERENT FACTS, FOUR DIFFERENT SENTENCES. They are not the same
+    // thing and the page must not print one when it means another.
+    ok('  no run row at all reads as "never run", not as "nothing passed"',
+      /if \(!lr\) return ONLY \+ 'Nothing queued yet/.test(ER), null);
+    ok('  an athlete the run SKIPPED is not told their market was worked',
+      /if \(!lr\.ran\)/.test(ER) && /was not worked in that run/.test(ER), null);
+    ok('  the job\'s own sentence is printed, not a new one',
+      /hqEscape\(lr\.note\)/.test(ER), null);
+    ok('  and OUR faults are named as ours',
+      /lr\.faults/.test(ER) && /not a verdict on this market/.test(ER), null);
+    ok('  a stale run says HOW stale rather than claiming "last night"',
+      /hqEscape\(lr\.when/.test(ER), null);
+
+    const HQS = fs.readFileSync(R + 'server/services/homeQueue.js', 'utf8');
+    ok('buildHome reads the newest run row', /FROM outreach_queue_runs/.test(HQS), null);
+    ok('  and finds THIS athlete in its details',
+      /list\.find\(\(x\) => x && x\.athleteId === selected\)/.test(HQS), null);
+    ok('  returning ran:false rather than inventing a cause for a night nobody worked',
+      /ran: !!mine,/.test(HQS), null);
+    ok('  with the age computed as calendar days, never as an instant',
+      /function runAgeNote\(runDate, now\)/.test(HQS) && /'Last night'/.test(HQS), null);
+    ok('  and a failed read does not empty the page',
+      /errs\.push\('last run: ' \+ e\.message\)/.test(HQS), null);
+    // Nine days is the number this exists for. A run row that old must not be
+    // introduced with the words "last night".
+    const _H = require(R + 'server/services/homeQueue.js');
+    ok('  NINE DAYS AGO IS NOT "LAST NIGHT"',
+      _H.runAgeNote('2026-08-25', new Date('2026-09-03T12:00:00Z')) === '9 nights ago',
+      _H.runAgeNote('2026-08-25', new Date('2026-09-03T12:00:00Z')));
+    ok('  and yesterday is', _H.runAgeNote('2026-09-02', new Date('2026-09-03T12:00:00Z')) === 'Last night',
+      _H.runAgeNote('2026-09-02', new Date('2026-09-03T12:00:00Z')));
+    ok('  and an unreadable date says nothing rather than guessing',
+      _H.runAgeNote(null, new Date()) === null && _H.runAgeNote('nope', new Date()) === null, null);
   }
 
   console.log('\n-- THE HOME PAGE SECTION --');

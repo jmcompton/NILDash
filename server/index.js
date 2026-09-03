@@ -345,6 +345,21 @@ function isFounderEmail(email) {
   return !!email && FOUNDER_EMAILS.includes(email.trim().toLowerCase());
 }
 
+// ── WHO MAY FILL A QUEUE BY HAND ────────────────────────────────────────────
+// The on-demand filler runs the nightly job's work for one athlete on demand.
+// It spends real money against a live agent's budget, so it is admin-only.
+//
+// WRITTEN ONCE, ON PURPOSE. The button on Home and the endpoint it posts to
+// have to agree. A button shown to somebody the endpoint will 403 is worse than
+// no button; a button hidden from somebody the endpoint would allow is a tool
+// nobody can find. The two used to be separate expressions in separate files --
+// one of them a client-side guess at `currentUser.isFounder`, which does not
+// know about role='admin' at all.
+function canFillQueue(user) {
+  return !!user && (user.role === 'admin' || isFounderEmail(user.email)
+    || user.email === ADMIN_EMAIL);
+}
+
 function agentHasAccess(user) {
   if (!user) return false;
   if (isFounderEmail(user.email)) return true;   // founder allowlist
@@ -1948,6 +1963,15 @@ app.get('/api/agent/home', requireAuth, async (req, res) => {
             ? (guard.blockedReason || 'Sending is paused for today')
             : `${Math.max(0, guard.remaining)} of ${guard.cap} emails left today` }
       : null;
+    // ── THE MANUAL FILL, DECIDED SERVER-SIDE ──────────────────────────────────
+    // Whether the fill button is offered is the same question the fill endpoint
+    // answers when it is posted to, so it is answered by the same function. The
+    // page does not get to guess from `currentUser`: that copy knows about the
+    // founder allowlist but not about role='admin', so an admin who is not a
+    // founder would never have seen the button the endpoint would have run for.
+    // This is display only -- POST /api/agent/outreach-queue/fill re-checks.
+    const _me = await store.getUser(req.session.userId).catch(() => null);
+    out.canFill = canFillQueue(_me);
     res.json(out);
   } catch (e) {
     console.error('[home]', e.message);
@@ -9588,8 +9612,7 @@ setInterval(() => {            // an admin tool must not become a memory leak
 app.post('/api/agent/outreach-queue/fill', requireAuth, async (req, res) => {
   try {
     const _ru = await store.getUser(req.session.userId);
-    const _isAdmin = _ru && (_ru.role === 'admin' || isFounderEmail(_ru.email) || _ru.email === ADMIN_EMAIL);
-    if (!_isAdmin) return res.status(403).json({ error: 'Admin only' });
+    if (!canFillQueue(_ru)) return res.status(403).json({ error: 'Admin only' });
 
     const athleteId = String(req.body.athleteId || '');
     if (!athleteId) return res.status(400).json({ error: 'athleteId required' });

@@ -1,97 +1,7 @@
 {
-  "recordedAt": "2026-08-31",
+  "recordedAt": "2026-09-03",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
-    "acctceiling.js": {
-      "failed": 0,
-      "total": 17,
-      "fault": null
-    },
-    "caps.js": {
-      "failed": 0,
-      "total": 27,
-      "fault": null
-    },
-    "closer.js": {
-      "failed": null,
-      "total": null,
-      "fault": "threw"
-    },
-    "closerroute.js": {
-      "failed": 0,
-      "total": 27,
-      "fault": null
-    },
-    "compliance.js": {
-      "failed": null,
-      "total": null,
-      "fault": "threw"
-    },
-    "creditfault.js": {
-      "failed": 0,
-      "total": 37,
-      "fault": null
-    },
-    "draftexpiry.js": {
-      "failed": 0,
-      "total": 23,
-      "fault": null
-    },
-    "editrender.js": {
-      "failed": 0,
-      "total": 33,
-      "fault": null
-    },
-    "editsend.js": {
-      "failed": 0,
-      "total": 34,
-      "fault": null
-    },
-    "emailchannel.js": {
-      "failed": 0,
-      "total": 70,
-      "fault": null
-    },
-    "guard.js": {
-      "failed": 0,
-      "total": 38,
-      "fault": null
-    },
-    "homegate.js": {
-      "failed": 0,
-      "total": 22,
-      "fault": null
-    },
-    "mixedqueue.js": {
-      "failed": 0,
-      "total": 57,
-      "fault": null
-    },
-    "namedreply.js": {
-      "failed": 0,
-      "total": 40,
-      "fault": null
-    },
-    "readytosend.js": {
-      "failed": 0,
-      "total": 46,
-      "fault": null
-    },
-    "replycapture.js": {
-      "failed": 0,
-      "total": 35,
-      "fault": null
-    },
-    "replyhandled.js": {
-      "failed": 0,
-      "total": 18,
-      "fault": null
-    },
-    "verify.js": {
-      "failed": 0,
-      "total": 27,
-      "fault": null
-    },
     "_idx.js": {
       "failed": null,
       "total": null,
@@ -105,6 +15,11 @@
     "_neartest.js": {
       "failed": 0,
       "total": 9,
+      "fault": null
+    },
+    "acctceiling.js": {
+      "failed": 0,
+      "total": 17,
       "fault": null
     },
     "actor.js": {
@@ -202,6 +117,11 @@
       "total": 21,
       "fault": null
     },
+    "caps.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
+    },
     "card.js": {
       "failed": 0,
       "total": 28,
@@ -227,14 +147,34 @@
       "total": 22,
       "fault": null
     },
+    "closer.js": {
+      "failed": null,
+      "total": null,
+      "fault": "threw"
+    },
+    "closerroute.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
+    },
     "compath.js": {
       "failed": null,
       "total": null,
       "fault": "no result line"
     },
+    "compliance.js": {
+      "failed": null,
+      "total": null,
+      "fault": "threw"
+    },
     "contactrank.js": {
       "failed": 0,
       "total": 43,
+      "fault": null
+    },
+    "costcuts.js": {
+      "failed": 0,
+      "total": 52,
       "fault": null
     },
     "costcuts_db.js": {
@@ -242,14 +182,14 @@
       "total": null,
       "fault": "threw"
     },
-    "costcuts.js": {
-      "failed": 0,
-      "total": 52,
-      "fault": null
-    },
     "coveragepage.js": {
       "failed": 0,
       "total": 29,
+      "fault": null
+    },
+    "creditfault.js": {
+      "failed": 0,
+      "total": 37,
       "fault": null
     },
     "deadend.js": {
@@ -287,6 +227,11 @@
       "total": 78,
       "fault": null
     },
+    "draftexpiry.js": {
+      "failed": 0,
+      "total": 23,
+      "fault": null
+    },
     "drift.js": {
       "failed": 0,
       "total": 29,
@@ -300,6 +245,21 @@
     "dupe2e.js": {
       "failed": 0,
       "total": 12,
+      "fault": null
+    },
+    "editrender.js": {
+      "failed": 0,
+      "total": 33,
+      "fault": null
+    },
+    "editsend.js": {
+      "failed": 0,
+      "total": 34,
+      "fault": null
+    },
+    "emailchannel.js": {
+      "failed": 0,
+      "total": 70,
       "fault": null
     },
     "engagement.js": {
@@ -338,9 +298,19 @@
       "total": null,
       "fault": "threw"
     },
+    "greetname.js": {
+      "failed": 0,
+      "total": 26,
+      "fault": null
+    },
     "ground2.js": {
       "failed": 0,
       "total": 31,
+      "fault": null
+    },
+    "guard.js": {
+      "failed": 0,
+      "total": 38,
       "fault": null
     },
     "hang.js": {
@@ -371,6 +341,11 @@
     "homefix.js": {
       "failed": 0,
       "total": 76,
+      "fault": null
+    },
+    "homegate.js": {
+      "failed": 0,
+      "total": 22,
       "fault": null
     },
     "homesql.js": {
@@ -434,6 +409,11 @@
       "total": 21,
       "fault": null
     },
+    "lastrun.js": {
+      "failed": 0,
+      "total": 25,
+      "fault": null
+    },
     "leak.js": {
       "failed": 0,
       "total": 45,
@@ -474,6 +454,11 @@
       "total": 36,
       "fault": null
     },
+    "mixedqueue.js": {
+      "failed": 0,
+      "total": 57,
+      "fault": null
+    },
     "mixedrender.js": {
       "failed": 0,
       "total": 24,
@@ -487,6 +472,11 @@
     "msgid_db.js": {
       "failed": 0,
       "total": 21,
+      "fault": null
+    },
+    "namedreply.js": {
+      "failed": 0,
+      "total": 40,
       "fault": null
     },
     "namedreply_db.js": {
@@ -509,9 +499,24 @@
       "total": 27,
       "fault": null
     },
+    "outreachtrack.js": {
+      "failed": 0,
+      "total": 46,
+      "fault": null
+    },
+    "over18.js": {
+      "failed": 0,
+      "total": 48,
+      "fault": null
+    },
     "parse.js": {
       "failed": 0,
       "total": 20,
+      "fault": null
+    },
+    "pauseloop.js": {
+      "failed": 0,
+      "total": 42,
       "fault": null
     },
     "phonefix.js": {
@@ -519,9 +524,19 @@
       "total": 9,
       "fault": null
     },
+    "pipeline.js": {
+      "failed": 0,
+      "total": 61,
+      "fault": null
+    },
     "pitchroute.js": {
       "failed": 0,
       "total": 40,
+      "fault": null
+    },
+    "pitchvoice.js": {
+      "failed": 0,
+      "total": 31,
       "fault": null
     },
     "pm.js": {
@@ -543,6 +558,11 @@
       "failed": null,
       "total": null,
       "fault": "no result line"
+    },
+    "programcap.js": {
+      "failed": 0,
+      "total": 30,
+      "fault": null
     },
     "programs.js": {
       "failed": 0,
@@ -566,12 +586,17 @@
     },
     "queue.js": {
       "failed": 1,
-      "total": 99,
+      "total": 117,
       "fault": null
     },
     "reach.js": {
       "failed": 0,
       "total": 65,
+      "fault": null
+    },
+    "readytosend.js": {
+      "failed": 0,
+      "total": 46,
       "fault": null
     },
     "recency.js": {
@@ -589,9 +614,19 @@
       "total": 46,
       "fault": null
     },
+    "replycapture.js": {
+      "failed": 0,
+      "total": 35,
+      "fault": null
+    },
     "replyflow.js": {
       "failed": 0,
       "total": 15,
+      "fault": null
+    },
+    "replyhandled.js": {
+      "failed": 0,
+      "total": 18,
       "fault": null
     },
     "replyto_mime.js": {
@@ -619,6 +654,11 @@
       "total": 84,
       "fault": null
     },
+    "schoolgeo.js": {
+      "failed": 0,
+      "total": 45,
+      "fault": null
+    },
     "scout.js": {
       "failed": 0,
       "total": 44,
@@ -644,6 +684,11 @@
       "total": 33,
       "fault": null
     },
+    "sendscope.js": {
+      "failed": 0,
+      "total": 44,
+      "fault": null
+    },
     "shift2.js": {
       "failed": 0,
       "total": 63,
@@ -653,6 +698,11 @@
       "failed": null,
       "total": null,
       "fault": "threw"
+    },
+    "signature.js": {
+      "failed": 0,
+      "total": 39,
+      "fault": null
     },
     "signup.js": {
       "failed": null,
@@ -704,6 +754,11 @@
       "total": 30,
       "fault": null
     },
+    "verify.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
+    },
     "waveexit.js": {
       "failed": 0,
       "total": 37,
@@ -732,56 +787,6 @@
     "zero.js": {
       "failed": 0,
       "total": 36,
-      "fault": null
-    },
-    "programcap.js": {
-      "failed": 0,
-      "total": 30,
-      "fault": null
-    },
-    "sendscope.js": {
-      "failed": 0,
-      "total": 44,
-      "fault": null
-    },
-    "pauseloop.js": {
-      "failed": 0,
-      "total": 43,
-      "fault": null
-    },
-    "over18.js": {
-      "failed": 0,
-      "total": 48,
-      "fault": null
-    },
-    "greetname.js": {
-      "failed": 0,
-      "total": 26,
-      "fault": null
-    },
-    "pitchvoice.js": {
-      "failed": 0,
-      "total": 31,
-      "fault": null
-    },
-    "signature.js": {
-      "failed": 0,
-      "total": 39,
-      "fault": null
-    },
-    "schoolgeo.js": {
-      "failed": 0,
-      "total": 45,
-      "fault": null
-    },
-    "pipeline.js": {
-      "failed": 0,
-      "total": 61,
-      "fault": null
-    },
-    "outreachtrack.js": {
-      "failed": 0,
-      "total": 44,
       "fault": null
     }
   }

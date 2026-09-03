@@ -63,6 +63,30 @@ const FETCH_MAX = Math.min(
 // then reports what it has.
 const ATTACH_DEADLINE_MS = parseInt(process.env.HOME_ATTACH_DEADLINE_MS, 10) || 2500;
 
+// ── HOW LONG AGO THAT RUN WAS ───────────────────────────────────────────────
+// "Last night" is a claim about a date, and the last run row is not always last
+// night: a paused athlete's roster can go days between rows, and after an outage
+// the newest row is whenever the job last completed. Six athletes once read one
+// empty page for nine consecutive days. Saying "last night" over a nine-day-old
+// row would have been the product lying about how stale its own answer is.
+//
+// run_date is a DATE, which node-postgres hands back as a Date at local midnight
+// or as 'YYYY-MM-DD'. Both are compared as calendar days, never as instants.
+function runAgeNote(runDate, now) {
+  if (!runDate) return null;
+  const day = (v) => {
+    if (v instanceof Date) return Date.UTC(v.getFullYear(), v.getMonth(), v.getDate());
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v));
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : NaN;
+  };
+  const a = day(runDate), b = day(now || new Date());
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  const days = Math.round((b - a) / 86400000);
+  if (days <= 0) return 'Tonight’s run';
+  if (days === 1) return 'Last night';
+  return days + ' nights ago';
+}
+
 // Three states, three different sentences, and only one of them is entitled to
 // say anything about the business's mail server.
 function verifyNote(v) {
@@ -254,6 +278,53 @@ async function buildHome(pool, agentId, opts = {}) {
     });
   } catch (e) { errs.push('paused: ' + e.message); }
 
+  // ── WHY THIS ATHLETE HAS NOTHING ──────────────────────────────────────────
+  //
+  // outreach_queue only ever holds a row for a business that PASSED the bar. An
+  // athlete the job worked all night and found nothing for leaves NO ROW THERE
+  // AT ALL, so an empty page for them and an empty page for an athlete nobody
+  // ran are indistinguishable from the queue alone. Both rendered as "slots
+  // full", which is the one thing neither of them means.
+  //
+  // The answer already exists. fillAthlete computes the sentence -- "4
+  // businesses tried, none passed the bar" -- and fillAgent persists it, per
+  // athlete, in outreach_queue_runs.details. It was written every night and read
+  // by nothing an agent can see. This reads it back.
+  //
+  // NEWEST ROW, NOT TODAY'S ROW. A run that has not happened yet must not blank
+  // out the last thing we know; the age is reported alongside so a nine-day-old
+  // answer cannot pass itself off as this morning's.
+  let lastRun = null;
+  if (selected) {
+    try {
+      const rr = await pool.query(
+        `SELECT run_date, details, finished_at FROM outreach_queue_runs
+          WHERE agent_id = $1 ORDER BY run_date DESC LIMIT 1`, [agentId]);
+      const row = rr.rows[0];
+      if (row) {
+        const list = Array.isArray(row.details) ? row.details : [];
+        const mine = list.find((x) => x && x.athleteId === selected) || null;
+        lastRun = {
+          date: row.run_date,
+          when: runAgeNote(row.run_date, new Date()),
+          finished: !!row.finished_at,
+          // NULL WHEN THE ATHLETE IS NOT IN THAT RUN, which is its own fact: the
+          // run happened and did not include them. Reported as `ran: false`
+          // rather than as a missing reason, because they are not the same and
+          // the page must not invent a cause for a night nobody worked.
+          ran: !!mine,
+          note: (mine && mine.note) || null,
+          emptyReason: (mine && mine.emptyReason) || null,
+          filled: (mine && mine.filled) || 0,
+          tried: mine && Array.isArray(mine.tried) ? mine.tried.length : 0,
+          // OUR failures, not this market's. A night that was all faults says
+          // nothing about the businesses and the sentence has to admit that.
+          faults: (mine && mine.faults) || 0,
+        };
+      }
+    } catch (e) { errs.push('last run: ' + e.message); }
+  }
+
   let verifyBudget = null;
   if (selected) {
     const unaddressed = await q('to-address',
@@ -365,6 +436,12 @@ async function buildHome(pool, agentId, opts = {}) {
     // manual exit from a pause that had no exit at all. Moved here rather than
     // deleted with the rest of that block.
     paused,
+    // ── LAST NIGHT'S ANSWER FOR THIS ATHLETE ───────────────────────────────
+    // Rendered only on an empty queue, where it is the difference between "we
+    // have nothing for you" and "we tried four businesses and none of them
+    // cleared the bar". Returned always, because a partial fill has a reason
+    // worth reading too and the page can decide what to show.
+    lastRun,
     cards: cards.map((c) => {
       // deriveWhy reads a card's own vocabulary; the normalised card uses one
       // name per concept across two schemas, so it is handed the three sources
@@ -479,4 +556,5 @@ async function buildHome(pool, agentId, opts = {}) {
   };
 }
 
-module.exports = { buildHome, deriveWhy, fromPitch, fromStored, stripHtml, sentences, MAX_LEN, SHOWN_MAX };
+module.exports = { buildHome, deriveWhy, fromPitch, fromStored, stripHtml, sentences,
+  runAgeNote, MAX_LEN, SHOWN_MAX };

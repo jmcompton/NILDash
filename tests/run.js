@@ -154,13 +154,28 @@ for (const file of list) {
 }
 
 if (UPDATE) {
+  // ── MERGE, NEVER REPLACE ──────────────────────────────────────────────────
+  // This wrote `now` -- the suites THIS INVOCATION ran. With --file or --only
+  // that is one suite, so `--file queue.js --update-baseline` silently deleted
+  // the other 170 entries and the next full run reported every one of them as
+  // "new", with nothing left to compare against. A regression set that can be
+  // destroyed by recording one suite is not a regression set.
+  //
+  // A suite is only rewritten if it ran. Everything else is carried forward
+  // exactly as recorded, including the FAULTs that predate any of this.
+  const merged = Object.assign({}, base.suites, now);
+  // Ordered so a full run and a one-suite update produce the same file rather
+  // than a diff full of moved lines.
+  const suitesOut = {};
+  for (const k of Object.keys(merged).sort()) suitesOut[k] = merged[k];
   fs.writeFileSync(BASELINE, JSON.stringify({
     recordedAt: new Date().toISOString().slice(0, 10),
     note: 'Expected state. A suite failing here is KNOWN, not accepted forever -- '
       + 'git diff this file to see what changed and why.',
-    suites: now,
+    suites: suitesOut,
   }, null, 2) + '\n');
-  console.log(`\nBaseline updated: ${Object.keys(now).length} suite(s) recorded.`);
+  console.log(`\nBaseline updated: ${Object.keys(now).length} suite(s) recorded, `
+    + `${Object.keys(suitesOut).length - Object.keys(now).length} carried forward.`);
   process.exit(0);
 }
 
