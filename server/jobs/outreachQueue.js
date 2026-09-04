@@ -1067,12 +1067,62 @@ async function fillAthlete(pool, ctx) {
       // same two inputs further down; this is the same function, called early.
       const channel = Q.channelFor(ladder, ig);
       const bar = Q.passesBar(ladder, ig);
+
+      // ── WHY THIS CARD IS THE CHANNEL IT IS ────────────────────────────────
+      //
+      // A night of 31 cards produced ZERO email cards while the ladder was
+      // holding six real addresses. Tracing it from the outside was impossible:
+      // channelFor is a pure function of the ladder, and nothing recorded WHAT
+      // THE LADDER HELD. Every candidate looked the same in the log -- a brand
+      // name and a channel -- so "the ladder had no address" and "the ladder had
+      // one and we routed past it" were indistinguishable.
+      //
+      // getBrandContacts has always returned `addressLadder`, a step-by-step
+      // record of which of the five rungs ran, which hit, and what it found. The
+      // job threw it away. It is recorded here, per candidate, into the same
+      // run details the shift report reads -- so the next zero-email night is
+      // answerable from the database instead of by re-deriving the code.
+      const _emailRows = Q.emailRowsOf(ladder);
+      const _al = out.addressLadder || null;
+      const _why = {
+        channel,
+        // What the ladder actually held, which is the input channelFor reads.
+        ladderEmails: _emailRows.map((r) => ({ tier: r.tier, kind: r.kind })),
+        // A kind we refuse to send to is a DIFFERENT answer from no address at
+        // all, and the two were previously the same silence.
+        refusedKinds: ((ladder.tiers || []).flatMap((t) => (t.rows || [])))
+          .filter((r) => r && r.email && !Q.SENDABLE_EMAIL_KINDS.has(r.emailKind || 'published'))
+          .map((r) => r.emailKind || 'unknown'),
+        // Which rung of the address ladder produced an address, and what each
+        // rung did. This is the half the job has never surfaced.
+        addressStep: _al ? _al.step : null,
+        addressLabel: _al ? _al.label : null,
+        addressSteps: _al && Array.isArray(_al.steps)
+          ? _al.steps.map((s) => `${s.step}:${s.label}=${s.hit ? 'HIT' : (s.ran ? 'miss' : 'skipped')}`
+            + (s.detail ? ` (${String(s.detail).slice(0, 60)})` : ''))
+          : [],
+        // A dropped website means the site was never scraped, which silences
+        // steps 1 and 4 at the source.
+        websiteDropped: out.websiteDropped || null,
+        website: out.website || null,
+        handle: ig.instagram || null,
+        cached: !!out.cached,
+      };
+      say(`${cand.brand_name}: channel=${channel}`
+        + ` ladderEmails=${_emailRows.length}`
+        + (_why.refusedKinds.length ? ` refused=${_why.refusedKinds.join(',')}` : '')
+        + ` addressStep=${_why.addressStep === null ? 'none' : _why.addressStep}`
+        + (out.websiteDropped ? ` websiteDropped=${out.websiteDropped}` : '')
+        + (_why.addressSteps.length ? ` [${_why.addressSteps.join(' | ')}]` : ''));
+
       if (!bar.ok) {
         say(`${cand.brand_name}: skipped, ${bar.reason}`);
-        tried.push({ brand: cand.brand_name, result: 'rejected', reason: bar.reason, places: facts, risk: pre.risk });
+        tried.push({ brand: cand.brand_name, result: 'rejected', reason: bar.reason,
+          places: facts, risk: pre.risk, why: _why });
         continue;
       }
-      tried.push({ brand: cand.brand_name, result: 'queued', reason: null, places: facts, risk: pre.risk });
+      tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
+        places: facts, risk: pre.risk, why: _why });
 
       // ── THE WRITER ──────────────────────────────────────────────────────
       // Reads the business and the athlete, decides the angle, then writes. It

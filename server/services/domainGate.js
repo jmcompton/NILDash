@@ -45,6 +45,57 @@ const GRAMMAR = new Set(['the', 'of', 'and', 'for', 'at', 'in', 'on', 'to', 'a',
 
 const _collapse = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+// ── A PLACE WORD IS NOT A NAME ──────────────────────────────────────────────
+//
+// The main test is "a distinctive word of the name, inside the domain label",
+// and `flat.includes(tok)` is a BARE SUBSTRING TEST. That is fine for "trevs"
+// inside trevssportsbar, and wrong for a word half the businesses in a town
+// share.
+//
+// K Town Fitness reduced to exactly one distinctive token: "K" is dropped as a
+// single letter and "Fitness" is a trade word, leaving ["town"]. "town" is a
+// substring of downtownac, midtowntavern and hometownpizza, so the gate accepted
+// downtownac.com as K Town Fitness's own website -- and everything downstream
+// treats that URL as the business's own. The site was scraped, and the card was
+// built with the OWNER'S EMAIL FROM A DIFFERENT BUSINESS on it.
+const PLACE_GENERIC = new Set([
+  'town', 'downtown', 'midtown', 'uptown', 'hometown', 'city', 'village',
+  'park', 'square', 'plaza', 'corner', 'heights', 'valley', 'hill', 'hills',
+  'lake', 'river', 'beach', 'point', 'ridge', 'grove', 'creek', 'harbor',
+  'side', 'east', 'west', 'north', 'south', 'central', 'main', 'street', 'avenue',
+]);
+
+function _words(brand) {
+  return String(brand || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+// Every contiguous run of TWO OR MORE of the name's words that contains `tok`,
+// collapsed. "K Town Fitness" + "town" -> ktown, townfitness, ktownfitness.
+function _runsWith(brand, tok) {
+  const w = _words(brand);
+  const out = [];
+  for (let i = 0; i < w.length; i++) {
+    for (let j = i + 2; j <= w.length; j++) {
+      const seg = w.slice(i, j);
+      if (seg.indexOf(tok) !== -1) out.push(seg.join(''));
+    }
+  }
+  return out;
+}
+
+// A place-generic token is evidence only when the domain carries it TOGETHER
+// WITH a neighbouring word of the name, or leads with it. Anything else is a
+// coincidence of spelling.
+//
+//   K Town Fitness  ktownfitness.com   ktown appears        -> yes
+//   K Town Fitness  downtownac.com     only "town" appears  -> no
+//   Midtown Tavern  themidtowntavern   midtowntavern        -> yes
+//   Town Square Deli townsquaredeli    leads with the token -> yes
+function _placeTokenAnchored(brand, flat, tok) {
+  if (flat.startsWith(tok)) return true;
+  return _runsWith(brand, tok).some((r) => flat.indexOf(r) !== -1);
+}
+
 // Verdict codes, so a log line and a card note can be counted and told apart.
 //   ok                     a distinctive word of the name is in the domain
 //   no-domain              not a resolvable URL
@@ -55,7 +106,8 @@ const _collapse = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
 //                          so nothing in it can confirm any domain
 //   name-absent            no distinctive word of the name appears in the domain
 //                          -- the Birmingham class
-const CODES = ['ok', 'no-domain', 'third-party-host', 'no-distinctive-word', 'name-absent'];
+const CODES = ['ok', 'no-domain', 'third-party-host', 'no-distinctive-word', 'name-absent',
+  'place-word-only'];
 
 // { ok, code, reason, matchedOn, root }
 function checkDomain(brand, website) {
@@ -100,9 +152,22 @@ function checkDomain(brand, website) {
         + `confirm ${root} belongs to it` };
   }
 
-  // THE MAIN TEST. A distinctive word of the name, inside the domain label.
-  const hit = toks.find((t) => flat.includes(t));
+  // THE MAIN TEST. A distinctive word of the name, inside the domain label --
+  // except a place word, which needs a neighbouring word of the name with it.
+  // See PLACE_GENERIC: "town" alone matched downtownac.com for K Town Fitness.
+  const hit = toks.find((t) => flat.includes(t)
+    && (!PLACE_GENERIC.has(t) || _placeTokenAnchored(brand, flat, t)));
   if (hit) return { ok: true, code: 'ok', root, matchedOn: hit, reason: null };
+
+  // A place word WAS in the domain, but on its own. Named as its own outcome so
+  // the log says "coincidence" rather than "the name is absent" -- they are
+  // different problems and only one of them means we looked at the wrong site.
+  const loose = toks.find((t) => flat.includes(t) && PLACE_GENERIC.has(t));
+  if (loose) {
+    return { ok: false, code: 'place-word-only', root, matchedOn: null,
+      reason: `"${loose}" is the only part of "${name}" that appears in ${root}, and it is a `
+        + 'place word shared by many businesses in a town, so it cannot confirm this one' };
+  }
 
   // ACRONYM. "David Protein Bar" -> dpb.com. Built from every word that is not
   // pure grammar, because a real acronym includes the trade word -- but at least

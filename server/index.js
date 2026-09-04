@@ -8481,6 +8481,21 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // Flag businesses that have not been seen in this market before, so a
     // rescan has something to show for itself instead of the same list again.
     try {
+      // ── THE LOCAL LANE ONLY. A NATIONAL BRAND HAS NO MARKET ────────────────
+      // This ran for whatever lane the scan was, so a SOCIAL or TOP NIL scan
+      // wrote its national brands into market_business_seen under the athlete's
+      // town. scout.js then reads that pool and labels every row local "by
+      // construction: the row exists because a market scan for THIS market_key
+      // found it" -- which was true only for a local scan.
+      //
+      // That is how Nike, Liquid I.V. and Barstool Sports turned up in Messiah
+      // Mickens's LOCAL lane for Blacksburg. The pool is a record of businesses
+      // IN A TOWN; a DTC brand is not in one, and writing it here makes the
+      // Scout's lane guarantee false at the source.
+      // A clean skip, not an error: a social scan is a perfectly normal thing
+      // to run, it simply has nothing to contribute to a pool of local
+      // businesses.
+      if (validLane !== 'local') throw { _skip: true };
       // ── KEYED BY THE TOWN, WHICH IS WHAT THE SCOUT READS ───────────────────
       // This wrote under _deepenMarketKey(school) -- "auburn-university" -- and
       // scout.js reads market_business_seen under canonicalRegion(market) --
@@ -8506,7 +8521,9 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
         if (o.brand && newcomers.has(String(o.brand).trim())) { o.isNew = true; nNew++; }
       }
       if (nNew) console.log(`[dealScan] ${nNew} newcomer(s) in market=${mk}`);
-    } catch (e) { console.error('[dealScan] newcomers:', e.message); }
+    } catch (e) {
+      if (!e || !e._skip) console.error('[dealScan] newcomers:', e.message);
+    }
     // Brand engagement ledger: mark every displayed brand as shown and attach the
     // cross-athlete "already contacted for X" badge. Done before persistence so the
     // cached copy carries brandKey + the badge too. Never retires on display.

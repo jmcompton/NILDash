@@ -221,10 +221,43 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
             'market-pool' AS pool
        FROM market_business_seen m
       WHERE m.market_key = $1
+        -- ── A BRAND FELL THROUGH BOTH POOLS AND VANISHED ───────────────────
+        -- This excluded a brand with ANY brand_engagement row, at any state.
+        -- The shown pool above requires lane = 'local' and deliberately drops
+        -- a NULL lane as unknown. So a brand carrying a lane-NULL 'shown' row --
+        -- which is what a Deal Scan that did not stamp a lane leaves behind --
+        -- was excluded HERE for having a ledger row and excluded THERE for not
+        -- having a lane. It was invisible to the local lane permanently.
+        --
+        -- That is why widening changed nothing: the businesses a widen finds are
+        -- the ones a scan already showed, so every one of the ten recorded in
+        -- the pool was cancelled out by its own ledger row and the slate came
+        -- back 0 local.
+        --
+        -- "Shown" is precisely the case this pool exists to recover: a scan
+        -- found it and nobody came back to it. Only a brand this athlete has
+        -- actually been WORKED on is excluded now -- the same states the slate's
+        -- own prior-exclusion uses, so the two agree. Anything queued is still
+        -- caught by the outreach_queue clause below and by that prior-exclusion.
         AND NOT EXISTS (SELECT 1 FROM brand_engagement be
-                         WHERE be.athlete_id = $2 AND LOWER(be.brand_name) = LOWER(m.brand))
+                         WHERE be.athlete_id = $2 AND LOWER(be.brand_name) = LOWER(m.brand)
+                           AND be.state IN ('contacted','replied','closed','retired'))
         AND NOT EXISTS (SELECT 1 FROM outreach_queue q
                          WHERE q.athlete_id = $2 AND LOWER(q.brand_name) = LOWER(m.brand))
+        -- ── A NATIONAL BRAND IS NOT IN A TOWN ──────────────────────────────
+        -- The Deal Scan route wrote this pool for WHATEVER lane it had just
+        -- run, so a social or Top NIL scan filed its national brands under the
+        -- athlete's town key. This lane then labelled them local "by
+        -- construction", and Nike, Liquid I.V. and Barstool Sports appeared in
+        -- Messiah Mickens's LOCAL lane for Blacksburg -- where the local path
+        -- runs a Places lookup on the name and resolves a corporate HQ.
+        --
+        -- The writer is fixed, but rows written before that are still in the
+        -- table. social_brands is the index that says what a national brand IS,
+        -- so it is asked here rather than the contamination being migrated out:
+        -- self-healing, and it holds if the writer ever regresses.
+        AND NOT EXISTS (SELECT 1 FROM social_brands sb
+                         WHERE LOWER(sb.brand) = LOWER(m.brand))
       ORDER BY m.last_seen_at DESC NULLS LAST
       LIMIT $3`, [athlete.marketKey, athlete.id, limit * 4]) : [];
 
