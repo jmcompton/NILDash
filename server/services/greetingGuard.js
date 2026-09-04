@@ -190,6 +190,13 @@ const NON_ROLE_TITLE = new RegExp('(' + [
   'general (inbox|contact)', 'named mailbox', 'main line', 'business line',
   'contact form', 'no contact', 'no named', 'staff', 'employee', 'team member',
   'placeholder', 'unknown',
+  // A ROTA, NOT A JOB. "Manager on duty" names whoever is working this shift, so
+  // it is a description of a slot rather than of a person -- greeting it by first
+  // name asserts that this individual holds a standing role they may not have.
+  // It used to be refused only incidentally, by the evidence rule that required a
+  // published address; once a chamber listing alone can earn a greeting, the
+  // title has to refuse it on its own.
+  'on duty',
 ].join('|') + ')', 'i');
 
 // contactDiscovery does `strNull(c.title) || 'Marketing / Partnerships'`, so a
@@ -215,68 +222,107 @@ function hasRoleTitle(title) {
 // confirmed way to reach a named person, so it does not earn a first name.
 const MIN_EMAIL_CONFIDENCE = 0.6;
 
+// ── WHICH SOURCES ARE A PUBLISHED STATEMENT ABOUT WHO RUNS THIS BUSINESS ────
+//
+// The bar was "two sources agree, or the business's own site, or we hold their
+// published address". That is a bar almost nothing local clears: the ladder
+// finds Laura Pineo through a chamber listing, with a business line and a
+// general inbox, and every one of those three tests fails -- so the pitch opened
+// "Hi," to a card with her name printed on it.
+//
+// The bar is now PROVENANCE: did a source we recognise publish this person's
+// name against this business. A chamber listing, a Facebook page, a state
+// filing, a LinkedIn or Maps profile are all somebody publishing "this person
+// runs this business". That is what an agent doing this by hand would rely on,
+// and writing "Hi Laura," to info@ when the chamber says Laura owns the place is
+// not a claim we cannot stand behind.
+//
+// THREE SOURCES ARE DELIBERATELY NOT ON THIS LIST, and each one is a wrong
+// greeting that actually shipped:
+//
+//   news        an Adweek editor was named ONCE, in an article, as the "owner"
+//               of a bakery. A story that mentions a business is not the
+//               business telling us who runs it.
+//   hunter      a paid domain lookup that matches an address to a person BY
+//               SURNAME. It is a guess at how to reach someone, never evidence
+//               that they work there. This is the fbf5865 regression.
+//   instagram   a name read out of a bio. Already usually carries
+//               affiliationScope 'unclear'; listed here so it cannot arrive by
+//               another route.
+//
+// An unrecognised source is a model guess with no provenance, which is the one
+// case the original bug was about, and it still gets "Hi,".
+const GREETABLE_SOURCES = new Set(['site', 'chamber', 'facebook', 'registry', 'linkedin', 'maps']);
+
+function _sourcesOf(c) {
+  return Array.isArray(c.sources) && c.sources.length ? c.sources : (c.source ? [c.source] : []);
+}
+
+function greetableFromSource(c) {
+  const CR = require('./contactRank');
+  return _sourcesOf(c).some((s) => GREETABLE_SOURCES.has(CR.normalizeSource(s)));
+}
+
+// A source we RECOGNISE and have decided is not good enough to open a letter
+// with, and nothing better named them as well. This is the refusal that has to
+// outrank the published-address route below: David Griner's Adweek address is a
+// real published address, and he still does not run the bakery.
+function weakSourceOnly(c) {
+  const CR = require('./contactRank');
+  const known = _sourcesOf(c).map((s) => CR.normalizeSource(s)).filter((s) => s !== null);
+  return known.length > 0 && !known.some((s) => GREETABLE_SOURCES.has(s));
+}
+
+// ── THE SECOND ROUTE, WHICH IS OLDER THAN THE FIRST AND STAYS ───────────────
+//
+// "We hold a published address for them" -- publishing the address is itself
+// publishing the name. This is what carries a contact whose provenance we cannot
+// read: a legacy row written before `sources` was populated, and every row on
+// the AI Outreach path, whose source vocabulary does not overlap the fan-out's.
+//
+// Removing it in favour of the source list alone would have been a TIGHTENING
+// dressed up as a loosening -- 29 assertions in greetguard.js are exactly this
+// shape, a real role title and a published address with no source recorded.
+//
+// A Hunter-derived or pattern-guessed address is not this: emailKind says where
+// the address came from, and only 'published' (or a legacy row with no kind at
+// all) counts.
+function hasPublishedAddress(c) {
+  return !!c.email && (!c.emailKind || c.emailKind === 'published');
+}
+
 function greetableContacts(contacts) {
   return (Array.isArray(contacts) ? contacts : []).filter((c) => {
-    // ── A NAME IS GREETABLE. AN ADDRESS IS HOW WE REACH THEM. ──────────────
-    //
-    // This required `c.email` -- the contact's OWN published address -- so a
-    // named owner the ladder found through a chamber listing, with a business
-    // line and a general inbox, opened "Hi,". That is most of the local lane.
-    // The ladder finds these people; we were throwing the name away at the last
-    // step and greeting nobody.
-    //
-    // Naming the person is the single biggest close-rate lever a brand-side
-    // reader identified, and there is nothing dishonest about writing "Hi Ronda,"
-    // to info@ when we know Ronda owns the place -- it is what a person doing
-    // this by hand would type.
-    //
-    // EVERY NAME-VERIFICATION RULE BELOW IS UNTOUCHED. This drops the
-    // requirement that we hold their personal address; it does not lower the bar
-    // on whether we know who they are. The David Griner case -- an Adweek editor
-    // named once in an article as a bakery's "owner" -- is caught by the
-    // `unconfirmed` rule further down, not by this one.
     if (!c || !c.name) return false;
+    const CR = require('./contactRank');
     // The source told us it could not tie this person to this business. That is
     // the same claim the placeholder title makes, in a structured field.
     if (c.affiliationScope === 'unclear') return false;
-    // UNCORROBORATED. One third-party source naming someone is a lead worth a
-    // phone call, not a fact worth opening a letter with. This is the field that
-    // would have caught David Griner -- an Adweek editor named once, in an
-    // article, as the "owner" of a bakery. Corroborated by a second source, or
-    // stated by the business's own website, and it is greetable; otherwise the
-    // pitch opens "Hi,". contactRank sets it; recomputed here when it is absent
-    // so a legacy row is judged by the same rule rather than waved through.
-    const CR = require('./contactRank');
-    if (c.unconfirmed === undefined ? CR.isUnconfirmed(c) : c.unconfirmed) return false;
-    // ── POSITIVE EVIDENCE OF WHO THEY ARE ─────────────────────────────────
-    //
-    // The rule above is a NEGATIVE test: isUnconfirmed rejects hedged titles,
-    // placeholders and recognisable third-party single sources. It does not
-    // reject a contact with NO provenance at all -- its last line returns
-    // hasKnownProvenance(c), so a row carrying nothing but a name, a title and a
-    // pattern-guessed address comes back "confirmed" by falling through.
-    //
-    // That was the shape the old `emailKind === 'published'` rule was really
-    // catching, and dropping it opened exactly that hole: greetguard.js and
-    // hunterback.js both failed on a Hunter-derived address earning a first name.
-    //
-    // So the question is asked positively instead. We may greet someone when we
-    // have real evidence of their identity:
-    //
-    //   two independent sources agree, or
-    //   the business's own website names them, or
-    //   we hold a PUBLISHED address for them -- publishing the address is itself
-    //   publishing the name
-    //
-    // A pattern-matched or Hunter-derived address is none of those. It is a
-    // guess at how to reach a person, not evidence that the person is who we
-    // think. An address with no emailKind at all is a legacy row from before the
-    // field existed and is treated as it was before.
-    const CRid = require('./contactRank');
-    const corroborated = CRid.corroborationOf(c) >= 2 || CRid.isSelfAttested(c);
-    const publishedAddress = !!c.email && (!c.emailKind || c.emailKind === 'published');
-    if (!corroborated && !publishedAddress) return false;
-    // The model invented this contact rather than finding it.
+    // ── THE TITLE STILL HAS TO MEAN A REAL JOB HERE ───────────────────────
+    // Loosening the SOURCE bar does not loosen the TITLE bar. A placeholder
+    // ("Company contact (not confirmed owner)"), a landlord, a former owner or a
+    // registered agent is not somebody to open a letter to, whoever published it.
+    if (CR.authorityOf(c.title).rank >= CR.RANK.PLACEHOLDER) return false;
+    // A TITLE THAT HEDGES ITSELF. "Owner (per news report)" is a report about an
+    // owner, not a statement by the business -- this is the half of the David
+    // Griner case that survives independently of the source list, and it is kept
+    // for exactly that reason.
+    if (CR.hedgeOf(c.title) !== CR.HEDGE.NONE) return false;
+    // ── A SOURCE WE RECOGNISE AND DO NOT TRUST FOR THIS ───────────────────
+    // Checked BEFORE the positive tests, and that ordering is load-bearing: a
+    // news mention or a Hunter surname match can arrive WITH a real published
+    // address, and the address must not buy a first name that the source cannot
+    // support. This is the half of the David Griner case that does not depend on
+    // his title hedging itself.
+    if (weakSourceOnly(c)) return false;
+    // ── POSITIVE EVIDENCE, BY EITHER ROUTE ────────────────────────────────
+    // Somebody we recognise published this name against this business, OR we
+    // hold their published address. See GREETABLE_SOURCES and
+    // hasPublishedAddress for what each of those means and does not mean.
+    if (!greetableFromSource(c) && !hasPublishedAddress(c)) return false;
+    // The model invented this contact rather than finding it. Kept as its own
+    // line even though 'ai_inference' normalises to nothing and would already
+    // fail the source test -- it is the original bug and it says so out loud.
     if (c.source === 'ai_inference') return false;
     if (c.confidence_score !== undefined && c.confidence_score !== null
         && Number(c.confidence_score) < MIN_EMAIL_CONFIDENCE) return false;
@@ -300,4 +346,8 @@ function salutationName(fullName) {
   return parts[0];
 }
 
-module.exports = { enforceGreeting, enforceGreetingHtml, allowedGreetingNames, addresseeOf, greetableContacts, salutationName, isHonorificOnly, hasRoleTitle };
+module.exports = {
+  enforceGreeting, enforceGreetingHtml, allowedGreetingNames, addresseeOf,
+  greetableContacts, salutationName, isHonorificOnly, hasRoleTitle,
+  GREETABLE_SOURCES, greetableFromSource, weakSourceOnly, hasPublishedAddress,
+};

@@ -114,14 +114,21 @@ function main() {
   const ggCode = gg.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
   ok('greetability no longer requires the contact\'s own address',
     !/if \(!c \|\| !c\.name \|\| !c\.email\) return false;/.test(ggCode), null);
-  // A guessed address is not a guessed name -- but it is not EVIDENCE of the
-  // name either. Identity is now asked positively: corroborated, self-attested,
-  // or published. A Hunter-derived address is none of the three.
-  ok('  and asks for positive evidence of identity instead of an address',
-    /const corroborated = CRid\.corroborationOf\(c\) >= 2/.test(ggCode)
-      && /if \(!corroborated && !publishedAddress\) return false;/.test(ggCode), null);
-  ok('  while the corroboration rule that catches the Adweek case remains',
-    /isUnconfirmed\(c\) : c\.unconfirmed\) return false;/.test(ggCode), null);
+  // ── LOOSENED FROM CORROBORATION TO PROVENANCE ────────────────────────────
+  // The bar was "two sources agree, or the business's own site, or we hold their
+  // published address". Almost nothing local clears it: a chamber listing naming
+  // the owner failed all three, so the pitch opened "Hi," to a card with the
+  // owner's name on it. The question is now "did a source we recognise publish
+  // this name against this business", with the published-address route kept
+  // alongside it for rows whose provenance we cannot read.
+  ok('  identity is asked as PROVENANCE, by either route',
+    /if \(!greetableFromSource\(c\) && !hasPublishedAddress\(c\)\) return false;/.test(ggCode), null);
+  ok('  and the Adweek case is still refused, by the source and by the hedge',
+    /if \(weakSourceOnly\(c\)\) return false;/.test(ggCode)
+      && /hedgeOf\(c\.title\) !== CR\.HEDGE\.NONE\) return false;/.test(ggCode), null);
+  ok('  with news, hunter and instagram deliberately off the greetable list',
+    !GG.GREETABLE_SOURCES.has('news') && !GG.GREETABLE_SOURCES.has('hunter')
+      && !GG.GREETABLE_SOURCES.has('instagram'), [...GG.GREETABLE_SOURCES]);
 
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));

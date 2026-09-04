@@ -300,7 +300,12 @@
     },
     "greetname.js": {
       "failed": 0,
-      "total": 26,
+      "total": 27,
+      "fault": null
+    },
+    "greetsource.js": {
+      "failed": 0,
+      "total": 44,
       "fault": null
     },
     "ground2.js": {
