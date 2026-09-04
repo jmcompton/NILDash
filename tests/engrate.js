@@ -186,16 +186,60 @@ function main() {
       !/engagement/i.test(pw), null);
   }
 
-  console.log('\n-- 6. THE AUDIT SCRIPT COUNTS AND DOES NOT TOUCH --');
+  console.log('\n-- 6. THE AUDIT SCRIPT: COUNT, THEN CLEAR, REVERSIBLY --');
   {
     const sc = fs.readFileSync(ROOT + 'scripts/audit-engagement-default.js', 'utf8');
-    ok('it is read-only', !/UPDATE |DELETE |INSERT /.test(sc) && !/--apply/.test(sc.replace(/no --apply/g, '')), null);
+    ok('counting is the default and writes nothing',
+      /if \(!CLEAR\) \{/.test(sc) && /Nothing was changed/.test(sc), null);
     ok('  it separates a dated 3.0 from an undated one',
       /three_undated/.test(sc), null);
     ok('  and reports the spread, so 3.0 can be judged a spike or not',
       /most common values/.test(sc), null);
     ok('  covering deal_comps, which is what benchmarks other athletes',
       /FROM deal_comps/.test(sc), null);
+
+    // ── THE SCOPE OF THE CLEAR, WHICH IS THE WHOLE RISK ─────────────────────
+    // 31 rows across a live roster. What it must NOT touch matters more than
+    // what it does.
+    ok('THE TARGET IS EXACTLY 3.0 AND UNDATED, defined once',
+      /const TARGET_SQL = /.test(sc)
+        && /\(a\.data->>'engagement'\)::numeric = 3\.0/.test(sc)
+        && /COALESCE\(a\.data->>'engagementAsOf', ''\) = ''/.test(sc), null);
+    ok('  a numeric guard, so one junk row cannot take the statement down',
+      /a\.data->>'engagement' ~ '\^\[0-9\]\+\(\\\\\.\[0-9\]\+\)\?\$'/.test(sc), null);
+    ok('  ONLY the three engagement keys are written',
+      /- 'engagement' - 'engagementSource' - 'engagementAsOf'/.test(sc), null);
+    ok('  and the dry run names the athletes AND their agents',
+      /u\.email AS agent_email/.test(sc) && /DRY RUN\. Nothing written/.test(sc), null);
+    ok('  it says out loud what it is sparing',
+      /LEFT ALONE: /.test(sc), null);
+    ok('A CEILING, against a mis-scoped WHERE rather than against the known 31',
+      /targets\.length > MAX/.test(sc) && /REFUSING: /.test(sc), null);
+    ok('  and the whole clear is one transaction',
+      /await client\.query\('BEGIN'\)/.test(sc) && /ROLLBACK/.test(sc), null);
+
+    // ── REVERSIBLE TWO WAYS, BECAUSE THEY FAIL DIFFERENTLY ──────────────────
+    ok('a journal file records what every row held',
+      /fs\.writeFileSync\(jpath/.test(sc) && /engagementSource: t\.src/.test(sc), null);
+    ok('  written BEFORE the commit, so there is no window with no record',
+      sc.indexOf('fs.writeFileSync(jpath') < sc.indexOf("client.query('COMMIT')"), null);
+    ok('  and a breadcrumb on the row, for when the file is gone',
+      /'engagementClearedFrom', a\.data->'engagement'/.test(sc), null);
+    ok('THERE IS A --revert THAT READS THE JOURNAL BACK',
+      /async function revert\(P, file\)/.test(sc) && /if \(REVERT\)/.test(sc), null);
+    ok('  restoring the exact prior value, not a re-derived one',
+      /jsonb_build_object\('engagement', \$2::text\)/.test(sc), null);
+    ok('  AND REFUSING TO CLOBBER A RATE ENTERED SINCE',
+      /AND COALESCE\(a\.data->>'engagement', ''\) = ''/.test(sc), null);
+    ok('  clearing the breadcrumb as it goes',
+      /- 'engagementClearedFrom' - 'engagementClearedAt'/.test(sc), null);
+    // The breadcrumb must be inert: if anything READ it, clearing would change
+    // behaviour rather than just removing a number.
+    const srv = fs.readdirSync(ROOT + 'server/services')
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => fs.readFileSync(ROOT + 'server/services/' + f, 'utf8')).join('\n');
+    ok('  and nothing in the product reads the breadcrumb',
+      !/engagementClearedFrom/.test(srv) && !/engagementClearedFrom/.test(idx), null);
   }
 
   OUT.push(''); OUT.push('failures: ' + F);

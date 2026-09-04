@@ -5,3 +5,8 @@ data/
 .DS_Store
 
 scripts/.line-type-cache.json
+
+# Journals written by scripts/audit-engagement-default.js --apply. They are the
+# undo record for a live data change and belong wherever the operator ran it,
+# not in the repository.
+engagement-clear-*.json
