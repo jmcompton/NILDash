@@ -3517,11 +3517,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
               or blocked outright.
             </div>
           </div>
-          <div class="form-group-sm">
-            <label class="form-label-sm">Date of birth <span style="color:var(--muted);font-weight:400">(optional)</span></label>
-            <input class="input-sm" id="a_dob" type="date">
-            <div style="font-size:10px;color:var(--muted);margin-top:2px">Only if you have it. A real date always overrides the box above.</div>
-          </div>
+          <!-- DATE OF BIRTH IS NO LONGER COLLECTED. The box above is the only age
+               input. A date already stored on an athlete is KEPT and still wins
+               over the checkbox wherever it exists -- see compliance.ageFrom --
+               but asking for a birthday put a wall between signing a client and
+               doing anything for them, and the agent always knows whether their
+               own client is eighteen. The `dob` key is not sent by this form at
+               all, so the server's {...existing, ...patch} merge leaves any
+               stored date untouched rather than clearing it. -->
           <div class="form-group-sm">
             <label class="form-label-sm">Interests</label>
             <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Tap an industry, then pick what fits. Deal Scan favors these.</div>
@@ -3574,7 +3577,12 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <div class="form-group-sm">
             <label class="form-label-sm">Instagram Handle</label>
             <div style="display:flex;gap:8px">
-              <input class="input-sm" id="a_handle" placeholder="amber.bretton" style="flex:1">
+              <!-- A PLACEHOLDER IS AN EXAMPLE, NOT A REAL PERSON. This read
+                   "amber.bretton" -- an actual athlete on an actual roster --
+                   so every agent editing every client saw someone else's
+                   handle greyed into the box. Invented, and matching the "e.g."
+                   form the rest of this modal uses. -->
+              <input class="input-sm" id="a_handle" placeholder="e.g. paige.briggs" style="flex:1">
               <button class="run-btn" onclick="fetchStatsForForm()" id="a-fetch-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">Fetch stats</button>
             </div>
             <div id="a-fetch-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
@@ -4655,17 +4663,21 @@ tbody td{padding:11px 14px;vertical-align:middle}
         </select>
       </div>
 
-      <!-- DATE OF BIRTH. Optional, and the only reason it is here is the
-           compliance gate: without it we cannot rule out that an athlete is a
-           minor, and a restricted-category business is HELD rather than sent.
-           The label says exactly that, because an unexplained birthday field on
-           a four-field form is the kind of thing an agent skips. -->
+      <!-- AGE, FOR THE COMPLIANCE GATE. This was a date-of-birth picker, which
+           is the one field on a four-field form an agent skips -- and without an
+           answer every restricted-category business is HELD rather than sent.
+           The agent knows whether their own client is eighteen; they do not
+           always know the date. Swapped for the same checkbox the client form
+           uses so there is ONE age input in the product rather than two, and so
+           an athlete added here arrives with the question answered. -->
       <div style="margin-bottom:8px">
-        <label class="form-label-sm">Date of birth <span style="color:var(--muted);font-weight:400">— optional</span></label>
-        <input class="input-sm" id="ob-athlete-dob" type="date" style="width:100%">
+        <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;padding:6px 0">
+          <input type="checkbox" id="ob-athlete-over18" checked style="margin-top:2px;flex:0 0 auto">
+          <span style="font-size:12px;line-height:1.5">This athlete is 18 or over</span>
+        </label>
         <div style="font-size:11px;color:var(--muted);margin-top:4px">
-          Without it we hold any pitch to alcohol, tobacco, cannabis, gambling or firearms
-          businesses, because we cannot rule out that they are under 18.
+          Untick for a minor. Alcohol, tobacco, cannabis, gambling and firearms are reviewed
+          by a person either way — this decides whether they are held for review or blocked.
         </div>
       </div>
 
@@ -4673,7 +4685,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <div style="margin-bottom:8px">
         <label class="form-label-sm">Instagram handle</label>
         <div style="display:flex;gap:8px">
-          <input class="input-sm" id="ob-athlete-handle" placeholder="amber.bretton" style="flex:1">
+          <!-- Generic, not a real athlete's handle. Same fix as a_handle. -->
+          <input class="input-sm" id="ob-athlete-handle" placeholder="e.g. paige.briggs" style="flex:1">
           <button onclick="obFetchStats()" id="ob-fetch-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:var(--r-sm);font-family:var(--mono);cursor:pointer;font-weight:700">Fetch stats</button>
         </div>
         <div id="ob-fetch-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
@@ -6383,7 +6396,7 @@ function resetAthleteForm() {
   [
     'a_name', 'a_legal_name', 'a_pos', 'a_school', 'a_email', 'a_parent_email',
     'a_ig', 'a_tt', 'a_eng', 'a_notes', 'a_handle', 'a_hometown', 'a_productwants',
-    'a_dob', 'a_stats', 'a_transfer_reason', 'a_gpa',
+    'a_stats', 'a_transfer_reason', 'a_gpa',
     'a_ppg', 'a_rpg', 'a_apg', 'a_fgpct', 'a_bpg', 'a_spg', 'a_per', 'a_draft',
   ].forEach((id) => { const e = document.getElementById(id); if (e) e.value = ''; });
   ['a_tier', 'a_sport', 'a_year'].forEach((id) => {
@@ -6415,7 +6428,6 @@ async function editAthlete(id) {
   const aLegalEl = document.getElementById('a_legal_name'); if (aLegalEl) aLegalEl.value = a.legal_name || '';
   const aEmailEl = document.getElementById('a_email'); if (aEmailEl) aEmailEl.value = a.email || '';
   const aPEmailEl = document.getElementById('a_parent_email'); if (aPEmailEl) aPEmailEl.value = a.parentEmail || '';
-  const aDobEl = document.getElementById('a_dob'); if (aDobEl) aDobEl.value = a.dob || '';
   document.getElementById('a_tier').value = a.schoolTier || 'p4-mid';
   document.getElementById('a_ig').value = a.instagram || '';
   document.getElementById('a_tt').value = a.tiktok || '';
@@ -6522,7 +6534,11 @@ async function updateAthlete(id) {
     stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
     transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
     hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
-    dob: (document.getElementById('a_dob') ? document.getElementById('a_dob').value : '').trim(),
+    // `dob` IS DELIBERATELY NOT SENT, and an empty string would not do: the
+    // server runs `if ('dob' in patch) patch.dob = _validDob(patch.dob)` and
+    // _validDob('') is '', so sending the key at all would WIPE a date already
+    // on file. Omitting it leaves the stored value alone, which is the whole
+    // point of keeping DOB working for athletes who already have one.
     // schoolRestrictions is deliberately NOT sent. The section is gone from this
     // form -- the compliance agent owns category policy now -- and the server
     // merges ({...existing, ...patch}), so omitting the key leaves whatever an
@@ -6596,7 +6612,9 @@ async function addAthlete() {
         transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
         gpa: document.getElementById('a_gpa') ? document.getElementById('a_gpa').value : '',
         hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
-        dob: (document.getElementById('a_dob') ? document.getElementById('a_dob').value : '').trim(),
+        // No `dob`: the field is gone and the checkbox below is the only age
+        // input. See the update payload for why the key is omitted rather than
+        // sent empty.
         // See the update payload: the restrictions section is gone from this form,
         // so the key is not sent and nothing already stored is overwritten.
         over18: document.getElementById('a_over18') ? !!document.getElementById('a_over18').checked : undefined,
@@ -6620,7 +6638,7 @@ async function addAthlete() {
     document.getElementById('kpi-clients').textContent = athletes.length;
     renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
-    ['a_name','a_legal_name','a_pos','a_school','a_email','a_parent_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants','a_dob'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    ['a_name','a_legal_name','a_pos','a_school','a_email','a_parent_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     renderTagPicker('a_tags', []);
     const _o18 = document.getElementById('a_over18');
     if (_o18) { _o18.checked = false; delete _o18.dataset.touched; }
@@ -13734,9 +13752,11 @@ window.addEventListener('DOMContentLoaded', checkSession);
       const school = (document.getElementById('ob-athlete-school')?.value || '').trim();
       const sport  = document.getElementById('ob-athlete-sport')?.value || 'basketball';
       const handle = (document.getElementById('ob-athlete-handle')?.value || '').trim().replace(/^@/, '');
-      // Empty string, not undefined: an absent birthday must reach the server as
-      // "not on file" rather than being dropped from the payload silently.
-      const dob    = (document.getElementById('ob-athlete-dob')?.value || '').trim();
+      // The checkbox that replaced the birthday picker. Sent as a real boolean,
+      // because _validOver18 rejects anything else and drops the key -- which
+      // would leave the athlete with no age answer at all.
+      const over18El = document.getElementById('ob-athlete-over18');
+      const over18   = over18El ? !!over18El.checked : true;
       if (!name) { showToast('Enter the athlete name'); return; }
 
       // The school warning is shown, not enforced. An agent who means it can
@@ -13754,7 +13774,7 @@ window.addEventListener('DOMContentLoaded', checkSession);
         const r = await fetch(`${API_BASE}/api/athletes`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name, sport, school, dob,
+            name, sport, school, over18,
             // Carried from AI Lookup when it found them. Not asked for.
             position:   obPrefill.position   || '',
             hometown:   obPrefill.hometown   || '',

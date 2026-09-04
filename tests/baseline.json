@@ -219,7 +219,7 @@
     },
     "dobmoving.js": {
       "failed": 0,
-      "total": 26,
+      "total": 27,
       "fault": null
     },
     "domgate.js": {
@@ -521,7 +521,7 @@
     },
     "over18.js": {
       "failed": 0,
-      "total": 48,
+      "total": 55,
       "fault": null
     },
     "parse.js": {

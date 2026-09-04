@@ -237,7 +237,25 @@ function ageFrom(dob, now, opts = {}) {
     return { known: false, minor: null, years: null, reason: 'absent' };
   }
   const d = new Date(dob);
-  const bad = (why) => ({ known: false, minor: null, years: null, reason: 'unreadable', detail: why });
+  // ── A CORRUPT DATE MUST NOT OUTRANK THE CHECKBOX ──────────────────────────
+  //
+  // An unparseable stored date used to return "unknown" and never look at the
+  // attestation, so an athlete with a junk `dob` was held on every restricted
+  // category even with "18 or over" ticked. That was survivable while the form
+  // still had a date field to correct it in. It is not survivable now: the
+  // field is gone, so there is no way for an agent to fix the value, and the
+  // athlete would be stuck behind a hold forever.
+  //
+  // The bad date is still REPORTED -- `detail` and `badDob` travel with the
+  // answer so it reads as a fault to clean up rather than vanishing -- but the
+  // agent's answer decides. A date we cannot read is not evidence of anything.
+  const bad = (why) => {
+    if (opts.over18 === true || opts.over18 === false) {
+      return { known: true, minor: opts.over18 === false, years: null, reason: null,
+        source: 'attested', badDob: true, detail: why };
+    }
+    return { known: false, minor: null, years: null, reason: 'unreadable', detail: why };
+  };
   if (isNaN(d.getTime())) return bad(`the stored date of birth (${String(dob).slice(0, 32)}) is not a date`);
   const ref = now ? new Date(now) : new Date();
   if (d.getTime() > ref.getTime()) return bad('the stored date of birth is in the future');
@@ -394,9 +412,14 @@ async function evaluate(pool, ctx) {
     //    reason to stop a pitch to a coffee shop.
     if (!age.known && !cls.hits.length) {
       findings.push({
-        ruleKey: 'dob-missing', ruleLabel: 'date of birth not on file', severity: 'note',
-        reason: `No date of birth for ${ctx.athleteName || 'this athlete'}. Nothing here needs it, `
-          + 'but a restricted-category business would be held until it is entered.',
+        // POINTS AT THE CHECKBOX, NOT AT A BIRTHDAY. The date-of-birth field has
+        // been removed from every form, so "until it is entered" was advice an
+        // agent could no longer act on. The answerable question is the one that
+        // is still on the profile.
+        ruleKey: 'dob-missing', ruleLabel: 'age not on file', severity: 'note',
+        reason: `No age on file for ${ctx.athleteName || 'this athlete'}. Nothing here needs it, `
+          + 'but a restricted-category business would be held until "18 or over" is ticked '
+          + 'on their profile.',
       });
       decision = worst(decision, 'note');
     }

@@ -68,9 +68,33 @@ function main() {
   ok('and an unreadable athlete record is still its own fault, not an age',
     C.ageFrom('', NOW, { over18: true, sourceUnreadable: true }).reason === 'unreadable',
     C.ageFrom('', NOW, { over18: true, sourceUnreadable: true }));
-  ok('a junk date is still unreadable, not silently replaced by the checkbox',
-    C.ageFrom('banana', NOW, { over18: true }).reason === 'unreadable',
-    C.ageFrom('banana', NOW, { over18: true }));
+  // ── A CORRUPT DATE NO LONGER OUTRANKS THE CHECKBOX ────────────────────────
+  //
+  // This asserted that a junk `dob` stayed 'unreadable' whatever the checkbox
+  // said, on the reasoning that a corrupt value is a fault to fix rather than a
+  // blank to fill. That held while the form still had a date field to fix it in.
+  // The field has been removed from every form, so there is now no way for an
+  // agent to correct a junk value -- and the athlete would sit behind a hold on
+  // every restricted category permanently.
+  //
+  // THE BAD DATE IS STILL REPORTED, which is the half worth keeping: badDob and
+  // the detail travel with the answer so it reads as something to clean up.
+  {
+    const j = C.ageFrom('banana', NOW, { over18: true });
+    ok('a junk date no longer outranks the checkbox, because nothing can fix it now',
+      j.known === true && j.minor === false && j.source === 'attested', j);
+    ok('  but it is still REPORTED as a bad value rather than vanishing',
+      j.badDob === true && /banana/.test(j.detail || ''), j);
+    ok('  and an unticked box on a junk date is still a minor',
+      C.ageFrom('banana', NOW, { over18: false }).minor === true,
+      C.ageFrom('banana', NOW, { over18: false }));
+    ok('  while a junk date with NO answer is unknown, exactly as before',
+      C.ageFrom('banana', NOW, {}).reason === 'unreadable', C.ageFrom('banana', NOW, {}));
+    // The record itself being unreadable is a different fault and is untouched:
+    // that is "we could not read the athlete", not "we could not read a date".
+    ok('  and an unreadable athlete record still beats the checkbox',
+      C.ageFrom('', NOW, { over18: true, sourceUnreadable: true }).reason === 'unreadable');
+  }
 
   // ── THE HARD CATEGORIES STILL REACH A HUMAN ───────────────────────────────
   // This is the claim that makes the change safe: the attestation moves a
@@ -113,8 +137,18 @@ function main() {
     !/a_school_restrictions/.test(html) && !/Categories this school restricts/.test(html), null);
   ok('  but the server still reads anything already stored, rather than wiping it',
     /schoolRestrictions: _validRestrictions\(schoolRestrictions\)/.test(idx), null);
-  ok('  and the date of birth survives as an optional field',
-    /id="a_dob"/.test(html), null);
+  // ── AND THE DATE OF BIRTH FIELD IS GONE TOO ───────────────────────────────
+  // The checkbox is the only age input in the product now. A date already stored
+  // on an athlete is kept and still wins; we simply stop asking for one.
+  ok('THE DATE OF BIRTH FIELD IS GONE FROM THE CLIENT FORM',
+    !/id="a_dob"/.test(html), null);
+  ok('  and from the onboarding wizard, which had one and no checkbox',
+    !/id="ob-athlete-dob"/.test(html) && /id="ob-athlete-over18"/.test(html), null);
+  ok('  NEITHER FORM SENDS A dob KEY, because an empty one would wipe a stored date',
+    !/dob: \(document\.getElementById\('a_dob'\)/.test(html)
+      && !/name, sport, school, dob,/.test(html), null);
+  ok('  and the server still accepts and validates one, for anything that has it',
+    /dob: _validDob\(dob\)/.test(idx) && /if \('dob' in patch\) patch\.dob = _validDob/.test(idx), null);
 
   // The default rule itself, which decides a click on most of a roster.
   const dflt = (y) => {

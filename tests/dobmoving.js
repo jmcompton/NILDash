@@ -129,10 +129,22 @@ const AG = 'dob-agent', A1 = 'dob-with', A2 = 'dob-without';
   const dead = fs.readFileSync(ROOT + 'public/index.html', 'utf8');
   check('the dates-of-birth panel is gone from the page',
     !/sr-dobgap|srRenderDobGap|srSaveDobs|sr-dob-/.test(dead));
-  check('the Add Client form still has the date field',
-    /id="a_dob"/.test(dead) && /type="date"/.test(dead.slice(dead.indexOf('id="a_dob"') - 120, dead.indexOf('id="a_dob"') + 60)));
-  check('the form still submits it on create and on edit',
-    (dead.match(/dob: \(document\.getElementById\('a_dob'\)/g) || []).length === 2);
+  // ── AND NOW THE FIELD ITSELF IS GONE ──────────────────────────────────────
+  // This suite removed the shift report's "fill in these birthdays" panel and
+  // kept the form field, on the reasoning that collecting a date was still worth
+  // doing where an agent happened to have one. The 18-or-over checkbox is the
+  // only age input now: a stored date still WINS wherever one exists, we just
+  // stop asking. So the panel staying gone is still asserted above, and the
+  // field joining it is asserted here.
+  check('the Add Client form no longer has the date field', !/id="a_dob"/.test(dead));
+  check('and neither form submits a dob key',
+    (dead.match(/dob: \(document\.getElementById\('a_dob'\)/g) || []).length === 0
+      && !/name, sport, school, dob,/.test(dead));
+  // A stored date is KEPT, which is only true if the key is omitted rather than
+  // sent empty -- the server merges {...existing, ...patch} and _validDob('')
+  // is '', so sending it at all would clear the value.
+  check('the omission is deliberate and says why',
+    /would WIPE a date already/.test(dead));
 
   const bad = out.filter((x) => !x.ok);
   console.log('\n' + (out.length - bad.length) + '/' + out.length + ' passed');
