@@ -6528,7 +6528,12 @@ async function updateAthlete(id) {
     schoolTier: document.getElementById('a_tier').value,
     instagram: parseInt(document.getElementById('a_ig').value) || 0,
     tiktok: parseInt(document.getElementById('a_tt').value) || 0,
-    engagement: parseFloat(document.getElementById('a_eng').value) || 3.0,
+    // RAW, NOT DEFAULTED. This read `parseFloat(v) || 3.0`, so a blank field --
+    // and a real 0, because `0 || 3.0` is 3.0 -- was stored as an engagement
+    // rate of 3% that nothing could tell apart from a measured one. The server's
+    // _validEngagement turns blank and junk into null, which every reader
+    // already handles as absent.
+    engagement: document.getElementById('a_eng').value,
     notes: document.getElementById('a_notes').value,
     year: document.getElementById('a_year') ? document.getElementById('a_year').value : '',
     stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',

@@ -51,6 +51,12 @@ function n(v) {
 // Engagement is stored as either a number or a string like "4.2%". Both are
 // read; anything unparseable is ABSENT rather than zero, because 0% engagement
 // is a claim and a missing value is not.
+//
+// ── AND 0 IS STILL NOT PRINTED, WHICH IS A DISPLAY DECISION ────────────────
+// Storage now tells a real 0 apart from a blank field -- see _validEngagement in
+// index.js -- and that distinction is worth having. It does NOT follow that the
+// kit should print "Engagement: 0%" on a document going to a brand under the
+// agent's name. `x <= 0` stays, deliberately, and tests/analyst.js records it.
 function pct(v) {
   if (v === null || v === undefined || v === '') return null;
   const x = typeof v === 'string' ? parseFloat(v.replace(/[^0-9.]/g, '')) : Number(v);
@@ -151,7 +157,20 @@ function composeKit(athlete, opts = {}) {
   const prov = RP.reachProvenance(a, opts.now);
   add('reach', 'Total reach', reach === null ? null : RP.withAsOf(fmt(reach), a, opts.now),
     'instagram + tiktok + twitter');
-  add('engagement', 'Engagement', eng === null ? null : eng + '%', 'athletes.data.engagement');
+  // ── DATED, LIKE REACH, OR NOT SHOWN AT ALL ──────────────────────────────
+  //
+  // `add` already omits a null, so an absent rate has never printed -- but
+  // until the storage fix every athlete carried an invented 3.0 and this row
+  // printed it as a measured fact on a document that gets forwarded to brands.
+  //
+  // The rows written before that fix are still 3.0 with no date. An undated rate
+  // is now shown WITH its caveat rather than bare, which is the same treatment
+  // the follower count gets and which makes a laundered default visible to the
+  // person reading the kit instead of invisible.
+  const engProv = RP.engagementProvenance(a, opts.now);
+  add('engagement', 'Engagement',
+    eng === null ? null : eng + '%' + (engProv.label ? ` (${engProv.label})` : ''),
+    'athletes.data.engagement');
 
   const audience = opts.audience || null;
   const loc = decideLocation(a, audience, opts);
@@ -170,6 +189,9 @@ function composeKit(athlete, opts = {}) {
     // The kit renders this in its footer, so a reader can see who supplied the
     // numbers and when without reading the fact rows.
     reachProvenance: prov,
+    // So the kit footer can say who supplied the RATE and when, separately from
+    // the follower count -- they move independently.
+    engagementProvenance: engProv,
     // What a reader can verify, and what we deliberately left off.
     reach, engagement: eng, instagram: ig, tiktok: tt, twitter: tw,
     thin: facts.length < 3,

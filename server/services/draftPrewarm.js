@@ -114,7 +114,20 @@ function athleteFacts(athlete) {
   push('School', a.school);
   push('Instagram followers', a.instagram);
   push('TikTok followers', a.tiktok);
-  push('Engagement rate', a.engagement ? `${a.engagement}%` : '');
+  // ── AN UNDATED RATE IS NOT HANDED TO THE MODEL ────────────────────────────
+  // Same rule the follower count already follows in pitchWriter.describeAthlete:
+  // a figure we cannot date cannot be cited honestly, and telling a model "here
+  // is a number, please do not use it" is an invitation to use it. Withheld
+  // entirely rather than passed with a caveat.
+  {
+    const RP = require('./reachProvenance');
+    const ep = RP.engagementProvenance(a);
+    const e = a.engagement;
+    const hasRate = e !== null && e !== undefined && e !== '' && Number(e) > 0;
+    if (hasRate && ep.citable) {
+      push('Engagement rate', `${e}%` + (ep.asOfText ? ` (as of ${ep.asOfText})` : ''));
+    }
+  }
   push('Notable', a.stats);
   push('Background', a.notes);
   return lines.join('\n');

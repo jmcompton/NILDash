@@ -1381,6 +1381,35 @@ function _validDob(v) {
   return s;
 }
 
+// ── AN ENGAGEMENT RATE WE DO NOT HAVE IS NOT 3% ─────────────────────────────
+//
+// Both the form and this route read `parseFloat(v) || 3.0`, so a BLANK FIELD was
+// stored as 3.0 -- and so was a real 0, because `0 || 3.0` is 3.0. Every athlete
+// added without an engagement rate carries an invented one that is
+// indistinguishable from a measured one: igStatsSource says 'manual' either way.
+// That number then reaches media kits, the older pitch path, draftPrewarm, and
+// deal_comps, where other athletes are benchmarked against it.
+//
+// null means absent, and absent is a thing every reader already handles:
+// analyst.pct returns null for it and the kit omits the row.
+//
+//   undefined  the key was not sent -- leave whatever is on file alone
+//   null       sent and empty, or junk -> ABSENT
+//   0..100     a real answer, INCLUDING 0
+function _validEngagement(v) {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  // THE MINUS SURVIVES THE STRIP. Removing every non-digit turned "-4" into 4 --
+  // a rejected value silently becoming an accepted one, which is the same class
+  // of bug as the default it replaces.
+  const x = typeof v === 'string'
+    ? parseFloat(String(v).replace(/[^0-9.\-]/g, '')) : Number(v);
+  // Out of range is junk, not a claim. A stored 0 is kept: an agent who types 0
+  // means 0, and conflating that with "we never asked" is the bug above.
+  if (!Number.isFinite(x) || x < 0 || x > 100) return null;
+  return Math.round(x * 10) / 10;
+}
+
 app.post('/api/athletes', requireAuth, async (req, res) => {
   const user = await store.getUser(req.session.userId);
   // ── AN ATHLETE WITHOUT A SCHOOL IS A RECORD THE PIPELINE CANNOT USE ──────
@@ -1450,7 +1479,15 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     school: school || '', schoolTier: schoolTier || 'p4-mid',
     instagram: parseInt(instagram) || 0,
     tiktok: parseInt(tiktok) || 0,
-    engagement: parseFloat(engagement) || 3.0,
+    // null when blank or junk. See _validEngagement: 3.0 was an invented number
+    // that reached media kits and deal_comps as though it were measured.
+    engagement: _validEngagement(engagement) === undefined ? null : _validEngagement(engagement),
+    // DATED, like the follower count. reachProvenance.engagementProvenance reads
+    // these, and nothing may cite an undated rate.
+    engagementSource: _validEngagement(engagement) === null
+      || _validEngagement(engagement) === undefined ? null : 'agent',
+    engagementAsOf: _validEngagement(engagement) === null
+      || _validEngagement(engagement) === undefined ? null : new Date().toISOString().slice(0, 10),
     notes: notes || '',
     year: year || '',
     stats: stats || '',
@@ -1592,6 +1629,26 @@ app.put('/api/athletes/:id', requireAuth, async (req, res) => {
   // straight through here and the compliance gate would resolve minor status
   // from it -- an unvalidated date is worse than none, because none holds.
   if ('dob' in patch) patch.dob = _validDob(patch.dob);
+  // ── ENGAGEMENT, NORMALISED AND DATED ──────────────────────────────────────
+  // undefined means the key was not sent and nothing is touched. Anything else
+  // is an answer, including an explicit clear.
+  //
+  // THE DATE ONLY MOVES WHEN THE NUMBER DOES. Re-saving a profile to change a
+  // school must not restamp a rate nobody re-measured -- that would launder an
+  // old number into a fresh one, which is the whole failure this dating exists
+  // to prevent.
+  if ('engagement' in patch) {
+    const e = _validEngagement(patch.engagement);
+    if (e === undefined) { delete patch.engagement; } else {
+      patch.engagement = e;
+      const before = existing && existing.engagement !== undefined && existing.engagement !== null
+        ? Number(existing.engagement) : null;
+      if (e === null) { patch.engagementSource = null; patch.engagementAsOf = null; } else if (before !== e) {
+        patch.engagementSource = 'agent';
+        patch.engagementAsOf = new Date().toISOString().slice(0, 10);
+      }
+    }
+  }
   // undefined means "no answer given", and must not overwrite an answer already
   // on file -- so the key is dropped rather than written as a null.
   if ('over18' in patch) {
@@ -3046,7 +3103,15 @@ app.post('/api/athletes/:id/fetch-social-stats', requireAuth, statsLimiter, asyn
       merged.instagramHandle = handle;
       if (found) {
         if (followers !== null) merged.instagram = followers;
-        if (engagement !== null) merged.engagement = engagement;
+        if (engagement !== null) {
+          merged.engagement = engagement;
+          // Only the web-search lane ever produces a rate; the page scrape
+          // returns followers and posts and never one. Recorded as hand-entered
+          // rather than live, because a model reading search results is not a
+          // connected account.
+          merged.engagementSource = 'agent';
+          merged.engagementAsOf = fetchedAt.slice(0, 10);
+        }
         merged.igStatsSource = followersSource === 'instagram_page' ? 'instagram_page' : 'web_estimate';
         merged.igStatsFetchedAt = fetchedAt;
       }

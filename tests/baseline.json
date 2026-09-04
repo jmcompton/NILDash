@@ -268,6 +268,11 @@
       "fault": null,
       "note": "PRE-EXISTING, not caused by the pause-loop change: fails identically on clean HEAD. Two hardcoded dollar figures in the engagement-rate valuation (er=4.8 and er=9.0) no longer match what benchmarks.js returns. benchmarks.js has not changed since 2026-08-17 and neither has the suite, so the inputs moved. Not diagnosed; not blocking."
     },
+    "engrate.js": {
+      "failed": 0,
+      "total": 44,
+      "fault": null
+    },
     "fbs.js": {
       "failed": 0,
       "total": 24,

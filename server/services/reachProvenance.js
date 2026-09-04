@@ -110,4 +110,54 @@ function withAsOf(text, athlete, now) {
 const CITES_REACH_RE = /(\d[\d,.]*\s*[km]?\s*(followers|following)|following of\s+\d)/i;
 function citesReach(text) { return CITES_REACH_RE.test(String(text || '')); }
 
-module.exports = { reachProvenance, withAsOf, formatAsOf, citesReach, SOURCES, STALE_DAYS };
+// ── AN ENGAGEMENT RATE IS A FOLLOWER COUNT'S TWIN ───────────────────────────
+//
+// Same problem, and it had none of the protection. A rate is right on the day it
+// is entered and wrong from then on, it is hand-entered far more often than a
+// follower count -- the Instagram page scrape returns followers and posts and
+// NEVER an engagement rate, so only the web-search fallback can produce one, and
+// for a normal college account that fallback correctly returns null -- and until
+// now nothing dated it, so a media kit and the older pitch path printed a bare
+// "3% engagement" as though it were current.
+//
+// Its own fields, not reach's: they move independently. A follower count
+// refreshed today says nothing about when the rate was last measured, and
+// sharing reachAsOf between them would let a fetch that returned NO rate
+// re-date the old one.
+function engagementProvenance(athlete, now) {
+  const a = athlete || {};
+  const ref = _date(now) || new Date();
+  const asOf = _date(a.engagementAsOf || a.engagement_as_of || null);
+  const rawSource = String(a.engagementSource || a.engagement_source || '').toLowerCase().trim();
+  const source = SOURCES[rawSource] ? rawSource : null;
+  const spec = source ? SOURCES[source] : null;
+
+  const ageDays = asOf ? Math.max(0, Math.floor((ref.getTime() - asOf.getTime()) / 86400000)) : null;
+  const isLive = !!(spec && spec.live);
+  const stale = !isLive && ageDays !== null && ageDays > STALE_DAYS;
+
+  let label = null;
+  if (isLive) label = null;
+  else if (asOf) label = `as of ${formatAsOf(asOf)}`;
+  else if (source) label = `${spec.label}, date not recorded`;
+  else label = 'date and source not recorded';
+
+  return {
+    asOf, asOfText: formatAsOf(asOf), source, sourceLabel: spec ? spec.label : null,
+    isLive, ageDays, stale, label,
+    // THE ONE THING CALLERS ACT ON. An undated rate may be shown with its caveat
+    // on a document a reader can weigh, and may NOT be handed to a model that
+    // will state it to a business as current. Same rule reach already follows.
+    citable: isLive || !!asOf,
+  };
+}
+
+// Does this text cite an engagement rate? "4.2% engagement", "engagement rate of
+// 4.2%", "an engaged following of 4.2%".
+const CITES_ENGAGEMENT_RE = /(\d[\d.]*\s*%\s*(engagement|engaged)|engagement\s+(rate\s+)?(of\s+)?\d[\d.]*\s*%)/i;
+function citesEngagement(text) { return CITES_ENGAGEMENT_RE.test(String(text || '')); }
+
+module.exports = {
+  reachProvenance, engagementProvenance, withAsOf, formatAsOf,
+  citesReach, citesEngagement, SOURCES, STALE_DAYS,
+};

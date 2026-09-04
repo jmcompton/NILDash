@@ -33,6 +33,27 @@ const greetingGuard = require('./greetingGuard');
  *   roi_messaging, cta, full_email_body, deck_talking_points
  * }
  */
+// ── THE ENGAGEMENT LINE, OR NO LINE ─────────────────────────────────────────
+//
+// This read `- Engagement: ${athleteData.engagement || 0}%`, which handed the
+// model a "0%" for every athlete with no rate on file and an invented "3%" for
+// every athlete carrying the old default. Either way the model was told a figure
+// about a real person and asked to sell with it.
+//
+// A rate we cannot date cannot be cited honestly -- the same rule the follower
+// count follows in pitchWriter.describeAthlete -- so an undated one is withheld
+// rather than passed with a caveat. There is no line at all when there is
+// nothing true to put in it.
+function _engagementLine(a) {
+  const RP = require('./reachProvenance');
+  const e = a && a.engagement;
+  if (e === null || e === undefined || e === '' || !(Number(e) > 0)) return '';
+  const ep = RP.engagementProvenance(a);
+  if (!ep.citable) return '';
+  return `\n- Engagement: ${e}%${ep.asOfText ? ` (measured ${ep.asOfText}, NOT live` +
+    ` — if you cite it, write "as of ${ep.asOfText}")` : ''}`;
+}
+
 async function generatePitch(inputs) {
   const { athlete, enrichment, matchScore, contact, dealScanData, agentName, agentEmail } = inputs;
   const athleteData = extractAthleteData(athlete);
@@ -143,7 +164,7 @@ ATHLETE:
 - Sport: ${athleteData.sport} | Position: ${athleteData.position || 'N/A'}
 - School: ${athleteData.school} (${athleteData.schoolTier || 'P5'})
 - Instagram: ${formatFollowers(athleteData.instagram)} followers | TikTok: ${formatFollowers(athleteData.tiktok)} followers
-- Engagement: ${athleteData.engagement || 0}%
+${_engagementLine(athleteData)}
 - Stats: ${athleteData.stats || 'N/A'}
 - Background/Notes: ${athleteData.notes || 'N/A'}
 
@@ -306,14 +327,18 @@ function buildFallbackPitch(athleteData, enrichment, contact, dealScanData) {
   return {
     subject_line: `NIL Partnership Opportunity — ${name} × ${brand}`,
     personalized_intro: `I'm reaching out on behalf of ${name}, a standout ${athleteData.sport} athlete at ${athleteData.school}, regarding a potential NIL partnership with ${brand}.`,
-    athlete_fit: `${name} brings ${formatFollowers(athleteData.instagram)} Instagram followers and ${athleteData.engagement || 0}% engagement, making them a highly effective brand partner for ${brand}.`,
+    // NO ENGAGEMENT FIGURE IN THE FALLBACK. This stated "0% engagement" whenever
+    // none was stored, and an invented 3% whenever the old default was, straight
+    // into copy an agent could send. A sentence without the number is still a
+    // sentence; a wrong number is a claim to a real business.
+    athlete_fit: `${name} brings ${formatFollowers(athleteData.instagram)} Instagram followers, making them a strong brand partner for ${brand}.`,
     audience_alignment: `${name}'s audience closely aligns with ${brand}'s target demographic, offering authentic reach into the college sports community.`,
     campaign_ideas: [campaign, 'Social media content series', 'Local appearance / event activation'],
     value_proposition: `Partnering with ${name} provides ${brand} with authentic access to an engaged collegiate fanbase.`,
     partnership_structure: 'We propose a 3-month initial campaign with 4-6 deliverables across social platforms.',
     roi_messaging: `Based on ${name}'s current engagement rates, partners typically see 3-5x the reach of equivalent paid social placements.`,
     cta: 'Would you be open to a 15-minute call this week to explore this opportunity?',
-    full_email_body: `I'm reaching out on behalf of ${name}, a ${athleteData.sport} athlete at ${athleteData.school}, to explore a potential NIL partnership with ${brand}.\n\n${name} has built an engaged following of ${formatFollowers(athleteData.instagram)} on Instagram with a ${athleteData.engagement || 0}% engagement rate. We believe ${brand} and ${name} share a natural audience alignment that could make for a high-impact campaign.\n\nWe'd love to discuss a ${campaign} — an opportunity that would give ${brand} authentic reach into the college sports community.\n\nWould you be open to a brief call this week?\n\nBest regards,`,
+    full_email_body: `I'm reaching out on behalf of ${name}, a ${athleteData.sport} athlete at ${athleteData.school}, to explore a potential NIL partnership with ${brand}.\n\n${name} has built an engaged following of ${formatFollowers(athleteData.instagram)} on Instagram. We believe ${brand} and ${name} share a natural audience alignment that could make for a high-impact campaign.\n\nWe'd love to discuss a ${campaign} — an opportunity that would give ${brand} authentic reach into the college sports community.\n\nWould you be open to a brief call this week?\n\nBest regards,`,
     deck_talking_points: [`${name} Profile`, 'Social Reach & Engagement', 'Brand Alignment', 'Campaign Concepts', 'Proposed Partnership Structure'],
   };
 }
