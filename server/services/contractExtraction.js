@@ -51,6 +51,35 @@ function isValidDate(str) {
   return !isNaN(d.getTime()) && /^\d{4}-\d{2}-\d{2}$/.test(str);
 }
 
+// ── Coerce whatever the model returned into YYYY-MM-DD ────────────────────
+// The prompt asks for ISO and mostly gets it, but "June 15, 2026" and
+// "6/15/2026" both show up, and isValidDate() rejects them outright. Rejecting a
+// date is not neutral: the deliverable survives with due_date NULL, generates no
+// calendar event, and is therefore invisible to the reminder digest. A silently
+// undated obligation is the failure this tracker exists to prevent, so a date we
+// can read unambiguously is read rather than dropped.
+//
+// Anything genuinely unparseable still returns null. This widens the accepted
+// input format; it does not invent a date where there wasn't one.
+function normalizeDate(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
+  try {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      // UTC components throughout: getMonth()/getDate() would shift the day for
+      // any agent west of UTC, turning a deadline into the day before it.
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+        + `-${String(d.getUTCDate()).padStart(2, '0')}`;
+    }
+  } catch (_) { /* falls through to null */ }
+  console.warn('[contractExtraction] could not parse date:', s);
+  return null;
+}
+
 // ── Normalize brand name ──────────────────────────────────────────────────
 function normalizeBrand(raw) {
   if (!raw || typeof raw !== 'string') return null;
@@ -178,9 +207,9 @@ function validateDeliverable(raw, fallbackBrand) {
   if (!description) return { valid: false, issues: ['missing description'] };
 
   const brand = normalizeBrand(raw.brand) || normalizeBrand(fallbackBrand) || 'Unknown Brand';
-  const dueDate = isValidDate(raw.due_date) ? raw.due_date : null;
-  const startDate = isValidDate(raw.start_date) ? raw.start_date : null;
-  const endDate = isValidDate(raw.end_date) ? raw.end_date : null;
+  const dueDate = normalizeDate(raw.due_date);
+  const startDate = normalizeDate(raw.start_date);
+  const endDate = normalizeDate(raw.end_date);
   const confidence = Math.max(0, Math.min(100, parseInt(raw.confidence_score || raw.confidence || 0, 10)));
   const recurrence = raw.recurrence || null;
   const durationMonths = raw.contract_duration_months ? parseInt(raw.contract_duration_months, 10) : null;
@@ -220,52 +249,62 @@ function validateDeliverable(raw, fallbackBrand) {
 }
 
 // ── Build calendar event rows from a deliverable ──────────────────────────
+// `validated` is either the in-memory shape from validateDeliverable() or the
+// same shape rebuilt from a stored row (see deliverableRowToShape).
 function buildCalendarEvents({ deliverableId, athleteId, agentId, contractId, validated }) {
-  const { description, brand, dueDate, rrule, durationMonths } = validated;
+  const { description, brand, dueDate, rrule, durationMonths, deliverableType } = validated;
   const color = brandColor(brand);
   const events = [];
+
+  const base = {
+    athlete_id: athleteId,
+    agent_id: agentId,
+    deliverable_id: deliverableId,
+    contract_id: contractId,
+    title: description,
+    brand,
+    color,
+    // The TYPE travels with the dated instance. A post and an appearance need
+    // different lead times and read differently in a reminder; carrying it here
+    // means the calendar, the digest and the Home pin can all say which one this
+    // is without joining back through athlete_deliverables on every row.
+    event_type: deliverableType || null,
+    status: 'pending',
+    is_generated: true,
+    manually_modified: false,
+  };
 
   if (rrule && dueDate) {
     // Recurring → generate instances
     const dates = generateDates(rrule, dueDate, { durationMonths });
     for (const date of dates) {
-      events.push({
-        id: uid('evt-'),
-        athlete_id: athleteId,
-        agent_id: agentId,
-        deliverable_id: deliverableId,
-        contract_id: contractId,
-        title: description,
-        event_date: date,
-        brand,
-        color,
-        status: 'pending',
-        is_generated: true,
-        recurrence_instance: true,
-        manually_modified: false,
-      });
+      events.push({ ...base, id: uid('evt-'), event_date: date, recurrence_instance: true });
     }
   } else if (dueDate) {
     // One-time event
-    events.push({
-      id: uid('evt-'),
-      athlete_id: athleteId,
-      agent_id: agentId,
-      deliverable_id: deliverableId,
-      contract_id: contractId,
-      title: description,
-      event_date: dueDate,
-      brand,
-      color,
-      status: 'pending',
-      is_generated: true,
-      recurrence_instance: false,
-      manually_modified: false,
-    });
+    events.push({ ...base, id: uid('evt-'), event_date: dueDate, recurrence_instance: false });
   }
-  // Undated deliverables: no calendar event (shown in "Undated" list in UI)
+  // Undated deliverables: no calendar event (shown in "Undated" list in UI).
+  // They are also unreachable by the reminder digest, which is inherent rather
+  // than an oversight -- there is no date to count back five days from.
 
   return events;
+}
+
+// A stored deliverable row → the shape buildCalendarEvents expects. due_date is
+// read as text (to_char) by every caller, never as a JS Date: node-pg turns a
+// DATE into local midnight, and toISOString() would then shift it a day
+// backwards for every agent west of UTC. A deliverable due the 1st must not
+// become an event on the 31st.
+function deliverableRowToShape(row) {
+  return {
+    description: row.deliverable_description,
+    brand: row.brand,
+    dueDate: row.due_date_iso || null,
+    rrule: row.recurrence_rule || null,
+    durationMonths: null,          // already folded into the stored rule as COUNT
+    deliverableType: row.deliverable_type || null,
+  };
 }
 
 // ── Audit logger ─────────────────────────────────────────────────────────
@@ -283,10 +322,25 @@ async function writeAudit(pool, { agentId, athleteId, contractId, actionType, st
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// MAIN ENTRY POINT
-// processContractUpload({ pool, ai, athleteId, agentId, file, brandHint })
+// STAGE ONE: ANALYZE
+//
+// Reads the file, extracts, validates, and parks the result as DRAFT rows for
+// the agent to review. Deliberately writes nothing to the calendar.
+//
+// WHY THE DRAFT IS IN THE DATABASE AND NOT IN THE BROWSER. The scanner used to
+// hand the whole extraction to the page and take it back on save, which meant
+// the confidence score the model produced and the score that got stored were
+// only related by convention -- and deliverable_type made the round trip and
+// was then dropped on the floor by the save route. Anything the server needs to
+// be true about a row cannot survive a lap through a form. Parking it as a draft
+// also means a closed tab costs the review, not the extraction: the AI call is
+// the expensive part and it is already paid for by the time the table renders.
+//
+// NOTHING DOWNSTREAM MAY READ A DRAFT. Drafts are excluded from the calendar by
+// construction (no events exist yet) and must be excluded by status everywhere
+// deliverables are read directly.
 // ─────────────────────────────────────────────────────────────────────────
-async function processContractUpload({ pool, ai, athleteId, agentId, file, brandHint }) {
+async function analyzeContractUpload({ pool, ai, athleteId, agentId, file, brandHint }) {
   const { originalname, mimetype, buffer } = file;
   const fileHash = hashBuffer(buffer);
 
@@ -312,7 +366,8 @@ async function processContractUpload({ pool, ai, athleteId, agentId, file, brand
     });
 
     const deliverables = await pool.query(
-      `SELECT * FROM athlete_deliverables WHERE contract_id=$1 AND agent_id=$2 ORDER BY sort_order ASC`,
+      `SELECT *, to_char(due_date,'YYYY-MM-DD') AS due_date_iso
+         FROM athlete_deliverables WHERE contract_id=$1 AND agent_id=$2 ORDER BY sort_order ASC`,
       [c.id, agentId]
     );
     const events = await pool.query(
@@ -320,12 +375,17 @@ async function processContractUpload({ pool, ai, athleteId, agentId, file, brand
       [c.id, agentId]
     );
 
+    // A RE-UPLOAD OF AN UNREVIEWED CONTRACT RESUMES THE REVIEW rather than
+    // reporting a dead end. The agent uploaded, got distracted, closed the tab,
+    // and uploaded again -- the honest response is to show them the extraction
+    // they already paid for, still awaiting a decision, not "already processed".
     return {
       duplicate: true,
       contractId: c.id,
       brand: c.brand,
       filename: c.filename,
       extractionStatus: c.extraction_status,
+      awaitingReview: c.extraction_status === 'awaiting_review',
       deliverableCount: deliverables.rows.length,
       calendarEventCount: events.rows.length,
       deliverables: deliverables.rows,
@@ -420,23 +480,23 @@ async function processContractUpload({ pool, ai, athleteId, agentId, file, brand
   // ── STEP 5: Atomic transaction ───────────────────────────────────────
   const client = await pool.connect();
   let insertedDeliverables = 0;
-  let insertedEvents = 0;
+  let draftRows = [];
 
   try {
     await client.query('BEGIN');
 
-    // Insert contract record
+    // Insert contract record. AWAITING_REVIEW, not completed: nothing about this
+    // upload reaches the calendar until a person has looked at it.
     await client.query(
       `INSERT INTO athlete_contracts
          (id, athlete_id, agent_id, filename, brand, file_hash, raw_text, start_date, end_date, extraction_status, extraction_attempts)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'completed',1)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_review',1)`,
       [contractId, athleteId, agentId, originalname, brandName, fileHash,
        rawText.substring(0, 5000), contractStart, contractEnd]
     );
 
     // Insert deliverables (deduplicated within this batch by description+due_date)
     const seenKeys = new Set();
-    const deliverableIds = [];
 
     for (let i = 0; i < validated.length; i++) {
       const v = validated[i];
@@ -447,38 +507,19 @@ async function processContractUpload({ pool, ai, athleteId, agentId, file, brand
       const r = await client.query(
         `INSERT INTO athlete_deliverables
            (athlete_id, agent_id, contract_id, deliverable_description, due_date, brand,
-            status, recurrence, recurrence_rule, ai_confidence_score, source, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11)
+            status, recurrence, recurrence_rule, ai_confidence_score, source, sort_order,
+            deliverable_type)
+         VALUES ($1,$2,$3,$4,$5,$6,'draft',$7,$8,$9,$10,$11,$12)
          ON CONFLICT DO NOTHING
-         RETURNING id`,
+         RETURNING *, to_char(due_date,'YYYY-MM-DD') AS due_date_iso`,
         [athleteId, agentId, contractId, v.description, v.dueDate,
-         v.brand, v.recurrence, v.rrule, v.confidence, v.source, i]
+         v.brand, v.recurrence, v.rrule, v.confidence, v.source, i,
+         v.deliverableType]
       );
 
       if (r.rows.length) {
-        deliverableIds.push({ id: r.rows[0].id, validated: v });
+        draftRows.push(r.rows[0]);
         insertedDeliverables++;
-      }
-    }
-
-    // Generate and insert calendar events
-    for (const { id: deliverableId, validated: v } of deliverableIds) {
-      const events = buildCalendarEvents({
-        deliverableId, athleteId, agentId, contractId, validated: v,
-      });
-
-      for (const evt of events) {
-        await client.query(
-          `INSERT INTO athlete_calendar_events
-             (id, athlete_id, agent_id, deliverable_id, contract_id, title, event_date,
-              brand, color, status, is_generated, recurrence_instance, manually_modified)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-           ON CONFLICT (deliverable_id, event_date) DO NOTHING`,
-          [evt.id, evt.athlete_id, evt.agent_id, evt.deliverable_id, evt.contract_id,
-           evt.title, evt.event_date, evt.brand, evt.color, evt.status,
-           evt.is_generated, evt.recurrence_instance, evt.manually_modified]
-        );
-        insertedEvents++;
       }
     }
 
@@ -501,16 +542,15 @@ async function processContractUpload({ pool, ai, athleteId, agentId, file, brand
     client.release();
   }
 
-  // ── Audit success ────────────────────────────────────────────────────
+  // ── Audit ────────────────────────────────────────────────────────────
   await writeAudit(pool, {
     agentId, athleteId, contractId,
-    actionType: 'extraction_completed',
-    status: 'completed',
+    actionType: 'extraction_analyzed',
+    status: 'awaiting_review',
     metadata: {
       filename: originalname,
       brand: brandName,
       deliverableCount: insertedDeliverables,
-      calendarEventCount: insertedEvents,
       lowConfidenceCount: lowConfidence.length,
       rawAICount: rawDeliverables.length,
     },
@@ -521,13 +561,152 @@ async function processContractUpload({ pool, ai, athleteId, agentId, file, brand
     contractId,
     brand: brandName,
     filename: originalname,
-    extractionStatus: 'completed',
+    extractionStatus: 'awaiting_review',
+    awaitingReview: true,
     deliverableCount: insertedDeliverables,
-    calendarEventCount: insertedEvents,
+    calendarEventCount: 0,
     lowConfidenceCount: lowConfidence.length,
+    deliverables: draftRows,
     contractStart,
     contractEnd,
   };
 }
 
-module.exports = { processContractUpload, brandColor, writeAudit };
+// ─────────────────────────────────────────────────────────────────────────
+// STAGE TWO: CONFIRM
+//
+// The agent has looked at the extraction and accepted it, possibly after
+// dropping rows. Rejected drafts are deleted; the rest become real deliverables
+// and generate their calendar events.
+//
+// REJECTION IS WHAT MAKES THE REVIEW REAL. Showing a confidence score next to a
+// row the agent cannot refuse is decoration. `rejectIds` is how a 62%-confidence
+// guess at an obligation stops before it becomes a reminder about a thing the
+// contract never said.
+//
+// Idempotent: a second confirm finds no drafts and is a no-op, so a double-click
+// or a retried request cannot double-generate a calendar.
+// ─────────────────────────────────────────────────────────────────────────
+async function confirmContract({ pool, athleteId, agentId, contractId, rejectIds }) {
+  const reject = (Array.isArray(rejectIds) ? rejectIds : [])
+    .map((n) => parseInt(n, 10)).filter((n) => Number.isInteger(n));
+
+  const client = await pool.connect();
+  let accepted = 0, rejected = 0, insertedEvents = 0;
+
+  try {
+    await client.query('BEGIN');
+
+    // Ownership is checked in the same statement that does the work, so a
+    // contract id belonging to another agent cannot be confirmed by guessing it.
+    const owns = await client.query(
+      `SELECT id FROM athlete_contracts WHERE id=$1 AND agent_id=$2 AND athlete_id=$3`,
+      [contractId, agentId, athleteId]);
+    if (!owns.rows.length) {
+      await client.query('ROLLBACK');
+      throw Object.assign(new Error('Contract not found'), { statusCode: 404 });
+    }
+
+    if (reject.length) {
+      const del = await client.query(
+        `DELETE FROM athlete_deliverables
+          WHERE contract_id=$1 AND agent_id=$2 AND status='draft' AND id = ANY($3::int[])`,
+        [contractId, agentId, reject]);
+      rejected = del.rowCount || 0;
+    }
+
+    const drafts = await client.query(
+      `UPDATE athlete_deliverables
+          SET status='pending', reviewed_at=NOW()
+        WHERE contract_id=$1 AND agent_id=$2 AND status='draft'
+        RETURNING *, to_char(due_date,'YYYY-MM-DD') AS due_date_iso`,
+      [contractId, agentId]);
+    accepted = drafts.rowCount || 0;
+
+    for (const row of drafts.rows) {
+      const events = buildCalendarEvents({
+        deliverableId: row.id, athleteId, agentId, contractId,
+        validated: deliverableRowToShape(row),
+      });
+      for (const evt of events) {
+        await client.query(
+          `INSERT INTO athlete_calendar_events
+             (id, athlete_id, agent_id, deliverable_id, contract_id, title, event_date,
+              brand, color, status, is_generated, recurrence_instance, manually_modified,
+              event_type)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+           -- THE PREDICATE IS NOT OPTIONAL. idx_cal_events_deliv_date is a
+           -- PARTIAL unique index (WHERE deliverable_id IS NOT NULL), and
+           -- Postgres will only infer a partial index as the conflict arbiter
+           -- if the statement repeats its predicate. Without it this raises
+           -- 42P10 "no unique or exclusion constraint matching the ON CONFLICT
+           -- specification" -- not on the duplicate, on EVERY insert -- which
+           -- rolled back the whole transaction and made the per-athlete
+           -- contract upload fail for every contract that had a due date.
+           ON CONFLICT (deliverable_id, event_date) WHERE deliverable_id IS NOT NULL
+           DO NOTHING`,
+          [evt.id, evt.athlete_id, evt.agent_id, evt.deliverable_id, evt.contract_id,
+           evt.title, evt.event_date, evt.brand, evt.color, evt.status,
+           evt.is_generated, evt.recurrence_instance, evt.manually_modified,
+           evt.event_type]
+        );
+        insertedEvents++;
+      }
+    }
+
+    await client.query(
+      `UPDATE athlete_contracts SET extraction_status='completed' WHERE id=$1 AND agent_id=$2`,
+      [contractId, agentId]);
+
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    await writeAudit(pool, {
+      agentId, athleteId, contractId,
+      actionType: 'confirm_failed', status: 'error', errorMessage: e.message,
+    });
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  await writeAudit(pool, {
+    agentId, athleteId, contractId,
+    actionType: 'extraction_confirmed',
+    status: 'completed',
+    metadata: { accepted, rejected, calendarEventCount: insertedEvents },
+  });
+
+  return {
+    contractId,
+    extractionStatus: 'completed',
+    deliverableCount: accepted,
+    rejectedCount: rejected,
+    calendarEventCount: insertedEvents,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ONE-SHOT: analyze then immediately confirm.
+//
+// The per-athlete upload on the roster card has no review table, so it accepts
+// whatever comes back. It runs through the SAME two stages rather than a second
+// code path -- one engine was the point, and a parallel "quick" implementation
+// is exactly how the scanner drifted into dropping deliverable_type and losing
+// its idempotency check in the first place.
+// ─────────────────────────────────────────────────────────────────────────
+async function processContractUpload(opts) {
+  const analyzed = await analyzeContractUpload(opts);
+  if (analyzed.duplicate || !analyzed.awaitingReview) return analyzed;
+
+  const confirmed = await confirmContract({
+    pool: opts.pool, athleteId: opts.athleteId, agentId: opts.agentId,
+    contractId: analyzed.contractId, rejectIds: [],
+  });
+  return { ...analyzed, ...confirmed, awaitingReview: false };
+}
+
+module.exports = {
+  analyzeContractUpload, confirmContract, processContractUpload,
+  buildCalendarEvents, deliverableRowToShape, brandColor, writeAudit,
+};

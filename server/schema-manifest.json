@@ -89,6 +89,9 @@
       "athlete_id": "TEXT",
       "brand": "TEXT",
       "color": "TEXT",
+      "completed_at": "TIMESTAMPTZ",
+      "completed_by_id": "TEXT",
+      "completed_by_role": "TEXT",
       "contract_id": "TEXT",
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",
       "deliverable_id": "INTEGER",
@@ -151,11 +154,13 @@
       "contract_id": "TEXT",
       "created_at": "TIMESTAMPTZ DEFAULT NOW()",
       "deliverable_description": "TEXT",
+      "deliverable_type": "TEXT",
       "due_date": "DATE",
       "id": "SERIAL",
       "manually_edited": "BOOLEAN DEFAULT FALSE",
       "recurrence": "TEXT",
       "recurrence_rule": "TEXT",
+      "reviewed_at": "TIMESTAMPTZ",
       "sort_order": "INTEGER DEFAULT 0",
       "source": "TEXT DEFAULT 'ai_extracted'",
       "status": "TEXT DEFAULT 'pending'"
@@ -456,6 +461,12 @@
       "data": "JSONB",
       "id": "TEXT",
       "updated_at": "TIMESTAMPTZ DEFAULT NOW()"
+    },
+    "deliverable_reminder_sends": {
+      "agent_id": "TEXT",
+      "items": "INT DEFAULT 0",
+      "local_date": "DATE",
+      "sent_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
     "digest_sends": {
       "agent_id": "TEXT",

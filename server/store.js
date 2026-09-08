@@ -300,6 +300,36 @@ async function init() {
     // link to a money-loop deal (athlete_self_deals.id). Both nullable/additive.
     `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS event_type TEXT`,
     `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS deal_id INTEGER`,
+    // ── WHAT THE ATHLETE ACTUALLY OWES ────────────────────────────────────────
+    // The extractor has always asked the model for deliverable_type (social_post,
+    // story, appearance, ...) and the review table has always displayed it. There
+    // was nowhere to put it, so every save dropped it on the floor and the stored
+    // row remembered only free text. "Two stories" and "an autograph session" are
+    // different obligations with different lead times, and the tracker could not
+    // tell them apart.
+    `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS deliverable_type TEXT`,
+    // ── WHO MARKED IT DONE ────────────────────────────────────────────────────
+    // Both the agent and the athlete can complete an item, and the pin clears
+    // either way. Without attribution the digest can only say a thing stopped
+    // being overdue, which is exactly the sentence an agent cannot act on: the
+    // athlete doing the work and the agent clearing a stale row are the same
+    // event in the data and opposite events in real life.
+    `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`,
+    `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS completed_by_role TEXT`,
+    `ALTER TABLE athlete_calendar_events ADD COLUMN IF NOT EXISTS completed_by_id TEXT`,
+    // When the agent accepted the extraction. A deliverable sits in status
+    // 'draft' between analyze and confirm, and nothing downstream may read a
+    // draft; this records the moment it stopped being one. Null on every row
+    // written before the review step existed, which is correct -- those were
+    // never reviewed.
+    //
+    // event_type on athlete_calendar_events already exists (added for
+    // athlete-created deliverables) and is reused as the per-instance mirror of
+    // deliverable_type, so the calendar, the digest and the Home pin can label
+    // an item without joining back through athlete_deliverables. Recurring
+    // items generate many event rows per deliverable, so that join would land
+    // on exactly the hot paths.
+    `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`,
   ];
   for (const sql of _contractMigrations) {
     await pool.query(sql).catch(() => {});
@@ -317,6 +347,31 @@ async function init() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cal_events_athlete ON athlete_calendar_events(athlete_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cal_events_agent ON athlete_calendar_events(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_cal_events_date ON athlete_calendar_events(event_date)`).catch(() => {});
+  // ── THE REMINDER CLAIM ────────────────────────────────────────────────────
+  // Same shape and the same reason as shift_report_sends: the digest runs on an
+  // in-process timer, so a restart or a second instance would otherwise mail the
+  // same agent the same day's deliverables twice. One row per agent per LOCAL
+  // day -- local, because an agent in Hawaii and an agent in Boston do not share
+  // a date, and a UTC key would let one of them be reminded twice on the day the
+  // dates diverge.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deliverable_reminder_sends (
+      agent_id TEXT NOT NULL,
+      local_date DATE NOT NULL,
+      sent_at TIMESTAMPTZ DEFAULT NOW(),
+      items INT DEFAULT 0,
+      PRIMARY KEY (agent_id, local_date)
+    )
+  `).then(() => console.log('[init] deliverable_reminder_sends table ready'))
+    .catch(e => console.error('[init] deliverable_reminder_sends:', e.message));
+
+  // The digest and the Home pin both ask "what is due, or overdue, and not done"
+  // across a whole roster. Chad's 45 clients with recurring monthly items is
+  // thousands of rows; without this it is a sequential scan on every page load
+  // and every tick.
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_cal_events_agent_due
+    ON athlete_calendar_events(agent_id, event_date)
+    WHERE COALESCE(status,'') NOT IN ('completed','done','complete')`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_agent ON contract_audit_log(agent_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_audit_log_contract ON contract_audit_log(contract_id)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_athlete_outreach_agent ON athlete_outreach(agent_id)`).catch(() => {});

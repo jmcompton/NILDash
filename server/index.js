@@ -4257,7 +4257,8 @@ app.get('/api/dashboard/followups', requireAuth, async (req, res) => {
 
 // ── Contract Upload Pipeline (production-grade, idempotent) ──────────────
 const multer  = require('multer');
-const { processContractUpload, writeAudit } = require('./services/contractExtraction');
+const { processContractUpload, analyzeContractUpload, confirmContract, writeAudit } =
+  require('./services/contractExtraction');
 const { generateDates, toRRule, describeRRule } = require('./services/calendarRecurrence');
 
 const contractUpload = multer({
@@ -4270,6 +4271,27 @@ const contractUpload = multer({
     cb(ok ? null : new Error('Only PDF and DOCX files are accepted'), ok);
   },
 });
+
+// ── WHAT COUNTS AS DONE ───────────────────────────────────────────────────
+// Three spellings are already in the database. The UI has always written
+// 'completed', but athleteReport.js reads NOT IN ('completed','done','complete')
+// because at some point the others got in, and a row spelled 'done' that every
+// other reader treats as outstanding is a deliverable that nags forever.
+//
+// One definition, used by the pin, the digest, and both mark-done paths. Adding
+// a fourth spelling anywhere now means changing this line, which is the point.
+const DONE_STATUSES = ['completed', 'done', 'complete'];
+function isDoneStatus(s) {
+  return DONE_STATUSES.includes(String(s || '').trim().toLowerCase());
+}
+// The same rule as SQL, for a given table alias. A function rather than a string
+// with the alias substituted in by the caller: a regex over the finished clause
+// would happily rewrite the word `status` inside the quoted literals too, and the
+// resulting predicate would still be valid SQL that silently matches nothing.
+function notDoneSql(alias) {
+  const col = alias ? `${alias}.status` : 'status';
+  return `COALESCE(${col},'') NOT IN ('completed','done','complete')`;
+}
 
 // ── Ownership guard (reusable) ─────────────────────────────────────────────
 async function requireAthleteOwner(req, res) {
@@ -4313,6 +4335,114 @@ app.post('/api/athletes/:id/contracts/extract', requireAuth, requireAgentSubscri
     console.error('[contract extract]', e.message);
     const code = e.statusCode || 500;
     res.status(code).json({ error: e.message || 'Contract extraction failed' });
+  }
+});
+
+// ── POST /api/athletes/:id/contracts/analyze ──────────────────────────────
+// STAGE ONE of the reviewed upload. Extracts and parks the result as drafts.
+// Nothing reaches the calendar until /confirm.
+//
+// This replaced /api/pdf/analyze, which ran a SECOND extraction implementation
+// with its own prompt, no file hashing, and no audit trail, and handed the whole
+// result to the browser to send back on save. Two engines for one job drifted
+// exactly as far as you would expect: the scanner's save route silently dropped
+// deliverable_type, and re-uploading the same PDF created a duplicate set of
+// everything because its contract id was random per upload.
+app.post('/api/athletes/:id/contracts/analyze', requireAuth, requireAgentSubscription, aiLimiter, contractUpload.single('contract'), async (req, res) => {
+  try {
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const result = await analyzeContractUpload({
+      pool: store.pool, ai,
+      athleteId: req.params.id,
+      agentId:   req.session.userId,
+      file:      req.file,
+      brandHint: req.body.brand || null,
+    });
+    res.status(result.extractionStatus === 'manual_review_required' ? 202 : 200)
+      .json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[contract analyze]', e.message);
+    res.status(e.statusCode || 500).json({ error: e.message || 'Contract analysis failed' });
+  }
+});
+
+// ── POST /api/athletes/:id/contracts/:cid/confirm ─────────────────────────
+// STAGE TWO. Accepts the extraction, minus any rows the agent unchecked, and
+// generates the calendar. `rejectIds` is what makes the confidence score on the
+// review table mean something.
+app.post('/api/athletes/:id/contracts/:cid/confirm', requireAuth, requireAgentSubscription, async (req, res) => {
+  try {
+    const athlete = await requireAthleteOwner(req, res);
+    if (!athlete) return;
+
+    const result = await confirmContract({
+      pool: store.pool,
+      athleteId: req.params.id,
+      agentId:   req.session.userId,
+      contractId: req.params.cid,
+      rejectIds: req.body && req.body.rejectIds,
+    });
+    checkOff(req.session.userId, 'contract_scan'); // Getting Started checklist
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('[contract confirm]', e.message);
+    res.status(e.statusCode || 500).json({ error: e.message || 'Contract confirmation failed' });
+  }
+});
+
+// ── GET /api/agent/deliverables/pinned ────────────────────────────────────
+// The Home block: what is late across the whole roster, worst first. It stays
+// on screen until someone marks the item done -- overdue was already available
+// as a FILTER on the calendar, and a filter is something you have to think to
+// apply. See collectPinned() for what it gathers and why it lives beside the
+// digest rather than here.
+app.get('/api/agent/deliverables/pinned', requireAuth, async (req, res) => {
+  try {
+    const digest = require('./services/deliverableDigest');
+    res.json(await digest.collectPinned(store.pool, req.session.userId, { limit: req.query.limit }));
+  } catch (e) {
+    console.error('[deliverables/pinned]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/agent/deliverables/digest/preview ────────────────────────────
+// The digest exactly as it will be mailed, rendered in the browser for the
+// logged-in agent. Scheduled email is the hardest thing in this codebase to
+// check -- you change a line and find out at 7am tomorrow whether it worked.
+// This runs the same collect and the same renderer, so what you see here is the
+// email. Read-only: it sends nothing and writes no claim row, so previewing
+// cannot cost an agent that day's real digest.
+app.get('/api/agent/deliverables/digest/preview', requireAuth, async (req, res) => {
+  try {
+    const digest = require('./services/deliverableDigest');
+    const sw = require('./services/sendWindow');
+    const u = await store.getUser(req.session.userId);
+    const p = sw.partsIn(new Date(), (u && u.report_tz) || sw.DEFAULT_TZ);
+    const today = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+
+    const d = await digest.collectDigest(store.pool, req.session.userId, today);
+    if (req.query.json) {
+      return res.json({ today, counts: {
+        overdue: d.overdue.length, tomorrow: d.tomorrow.length, soon: d.soon.length,
+      }, ...d });
+    }
+    const mail = digest.renderDigestEmail(d, {
+      appUrl: process.env.APP_URL || 'https://mynildash.com',
+      agentName: u && u.name,
+    });
+    if (!d.actionable) {
+      return res.type('html').send('<p style="font-family:system-ui;padding:24px">'
+        + 'Nothing due in the next 5 days, nothing due tomorrow, nothing overdue. '
+        + 'No digest would be sent today.</p>');
+    }
+    res.type('html').send(mail.html);
+  } catch (e) {
+    console.error('[digest/preview]', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -4377,8 +4507,13 @@ app.get('/api/athletes/:id/deliverables', requireAuth, async (req, res) => {
     if (!athlete) return;
 
     const { brand, status, contract_id } = req.query;
+    // DRAFTS ARE NOT DELIVERABLES YET. A row sits in 'draft' between analyze and
+    // confirm, meaning a model proposed it and no person has accepted it. It must
+    // not appear in a list the agent reads as "what this athlete owes" -- asking
+    // for it explicitly (?status=draft) is the only way to see one.
     let sql = `SELECT * FROM athlete_deliverables WHERE athlete_id=$1 AND agent_id=$2`;
     const params = [req.params.id, req.session.userId];
+    if (status !== 'draft') sql += ` AND COALESCE(status,'') <> 'draft'`;
     if (brand)       { sql += ` AND brand ILIKE $${params.push('%' + brand + '%')}`; }
     if (status)      { sql += ` AND status=$${params.push(status)}`; }
     if (contract_id) { sql += ` AND contract_id=$${params.push(contract_id)}`; }
@@ -4490,8 +4625,11 @@ app.post('/api/athletes/:id/calendar/generate', requireAuth, requireAgentSubscri
     if (contract_id) { delParams.push(contract_id); delSql += ` AND contract_id=$3`; }
     await client.query(delSql, delParams);
 
-    // Fetch deliverables to regenerate
-    let dSql = `SELECT * FROM athlete_deliverables WHERE athlete_id=$1 AND agent_id=$2`;
+    // Fetch deliverables to regenerate. Drafts are excluded: a regenerate that
+    // swept them in would put unreviewed model output straight onto the calendar
+    // through a side door, defeating the review step entirely.
+    let dSql = `SELECT * FROM athlete_deliverables
+                 WHERE athlete_id=$1 AND agent_id=$2 AND COALESCE(status,'') <> 'draft'`;
     const dParams = [athleteId, agentId];
     if (contract_id) { dParams.push(contract_id); dSql += ` AND contract_id=$3`; }
     const deliverables = await client.query(dSql, dParams);
@@ -4547,7 +4685,7 @@ app.patch('/api/athletes/:id/calendar/:eid', requireAuth, async (req, res) => {
     const athlete = await requireAthleteOwner(req, res);
     if (!athlete) return;
 
-    const allowed = ['title', 'event_date', 'status', 'notes', 'brand'];
+    const allowed = ['title', 'event_date', 'status', 'notes', 'brand', 'event_type'];
     const updates = [];
     const params  = [];
     for (const field of allowed) {
@@ -4557,6 +4695,23 @@ app.patch('/api/athletes/:id/calendar/:eid', requireAuth, async (req, res) => {
       }
     }
     if (!updates.length) return res.status(400).json({ error: 'No valid fields to update' });
+
+    // ── WHO CLEARED THE PIN ────────────────────────────────────────────────
+    // Either side can mark an item done and the pin clears either way, so
+    // "it stopped being overdue" is not enough on its own: the athlete doing
+    // the work and the agent tidying a stale row look identical in the data and
+    // mean opposite things. The digest names whoever it was.
+    if (req.body.status !== undefined) {
+      if (isDoneStatus(req.body.status)) {
+        params.push(new Date()); updates.push(`completed_at=$${params.length}`);
+        updates.push(`completed_by_role='agent'`);
+        params.push(String(req.session.userId)); updates.push(`completed_by_id=$${params.length}`);
+      } else {
+        // Reopening clears the attribution rather than leaving a stale name on a
+        // row that is outstanding again.
+        updates.push(`completed_at=NULL`, `completed_by_role=NULL`, `completed_by_id=NULL`);
+      }
+    }
     params.push(true); updates.push(`manually_modified=$${params.length}`);
     params.push(req.params.eid, req.params.id, req.session.userId);
 
@@ -4892,9 +5047,81 @@ async function _expireStaleDraftsAll() {
   } catch (e) { console.error('[shift-report/expire]', e.message); }
 }
 
+// ── THE DELIVERABLES DIGEST ──────────────────────────────────────────────────
+// Same tick, same timezone handling, same claim-table guard as the shift report
+// above -- deliberately, because that machinery has already survived the two
+// things that break scheduled mail: agents in different timezones, and a restart
+// re-arming a timer that has already fired today.
+//
+// A SEPARATE EMAIL rather than a section of the shift report. The shift report is
+// about outreach -- who replied, what is waiting to send. This is about
+// obligations already signed. They prompt different work and get read at
+// different moments, and folding a contractual deadline into a prospecting
+// summary is how it gets skimmed past. The cost is that an agent with both
+// enabled gets two emails in the same hour; say the word and they merge.
+const DIGEST_TICK_MS = 15 * 60 * 1000;
+const DIGEST_LATE_HOURS = 4;   // same bounded lateness as the shift report
+
+async function _sendDueDeliverableDigests() {
+  const digest = require('./services/deliverableDigest');
+  const sw = require('./services/sendWindow');
+  const appUrl = process.env.APP_URL || 'https://mynildash.com';
+
+  let agents;
+  try {
+    agents = (await store.pool.query(
+      `SELECT id, email, name, COALESCE(report_hour,7) AS hour, report_tz
+         FROM users
+        WHERE COALESCE(report_enabled,true) = true
+          AND role <> 'athlete' AND COALESCE(archived,false) = false
+          AND email IS NOT NULL`)).rows;
+  } catch (e) { console.error('[deliverable-digest] roster query failed:', e.message); return; }
+
+  const now = new Date();
+  for (const u of agents) {
+    const tz = u.report_tz || sw.DEFAULT_TZ;
+    let p;
+    try { p = sw.partsIn(now, tz); } catch (_) { continue; }
+    const late = p.hour - Number(u.hour);
+    if (late < 0 || late >= DIGEST_LATE_HOURS) continue;
+    const localDate = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+
+    try {
+      // COLLECT BEFORE CLAIMING. An agent with nothing due gets no email and no
+      // claim row, so if a deliverable is added later the same morning the next
+      // tick can still reach them. Claiming first would burn the day on silence.
+      const d = await digest.collectDigest(store.pool, u.id, localDate);
+      if (!d.actionable) continue;
+
+      const claim = await store.pool.query(
+        `INSERT INTO deliverable_reminder_sends (agent_id, local_date) VALUES ($1,$2)
+         ON CONFLICT (agent_id, local_date) DO NOTHING RETURNING agent_id`, [u.id, localDate]);
+      if (!claim.rowCount) continue;   // already sent this local day
+
+      const mail = digest.renderDigestEmail(d, { appUrl, agentName: u.name });
+      await resend.emails.send({
+        from: 'NILDash <noreply@mynildash.com>',
+        to: u.email, subject: mail.subject, html: mail.html, text: mail.text,
+      });
+      await store.pool.query(
+        `UPDATE deliverable_reminder_sends SET items=$3 WHERE agent_id=$1 AND local_date=$2`,
+        [u.id, localDate, d.total]).catch(() => {});
+      console.log(`[deliverable-digest] agent=${u.id} local=${localDate} `
+        + `overdue=${d.overdue.length} tomorrow=${d.tomorrow.length} soon=${d.soon.length}`);
+    } catch (e) {
+      console.error('[deliverable-digest] agent=' + u.id, e.message);
+      // Release the claim: a transient send failure must not cost the whole day.
+      await store.pool.query(
+        `DELETE FROM deliverable_reminder_sends WHERE agent_id=$1 AND local_date=$2`,
+        [u.id, localDate]).catch(() => {});
+    }
+  }
+}
+
 if (process.env.NODE_ENV === 'production') {
   setInterval(() => { _sendDueShiftReports().catch((e) => console.error('[shift-report/tick]', e.message)); }, REPORT_TICK_MS);
   setInterval(() => { _expireStaleDraftsAll(); }, 6 * 60 * 60 * 1000);
+  setInterval(() => { _sendDueDeliverableDigests().catch((e) => console.error('[deliverable-digest/tick]', e.message)); }, DIGEST_TICK_MS);
 }
 
 // Dev endpoint: approve an email for testing (requires X-Dev-Secret header)
@@ -6877,13 +7104,21 @@ app.put('/api/athlete/calendar/:id/status', verifyAthleteToken, async (req, res)
   try {
     const { status } = req.body;
     if (!status) return res.status(400).json({ error: 'status required' });
+    // The athlete clearing their own item clears the agent's pin too, and is
+    // named as the one who did it. See DONE_STATUSES.
+    const done = isDoneStatus(status);
     const r = await store.pool.query(
-      'UPDATE athlete_calendar_events SET status = $1 WHERE id = $2 AND athlete_id = $3 RETURNING *',
-      [status, req.params.id, req.athlete.id]
+      `UPDATE athlete_calendar_events
+          SET status = $1,
+              completed_at      = CASE WHEN $4::bool THEN NOW() ELSE NULL END,
+              completed_by_role = CASE WHEN $4::bool THEN 'athlete' ELSE NULL END,
+              completed_by_id   = CASE WHEN $4::bool THEN $3::text ELSE NULL END
+        WHERE id = $2 AND athlete_id = $3 RETURNING *`,
+      [status, req.params.id, req.athlete.id, done]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Event not found' });
     const ev = r.rows[0];
-    if (status === 'completed') {
+    if (done) {
       await logAthleteActivity(req.athlete.id, req.athlete.agent_id, 'deliverable_completed',
         `Completed: ${ev.title}`, { event_id: ev.id, brand: ev.brand });
     }
@@ -14987,131 +15222,30 @@ app.get('/sw.js', (req, res) => {
 });
 
 // ── PDF Contract Scanner — standalone (no athlete required) ──────────────
-// POST /api/pdf/analyze
-// Upload any PDF contract → extract text → AI extracts deliverables +
-// runs market rate analysis → returns structured JSON.
-// Does NOT write to DB — purely analytical / read-only.
-const pdfScanUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
-  fileFilter: (req, file, cb) => {
-    const ok = file.mimetype === 'application/pdf' ||
-               file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-               file.mimetype === 'application/msword';
-    cb(ok ? null : new Error('Only PDF and DOCX files accepted'), ok);
-  },
+// ── THE PDF SCANNER SHORTCUT, REMOVED ─────────────────────────────────────
+//
+// /api/pdf/analyze and /api/pdf/save were a SECOND contract-extraction engine
+// living beside services/contractExtraction.js: its own prompt, its own save,
+// no file hashing, no audit trail, and the extraction handed to the browser to
+// be posted back on save. Two implementations of one job drifted exactly as far
+// as you would expect. The save route dropped deliverable_type on every write --
+// the model extracted it, the review table displayed it, and the column it
+// belonged in did not exist -- and because its contract id was random per
+// upload it reasoned that "duplicates are impossible", which had it backwards:
+// re-uploading one PDF produced a second full set of deliverables and events.
+//
+// The reviewed flow now runs on the one engine:
+//   POST /api/athletes/:id/contracts/analyze       → drafts, nothing on the calendar
+//   POST /api/athletes/:id/contracts/:cid/confirm  → accept (minus rejectIds), generate
+//
+// A stale browser tab still holding the old page would otherwise get a bare 404
+// here, so both paths answer with something a person can act on.
+const _pdfScannerGone = (req, res) => res.status(410).json({
+  error: "The PDF Scanner now uploads through the contract pipeline. Reload the page.",
+  moved: "/api/athletes/:id/contracts/analyze",
 });
-
-// Gated: this sends the whole uploaded document to Opus, so it spends real tokens
-// per call and belongs behind the same check as the other AI routes.
-app.post('/api/pdf/analyze', requireAuth, requireAgentSubscription, aiLimiter, pdfScanUpload.single('pdf'), async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const { buffer, mimetype, originalname } = req.file;
-
-    // ── Step 1: Extract raw text ────────────────────────────────────
-    let rawText = '';
-    if (mimetype === 'application/pdf') {
-      const Anthropic = require('@anthropic-ai/sdk');
-      const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-      const resp = await anthropic.messages.create({
-        model: 'claude-opus-4-8',
-        max_tokens: 4096,
-        messages: [{ role: 'user', content: [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } },
-          { type: 'text', text: 'Extract all text from this contract document verbatim. Return only the raw text.' },
-        ]}],
-      });
-      rawText = resp.content[0]?.text || '';
-    } else {
-      const mammoth = require('mammoth');
-      const result  = await mammoth.extractRawText({ buffer });
-      rawText = result.value || '';
-    }
-
-    if (!rawText || rawText.trim().length < 50) {
-      return res.status(422).json({ error: 'Could not extract readable text from this file.' });
-    }
-
-    // ── Step 2: Deliverable extraction ─────────────────────────────
-    const extractPrompt = `You are a senior sports attorney analyzing an NIL contract.
-
-CONTRACT TEXT:
-${rawText.substring(0, 14000)}
-
-Extract ALL deliverables, obligations, and payment milestones. Return JSON:
-{
-  "brand": "brand name",
-  "start_date": "YYYY-MM-DD or null",
-  "end_date": "YYYY-MM-DD or null",
-  "total_compensation": 0,
-  "payment_schedule": "description or null",
-  "exclusivity": "none | category | full | null",
-  "territory": "description or null",
-  "deliverables": [
-    {
-      "description": "exactly what athlete must do",
-      "type": "social_post | story | appearance | content | payment | other",
-      "due_date": "YYYY-MM-DD or null",
-      "recurrence": "monthly | weekly | biweekly | one-time | null",
-      "contract_duration_months": null,
-      "platform": "instagram | tiktok | youtube | in-person | null",
-      "confidence": 90
-    }
-  ],
-  "key_terms": ["list of notable clauses"],
-  "risk_flags": [
-    { "severity": "high | medium | low", "issue": "short description", "detail": "explanation" }
-  ]
-}
-
-Return ONLY valid JSON. No markdown.`;
-
-    // Run extraction AI call
-    const extractRaw = await ai.oneShot(extractPrompt, 'You are a legal contract analyst. Return only valid JSON. No markdown.', 3500, ai.MODEL_STANDARD);
-
-    // Parse extraction
-    let extracted = {};
-    try {
-      const clean = extractRaw.replace(/```json/gi,'').replace(/```/g,'').trim();
-      const m = clean.match(/\{[\s\S]*\}/);
-      if (m) extracted = JSON.parse(m[0]);
-    } catch (e) { extracted = { deliverables: [], risk_flags: [] }; }
-
-    // Normalize deliverable_type field (server uses "type", frontend expects "deliverable_type")
-    if (Array.isArray(extracted.deliverables)) {
-      extracted.deliverables = extracted.deliverables.map(d => ({
-        ...d,
-        deliverable_type: d.deliverable_type || d.type || 'other',
-        confidence_score: d.confidence_score || d.confidence || 0,
-      }));
-    }
-    // Flatten risk_flags to string array if objects
-    if (Array.isArray(extracted.risk_flags)) {
-      extracted.risk_flags = extracted.risk_flags.map(r =>
-        typeof r === 'string' ? r : (r.issue ? `[${(r.severity||'').toUpperCase()}] ${r.issue}: ${r.detail||''}` : JSON.stringify(r))
-      );
-    }
-
-    res.json({
-      ok: true,
-      filename: originalname,
-      textLength: rawText.length,
-      extraction: {
-        brand: extracted.brand || null,
-        start_date: extracted.start_date || null,
-        end_date: extracted.end_date || null,
-        total_value: extracted.total_compensation ? `$${Number(extracted.total_compensation).toLocaleString()}` : null,
-        deliverables: extracted.deliverables || [],
-        key_terms: extracted.key_terms || [],
-        risk_flags: extracted.risk_flags || [],
-      },
-    });
-  } catch (e) {
-    console.error('[pdf/analyze]', e.message);
-    res.status(500).json({ error: e.message || 'PDF analysis failed' });
-  }
-});
+app.post("/api/pdf/analyze", requireAuth, _pdfScannerGone);
+app.post("/api/pdf/save", requireAuth, _pdfScannerGone);
 
 // ── AGENT GLOBAL OPS CALENDAR ────────────────────────────────────────────
 app.get('/api/agent/calendar', requireAuth, async (req, res) => {
@@ -15244,155 +15378,6 @@ app.get('/api/agent/outreach', requireAuth, async (req, res) => {
   }
 });
 
-// ── POST /api/pdf/save ───────────────────────────────────────────────────
-// Saves PDF Scanner extraction results to DB: contract record + deliverables + calendar events
-
-// Normalize any date string to YYYY-MM-DD for PostgreSQL.
-// Handles: "YYYY-MM-DD", "June 15, 2025", "15 June 2025", "6/15/2025", ISO timestamps, etc.
-function normalizeDateForDB(raw) {
-  if (!raw) return null;
-  const s = String(raw).trim();
-  if (!s) return null;
-  // Already ISO date
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  // Strip time if present (e.g. "2025-06-15T00:00:00Z")
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split('T')[0];
-  // Let JS Date parse human-readable strings ("June 15, 2025", "6/15/2025", etc.)
-  try {
-    const d = new Date(s);
-    if (!isNaN(d.getTime())) {
-      const y = d.getUTCFullYear();
-      const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(d.getUTCDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    }
-  } catch (_) {}
-  console.warn('[pdf/save] Could not parse date:', s);
-  return null;
-}
-
-app.post('/api/pdf/save', requireAuth, async (req, res) => {
-  try {
-    const { athleteId, filename, brand, deliverables } = req.body;
-    console.log(`[pdf/save] agent=${req.session.userId} athlete=${athleteId} deliverables=${Array.isArray(deliverables) ? deliverables.length : 'none'}`);
-
-    if (!athleteId) return res.status(400).json({ error: 'athleteId required' });
-    if (!Array.isArray(deliverables) || !deliverables.length)
-      return res.status(400).json({ error: 'No deliverables to save' });
-
-    const agentId = String(req.session.userId);
-    const athlete = await store.getAthlete(athleteId);
-    if (!athlete) return res.status(404).json({ error: 'Athlete not found' });
-    // Compare as strings to avoid type-mismatch (session userId vs DB agent_id)
-    if (String(athlete.agentId) !== agentId)
-      return res.status(403).json({ error: 'Forbidden — athlete does not belong to this agent' });
-
-    const { brandColor } = require('./services/contractExtraction');
-    const { toRRule, generateDates } = require('./services/calendarRecurrence');
-    const crypto = require('crypto');
-
-    // Create contract record
-    const contractId = 'contract-' + crypto.randomBytes(8).toString('hex');
-    const contractBrand = brand || 'Unknown Brand';
-    await store.pool.query(
-      `INSERT INTO athlete_contracts
-         (id, athlete_id, agent_id, filename, brand, extraction_status, extraction_attempts, uploaded_at)
-       VALUES ($1,$2,$3,$4,$5,'completed',1,NOW())
-       ON CONFLICT (id) DO NOTHING`,
-      [contractId, athleteId, agentId, filename || 'PDF Scanner Upload', contractBrand]
-    );
-    console.log(`[pdf/save] contract record created: ${contractId}`);
-
-    let savedDeliverables = 0;
-    let savedEvents = 0;
-    let skippedDeliverables = 0;
-    const eventsToGCal = [];
-
-    const client = await store.pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      for (let i = 0; i < deliverables.length; i++) {
-        const d = deliverables[i];
-        const desc = (d.description || d.deliverable_description || '').trim();
-        if (!desc) { skippedDeliverables++; continue; }
-
-        const recurrence = d.recurrence && d.recurrence !== 'one-time' ? d.recurrence : null;
-        const rrule = toRRule(recurrence, d.contract_duration_months || null);
-        // Normalize date — handles "June 15, 2025", "YYYY-MM-DD", ISO timestamps, etc.
-        const dueDate = normalizeDateForDB(d.due_date);
-        const evBrand = contractBrand;
-        const confidence = parseInt(d.confidence_score || d.confidence || 0, 10);
-
-        console.log(`[pdf/save] deliverable[${i}]: "${desc.substring(0,40)}" due=${dueDate || 'none'}`);
-
-        // contractId is random per upload so duplicates are impossible — no ON CONFLICT needed
-        const dr = await client.query(
-          `INSERT INTO athlete_deliverables
-             (athlete_id, agent_id, contract_id, deliverable_description, due_date, brand,
-              status, recurrence, recurrence_rule, ai_confidence_score, source, sort_order)
-           VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,'pdf_scanner',$10)
-           RETURNING id`,
-          [athleteId, agentId, contractId, desc, dueDate, evBrand,
-           recurrence, rrule, confidence, i]
-        );
-
-        if (dr.rows.length) {
-          savedDeliverables++;
-          const deliverableId = dr.rows[0].id;
-          const color = brandColor(evBrand);
-
-          // Generate calendar events for this deliverable
-          if (dueDate) {
-            const dates = rrule
-              ? generateDates(rrule, dueDate, { durationMonths: d.contract_duration_months })
-              : [dueDate];
-
-            for (const date of dates) {
-              const normalizedDate = normalizeDateForDB(date);
-              if (!normalizedDate) continue;
-              const evId = 'evt-' + crypto.randomBytes(8).toString('hex');
-              await client.query(
-                `INSERT INTO athlete_calendar_events
-                   (id, athlete_id, agent_id, deliverable_id, contract_id, title, event_date,
-                    brand, color, status, is_generated, recurrence_instance, manually_modified)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',TRUE,$10,FALSE)
-                 ON CONFLICT (deliverable_id, event_date) WHERE deliverable_id IS NOT NULL DO NOTHING`,
-                [evId, athleteId, agentId, deliverableId, contractId, desc, normalizedDate,
-                 evBrand, color, dates.length > 1]
-              );
-              savedEvents++;
-              eventsToGCal.push({ id: evId, title: desc, event_date: normalizedDate, brand: evBrand, notes: '' });
-            }
-          }
-        }
-      }
-
-      await client.query('COMMIT');
-      // Fire-and-forget: push newly saved events to athlete's Google Calendar (if connected)
-      eventsToGCal.forEach(ev => _pushEventToGCal(athleteId, ev));
-    } catch (txErr) {
-      await client.query('ROLLBACK');
-      console.error('[pdf/save] transaction error:', txErr.message);
-      throw txErr;
-    } finally {
-      client.release();
-    }
-
-    console.log(`[pdf/save] done — saved ${savedDeliverables} deliverables, ${savedEvents} events (skipped ${skippedDeliverables})`);
-    res.json({
-      ok: true,
-      contractId,
-      savedDeliverables,
-      savedEvents,
-      skippedDeliverables,
-      athleteName: athlete.name,
-    });
-  } catch (e) {
-    console.error('[pdf/save] ERROR:', e.message, e.stack);
-    res.status(500).json({ error: e.message || 'Save failed' });
-  }
-});
 
 app.use('/icons', (req, res, next) => {
   res.setHeader('Cache-Control', 'public, max-age=86400');
