@@ -315,6 +315,52 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── WHAT CODE IS ACTUALLY RUNNING ───────────────────────────────────────────
+//
+// There was no way to ask. Working out whether a fix was live meant curling the
+// page and grepping the HTML for a field that should have been removed, and when
+// that was ambiguous the answer was a guess. A deploy that silently did not
+// happen looks exactly like a deploy that happened and did not work.
+//
+// SEVERAL ENV NAMES, because the platform decides which one exists and being
+// wrong about that is how this ends up reporting null and being useless again.
+// Railway sets RAILWAY_GIT_*; the others are the common names elsewhere. The git
+// call is the local-dev fallback and fails silently in a container with no .git.
+//
+// Computed ONCE at boot: a health check must not shell out per request.
+const BUILD = (() => {
+  const env = process.env;
+  const commit = env.RAILWAY_GIT_COMMIT_SHA || env.SOURCE_VERSION || env.COMMIT_SHA
+    || env.GIT_COMMIT || env.VERCEL_GIT_COMMIT_SHA || env.HEROKU_SLUG_COMMIT || (() => {
+      try {
+        return require('child_process')
+          .execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+          .toString().trim() || null;
+      } catch (_) { return null; }
+    })();
+  return {
+    commit: commit || null,
+    // The message is what a person reads. The SHA is what they compare.
+    message: env.RAILWAY_GIT_COMMIT_MESSAGE || null,
+    branch: env.RAILWAY_GIT_BRANCH || env.GIT_BRANCH || null,
+    deploymentId: env.RAILWAY_DEPLOYMENT_ID || null,
+    // WHEN THIS PROCESS STARTED, which is the honestly knowable thing. A build
+    // timestamp is not exposed by every platform, and reporting process start as
+    // "built at" would be a guess presented as a fact. RAILWAY_BUILD_TIME is
+    // used when it exists and named separately when it does not.
+    startedAt: new Date().toISOString(),
+    builtAt: env.RAILWAY_BUILD_TIME || env.BUILD_TIME || null,
+  };
+})();
+
+// PUBLIC AND UNAUTHENTICATED, on purpose: the whole point is answering "what is
+// live" from outside, and a check you need a session for cannot do that. It
+// exposes a commit SHA and a boot time and nothing else -- no env, no config,
+// no database call that could hang the endpoint it exists to make reliable.
+app.get('/health', (req, res) => {
+  res.json({ ok: true, ...BUILD, uptimeSeconds: Math.round(process.uptime()) });
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 app.set('trust proxy', 1);
 app.use(session({
