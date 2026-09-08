@@ -18,6 +18,20 @@ var NILCal = (function () {
     return ATHLETE_COLORS[h % ATHLETE_COLORS.length];
   }
 
+  // ── Deliverable type, in words ─────────────────────────────────
+  // Mirrors the labels the server uses in the reminder digest, so the calendar
+  // and the 7am email call the same obligation the same thing.
+  var TYPE_LABELS = {
+    social_post: 'Post', story: 'Story', appearance: 'Appearance',
+    content_creation: 'Content', payment_milestone: 'Payment', other: '',
+  };
+  function typeLabel(t) {
+    if (!t) return '';
+    var k = String(t).trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (Object.prototype.hasOwnProperty.call(TYPE_LABELS, k)) return TYPE_LABELS[k];
+    return String(t).trim();   // athlete-created rows store human labels already
+  }
+
   // ── Status-aware event color ───────────────────────────────────
   // Calendar pills always use the athlete's color for background/text (clean, readable).
   // Status is shown via the left border color so it's a subtle indicator, not overwhelming.
@@ -229,9 +243,14 @@ var NILCal = (function () {
         '</td>' +
         // Brand
         '<td style="padding:9px 12px;font-size:12px;color:var(--muted);white-space:nowrap">' + (ev.brand || '—') + '</td>' +
-        // Deliverable title
+        // Deliverable title, with the TYPE beneath it. The type was extracted on
+        // every upload and stored nowhere until now, so this column could only
+        // ever have said "—".
         '<td style="padding:9px 12px;font-size:12px;color:var(--fg);max-width:280px">' +
           '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + ev.title + '</div>' +
+          (typeLabel(ev.event_type)
+            ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + typeLabel(ev.event_type) + '</div>'
+            : '') +
         '</td>' +
         // Due date
         '<td style="padding:9px 12px;font-size:12px;white-space:nowrap;color:' + sc.color + ';font-weight:600">' + d + '</td>' +
@@ -338,6 +357,22 @@ var NILCal = (function () {
             '<span style="color:var(--muted)">Brand / Sponsor</span>' +
             '<span style="font-weight:600;color:var(--fg)">' + (ev.brand||'—') + '</span>' +
           '</div>' +
+          (typeLabel(ev.event_type) ?
+          '<div style="display:flex;justify-content:space-between;font-size:12px">' +
+            '<span style="color:var(--muted)">Type</span>' +
+            '<span style="font-weight:600;color:var(--fg)">' + typeLabel(ev.event_type) + '</span>' +
+          '</div>' : '') +
+          // WHO MARKED IT DONE. The agent clearing a stale row and the athlete
+          // actually doing the work are the same state change and opposite facts;
+          // without this the drawer can only say that it stopped being overdue.
+          (ev.completed_by_role ?
+          '<div style="display:flex;justify-content:space-between;font-size:12px">' +
+            '<span style="color:var(--muted)">Marked done by</span>' +
+            '<span style="font-weight:600;color:#22c55e">' +
+              (ev.completed_by_role === 'athlete' ? (ev.athlete_name || 'The athlete') : 'You') +
+              (ev.completed_at ? ' · ' + String(ev.completed_at).split('T')[0] : '') +
+            '</span>' +
+          '</div>' : '') +
           '<div style="display:flex;justify-content:space-between;font-size:12px">' +
             '<span style="color:var(--muted)">Due Date</span>' +
             '<span style="font-weight:600;color:' + sc.color + '">' + d + '</span>' +

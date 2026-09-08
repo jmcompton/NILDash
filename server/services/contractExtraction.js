@@ -149,22 +149,34 @@ RULES:
 - If the brand is obvious from context, use it even if not repeated on each line
 - If no due_date exists, return null — do NOT fabricate dates
 - IMPORTANT: All dates must use the actual year from the contract. If the contract does not specify a year, use ${currentYear}. Never output dates with year ${currentYear - 1} unless the contract explicitly states that year.
-- Return ONLY a valid JSON array, no markdown, no commentary
+- Return ONLY valid JSON, no markdown, no commentary
+
+Also return, about the contract as a whole:
+- total_compensation: total dollar value as a number (null if not stated)
+- key_terms: notable clauses worth an agent's attention, as short strings
+- risk_flags: [{ "severity": "high"|"medium"|"low", "issue": "short title", "detail": "explanation" }]
 
 OUTPUT FORMAT (example using current year ${currentYear}):
-[
-  {
-    "description": "Post 2 Instagram Reels featuring product during campaign",
-    "brand": "Nike",
-    "due_date": "${currentYear}-09-01",
-    "start_date": "${currentYear}-06-01",
-    "end_date": "${currentYear}-12-31",
-    "recurrence": "monthly",
-    "contract_duration_months": 6,
-    "deliverable_type": "social_post",
-    "confidence_score": 92
-  }
-]`;
+{
+  "total_compensation": 15000,
+  "key_terms": ["Exclusivity in the beverage category for the full term"],
+  "risk_flags": [
+    { "severity": "medium", "issue": "Auto-renewal", "detail": "Renews for 12 months unless cancelled 30 days out" }
+  ],
+  "deliverables": [
+    {
+      "description": "Post 2 Instagram Reels featuring product during campaign",
+      "brand": "Nike",
+      "due_date": "${currentYear}-09-01",
+      "start_date": "${currentYear}-06-01",
+      "end_date": "${currentYear}-12-31",
+      "recurrence": "monthly",
+      "contract_duration_months": 6,
+      "deliverable_type": "social_post",
+      "confidence_score": 92
+    }
+  ]
+}`;
 
   let lastErr;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -181,14 +193,39 @@ OUTPUT FORMAT (example using current year ${currentYear}):
       );
 
       const cleaned = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
-      const si = cleaned.indexOf('[');
-      const ei = cleaned.lastIndexOf(']');
-      if (si === -1 || ei <= si) throw new Error('AI returned non-array response');
 
-      const parsed = JSON.parse(cleaned.substring(si, ei + 1));
-      if (!Array.isArray(parsed)) throw new Error('AI output is not a JSON array');
+      // ACCEPTS BOTH SHAPES. The prompt now asks for an object carrying the
+      // deliverables plus contract-level analysis, but a model that returns a
+      // bare array -- the old shape, and a common drift under retry -- is still
+      // a perfectly good extraction. Refusing it would turn a cosmetic
+      // difference into a failed upload and a manual_review_required contract.
+      let parsed = null;
+      const ob = cleaned.indexOf('{'), oe = cleaned.lastIndexOf('}');
+      const ab = cleaned.indexOf('['), ae = cleaned.lastIndexOf(']');
+      if (ob !== -1 && oe > ob && (ab === -1 || ob < ab)) {
+        parsed = JSON.parse(cleaned.substring(ob, oe + 1));
+      } else if (ab !== -1 && ae > ab) {
+        parsed = JSON.parse(cleaned.substring(ab, ae + 1));
+      }
+      if (!parsed) throw new Error('AI returned neither a JSON object nor an array');
 
-      return parsed; // success
+      if (Array.isArray(parsed)) return { deliverables: parsed, meta: {} };
+      const list = Array.isArray(parsed.deliverables) ? parsed.deliverables : [];
+      if (!list.length && !Array.isArray(parsed.deliverables)) {
+        throw new Error('AI output has no deliverables array');
+      }
+      return {
+        deliverables: list,
+        meta: {
+          totalCompensation: parsed.total_compensation == null ? null
+            : (Number(parsed.total_compensation) || null),
+          keyTerms: Array.isArray(parsed.key_terms)
+            ? parsed.key_terms.map((t) => String(t)).filter(Boolean) : [],
+          // Objects OR strings: the shape drifted between the two engines and
+          // both forms are already rendered by the review table.
+          riskFlags: Array.isArray(parsed.risk_flags) ? parsed.risk_flags.filter(Boolean) : [],
+        },
+      };
     } catch (e) {
       lastErr = e;
       console.warn(`[contractExtraction] AI attempt ${attempt + 1} failed: ${e.message}`);
@@ -346,7 +383,8 @@ async function analyzeContractUpload({ pool, ai, athleteId, agentId, file, brand
 
   // ── STEP 1: Idempotency check ──────────────────────────────────────────
   const existing = await pool.query(
-    `SELECT id, athlete_id, agent_id, filename, brand, extraction_status, uploaded_at
+    `SELECT id, athlete_id, agent_id, filename, brand, extraction_status, uploaded_at,
+            total_value, key_terms, risk_flags
      FROM athlete_contracts WHERE file_hash = $1`,
     [fileHash]
   );
@@ -389,6 +427,9 @@ async function analyzeContractUpload({ pool, ai, athleteId, agentId, file, brand
       deliverableCount: deliverables.rows.length,
       calendarEventCount: events.rows.length,
       deliverables: deliverables.rows,
+      totalValue: c.total_value == null ? null : Number(c.total_value) || c.total_value,
+      keyTerms: c.key_terms || [],
+      riskFlags: c.risk_flags || [],
     };
   }
 
@@ -437,9 +478,11 @@ async function analyzeContractUpload({ pool, ai, athleteId, agentId, file, brand
   }
 
   // ── STEP 3: AI extraction with retry ─────────────────────────────────
-  let rawDeliverables;
+  let rawDeliverables, contractMeta;
   try {
-    rawDeliverables = await extractDeliverablesFromText(ai, rawText, brandHint);
+    const out = await extractDeliverablesFromText(ai, rawText, brandHint);
+    rawDeliverables = out.deliverables;
+    contractMeta = out.meta || {};
   } catch (aiErr) {
     await pool.query(
       `INSERT INTO athlete_contracts (id, athlete_id, agent_id, filename, brand, file_hash, raw_text, extraction_status, extraction_attempts)
@@ -489,10 +532,14 @@ async function analyzeContractUpload({ pool, ai, athleteId, agentId, file, brand
     // upload reaches the calendar until a person has looked at it.
     await client.query(
       `INSERT INTO athlete_contracts
-         (id, athlete_id, agent_id, filename, brand, file_hash, raw_text, start_date, end_date, extraction_status, extraction_attempts)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_review',1)`,
+         (id, athlete_id, agent_id, filename, brand, file_hash, raw_text, start_date, end_date,
+          extraction_status, extraction_attempts, total_value, key_terms, risk_flags)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_review',1,$10,$11,$12)`,
       [contractId, athleteId, agentId, originalname, brandName, fileHash,
-       rawText.substring(0, 5000), contractStart, contractEnd]
+       rawText.substring(0, 5000), contractStart, contractEnd,
+       contractMeta.totalCompensation == null ? null : String(contractMeta.totalCompensation),
+       JSON.stringify(contractMeta.keyTerms || []),
+       JSON.stringify(contractMeta.riskFlags || [])]
     );
 
     // Insert deliverables (deduplicated within this batch by description+due_date)
@@ -569,6 +616,9 @@ async function analyzeContractUpload({ pool, ai, athleteId, agentId, file, brand
     deliverables: draftRows,
     contractStart,
     contractEnd,
+    totalValue: contractMeta.totalCompensation == null ? null : contractMeta.totalCompensation,
+    keyTerms: contractMeta.keyTerms || [],
+    riskFlags: contractMeta.riskFlags || [],
   };
 }
 

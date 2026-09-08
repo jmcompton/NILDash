@@ -400,12 +400,24 @@ async function main() {
     ok('analyze still writes drafts as status=draft', /VALUES \(\$1,\$2,\$3,\$4,\$5,\$6,'draft'/.test(src), null);
     ok('  and still writes deliverable_type', /deliverable_type\)\s*\n\s*VALUES/.test(src), null);
     ok('  and still parks the contract as awaiting_review',
-      /'awaiting_review',1\)/.test(src), null);
+      /VALUES \([^)]*'awaiting_review'/.test(src), null);
     ok('confirm still promotes drafts to pending',
       /SET status='pending', reviewed_at=NOW\(\)/.test(src), null);
-    ok('the duplicate scanner engine is gone',
-      !fs.readFileSync(REPO + 'server/index.js', 'utf8')
-        .includes("app.post('/api/pdf/save'"), null);
+    // The routes still answer -- with a 410 pointing at the new ones, so a stale
+    // browser tab gets something a person can act on instead of a bare 404. What
+    // must be gone is the SECOND ENGINE behind them: its own prompt, its own
+    // insert, its own save. Asserting on the route name alone would pass on a
+    // stub and pass again if someone restored the implementation under it.
+    const idx = fs.readFileSync(REPO + 'server/index.js', 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    ok('the scanner no longer writes deliverables of its own',
+      !/\/api\/pdf\/save[\s\S]{0,4000}INSERT INTO athlete_deliverables/.test(idx), null);
+    ok('  and no longer runs its own extraction prompt',
+      !/\/api\/pdf\/analyze[\s\S]{0,4000}media_type: 'application\/pdf'/.test(idx), null);
+    ok('  but still answers, so a stale tab is not a bare 404',
+      /_pdfScannerGone/.test(idx) && /410/.test(idx), null);
+    ok('there is exactly one place deliverables are inserted',
+      (idx.match(/INSERT INTO athlete_deliverables/g) || []).length === 0,
+      (idx.match(/INSERT INTO athlete_deliverables/g) || []).length);
   }
 
   await cleanup();

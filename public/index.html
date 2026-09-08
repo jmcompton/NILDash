@@ -1865,6 +1865,15 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <button class="nav-item" onclick="showView('roster',this)">
         <span class="nav-dot-item"></span>My Roster
       </button>
+      <!-- PROMOTED OUT OF "More". Deliverables lived in a collapsed group that is
+           display:none by default. The whole requirement is that an athlete falling
+           behind is visible rather than buried, and a collapsed submenu is the
+           definition of buried. The badge carries the overdue count, so the nav
+           itself reports the thing instead of waiting to be opened. -->
+      <button class="nav-item" id="calendarNavBtn" onclick="showView('calendar',this)">
+        <span class="nav-dot-item"></span>Deliverables
+        <span id="deliverables-overdue-badge" style="display:none;margin-left:6px;background:#ef4444;color:#fff;font-size:10px;font-weight:700;border-radius:9999px;padding:1px 6px;line-height:1.6;vertical-align:middle"></span>
+      </button>
       <button class="nav-item" onclick="resetAthleteForm();showView('add-athlete',this)" id="addAthleteNavBtn">
         <span class="nav-dot-item"></span>Add Client
       </button>
@@ -1884,15 +1893,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <button class="nav-item" onclick="showView('commission',this)">
           <span class="nav-dot-item"></span>Commission
         </button>
-        <button class="nav-item" onclick="showView('calendar',this)">
-          <span class="nav-dot-item"></span>Calendar
-        </button>
         <button class="nav-item" onclick="showView('contract',this)">
           <span class="nav-dot-item"></span>Contract
         </button>
-        <button class="nav-item" onclick="showView('pdf-scan',this)" id="pdfScanNavBtn">
-          <span class="nav-dot-item"></span>PDF Scanner
-        </button>
+        <!-- PDF Scanner is no longer its own destination. It was never a place you
+             went; it was how the calendar got populated, and keeping it separate is
+             what let a second extraction engine grow behind it. It is now the
+             "Upload contract" action on the Deliverables view. The view id lives on
+             so a bookmarked ?view=pdf-scan still resolves (see showView). -->
       </div>
       <div class="nav-section-label">Communication</div>
       <button class="nav-item" id="emailNavBtn" onclick="showView('email-inbox',this);emailModule.loadInbox();athleteEmailsModule.clearBadge()">
@@ -2091,6 +2099,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
              No per-card actions. No recipient picker: the ladder ranks by
              confidence and channel and that ranking is the work. No media-kit
              toggle: it is a setting on the account, read at approval. -->
+        <!-- ══ PINNED: WHO IS BEHIND ══
+             The one addition to this page, and it obeys the same rule as the rest
+             of it: RENDERS NOTHING when nothing is overdue. Home stays one job on
+             a clean roster, and on a dirty one the thing that is wrong is the first
+             thing on the screen instead of a filter someone has to think to apply.
+             Stays until the item is marked done -- by either side. -->
+        <div id="home-pinned" hidden style="margin-bottom:14px"></div>
         <div id="home-tabs" class="hq-tabs" role="tablist" aria-label="Athletes"></div>
         <div id="home-panel"></div>
         <div id="home-bar" class="hq-bar" hidden>
@@ -3038,99 +3053,6 @@ tbody td{padding:11px 14px;vertical-align:middle}
       </div><!-- /view-university-dashboard -->
 
       <!--  PDF SCANNER  -->
-      <div id="view-pdf-scan" class="view">
-        <div class="page-title">PDF Scanner</div>
-        <div class="page-sub">Upload a NIL contract PDF or DOCX to extract deliverables and save them to the calendar</div>
-
-        <!-- Athlete selector -->
-        <div class="card" style="padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:14px">
-          <label class="form-label-sm" style="white-space:nowrap;margin:0;font-weight:600">Select Athlete *</label>
-          <select class="select-sm" id="pdf-scan-athlete" style="flex:1;max-width:320px" onchange="_pdfScanAthleteId=this.value">
-            <option value="">— choose athlete —</option>
-          </select>
-          <div id="pdf-scan-athlete-error" style="font-size:11px;color:#ef4444;display:none">Please select an athlete before uploading a contract</div>
-        </div>
-
-        <!-- Upload zone -->
-        <div id="pdf-scan-dropzone" class="card" style="border:2px dashed var(--border);text-align:center;padding:40px 24px;cursor:pointer;transition:border-color 0.2s;margin-bottom:20px"
-             onclick="document.getElementById('pdf-scan-file').click()"
-             ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
-             ondragleave="this.style.borderColor='var(--border)'"
-             ondrop="event.preventDefault();this.style.borderColor='var(--border)';handlePdfScanDrop(event)">
-          <div style="font-size:32px;margin-bottom:10px">📄</div>
-          <div style="font-weight:600;font-size:14px;color:var(--fg)">Drop a PDF or DOCX here</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">or click to browse · Max 25 MB</div>
-          <input type="file" id="pdf-scan-file" accept=".pdf,.docx,.doc" style="display:none" onchange="runPdfScan(this.files[0])">
-        </div>
-
-        <!-- Status bar -->
-        <div id="pdf-scan-status" style="display:none;margin-bottom:16px;padding:12px 16px;border-radius:var(--r-sm);font-size:12px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);color:var(--accent)">
-          <span id="pdf-scan-status-text">Analyzing…</span>
-        </div>
-
-        <!-- Results grid — hidden until scan completes -->
-        <div id="pdf-scan-results" style="display:none">
-
-          <!-- Row 1: Contract summary full-width -->
-          <div style="margin-bottom:16px">
-            <div class="card" style="padding:16px 20px">
-              <div class="card-title" style="margin-bottom:10px">Contract Summary</div>
-              <div id="pdf-scan-summary" style="font-size:12px;color:var(--muted);line-height:1.7"></div>
-            </div>
-          </div>
-
-          <!-- Row 2: Deliverables table -->
-          <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
-            <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
-              <span class="card-title" style="margin:0">Extracted Deliverables</span>
-              <span id="pdf-scan-deliv-count" style="font-size:11px;color:var(--muted)"></span>
-            </div>
-            <div style="overflow-x:auto">
-              <table style="width:100%;border-collapse:collapse;font-size:12px" id="pdf-scan-deliv-table">
-                <thead>
-                  <tr style="background:var(--panel);border-bottom:1px solid var(--border)">
-                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Deliverable</th>
-                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Type</th>
-                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Due</th>
-                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Recurrence</th>
-                    <th style="padding:8px 14px;text-align:right;font-weight:600;color:var(--muted)">Confidence</th>
-                  </tr>
-                </thead>
-                <tbody id="pdf-scan-deliv-body"></tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Row 3: Risk flags -->
-          <div class="card" style="padding:16px 20px;margin-bottom:16px">
-            <div class="card-title" style="margin-bottom:10px">⚠ Risk Flags</div>
-            <ul id="pdf-scan-risks" style="margin:0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.8"></ul>
-          </div>
-
-          <!-- Row 4: Key Contract Terms -->
-          <div class="card" style="padding:16px 20px;margin-bottom:16px">
-            <div class="card-title" style="margin-bottom:10px">📋 Key Contract Terms</div>
-            <div id="pdf-scan-terms" style="font-size:12px;color:var(--muted);line-height:1.8"></div>
-          </div>
-
-          <!-- Save to Calendar -->
-          <div class="card" style="padding:18px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
-            <div>
-              <div style="font-weight:600;font-size:13px;color:var(--fg)">Save to Calendar</div>
-              <div style="font-size:11px;color:var(--muted);margin-top:2px">Write these deliverables to the selected athlete's calendar</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
-              <div id="pdf-save-status" style="font-size:12px;color:var(--muted)"></div>
-              <button class="run-btn" id="pdf-save-btn" onclick="savePdfToCalendar()" style="padding:9px 20px;font-size:12px;background:#6366f1;color:#fff;border:none">Save to Calendar →</button>
-            </div>
-          </div>
-
-          <!-- Scan again button -->
-          <div style="text-align:center;margin-top:8px">
-            <button class="run-btn" onclick="resetPdfScan()" style="padding:8px 24px;font-size:12px">↑ Scan Another File</button>
-          </div>
-        </div><!-- /pdf-scan-results -->
-      </div><!-- /view-pdf-scan -->
 
 
       <!--  ANALYTICS  -->
@@ -3940,6 +3862,116 @@ tbody td{padding:11px 14px;vertical-align:middle}
       <div id="view-calendar" class="view">
         <div class="page-title">Deliverables Calendar</div>
         <div class="page-sub">All contract deliverables across your roster — single source of truth</div>
+
+        <!-- ── UPLOAD A CONTRACT ────────────────────────────────────────────
+             Was its own nav destination ("PDF Scanner"). It was never a place you
+             went; it is how this calendar gets populated, and keeping it separate is
+             what let a second extraction engine grow behind it. Collapsed by default
+             so the calendar stays the point of the page. -->
+        <div style="margin-bottom:16px">
+          <button class="run-btn" id="contract-upload-toggle" onclick="openContractUpload()"
+                  style="padding:8px 18px;font-size:12px">Upload contract</button>
+        </div>
+        <div id="contract-upload-panel" style="display:none;margin-bottom:22px;padding-bottom:18px;border-bottom:1px solid var(--border)">
+        
+        
+
+        <!-- Athlete selector -->
+        <div class="card" style="padding:14px 18px;margin-bottom:18px;display:flex;align-items:center;gap:14px">
+          <label class="form-label-sm" style="white-space:nowrap;margin:0;font-weight:600">Select Athlete *</label>
+          <select class="select-sm" id="pdf-scan-athlete" style="flex:1;max-width:320px" onchange="_pdfScanAthleteId=this.value">
+            <option value="">— choose athlete —</option>
+          </select>
+          <div id="pdf-scan-athlete-error" style="font-size:11px;color:#ef4444;display:none">Please select an athlete before uploading a contract</div>
+        </div>
+
+        <!-- Upload zone -->
+        <div id="pdf-scan-dropzone" class="card" style="border:2px dashed var(--border);text-align:center;padding:40px 24px;cursor:pointer;transition:border-color 0.2s;margin-bottom:20px"
+             onclick="document.getElementById('pdf-scan-file').click()"
+             ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+             ondragleave="this.style.borderColor='var(--border)'"
+             ondrop="event.preventDefault();this.style.borderColor='var(--border)';handlePdfScanDrop(event)">
+          <div style="font-size:32px;margin-bottom:10px">📄</div>
+          <div style="font-weight:600;font-size:14px;color:var(--fg)">Drop a PDF or DOCX here</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">or click to browse · Max 25 MB</div>
+          <input type="file" id="pdf-scan-file" accept=".pdf,.docx,.doc" style="display:none" onchange="runPdfScan(this.files[0])">
+        </div>
+
+        <!-- Status bar -->
+        <div id="pdf-scan-status" style="display:none;margin-bottom:16px;padding:12px 16px;border-radius:var(--r-sm);font-size:12px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);color:var(--accent)">
+          <span id="pdf-scan-status-text">Analyzing…</span>
+        </div>
+
+        <!-- Results grid — hidden until scan completes -->
+        <div id="pdf-scan-results" style="display:none">
+
+          <!-- Row 1: Contract summary full-width -->
+          <div style="margin-bottom:16px">
+            <div class="card" style="padding:16px 20px">
+              <div class="card-title" style="margin-bottom:10px">Contract Summary</div>
+              <div id="pdf-scan-summary" style="font-size:12px;color:var(--muted);line-height:1.7"></div>
+            </div>
+          </div>
+
+          <!-- Row 2: Deliverables table -->
+          <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden">
+            <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+              <span class="card-title" style="margin:0">Extracted Deliverables</span>
+              <span id="pdf-scan-deliv-count" style="font-size:11px;color:var(--muted)"></span>
+            </div>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:12px" id="pdf-scan-deliv-table">
+                <thead>
+                  <tr style="background:var(--panel);border-bottom:1px solid var(--border)">
+                    <!-- Ticked = save it. A confidence score next to a row the agent
+                         cannot refuse is decoration; this is what makes the review real. -->
+                    <th style="padding:8px 6px 8px 14px;text-align:left;width:28px">
+                      <input type="checkbox" id="pdf-scan-check-all" checked
+                             onchange="togglePdfScanAll(this.checked)" title="Select all">
+                    </th>
+                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Deliverable</th>
+                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Type</th>
+                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Due</th>
+                    <th style="padding:8px 14px;text-align:left;font-weight:600;color:var(--muted)">Recurrence</th>
+                    <th style="padding:8px 14px;text-align:right;font-weight:600;color:var(--muted)">Confidence</th>
+                  </tr>
+                </thead>
+                <tbody id="pdf-scan-deliv-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Row 3: Risk flags -->
+          <div class="card" style="padding:16px 20px;margin-bottom:16px">
+            <div class="card-title" style="margin-bottom:10px">⚠ Risk Flags</div>
+            <ul id="pdf-scan-risks" style="margin:0;padding-left:18px;font-size:12px;color:var(--muted);line-height:1.8"></ul>
+          </div>
+
+          <!-- Row 4: Key Contract Terms -->
+          <div class="card" style="padding:16px 20px;margin-bottom:16px">
+            <div class="card-title" style="margin-bottom:10px">📋 Key Contract Terms</div>
+            <div id="pdf-scan-terms" style="font-size:12px;color:var(--muted);line-height:1.8"></div>
+          </div>
+
+          <!-- Save to Calendar -->
+          <div class="card" style="padding:18px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+            <div>
+              <div style="font-weight:600;font-size:13px;color:var(--fg)">Add to the calendar</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">Only the ticked rows are saved. Untick anything the contract does not actually say.</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+              <div id="pdf-save-status" style="font-size:12px;color:var(--muted)"></div>
+              <button class="run-btn" id="pdf-save-btn" onclick="savePdfToCalendar()" style="padding:9px 20px;font-size:12px;background:#6366f1;color:#fff;border:none">Add ticked deliverables →</button>
+            </div>
+          </div>
+
+          <!-- Scan again button -->
+          <div style="text-align:center;margin-top:8px">
+            <button class="run-btn" onclick="resetPdfScan()" style="padding:8px 24px;font-size:12px">Upload another contract</button>
+          </div>
+        </div><!-- /pdf-scan-results -->
+        </div><!-- /contract-upload-panel -->
+
 
         <!-- Agent Google Calendar integration — hidden until initAgentGCalStatus() resolves -->
         <div id="agent-gcal-card" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px;overflow:hidden">
@@ -5699,6 +5731,14 @@ function applyAthleteChrome() {
       if (oc.indexOf("showView('" + view + "'") >= 0) btn.style.display = 'none';
     });
   });
+  // Uploading a contract is an agent action. The analyze route checks that the
+  // athlete belongs to the caller, so an athlete clicking this would get a 403 --
+  // hide the button rather than ship a control whose only outcome is an error.
+  var up = document.getElementById('contract-upload-toggle');
+  if (up && up.parentElement) up.parentElement.style.display = 'none';
+  var upPanel = document.getElementById('contract-upload-panel');
+  if (upPanel) upPanel.style.display = 'none';
+
   // The client selector: an athlete has exactly one client and cannot change it,
   // so the whole bar goes rather than showing a one-option dropdown.
   var bar = document.getElementById('athleteBar');
@@ -7194,6 +7234,16 @@ async function showView(id, btn) {
   if (id === 'programs' && !PROGRAMS_ENABLED) {
     return showView('home', document.getElementById('homeNavBtn'));
   }
+  // PDF Scanner folded into Deliverables as the "Upload contract" action. Same
+  // direct-hit case as above: a bookmark or an old email link still says
+  // ?view=pdf-scan, and showView is the only router, so this is the one place it
+  // can be caught. Lands on the calendar with the upload panel already open --
+  // the thing they came to do -- rather than on a view that no longer exists.
+  if (id === 'pdf-scan') {
+    const r = showView('calendar', document.getElementById('calendarNavBtn'));
+    setTimeout(() => { try { openContractUpload(); } catch (e) {} }, 120);
+    return r;
+  }
   if(window.innerWidth<=768){var _sb=document.querySelector('.sidebar');if(_sb){_sb.classList.remove('open');_sb.style.removeProperty('display');}var o=document.getElementById('sidebarOverlay');if(o){o.classList.remove('open');o.style.pointerEvents='none';}document.body.style.overflow='';}
   if (id === 'marketing') { setTimeout(populatePitchClientDropdown, 80); }
   if (id === 'settings') { setTimeout(loadReportSettings, 60); setTimeout(loadSignature, 60); }
@@ -7227,12 +7277,14 @@ async function showView(id, btn) {
   if (id === 'programs') { try { progRenderSportToggle(); progLoadSchools(); } catch (e) {} }
   if (id === 'compliance') { try { loadNilComplianceRef(); } catch(e) {} }
   if (id === 'outreach') { try { loadUnifiedOutreach(); } catch(e) {} }
-  if (id === 'pdf-scan') loadPdfScanAthletes();
+  // (No 'pdf-scan' hook: that id is redirected to the calendar at the top of
+  // this function, so nothing below ever sees it. The athlete list is loaded by
+  // openContractUpload when the panel is actually opened.)
   if (id === 'add-athlete') { const tp = document.getElementById('a_tags'); if (tp && !tp.innerHTML) renderTagPicker('a_tags', []); }
   if (id === 'rate') { try { loadBenchmarks(); } catch(e) {} }
   // Home fetches on every show rather than once: approving changes what is
   // on it, and a stale queue is the one thing this page must never render.
-  if (id === 'home') { try { hqLoad(HQ.selected); } catch (e) {} }
+  if (id === 'home') { try { hqLoad(HQ.selected); } catch (e) {} loadPinnedDeliverables(); }
 }
 
 // ── Local deal benchmarks ───────────────────────────────────────────────────
@@ -10969,24 +11021,40 @@ async function runPdfScan(file) {
   dropzone.style.display   = 'none';
   statusText.textContent   = `Extracting text from ${file.name}…`;
 
+  // The field is named `contract` and the route is the athlete-scoped one: this
+  // now goes through the SAME engine as every other contract upload. The old
+  // /api/pdf/analyze was a second implementation that hashed nothing, so
+  // re-uploading a file produced a duplicate set of everything.
   const form = new FormData();
-  form.append('pdf', file);
+  form.append('contract', file);
 
   try {
     statusText.textContent = 'Running AI analysis — this takes 10–20 seconds…';
-    const r = await fetch(`${API_BASE}/api/pdf/analyze`, { method: 'POST', credentials: 'include', body: form });
+    const r = await fetch(`${API_BASE}/api/athletes/${encodeURIComponent(_pdfScanAthleteId)}/contracts/analyze`,
+      { method: 'POST', credentials: 'include', body: form });
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       throw new Error(err.error || `Server error ${r.status}`);
     }
     const data = await r.json();
-    // Store extraction for save step
-    _pdfScanLastExtraction = { data, filename: file.name };
-    // Reset save status
+
+    if (data.extractionStatus === 'manual_review_required') {
+      throw new Error(data.error || 'Could not read deliverables out of this file.');
+    }
+    // A re-upload of a contract still awaiting review RESUMES it rather than
+    // reporting a dead end — the extraction is already paid for.
+    if (data.duplicate && !data.awaitingReview) {
+      statusText.textContent = 'Already saved to this athlete’s calendar.';
+      setTimeout(() => { resetPdfScan(); loadCalendar(); }, 2500);
+      return;
+    }
+
+    _pdfScanLastExtraction = { data, filename: file.name, contractId: data.contractId };
     const saveStatus = document.getElementById('pdf-save-status');
     const saveBtn    = document.getElementById('pdf-save-btn');
-    if (saveStatus) saveStatus.textContent = '';
-    if (saveBtn)    { saveBtn.disabled = false; saveBtn.textContent = 'Save to Calendar →'; }
+    if (saveStatus) saveStatus.textContent = data.duplicate
+      ? 'Picking up where you left off — this contract was uploaded but never confirmed.' : '';
+    if (saveBtn)    { saveBtn.disabled = false; saveBtn.textContent = 'Add ticked deliverables →'; }
     renderPdfScanResults(data, file.name);
     statusBar.style.display = 'none';
     results.style.display   = 'block';
@@ -11023,92 +11091,218 @@ async function savePdfToCalendar() {
   saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
   saveStatus.textContent = '';
 
-  const ex          = _pdfScanLastExtraction.data.extraction || {};
-  const deliverables = ex.deliverables || [];
   const athleteSel  = document.getElementById('pdf-scan-athlete');
   const athleteName = athleteSel ? (athleteSel.options[athleteSel.selectedIndex]?.text || '') : '';
 
+  // ONLY IDS TRAVEL. The deliverables themselves are already server-side as
+  // drafts; the browser sends which ones the agent UNTICKED. Round-tripping the
+  // rows through the page is how the old save route lost deliverable_type and
+  // how a confidence score the model produced could differ from the one stored.
+  const rejectIds = Array.from(
+    document.querySelectorAll('#pdf-scan-deliv-body input[type=checkbox][data-did]'))
+    .filter((c) => !c.checked)
+    .map((c) => parseInt(c.getAttribute('data-did'), 10));
+
   try {
-    const r = await fetch(`${API_BASE}/api/pdf/save`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        athleteId:    _pdfScanAthleteId,
-        filename:     _pdfScanLastExtraction.filename,
-        brand:        ex.brand || '',
-        deliverables: deliverables.map(d => ({
-          description:            d.description || d.deliverable_description || '',
-          due_date:               d.due_date || null,
-          recurrence:             d.recurrence || null,
-          contract_duration_months: d.contract_duration_months || null,
-          confidence_score:       d.confidence_score || d.confidence || 0,
-          deliverable_type:       d.deliverable_type || 'other',
-        })),
-      }),
-    });
+    const r = await fetch(
+      `${API_BASE}/api/athletes/${encodeURIComponent(_pdfScanAthleteId)}`
+      + `/contracts/${encodeURIComponent(_pdfScanLastExtraction.contractId)}/confirm`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rejectIds }),
+      });
     const result = await r.json();
     if (!r.ok) throw new Error(result.error || 'Save failed');
 
+    const n = result.deliverableCount, ev = result.calendarEventCount;
     saveBtn.textContent = '✓ Saved';
-    saveStatus.innerHTML = `<span style="color:#22c55e">${result.savedDeliverables} deliverable${result.savedDeliverables !== 1 ? 's' : ''} saved to ${athleteName}'s calendar · ${result.savedEvents} calendar event${result.savedEvents !== 1 ? 's' : ''} created</span><button onclick="showView('calendar', document.querySelector('.nav-item[onclick*=calendar]'))" style="background:transparent;border:none;color:#6366f1;font-weight:700;cursor:pointer;font-size:12px;padding:0;margin-left:12px;text-decoration:underline">View Calendar →</button>`;
+    saveStatus.innerHTML = `<span style="color:#22c55e">${n} deliverable${n !== 1 ? 's' : ''} `
+      + `added to ${athleteName}'s calendar · ${ev} date${ev !== 1 ? 's' : ''}`
+      + (result.rejectedCount ? ` · ${result.rejectedCount} discarded` : '') + `</span>`;
+    // The calendar is on this same view now, so refresh it in place rather than
+    // offering a link to where the agent already is.
+    loadCalendar();
+    refreshDeliverableBadge();
   } catch(e) {
-    saveBtn.disabled = false; saveBtn.textContent = 'Save to Calendar →';
+    saveBtn.disabled = false; saveBtn.textContent = 'Add ticked deliverables →';
     saveStatus.innerHTML = `<span style="color:#ef4444">Save failed: ${e.message}</span>`;
   }
 }
 
+// Collapsible upload panel. Also the landing spot for a stale ?view=pdf-scan link.
+function openContractUpload() {
+  const panel = document.getElementById('contract-upload-panel');
+  const btn   = document.getElementById('contract-upload-toggle');
+  if (!panel) return;
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  if (btn) btn.textContent = open ? 'Upload contract' : 'Close';
+  if (!open) { loadPdfScanAthletes(); panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+}
+
+function togglePdfScanAll(checked) {
+  document.querySelectorAll('#pdf-scan-deliv-body input[type=checkbox][data-did]')
+    .forEach((c) => { c.checked = checked; });
+}
+
+// Renders the DRAFT ROWS the server just wrote, not a client-side extraction
+// object. Every field here is what is already in the database and what confirm
+// will promote — the table and the stored row cannot disagree.
 function renderPdfScanResults(data, filename) {
-  const ex = data.extraction || {};
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   // Summary
   const sumEl = document.getElementById('pdf-scan-summary');
   const summaryParts = [];
-  if (filename)       summaryParts.push(`<strong>File:</strong> ${filename}`);
-  if (ex.brand)       summaryParts.push(`<strong>Brand:</strong> ${ex.brand}`);
-  if (ex.start_date)  summaryParts.push(`<strong>Start:</strong> ${ex.start_date}`);
-  if (ex.end_date)    summaryParts.push(`<strong>End:</strong> ${ex.end_date}`);
-  if (ex.total_value) summaryParts.push(`<strong>Value:</strong> ${ex.total_value}`);
+  if (filename)          summaryParts.push(`<strong>File:</strong> ${esc(filename)}`);
+  if (data.brand)        summaryParts.push(`<strong>Brand:</strong> ${esc(data.brand)}`);
+  if (data.contractStart) summaryParts.push(`<strong>Start:</strong> ${esc(data.contractStart)}`);
+  if (data.contractEnd)  summaryParts.push(`<strong>End:</strong> ${esc(data.contractEnd)}`);
+  if (data.totalValue != null) {
+    summaryParts.push(`<strong>Value:</strong> $${Number(data.totalValue).toLocaleString()}`);
+  }
   sumEl.innerHTML = summaryParts.join('<br>') || '<span style="color:var(--muted)">No summary extracted</span>';
 
-  // Deliverables table
-  const deliverables = Array.isArray(ex.deliverables) ? ex.deliverables : [];
-  document.getElementById('pdf-scan-deliv-count').textContent = `${deliverables.length} item${deliverables.length !== 1 ? 's' : ''}`;
+  // Deliverables table — one row per draft, ticked by default.
+  const deliverables = Array.isArray(data.deliverables) ? data.deliverables : [];
+  document.getElementById('pdf-scan-deliv-count').textContent =
+    `${deliverables.length} item${deliverables.length !== 1 ? 's' : ''}`;
   const tbody = document.getElementById('pdf-scan-deliv-body');
   if (!deliverables.length) {
-    tbody.innerHTML = '<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--muted)">No deliverables extracted</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--muted)">No deliverables extracted</td></tr>';
   } else {
     tbody.innerHTML = deliverables.map(d => {
-      const conf = parseInt(d.confidence_score || 0, 10);
+      const conf = parseInt(d.ai_confidence_score || 0, 10);
       const confColor = conf >= 85 ? '#22c55e' : conf >= 70 ? '#eab308' : '#ef4444';
       const typeLabel = PDF_SCAN_TYPE_LABELS[d.deliverable_type] || d.deliverable_type || '—';
-      const rec = d.recurrence && d.recurrence !== 'one-time' ? `<span style="font-size:10px;background:rgba(99,102,241,0.12);color:var(--accent);padding:1px 5px;border-radius:3px">${d.recurrence}</span>` : '—';
-      return `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:10px 14px;max-width:280px">${d.description || '—'}</td>
-        <td style="padding:10px 14px;white-space:nowrap">${typeLabel}</td>
-        <td style="padding:10px 14px;white-space:nowrap;color:var(--muted)">${d.due_date || '—'}</td>
+      const rec = d.recurrence && d.recurrence !== 'one-time'
+        ? `<span style="font-size:10px;background:rgba(99,102,241,0.12);color:var(--accent);padding:1px 5px;border-radius:3px">${esc(d.recurrence)}</span>`
+        : '—';
+      // Below the confidence bar the row starts UNTICKED. The agent can still
+      // accept it, but a low-confidence guess should have to be opted into
+      // rather than opted out of.
+      const weak = conf > 0 && conf < 70;
+      const due = d.due_date_iso || '—';
+      return `<tr style="border-bottom:1px solid var(--border)${weak ? ';opacity:0.75' : ''}">
+        <td style="padding:10px 6px 10px 14px">
+          <input type="checkbox" data-did="${esc(d.id)}"${weak ? '' : ' checked'}>
+        </td>
+        <td style="padding:10px 14px;max-width:280px">${esc(d.deliverable_description) || '—'}</td>
+        <td style="padding:10px 14px;white-space:nowrap">${esc(typeLabel)}</td>
+        <td style="padding:10px 14px;white-space:nowrap;color:var(--muted)">${esc(due)}</td>
         <td style="padding:10px 14px">${rec}</td>
         <td style="padding:10px 14px;text-align:right;white-space:nowrap">
           <span style="color:${confColor};font-weight:600">${conf}%</span>
         </td>
       </tr>`;
     }).join('');
+    // Keep the header checkbox honest about what is actually ticked.
+    const all = document.getElementById('pdf-scan-check-all');
+    if (all) all.checked = deliverables.every((d) => !(d.ai_confidence_score > 0 && d.ai_confidence_score < 70));
   }
 
-  // Risk flags
-  const risks = Array.isArray(ex.risk_flags) ? ex.risk_flags : [];
-  const risksEl = document.getElementById('pdf-scan-risks');
-  risksEl.innerHTML = risks.length
-    ? risks.map(r => `<li style="color:#f87171">${r}</li>`).join('')
+  // Risk flags. Objects from the current prompt, plain strings from older rows.
+  const risks = Array.isArray(data.riskFlags) ? data.riskFlags : [];
+  document.getElementById('pdf-scan-risks').innerHTML = risks.length
+    ? risks.map(r => typeof r === 'string'
+        ? `<li style="color:#f87171">${esc(r)}</li>`
+        : `<li style="color:#f87171"><strong>${esc((r.severity || '').toUpperCase())}</strong> `
+          + `${esc(r.issue || '')}${r.detail ? ' — ' + esc(r.detail) : ''}</li>`).join('')
     : '<li style="list-style:none;color:var(--muted)">No major risks detected</li>';
 
   // Key terms
-  const terms = Array.isArray(ex.key_terms) ? ex.key_terms : [];
+  const terms = Array.isArray(data.keyTerms) ? data.keyTerms : [];
   document.getElementById('pdf-scan-terms').innerHTML = terms.length
-    ? terms.map(t => `<div style="padding:3px 0;border-bottom:1px solid var(--border)">${t}</div>`).join('')
+    ? terms.map(t => `<div style="padding:3px 0;border-bottom:1px solid var(--border)">${esc(t)}</div>`).join('')
     : '<span style="color:var(--muted)">—</span>';
 }
 // ── /PDF SCANNER ──────────────────────────────────────────────────────────
+
+// ── PINNED DELIVERABLES ─────────────────────────────────────────────────────
+// Overdue across the whole roster, on Home, until someone marks it done.
+//
+// It leads with WHO rather than listing every late item: an agent with 45
+// clients does not need to read forty rows to learn that Noah is three behind,
+// and a wall of items on this page would break the one rule Home has. The items
+// themselves are one click away on the Deliverables view, which is where they
+// can actually be marked done.
+let _pinnedCache = null;
+
+async function loadPinnedDeliverables() {
+  const host = document.getElementById('home-pinned');
+  if (!host) return;
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/deliverables/pinned`, { credentials: 'include' });
+    if (!r.ok) { host.hidden = true; return; }
+    const d = await r.json();
+    _pinnedCache = d;
+    renderPinnedDeliverables(d);
+    setDeliverableBadge(d.overdueCount || 0);
+  } catch (e) { host.hidden = true; }
+}
+
+function renderPinnedDeliverables(d) {
+  const host = document.getElementById('home-pinned');
+  if (!host) return;
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  const athletes = d.athletes || [];
+  const undated  = d.undatedCount || 0;
+  // NOTHING TO SAY, SO SAY NOTHING. Home is one job on a clean roster.
+  if (!athletes.length && !undated) { host.hidden = true; host.innerHTML = ''; return; }
+
+  const lines = athletes.slice(0, 6).map((a) => {
+    const days = a.worstDaysLate === 1 ? '1 day' : a.worstDaysLate + ' days';
+    return `<div style="display:flex;align-items:baseline;gap:8px;padding:4px 0">
+      <span style="font-size:13px;font-weight:600;color:var(--text)">${esc(a.name || 'Athlete')}</span>
+      <span style="font-size:12px;color:#ef4444">${a.count} overdue</span>
+      <span style="font-size:11px;color:var(--muted)">worst ${esc(days)} late</span>
+    </div>`;
+  }).join('');
+  const more = athletes.length > 6
+    ? `<div style="font-size:11px;color:var(--muted);padding-top:4px">and ${athletes.length - 6} more</div>` : '';
+  const undatedLine = undated
+    ? `<div style="font-size:11px;color:var(--muted);padding-top:6px;border-top:1px solid var(--border);margin-top:6px">`
+      + `${undated} deliverable${undated !== 1 ? 's' : ''} with no due date — never reminded, because there is no date to remind from.</div>`
+    : '';
+
+  host.innerHTML = `<div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.22);
+       border-radius:var(--r);padding:12px 16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px">
+      <div style="font-size:12px;font-weight:700;color:#ef4444">Behind on deliverables</div>
+      <button onclick="showView('calendar',document.getElementById('calendarNavBtn'))"
+              style="background:transparent;border:none;color:var(--accent);font-weight:600;
+                     cursor:pointer;font-size:11px;padding:0;text-decoration:underline">Open deliverables</button>
+    </div>
+    ${lines}${more}${undatedLine}
+  </div>`;
+  host.hidden = false;
+}
+
+// The nav badge. Read on boot as well as on Home, so an agent who lands
+// somewhere else still sees the count without opening anything.
+function setDeliverableBadge(n) {
+  const b = document.getElementById('deliverables-overdue-badge');
+  if (!b) return;
+  if (n > 0) { b.textContent = n > 99 ? '99+' : String(n); b.style.display = 'inline-block'; }
+  else { b.style.display = 'none'; }
+}
+
+async function refreshDeliverableBadge() {
+  try {
+    const r = await fetch(`${API_BASE}/api/agent/deliverables/pinned`, { credentials: 'include' });
+    if (!r.ok) return;
+    const d = await r.json();
+    _pinnedCache = d;
+    setDeliverableBadge(d.overdueCount || 0);
+    if (!document.getElementById('home-pinned').hidden || (d.overdueCount || 0) > 0) {
+      renderPinnedDeliverables(d);
+    }
+  } catch (e) { /* a badge is not worth a console error */ }
+}
 
 
 // ── ATHLETE CALENDAR + OUTREACH ────────────────────────────────────────────

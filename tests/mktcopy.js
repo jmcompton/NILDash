@@ -443,7 +443,20 @@ console.log('\n-- EVERY MODEL-SPENDING ROUTE IS BEHIND THE PAYWALL --');
   // rather than requireAuth+requireAgentSubscription directly. The block above
   // asserts BOTH of that wrapper's branches gate; this asserts the mount uses it.
   ok('the assistant is gated', /app\.use\('\/api\/assistant', assistantAuth, aiLimiter, assistantRoutes\)/.test(SRV));
-  ok('pdf analyze is gated', /app\.post\('\/api\/pdf\/analyze', requireAuth, requireAgentSubscription/.test(SRV));
+  // THE GUARD MOVED WITH THE CODE. /api/pdf/analyze was one of two contract
+  // extraction engines; it is now a 410 stub and the AI call lives at
+  // /api/athletes/:id/contracts/analyze. What this assertion has always been
+  // protecting is that the route which sends a whole document to Opus is behind
+  // the subscription check, so it follows the tokens rather than the URL.
+  ok('contract analyze is gated',
+    /app\.post\('\/api\/athletes\/:id\/contracts\/analyze', requireAuth, requireAgentSubscription/.test(SRV));
+  ok('  and so is the confirm that writes the calendar',
+    /app\.post\('\/api\/athletes\/:id\/contracts\/:cid\/confirm', requireAuth, requireAgentSubscription/.test(SRV));
+  // The retired stubs still require a session: they answer a stale tab, and a
+  // stale tab has one. An open 410 would be a free probe for route existence.
+  ok('  the retired scanner routes still require auth',
+    /app\.post\("\/api\/pdf\/analyze", requireAuth, _pdfScannerGone\)/.test(SRV)
+    && /app\.post\("\/api\/pdf\/save", requireAuth, _pdfScannerGone\)/.test(SRV));
   ok('the daily brief is gated', /app\.post\('\/api\/agent\/daily-brief', requireAuth, requireAgentSubscription/.test(SRV));
   // Order matters: requireAgentSubscription defers to requireAuth when there is no
   // session, so putting it first would let an anonymous request through.

@@ -308,6 +308,13 @@ async function init() {
     // different obligations with different lead times, and the tracker could not
     // tell them apart.
     `ALTER TABLE athlete_deliverables ADD COLUMN IF NOT EXISTS deliverable_type TEXT`,
+    // Contract-level analysis. The PDF Scanner produced these and showed them on
+    // the review screen, but its route wrote nothing to the database, so they
+    // were gone the moment the agent clicked Save. Folding the scanner into the
+    // one engine kept the feature; these are where it lives now.
+    `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS total_value TEXT`,
+    `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS key_terms JSONB DEFAULT '[]'::jsonb`,
+    `ALTER TABLE athlete_contracts ADD COLUMN IF NOT EXISTS risk_flags JSONB DEFAULT '[]'::jsonb`,
     // ── WHO MARKED IT DONE ────────────────────────────────────────────────────
     // Both the agent and the athlete can complete an item, and the pin clears
     // either way. Without attribution the digest can only say a thing stopped

@@ -202,6 +202,11 @@
       "total": 16,
       "fault": null
     },
+    "deliverables.js": {
+      "failed": 0,
+      "total": 61,
+      "fault": null
+    },
     "digest.js": {
       "failed": 0,
       "total": 72,
@@ -491,7 +496,7 @@
     },
     "mktcopy.js": {
       "failed": 0,
-      "total": 149,
+      "total": 151,
       "fault": null
     },
     "msgid_db.js": {

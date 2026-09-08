@@ -124,8 +124,11 @@
       "file_hash": "TEXT",
       "filename": "TEXT",
       "id": "TEXT",
+      "key_terms": "JSONB DEFAULT '[]'::jsonb",
       "raw_text": "TEXT",
+      "risk_flags": "JSONB DEFAULT '[]'::jsonb",
       "start_date": "DATE",
+      "total_value": "TEXT",
       "uploaded_at": "TIMESTAMPTZ DEFAULT NOW()"
     },
     "athlete_deal_pipeline": {
