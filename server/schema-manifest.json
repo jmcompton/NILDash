@@ -807,10 +807,12 @@
       "spent_usd": "NUMERIC(10,4) DEFAULT 0"
     },
     "password_resets": {
+      "created_at": "TIMESTAMPTZ DEFAULT NOW()",
       "email": "TEXT",
       "expires_at": "TIMESTAMPTZ",
       "id": "SERIAL",
       "token": "TEXT",
+      "token_hash": "TEXT",
       "used": "BOOLEAN DEFAULT FALSE"
     },
     "pitch_decks": {

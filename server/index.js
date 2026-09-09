@@ -77,6 +77,18 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+// ITS OWN BUCKET. Forgot-password shared authLimiter with login, so the person
+// most likely to need a reset -- someone who has just failed to log in several
+// times -- arrived at the reset page already rate-limited and was told "Too many
+// attempts". A separate instance is a separate counter. Five per quarter hour is
+// generous for a human and useless for enumeration.
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many reset requests. Try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // AI tools: 20 requests per minute per user
 const aiLimiter = rateLimit({
@@ -4778,66 +4790,54 @@ app.delete('/api/calendar/events/:id', requireAuth, async (req, res) => {
 });
 
 // ── Password Reset ───────────────────────────────────────────
-app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email required' });
+// ── SELF-SERVE PASSWORD RESET ────────────────────────────────────────────────
+// Both routes are thin over services/passwordReset.js, which is where the
+// reasoning lives. The short version: two paying customers were locked out by a
+// byte-exact email match and a rate-limit bucket shared with login, and the
+// flow told them to check their email while sending nothing.
+const pwReset = require('./services/passwordReset');
+
+app.post('/api/auth/forgot-password', resetLimiter, async (req, res) => {
+  const email = req.body && req.body.email;
+  if (!pwReset.normEmail(email)) return res.status(400).json({ error: 'Email required' });
   try {
-    const user = await store.getUserByEmail(email);
-    if (!user) return res.json({ ok: true }); // Don't reveal if email exists
-    const token = require('crypto').randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 3600000).toISOString(); // 1 hour
-    await store.pool.query('INSERT INTO password_resets (email, token, expires_at) VALUES ($1,$2,$3)', [email, token, expires]);
-    const resetUrl = (process.env.APP_URL || 'https://mynildash.com') + '/reset?token=' + token;
-    await resend.emails.send({
-      from: 'NILDash <noreply@mynildash.com>',
-      to: email,
-      subject: 'Reset your NILDash password',
-      html: '<div style="font-family:monospace;max-width:500px;margin:0 auto;padding:40px">' +
-        '<h2 style="color:#C8F135">NILDash</h2>' +
-        '<p>You requested a password reset. Click the link below to set a new password:</p>' +
-        '<a href="' + resetUrl + '" style="display:inline-block;margin:20px 0;padding:12px 24px;background:#C8F135;color:#000;text-decoration:none;border-radius:40px;font-weight:700">Reset Password</a>' +
-        '<p style="color:#666;font-size:12px">This link expires in 1 hour. If you did not request this, ignore this email.</p>' +
-        '</div>'
+    const out = await pwReset.requestReset({
+      pool: store.pool,
+      email,
+      appUrl: process.env.APP_URL,
+      findUser: (norm) => store.getUserByEmail(norm),
+      // Athletes keep credentials in their own table. The reset route already
+      // knew how to set an athlete's password; this makes the request side reach
+      // them too, instead of silently doing nothing for every athlete address.
+      findAthlete: async (norm) => (await store.pool.query(
+        'SELECT id, email FROM athletes WHERE LOWER(TRIM(email)) = $1 LIMIT 1', [norm])).rows[0] || null,
+      sendMail: (m) => resend.emails.send({ from: 'NILDash <noreply@mynildash.com>', ...m }),
     });
+    // The server log is the only place the true outcome may appear. The response
+    // is identical for "sent", "no such account" and "send failed", on purpose.
+    console.log(`[forgot-password] ${pwReset.normEmail(email)} -> ${out.sent ? 'sent' : 'not sent'}`
+      + (out.reason ? ` (${out.reason})` : '') + (out.kind ? ` [${out.kind}]` : ''));
+    res.status(out.status || 200).json(out.ok ? { ok: true } : { error: out.error });
+  } catch (e) {
+    console.error('[forgot-password] unexpected:', e.message);
     res.json({ ok: true });
-  } catch(e) { console.error('Reset error:', e.message); res.status(500).json({ error: 'Failed to send reset email' }); }
+  }
 });
 
-app.post('/api/auth/reset-password', async (req, res) => {
-  const { token, password } = req.body;
-  if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
+app.post('/api/auth/reset-password', resetLimiter, async (req, res) => {
   try {
-    const r = await store.pool.query('SELECT * FROM password_resets WHERE token=$1 AND used=FALSE AND expires_at > NOW()', [token]);
-    if (!r.rows.length) return res.status(400).json({ error: 'Invalid or expired reset link' });
-    const { email } = r.rows[0];
-    const hash = await bcrypt.hash(password, 10);
-    const user = await store.getUserByEmail(email);
-    if (user) {
-      await store.pool.query('UPDATE users SET password=$1, password_reset_required=FALSE, updated_at=NOW() WHERE id=$2', [hash, user.id]);
-      await store.pool.query('UPDATE password_resets SET used=TRUE WHERE token=$1', [token]);
-      return res.json({ ok: true, role: 'agent' });
-    }
-
-    // Fall back to the athletes table. Athletes keep their credentials there, not
-    // in users, so this route used to answer "User not found" for every one of
-    // them -- which meant athletes had no password reset at all, and the set-
-    // password link a comped athlete needs could not work. Agents are still
-    // matched FIRST, so an email present in both tables behaves exactly as before.
-    // athlete/login requires onboarding_complete, so it is set here: an athlete who
-    // has just chosen a password has finished onboarding by any useful definition.
-    const ath = await store.pool.query(
-      'SELECT id FROM athletes WHERE LOWER(email) = LOWER($1) LIMIT 1', [email]
-    );
-    if (!ath.rows.length) return res.status(400).json({ error: 'User not found' });
-    await store.pool.query(
-      `UPDATE athletes SET password_hash=$1, onboarding_complete=TRUE,
-         email_verified=TRUE, updated_at=NOW() WHERE id=$2`,
-      [hash, ath.rows[0].id]
-    );
-    await store.pool.query('UPDATE password_resets SET used=TRUE WHERE token=$1', [token]);
-    console.log('[reset-password] athlete', ath.rows[0].id, 'set a password');
-    res.json({ ok: true, role: 'athlete' });
-  } catch(e) { console.error('Reset password error:', e.message); res.status(500).json({ error: 'Failed to reset password' }); }
+    const out = await pwReset.completeReset({
+      pool: store.pool,
+      token: req.body && req.body.token,
+      password: req.body && req.body.password,
+    });
+    if (!out.ok) return res.status(out.status || 400).json({ error: out.error });
+    console.log(`[reset-password] ${out.role} ${out.userId || out.athleteId} set a new password`);
+    res.json({ ok: true, role: out.role });
+  } catch (e) {
+    console.error('[reset-password] failed:', e.message);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
 });
 
 // ── Request Access ───────────────────────────────────────────
@@ -5438,11 +5438,10 @@ app.post('/api/admin/create-comped-agent', async (req, res) => {
     await store.pool.query('UPDATE users SET comped=TRUE, password_reset_required=TRUE WHERE id=$1', [id]);
 
     // Set-password link, reusing the password reset token flow (7 day window so
-    // onboarding is not rushed).
-    const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 7 * 86400000).toISOString();
-    await store.pool.query('INSERT INTO password_resets (email, token, expires_at) VALUES ($1,$2,$3)', [email, token, expires]);
-    const resetUrl = (process.env.APP_URL || 'https://mynildash.com') + '/reset?token=' + token;
+    // onboarding is not rushed). Issued through the service so the token is
+    // hashed at rest like every other one -- the reset route only matches hashes.
+    const { token } = await pwReset.issueResetToken(store.pool, { email, ttlMs: pwReset.ONBOARDING_TTL_MS });
+    const resetUrl = pwReset.resetUrl(process.env.APP_URL, token);
 
     // Best-effort welcome email. If email is not configured or fails, the admin
     // still gets the link back to send manually, so onboarding never blocks.
@@ -5509,10 +5508,9 @@ app.post('/api/admin/create-comped-athlete', async (req, res) => {
     );
 
     // Same set-password flow the agent version uses, which now reaches athletes.
-    const token = crypto.randomBytes(32).toString('hex');
-    const expires = new Date(Date.now() + 7 * 86400000).toISOString();
-    await store.pool.query('INSERT INTO password_resets (email, token, expires_at) VALUES ($1,$2,$3)', [email, token, expires]);
-    const resetUrl = (process.env.APP_URL || 'https://mynildash.com') + '/reset?token=' + token;
+    // Hashed at rest via the service, like every other reset token.
+    const { token } = await pwReset.issueResetToken(store.pool, { email, ttlMs: pwReset.ONBOARDING_TTL_MS });
+    const resetUrl = pwReset.resetUrl(process.env.APP_URL, token);
 
     const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
     let emailed = false;

@@ -659,6 +659,34 @@ async function init() {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_athletes_email_unique ON athletes (LOWER(email)) WHERE email IS NOT NULL`
   ).catch(e => console.warn('[migration] athletes email unique index:', e.message));
 
+  // ── THE SAME RULE FOR AGENTS ─────────────────────────────────────────────
+  // athletes had this index for a while; users never did, and users is where
+  // the paying customers are. users.email is UNIQUE, but byte-wise, so
+  // Chris@x.com and chris@x.com are two allowed rows -- and the lookup is now
+  // case-insensitive, which makes such a pair ambiguous. This index prevents a
+  // second one from being created. If a pair already exists it will refuse to
+  // build, LOUDLY: run scripts/audit-email-case.js to find the pair, decide
+  // which row is the real customer, and the index builds on the next boot.
+  await pool.query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_ci ON users (LOWER(TRIM(email)))`
+  ).catch(e => console.error('[migration] ⚠️  users case-insensitive email index NOT built -- '
+    + 'two accounts differ only by case or whitespace. Run scripts/audit-email-case.js. '
+    + e.message));
+
+  // ── RESET TOKENS AT REST ─────────────────────────────────────────────────
+  // The emailed link carries the raw token; the table holds its SHA-256. The
+  // old `token` column stays for rows written before this (they expire within
+  // hours and can no longer match anything) and for the funnel's counts.
+  for (const sql of [
+    `ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS token_hash TEXT`,
+    `ALTER TABLE password_resets ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`,
+    `CREATE INDEX IF NOT EXISTS idx_password_resets_hash ON password_resets (token_hash) WHERE token_hash IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets (LOWER(TRIM(email)))`,
+    // Old plaintext tokens are a liability with no remaining purpose once
+    // expired; the funnel only needs rows from the last few weeks.
+    `DELETE FROM password_resets WHERE token IS NOT NULL AND expires_at < NOW() - INTERVAL '30 days'`,
+  ]) await pool.query(sql).catch(e => console.warn('[migration] password_resets:', e.message));
+
   // New invite tokens table (replaces/supplements athlete_invites for new flow)
   // NOTE: No FK constraint on athlete_id to avoid silent failures on old DBs
   await pool.query(`
@@ -2453,13 +2481,31 @@ async function getUserWithPassword(id) {
   const r = await pool.query('SELECT * FROM users WHERE id=$1', [id]);
   return r.rows[0] || null;
 }
+// ── EMAIL IS NOT CASE-SENSITIVE, AND NEVER WAS TO THE PEOPLE TYPING IT ──────
+// These were `WHERE email=$1`. Signup stored the address exactly as typed, so an
+// account created as Chris@... could not log in as chris@..., and a forgot-
+// password request with the lowercase form found nobody -- and, correctly
+// refusing to say whether the address existed, told him to check his email.
+// Two of three paying customers were locked out this way with no error to find.
+//
+// LOWER(TRIM()) on the column, not a rewrite of the data: rows already stored
+// with capitals or a trailing space keep working as they are. The functional
+// index below makes this a lookup rather than a scan.
+function normEmail(e) {
+  const s = String(e == null ? '' : e).trim().toLowerCase();
+  return s || null;
+}
 async function getUserByEmail(email) {
-  const r = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
+  const norm = normEmail(email);
+  if (!norm) return null;
+  const r = await pool.query('SELECT * FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1', [norm]);
   if (r.rows[0]) { const { password, ...safe } = r.rows[0]; return safe; }
   return null;
 }
 async function getUserByEmailWithPassword(email) {
-  const r = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
+  const norm = normEmail(email);
+  if (!norm) return null;
+  const r = await pool.query('SELECT * FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1', [norm]);
   return r.rows[0] || null;
 }
 async function getUserByStripeCustomer(customerId) {
@@ -2570,13 +2616,15 @@ async function saveUser(id, data) {
   const safeName = (data.name && String(data.name).trim())
     || (data.email ? String(data.email).split('@')[0] : '')
     || 'Agent';
+  // Stored normalised from here on. Lookups tolerate the old rows; new rows
+  // simply never need tolerating.
   await pool.query(`
     INSERT INTO users (id, name, email, password, role, athlete_id, agent_id, updated_at)
     VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
     ON CONFLICT (id) DO UPDATE SET
       name=EXCLUDED.name, email=EXCLUDED.email, password=EXCLUDED.password,
       role=EXCLUDED.role, athlete_id=EXCLUDED.athlete_id, agent_id=EXCLUDED.agent_id, updated_at=NOW()
-  `, [id, safeName, data.email, data.password, data.role || 'agent', data.athleteId || null, data.agentId || null]);
+  `, [id, safeName, normEmail(data.email), data.password, data.role || 'agent', data.athleteId || null, data.agentId || null]);
   return getUser(id);
 }
 async function getAllUsers() {
@@ -4193,7 +4241,7 @@ async function getSocialDepth(athlete) {
 }
 
 module.exports = {
-  getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers,
+  getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers, normEmail,
   getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals, recordReferralForInvoice,
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
   getDeal, getDealsByAthlete, getDealsByAgent, saveDeal, deleteDeal,

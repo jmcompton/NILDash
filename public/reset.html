@@ -72,7 +72,12 @@ async function sendReset() {
       document.getElementById("forgot-form").style.display = "none";
       document.getElementById("success-view").style.display = "block";
       document.getElementById("success-msg").textContent = "Check your email";
-      document.getElementById("success-sub").textContent = "We sent a reset link to " + email + ". It expires in 1 hour.";
+      // The server says the same thing whether or not the address has an
+      // account, on purpose. So the page has to carry the one hint that actually
+      // unsticks a locked-out person: the address must be the one on the account.
+      document.getElementById("success-sub").textContent =
+        "If " + email + " has a NILDash account, a reset link is on its way. It expires in 1 hour. " +
+        "Nothing after a few minutes? Check spam, and make sure this is the address you signed up with.";
     } else {
       showMsg(data.error || "Something went wrong", "error");
     }
