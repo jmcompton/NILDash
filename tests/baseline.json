@@ -611,7 +611,7 @@
     },
     "pwreset.js": {
       "failed": 0,
-      "total": 42,
+      "total": 49,
       "fault": null
     },
     "qempty_extract.js": {

@@ -219,6 +219,28 @@ async function main() {
       new RegExp('at least ' + PR.MIN_PASSWORD_LENGTH).test(fs.readFileSync(REPO + 'public/reset.html', 'utf8')), null);
   }
 
+  // ── 9. THE AUDIT SCRIPT CANNOT SILENTLY MISS PRODUCTION AGAIN ────────────
+  // Its first version did `new Pool()` with no arguments: PG* env vars, which
+  // production does not set. It dialled localhost, wrote one line to stderr,
+  // and looked exactly like a script that had not run. Every guarantee below is
+  // one the founder had to ask for after watching it print nothing.
+  {
+    const fs = require('fs');
+    const sc = fs.readFileSync(REPO + 'scripts/audit-email-case.js', 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    ok('the audit script connects through server/store (DATABASE_URL + SSL, like the app)',
+      /require\('\.\.\/server\/store'\)/.test(sc) && /store\.pool/.test(sc), null);
+    ok('  and never builds a bare pool of its own', !/new Pool\(/.test(sc), null);
+    ok('  it prints where it is connecting BEFORE the first query',
+      sc.indexOf('connecting via') > -1 && sc.indexOf('connecting via') < sc.indexOf('await P.query'), null);
+    ok('  its exit code starts at 1 and is only lowered after the report',
+      /process\.exitCode = 1/.test(sc) && sc.indexOf('process.exit(0)') > sc.indexOf("'Done."), null);
+    ok('  a query failure is written to STDOUT, not only stderr',
+      /console\.log\(msg\)/.test(sc) && /console\.error\(msg\)/.test(sc), null);
+    ok('  and a promise that never settles exits 1 with a message, not 0 in silence',
+      /beforeExit/.test(sc) && /never settled/.test(sc), null);
+    ok('  an empty result says so in words', /None -- every agent email/.test(sc) && /None\. Good\./.test(sc), null);
+  }
+
   await cleanup();
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));
