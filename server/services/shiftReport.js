@@ -386,6 +386,8 @@ async function buildShiftReport(pool, agentId) {
       .then((r) => (r && r.n ? { count: r.n, markets: r.markets, examples: r.examples || [],
         line: `${plural(r.n, 'name')} the market scan produced were not businesses and were rejected` } : null))
       .catch(() => null),
+    // THE LEAD IS WHAT IS WAITING, not what the job wrote. See buildHeadline.
+    headline: buildHeadline({ needsYou, closer: closerBlock, run: { ran: true } }),
     sentence, stat, coverage, faults, roles, needsYou, moving, draftAudit, verifyBudget,
     closer: closerBlock,
     analyst: await buildAnalystBlock(pool, agentId, from, to).catch((e) => {
@@ -399,6 +401,75 @@ async function buildShiftReport(pool, agentId) {
 // A count alone ("3 media kits refreshed") is not a report -- the agent cannot
 // tell whether that was real work or churn. The reason is stored on the activity
 // row at refresh time, so this reads it back rather than guessing.
+// ── THE HEADLINE: WHAT IS WAITING ON THE AGENT ───────────────────────────────
+//
+// The first line of the 7am email and of Home used to be `sentence` -- what the
+// overnight job DID. On a slow night with a full queue that read:
+//
+//   "Your team wrote one pitch. Across 1 of 9 athletes, 8 had nothing new to work"
+//
+// while the same email, further down, listed 54 cards ready to work and 32
+// pitches waiting on approval. Technically true and completely misleading: an
+// agent with a full morning opened an email that read like the product had
+// done nothing. The job's output is history; the pile is the agent's day.
+//
+// SAME PRIORITY AS THE SUBJECT LINE, on purpose. buildSubject in shiftEmail.js
+// already ranks holds > replies > ready cards > pitches > programmes; a body
+// that led with a different fact than its own subject would be a second
+// version of the same bug. The `sentence` survives untouched as the SECOND
+// line ("Last night: ..."), so nothing that reports on the run is lost -- it is
+// simply no longer the first thing a person reads.
+//
+// Digits, not words: the pile's size is the point, and the subject uses digits.
+function buildHeadline({ needsYou, closer, run } = {}) {
+  if (!run || !run.ran) return null;
+  const items = (needsYou && needsYou.items) || [];
+  const n = (x) => Number(x) || 0;
+  const pl = (k, s, p) => `${k} ${k === 1 ? s : (p || s + 's')}`;
+
+  const holds = items.filter((it) => it.kind === 'compliance');
+  if (holds.length) {
+    const blocked = holds.filter((h) => h.severity === 'block').length;
+    if (holds.length === 1) {
+      return (blocked ? 'Cannot send: ' : 'On hold: ') + String(holds[0].line || 'a pitch is on hold') + '.';
+    }
+    return `${pl(holds.length, 'pitch', 'pitches')} on hold` + (blocked ? ` — ${blocked} cannot be sent.` : '.');
+  }
+
+  const waiting = n(closer && closer.pendingApproval);      // email drafts, the part approving sends
+  const ready = items.find((it) => it.kind === 'approve');
+  const readyN = ready ? (n(ready.total) || n(ready.count)) : 0;   // every card: email, DM, call
+  const prog = items.find((it) => it.kind === 'queue');
+  const progN = prog ? (n(prog.total) || n(prog.count)) : 0;
+
+  const replies = items.filter((it) => it.kind === 'reply');
+  if (replies.length) {
+    // NOT THE BRAND'S NAME. A reply is rendered as its own block directly
+    // beneath this line, in its own colour, with the reply button -- and the
+    // subject already names the brand. Restating the line here put the same
+    // sentence three times in one screen, twice within a few pixels. The block
+    // is the lead for a reply; this line says a reply exists and carries the
+    // rest of the pile.
+    const head = replies.length === 1 ? 'A brand replied' : `${replies.length} brands replied`;
+    if (waiting) return `${head} — and ${pl(waiting, 'pitch', 'pitches')} ${waiting === 1 ? 'is' : 'are'} ready to send.`;
+    if (readyN) return `${head} — and ${pl(readyN, 'card')} ${readyN === 1 ? 'is' : 'are'} ready to work.`;
+    return head + '.';
+  }
+
+  // The pile. Cards and pitches are different units (see buildNeedsYou); when
+  // they differ both are named, when the pitches ARE the pile only that is.
+  if (readyN && waiting && readyN !== waiting) {
+    return `${pl(readyN, 'card')} ${readyN === 1 ? 'is' : 'are'} ready to work and `
+      + `${pl(waiting, 'pitch', 'pitches')} ${waiting === 1 ? 'is' : 'are'} waiting on your approval.`;
+  }
+  if (waiting) return `${pl(waiting, 'pitch', 'pitches')} ${waiting === 1 ? 'is' : 'are'} waiting on your approval.`;
+  if (readyN) return `${pl(readyN, 'card')} ${readyN === 1 ? 'is' : 'are'} ready to work.`;
+  if (progN) return `${pl(progN, 'programme application')} ${progN === 1 ? 'is' : 'are'} waiting.`;
+
+  // Genuinely nothing. Said plainly; the run sentence beneath says why.
+  return 'Nothing is waiting on you.';
+}
+
 async function buildAnalystBlock(pool, agentId, from, to) {
   const rows = (await pool.query(
     `SELECT l.athlete_id, l.metadata, l.created_at,
@@ -793,6 +864,7 @@ async function expireStaleDrafts(pool, agentId) {
 }
 
 module.exports = {
+  buildHeadline,
   buildCloserBlock, buildAnalystBlock,
   buildShiftReport, buildNeedsYou, buildMoving, buildDraftAudit, expireStaleDrafts,
   buildRoleCards, num, plural, listify, cap,

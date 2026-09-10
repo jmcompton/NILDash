@@ -17509,9 +17509,15 @@ function srRenderSentence(d, el) {
   // came to report different numbers from the same query. They are counted
   // separately now and said in their own line, so the work still shows up
   // without being backdated into the night.
+  // THE LEAD IS THE PILE, NOT THE NIGHT. "Your team wrote one pitch" above a
+  // queue of 54 cards read as if the product had done nothing. d.headline is
+  // what is waiting on the agent (same priority as the email subject); the run
+  // sentence is still here, one line down, prefixed so the two cannot blur.
+  var night = [d.headline && d.sentence ? 'Last night: ' + d.sentence : null, cov.line]
+    .filter(Boolean).join(' ');
   el.innerHTML = '<div class="sr-head">'
-    + '<div class="sr-sentence">' + hmEsc(d.sentence) + '</div>'
-    + '<div class="sr-sub">' + (cov.line ? hmEsc(cov.line) + ' · ' : '')
+    + '<div class="sr-sentence">' + hmEsc(d.headline || d.sentence) + '</div>'
+    + '<div class="sr-sub">' + (night ? hmEsc(night) + ' · ' : '')
     + '<a href="#" class="sr-link" onclick="srOpenDetail();return false">See the detail</a>'
     + '</div>'
     + (d.run.inProgress

@@ -146,11 +146,18 @@ function renderShiftEmail(report, opts = {}) {
 
   if (name) parts.push(`<p style="${MUTED};margin-bottom:10px">Good morning, ${esc(name)}.</p>`);
 
-  // ── 1. ONE SENTENCE ──────────────────────────────────────────────────────
+  // ── 1. WHAT IS WAITING, THEN WHAT HAPPENED ───────────────────────────────
+  // The bold line used to be `sentence` -- what the job wrote. "Your team wrote
+  // one pitch" above a list of 54 cards and 32 pitches read as though the
+  // product had done nothing. The headline is the pile; the run is history and
+  // goes second, in the muted style, prefixed so the two cannot be confused.
   if (r.run && r.run.ran) {
-    parts.push(`<p style="${P};font-size:17px;line-height:1.5;color:#0f1722"><b>${esc(r.sentence)}</b></p>`);
-    if (r.coverage && r.coverage.line) {
-      parts.push(`<p style="${MUTED};margin-bottom:16px">${esc(r.coverage.line)} · `
+    const lead = r.headline || r.sentence;
+    parts.push(`<p style="${P};font-size:17px;line-height:1.5;color:#0f1722"><b>${esc(lead)}</b></p>`);
+    const night = [r.headline && r.sentence ? 'Last night: ' + r.sentence : null,
+      r.coverage && r.coverage.line].filter(Boolean).join(' ');
+    if (night) {
+      parts.push(`<p style="${MUTED};margin-bottom:16px">${esc(night)} · `
         + `<a href="${esc(appUrl)}/?view=shift-detail" style="color:#3f7d1f">See the detail</a></p>`);
     }
     // A partial night, said out loud. The report is a live count and the run can
@@ -319,7 +326,9 @@ function renderShiftEmail(report, opts = {}) {
   // report some agents never read.
   const textLines = [];
   if (r.run && r.run.ran) {
-    textLines.push(r.sentence);
+    // Same order as the HTML: the pile first, the night second.
+    textLines.push(r.headline || r.sentence);
+    if (r.headline && r.sentence) textLines.push('Last night: ' + r.sentence);
     if (r.coverage && r.coverage.line) textLines.push(r.coverage.line);
   } else textLines.push('Your team has not run yet.');
   if (r.run && r.run.ran && r.run.inProgress) {
