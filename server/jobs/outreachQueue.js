@@ -721,6 +721,10 @@ async function fillAthlete(pool, ctx) {
   let slate = await Scout.assembleSlate(pool, {
     agentId, athlete: profile, store,
     limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
+    // The program cap is known before the slate is built. Passing it lets the
+    // Scout drop program-only brands that cannot become a card tonight, instead
+    // of handing them the athlete's attempts and rejecting them one by one.
+    heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
   });
 
   // ── WIDEN THE RADIUS RATHER THAN GO QUIET ────────────────────────────────
@@ -773,6 +777,7 @@ async function fillAthlete(pool, ctx) {
         slate = await Scout.assembleSlate(pool, {
           agentId, athlete: profile, store,
           limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
+          heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
         });
         say(`${athleteName}: after widening, ${slate.picks.length} candidate(s) — `
           + Object.keys(slate.laneCounts || {}).map((k) => `${slate.laneCounts[k]} ${k}`).join(', '));
@@ -792,7 +797,8 @@ async function fillAthlete(pool, ctx) {
       : slate.emptyText;
     say(`${athleteName}: ${note}`);
     return { filled: 0, open: open.length, tried, note,
-      emptyReason: slate.emptyReason, noMarket };
+      emptyReason: slate.emptyReason, noMarket,
+      lanes: slate.lanes || null, dropped: slate.dropped || null };
   }
   if (slate.signalCount) {
     say(`${athleteName}: ${slate.signalCount} brand(s) have a deal history at their school`
@@ -1216,7 +1222,11 @@ async function fillAthlete(pool, ctx) {
   const emptyReason = filled > 0 ? null
     : faults && faults >= tried.length && tried.length ? Scout.EMPTY.FAULT
       : tried.length ? Scout.EMPTY.BELOW_BAR : Scout.EMPTY.MARKET_EXHAUSTED;
-  return { filled, open: open.length, tried, note, spendLog, faults, emptyReason };
+  return { filled, open: open.length, tried, note, spendLog, faults, emptyReason,
+    // What each lane returned and what was dropped before ranking, so the
+    // morning-after question "why was the slate all social?" is answerable
+    // from the run row rather than the process log.
+    lanes: slate.lanes || null, dropped: slate.dropped || null };
 }
 
 async function fillAgent(pool, agent, opts) {
@@ -1328,6 +1338,9 @@ async function fillAgent(pool, agent, opts) {
       // one-card athlete could not be classified from the database at all.
       emptyReason: r.emptyReason || null,
       noMarket: !!r.noMarket,
+      // Per-lane row counts and pre-ranking drops. See assembleSlate.
+      lanes: r.lanes || null,
+      dropped: r.dropped || null,
       // How many of this athlete's attempts failed on OUR side. The number that
       // would have made 2026-08-23 legible the next morning.
       faults: r.faults || 0,

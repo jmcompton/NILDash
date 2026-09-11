@@ -127,6 +127,26 @@ async function main() {
       const tried = Array.isArray(d.tried) ? d.tried : [];
       console.log(`\n── ${String(run.run_date).slice(0, 10)}  filled=${d.filled ?? '?'}  note: ${d.note || (d.filled ? '(filled)' : '(none)')}`);
       if (d.error) console.log(`   RUN ERROR for this athlete: ${d.error}`);
+      // What each lane handed the slate, and what was dropped before ranking.
+      // "all twelve were social" is only diagnosable if you can see that the
+      // local lane returned zero rows -- and under which key it looked.
+      if (d.lanes) {
+        const L = d.lanes.local || {};
+        console.log(`   lanes  : local=${L.rows ?? '?'} row(s)`
+          + (L.marketKey ? ` under key ${JSON.stringify(L.marketKey)}` : L.hasLocalMarket === false ? ' (no local market)' : '')
+          + (L.reason ? ` [${L.reason}]` : '')
+          + (L.poolRowsUnderKey != null ? `; pool holds ${L.poolRowsUnderKey} row(s) under that key` : '')
+          + `; social=${d.lanes.social ?? '?'}; national=${d.lanes.national ?? '?'}`);
+        if (L.rows === 0 && L.hasLocalMarket !== false) {
+          console.log(`   → LOCAL LANE RETURNED NOTHING. ${L.poolRowsUnderKey === 0
+            ? 'The pool has NO rows under this key: the businesses are filed under a different key. Run scripts/migrate-market-pool-key.js.'
+            : 'Either the pool is under a different key, or every row under it is already worked. Check: SELECT market_key, COUNT(*) FROM market_business_seen WHERE market_key ILIKE \'%<town>%\' GROUP BY 1'}`);
+        }
+      }
+      if (d.dropped && (d.dropped.programCapped || d.dropped.noHandleCached)) {
+        console.log(`   dropped before ranking: ${d.dropped.programCapped} program-only (program slot held), `
+          + `${d.dropped.noHandleCached} with a cached no-handle answer`);
+      }
       if (!tried.length) { console.log('   no attempts recorded'); continue; }
       const tally = {};
       tried.forEach((t, i) => {

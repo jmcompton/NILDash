@@ -49,8 +49,28 @@ async function main() {
   const bareStore = { getSocialBrandPool: async () => [], getTopNilComps: async () => [] };
   let sl = await S.assembleSlate(P, { agentId: AG, athlete: ATH, store: bareStore, limit: 5 });
   ok('an empty market gives a NAMED reason', sl.picks.length === 0 && !!sl.emptyReason, sl);
-  ok('  which is market-exhausted, not a bare zero', sl.emptyReason === S.EMPTY.MARKET_EXHAUSTED, sl.emptyReason);
-  ok('  with text an agent can act on', /already been worked/.test(sl.emptyText), sl.emptyText);
+  // The pool was just wiped, so there is NO row under this athlete's key. That
+  // is not a market that has been worked out; it is a pool that is not there.
+  // The two used to share one word, "exhausted", and Jeremiah Wilkinson's 241
+  // unseen businesses were reported as worked out because his rows sat under
+  // another key. Different problem, different sentence.
+  ok('  a key with no pool rows is no-pool-for-key, not a bare zero', sl.emptyReason === S.EMPTY.NO_POOL_FOR_KEY, sl.emptyReason);
+  // And a market that really IS spent -- rows exist under the key, every one
+  // already worked for this athlete -- still says so.
+  await P.query(`INSERT INTO market_business_seen (market_key, brand, first_seen_at, last_seen_at)
+                 VALUES ($1,'Passed Over Worked',NOW(),NOW()) ON CONFLICT DO NOTHING`, [ATH.marketKey]);
+  await P.query(`INSERT INTO brand_engagement (agent_id,athlete_id,brand_key,brand_name,state)
+                 VALUES ($1,$2,'passedoverworked','Passed Over Worked','contacted') ON CONFLICT DO NOTHING`, [AG, ATH.id]);
+  const spent = await S.assembleSlate(P, { agentId: AG, athlete: ATH, store: bareStore, limit: 5 });
+  ok('  a key whose every row is already worked is market-exhausted', spent.emptyReason === S.EMPTY.MARKET_EXHAUSTED, spent.emptyReason);
+  ok('  and the slate records the rows it found under the key', spent.lanes && spent.lanes.local.rows === 0 && spent.lanes.local.marketKey === ATH.marketKey, spent.lanes);
+  await P.query(`DELETE FROM brand_engagement WHERE brand_name='Passed Over Worked'`).catch(() => {});
+  await P.query(`DELETE FROM market_business_seen WHERE brand='Passed Over Worked'`).catch(() => {});
+  sl = await S.assembleSlate(P, { agentId: AG, athlete: ATH, store: bareStore, limit: 5 });
+  // The wiped-pool case: the text has to name the fix, not describe a market
+  // that was never looked at as worked out.
+  ok('  with text an agent can act on', /run scripts\/migrate-market-pool-key\.js/.test(sl.emptyText), sl.emptyText);
+  ok('  and the spent-market text still says worked', /already been worked/.test(spent.emptyText), spent.emptyText);
 
   const NOMKT = AR.resolveAthlete({ id: 'sc-a2', data: { name: 'No Market', school: 'Nowhere Tech' } },
     { schoolLocation: R.resolveSchool });
@@ -222,6 +242,79 @@ async function main() {
     pcard.contactName === null && pcard.phone === null && pcard.instagram === null, pcard);
   ok('  and it still carries the written pitch', /Two feed posts/.test(pcard.dmText), pcard.dmText);
   await P.query(`DELETE FROM social_brands WHERE brand='Scoutcorp'`).catch(() => {});
+
+  // ── A CANDIDATE THAT CANNOT SUCCEED DOES NOT GET A SLOT ───────────────────
+  // Jeremiah Wilkinson: twelve attempts, all social or national, nine rejected
+  // per attempt as "already holding 1 program application, which is the cap".
+  // The cap was known before the slate was built and was applied after -- so
+  // program-only brands spent the athlete's attempts on a rejection that was
+  // certain, and the local lane (241 businesses) never got a turn.
+  {
+    // nationalCandidates takes programUrl from the social_brands INDEX row that
+    // matches the comp by name -- never from the comp itself. That is exactly how
+    // Jeremiah's nine got theirs, so the fixture indexes the page the same way.
+    await P.query(`INSERT INTO social_brands
+        (brand, category, website, sports, tier_min, tier_max, deal_structure, proof_url, proof_date, active)
+        VALUES ('National With Page','apparel','https://nwp.example',ARRAY['all'],0,999999,'cash_code',
+                'https://nwp.example/athletes','2026-01-01',true)
+        ON CONFLICT DO NOTHING`).catch(() => {});
+    const capStore = {
+      getSocialBrandPool: async () => ([
+        { brand: 'Program Only Co', brandKey: 'programonlyco', proof_url: 'https://programonly.example/athletes', fitScore: 90 },
+        { brand: 'DM Possible Co', brandKey: 'dmpossibleco', fitScore: 80 },   // no page: DM route only
+      ]),
+      getTopNilComps: async () => ([
+        { brand: 'National With Page', brandKey: 'nationalwithpage', website: 'https://nwp.example', why: 'signs athletes' },
+        { brand: 'Collective No Page', brandKey: 'collectivenopage', why: 'a collective' },
+      ]),
+      // A handle search already ran for one of the page-less brands and found
+      // nothing; asking again would re-spend for the same answer.
+      getBrandEvidence: async (key) => (/collectivenopage/.test(key) ? { evidence: { found: false } } : null),
+    };
+    const capped = await S.assembleSlate(P, { agentId: AG, athlete: BARE, store: capStore, limit: 5,
+      heldPrograms: 1, programCap: 1 });
+    const names = (sl) => sl.picks.map((p) => p.brand_name);
+    ok('with the program slot held, a program-only brand never enters the slate',
+      !names(capped).includes('Program Only Co') && !names(capped).includes('National With Page'), names(capped));
+    ok('  a page-less brand with no cached answer still enters (one search is how a DM is found)',
+      names(capped).includes('DM Possible Co'), names(capped));
+    ok('  a page-less brand whose search already found nothing is dropped',
+      !names(capped).includes('Collective No Page'), names(capped));
+    ok('  and the drops are counted on the slate',
+      capped.dropped && capped.dropped.programCapped === 2 && capped.dropped.noHandleCached === 1, capped.dropped);
+
+    const open = await S.assembleSlate(P, { agentId: AG, athlete: BARE, store: capStore, limit: 5,
+      heldPrograms: 0, programCap: 1 });
+    ok('with the program slot open, program brands enter as before',
+      names(open).includes('Program Only Co') && names(open).includes('National With Page'), names(open));
+    ok('  and only the cached no-handle brand is dropped',
+      open.dropped && open.dropped.programCapped === 0 && open.dropped.noHandleCached === 1, open.dropped);
+
+    const legacy = await S.assembleSlate(P, { agentId: AG, athlete: BARE, store: capStore, limit: 5 });
+    ok('a caller that passes no cap gets the old behaviour', names(legacy).includes('Program Only Co'), names(legacy));
+    await P.query(`DELETE FROM social_brands WHERE brand='National With Page'`).catch(() => {});
+
+    // ── WHAT EACH LANE RETURNED IS ON THE SLATE ──────────────────────────────
+    ok('the slate says how many rows each lane returned',
+      open.lanes && open.lanes.local && typeof open.lanes.local.rows === 'number'
+      && open.lanes.social === 2 && open.lanes.national === 1, open.lanes);
+    ok('  and which market key the local lane used', open.lanes.local.marketKey === (BARE.marketKey || null), open.lanes.local);
+  }
+
+  // ── "EXHAUSTED" IS NOT SAID OF A POOL THAT IS NOT THERE ───────────────────
+  // An athlete with a market key and NO rows under it is not a worked-out
+  // market; it is a pool filed under a different key. Different fix, different
+  // sentence.
+  {
+    const bare = { getSocialBrandPool: async () => [], getTopNilComps: async () => [] };
+    const ghost = Object.assign({}, ATH, { id: 'scout-ghost', marketKey: 'nowhere-at-all, zz', market: 'Nowhere At All, ZZ', hasLocalMarket: true });
+    const sl = await S.assembleSlate(P, { agentId: AG, athlete: ghost, store: bare, limit: 5 });
+    ok('a market key with no pool rows is reported as no-pool-for-key, not exhausted',
+      sl.emptyReason === S.EMPTY.NO_POOL_FOR_KEY, sl.emptyReason);
+    ok('  the text names the migration script', /migrate-market-pool-key/.test(sl.emptyText), sl.emptyText);
+    ok('  and the slate records zero pool rows under that key',
+      sl.lanes && sl.lanes.local.poolRowsUnderKey === 0, sl.lanes);
+  }
 
   await wipe();
   await P.query(`DELETE FROM deal_comps WHERE id=990001`).catch(() => {});

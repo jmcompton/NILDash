@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-09-10",
+  "recordedAt": "2026-09-11",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_idx.js": {
@@ -711,7 +711,7 @@
     },
     "scout.js": {
       "failed": 0,
-      "total": 44,
+      "total": 59,
       "fault": null
     },
     "scoute2e.js": {

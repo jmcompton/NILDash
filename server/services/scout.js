@@ -44,6 +44,12 @@ const EMPTY = {
   SLOTS_FULL: 'slots-full',
   PAUSED: 'paused',
   CAPPED: 'capped-out',
+  // NOT EXHAUSTED -- MISSING. The athlete has a market key and the pool has no
+  // row under it at all. "Every business has already been worked" is the wrong
+  // sentence for that: nothing was worked, the pool is filed under another key
+  // (a school slug from before market keys were town-based, usually). Fixable
+  // by data, so it is named separately from a market that really is spent.
+  NO_POOL_FOR_KEY: 'no-pool-for-key',
   // OURS, NOT THEIRS. A night whose failures were all lookups that threw says
   // nothing about the market, and must never read as one that was worked out.
   FAULT: 'our-fault',
@@ -55,6 +61,7 @@ const EMPTY_TEXT = {
   [EMPTY.SLOTS_FULL]: 'all slots already hold work you have not actioned yet',
   [EMPTY.PAUSED]: 'paused after repeated nights with nothing to show',
   [EMPTY.CAPPED]: 'the nightly spend cap was reached before this athlete',
+  [EMPTY.NO_POOL_FOR_KEY]: 'no businesses are recorded under this athlete\'s market key, so the local lane had nothing to draw from — the pool is probably filed under a different key (run scripts/migrate-market-pool-key.js)',
   [EMPTY.FAULT]: 'every attempt failed on our side, so nothing was learned about this market',
 };
 
@@ -363,16 +370,78 @@ async function assembleSlate(pool, ctx) {
 
   const signals = await schoolSponsorSignals(pool, athlete.school);
   const local = await localCandidates(pool, { agentId, athlete, limit });
-  const social = await socialCandidates(pool, { athlete, limit, store });
-  const national = await nationalCandidates(pool, { limit, store });
+  let social = await socialCandidates(pool, { athlete, limit, store });
+  let national = await nationalCandidates(pool, { limit, store });
+
+  // ── A CANDIDATE THAT CANNOT SUCCEED DOES NOT GET A SLOT ──────────────────
+  // Jeremiah Wilkinson: twelve attempts, all social or national, nine rejected
+  // as "already holding 1 program application, which is the cap". The cap was
+  // checked per attempt, AFTER the slate had already handed those brands the
+  // athlete's twelve chances -- so the local lane, with 241 businesses behind
+  // it, never got a turn. The cap is known before the slate is built (the job
+  // counts held cards first), so it is applied here, where it costs nothing.
+  //
+  // Two kinds of un-winnable candidate:
+  //   program-only  it carries a program page and the athlete's program slot is
+  //                 already held. It can only become a program card. Dropped.
+  //   no handle     it has no page AND a handle search already ran and found
+  //                 nothing (cached). Its only route is a DM, and asking again
+  //                 re-spends for the same answer. Dropped.
+  // A social/national brand with no page and NO cached answer still enters:
+  // that one search is how a DM candidate is discovered at all.
+  const dropped = { programCapped: 0, noHandleCached: 0 };
+  const held = Number(ctx.heldPrograms) || 0;
+  const cap = Number(ctx.programCap) || 0;
+  const programSlotHeld = cap > 0 && held >= cap;
+  if (programSlotHeld || (store && typeof store.getBrandEvidence === 'function')) {
+    const IG = require('./instagramLookup');
+    const keep = async (c) => {
+      if (programSlotHeld && c.programUrl) { dropped.programCapped++; return false; }
+      if (!c.programUrl && typeof IG.cachedVerdict === 'function') {
+        const v = await IG.cachedVerdict(store, { website: c.website, brand: c.brand_name, loc: athlete.market || null });
+        if (v === 'none') { dropped.noHandleCached++; return false; }
+      }
+      return true;
+    };
+    const filt = async (rows) => { const out = []; for (const c of rows) if (await keep(c)) out.push(c); return out; };
+    social = await filt(social);
+    national = await filt(national);
+    if (dropped.programCapped || dropped.noHandleCached) {
+      console.log(`[slate] athlete=${athlete.id} dropped before ranking: `
+        + `${dropped.programCapped} program-only (slot held ${held}/${cap}), `
+        + `${dropped.noHandleCached} with a cached no-handle answer`);
+    }
+  }
+
+  // ── WHAT EACH LANE ACTUALLY RETURNED ─────────────────────────────────────
+  // Recorded on the slate so the run row can carry it. "all twelve were social"
+  // used to be a fact recoverable only from the process log; now the question
+  // "did the local lane return zero rows, and why" is answerable from the
+  // database the morning after.
+  const lanes = {
+    local: { rows: local.rows.length, reason: local.reason || null, marketKey: athlete.marketKey || null,
+      hasLocalMarket: !!athlete.hasLocalMarket },
+    social: social.length, national: national.length,
+  };
 
   const all = local.rows.concat(social, national);
   if (!all.length) {
     // Say WHICH kind of empty. "no market" and "market exhausted" are different
     // problems with different fixes, and a bare zero told us neither.
-    const reason = !athlete.hasLocalMarket ? EMPTY.NO_MARKET : EMPTY.MARKET_EXHAUSTED;
+    let reason = !athlete.hasLocalMarket ? EMPTY.NO_MARKET : EMPTY.MARKET_EXHAUSTED;
+    // And "exhausted" must not be said of a pool that was never there. One
+    // cheap count, only on this path: if the athlete's key has NO rows at all,
+    // the pool is filed under another key -- a data problem with a script for
+    // it, not a market that has been worked out.
+    if (reason === EMPTY.MARKET_EXHAUSTED && athlete.marketKey) {
+      try {
+        const n = await pool.query(`SELECT COUNT(*)::int AS n FROM market_business_seen WHERE market_key = $1`, [athlete.marketKey]);
+        if (n.rows[0] && n.rows[0].n === 0) reason = EMPTY.NO_POOL_FOR_KEY;
+        lanes.local.poolRowsUnderKey = n.rows[0] ? n.rows[0].n : null;
+      } catch (_) { /* the count is diagnostic; its failure must not empty the slate twice */ }
+    }
     return { picks: [], laneCounts: {}, emptyReason: reason, emptyText: EMPTY_TEXT[reason],
-      signalCount: signals.size, localExhausted: local.exhausted };
+      signalCount: signals.size, localExhausted: local.exhausted, lanes, dropped };
   }
 
   // Rank. The sponsorship boost applies across ALL lanes: a brand that has done
@@ -496,7 +565,7 @@ async function assembleSlate(pool, ctx) {
 
   const laneCounts = picks.reduce((m, p) => { m[p.lane] = (m[p.lane] || 0) + 1; return m; }, {});
   return {
-    picks, laneCounts, emptyReason: null, emptyText: null,
+    picks, laneCounts, emptyReason: null, emptyText: null, lanes, dropped,
     signalCount: signals.size,
     boosted: picks.filter((p) => p.sponsorSignal).length,
     collapsed,

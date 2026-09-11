@@ -198,6 +198,28 @@ async function _searchForHandle(brand, loc, webSearch) {
 // opts: { brand, loc, webSearch }. webSearch(prompt, system) -> { text, citations }.
 // Without brand+webSearch the search half is simply skipped, so the cheap paths
 // and any legacy caller behave as they did.
+// ── WHAT THE CACHE ALREADY KNOWS, WITHOUT SPENDING ───────────────────────────
+// The slate needs to ask "would looking this brand up be a waste?" before it
+// hands the brand a slot, and findInstagram cannot answer that without being
+// willing to search. This reads the same cache row and nothing else.
+//   'found'   a handle is cached
+//   'none'    a search already ran and found nothing -- asking again re-spends
+//             for the same answer
+//   null      never looked up, or the store cannot read the cache
+async function cachedVerdict(store, { website, brand, loc } = {}) {
+  if (!store || typeof store.getBrandEvidence !== 'function') return null;
+  let domain = null;
+  try { if (website) domain = new URL(/^https?:/i.test(website) ? website : 'https://' + website).hostname.replace(/^www\./, ''); }
+  catch (_) { domain = null; }
+  const key = domain ? _cacheKey(domain) : (brand ? _nameKey(brand, loc) : null);
+  if (!key) return null;
+  try {
+    const cached = await store.getBrandEvidence(key, 'instagram', CACHE_DAYS);
+    if (!cached || !cached.evidence) return null;
+    return cached.evidence.found === false ? 'none' : (cached.evidence.handle ? 'found' : null);
+  } catch (_) { return null; }
+}
+
 async function findInstagram(website, opts) {
   const o = opts || {};
   // A DOMAIN IS NOW OPTIONAL. It used to be required, and required first: the
@@ -286,4 +308,4 @@ async function findInstagram(website, opts) {
   return out;
 }
 
-module.exports = { findInstagram, handleVerdict, _extractHandle, _citedHandle };
+module.exports = { cachedVerdict, findInstagram, handleVerdict, _extractHandle, _citedHandle };
