@@ -132,7 +132,9 @@ const q = (n) => Array.from({ length: n }, (_, i) => ({ brand: 'Q' + i, result: 
   ok('  the pot is checked before spending', /budget\.canSpendDiscovery\(estimateUsd\)/.test(job), null);
   ok('the market refill runs once per market per run', /refilledMarkets\.has\(profile\.marketKey\)/.test(job) && /refilledMarkets\.add\(profile\.marketKey\)/.test(job), null);
   ok('  and the run shares that set across athletes', /refilledMarkets: _refilledMarkets/.test(job) && /const _refilledMarkets = new Set\(\)/.test(job), null);
-  ok('the widen is still gated per athlete per market', /Deepen\.canDeepen\(pool, profile\.school, \{ athleteId \}\)/.test(job) && /widenedTonight = true/.test(job), null);
+  // widenKey is the school, or the market for a pro (who has no school).
+  ok('the widen is still gated per athlete per market', /const widenKey = profile\.school \|\| profile\.market;/.test(job)
+    && /Deepen\.canDeepen\(pool, widenKey, \{ athleteId \}\)/.test(job) && /widenedTonight = true/.test(job), null);
   ok('the stop note is built from workedOutNote with the week\'s counts', /Q\.workedOutNote\(\{ athleteName, market: profile\.market/.test(job) && /triedWeek, reachableWeek, widenedWeek, filled, wanted: open\.length/.test(job), null);
   ok('  and is what the run row carries as the note', /const note = filled > 0 && !stopNote \? null\s*:\s*stopNote/.test(job), null);
   ok('the three-nights backoff is untouched', /BACKOFF_NIGHTS = 3/.test(fs.readFileSync(REPO + 'server/services/outreachQueue.js', 'utf8')) && /failures >= Q\.BACKOFF_NIGHTS/.test(job), null);

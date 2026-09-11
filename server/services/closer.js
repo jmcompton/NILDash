@@ -557,7 +557,14 @@ async function complianceGate(pool, log, opts = {}) {
   // today -- holding. It is loaded before evaluate() rather than inside it so a
   // lookup failure is visible here and holds, instead of being swallowed.
   const stateRule = {};
-  const stateCode = compliance.stateCodeForSchool(log.school);
+  // College or pro. The column is authoritative when it says 'pro'; the data
+  // field is what the Add Client form writes, and either is enough.
+  const athleteType = (log.athlete_type === 'pro' || log.athlete_type_data === 'pro') ? 'pro' : 'college';
+  // From the school for a college athlete, from the city for a pro -- and a
+  // note saying which is missing when neither yields a state. evaluate() turns
+  // that note into a block; it is never a quiet "no state rules applied".
+  const st = await compliance.stateCodeFor(pool, { athleteType, school: log.school, city: log.city });
+  const stateCode = st.stateCode;
   if (stateCode) {
     for (const c of compliance.CATEGORIES) {
       const row = await compliance.stateRuleFor(pool, stateCode, c.key);
@@ -584,6 +591,8 @@ async function complianceGate(pool, log, opts = {}) {
     schoolRestrictions: log.school_restrictions || [],
     athleteName: log.athlete_name || null,
     school: log.school || null,
+    athleteType, city: log.city || null,
+    stateNote: st.note, stateSource: st.source,
     now: opts.now,
   });
 
@@ -613,6 +622,7 @@ async function complianceGate(pool, log, opts = {}) {
     evidence: log.places_evidence || null, dob: log.dob || null,
     schoolRestrictions: log.school_restrictions || [],
     school: log.school || null, stateCode, now: opts.now,
+    athleteType, city: log.city || null, stateSource: st.source,
   }, result);
 
   // A note proceeds. It is on the record and it does not stop anything.
@@ -635,6 +645,10 @@ async function releaseDue(pool, opts = {}) {
             a.data->>'school' AS school, a.data->>'dob' AS dob,
             a.data->>'over18' AS over18,
             a.data->'schoolRestrictions' AS school_restrictions,
+            -- College or pro, and the pro's city: the gate resolves the state
+            -- from whichever the athlete has.
+            a.athlete_type, a.data->>'athleteType' AS athlete_type_data,
+            a.data->>'city' AS city, a.data->>'team' AS team,
             -- The Places record for this business, for the compliance gate. Same
             -- join buildBatch already uses for the address; lane='places'
             -- evidence carries types and primaryType.
@@ -709,7 +723,7 @@ async function releaseDue(pool, opts = {}) {
     // held on a Friday evening would not reach the agent's report until Monday.
     // Compliance is a fact about the message; the window is only about timing.
     if (!sendWindow.isSendable(now, {
-      businessAddress: log.biz_address, athleteSchoolState: log.school,
+      businessAddress: log.biz_address, athleteSchoolState: log.school || log.city,
     })) {
       out.held++; out.detail.push({ id: log.id, result: 'held', why: 'outside the send window' });
       continue;

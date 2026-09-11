@@ -116,8 +116,11 @@ function main() {
   // The single sentence in this voice that asserts a fact about a real athlete
   // to a real business.
   const pw = fs.readFileSync(ROOT + 'server/services/pitchWriter.js', 'utf8');
+  // `${kind}` is "NIL" for a college athlete and "endorsement" for a pro; the
+  // sentence and its gating on the deal count are the same for both.
   ok('WITH TWO OR MORE DEALS ON FILE, "several" IS ALLOWED',
-    /deals >= 2[\s\S]{0,200}already has several NIL partnerships/.test(pw), null);
+    /deals >= 2[\s\S]{0,200}already has several \$\{kind\} partnerships/.test(pw)
+    && /const kind = isPro \? 'endorsement' : 'NIL';/.test(pw), null);
   ok('  with exactly one, the model is told NOT to say "several"',
     /deals === 1[\s\S]{0,220}Do not say "several"/.test(pw), null);
   ok('  WITH NONE, IT MAY NOT CLAIM ANY',

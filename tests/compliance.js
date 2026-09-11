@@ -289,7 +289,7 @@ async function main() {
   ok('a populated row is read back', !!ruleRow && ruleRow.adult_rule === 'block', ruleRow && ruleRow.adult_rule);
   const tightened = await C.evaluate(null, {
     brandName: 'Bowie Guns', evidence: { found: true, types: ['gun_store'] },
-    dob: yearsAgo(21), athleteName: 'A', school: 'Auburn University',
+    dob: yearsAgo(21), athleteName: 'A', school: 'Auburn University', stateCode: 'AL',
     stateRule: { firearms: ruleRow },
   });
   ok('  and it TIGHTENS an adult hold into a block', tightened.decision === 'block', tightened.decision);
@@ -300,7 +300,7 @@ async function main() {
   const allowRow = await C.stateRuleFor(P(), 'AL', 'firearms');
   const loosened = await C.evaluate(null, {
     brandName: 'Bowie Guns', evidence: { found: true, types: ['gun_store'] },
-    dob: yearsAgo(21), athleteName: 'A', school: 'Auburn University',
+    dob: yearsAgo(21), athleteName: 'A', school: 'Auburn University', stateCode: 'AL',
     stateRule: { firearms: allowRow },
   });
   ok('AN "ALLOW" STATE RULE DOES NOT OPEN THE GATE', loosened.decision === 'hold', loosened.decision);

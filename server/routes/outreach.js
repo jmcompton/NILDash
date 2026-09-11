@@ -403,7 +403,8 @@ router.post('/logs/:id/schedule', async (req, res) => {
   try {
     const sw = require('../services/sendWindow');
     const r = await pool.query(
-      `SELECT l.*, e.location AS biz_address, a.data->>'school' AS school
+      `SELECT l.*, e.location AS biz_address, a.data->>'school' AS school,
+              a.data->>'city' AS city
          FROM outreach_logs l
          LEFT JOIN company_enrichment e ON e.id = l.enrichment_id
          LEFT JOIN athletes a ON a.id = l.athlete_id
@@ -413,7 +414,8 @@ router.post('/logs/:id/schedule', async (req, res) => {
     if (log.status === 'sent') return res.status(400).json({ error: 'Already sent' });
 
     const slot = sw.nextSendSlot(new Date(), {
-      businessAddress: log.biz_address, athleteSchoolState: log.school, key: log.id,
+      // A pro has no school; their city carries the state the window needs.
+      businessAddress: log.biz_address, athleteSchoolState: log.school || log.city, key: log.id,
     });
     if (!slot) return res.status(500).json({ error: 'Could not compute a send window' });
     await pool.query(

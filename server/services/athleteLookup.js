@@ -340,6 +340,101 @@ Prefer ESPN, 247Sports, On3, Rivals, and official school athletic department web
   }
 }
 
+// ── PRO: which league to search, from the sport ──────────────────────────
+// The lookup for a pro searches league rosters, not ESPN's college pages and
+// not the recruiting sites. The sport picks the league; an unknown sport
+// searches "professional" and lets the roster page say which league.
+function leagueFor(sport) {
+  const s = String(sport || '').toLowerCase();
+  if (!s) return null;
+  if (/football/.test(s)) return 'NFL';
+  if (/women.*basketball|wnba/.test(s)) return 'WNBA';
+  if (/basketball/.test(s)) return 'NBA';
+  if (/baseball/.test(s)) return 'MLB';
+  if (/hockey/.test(s)) return 'NHL';
+  if (/women.*soccer|nwsl/.test(s)) return 'NWSL';
+  if (/soccer/.test(s)) return 'MLS';
+  if (/golf/.test(s)) return 'PGA Tour or LPGA';
+  if (/tennis/.test(s)) return 'ATP or WTA';
+  if (/softball/.test(s)) return 'AUSL';
+  if (/volleyball/.test(s)) return 'Pro Volleyball Federation or LOVB';
+  return null;
+}
+
+// ── Stage P: Web search for a PROFESSIONAL athlete ───────────────────────
+// Same tool, same "only what the search actually returned" rule as the
+// college stage, but the query is the roster and the answer is what a pitch
+// needs about a pro: position, team, city and what they are known for.
+// Numeric stats are not requested as structured fields. Nothing in this
+// codebase reads pro stats from anywhere; a one-line "known for" is what the
+// writer uses, and it is editable on the form.
+async function proSearchStage(normName, team, city, normSport, normPosition) {
+  const Anthropic = require('@anthropic-ai/sdk');
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const league = leagueFor(normSport);
+  const searchContext = [`"${normName}"`, team || '', league || 'professional', 'roster'].filter(Boolean).join(' ');
+  const userPrompt = `Search for this PROFESSIONAL athlete on a league or team roster:
+Name: ${normName}
+Sport: ${normSport || 'unknown'}${league ? ' (' + league + ')' : ''}
+Team: ${team || 'unknown'}${city ? '\nCity: ' + city : ''}${normPosition ? '\nPosition: ' + normPosition : ''}
+
+Search query to use: ${searchContext}
+
+After searching, return ONLY a valid JSON object — no markdown, no explanation:
+{
+  "found": true or false,
+  "confidenceScore": 0-100,
+  "athletes": [
+    {
+      "name": "full name",
+      "team": "current team, as the roster names it",
+      "league": "NFL, NBA, WNBA, MLB, NHL, MLS, NWSL or other",
+      "city": "the team's home city as 'City, ST' or null",
+      "sport": "sport",
+      "position": "position or null",
+      "knownFor": "one line on what they are known for — awards, a signature season, a role — only from what you found, or null",
+      "hometown": "city, state or null",
+      "instagram": 0,
+      "tiktok": 0,
+      "engagement": 0,
+      "notes": "career notes, previous teams, draft year or null",
+      "interest_tags": ["only when their bio/socials clearly show an interest, choose from exactly: supplements, creatine, protein, apparel, gyms, coffee, pizza, smoothies, energy drinks, snacks, restaurants, skincare, haircare, makeup, fragrance, streetwear, sneakers, accessories, dealerships, detailing, tires, chiropractic, physical therapy, mental health, recovery, gaming, apps, hunting, fishing, camping, banks, credit unions, insurance, local events, nonprofits, youth sports. Empty array when unsure, never guess"],
+      "source": "full URL of the page you found this on",
+      "sourceLabel": "NFL.com or NBA.com or MLB.com or NHL.com or MLSsoccer.com or ESPN or Team Site or Other"
+    }
+  ],
+  "searchNote": "one sentence about what you found or why nothing matched"
+}
+
+RULES:
+- Only include athletes you can verify from actual search results
+- Never fabricate or guess athlete data — use null for anything not found in search results
+- If multiple professional athletes share this name, list all of them
+- A college athlete is NOT a match. If the only person by this name is on a college roster, return found: false and say so in searchNote
+- If nothing found, return found: false with empty athletes array
+- confidenceScore: 85-100 if confirmed on a league or team site, 60-84 if found on ESPN or a major outlet, 40-59 if limited info, below 40 if very uncertain`;
+
+  try {
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1500,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      system: `You are an athlete data lookup assistant. Search for real, verified information about professional athletes.
+Only return information confirmed by actual search results. Never hallucinate athlete data.
+Prefer NFL.com, NBA.com, WNBA.com, MLB.com, NHL.com, MLSsoccer.com, official team sites and ESPN as sources.`,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+    const textContent = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    if (!textContent) return null;
+    const jsonMatch = textContent.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    return JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    console.warn('[lookup] Pro web search failed:', e.message);
+    return null;
+  }
+}
+
 // ── Flatten a candidate to legacy flat fields ────────────────────────────
 function flattenCandidate(c) {
   return {
@@ -353,17 +448,66 @@ function flattenCandidate(c) {
     notes: c.notes || null, previousSchool: c.previousSchool || null,
     interestTags: c.interestTags || [],
     confidence: c.confidence, source: c.source, sourceLabel: c.sourceLabel,
+    // Pro fields, null on a college candidate.
+    athleteType: c.athleteType || 'college',
+    team: c.team || null, city: c.city || null, league: c.league || null,
+    knownFor: c.knownFor || null,
   };
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
-async function resolveAthlete(ai, { name, school, sport, position, year }) {
+async function resolveAthlete(ai, { name, school, sport, position, year, athleteType, team, city }) {
   const normName     = normalizeName(name);
   const normSchool   = normalizeSchool(school);
   const normSport    = normalizeSport(sport);
   const normPosition = (position || '').trim() || null;
   const normYear     = (year || '').trim() || null;
   const espnOk       = normSport && ESPN_SUPPORTED_SPORTS.has(normSport);
+
+  // ── A PRO: league rosters, no ESPN college stage, no school constraint ──
+  if (athleteType === 'pro') {
+    const normTeam = String(team || '').trim() || null;
+    const normCity = String(city || '').trim() || null;
+    const pro = await proSearchStage(normName, normTeam, normCity, normSport, normPosition);
+    const candidates = [];
+    if (pro && pro.found && Array.isArray(pro.athletes)) {
+      const baseConf = pro.confidenceScore || 65;
+      for (const a of pro.athletes) {
+        if (!a || !a.name) continue;
+        candidates.push({
+          athleteType:  'pro',
+          name:         a.name,
+          team:         a.team || normTeam,
+          league:       a.league || leagueFor(normSport),
+          city:         a.city || normCity,
+          school:       null, year: null, schoolTier: null,
+          sport:        a.sport || normSport || sport,
+          position:     a.position || normPosition || null,
+          knownFor:     a.knownFor || null,
+          stats:        a.knownFor || null,   // the form's stats box holds "known for" on a pro
+          hometown:     a.hometown || null,
+          instagram:    a.instagram || 0,
+          tiktok:       a.tiktok || 0,
+          engagement:   a.engagement || 0,
+          notes:        a.notes || null,
+          interestTags: Array.isArray(a.interest_tags) ? a.interest_tags.filter(t => typeof t === 'string').slice(0, 10) : [],
+          sourceUrl:    a.source || null,
+          source:       'web-search',
+          sourceLabel:  a.sourceLabel || 'Web Search',
+          confidence:   baseConf,
+        });
+      }
+    }
+    if (!candidates.length) {
+      return { found: false, candidates: [],
+        message: (pro && pro.searchNote) || 'No verified professional athlete found. Please fill in details manually.' };
+    }
+    candidates.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+    candidates[0].best = true;
+    const autoSelect = candidates[0].confidence >= 95 && candidates.length === 1;
+    return { found: true, candidates: candidates.slice(0, 3), autoSelect, espnSupported: false,
+      ...(autoSelect ? flattenCandidate(candidates[0]) : {}) };
+  }
 
   // Stage 2A — ESPN live roster (football/basketball/baseball/volleyball + known school)
   const espnCandidates = await espnStage(normName, normSchool, normSport);
@@ -457,4 +601,4 @@ async function resolveAthlete(ai, { name, school, sport, position, year }) {
   };
 }
 
-module.exports = { resolveAthlete, normalizeName, normalizeSchool, normalizeSport, nameMatchScore, ESPN_SUPPORTED_SPORTS };
+module.exports = { resolveAthlete, normalizeName, normalizeSchool, normalizeSport, nameMatchScore, ESPN_SUPPORTED_SPORTS, leagueFor, proSearchStage };

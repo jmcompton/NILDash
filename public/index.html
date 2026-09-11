@@ -3400,7 +3400,29 @@ tbody td{padding:11px 14px;vertical-align:middle}
             </div>
             <div><label class="form-label-sm">Position</label><input class="input-sm" id="a_pos" placeholder="e.g. PG, WR"></div>
           </div>
-          <div class="form-group-sm"><label class="form-label-sm">School</label><input class="input-sm" id="a_school" placeholder="e.g. Duke University"></div>
+          <!-- COLLEGE OR PRO. A pro has no school: the two fields that replace it
+               are the city they play in (the local lane's town, exactly as a
+               school's town is for a college athlete) and the team. The class
+               year, school tier and the over-18 box are college-only and are
+               hidden for a pro; the compliance gate treats a pro as an adult. -->
+          <div class="form-group-sm"><label class="form-label-sm">Athlete type</label>
+            <select class="select-sm" id="a_type" onchange="acTypeChanged()">
+              <option value="college">College</option>
+              <option value="pro">Pro</option>
+            </select>
+          </div>
+          <div class="form-group-sm" id="a_school_wrap"><label class="form-label-sm">School</label><input class="input-sm" id="a_school" placeholder="e.g. Duke University"></div>
+          <div id="a_pro_wrap" style="display:none">
+            <div class="form-group-sm">
+              <label class="form-label-sm">City</label>
+              <input class="input-sm" id="a_city" placeholder="e.g. Denver, CO">
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">The local lane finds businesses in this city. Include the state: it decides which state's endorsement rules apply.</div>
+            </div>
+            <div class="form-group-sm">
+              <label class="form-label-sm">Team</label>
+              <input class="input-sm" id="a_team" placeholder="e.g. Denver Broncos">
+            </div>
+          </div>
           <div class="form-group-sm">
             <label class="form-label-sm">Email <span style="color:var(--muted);font-weight:400">(optional)</span></label>
             <input class="input-sm" id="a_email" type="email" placeholder="athlete@email.com">
@@ -3427,7 +3449,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
                sophomore or above is over 18 far more often than not; a freshman
                is left unticked because that is the case where it is genuinely a
                coin toss. -->
-          <div class="form-group-sm">
+          <div class="form-group-sm" id="a_age_wrap">
             <label class="form-label-sm">Age</label>
             <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;padding:6px 0">
               <input type="checkbox" id="a_over18" onchange="this.dataset.touched='1'" style="margin-top:2px;flex:0 0 auto">
@@ -3456,7 +3478,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <label class="form-label-sm">Products they already use and would take as compensation</label>
             <input class="input-sm" id="a_productwants" placeholder="e.g. Ghost energy, Lululemon, local smoothie spot">
           </div>
-          <div class="form-group-sm"><label class="form-label-sm">School Tier</label>
+          <div class="form-group-sm" id="a_tier_wrap"><label class="form-label-sm">School Tier</label>
             <select class="select-sm" id="a_tier">
               <optgroup label="Power 4 — D1">
                 <option value="p4-top10">P4 — Elite (Alabama, Ohio State, Duke)</option>
@@ -3523,7 +3545,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <div id="a-eng-src" style="font-size:10px;color:var(--muted);margin-top:2px"></div>
           </div>
           <div class="form-group-sm"><label class="form-label-sm">Notes</label><input class="input-sm" id="a_notes" placeholder="Draft year, brand restrictions, etc."></div>
-          <div class="form-group-sm"><label class="form-label-sm">Year</label>
+          <div class="form-group-sm" id="a_year_wrap"><label class="form-label-sm">Year</label>
             <select class="select-sm" id="a_year" onchange="acYearChanged()">
               <option value="">Unknown</option>
               <option value="Freshman">Freshman</option>
@@ -6147,7 +6169,7 @@ async function renderRoster() {
         <div style="width:36px;height:36px;border-radius:50%;background:${ ['rgba(74,222,128,0.15)','rgba(96,165,250,0.15)','rgba(245,158,11,0.15)','rgba(167,139,250,0.15)'][Math.abs((a.name||'').charCodeAt(0))%4] };display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:${ ['#4ade80','#60a5fa','#f59e0b','#a78bfa'][Math.abs((a.name||'').charCodeAt(0))%4] };flex-shrink:0">${ (a.name||'?').split(' ').map(n=>n[0]).join('').substring(0,2).toUpperCase() }</div>
         <div class="ac-name">${escHtml(a.name)}</div>
       </div>
-      <div class="ac-meta">${escHtml(a.sport)} · ${escHtml(a.position || '')} · ${escHtml(a.school || 'School not set')}</div>
+      <div class="ac-meta">${escHtml(a.sport)} · ${escHtml(a.position || '')} · ${escHtml(a.athleteType === 'pro' ? (a.team || 'Team not set') : (a.school || 'School not set'))}</div>
       <div class="ac-meta" style="font-size:10px;margin-top:2px">${escHtml(a.year || '')} ${a.stats ? '· ' + escHtml(a.stats) : ''}</div>
       <div class="ac-stats">
         <div class="ac-stat"><span>${reach}</span> reach</div>
@@ -6436,12 +6458,13 @@ function resetAthleteForm() {
   [
     'a_name', 'a_legal_name', 'a_pos', 'a_school', 'a_email', 'a_parent_email',
     'a_ig', 'a_tt', 'a_eng', 'a_notes', 'a_handle', 'a_hometown', 'a_productwants',
-    'a_stats', 'a_transfer_reason', 'a_gpa',
+    'a_stats', 'a_transfer_reason', 'a_gpa', 'a_city', 'a_team',
     'a_ppg', 'a_rpg', 'a_apg', 'a_fgpct', 'a_bpg', 'a_spg', 'a_per', 'a_draft',
   ].forEach((id) => { const e = document.getElementById(id); if (e) e.value = ''; });
-  ['a_tier', 'a_sport', 'a_year'].forEach((id) => {
+  ['a_tier', 'a_sport', 'a_year', 'a_type'].forEach((id) => {
     const e = document.getElementById(id); if (e) e.selectedIndex = 0;
   });
+  if (typeof acTypeChanged === 'function') acTypeChanged();
   const o18 = document.getElementById('a_over18');
   if (o18) { o18.checked = false; delete o18.dataset.touched; }
   if (typeof renderTagPicker === 'function') renderTagPicker('a_tags', []);
@@ -6465,6 +6488,10 @@ async function editAthlete(id) {
   document.getElementById('a_sport').value = a.sport || 'Basketball';
   document.getElementById('a_pos').value = a.position || '';
   document.getElementById('a_school').value = a.school || '';
+  const typeEl = document.getElementById('a_type');
+  if (typeEl) { typeEl.value = a.athleteType === 'pro' ? 'pro' : 'college'; acTypeChanged(); }
+  const cityEl = document.getElementById('a_city'); if (cityEl) cityEl.value = a.city || '';
+  const teamEl = document.getElementById('a_team'); if (teamEl) teamEl.value = a.team || '';
   const aLegalEl = document.getElementById('a_legal_name'); if (aLegalEl) aLegalEl.value = a.legal_name || '';
   const aEmailEl = document.getElementById('a_email'); if (aEmailEl) aEmailEl.value = a.email || '';
   const aPEmailEl = document.getElementById('a_parent_email'); if (aPEmailEl) aPEmailEl.value = a.parentEmail || '';
@@ -6529,6 +6556,29 @@ function acYearChanged() {
   o18.checked = acOver18Default(yr.value);
 }
 
+// ── College or pro ───────────────────────────────────────────────────────────
+// Swaps the school field for city + team and hides the college-only inputs.
+// Nothing is cleared here: switching back and forth while filling the form
+// must not lose what was typed. The payload builders send only the fields
+// that apply to the chosen type.
+function acAthleteType() {
+  const t = document.getElementById('a_type');
+  return t && t.value === 'pro' ? 'pro' : 'college';
+}
+function acTypeChanged() {
+  const pro = acAthleteType() === 'pro';
+  const show = (id, on) => { const e = document.getElementById(id); if (e) e.style.display = on ? '' : 'none'; };
+  show('a_school_wrap', !pro);
+  show('a_pro_wrap', pro);
+  show('a_year_wrap', !pro);
+  show('a_tier_wrap', !pro);
+  show('a_age_wrap', !pro);
+  const st = document.getElementById('a_stats');
+  if (st) st.placeholder = pro
+    ? 'What they are known for, in a line (e.g. 2024 Pro Bowl, 1,200 receiving yards). The pitch uses this and nothing else.'
+    : 'Auto-filled by AI Lookup, or enter manually (e.g. 2024: 312 rush yards, 4 TDs | 2025: 847 yards, 9 TDs)';
+}
+
 // ── School restriction toggles ───────────────────────────────────────────────
 // The seven categories the compliance gate already knows, and nothing else. A
 // toggle here means "the agent says their school restricts this", which the gate
@@ -6557,12 +6607,25 @@ function catTogglesValue(elId) {
 async function updateAthlete(id) {
   const name = document.getElementById('a_name').value.trim();
   if (!name) return;
+  const _pro = acAthleteType() === 'pro';
+  if (_pro && !(document.getElementById('a_city') ? document.getElementById('a_city').value.trim() : '')) {
+    const err = document.getElementById('addAthleteError');
+    if (err) err.textContent = 'A city is required for a pro. Enter it as "City, ST": the local lane searches it and the state decides which rules apply.';
+    const c = document.getElementById('a_city'); if (c) c.focus();
+    return;
+  }
   const data = {
     name,
     sport: document.getElementById('a_sport').value,
     legal_name: (document.getElementById('a_legal_name') ? document.getElementById('a_legal_name').value : '').trim(),
     position: document.getElementById('a_pos').value,
-    school: document.getElementById('a_school').value,
+    // College or pro. The fields that do not apply to the chosen type are sent
+    // EMPTY, not omitted: the server merges, so omitting would leave a school on
+    // an athlete who has just been switched to pro.
+    athleteType: _pro ? 'pro' : 'college',
+    school: _pro ? '' : document.getElementById('a_school').value,
+    city: _pro ? (document.getElementById('a_city') ? document.getElementById('a_city').value : '').trim() : '',
+    team: _pro ? (document.getElementById('a_team') ? document.getElementById('a_team').value : '').trim() : '',
     email: (document.getElementById('a_email') ? document.getElementById('a_email').value : '').trim(),
     parentEmail: (document.getElementById('a_parent_email') ? document.getElementById('a_parent_email').value : '').trim(),
     schoolTier: document.getElementById('a_tier').value,
@@ -6575,7 +6638,7 @@ async function updateAthlete(id) {
     // already handles as absent.
     engagement: document.getElementById('a_eng').value,
     notes: document.getElementById('a_notes').value,
-    year: document.getElementById('a_year') ? document.getElementById('a_year').value : '',
+    year: !_pro && document.getElementById('a_year') ? document.getElementById('a_year').value : '',
     stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
     transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
     hometown: (document.getElementById('a_hometown') ? document.getElementById('a_hometown').value : '').trim(),
@@ -6588,7 +6651,9 @@ async function updateAthlete(id) {
     // form -- the compliance agent owns category policy now -- and the server
     // merges ({...existing, ...patch}), so omitting the key leaves whatever an
     // agent previously ticked untouched rather than silently wiping it.
-    over18: document.getElementById('a_over18') ? !!document.getElementById('a_over18').checked : undefined,
+    // A pro has no over-18 box; the gate treats them as an adult. Sending
+    // undefined leaves any stored answer alone.
+    over18: !_pro && document.getElementById('a_over18') ? !!document.getElementById('a_over18').checked : undefined,
     tags: tagPickerValue('a_tags'),
     productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
     instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
@@ -6622,13 +6687,24 @@ async function addAthlete() {
   // The school does not have to be one we RECOGNISE any more: an unmapped school
   // is geocoded to its town and the local lane runs there. It does have to
   // exist, because without it there is nothing to geocode.
+  //
+  // A PRO NEEDS A CITY for exactly the same reason.
+  const _pro = acAthleteType() === 'pro';
   const schoolEl = document.getElementById('a_school');
-  const school = schoolEl ? schoolEl.value.trim() : '';
-  if (!school) {
+  const school = !_pro && schoolEl ? schoolEl.value.trim() : '';
+  if (!_pro && !school) {
     err.textContent = 'A school is required. Deal Scan and the nightly run use it to find '
       + 'local businesses, so an athlete without one gets no cards. '
       + 'AI Lookup did not find one, so please enter it.';
     if (schoolEl) { schoolEl.focus(); schoolEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    return;
+  }
+  const cityEl = document.getElementById('a_city');
+  const city = _pro && cityEl ? cityEl.value.trim() : '';
+  if (_pro && !city) {
+    err.textContent = 'A city is required for a pro. Enter it as "City, ST": Deal Scan and the '
+      + 'nightly run find local businesses there, and the state decides which endorsement rules apply.';
+    if (cityEl) { cityEl.focus(); cityEl.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
     return;
   }
   err.textContent = '';
@@ -6644,7 +6720,10 @@ async function addAthlete() {
         name, sport: document.getElementById('a_sport').value,
         legal_name: (document.getElementById('a_legal_name') ? document.getElementById('a_legal_name').value : '').trim(),
         position: document.getElementById('a_pos').value,
-        school: document.getElementById('a_school').value,
+        athleteType: _pro ? 'pro' : 'college',
+        school: _pro ? '' : document.getElementById('a_school').value,
+        city: _pro ? city : '',
+        team: _pro ? (document.getElementById('a_team') ? document.getElementById('a_team').value : '').trim() : '',
         email: (document.getElementById('a_email') ? document.getElementById('a_email').value : '').trim(),
         parentEmail: (document.getElementById('a_parent_email') ? document.getElementById('a_parent_email').value : '').trim(),
         schoolTier: document.getElementById('a_tier').value,
@@ -6652,7 +6731,7 @@ async function addAthlete() {
         tiktok: document.getElementById('a_tt').value,
         engagement: document.getElementById('a_eng').value,
         notes: document.getElementById('a_notes').value,
-        year: document.getElementById('a_year') ? document.getElementById('a_year').value : '',
+        year: !_pro && document.getElementById('a_year') ? document.getElementById('a_year').value : '',
         stats: document.getElementById('a_stats') ? document.getElementById('a_stats').value : '',
         transferReason: document.getElementById('a_transfer_reason') ? document.getElementById('a_transfer_reason').value : '',
         gpa: document.getElementById('a_gpa') ? document.getElementById('a_gpa').value : '',
@@ -6662,7 +6741,7 @@ async function addAthlete() {
         // sent empty.
         // See the update payload: the restrictions section is gone from this form,
         // so the key is not sent and nothing already stored is overwritten.
-        over18: document.getElementById('a_over18') ? !!document.getElementById('a_over18').checked : undefined,
+        over18: !_pro && document.getElementById('a_over18') ? !!document.getElementById('a_over18').checked : undefined,
         tags: tagPickerValue('a_tags'),
         productWants: (document.getElementById('a_productwants') ? document.getElementById('a_productwants').value : '').trim(),
         instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
@@ -6683,7 +6762,7 @@ async function addAthlete() {
     document.getElementById('kpi-clients').textContent = athletes.length;
     renderHomeClientCta();
     showToast(' ' + data.name + ' added to roster!');
-    ['a_name','a_legal_name','a_pos','a_school','a_email','a_parent_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+    ['a_name','a_legal_name','a_pos','a_school','a_city','a_team','a_email','a_parent_email','a_ig','a_tt','a_eng','a_notes','a_handle','a_hometown','a_productwants'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
     renderTagPicker('a_tags', []);
     const _o18 = document.getElementById('a_over18');
     if (_o18) { _o18.checked = false; delete _o18.dataset.touched; }
@@ -10706,7 +10785,13 @@ function _applyLookupCandidate(data) {
   // used to skip the field silently. The agent saw a filled-in form and had no
   // reason to think anything was missing, and the athlete saved unusable.
   const _schoolEl = document.getElementById('a_school');
-  if (data.school) {
+  const _proLookup = acAthleteType() === 'pro';
+  if (_proLookup) {
+    // A pro candidate carries a team and a city, never a school.
+    const teamEl = document.getElementById('a_team'); if (teamEl && data.team) teamEl.value = data.team;
+    const cityEl = document.getElementById('a_city'); if (cityEl && data.city && !cityEl.value.trim()) cityEl.value = data.city;
+    if (data.knownFor) { const st = document.getElementById('a_stats'); if (st && !st.value.trim()) st.value = data.knownFor; }
+  } else if (data.school) {
     if (_schoolEl) _schoolEl.value = data.school;
   } else if (_schoolEl && !_schoolEl.value.trim()) {
     _schoolEl.placeholder = 'Lookup could not find a school — please enter it';
@@ -10814,7 +10899,7 @@ function renderLookupCandidates(candidates, statusEl, candidatesEl) {
             '<span style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:0.05em;' + badgeStyle + '">' + label + '</span>' +
           '</div>' +
           '<div style="font-size:11px;color:var(--muted);margin-top:2px;display:flex;flex-wrap:wrap;gap:5px">' +
-            '<span style="background:var(--surface2);padding:1px 7px;border-radius:4px">' + (c.school||'School unknown') + '</span>' +
+            '<span style="background:var(--surface2);padding:1px 7px;border-radius:4px">' + (c.school || c.team || (c.athleteType === 'pro' ? 'Team unknown' : 'School unknown')) + '</span>' +
             '<span style="background:var(--surface2);padding:1px 7px;border-radius:4px">' + (c.sport||'Sport unknown') + '</span>' +
             (detail ? '<span style="color:var(--muted)">' + detail + '</span>' : '') +
           '</div>' +
@@ -10882,7 +10967,10 @@ function dismissLookupCandidates() {
 async function lookupPlayer() {
   const name   = document.getElementById('a_name').value.trim();
   if (!name) { showToast('Enter a player name first'); return; }
-  const school = document.getElementById('a_school').value.trim();
+  const _pro   = acAthleteType() === 'pro';
+  const school = _pro ? '' : document.getElementById('a_school').value.trim();
+  const team   = _pro ? (document.getElementById('a_team')?.value?.trim() || '') : '';
+  const city   = _pro ? (document.getElementById('a_city')?.value?.trim() || '') : '';
   const sport  = document.getElementById('a_sport').value;
   const btn    = document.getElementById('lookup-btn');
   const status = document.getElementById('lookup-status');
@@ -10891,17 +10979,19 @@ async function lookupPlayer() {
   btn.disabled = true;
   btn.style.opacity = '0.7';
   btn.textContent = 'Searching...';
-  status.innerHTML = '<span style="color:var(--muted)">🔍 Searching live athlete databases' + (school ? ' for ' + school : '') + '...</span>';
+  status.innerHTML = '<span style="color:var(--muted)">🔍 Searching '
+    + (_pro ? 'NFL, NBA and MLB rosters' + (team ? ' for the ' + team : '') : 'live athlete databases' + (school ? ' for ' + school : ''))
+    + '...</span>';
   candEl.style.display = 'none';
   candEl.innerHTML = '';
   _lookupCandidates = [];
 
   try {
     const position = document.getElementById('a_pos')?.value?.trim() || '';
-    const year     = document.getElementById('a_year')?.value?.trim() || '';
+    const year     = _pro ? '' : (document.getElementById('a_year')?.value?.trim() || '');
     const r = await fetch(`${API_BASE}/api/ai/player-lookup`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ name, school, sport, position, year })
+      body: JSON.stringify({ name, school, sport, position, year, athleteType: _pro ? 'pro' : 'college', team, city })
     });
     const data = await r.json();
 
@@ -10919,7 +11009,7 @@ async function lookupPlayer() {
       _applyLookupCandidate(c);
       const conf         = parseInt(c.confidence || 0, 10);
       const badgeStyle   = _confidenceBadgeStyle(conf);
-      const summary      = [c.school, c.position, c.year].filter(Boolean).join(' · ');
+      const summary      = [c.school || c.team, c.position, c.year].filter(Boolean).join(' · ');
       const sourceDomain = _sourceDomain(c.sourceUrl);
       status.innerHTML =
         '<span style="color:var(--accent)">✓ Loaded — review and save</span>' +
@@ -11414,7 +11504,7 @@ async function loadAthletePortals() {
           <div style="width:40px;height:40px;border-radius:50%;background:${colors[ci]};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:${textColors[ci]};flex-shrink:0">${escHtml(initials)}</div>
           <div style="min-width:0">
             <div style="font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(a.name||'Unknown')}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:1px">${escHtml([a.sport, a.position, a.school].filter(Boolean).join(' · ') || 'No details')}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:1px">${escHtml([a.sport, a.position, a.school || a.team].filter(Boolean).join(' · ') || 'No details')}</div>
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
@@ -14684,7 +14774,7 @@ function populatePitchClientDropdown() {
   list.forEach(function(a) {
     var opt = document.createElement('option');
     opt.value = a.id;
-    opt.textContent = a.name + (a.sport ? ' — ' + a.sport : '') + (a.school ? ' / ' + a.school : '');
+    opt.textContent = a.name + (a.sport ? ' — ' + a.sport : '') + ((a.school || a.team) ? ' / ' + (a.school || a.team) : '');
     if (String(a.id) === String(current)) opt.selected = true;
     sel.appendChild(opt);
   });
@@ -19238,7 +19328,7 @@ function amkPopulateAthleteSelector() {
   list.forEach(function(a) {
     var opt = document.createElement('option');
     opt.value = a.id;
-    opt.textContent = a.name + (a.sport ? ' — ' + a.sport : '') + (a.school ? ' / ' + a.school : '');
+    opt.textContent = a.name + (a.sport ? ' — ' + a.sport : '') + ((a.school || a.team) ? ' / ' + (a.school || a.team) : '');
     if (String(a.id) === String(current)) opt.selected = true;
     sel.appendChild(opt);
   });

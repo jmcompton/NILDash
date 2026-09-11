@@ -234,6 +234,14 @@ function ageFrom(dob, now, opts = {}) {
     if (opts.over18 === false) {
       return { known: true, minor: true, years: null, reason: null, source: 'attested' };
     }
+    // ── A PRO IS AN ADULT BY DEFAULT ──────────────────────────────────────
+    // There is no over-18 checkbox on a pro, because the answer is not in
+    // doubt. The gate still runs the adult row of every restricted category,
+    // so a pro is held (never passed) on alcohol, gambling and the rest; and a
+    // date of birth or an explicit "no" above still wins over this default.
+    if (opts.pro === true) {
+      return { known: true, minor: false, years: null, reason: null, source: 'pro' };
+    }
     return { known: false, minor: null, years: null, reason: 'absent' };
   }
   const d = new Date(dob);
@@ -253,6 +261,10 @@ function ageFrom(dob, now, opts = {}) {
     if (opts.over18 === true || opts.over18 === false) {
       return { known: true, minor: opts.over18 === false, years: null, reason: null,
         source: 'attested', badDob: true, detail: why };
+    }
+    if (opts.pro === true) {
+      return { known: true, minor: false, years: null, reason: null,
+        source: 'pro', badDob: true, detail: why };
     }
     return { known: false, minor: null, years: null, reason: 'unreadable', detail: why };
   };
@@ -298,7 +310,16 @@ const worst = (a, b) => {
 // The only entry point the send path calls. FAILS CLOSED: every path that is not
 // an explicit, successful pass returns a hold or a block. It cannot throw.
 //
-// facts in: { brandName, evidence, dob, athleteName, school, stateCode }
+// facts in: { brandName, evidence, dob, athleteName, school, stateCode,
+//             athleteType ('college' | 'pro'), city, stateNote }
+//
+// ── COLLEGE AND PRO ─────────────────────────────────────────────────────────
+// The restricted categories are about the ENDORSEMENT, not the enrollment: an
+// alcohol brand is an alcohol brand whoever fronts it, and the state's rule on
+// who may advertise it applies to a pro in Denver exactly as it does to a
+// sophomore in Tuscaloosa. So the category table and the state rules run for
+// both. What a pro does NOT have is a school: the agent-stated school
+// restrictions are skipped, and the wording never asks about a school policy.
 async function evaluate(pool, ctx) {
   const findings = [];
   let decision = 'pass';
@@ -307,12 +328,15 @@ async function evaluate(pool, ctx) {
     if (!brandName) {
       return _closed('no-brand', 'this outreach has no business name on it, so nothing could be checked');
     }
+    const isPro = ctx.athleteType === 'pro';
 
     const age = ageFrom(ctx.dob, ctx.now, {
       sourceUnreadable: !!ctx.athleteUnreadable,
       sourceDetail: ctx.athleteUnreadableDetail,
       // The agent's over-18 answer, used only when no date of birth is on file.
       over18: ctx.over18,
+      // A pro with neither is an adult. See ageFrom.
+      pro: isPro,
     });
 
     // ── THE SOURCE ITSELF IS BROKEN. ERROR, NOT HOLD. ───────────────────────
@@ -337,6 +361,30 @@ async function evaluate(pool, ctx) {
       };
     }
 
+    // ── NO STATE IS A BLOCK, NEVER A QUIET PASS ─────────────────────────────
+    // The state rules are keyed on the athlete's state. This used to be derived
+    // from the school and, when the school did not resolve, the rules were
+    // simply skipped: the category table still held, but "no state rule applied"
+    // and "we never looked" were the same silence. Now an athlete with no state
+    // -- a school that resolves nowhere, or a pro whose city was typed without
+    // one -- is a block that names the fix. It is a block rather than a hold
+    // because there is nothing for a person to decide: the record is missing a
+    // field, and the missing field is on the athlete, not on this business.
+    if (!ctx.stateCode) {
+      findings.push({
+        ruleKey: 'state-unknown',
+        ruleLabel: 'no state on file for this athlete',
+        severity: 'block',
+        reason: `We could not work out which state ${ctx.athleteName || 'this athlete'} is in, so no `
+          + 'state rules could be checked. '
+          + (ctx.stateNote || (isPro
+            ? 'Enter their city as "City, ST" on their profile.'
+            : 'Correct the school on their profile, or enter it as "School, ST".'))
+          + ' Nothing sends for this athlete until then.',
+      });
+      decision = worst(decision, 'block');
+    }
+
     const cls = classifyBusiness(brandName, ctx.evidence);
 
     // 1. WE COULD NOT LOOK. Not a pass.
@@ -357,7 +405,9 @@ async function evaluate(pool, ctx) {
     // and this never claims we did -- but a stated restriction is a block, not a
     // hold: the agent already made the decision when they ticked it, and asking
     // them to re-approve their own rule every time is not a safeguard.
-    const stated = new Set(Array.isArray(ctx.schoolRestrictions)
+    // A pro has no school, so a school restriction left over on the record
+    // (from before the athlete went pro, say) does not apply.
+    const stated = new Set(!isPro && Array.isArray(ctx.schoolRestrictions)
       ? ctx.schoolRestrictions.map((x) => String(x).toLowerCase()) : []);
 
     for (const h of cls.hits) {
@@ -389,9 +439,15 @@ async function evaluate(pool, ctx) {
           + (sRule.confidence === 'verify' ? ' (marked for verification)' : '')
           + `, checked ${new Date(sRule.date_checked).toISOString().slice(0, 10)}.`;
       }
+      // No age in years for an attested or a pro adult, so the sentence says
+      // what we actually know instead of "is null".
+      const nm = ctx.athleteName || 'This athlete';
       const who = age.known
-        ? (age.minor ? `${ctx.athleteName || 'This athlete'} is ${age.years}, a minor`
-                     : `${ctx.athleteName || 'This athlete'} is ${age.years}`)
+        ? (age.years !== null && age.years !== undefined
+          ? (age.minor ? `${nm} is ${age.years}, a minor` : `${nm} is ${age.years}`)
+          : age.source === 'pro'
+            ? `${nm} is a pro and is treated as an adult`
+            : (age.minor ? `${nm} is recorded by you as a minor` : `${nm} is recorded by you as 18 or over`))
         : `We do not hold a date of birth for ${ctx.athleteName || 'this athlete'}, so we cannot rule out that they are a minor`;
       findings.push({
         ruleKey: 'category-' + h.key,
@@ -402,7 +458,9 @@ async function evaluate(pool, ctx) {
           + (stateNote || '')
           + (sev === 'block'
             ? ' This cannot be sent.'
-            : ' A person needs to decide whether this is appropriate under the school\'s policy, which we do not hold.'),
+            : (isPro
+              ? ' A person needs to decide whether this endorsement is appropriate for them; there is no school policy to check, but the category is still a restricted one.'
+              : ' A person needs to decide whether this is appropriate under the school\'s policy, which we do not hold.')),
       });
       decision = worst(decision, sev);
     }
@@ -476,6 +534,64 @@ function stateCodeForSchool(school) {
   } catch (_) { return null; }
 }
 
+// ── THE ATHLETE'S STATE, FROM WHATEVER THEY HAVE ─────────────────────────────
+// The one resolver the gate uses. Returns { stateCode, source, note }: a code
+// with where it came from, or null with a note saying what is missing -- and
+// the note is what evaluate() puts on the block, so the agent reads the fix.
+//
+//   pro      -> the city they play in, "Denver, CO"      (source 'city')
+//   college  -> the shipped school map                    (source 'school-map')
+//            -> a state written into the school string    (source 'school-text')
+//            -> the school geocode the nightly run cached  (source 'school-geocode')
+//
+// The geocode step is what keeps a real D2 school off the map from blocking
+// every send: the nightly run already resolved "Bentley University" to
+// Waltham, MA and wrote it down, so the gate reads the same answer.
+async function stateCodeFor(pool, athlete) {
+  const a = athlete || {};
+  const isPro = a.athleteType === 'pro';
+  let stateCodeFromText;
+  try { ({ stateCodeFromText } = require('../nilStateRules')); } catch (_) { stateCodeFromText = () => null; }
+  if (isPro) {
+    const city = String(a.city || '').trim();
+    if (!city) return { stateCode: null, source: null, note: 'No city on file for this pro. Enter it as "City, ST" on their profile.' };
+    // Only the part after the comma, or a spelled-out state, counts. A bare
+    // "Denver" is a city we can search but not a state we can rule on.
+    const tail = city.includes(',') ? city.split(',').pop().trim() : null;
+    const code = tail ? stateCodeFromText(tail) : null;
+    if (code) return { stateCode: code, source: 'city', note: null };
+    return { stateCode: null, source: null, note: `"${city}" has no state. Enter the city as "City, ST" on their profile.` };
+  }
+  const school = String(a.school || '').trim();
+  if (!school) return { stateCode: null, source: null, note: 'No school on file. Enter one on their profile.' };
+  try {
+    const ai = require('../ai');
+    const loc = ai.lookupSchoolLocation ? ai.lookupSchoolLocation(school) : null;
+    const mapped = loc && loc.state ? stateCodeFromText(loc.state) : null;
+    if (mapped) return { stateCode: mapped, source: 'school-map', note: null };
+  } catch (_) { /* fall through to the text and the cache */ }
+  const fromText = stateCodeFromText(school);
+  if (fromText) return { stateCode: fromText, source: 'school-text', note: null };
+  if (pool) {
+    try {
+      const SchoolGeo = require('./schoolGeocode');
+      const key = 'school:' + school.toLowerCase().replace(/\s+/g, ' ');
+      const r = await pool.query(
+        `SELECT evidence FROM brand_evidence_cache
+          WHERE brand_key = $1 AND lane = $2 AND outcome = 'OK'
+          ORDER BY refreshed_at DESC LIMIT 1`, [key, SchoolGeo.CACHE_LANE]);
+      const ev = r.rows[0] && r.rows[0].evidence;
+      const code = ev && ev.state ? stateCodeFromText(String(ev.state)) : null;
+      if (code) return { stateCode: code, source: 'school-geocode', note: null };
+    } catch (e) {
+      // A cache we cannot read is not a state we know.
+      console.error('[compliance] school geocode cache read failed:', e.message);
+    }
+  }
+  return { stateCode: null, source: null,
+    note: `"${school}" did not resolve to a state. Correct the school on their profile, or enter it as "School, ST".` };
+}
+
 // ── THE RECORD ───────────────────────────────────────────────────────────────
 // Every hold, block and note is written. This is the product: an agent asking
 // "why did this not send" nine months later, and a school or a state asking the
@@ -508,9 +624,11 @@ async function recordFindings(pool, ctx, result) {
             dob: ctx.dob ? 'on file' : null,      // the VALUE never goes in the log
             // WHICH kind of evidence decided this, so an attested adult is never
             // mistaken for a verified one when someone audits a send later.
-            age: ageFrom(ctx.dob, ctx.now, { over18: ctx.over18 }),
+            age: ageFrom(ctx.dob, ctx.now, { over18: ctx.over18, pro: ctx.athleteType === 'pro' }),
             placesTypes: (ctx.evidence && ctx.evidence.types) || null,
-            school: ctx.school || null, stateCode: ctx.stateCode || null,
+            athleteType: ctx.athleteType === 'pro' ? 'pro' : 'college',
+            school: ctx.school || null, city: ctx.city || null,
+            stateCode: ctx.stateCode || null, stateSource: ctx.stateSource || null,
             failedClosed: !!result.failedClosed,
           }),
           result.rulesVersion, JSON.stringify(result.unchecked)]);
@@ -620,6 +738,6 @@ module.exports = {
   RULES_VERSION, UNCHECKED, CATEGORIES, CATEGORY_BY_KEY,
   classifyBusiness, ageFrom, severityFor, evaluate,
   recordFindings, overrideHold, cancelHold, openHoldsFor, overriddenRulesFor,
-  stateRuleFor, stateCodeForSchool,
+  stateRuleFor, stateCodeForSchool, stateCodeFor,
   prepareDisclosureFiling,
 };

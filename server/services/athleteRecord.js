@@ -52,13 +52,30 @@ const _handle = (v) => {
 function resolveAthlete(row, opts = {}) {
   const d = (row && (row.data || row)) || {};
   const name = _str(row && row.name) || _str(d.name);
-  const school = _str(row && row.school) || _str(d.school);
+  // ── COLLEGE OR PRO ─────────────────────────────────────────────────────────
+  // A pro has no school. Their local market is the city they play in and their
+  // "program" is a team, so the two fields that replace the school are read
+  // here and the market below is anchored on the city instead. Everything
+  // downstream reads `market`/`marketKey`/`hasLocalMarket` and never asks how
+  // the market was found, so the pro branch is confined to this function.
+  const athleteType = (_str(row && row.athlete_type) === 'pro' || _str(d.athleteType) === 'pro') ? 'pro' : 'college';
+  const isPro = athleteType === 'pro';
+  const school = isPro ? null : (_str(row && row.school) || _str(d.school));
+  const city = isPro ? (_str(row && row.city) || _str(d.city)) : null;
+  const team = isPro ? (_str(row && row.team) || _str(d.team)) : null;
   const hometown = _str(row && row.hometown) || _str(d.hometown);
 
   // THE MARKET. The school's city is the local lane's anchor, and it is resolved
   // ONLY from a real lookup. An unresolved school yields null, which is a market
   // this athlete does not have rather than one to substitute.
   let schoolCity = null, schoolState = null, marketSource = null, schoolMatched = null;
+  // A pro's city is typed by the agent as "Denver, CO" and is the market as
+  // given. A bare "Denver" is still a town the local lane can work in; the
+  // missing state is reported below as `stateNote`, never guessed.
+  if (isPro && city) {
+    const cs = cityStateFrom(city);
+    if (cs.city) { schoolCity = cs.city; schoolState = cs.state; marketSource = 'pro-city'; }
+  }
   if (school && typeof opts.schoolLocation === 'function') {
     let loc = null;
     try { loc = opts.schoolLocation(school); } catch (_) { loc = null; }
@@ -83,8 +100,12 @@ function resolveAthlete(row, opts = {}) {
     name,
     sport: _str(d.sport),
     position: _str(d.position),
-    year: _str(d.year),
+    // A pro has no class year. One left over from a college record must not
+    // reach the writer, which would call a 31-year-old a "junior".
+    year: isPro ? null : _str(d.year),
+    athleteType,
     school,
+    city, team,
     schoolCity, schoolState, marketSource, schoolMatched,
     hometown,
     hometownCity: hometown ? cityStateFrom(hometown).city : null,
@@ -110,19 +131,40 @@ function resolveAthlete(row, opts = {}) {
     notes: _str(d.notes),
   };
   rec.reach = (rec.instagram || 0) + (rec.tiktok || 0) || null;
+  // The fields that do not apply to this athlete's type are absent by
+  // construction, not missing: a pro has no school, a college athlete no team.
+  const notApplicable = isPro ? new Set(['school', 'year', 'schoolMatched']) : new Set(['city', 'team']);
   rec.missing = Object.keys(rec).filter((k) =>
-    k !== 'missing' && k !== 'tags' && k !== 'marketSource' && (rec[k] === null || rec[k] === undefined));
+    k !== 'missing' && k !== 'tags' && k !== 'marketSource' && !notApplicable.has(k)
+      && (rec[k] === null || rec[k] === undefined));
   // Does the local lane have a market to work in at all?
   rec.hasLocalMarket = !!rec.schoolCity;
   // SURFACED, NOT SWALLOWED. A school we could not match is a data problem the
   // agent can fix in ten seconds, but only if something tells them. The local
   // lane producing nothing looks identical to a quiet night otherwise.
   rec.schoolUnmatched = !!(rec.school && !rec.schoolCity);
-  rec.localLaneNote = rec.schoolUnmatched
-    ? `We could not match "${rec.school}" to a school we know, so the local lane has no town to work in. Correct the school on this athlete and it will start.`
-    : (!rec.school ? 'No school on file, so the local lane has no town to work in.' : null);
+  rec.localLaneNote = isPro
+    ? (!rec.city ? 'No city on file for this pro, so the local lane has no town to work in.' : null)
+    : rec.schoolUnmatched
+      ? `We could not match "${rec.school}" to a school we know, so the local lane has no town to work in. Correct the school on this athlete and it will start.`
+      : (!rec.school ? 'No school on file, so the local lane has no town to work in.' : null);
   rec.market = rec.schoolCity ? (rec.schoolCity + (rec.schoolState ? ', ' + rec.schoolState : '')) : null;
   rec.marketKey = rec.market ? canonicalRegion(rec.market) : null;
+  // ── THE STATE, OR A NOTE SAYING THERE IS NONE ─────────────────────────────
+  // The compliance gate keys state category rules on this. It used to be
+  // derived from the school alone, and an athlete whose school did not resolve
+  // to a state got NO state rules, silently. Now the athlete carries either a
+  // state code or an explicit note that they have none -- and the gate turns
+  // that note into a block rather than a quiet pass (see compliance.evaluate).
+  rec.stateCode = rec.schoolState || null;
+  rec.stateNote = rec.stateCode ? null
+    : isPro
+      ? (rec.city
+        ? `"${rec.city}" has no state. Enter the city as "City, ST" so state rules can run.`
+        : 'No city on file, so no state rules can run.')
+      : (rec.school
+        ? `"${rec.school}" did not resolve to a state, so no state rules can run. Enter the school as "School, ST" or correct its name.`
+        : 'No school on file, so no state rules can run.');
   return rec;
 }
 

@@ -555,12 +555,26 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
       problems.push(`says "${hit}" but the stored sport is "${a.sport}"`); break;
     }
   }
-  // ── class year ────────────────────────────────────────────────────────────
-  const storedYear = _words(a.year);
-  for (const hit of _findVocab(t, YEAR_WORDS, a)) {
-    if (!storedYear) { problems.push(`calls them a "${hit}" and we hold no class year`); break; }
-    if (!storedYear.includes(hit) && !hit.includes(storedYear)) {
-      problems.push(`says "${hit}" but the stored year is "${a.year}"`); break;
+  // ── class year (college only) ─────────────────────────────────────────────
+  // A pro has no class year, and the college framing itself is the fabrication
+  // to catch on a pro: a message calling a 29-year-old on the Broncos a
+  // "student-athlete" reaches a real business under the agent's name.
+  const isPro = a.athleteType === 'pro';
+  if (isPro) {
+    // Class-year words are looked for the same scoped way as for a college
+    // athlete (so "Junior's Pizza" in the business name is not a hit), and
+    // any hit at all is the problem.
+    const yr = _findVocab(t, YEAR_WORDS, a)[0];
+    if (yr) problems.push(`calls them a "${yr}" and this athlete is a pro`);
+    const cm = t.match(/\b(?:college athlete|student[- ]athletes?|NCAA|on campus|NIL)\b/);
+    if (cm) problems.push(`uses college wording ("${cm[0]}") and this athlete is a pro`);
+  } else {
+    const storedYear = _words(a.year);
+    for (const hit of _findVocab(t, YEAR_WORDS, a)) {
+      if (!storedYear) { problems.push(`calls them a "${hit}" and we hold no class year`); break; }
+      if (!storedYear.includes(hit) && !hit.includes(storedYear)) {
+        problems.push(`says "${hit}" but the stored year is "${a.year}"`); break;
+      }
     }
   }
   // ── hometown and school ───────────────────────────────────────────────────
@@ -680,10 +694,29 @@ function describeBusiness(b) {
 
 function describeAthlete(a) {
   const L = [];
+  const isPro = a.athleteType === 'pro';
   L.push('Name: ' + (a.name || 'the athlete'));
-  const bits = [a.year, a.position, a.sport].filter(Boolean).join(' ');
-  if (bits) L.push('Plays: ' + bits + (a.school ? ' at ' + a.school : ''));
-  else if (a.school) L.push('School: ' + a.school);
+  if (isPro) {
+    // ── THE PRO VARIANT: name, position, team, and what they are known for ──
+    // No class year and no school, ever: a year left over on the record from
+    // college must not reach the model, and there is no campus to name.
+    L.push('This athlete is a PROFESSIONAL, not a college athlete. Never call them a '
+      + 'student-athlete, never mention college, NCAA, a class year or NIL.');
+    const bits = [a.position, a.sport].filter(Boolean).join(' ');
+    if (bits) L.push('Plays: ' + bits + (a.team ? ' for the ' + a.team : ''));
+    else if (a.team) L.push('Team: ' + a.team);
+    if (a.city) L.push('Based in: ' + a.city);
+    // "Known for" is what the agent typed into stats or notes. It is offered as
+    // the hook, and only what is listed may be said -- the model is not asked to
+    // recall anything about a public figure from memory.
+    const known = [a.stats, a.knownFor].filter(Boolean).join('; ');
+    if (known) L.push('Known for: ' + known + ' (use this, and nothing you remember about them)');
+    else L.push('Known for: nothing on file. Do not draw on what you may remember about this player; pitch on position, team and what they post.');
+  } else {
+    const bits = [a.year, a.position, a.sport].filter(Boolean).join(' ');
+    if (bits) L.push('Plays: ' + bits + (a.school ? ' at ' + a.school : ''));
+    else if (a.school) L.push('School: ' + a.school);
+  }
   if (a.hometown) L.push('From: ' + a.hometown);
   const ig = Number(a.instagram) || 0, tt = Number(a.tiktok) || 0;
   if (ig || tt) {
@@ -717,22 +750,24 @@ function describeAthlete(a) {
         + 'quoted as current. Write the pitch without a follower number.');
     }
   }
-  if (a.stats) L.push('On the field: ' + a.stats);
+  if (a.stats && !isPro) L.push('On the field: ' + a.stats);
   // ── WHAT MAY BE SAID ABOUT EXISTING PARTNERSHIPS ─────────────────────────
   // "already has several NIL partnerships and is looking to expand" is the line
   // agents asked for, and it is a CLAIM about a real athlete made to a real
   // business. So it is only offered when we hold deals to back it. With none on
   // file the athlete is still worth pitching and the honest version still sells
   // forward motion -- it just does not assert a track record that does not exist.
+  // A pro has endorsement partnerships, not NIL ones: NIL is the college term.
+  const kind = isPro ? 'endorsement' : 'NIL';
   const deals = Number(a.partnershipCount) || 0;
   if (deals >= 2) {
-    L.push('Existing partnerships: SAY EXACTLY "already has several NIL partnerships '
+    L.push(`Existing partnerships: SAY EXACTLY "already has several ${kind} partnerships `
       + 'and is looking to expand". We hold ' + deals + ' on file.');
   } else if (deals === 1) {
-    L.push('Existing partnerships: SAY EXACTLY "already has an NIL partnership and is '
+    L.push(`Existing partnerships: SAY EXACTLY "already has an ${kind} partnership and is `
       + 'looking to expand". We hold 1 on file. Do not say "several".');
   } else {
-    L.push('Existing partnerships: NONE on file. Say "is building out their NIL '
+    L.push(`Existing partnerships: NONE on file. Say "is building out their ${kind} `
       + 'partnerships for this year" or similar. Do NOT claim they already have any.');
   }
   if (Array.isArray(a.tags) && a.tags.length) L.push('Posts about: ' + a.tags.join(', '));
@@ -806,6 +841,25 @@ NEVER invent a fact about the athlete. Use only what is listed under THE ATHLETE
 
 The message must be answerable yes or no without a follow-up question.`;
 
+// ── THE PRO VARIANT OF THE SYSTEM PROMPT ─────────────────────────────────────
+// The same message, the same rules, for a professional athlete. Two things
+// change and only two: the athlete is introduced by position and team rather
+// than as a college athlete, and the close names an endorsement rather than an
+// NIL opportunity, because NIL is the college term and a business that follows
+// sport would notice. Everything else is shared text, so a rule added to the
+// college prompt is a rule added here.
+const SYSTEM_PRO = SYSTEM
+  .replace('partnering with a college athlete.', 'partnering with a professional athlete.')
+  .replace('"I wanted to call your attention to [athlete], [position] on the [team]."',
+    '"I wanted to call your attention to [athlete], [position] for the [team]." The team is the\n   professional club in the ATHLETE block. Never describe them as a college athlete,\n   a student-athlete, or by a class year, and never say NIL: this is an endorsement.')
+  .replace('"Would you like to learn more about this NIL opportunity with [athlete]?"',
+    '"Would you like to learn more about this endorsement opportunity with [athlete]?"');
+if (SYSTEM_PRO === SYSTEM) throw new Error('pitchWriter: SYSTEM_PRO did not diverge from SYSTEM; the anchors it rewrites have moved');
+
+function systemFor(athlete) {
+  return athlete && athlete.athleteType === 'pro' ? SYSTEM_PRO : SYSTEM;
+}
+
 function buildPrompt(ctx) {
   const play = playbookFor(ctx.business && ctx.business.category);
   const learned = (ctx.learnedAngles && ctx.learnedAngles.length)
@@ -863,7 +917,7 @@ async function writePitch(ctx, opts = {}) {
   const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable === true };
 
   const attempt = async (extra) => {
-    const raw = await oneShot(buildPrompt(ctx) + (extra || ''), SYSTEM, 900, opts.model);
+    const raw = await oneShot(buildPrompt(ctx) + (extra || ''), systemFor(ctx.athlete), 900, opts.model);
     let j = null;
     try {
       const s = String(raw || '').replace(/```json/gi, '').replace(/```/g, '');
@@ -965,7 +1019,7 @@ module.exports = {
   buildPrompt, sentenceCount, stripSignOff, learnedAngles,
   signsOffAs, repairSignOff, firstNameOf,
   CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
-  DELIVERABLE_RE, DELIVERABLE_NOUNS, DELIVERABLE_VERBS, SYSTEM, MIN_SAMPLE,
+  DELIVERABLE_RE, DELIVERABLE_NOUNS, DELIVERABLE_VERBS, SYSTEM, SYSTEM_PRO, systemFor, MIN_SAMPLE,
   POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
   positionKey, POSITION_GROUPS, SOFT_WORDS,
 };

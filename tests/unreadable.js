@@ -56,8 +56,10 @@ async function main() {
 
   // ── 2. THE GATE ERRORS RATHER THAN HOLDING ───────────────────────────────
   console.log('\n-- 2. the gate reports a fault, and still stops the send --');
+  // stateCode is given because an athlete with NO state is now its own block
+  // (see tests/proathlete.js); this suite is about the age source.
   const base = { brandName: 'Kessler Liquor', evidence: { types: ['liquor_store'], found: true },
-    athleteName: 'Marcus Hall', now: NOW };
+    athleteName: 'Marcus Hall', now: NOW, stateCode: 'AL' };
 
   const holdRes = await co.evaluate(P, { ...base, dob: null });
   ok('no birthday on file is a HOLD', holdRes.decision === 'hold', holdRes.decision);

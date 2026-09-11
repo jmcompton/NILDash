@@ -417,6 +417,10 @@ async function localContextFor(ath) {
     // The page said "we could not match this school". It can now say what we did
     // about it instead, which is the difference between a dead end and a note.
     profile.localLaneNote = null;
+    // The geocode carries the state too, so the profile's state note lifts with
+    // the market note. The compliance gate reads the same geocode cache.
+    const cs = AR.cityStateFrom(r.region);
+    if (cs.state) { profile.stateCode = cs.state; profile.stateNote = null; }
   }
   return { region: r.region, profile, geocoded: !!r.geocoded };
 }
@@ -810,10 +814,13 @@ async function fillAthlete(pool, ctx) {
     // 3. Widen -- once per athlete per night, gated per athlete per market.
     if (profile.hasLocalMarket && !widenedTonight && !ctx.noWiden) {
       widenedTonight = true;
-      const gate = await Deepen.canDeepen(pool, profile.school, { athleteId });
+      // The widen ledger is keyed on the school; a pro has none, so their
+      // market (the city they play in) is the key instead.
+      const widenKey = profile.school || profile.market;
+      const gate = await Deepen.canDeepen(pool, widenKey, { athleteId });
       if (!gate.ok) {
         say(`${athleteName}: local pool is spent — not widening (${gate.reason})`);
-      } else if (await Deepen.claimDeepen(pool, profile.school, { athleteId, source: 'nightly' })) {
+      } else if (await Deepen.claimDeepen(pool, widenKey, { athleteId, source: 'nightly' })) {
         say(`${athleteName}: local pool is spent — widening the search to neighbouring towns`);
         try {
           const widened = await discover('widen', 0.25, { deepen: true });

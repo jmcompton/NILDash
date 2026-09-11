@@ -1488,8 +1488,15 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
   }
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa, over18,
           instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name, dob,
-          schoolRestrictions } = req.body;
+          schoolRestrictions, athleteType, city, team } = req.body;
   if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
+  // ── COLLEGE OR PRO ──────────────────────────────────────────────────────
+  // Stored in `data`, never in the athlete_type column: that column says who
+  // manages and pays for the athlete (agent_managed / self_managed) and a pro
+  // can be either. A pro has no school and no class year, and those are
+  // cleared here whatever the form sent, so a pro cannot carry a stale school
+  // into the local lane or a stale "junior" into a pitch.
+  const isPro = athleteType === 'pro';
 
   // ── Seat limit check ─────────────────────────────────────────
   const plan = user.plan_tier || user.plan || 'basic';
@@ -1534,7 +1541,12 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
   const id = 'ath-' + Date.now();
   const athlete = await store.saveAthlete(id, {
     id, agentId: user.id, name, sport, position: position || '',
-    school: school || '', schoolTier: schoolTier || 'p4-mid',
+    athleteType: isPro ? 'pro' : 'college',
+    school: isPro ? '' : (school || ''), schoolTier: schoolTier || 'p4-mid',
+    // The pro's city ("Denver, CO") is the local lane's town and the state
+    // the compliance gate rules on; the team is what the pitch names.
+    city: isPro ? String(city || '').trim().slice(0, 120) : '',
+    team: isPro ? String(team || '').trim().slice(0, 120) : '',
     instagram: parseInt(instagram) || 0,
     tiktok: parseInt(tiktok) || 0,
     // null when blank or junk. See _validEngagement: 3.0 was an invented number
@@ -1547,7 +1559,7 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     engagementAsOf: _validEngagement(engagement) === null
       || _validEngagement(engagement) === undefined ? null : new Date().toISOString().slice(0, 10),
     notes: notes || '',
-    year: year || '',
+    year: isPro ? '' : (year || ''),
     stats: stats || '',
     transferReason: transferReason || '',
     gpa: gpa || '',
@@ -1714,6 +1726,18 @@ app.put('/api/athletes/:id', requireAuth, async (req, res) => {
     if (o === undefined) delete patch.over18; else patch.over18 = o;
   }
   if ('schoolRestrictions' in patch) patch.schoolRestrictions = _validRestrictions(patch.schoolRestrictions);
+  // ── COLLEGE OR PRO ──────────────────────────────────────────────────────
+  // Same rule as the create path: the fields that belong to the other type
+  // are cleared on a switch, so an athlete who turns pro does not keep a
+  // school that would anchor the local lane on a campus they have left.
+  if ('athleteType' in patch) {
+    const pro = patch.athleteType === 'pro';
+    patch.athleteType = pro ? 'pro' : 'college';
+    if (pro) { patch.school = ''; patch.year = ''; }
+    else { patch.city = ''; patch.team = ''; }
+  }
+  if ('city' in patch) patch.city = String(patch.city || '').trim().slice(0, 120);
+  if ('team' in patch) patch.team = String(patch.team || '').trim().slice(0, 120);
   const updated = await store.saveAthlete(req.params.id, { ...existing, ...patch });
   res.json(updated);
 });
@@ -2261,6 +2285,32 @@ app.get('/api/agent/compliance/missing-dob', requireAuth, async (req, res) => {
     res.json({ missing: r.rows, total, withDob: total - r.rows.length });
   } catch (e) {
     console.error('[compliance/missing-dob]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/agent/compliance/missing-state — athletes the gate will BLOCK.
+// The gate refuses to send for an athlete whose state it cannot work out (a
+// school that resolves nowhere, or a pro whose city was typed without one).
+// That block is visible on the queue after the fact; this is the list before,
+// with the fix the gate would name, so an agent can clear it in one pass.
+app.get('/api/agent/compliance/missing-state', requireAuth, async (req, res) => {
+  try {
+    const compliance = require('./services/compliance');
+    const rows = (await store.pool.query(
+      `SELECT a.id, COALESCE(a.data->>'name','(no name)') AS name,
+              a.data->>'school' AS school, a.data->>'city' AS city,
+              a.data->>'athleteType' AS athlete_type_data, a.athlete_type
+         FROM athletes a WHERE a.agent_id = $1 ORDER BY name ASC`, [req.session.userId])).rows;
+    const missing = [];
+    for (const a of rows) {
+      const athleteType = (a.athlete_type === 'pro' || a.athlete_type_data === 'pro') ? 'pro' : 'college';
+      const st = await compliance.stateCodeFor(store.pool, { athleteType, school: a.school, city: a.city });
+      if (!st.stateCode) missing.push({ id: a.id, name: a.name, athleteType, school: a.school || '', city: a.city || '', fix: st.note });
+    }
+    res.json({ missing, total: rows.length, withState: rows.length - missing.length });
+  } catch (e) {
+    console.error('[compliance/missing-state]', e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -3759,11 +3809,13 @@ Return ONLY the JSON. No markdown, no explanation.`;
 // Stage 2B: AI enrichment/fallback (stats, social, career context)
 // Stage 3: Merge, rank, return up to 3 candidates with confidence scores
 app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
-  const { name, school, sport, position, year } = req.body;
+  const { name, school, sport, position, year, athleteType, team, city } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
     const { resolveAthlete } = require('./services/athleteLookup');
-    const result = await resolveAthlete(ai, { name, school, sport, position, year });
+    // A pro lookup searches league rosters (NFL, NBA, MLB and the rest) rather
+    // than ESPN's college pages; see athleteLookup.proSearchStage.
+    const result = await resolveAthlete(ai, { name, school, sport, position, year, athleteType, team, city });
     res.json(result);
   } catch (err) {
     console.error('[player-lookup]', err.message);
@@ -11584,13 +11636,18 @@ app.get('/admin/athlete-markets', async (req, res) => {
     return `<h3 style="margin:20px 0 4px;font-size:14px">${esc(rec.name || a.id)}`
       + `<span class="dim" style="font-weight:400;font-size:12px"> · ${esc(a.agent_name || 'no agent')}</span></h3>`
       + `<div class="dim" style="font-size:12px;margin-bottom:8px">`
-      + `school: <span class="mono">${esc(rec.school || 'MISSING')}</span> · `
+      + (rec.athleteType === 'pro'
+        ? `PRO · team: <span class="mono">${esc(rec.team || 'MISSING')}</span> · city: <span class="mono">${esc(rec.city || 'MISSING')}</span> · `
+        : `school: <span class="mono">${esc(rec.school || 'MISSING')}</span> · `)
       + `market we hold: <span class="mono" style="color:${rec.market ? '#84CC16' : '#f59e0b'}">${esc(rec.market || 'NONE — local lane has no town to work in')}</span>`
       + (rec.marketSource ? ` <span class="dim">(${esc(rec.marketSource)})</span>` : '')
       + ` · hometown: <span class="mono">${esc(rec.hometown || 'MISSING')}</span>`
       + (rec.schoolMatched && rec.schoolMatched !== rec.school ? ` <span class="dim">(matched to "${esc(rec.schoolMatched)}")</span>` : '')
       + `</div>`
       + (rec.localLaneNote ? `<div style="font-size:12px;color:#f59e0b;margin-bottom:8px">${esc(rec.localLaneNote)}</div>` : '')
+      // The compliance gate BLOCKS every send for an athlete with no state.
+      // That block belongs on the athlete, here, before the queue shows it.
+      + (rec.stateNote ? `<div style="font-size:12px;color:#ef4444;margin-bottom:8px">Compliance will block every send: ${esc(rec.stateNote)}</div>` : '')
       + (biz.length
         ? `<table><thead><tr><th>queued business</th><th>address Places returned</th><th>city</th><th>vs market</th></tr></thead><tbody>${lines}</tbody></table>`
         : `<div class="dim" style="font-size:12px">No local businesses queued.</div>`);

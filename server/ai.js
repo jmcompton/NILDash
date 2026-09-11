@@ -3016,7 +3016,16 @@ async function getDealRecommendations(athlete, role, excludeBrands, lane, opts =
   const reach = (athlete.instagram || 0) + (athlete.tiktok || 0);
   const tier = reach > 500000 ? 'macro' : reach > 100000 ? 'mid' : reach > 25000 ? 'micro' : 'nano';
   const school = athlete.school || 'Unknown';
-  const loc = await getSchoolLocation(school);
+  // A pro's market is the city they play in, typed as "Denver, CO". It is read
+  // as given rather than geocoded: there is no school to look up, and the city
+  // string already carries the town and the state.
+  const proLoc = (() => {
+    if (athlete.athleteType !== 'pro' || !athlete.city) return null;
+    const { cityStateFrom } = require('./services/athleteRecord');
+    const cs = cityStateFrom(athlete.city);
+    return cs.city ? { city: cs.city, state: cs.state || '', known: true } : null;
+  })();
+  const loc = proLoc || await getSchoolLocation(athlete.athleteType === 'pro' ? '' : school);
   const city = loc.city;
   const state = loc.state;
   const locationKnown = loc.known !== false;
