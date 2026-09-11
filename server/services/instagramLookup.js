@@ -162,8 +162,14 @@ async function _searchForHandle(brand, loc, webSearch) {
       new Promise((_, rej) => setTimeout(() => rej(new Error('ig-search-timeout')), SEARCH_TIMEOUT_MS)),
     ]);
   } catch (e) {
+    // AN ERROR IS NOT AN ANSWER. This returned null here -- the same null as a
+    // search that completed and found nothing -- and the caller cached NONE for
+    // 30 days on either. So a 3am timeout, a rate limit, or a missing key on
+    // one night became "this business has no Instagram" for a month, and every
+    // card for it routed to CALL. Peyton Bair's five, all phone-only, all in one
+    // town, is what that looks like. The failure is now a distinct value.
     console.warn('[instagram] search failed brand="' + brand + '" error=' + (e && e.message));
-    return null;
+    return { error: (e && e.message) || 'search failed' };
   }
   const text = (raw && raw.text) || '';
   const citations = (raw && raw.citations) || [];
@@ -272,12 +278,15 @@ async function findInstagram(website, opts) {
 
   const scraped = _extractHandle(html, o.brand, o.loc);
   let out = null;
+  let searchFailed = null;   // set when the search ERRORED, as opposed to finding nothing
   if (scraped) {
     out = { handle: scraped.handle, scope: scraped.scope, source: 'site', ownerName: null, bookingEmail: null, evidenceKind: null };
   } else if (canSearch) {
     // 2. only now, and only when there is a brand to verify against
     const found = await _searchForHandle(o.brand, o.loc, o.webSearch);
-    if (found) {
+    if (found && found.error) {
+      searchFailed = found.error;
+    } else if (found) {
       const verdict = handleVerdict(found.handle, o.brand, o.loc);
       if (verdict === 'reject') {
         console.log('[instagram] search brand="' + o.brand + '" REJECTED handle=' + found.handle + ' (different entity)');
@@ -295,6 +304,15 @@ async function findInstagram(website, opts) {
   }
 
   if (!out) {
+    // A FAILED SEARCH IS NOT CACHED. Only a search that completed and found
+    // nothing earns a NONE row; an error leaves no row, so the next night asks
+    // again instead of inheriting a month of "no handle" from one bad minute.
+    // Same rule the contacts fan-out has always applied (outcome ERROR/TIMEOUT
+    // is never written).
+    if (searchFailed) {
+      console.log('[instagram] ' + label + ' search failed (' + searchFailed + ') — NOT cached, will retry next lookup');
+      return null;
+    }
     // The brand rides along so a name-keyed row is readable in the table without
     // reverse-engineering the key.
     try { await store.saveBrandEvidence(key, 'instagram', o.brand || website || null, website || null, { found: false }, 'NONE'); } catch (_) {}
