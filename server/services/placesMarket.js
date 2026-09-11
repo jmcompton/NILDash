@@ -16,6 +16,9 @@ const NEARBY_URL = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json
 const TEXT_URL = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
 const RADIUS_M = 8000;
 const MAX_PAGES = 3;          // Places caps pagination at 3 pages (60 results) per query
+// Every Places request is counted on the current scan's meter, so a cold
+// market build prices itself instead of being the one free thing in the night.
+const scanMeter = require('../scanMeter');
 const PAGE_DELAY_MS = 2100;   // Google needs ~2s before a next_page_token activates
 const MIN_RATINGS = 10;       // filter: drop businesses with fewer than this many reviews
 const REQ_TIMEOUT_MS = 8000;
@@ -44,6 +47,7 @@ async function _getJson(url, params) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), REQ_TIMEOUT_MS);
   try {
+    scanMeter.bumpPlaces();
     const resp = await fetch(`${url}?${qs}`, { signal: ctrl.signal });
     clearTimeout(t);
     if (!resp.ok) return { status: 'HTTP_' + resp.status, results: [] };

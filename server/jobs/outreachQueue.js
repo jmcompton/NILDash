@@ -727,66 +727,127 @@ async function fillAthlete(pool, ctx) {
     heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
   });
 
-  // ── WIDEN THE RADIUS RATHER THAN GO QUIET ────────────────────────────────
-  // The deeper search pass has always existed, but it only ever fired when an
-  // agent OPENED Deal Scan on a thin market. A market the nightly run drained
-  // stayed drained until a human happened to look at that athlete -- which for
-  // 45 clients is most of the roster, most nights. The Scout knows the pool is
-  // spent, so it says so here, once per market per 24h across both processes.
-  if (slate.localExhausted && profile.hasLocalMarket && !ctx.noWiden) {
-    // PER ATHLETE, NOT PER MARKET. The market-level claim meant the first athlete
-    // at a school widened and every athlete behind them was told "not widening"
-    // and handed an empty slate -- which with 45 clients over a handful of
-    // schools is most of a roster. The market still has a budget; see MAX_PER_MARKET.
-    const gate = await Deepen.canDeepen(pool, profile.school, { athleteId });
-    if (!gate.ok) {
-      say(`${athleteName}: local pool is spent — not widening (${gate.reason})`);
-    } else if (await Deepen.claimDeepen(pool, profile.school, { athleteId, source: 'nightly' })) {
-      say(`${athleteName}: local pool is spent — widening the search to neighbouring towns`);
-      try {
-        const athObj = { id: athleteId, ...(ctx.athleteRow || {}) };
-        // ── THE WIDEN'S RESULTS WERE THROWN ON THE FLOOR ────────────────────
-        //
-        // This called getDealRecommendations and DISCARDED THE RETURN VALUE, on
-        // the belief -- written in the comment below it -- that "the widened
-        // pass writes new businesses into the market pool". It does not.
-        // store.markMarketNewcomers is the only writer of market_business_seen
-        // in the codebase and its only caller is the Deal Scan HTTP route.
-        //
-        // So the widen found businesses, returned them, and the job immediately
-        // re-read a table nobody had written to. Noah Carpenter's widen found
-        // 159 and Messiah Mickens's found 74; both slates came back 0 local.
-        //
-        // The results are now recorded under the same key the Scout reads, so
-        // re-assembling actually sees them -- and so the next night sees them
-        // too, which is the point of paying for a widen at all.
-        const widened = await ai.getDealRecommendations(athObj, 'agent', [], 'local', { deepen: true });
-        const brands = (Array.isArray(widened) ? widened : [])
-          .map((o) => o && o.brand).filter(Boolean);
-        if (profile.marketKey && brands.length) {
-          await store.markMarketNewcomers(profile.marketKey, brands)
-            .then(() => say(`${athleteName}: recorded ${brands.length} widened business(es) `
-              + `in the ${profile.marketKey} pool`))
-            .catch((e) => say(`${athleteName}: could not record the widened pool (${e.message})`));
-        } else if (!profile.marketKey) {
-          // Without a key there is nowhere honest to file them, and filing them
-          // under a school slug is exactly how the pool was orphaned before.
-          say(`${athleteName}: widened but has no market key, so nothing could be recorded`);
-        }
-        // Re-assemble now that the pool has actually been written to.
-        slate = await Scout.assembleSlate(pool, {
-          agentId, athlete: profile, store,
-          limit: Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT,
-          heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
-        });
-        say(`${athleteName}: after widening, ${slate.picks.length} candidate(s) — `
-          + Object.keys(slate.laneCounts || {}).map((k) => `${slate.laneCounts[k]} ${k}`).join(', '));
-      } catch (e) {
-        say(`${athleteName}: widening failed (${e.message}) — carrying on with what we have`);
+  // ── REFILL, RATHER THAN GO QUIET ─────────────────────────────────────────
+  // The fill no longer stops when the slate is drained. When it needs more
+  // candidates it asks here, and this answers in three escalating ways, each
+  // only if the one before it produced nothing new for THIS athlete:
+  //
+  //   1. RE-DRAW. Ask the Scout for a fresh slate, minus anything already
+  //      tried tonight. Free. Most nights this is all that is needed once the
+  //      pool holds the whole market rather than the page an agent was shown.
+  //   2. REFILL FROM THE MARKET. Run the ordinary local scan for this market,
+  //      once per market per night, shared across every athlete in that town.
+  //      A market scanned in the last 90 days is a cache hit -- it costs the
+  //      page scoring, about a cent -- and records the full pool under the key
+  //      the Scout reads. A cold market builds from Places and the web passes.
+  //   3. WIDEN. The deeper pass into neighbouring towns, gated per athlete per
+  //      market (see marketDeepen), once per athlete per night here.
+  //
+  // 2 and 3 are DISCOVERY and come out of the discovery pot, metered
+  // (scanMeter, priced by Q.priceOf, Places included), never the athlete's share
+  // and never the lookup cap. The widen used to call getDealRecommendations
+  // unmetered -- the most expensive thing in the night, and the cap never saw it.
+  //
+  // Nothing here writes to `cands` directly: it returns what is new, and the
+  // caller appends. `cands` is declared after this closure.
+  const athObj = { id: athleteId, ...(ctx.athleteRow || {}) };
+  const refilledMarkets = ctx.refilledMarkets || new Set();   // one refill per market per run
+  const knownBrands = new Set();                              // every candidate ever handed out tonight
+  let widenedTonight = false;
+  const slateLimit = Math.max(open.length, 1) * Q.MAX_ATTEMPTS_PER_SLOT;
+  const bk = (name) => String(name || '').trim().toLowerCase();
+
+  async function redraw() {
+    const fresh = await Scout.assembleSlate(pool, {
+      agentId, athlete: profile, store, limit: slateLimit * 2,
+      heldPrograms, programCap: Q.PROGRAM_SLOT_CAP,
+    });
+    const added = (fresh.picks || []).filter((c) => c && !knownBrands.has(bk(c.brand_name)));
+    for (const c of added) knownBrands.add(bk(c.brand_name));
+    return { fresh, added };
+  }
+
+  // Runs one scan under the meter and books it to discovery. Returns the
+  // recommendations (or []), or null when the pot could not afford it.
+  async function discover(label, estimateUsd, opts) {
+    if (!budget.canSpendDiscovery(estimateUsd)) {
+      say(`${athleteName}: not ${label} — the discovery pot is spent `
+        + `($${budget.discoverySpent().toFixed(2)} of $${budget.discoveryCap().toFixed(2)})`);
+      return null;
+    }
+    const scanMeter = require('../scanMeter');
+    const { result, meter } = await scanMeter.run(() =>
+      ai.getDealRecommendations(athObj, 'agent', [], 'local', opts));
+    const cost = Q.priceOf(meter);
+    if (cost > 0) budget.spendDiscovery(cost);
+    spendLog.push({ brand: `[${label}]`, lane: 'discovery', cost,
+      webSearches: meter.webSearches, aiCalls: meter.aiCalls, placesCalls: meter.placesCalls });
+    say(`${athleteName}: ${label} cost $${cost.toFixed(3)} `
+      + `(${meter.webSearches} searches, ${meter.placesCalls} Places, ${meter.aiCalls} model calls)`);
+    return Array.isArray(result) ? result : [];
+  }
+
+  // The refill. Returns the candidates that are NEW tonight (possibly none),
+  // and updates `slate` so the up-front caller and the notes see the latest.
+  async function refillSlate(why) {
+    // 1. Re-draw.
+    let { fresh, added } = await redraw();
+    slate = fresh;
+    if (added.length) { say(`${athleteName}: re-drew ${added.length} new candidate(s) (${why})`); return added; }
+
+    // 2. Refill from the market -- once per market per run.
+    if (profile.hasLocalMarket && profile.marketKey && !refilledMarkets.has(profile.marketKey) && !ctx.noWiden) {
+      refilledMarkets.add(profile.marketKey);
+      say(`${athleteName}: slate drained (${why}) — refilling the ${profile.marketKey} pool from the market scan`);
+      const got = await discover('market refill', 0.05, {});
+      if (got) {
+        ({ fresh, added } = await redraw());
+        slate = fresh;
+        if (added.length) { say(`${athleteName}: refill produced ${added.length} new candidate(s)`); return added; }
       }
     }
+
+    // 3. Widen -- once per athlete per night, gated per athlete per market.
+    if (profile.hasLocalMarket && !widenedTonight && !ctx.noWiden) {
+      widenedTonight = true;
+      const gate = await Deepen.canDeepen(pool, profile.school, { athleteId });
+      if (!gate.ok) {
+        say(`${athleteName}: local pool is spent — not widening (${gate.reason})`);
+      } else if (await Deepen.claimDeepen(pool, profile.school, { athleteId, source: 'nightly' })) {
+        say(`${athleteName}: local pool is spent — widening the search to neighbouring towns`);
+        try {
+          const widened = await discover('widen', 0.25, { deepen: true });
+          const brands = (widened || []).map((o) => o && o.brand).filter(Boolean);
+          if (profile.marketKey && brands.length) {
+            await store.markMarketNewcomers(profile.marketKey, brands)
+              .then(() => say(`${athleteName}: recorded ${brands.length} widened business(es) in the ${profile.marketKey} pool`))
+              .catch((e) => say(`${athleteName}: could not record the widened pool (${e.message})`));
+          } else if (!profile.marketKey) {
+            say(`${athleteName}: widened but has no market key, so nothing could be recorded`);
+          }
+          ({ fresh, added } = await redraw());
+          slate = fresh;
+          say(`${athleteName}: after widening, ${added.length} new candidate(s) — `
+            + Object.keys(slate.laneCounts || {}).map((k) => `${slate.laneCounts[k]} ${k}`).join(', '));
+          if (added.length) return added;
+        } catch (e) {
+          say(`${athleteName}: widening failed (${e.message}) — carrying on with what we have`);
+        }
+      }
+    }
+    return [];
   }
-  const cands = slate.picks;
+
+  // Seed the known set with the first slate, and refill up front when the Scout
+  // already says the pool is spent -- same moment the old widen fired.
+  for (const c of (slate.picks || [])) knownBrands.add(bk(c.brand_name));
+  if (slate.localExhausted && profile.hasLocalMarket && !ctx.noWiden) {
+    const added = await refillSlate('pool spent at the start');
+    if (added.length) slate = { ...slate, picks: (slate.picks || []).concat(added) };
+  }
+  // A growing list, not a fixed slate: refillSlate appends new candidates as
+  // the fill drains it. Copied so the Scout's own array is never mutated.
+  let cands = slate.picks.slice();
   if (!cands.length) {
     // NEVER EMPTY WITHOUT A REASON. A silent zero is what we spent a day
     // debugging; the shift report prints this verbatim. When the school is the
@@ -808,9 +869,39 @@ async function fillAthlete(pool, ctx) {
     + Object.keys(slate.laneCounts).map((k) => `${slate.laneCounts[k]} ${k}`).join(', '));
   let ci = 0, filled = 0;
 
+  // ── FIVE, OR A REASON ────────────────────────────────────────────────────
+  // Not "three attempts a slot". Each open slot keeps drawing until something
+  // is placed, refilling the slate as it drains, and stops for exactly one of:
+  //   - the money (the existing share/cap check, unchanged, first thing below)
+  //   - the rate floor: fewer than 1 in 8 of the last 8 real attempts passed,
+  //     the market widened once already, and the rate is still under the floor
+  //   - the pool drawn: re-draw, refill and widen all produced nothing new
+  // A stop ends the athlete's turn for the night, and the note says which one
+  // and what the counts were. The three-nights backoff remains the outer stop.
+  let stop = null, rateWidened = false, rateInfo = null;
   for (const slot of open) {
     let placed = false;
-    for (let attempt = 0; attempt < Q.MAX_ATTEMPTS_PER_SLOT && ci < cands.length; attempt++) {
+    for (let attempt = 0; !placed && !stop; attempt++) {
+      // Rate floor, checked before drawing the next candidate.
+      const rs = Q.passRateStop(tried);
+      if (rs.stop) {
+        rateInfo = rs;
+        if (!rateWidened) {
+          rateWidened = true;
+          say(`${athleteName}: pass rate ${rs.passes}/${rs.window} is under the floor — widening before trying more`);
+          const added = await refillSlate('rate floor');
+          if (!added.length) { stop = 'rate'; break; }
+          cands.push(...added);
+        } else {
+          stop = 'rate'; break;
+        }
+      }
+      // Drained: ask for more before giving up on the slot.
+      if (ci >= cands.length) {
+        const added = await refillSlate('slate drained');
+        if (!added.length) { stop = 'drawn'; break; }
+        cands.push(...added);
+      }
       const cand = cands[ci++];
       // BEFORE the money, priced at the CEILING. A lookup that would breach the
       // cap is never started, so the cap cannot be overshot by one business.
@@ -1204,17 +1295,49 @@ async function fillAthlete(pool, ctx) {
       }
       break;
     }
-    if (!placed) say(`slot ${slot}: nothing passed the bar in ${Q.MAX_ATTEMPTS_PER_SLOT} attempts`);
+    if (stop) break;
+    if (!placed) say(`slot ${slot}: nothing passed the bar`);
   }
+  if (stop) say(`${athleteName}: stopped (${stop === 'rate' ? 'pass rate under the floor after widening' : 'pool drawn, refill and widen found nothing new'}) with ${filled} of ${open.length} slot(s) filled`);
+
   // OUR FAILURES, COUNTED. A lookup that threw is not a business that could not
   // be reached; it is a night we could not measure. recordAttempt refuses to
   // pause an athlete whose whole night was this.
   const faults = tried.filter((t) => t && t.fault).length;
-  const note = filled > 0 ? null
-    : tried.length
-      ? `${tried.length} business${tried.length > 1 ? 'es' : ''} tried, none passed the bar`
-        + (faults ? ` (${faults} failed on our side, not theirs)` : '')
-      : 'no candidates were tried';
+
+  // ── THE HONEST STOP ──────────────────────────────────────────────────────
+  // When the night stopped short of five, the note is a sentence with counts:
+  // how many businesses this athlete's market has been tried against this
+  // week, how many were reachable, how many widens -- and what to do next.
+  // Read by the empty tab (homeQueue lastRun) and the shift report verbatim.
+  let stopNote = null;
+  if (stop && filled < open.length) {
+    let triedWeek = tried.length, reachableWeek = tried.filter((t) => t && t.result === 'queued').length, widenedWeek = 0;
+    try {
+      const prior = await pool.query(
+        `SELECT details FROM outreach_queue_runs
+          WHERE agent_id = $1 AND run_date >= CURRENT_DATE - 6 AND run_date < CURRENT_DATE`, [agentId]);
+      for (const r of prior.rows) for (const d of (Array.isArray(r.details) ? r.details : [])) {
+        if (!d || d.athleteId !== athleteId) continue;
+        const t = Array.isArray(d.tried) ? d.tried : [];
+        triedWeek += t.length; reachableWeek += t.filter((x) => x && x.result === 'queued').length;
+      }
+      const w = await pool.query(
+        `SELECT COALESCE(SUM(deepen_count),0)::int AS n FROM market_deepen_log
+          WHERE athlete_id = $1 AND last_deepened_at > NOW() - INTERVAL '7 days'`, [athleteId]).catch(() => ({ rows: [{ n: 0 }] }));
+      widenedWeek = (w.rows[0] && w.rows[0].n) || 0;
+    } catch (_) { /* counts are best-effort; the sentence still names tonight */ }
+    if (widenedTonight && !widenedWeek) widenedWeek = 1;
+    stopNote = Q.workedOutNote({ athleteName, market: profile.market || null,
+      triedWeek, reachableWeek, widenedWeek, filled, wanted: open.length });
+  }
+
+  const note = filled > 0 && !stopNote ? null
+    : stopNote
+      || (tried.length
+        ? `${tried.length} business${tried.length > 1 ? 'es' : ''} tried, none passed the bar`
+          + (faults ? ` (${faults} failed on our side, not theirs)` : '')
+        : 'no candidates were tried');
   // STRUCTURED, NOT JUST PROSE. emptyReason was computed by the Scout and thrown
   // away before it reached the run row, so every diagnosis had to pattern-match
   // an English sentence -- and a partial fill, which has no note at all, could
@@ -1226,7 +1349,10 @@ async function fillAthlete(pool, ctx) {
     // What each lane returned and what was dropped before ranking, so the
     // morning-after question "why was the slate all social?" is answerable
     // from the run row rather than the process log.
-    lanes: slate.lanes || null, dropped: slate.dropped || null };
+    lanes: slate.lanes || null, dropped: slate.dropped || null,
+    // Which stop ended the night, if one did, and the pass rate that decided it.
+    stop: stop || null, rate: rateInfo || null,
+    discoveryUsd: budget.discoverySpent ? budget.discoverySpent() : 0 };
 }
 
 async function fillAgent(pool, agent, opts) {
@@ -1262,6 +1388,9 @@ async function fillAgent(pool, agent, opts) {
   // card, not a reason -- so the page had nothing to show but blank space, which
   // reads exactly like the page failing to load rather than like an honest answer.
   const details = [];
+  // One market refill per market per run, shared across the roster: nine
+  // athletes in one town cost one scan, not nine. See refillSlate.
+  const _refilledMarkets = new Set();
 
   for (let ai2 = 0; ai2 < athletes.length; ai2++) {
     const ath = athletes[ai2];
@@ -1300,6 +1429,7 @@ async function fillAgent(pool, agent, opts) {
         // Scout is asked for, so raising it is what lets the night evaluate
         // dozens of businesses rather than three.
         maxSlots: Q.NIGHTLY_SLOTS, signature,
+        refilledMarkets: _refilledMarkets,
         // Shared across the roster — see loadProgramBrandTally.
         programBrandTally,
         onProgress: (m) => console.log('[queue] ' + m),

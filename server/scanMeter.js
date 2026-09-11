@@ -19,7 +19,9 @@ function current() {
 
 // Run fn inside a fresh meter context. Returns { result, meter }.
 async function run(fn) {
-  const meter = { webSearches: 0, aiCalls: 0, cacheHits: 0, cacheMisses: 0, cacheWrites: 0, cacheWriteFails: 0 };
+  // placesCalls: Google Places requests. Never counted before, so a cold
+  // market build was invisible on the COST line and to the nightly cap.
+  const meter = { webSearches: 0, aiCalls: 0, placesCalls: 0, cacheHits: 0, cacheMisses: 0, cacheWrites: 0, cacheWriteFails: 0 };
   const result = await als.run(meter, fn);
   return { result, meter };
 }
@@ -38,4 +40,5 @@ module.exports = {
   bumpMiss: (n) => _bump('cacheMisses', n),
   bumpWrite: (n) => _bump('cacheWrites', n),
   bumpWriteFail: (n) => _bump('cacheWriteFails', n),
+  bumpPlaces: (n) => _bump('placesCalls', n),
 };

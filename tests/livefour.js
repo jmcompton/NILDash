@@ -193,9 +193,15 @@ async function main() {
 
     // ── CAUSE B: THE WIDEN THREW ITS RESULTS AWAY ──────────────────────────
     const job = fs.readFileSync(ROOT + 'server/jobs/outreachQueue.js', 'utf8');
+    // The call moved inside discover(), which runs it under the scan meter and
+    // books it to the discovery pot. The property this guards is unchanged:
+    // the widen's return value is CAPTURED, and the thing that captures it
+    // actually hands the recommendations back.
     ok('THE WIDEN KEEPS WHAT IT FOUND',
-      /const widened = await ai\.getDealRecommendations\(athObj, 'agent', \[\], 'local', \{ deepen: true \}\)/
-        .test(job), null);
+      /const widened = await discover\('widen', [0-9.]+, \{ deepen: true \}\)/.test(job), null);
+    ok('  through a metered call that returns the result rather than swallowing it',
+      /const \{ result, meter \} = await scanMeter\.run\(\(\) =>\s*ai\.getDealRecommendations\(athObj, 'agent', \[\], 'local', opts\)\)/.test(job)
+      && /return Array\.isArray\(result\) \? result : \[\];/.test(job), null);
     ok('  and records it in the pool the Scout reads',
       /store\.markMarketNewcomers\(profile\.marketKey, brands\)/.test(job), null);
     ok('  before re-assembling the slate',

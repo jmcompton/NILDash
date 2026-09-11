@@ -630,9 +630,12 @@ function slotsToFill(rows) {
 
 // The cap, as an object rather than a number, so "can I afford this" is asked
 // BEFORE the money is spent rather than discovered after.
-function newBudget(capUsd) {
+function newBudget(capUsd, discoveryCapUsd) {
   const cap = typeof capUsd === 'number' ? capUsd : DEFAULT_AGENT_NIGHTLY_USD;
   let used = 0;
+  // The discovery pot, sized separately (see DISCOVERY_CAP_USD).
+  const discoveryCap = typeof discoveryCapUsd === 'number' ? discoveryCapUsd : DISCOVERY_CAP_USD;
+  let discoveryUsed = 0;
   // Per-athlete share, so the ordering of the roster stops deciding who eats.
   let share = Infinity;
   let sharedUsed = 0;
@@ -669,6 +672,17 @@ function newBudget(capUsd) {
     // money is left over, the last athlete should be allowed to use it rather
     // than leave it unspent on principle.
     canSpendFromPot: (amount) => used + (amount || 0) <= cap + 1e-9,
+
+    // ── DISCOVERY IS A SEPARATE POT ──────────────────────────────────────────
+    // Cold-market scans and widens come out of DISCOVERY_CAP_USD, not the
+    // lookup cap and not the athlete's share. Finding businesses must never
+    // compete with reaching the ones already found -- and a widen that quietly
+    // ate the share was how one athlete's thin market emptied the next one's
+    // morning. Booked, so it is on the run row and the shift report.
+    discoveryCap: () => discoveryCap,
+    discoverySpent: () => discoveryUsed,
+    canSpendDiscovery: (amount) => discoveryUsed + (amount || 0) <= discoveryCap + 1e-9,
+    spendDiscovery: (amount) => { discoveryUsed += (amount || 0); return discoveryUsed; },
   };
   return b;
 }
@@ -688,12 +702,77 @@ function newBudget(capUsd) {
 // slightly high rather than slightly low.
 const USD_PER_WEB_SEARCH = 0.01;
 const USD_PER_AI_CALL = 0.003;
+// Google Places Nearby Search, list price. Places was never metered anywhere --
+// not on the Deal Scan COST line, not against the nightly cap -- so a cold
+// market build (1 geocode + 8 types x up to 3 pages) was invisible money. It
+// is now a named rate on the meter, so it appears on the log line and is
+// booked against the discovery ceiling like the searches are.
+const USD_PER_PLACES_REQUEST = parseFloat(process.env.USD_PER_PLACES_REQUEST) || 0.032;
 
 function priceOf(meter) {
   if (!meter) return 0;
   const web = Number(meter.webSearches) || 0;
   const ai = Number(meter.aiCalls) || 0;
-  return Math.round((web * USD_PER_WEB_SEARCH + ai * USD_PER_AI_CALL) * 10000) / 10000;
+  const places = Number(meter.placesCalls) || 0;
+  return Math.round((web * USD_PER_WEB_SEARCH + ai * USD_PER_AI_CALL + places * USD_PER_PLACES_REQUEST) * 10000) / 10000;
+}
+
+// ── FIVE EVERY MORNING, AND WHEN TO STOP TRYING ──────────────────────────────
+//
+// The fill used to draw open slots x 3 candidates and stop; if none passed the
+// bar the athlete got nothing. It now keeps drawing until every open slot is
+// filled -- more candidates, a market refill, a widen -- with two stops besides
+// the money:
+//
+//   THE RATE FLOOR. A thin market and a worked-out market are indistinguishable
+//   to a loop whose only stop is money, and the loop pays full price to not tell
+//   them apart. So the running pass rate over the last RATE_WINDOW real attempts
+//   is watched: below RATE_FLOOR, stop grinding this pool. Widen once, then if
+//   the rate is still under the floor, stop for the night and say why.
+//
+//   THE HONEST STOP. When the pool is drawn and the widens are used, the athlete's
+//   note is a sentence with counts -- how many tried this week, how many were
+//   reachable, how many widens -- and what to do next. Not "none passed the bar".
+//
+// The three-nights-then-pause backoff stays as the outer stop, unchanged.
+const RATE_FLOOR = 1 / 8;
+const RATE_WINDOW = 8;
+// A separate pot for DISCOVERY -- cold-market scans and widens -- so finding
+// businesses never competes with reaching them. Per agent per night, alongside
+// the $8 lookup cap, not inside it.
+const DISCOVERY_CAP_USD = parseFloat(process.env.OUTREACH_QUEUE_DISCOVERY_USD) || 2.00;
+
+// Only attempts that SAY SOMETHING ABOUT THE MARKET count toward the rate. A
+// routing skip (no lane, program cap, brand cap) costs nothing and reveals
+// nothing about whether businesses here can be reached; a lookup that threw is
+// our fault. Those are ignored, so the floor measures the pool, not the plumbing.
+const RATE_RESULTS = new Set(['queued', 'rejected', 'no_angle', 'prescreen_skip']);
+function passRateStop(tried, opts = {}) {
+  const floor = opts.floor == null ? RATE_FLOOR : opts.floor;
+  const window = opts.window || RATE_WINDOW;
+  const real = (tried || []).filter((t) => t && !t.fault && RATE_RESULTS.has(t.result)
+    && !/already holding|no lane recorded|already has .* program application/.test(t.reason || ''));
+  if (real.length < window) return { stop: false, rate: null, passes: null, window, seen: real.length };
+  const last = real.slice(-window);
+  const passes = last.filter((t) => t.result === 'queued').length;
+  const rate = passes / window;
+  return { stop: rate < floor, rate, passes, window, seen: real.length };
+}
+
+// The sentence an agent reads on an empty tab when a market is genuinely worked
+// out. Counts, a place, and a next step -- because "none passed the bar" tells
+// them nothing they can act on.
+function workedOutNote({ athleteName, market, triedWeek, reachableWeek, widenedWeek, filled, wanted } = {}) {
+  const who = athleteName || 'this athlete';
+  const where = market ? `${market} is worked out for ${who}` : `${who}'s local market is worked out`;
+  const tried = Number(triedWeek) || 0, reach = Number(reachableWeek) || 0, wid = Number(widenedWeek) || 0;
+  const parts = [`${where}: ${tried} business${tried === 1 ? '' : 'es'} tried this week`];
+  parts.push(reach ? `${reach} reachable, all pitched` : 'none reachable');
+  if (wid) parts.push(`widened ${wid} time${wid === 1 ? '' : 's'}`);
+  const got = Number(filled) || 0, want = Number(wanted) || 0;
+  const tonight = want ? (got ? ` ${got} of ${want} slots filled tonight.` : ` Nothing new tonight.`) : '';
+  return parts.join(', ') + '.' + tonight
+    + ' Next: add a hometown, or a brand they already know, and the night has somewhere new to look.';
 }
 
 // Roll a night's lookups into the per-athlete figure the audit asked for.
@@ -763,7 +842,8 @@ function waitingOnYou(rows, nowMs) {
 module.exports = {
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
   inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor,
-  priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL,
+  priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,
+  passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,
   waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf,
