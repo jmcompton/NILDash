@@ -6,7 +6,7 @@ const { MARKET_RATES, DEAL_COMPS, BRAND_WINDOWS, nilViewVal } = require('./bench
 const store = require('./store');
 const { getSeeds } = require('./dealScanSeeds');
 const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
-const { canonicalRegion } = require('./services/regionKey');
+const { canonicalRegion, marketPoolKey } = require('./services/regionKey');
 const scanMeter = require('./scanMeter');
 const { lookupPlace } = require('./services/placesLookup');
 const { buildMarketPoolFromPlaces } = require('./services/placesMarket');
@@ -3573,6 +3573,16 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       const _src = placesSchoolUsed ? 'Places (no web passes needed)' : 'market cache';
       console.log(`[dealScan] phase 1 served from ${_src}: ${found.length} candidates (${found.filter(f => f.market === 'hometown').length} hometown) in ${Date.now() - _t0}ms`);
     }
+
+    // ── RECORD THE WHOLE POOL, HERE, BEFORE PAGING ─────────────────────────
+    // Whatever built `found` -- Places above, the web passes, or a cache hit in
+    // the else branch -- this is the one point where the full pool exists and
+    // nothing has been paged off it yet. Until now the only ordinary-scan
+    // writer of market_business_seen was the route, recording the ten it had
+    // just shown: Fayetteville had 241 in the pool and 20 in the table, and
+    // the nightly local lane reads the table. Every athlete there exhausted at
+    // twenty. Keyed by town via marketPoolKey, same as the slate reads.
+    await store.recordMarketPool(found, { schoolMarket, hometown: hasHometown ? hometown : null });
 
     // #1: ONE unambiguous pool-size line on EVERY local scan (cold build, warm
     // cache, or Places), so "did the pool actually build for this market" is never

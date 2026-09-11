@@ -584,6 +584,11 @@
       "total": 27,
       "fault": null
     },
+    "poolrecord.js": {
+      "failed": 0,
+      "total": 18,
+      "fault": null
+    },
     "prewarm.js": {
       "failed": 0,
       "total": 78,

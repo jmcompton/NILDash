@@ -4024,6 +4024,46 @@ async function markMarketNewcomers(marketKey, brands) {
   return out;
 }
 
+// ── THE WHOLE POOL, NOT THE PAGE ─────────────────────────────────────────────
+//
+// market_business_seen had 20 rows under "fayetteville, ar" while the scan
+// had found 241. The only ordinary-scan writer was the Deal Scan ROUTE, which
+// recorded `recommendations` -- the ten businesses it had just paged to the
+// agent -- so two scans left twenty rows and the other 221 sat in
+// deal_scan_market_cache, which the local lane never reads. Every athlete in
+// that market "exhausted" after those twenty were worked.
+//
+// This records the pool at the moment it exists, from whichever source built
+// it (Places, web search, or a cache hit), keyed by the TOWN each business
+// belongs to: school-market candidates under the school town, hometown
+// candidates under the hometown. Same key derivation the widen path and the
+// slate use, so the three cannot disagree. markMarketNewcomers does the
+// placeholder filtering and the idempotent upsert; this only routes the pool
+// to the right keys. Never throws: a pool that could not be recorded is logged,
+// and the scan that produced it still returns.
+async function recordMarketPool(found, { schoolMarket, hometown } = {}) {
+  const out = { schoolKey: null, hometownKey: null, school: 0, hometown: 0 };
+  try {
+    const { marketPoolKey } = require('./services/regionKey');
+    const list = Array.isArray(found) ? found : [];
+    const nameOf = (f) => (f && (f.name || f.brand)) ? String(f.name || f.brand).trim() : null;
+    const school = list.filter((f) => f && f.market !== 'hometown').map(nameOf).filter(Boolean);
+    const home = list.filter((f) => f && f.market === 'hometown').map(nameOf).filter(Boolean);
+
+    const sk = schoolMarket ? marketPoolKey(schoolMarket) : null;
+    if (sk && school.length) { await markMarketNewcomers(sk, school); out.schoolKey = sk; out.school = school.length; }
+    const hk = hometown ? marketPoolKey(hometown) : null;
+    if (hk && home.length) { await markMarketNewcomers(hk, home); out.hometownKey = hk; out.hometown = home.length; }
+    if (out.school || out.hometown) {
+      console.log(`[market-seen] recorded pool: ${out.school} under ${JSON.stringify(out.schoolKey)}`
+        + (out.hometown ? `, ${out.hometown} under ${JSON.stringify(out.hometownKey)}` : ''));
+    }
+  } catch (e) {
+    console.error('[market-seen] recordMarketPool failed:', e.message);
+  }
+  return out;
+}
+
 // ── Social lane brand index ──────────────────────────────────────────────────
 // Decorate a raw social_brands row with the deterministic, NO-AI fields the
 // Social Deal Scan lane needs: proofAge (whole months since proof_date),
@@ -4241,6 +4281,7 @@ async function getSocialDepth(athlete) {
 }
 
 module.exports = {
+  recordMarketPool,
   getUser, getUserWithPassword, getUserByEmail, getUserByEmailWithPassword, saveUser, getAllUsers, normEmail,
   getUserByStripeCustomer, getReferralPartner, buildCommissionRow, recordReferralCommission, aggregateReferrals, recordReferralForInvoice,
   getAthlete, getAthletesByAgent, saveAthlete, deleteAthlete,
