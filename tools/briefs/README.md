@@ -57,7 +57,9 @@ It prints, in order: what osascript returned (length and the first 300 character
 - **Mailboxes listed but your Sent folder shows as `ignored`** means it has a name the script does not recognise. Send me the name.
 - **Sent shows a count but the brief says 0 threads** means every recipient was one of your own addresses; check `myAddresses`.
 
-`mailAccounts: []` in the config means every account Mail has, which is what you want. Set it only to restrict to some accounts, using the names exactly as the debug output prints them.
+**Which accounts are read.** An account is read only if one of its addresses is in `myAddresses`, or its name is in `mailAccounts`. Every other account on the Mac is listed as `SKIPPED` with the reason and is never walked, so someone else's account on a shared machine is never opened. With both lists empty nothing is read at all, and the brief says so. `mailAccounts: []` is fine as long as `myAddresses` holds every address you send from; use `mailAccounts` only for an account whose addresses Mail does not report, using the name exactly as the debug output prints it.
+
+Each mailbox line in the debug output reads `<total> total, <n> in window, <n> read, newest <date>`. If `total` is right but `in window` is 0, the date filter is wrong and `newest` shows why; if `total` is 0 on a mailbox you know is full, Mail is not handing the messages over, which is the Automation permission.
 
 `BRIEFS_DEBUG=1` on any of the three scripts turns the same output on inside a normal run.
 

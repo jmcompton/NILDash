@@ -5,7 +5,7 @@
 // Mac, so this reads them there: no passwords, no OAuth, no IMAP. It runs a
 // JXA script through osascript and returns plain objects.
 //
-//   dumpMail({ accounts: [], lookbackDays: 60, debug: false, fresh: false })
+//   dumpMail({ accounts: [], myAddresses: [], lookbackDays: 60, debug: false, fresh: false })
 //     -> { sent: [...], received: [...], accounts: [...], mailboxes: [...], warnings: [...] }
 //
 // A message is { account, mailbox, id, subject, date (ISO), from, to: [],
@@ -33,7 +33,7 @@ const path = require('path');
 const { DIRS, today, log } = require('./lib');
 
 function buildScript(opts) {
-  const conf = JSON.stringify({ accounts: opts.accounts || [], lookbackDays: opts.lookbackDays || 60, withContent: opts.withContent !== false });
+  const conf = JSON.stringify({ accounts: opts.accounts || [], myAddresses: (opts.myAddresses || []).map((a) => String(a).toLowerCase()), lookbackDays: opts.lookbackDays || 60, withContent: opts.withContent !== false });
   return `
 var OPTS = ${conf};
 function run() {
@@ -53,47 +53,55 @@ function run() {
       if (depth < 2) { try { walk(mb.mailboxes(), depth + 1, cb); } catch (e) {} }
     }
   }
-  function toRec(m, account, name, kind, withContent) {
-    var rec = {
-      account: account, mailbox: name, kind: kind,
-      id: '', subject: '', date: null, from: '', to: [], cc: []
-    };
-    try { rec.id = String(m.messageId()); } catch (e) {}
-    try { rec.subject = String(m.subject() || ''); } catch (e) {}
-    try { rec.date = new Date(m.dateSent()).toISOString(); } catch (e) {}
-    try { rec.from = String(m.sender() || ''); } catch (e) {}
-    try { rec.to = m.toRecipients.address(); } catch (e) {}
-    try { rec.cc = m.ccRecipients.address(); } catch (e) {}
-    if (withContent) { try { rec.content = String(m.content() || '').slice(0, 1500); } catch (e) { rec.content = ''; } }
-    return rec;
-  }
   function pull(mb, name, account, kind, after, withContent) {
-    var entry = { account: account, mailbox: name, kind: kind, count: 0, method: '', note: '' };
+    var entry = { account: account, mailbox: name, kind: kind, total: null, inWindow: 0, count: 0, newest: null, method: 'bulk', note: '' };
     out.mailboxes.push(entry);
     var cap = 3000;
-    var list = null;
-    try {
-      list = mb.messages.whose({ dateSent: { _greaterThan: after } })();
-      entry.method = 'whose';
-    } catch (e) {
-      entry.note = 'whose() failed (' + e.message + '), scanning from the newest';
-      list = [];
-      try {
-        var n = mb.messages.length;
-        var stale = 0;
-        for (var i = n - 1; i >= 0 && list.length < cap && stale < 50; i--) {
-          var m = mb.messages[i];
-          var d = null;
-          try { d = new Date(m.dateSent()); } catch (e2) { continue; }
-          if (d > after) { list.push(m); stale = 0; } else { stale++; }
-        }
-        entry.method = 'scan';
-      } catch (e3) { out.warnings.push(account + '/' + name + ': ' + e3.message); return; }
+    // ONE APPLE EVENT PER PROPERTY, NOT ONE PER MESSAGE. whose({dateSent:
+    // {_greaterThan: d}}) returns an EMPTY list on Mail without throwing,
+    // which is how every mailbox read "0 via whose" while the classification
+    // was right. Bulk property reads are the reliable JXA path: the dates for
+    // the whole mailbox come back as one array, the filter is done here, and
+    // only the messages inside the window are touched individually.
+    var dates, subjects, senders, ids;
+    try { dates = mb.messages.dateSent(); } catch (e) { entry.note = 'dateSent() bulk read failed: ' + e.message; out.warnings.push(account + '/' + name + ': ' + entry.note); return; }
+    entry.total = dates.length;
+    var idx = [];
+    for (var i = 0; i < dates.length; i++) {
+      var d = dates[i];
+      if (!d) continue;
+      if (!(d instanceof Date)) { try { d = new Date(d); } catch (e) { continue; } }
+      if (isNaN(d.getTime())) continue;
+      if (!entry.newest || d > entry.newest) entry.newest = d;
+      if (d > after) idx.push(i);
     }
-    if (list.length > cap) { out.warnings.push(account + '/' + name + ': ' + list.length + ' messages, reading the newest ' + cap); list = list.slice(list.length - cap); }
-    for (var j = 0; j < list.length; j++) {
-      var rec = toRec(list[j], account, name, kind, withContent);
-      if (!rec.date) continue;
+    entry.newest = entry.newest ? entry.newest.toISOString() : null;
+    entry.inWindow = idx.length;
+    // Newest first, then the cap.
+    idx.sort(function (x, y) { return dates[y] - dates[x]; });
+    if (idx.length > cap) { out.warnings.push(account + '/' + name + ': ' + idx.length + ' messages in the window, reading the newest ' + cap); idx = idx.slice(0, cap); }
+    if (!idx.length) return;
+    try { subjects = mb.messages.subject(); } catch (e) { subjects = null; }
+    try { senders = mb.messages.sender(); } catch (e) { senders = null; }
+    try { ids = mb.messages.messageId(); } catch (e) { ids = null; }
+    for (var j = 0; j < idx.length; j++) {
+      var k = idx[j];
+      var rec = { account: account, mailbox: name, kind: kind,
+        id: ids ? String(ids[k] || '') : '', subject: subjects ? String(subjects[k] || '') : '',
+        date: new Date(dates[k]).toISOString(), from: senders ? String(senders[k] || '') : '', to: [], cc: [] };
+      // Recipients and content are per message, and only for the window.
+      // A received message needs neither: sender and subject are enough to
+      // say "they answered", and a mailbox of thousands must not cost
+      // thousands of events.
+      if (kind === 'sent') {
+        var m = null;
+        try { m = mb.messages[k]; } catch (e) {}
+        if (m) {
+          try { rec.to = m.toRecipients.address(); } catch (e) {}
+          try { rec.cc = m.ccRecipients.address(); } catch (e) {}
+          if (withContent) { try { rec.content = String(m.content() || '').slice(0, 1500); } catch (e) { rec.content = ''; } }
+        }
+      }
       (kind === 'sent' ? out.sent : out.received).push(rec);
       entry.count++;
     }
@@ -107,9 +115,18 @@ function run() {
     try { addrs = acct.emailAddresses(); } catch (e) {}
     var enabled = null;
     try { enabled = acct.enabled(); } catch (e) {}
-    var skipped = want.length && want.indexOf(aname.toLowerCase()) === -1;
-    out.accounts.push({ name: aname, addresses: addrs, enabled: enabled, skipped: !!skipped });
-    if (skipped) continue;
+    // ── ONLY MY OWN ACCOUNTS ARE READ ────────────────────────────────────
+    // An account is read when one of its addresses is in myAddresses, or it
+    // is named in mailAccounts. Anything else on this Mac (a family member's
+    // account, a shared machine) is listed as skipped and never walked. With
+    // both lists empty nothing is read at all, and the warning says why.
+    var lower = addrs.map(function (x) { return String(x).toLowerCase(); });
+    var named = want.indexOf(aname.toLowerCase()) !== -1;
+    var mine = lower.some(function (x) { return OPTS.myAddresses.indexOf(x) !== -1; });
+    var why = named ? 'named in mailAccounts' : (mine ? 'address is in myAddresses' : (OPTS.myAddresses.length || want.length ? 'none of its addresses are in myAddresses and it is not named in mailAccounts' : 'myAddresses and mailAccounts are both empty; nothing is read until one names it'));
+    var skipped = !(named || mine);
+    out.accounts.push({ name: aname, addresses: addrs, enabled: enabled, skipped: skipped, why: why });
+    if (skipped) { if (!OPTS.myAddresses.length && !want.length) out.warnings.push(aname + ': skipped, ' + why); continue; }
     var boxes;
     try { boxes = acct.mailboxes(); } catch (e) { out.warnings.push(aname + ': no mailboxes readable (' + e.message + ')'); continue; }
     walk(boxes, 0, function (mb, name) {
@@ -154,9 +171,9 @@ function dumpMail(opts = {}) {
   }
   if (debug) {
     console.log(`[mail-dump] accounts (${data.accounts.length}):`);
-    for (const a of data.accounts) console.log(`   ${a.skipped ? 'SKIPPED' : 'read   '}  ${JSON.stringify(a.name)}  enabled=${a.enabled}  addresses=${JSON.stringify(a.addresses)}`);
+    for (const a of data.accounts) console.log(`   ${a.skipped ? 'SKIPPED' : 'read   '}  ${JSON.stringify(a.name)}  enabled=${a.enabled}  addresses=${JSON.stringify(a.addresses)}  (${a.why})`);
     console.log(`[mail-dump] mailboxes walked (${data.mailboxes.length}):`);
-    for (const m of data.mailboxes) console.log(`   ${m.kind.padEnd(8)} ${(m.account + ' / ' + m.mailbox).padEnd(44)} ${m.count === null ? '' : m.count + ' message(s) via ' + m.method}${m.note ? '  ' + m.note : ''}`);
+    for (const m of data.mailboxes) console.log(`   ${m.kind.padEnd(8)} ${(m.account + ' / ' + m.mailbox).padEnd(44)} ${m.count === null ? '' : `${m.total} total, ${m.inWindow} in window, ${m.count} read, newest ${m.newest ? m.newest.slice(0, 10) : 'none'}`}${m.note ? '  ' + m.note : ''}`);
     console.log(`[mail-dump] sent=${data.sent.length} received=${data.received.length} warnings=${data.warnings.length}`);
     for (const w of data.warnings) console.log('   ! ' + w);
     if (data.sent.length) console.log(`[mail-dump] newest sent: ${data.sent.map((m) => m.date).sort().pop()}  oldest sent: ${data.sent.map((m) => m.date).sort()[0]}`);
@@ -181,7 +198,7 @@ if (require.main === module) {
   const argv = process.argv.slice(2);
   const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
   const accounts = argv.includes('--account') ? [val('--account')] : cfg.mailAccounts;
-  const data = dumpMail({ accounts, lookbackDays: parseInt(val('--days', cfg.lookbackDays), 10) || 60, debug: true, fresh: true });
+  const data = dumpMail({ accounts, myAddresses: cfg.myAddresses, lookbackDays: parseInt(val('--days', cfg.lookbackDays), 10) || 60, debug: true, fresh: true });
   if (!data.sent.length) {
     console.log('\nZERO SENT MESSAGES. Read the mailbox list above: if no line says "sent", the Sent mailbox has a name this script did not recognise;'
       + ' tell me the name and it goes in the list. If accounts are listed but no mailboxes, Mail has not been granted Automation access to this terminal.');
