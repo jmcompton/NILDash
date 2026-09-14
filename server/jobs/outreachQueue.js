@@ -1048,6 +1048,7 @@ async function fillAthlete(pool, ctx) {
         if (ppitch && ppitch.skipped) {
           say(`${cand.brand_name}: nothing worth pitching — ${ppitch.reason}`);
           tried.push({ brand: cand.brand_name, result: 'no_angle', reason: ppitch.reason,
+            writerRetried: !!ppitch.retried, writerFirstProblems: ppitch.firstProblems || null,
             lane: cand.lane, places: { found: false }, risk: 'normal' });
           continue;
         }
@@ -1056,6 +1057,7 @@ async function fillAthlete(pool, ctx) {
         if (ppitch && ppitch.message) ppitch.message = SIG.appendText(ppitch.message, signature);
         const pcard = Q.buildProgramCard(cand, ppitch, athleteName, pig);
         tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
+          writerRetried: !!(ppitch && ppitch.retried), writerFirstProblems: (ppitch && ppitch.firstProblems) || null,
           lane: cand.lane, channel: pcard.channel, places: { found: false }, risk: 'normal' });
         pcard.lane = cand.lane;
         pcard.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
@@ -1280,11 +1282,21 @@ async function fillAthlete(pool, ctx) {
         say(`${cand.brand_name}: writer failed (${e.message}), using the plain fallback`);
         pitch = null;
       }
+      // The 'queued' attempt above was written before the writer ran; mark it
+      // with whether the writer needed its second call.
+      {
+        const _te = tried[tried.length - 1];
+        if (_te && _te.brand === cand.brand_name && _te.result === 'queued') {
+          _te.writerRetried = !!(pitch && pitch.retried);
+          _te.writerFirstProblems = (pitch && pitch.firstProblems) || null;
+        }
+      }
       if (pitch && pitch.skipped) {
         // A REFUSAL IS A RESULT. Recorded with its reason so "wrote two, both
         // strong" is a claim the log can back up.
         say(`${cand.brand_name}: nothing worth pitching — ${pitch.reason}`);
-        tried.push({ brand: cand.brand_name, result: 'no_angle', reason: pitch.reason, places: facts, risk: pre.risk });
+        tried.push({ brand: cand.brand_name, result: 'no_angle', reason: pitch.reason, places: facts, risk: pre.risk,
+          writerRetried: !!pitch.retried, writerFirstProblems: pitch.firstProblems || null });
         continue;
       }
 

@@ -19,7 +19,7 @@
 
 const crypto = require('crypto');
 const { pool } = require('../store');
-const { oneShot, oneShotWebSearch, getBrandContacts, deepContactCtx } = require('../ai');
+const { oneShot, oneShotWebSearch, getBrandContacts, deepContactCtx, MODEL_FAST } = require('../ai');
 
 // A generic mailbox local-part must never be presented as a named person's
 // address (mirror of the shared rule in ai.js). Used to purge stale cache rows
@@ -276,13 +276,13 @@ Always return at least one contact, and the top contact's email must be filled w
 
   let raw;
   try {
-    raw = await oneShotWebSearch(prompt, system, 3000, 4, 'claude-sonnet-4-6');
+    raw = await oneShotWebSearch(prompt, system, 3000, 4, MODEL_FAST);
   } catch (e) {
     console.error('[contactDiscovery] web search failed, falling back to model knowledge:', e.message);
     try {
-      // Pin the fallback to Sonnet 4.6 so a failed web search does not silently
-      // upgrade this call to the Opus default.
-      raw = await oneShot(prompt, system, 2500, 'claude-sonnet-4-6');
+      // Pinned to the fast model, same as the search above: this is extraction,
+      // and a failed web search must not silently upgrade the call to the default.
+      raw = await oneShot(prompt, system, 2500, MODEL_FAST);
     } catch (e2) {
       console.error('[contactDiscovery] AI call failed:', e2.message);
       return buildFallbackContacts(brand);

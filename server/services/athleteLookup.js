@@ -24,6 +24,14 @@ const { getRoster, resolveESPNSportPath } = require('./university/ESPNRosterServ
 
 // ── Sports ESPN API actually supports (verified 2025) ──────────────────────
 // Other sports (softball, soccer, lacrosse, track, etc.) return 404 from ESPN.
+// ── THE LOOKUP MODEL ─────────────────────────────────────────────────────────
+// Extraction: read a roster or a recruiting page the search returned and copy
+// the fields off it. The same job the contact ladder's sources do on Haiku,
+// and it ran on Sonnet only because it was written before the ladder was.
+// Overridable without a deploy so a bad night can be pinned back.
+const LOOKUP_MODEL = process.env.LOOKUP_MODEL || 'claude-haiku-4-5-20251001';
+const Ledger = require('./aiLedger');
+
 const ESPN_SUPPORTED_SPORTS = new Set([
   'football',
   "men's basketball",
@@ -311,8 +319,9 @@ RULES:
 - confidenceScore: 85-100 if confirmed on ESPN/official site, 60-84 if found on recruiting site, 40-59 if limited info, below 40 if very uncertain`;
 
   try {
+    const _t0 = Date.now();
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: LOOKUP_MODEL,
       max_tokens: 1500,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       system: `You are an athlete data lookup assistant. Search for real, verified information about college athletes.
@@ -321,6 +330,8 @@ Prefer ESPN, 247Sports, On3, Rivals, and official school athletic department web
       messages: [{ role: 'user', content: userPrompt }],
     });
 
+    // This client bypasses ai.js, so the ledger row is written here.
+    Ledger.record(response, { model: LOOKUP_MODEL, ms: Date.now() - _t0, ctx: { site: 'lookup.college' } });
     // Extract text from all text-type content blocks
     const textContent = response.content
       .filter(b => b.type === 'text')
@@ -415,8 +426,9 @@ RULES:
 - confidenceScore: 85-100 if confirmed on a league or team site, 60-84 if found on ESPN or a major outlet, 40-59 if limited info, below 40 if very uncertain`;
 
   try {
+    const _t0 = Date.now();
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: LOOKUP_MODEL,
       max_tokens: 1500,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       system: `You are an athlete data lookup assistant. Search for real, verified information about professional athletes.
@@ -424,6 +436,7 @@ Only return information confirmed by actual search results. Never hallucinate at
 Prefer NFL.com, NBA.com, WNBA.com, MLB.com, NHL.com, MLSsoccer.com, official team sites and ESPN as sources.`,
       messages: [{ role: 'user', content: userPrompt }],
     });
+    Ledger.record(response, { model: LOOKUP_MODEL, ms: Date.now() - _t0, ctx: { site: 'lookup.pro' } });
     const textContent = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
     if (!textContent) return null;
     const jsonMatch = textContent.match(/\{[\s\S]*\}/);

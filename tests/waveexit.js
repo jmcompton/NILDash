@@ -52,8 +52,11 @@ function liftFn(src, sig) {
 }
 
 // ── the shipped pieces ───────────────────────────────────────────────────────
-const runSourceWaves = new Function('console',
-  liftFn(AI, 'async function runSourceWaves(') + '\n return runSourceWaves;')({ log() {} });
+// scanMeter is handed in because the lifted function labels each source for
+// the call ledger (scanMeter.label); the real module is fine here, it only
+// tags an AsyncLocalStorage context.
+const runSourceWaves = new Function('console', 'scanMeter',
+  liftFn(AI, 'async function runSourceWaves(') + '\n return runSourceWaves;')({ log() {} }, require(REPO + 'server/scanMeter.js'));
 // Both lifted functions delegate to services/contactRank now, so the binding
 // their module scope has must be handed in.
 const _CR = require(R + 'server/services/contactRank');

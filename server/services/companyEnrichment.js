@@ -15,7 +15,7 @@
 
 const crypto = require('crypto');
 const { pool } = require('../store');
-const { oneShot, oneShotWebSearch } = require('../ai');
+const { oneShot, oneShotWebSearch, MODEL_FAST } = require('../ai');
 
 const CACHE_TTL_DAYS = 7;
 
@@ -152,13 +152,13 @@ CRITICAL:
 
   let raw;
   try {
-    raw = await oneShotWebSearch(researchPrompt, researchSystem, 2500, 3, 'claude-sonnet-4-6');
+    raw = await oneShotWebSearch(researchPrompt, researchSystem, 2500, 3, MODEL_FAST);
   } catch (e) {
     console.error('[companyEnrichment] web search failed, falling back to model knowledge:', e.message);
     try {
-      // Pin the fallback to Sonnet 4.6 so a failed web search does not silently
-      // upgrade this call to the Opus default.
-      raw = await oneShot(prompt, system, 2000, 'claude-sonnet-4-6');
+      // Pinned to the fast model, same as the search above: this is extraction,
+      // and a failed web search must not silently upgrade the call to the default.
+      raw = await oneShot(prompt, system, 2000, MODEL_FAST);
     } catch (e2) {
       console.error('[companyEnrichment] AI call failed:', e2.message);
       return buildFallback(brandName);

@@ -139,6 +139,37 @@ async function main() {
   ok('  connects through server/store and starts with exit code 1', /require\('\.\.\/server\/store'\)/.test(sc) && /process\.exitCode = 1/.test(sc));
   ok('the table is created at init', /CREATE TABLE IF NOT EXISTS ai_call_ledger/.test(src('server/store.js')));
 
+  // ── 5. EXTRACTION RUNS ON THE FAST MODEL; THE WRITER DOES NOT ─────────────
+  OUT.push('', '-- contact discovery, company enrichment and the lookup are on Haiku; the writer stays on Sonnet --');
+  const cd = src('server/services/contactDiscovery.js'), ce = src('server/services/companyEnrichment.js'), al = src('server/services/athleteLookup.js');
+  ok('contact discovery: both the search and the fallback are on MODEL_FAST', /oneShotWebSearch\(prompt, system, 3000, 4, MODEL_FAST\)/.test(cd) && /oneShot\(prompt, system, 2500, MODEL_FAST\)/.test(cd) && !/sonnet/.test(cd));
+  ok('company enrichment: both on MODEL_FAST', /oneShotWebSearch\(researchPrompt, researchSystem, 2500, 3, MODEL_FAST\)/.test(ce) && /oneShot\(prompt, system, 2000, MODEL_FAST\)/.test(ce) && !/sonnet/.test(ce));
+  ok('the athlete lookup: both stages on the Haiku default, overridable by env', /const LOOKUP_MODEL = process\.env\.LOOKUP_MODEL \|\| 'claude-haiku-4-5-20251001';/.test(al) && (al.match(/model: LOOKUP_MODEL,\s*max_tokens/g) || []).length === 2 && !/model: 'claude-sonnet/.test(al));
+  ok('  and its direct client calls are on the ledger too', /site: 'lookup\.college'/.test(al) && /site: 'lookup\.pro'/.test(al));
+  const jobSrc = src('server/jobs/outreachQueue.js');
+  ok('THE WRITER IS UNTOUCHED: still MODEL_GEN at both sites', (jobSrc.match(/ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN\)/g) || []).length === 2 && /const MODEL_GEN = MODEL_BALANCED;/.test(aiSrc) && /const MODEL_BALANCED = 'claude-sonnet-4-6';/.test(aiSrc));
+
+  // ── 6. THE WRITER RETRY IS COUNTED ───────────────────────────────────────
+  OUT.push('', '-- a lint refusal is recorded, so how often the second call fires is a count --');
+  const PW = require(REPO + 'server/services/pitchWriter.js');
+  const calls = [];
+  const bad = '{"angle":"a","angleKey":"a","ask":"b","confidence":"strong","message":"I hope this finds you well. Pat Surtain, cornerback for the Denver Broncos, posts training. Would you like to learn more?\\n\\nChad"}';
+  const good = '{"angle":"a","angleKey":"a","ask":"b","confidence":"strong","message":"Pat Surtain, cornerback for the Denver Broncos, is looking at partners in Denver this season. He posts training and game days. He is building out his endorsement partnerships for this year. Would you like to learn more about this endorsement opportunity with Pat?\\n\\nChad"}';
+  const athlete = { name: 'Pat Surtain', athleteType: 'pro', position: 'Cornerback', sport: 'football', team: 'Denver Broncos', city: 'Denver, CO' };
+  const biz = { name: 'Mile High Coffee', category: 'coffee' };
+  const p1 = await PW.writePitch({ athlete, business: biz, agentFirstName: 'Chad', channel: 'email' },
+    { oneShot: async () => { calls.push(1); return calls.length === 1 ? bad : good; } });
+  ok('a first draft that fails the lint is retried once', calls.length === 2 && p1.skipped === false, { calls: calls.length, p1 });
+  ok('  and the result SAYS it was retried, with the first problems', p1.retried === true && Array.isArray(p1.firstProblems) && p1.firstProblems.length > 0, p1.firstProblems);
+  calls.length = 0;
+  const p2 = await PW.writePitch({ athlete, business: biz, agentFirstName: 'Chad', channel: 'email' }, { oneShot: async () => { calls.push(1); return good; } });
+  ok('a clean first draft is one call and says retried: false', calls.length === 1 && p2.retried === false && p2.firstProblems === null, { calls: calls.length, p2 });
+  calls.length = 0;
+  const p3 = await PW.writePitch({ athlete, business: biz, agentFirstName: 'Chad', channel: 'email' }, { oneShot: async () => { calls.push(1); return bad; } });
+  ok('a draft refused twice is skipped, after exactly two calls, and says so', calls.length === 2 && p3.skipped === true && p3.retried === true && /could not write it in voice/.test(p3.reason), { calls: calls.length, p3 });
+  ok('the job records the flag on every attempt that reached the writer', (jobSrc.match(/writerRetried/g) || []).length === 4);
+  ok('  and the breakdown counts it, with the lower bound for nights before the flag', /writer retries: /.test(src('scripts/spend-breakdown.js')) && /refused twice, which is the lower bound/.test(src('scripts/spend-breakdown.js')));
+
   await P().query(`DELETE FROM ai_call_ledger WHERE agent_id LIKE 'ledger-test%' OR site LIKE 'ledger-test%'`);
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));

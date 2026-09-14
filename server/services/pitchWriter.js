@@ -985,7 +985,13 @@ async function writePitch(ctx, opts = {}) {
   // an invented hometown is worse than an em dash, not softer.
   let facts = factsOf(message);
   if (!facts.ok) lint = { ok: false, problems: lint.problems.concat(facts.problems) };
+  // RECORDED, so "how often does the retry fire" is a count and not a guess.
+  // A retry is a second model call on the writer's model; the ledger shows it
+  // as a repeat, the run row carries it on the attempt, and this line says why.
+  let retried = false, firstProblems = null;
   if (!lint.ok) {
+    retried = true; firstProblems = lint.problems.slice();
+    console.log(`[writer] retry for ${(ctx.business && ctx.business.name) || 'business'}: ${lint.problems.join('; ')}`);
     // ONE retry, told exactly what was wrong. Asking again unchanged just spends
     // a second call on the same mistake.
     const j2 = await attempt(`\n\nYour previous attempt was rejected for: ${lint.problems.join('; ')}. `
@@ -1003,15 +1009,18 @@ async function writePitch(ctx, opts = {}) {
   if (!lint.ok) {
     // Twice rejected. NOT sent as-is: a message that breaks the voice rules is
     // the failure this rewrite exists to remove.
-    return { skipped: true, reason: 'could not write it in voice: ' + lint.problems.join('; '), lintFailed: true };
+    return { skipped: true, reason: 'could not write it in voice: ' + lint.problems.join('; '), lintFailed: true,
+      retried, firstProblems };
   }
   if (!facts.ok && (facts = factsOf(message)) && !facts.ok) {
-    return { skipped: true, reason: 'invented a fact about the athlete: ' + facts.problems.join('; '), factsFailed: true };
+    return { skipped: true, reason: 'invented a fact about the athlete: ' + facts.problems.join('; '), factsFailed: true,
+      retried, firstProblems };
   }
 
   const play = playbookFor(ctx.business && ctx.business.category);
   return {
     skipped: false,
+    retried, firstProblems,
     message,
     angle: String(j.angle || '').trim() || null,
     angleKey: String(j.angleKey || play.key).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40),

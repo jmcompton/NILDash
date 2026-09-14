@@ -198,6 +198,23 @@ async function main() {
     }
     console.log(`     ${pad('TOTAL', 26)} ${pad(usd(tot.discovery), 10)} ${pad(usd(tot.instagram), 10)} ${pad(usd(tot.contacts), 10)} ${pad(tot.writer, 13)} ${pad(tot.unmetered, 10)}`);
     console.log(`     writer calls x ~${usd(0.012)}-${usd(0.02)} each on Sonnet (2-3k tokens in, ~400 out) = roughly ${usd(tot.writer * 0.012)} to ${usd(tot.writer * 0.02)} that spent_usd does not contain`);
+
+    // ── THE WRITER RETRY ─────────────────────────────────────────────────
+    // A lint refusal buys a second Sonnet call. Since the flag shipped every
+    // attempt says whether it fired; before that, the only trace is a pitch
+    // refused TWICE (the retry failed too), which is a lower bound.
+    const attempts = det.flatMap((d) => (Array.isArray(d.tried) ? d.tried : []).filter((t) => t.result === 'queued' || t.result === 'no_angle'));
+    const flagged = attempts.filter((t) => typeof t.writerRetried === 'boolean');
+    const retried = flagged.filter((t) => t.writerRetried);
+    const twice = attempts.filter((t) => /could not write it in voice|invented a fact about the athlete/.test(t.reason || ''));
+    if (flagged.length) {
+      console.log(`     writer retries: ${retried.length} of ${flagged.length} writes needed the second call (${Math.round(100 * retried.length / flagged.length)}%), ${twice.length} of those were refused twice`);
+      const why = new Map();
+      for (const t of retried) for (const p of (t.writerFirstProblems || [])) { const k = String(p).replace(/"[^"]*"/g, '"..."').slice(0, 70); why.set(k, (why.get(k) || 0) + 1); }
+      for (const [k, n] of [...why.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)) console.log(`        x${n}  ${k}`);
+    } else {
+      console.log(`     writer retries: not recorded on this run (predates the flag); ${twice.length} of ${attempts.length} writes were refused twice, which is the lower bound on retries`);
+    }
   }
 
   console.log('\nDone.\n');
