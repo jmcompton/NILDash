@@ -71,7 +71,8 @@ async function main() {
   const matches = people.filter((p) => { const hay = `${p.position} ${p.company}`.toLowerCase(); return kw.some((k) => hay.includes(k)); });
 
   // Exclusions: sent mail (address or name) and earlier runs.
-  const mail = dumpMail({ accounts: cfg.mailAccounts, lookbackDays: Math.max(cfg.lookbackDays, 365) });
+  const mail = dumpMail({ accounts: cfg.mailAccounts, lookbackDays: Math.max(cfg.lookbackDays, 365),
+    debug: process.argv.includes('--debug') || !!process.env.BRIEFS_DEBUG });
   if (mail.warnings.length) warnings.push(...mail.warnings.map((w) => 'mail: ' + w));
   const sentAddr = new Set(), sentNames = new Set();
   for (const m of mail.sent) {

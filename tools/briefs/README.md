@@ -42,6 +42,25 @@ For belt and braces on the first night, you can also rotate nothing and simply c
 - Tools are whitelisted per call: none for follow-ups, `WebSearch`/`WebFetch` for news and prospecting. Nothing can run a shell command or write a file.
 - The worst case for a night is bounded: 1 + 7 + 20 calls, each capped in turns and minutes.
 
+## When follow-ups says 0 threads
+
+Run the mail read on its own, in debug mode:
+
+```
+node tools/briefs/mail-dump.js --debug
+```
+
+It prints, in order: what osascript returned (length and the first 300 characters, before any parsing), every account Mail knows with its addresses and whether it was read or skipped, every mailbox walked with how it was classified (`sent`, `received`, `ignored`) and how many messages it yielded, and every warning. Read it top to bottom:
+
+- **osascript failed before returning** means Automation permission: System Settings > Privacy & Security > Automation, allow the terminal to control Mail. For cron, the same prompt appears the first time cron runs it; if it never appears, run it once from Terminal.
+- **Accounts listed, no mailboxes** means the same permission, partially granted.
+- **Mailboxes listed but your Sent folder shows as `ignored`** means it has a name the script does not recognise. Send me the name.
+- **Sent shows a count but the brief says 0 threads** means every recipient was one of your own addresses; check `myAddresses`.
+
+`mailAccounts: []` in the config means every account Mail has, which is what you want. Set it only to restrict to some accounts, using the names exactly as the debug output prints them.
+
+`BRIEFS_DEBUG=1` on any of the three scripts turns the same output on inside a normal run.
+
 ## Running by hand
 
 ```

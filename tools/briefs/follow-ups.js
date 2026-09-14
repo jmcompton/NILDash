@@ -21,7 +21,11 @@ async function main() {
   const cfg = L.loadConfig();
   const audit = L.authAudit();
   const calls = [];
-  const mail = dumpMail({ accounts: cfg.mailAccounts, lookbackDays: cfg.lookbackDays });
+  const debug = process.argv.includes('--debug') || !!process.env.BRIEFS_DEBUG;
+  const mail = dumpMail({ accounts: cfg.mailAccounts, lookbackDays: cfg.lookbackDays, debug });
+  // ZERO SENT IS A FAULT, NOT A QUIET MORNING. Said in the brief, with the
+  // command that shows why.
+  if (!mail.sent.length) mail.warnings.push('0 sent messages were read. Run `node tools/briefs/mail-dump.js --debug` on the Mac to see what Mail returned.');
   const mine = new Set(cfg.myAddresses.concat(...mail.accounts.map((a) => (a.addresses || []).map((x) => String(x).toLowerCase()))));
 
   // Threads: normalised subject + the person I wrote to.
