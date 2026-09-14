@@ -189,13 +189,101 @@ function dumpMail(opts = {}) {
 const addrOf = (s) => { const m = String(s || '').match(/<([^>]+)>/); return (m ? m[1] : String(s || '')).trim().toLowerCase(); };
 const nameOf = (s) => { const m = String(s || '').match(/^\s*"?([^"<]+?)"?\s*</); return m ? m[1].trim() : ''; };
 
-module.exports = { dumpMail, addrOf, nameOf, buildScript };
+// ── THE PROBE: PERMISSION, THEN A RAW COUNT WITH NO FILTER ───────────────────
+//
+//   node tools/briefs/mail-dump.js --probe
+//
+// Four steps, each wrapped on its own so the first failure is named:
+//   1. Mail.accounts().length            Automation permission. A denial is
+//                                        error -1743 "Not authorized to send
+//                                        Apple events to Mail", never a zero.
+//   2. For every account that is mine: the first Sent mailbox's
+//      messages.length                   total messages, no date filter at all
+//   3. The date of the first and last message in that mailbox, read one at a
+//      time                              is the date a real Date?
+//   4. messages.dateSent() in bulk       the read the briefs use: how many
+//                                        dates came back, and the newest
+function probeScript(myAddresses, accounts) {
+  const conf = JSON.stringify({ myAddresses: (myAddresses || []).map((a) => String(a).toLowerCase()), accounts: (accounts || []).map((a) => String(a).toLowerCase()) });
+  return `
+var OPTS = ${conf};
+function run() {
+  var out = { steps: [] };
+  var step = function (name, fn) { try { out.steps.push({ step: name, ok: true, value: fn() }); return true; } catch (e) { out.steps.push({ step: name, ok: false, error: String(e && e.message || e), code: e && e.errorNumber }); return false; } };
+  var Mail = Application('Mail');
+  var n = null;
+  if (!step('1. Mail.accounts().length (Automation permission)', function () { n = Mail.accounts().length; return n; })) return JSON.stringify(out);
+  var accts = Mail.accounts();
+  for (var a = 0; a < accts.length; a++) {
+    var acct = accts[a], aname = '', addrs = [];
+    try { aname = acct.name(); } catch (e) { continue; }
+    try { addrs = acct.emailAddresses().map(function (x) { return String(x).toLowerCase(); }); } catch (e) {}
+    var mine = addrs.some(function (x) { return OPTS.myAddresses.indexOf(x) !== -1; }) || OPTS.accounts.indexOf(aname.toLowerCase()) !== -1;
+    if (!mine) { out.steps.push({ step: 'account ' + aname, ok: true, value: 'skipped (not mine)' }); continue; }
+    var sent = null, sentName = '';
+    step('account ' + aname + ': find a Sent mailbox', function () {
+      var boxes = acct.mailboxes();
+      for (var i = 0; i < boxes.length; i++) { var nm = boxes[i].name(); if (/^sent/i.test(nm)) { sent = boxes[i]; sentName = nm; return nm; } }
+      for (var i2 = 0; i2 < boxes.length; i2++) { var subs = []; try { subs = boxes[i2].mailboxes(); } catch (e) {} for (var j = 0; j < subs.length; j++) { var nm2 = subs[j].name(); if (/^sent/i.test(nm2)) { sent = subs[j]; sentName = boxes[i2].name() + '/' + nm2; return sentName; } } }
+      return 'none found; mailboxes: ' + boxes.map(function (b) { return b.name(); }).join(', ');
+    });
+    if (!sent) continue;
+    var total = null;
+    step('account ' + aname + ' / ' + sentName + ': 2. messages.length (no filter)', function () { total = sent.messages.length; return total; });
+    if (!total) continue;
+    step('account ' + aname + ' / ' + sentName + ': 3. first and last message dateSent(), read singly', function () {
+      var first = sent.messages[0].dateSent(), last = sent.messages[total - 1].dateSent();
+      return { first: String(first), firstIsDate: first instanceof Date, last: String(last), lastIsDate: last instanceof Date };
+    });
+    step('account ' + aname + ' / ' + sentName + ': 4. messages.dateSent() in bulk', function () {
+      var ds = sent.messages.dateSent();
+      var newest = null, valid = 0;
+      for (var k = 0; k < ds.length; k++) { var d = ds[k]; if (d && !isNaN(new Date(d).getTime())) { valid++; if (!newest || d > newest) newest = d; } }
+      var cutoff = new Date(Date.now() - 60 * 86400000);
+      var inWindow = 0; for (var k2 = 0; k2 < ds.length; k2++) { if (ds[k2] && ds[k2] > cutoff) inWindow++; }
+      return { returned: ds.length, validDates: valid, newest: newest ? String(newest) : null, last60Days: inWindow, typeofFirst: typeof ds[0], isDate: ds[0] instanceof Date };
+    });
+  }
+  return JSON.stringify(out);
+}`;
+}
+
+function probe(opts = {}) {
+  if (process.platform !== 'darwin') { console.log('probe: not macOS, nothing to ask'); return; }
+  let raw;
+  try {
+    raw = execFileSync('osascript', ['-l', 'JavaScript', '-e', probeScript(opts.myAddresses, opts.accounts)], { encoding: 'utf8', timeout: 5 * 60 * 1000, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    const msg = (e.stderr || e.message || '').toString();
+    console.log('probe: osascript itself failed:\n' + msg.slice(0, 800));
+    if (/-1743|not authorized|Not authorized/i.test(msg)) {
+      console.log('\nTHAT IS THE AUTOMATION PERMISSION. This terminal was denied (or never asked) to control Mail.'
+        + '\nFix: System Settings > Privacy & Security > Automation > your terminal app > turn Mail on.'
+        + '\nIf the terminal is not listed there, reset the prompt and run this again:  tccutil reset AppleEvents');
+    }
+    return;
+  }
+  let data;
+  try { data = JSON.parse(raw); } catch (e) { console.log('probe: Mail returned non-JSON: ' + raw.slice(0, 500)); return; }
+  for (const s of data.steps) {
+    console.log(`${s.ok ? ' ok ' : 'FAIL'}  ${s.step}  ->  ${s.ok ? JSON.stringify(s.value) : s.error + (s.code ? ' (code ' + s.code + ')' : '')}`);
+  }
+  const first = data.steps[0];
+  if (first && first.ok) console.log('\nStep 1 succeeded, so Automation permission for Mail IS granted to this terminal. A denial errors with -1743; it never returns a count.');
+  const zeroTotals = data.steps.filter((s) => /2\. messages\.length/.test(s.step) && s.ok && s.value === 0);
+  if (zeroTotals.length) console.log(`\n${zeroTotals.length} Sent mailbox(es) report 0 messages WITH NO FILTER. That is Mail itself saying the mailbox is empty as far as scripting can see:`
+    + ' usually the account is set to keep mail on the server only, or Mail has not finished downloading. Open Mail, select that Sent mailbox, and check Mailbox > Get Account Info for the message count.');
+}
+
+module.exports = { dumpMail, addrOf, nameOf, buildScript, probe };
 
 // `node tools/briefs/mail-dump.js --debug [--days 60] [--account "Gmail"]`
+// `node tools/briefs/mail-dump.js --probe`
 if (require.main === module) {
   const { loadConfig } = require('./lib');
   const cfg = loadConfig();
   const argv = process.argv.slice(2);
+  if (argv.includes('--probe')) { probe({ myAddresses: cfg.myAddresses, accounts: cfg.mailAccounts }); process.exit(0); }
   const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
   const accounts = argv.includes('--account') ? [val('--account')] : cfg.mailAccounts;
   const data = dumpMail({ accounts, myAddresses: cfg.myAddresses, lookbackDays: parseInt(val('--days', cfg.lookbackDays), 10) || 60, debug: true, fresh: true });

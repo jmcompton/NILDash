@@ -42,6 +42,16 @@ For belt and braces on the first night, you can also rotate nothing and simply c
 - Tools are whitelisted per call: none for follow-ups, `WebSearch`/`WebFetch` for news and prospecting. Nothing can run a shell command or write a file.
 - The worst case for a night is bounded: 1 + 7 + 20 calls, each capped in turns and minutes.
 
+## When every mailbox reads zero
+
+```
+node tools/briefs/mail-dump.js --probe
+```
+
+Four steps, each reported on its own line. Step 1 asks Mail how many accounts it has: that is the Automation permission test. A denial is error -1743, "Not authorized to send Apple events to Mail", and it never comes back as zero. If the terminal was never prompted, it was never asked, and macOS asks on the first Apple event, so a successful step 1 means the permission is granted. Step 2 counts one Sent mailbox per account with no date filter at all. Step 3 reads the first and last message's date singly and says whether it is a real Date. Step 4 is the bulk date read the briefs use, with how many dates came back and how many fall in the last 60 days.
+
+If step 2 is zero on a mailbox you know is full, Mail's scripting view of that mailbox is empty: the account keeps mail on the server only, or Mail has not finished downloading it. Open Mail, select the mailbox, and compare against Mailbox > Get Account Info.
+
 ## When follow-ups says 0 threads
 
 Run the mail read on its own, in debug mode:
