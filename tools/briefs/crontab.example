@@ -1,0 +1,22 @@
+# ~/nildash-briefs cron entries. Install with:  crontab -e   (paste, save)
+#
+# Every line starts with `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN`, so
+# even if a shell profile or a launchd env ever sets a key, claude -p never
+# sees one and falls through to the logged-in subscription session. The
+# scripts delete the same variables again before spawning claude (lib.js), so
+# this is belt and braces. --max-turns is set inside each script per call
+# (config.json: maxTurns) and every call also has a wall-clock kill.
+#
+# cron does not fire on a sleeping Mac. Either leave it awake or schedule a
+# wake five minutes early:   sudo pmset repeat wakeorpoweron MTWRFSU 05:25:00
+#
+# Paths: change NODE and REPO to yours (`which node`, where you cloned NILDash).
+NODE=/opt/homebrew/bin/node
+REPO=/Users/you/NILDash
+PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
+SHELL=/bin/bash
+
+# min hour dom mon dow   command
+30 5 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/follow-ups.js  >> $HOME/nildash-briefs/logs/cron.log 2>&1
+45 5 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/news-watch.js  >> $HOME/nildash-briefs/logs/cron.log 2>&1
+0  6 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/prospecting.js >> $HOME/nildash-briefs/logs/cron.log 2>&1
