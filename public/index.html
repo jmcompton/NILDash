@@ -6659,10 +6659,30 @@ async function updateAthlete(id) {
     instagramHandle: (document.getElementById('a_handle') ? document.getElementById('a_handle').value : '').trim().replace(/^@+/, '').toLowerCase(),
     igStatsSource: _statFetchedSource || 'manual',
   };
-  const r = await fetch(`${API_BASE}/api/athletes/${id}`, {
-    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
-  });
-  const updated = await r.json();
+  // ── A FAILED SAVE MUST SAY SO ─────────────────────────────────────────────
+  // This read the body, swapped it into the roster and toasted "updated!"
+  // whatever the status was. A 403 or a 500 therefore looked like a save: the
+  // agent ticked "18 or over", saw the toast, and found the athlete still
+  // blocked -- three times. The error object even replaced the athlete in the
+  // roster until the next reload. Now a failure stays on the form, in words.
+  let r, updated;
+  try {
+    r = await fetch(`${API_BASE}/api/athletes/${id}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)
+    });
+    updated = await r.json().catch(() => ({}));
+  } catch (e) {
+    const err = document.getElementById('addAthleteError');
+    if (err) err.textContent = 'Could not save: ' + e.message + '. Nothing was changed.';
+    return;
+  }
+  if (!r.ok || !updated || !updated.id) {
+    const err = document.getElementById('addAthleteError');
+    const why = (updated && updated.error) || ('the server answered ' + r.status);
+    if (err) err.textContent = 'Could not save: ' + why + '. Nothing was changed.';
+    showToast('Could not save ' + name + ': ' + why);
+    return;
+  }
   athletes = athletes.map(a => a.id === id ? updated : a);
   renderRoster(); populateAthleteSelect();
   // Reset save button
@@ -20009,6 +20029,17 @@ async function hqResume(athleteId, btn) {
   }
 }
 
+// Opens the edit form for one athlete row by id. If the roster in memory does
+// not hold that id (it was loaded before the row existed), it is refreshed
+// first, so the form that opens is the row Home is blocking on and no other.
+async function hqFixAthlete(id) {
+  try {
+    if (!(athletes || []).some(function (a) { return a.id === id; }) && typeof loadAthletes === 'function') await loadAthletes();
+  } catch (e) {}
+  if ((athletes || []).some(function (a) { return a.id === id; })) editAthlete(id);
+  else showView('roster', document.querySelectorAll('.nav-item')[5]);
+}
+
 async function hqLoad(athleteId) {
   var url = '/api/agent/home' + (athleteId ? '?athlete=' + encodeURIComponent(athleteId) : '');
   var panel = document.getElementById('home-panel');
@@ -20064,8 +20095,15 @@ function hqRender() {
 
   var html = '';
   if (d.blocker) {
+    // "Fix it" opens the edit form for THE ROW HOME IS BLOCKING ON, by id. It
+    // used to link to /?view=athletes, which no router reads, so it reloaded
+    // Home; the agent then found the athlete on the roster by name -- and with
+    // two rows sharing a name, edited the other one.
+    var fixCall = d.blocker.athleteId
+      ? "hqFixAthlete('" + hqEscape(String(d.blocker.athleteId)).replace(/'/g, '') + "');return false;"
+      : "showView('roster', document.querySelectorAll('.nav-item')[5]);return false;";
     html += '<div class="hq-block"><span>' + hqEscape(d.blocker.text) + '</span>'
-      + '<a href="' + hqEscape(d.blocker.href || '#') + '">' + hqEscape(d.blocker.cta) + '</a></div>';
+      + '<a href="#" onclick="' + fixCall + '">' + hqEscape(d.blocker.cta) + '</a></div>';
   }
   html += '<h1 class="hq-name">' + hqEscape(d.athlete.name) + '</h1>';
   // "TO APPROVE" WAS TRUE WHEN EVERY CARD WAS AN EMAIL. It is now the count of

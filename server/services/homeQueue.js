@@ -428,7 +428,16 @@ async function buildHome(pool, agentId, opts = {}) {
     blocker: blocked
       ? { text: `${(who.name || 'This athlete').split(' ')[0]} has no age on file, `
           + 'so nothing can be approved yet. Tick "18 or over" on their profile, '
-          + 'or add a date of birth.', cta: 'Fix it', href: '/?view=athletes' }
+          + 'or add a date of birth.'
+          // TWO ROWS, ONE NAME. The agent ticks the box on the copy the roster
+          // shows first; Home blocks on the copy that holds the cards. Said
+          // here, on the line they read, and the CTA below opens THIS row.
+          + (athletes.filter((a) => (a.name || '').trim().toLowerCase() === (who.name || '').trim().toLowerCase()).length > 1
+            ? ` There are ${athletes.filter((a) => (a.name || '').trim().toLowerCase() === (who.name || '').trim().toLowerCase()).length} athletes named ${who.name} on your roster; this is the one holding the cards, so use the link here rather than the roster.`
+            : ''),
+        cta: 'Fix it', href: '/?view=athletes',
+        // The row this verdict is about, so the page opens the right form.
+        athleteId: who.id }
       : null,
     // ── PAUSED ATHLETES, ON THE PAGE THAT WORKS CARDS ──────────────────────
     // This lived only on the Outreach tab's queue renderer, which is being

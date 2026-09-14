@@ -541,6 +541,27 @@ const RANK = { pass: -1, note: 0, hold: 1, block: 2 };
 async function complianceGate(pool, log, opts = {}) {
   const compliance = require('./compliance');
 
+  // College or pro. The column is authoritative when it says 'pro'; the data
+  // field is what the Add Client form writes, and either is enough.
+  const athleteType = (log.athlete_type === 'pro' || log.athlete_type_data === 'pro') ? 'pro' : 'college';
+  // The agent's over-18 answer, used only when no date of birth is on file. A
+  // date of birth, when we have one, always wins over it.
+  const over18 = log.over18 === true || log.over18 === 'true' ? true
+    : (log.over18 === false || log.over18 === 'false' ? false : undefined);
+
+  // 0. A HOLD FILED ON AN UNKNOWN AGE DOES NOT OUTLIVE THE ANSWER.
+  //    Step 1 stops at any open hold before re-reading the athlete, which is
+  //    right for a decision an agent still owes -- and wrong for a hold whose
+  //    only reason was "we do not hold a date of birth". The agent ticks "18 or
+  //    over", the row saves, and the draft stays held on a fact that is no
+  //    longer true, every tick, forever. Ticking the box looked like it did
+  //    nothing. So: when the age is known NOW, every open hold that was filed
+  //    with age.known=false is resolved as auto-cleared and the gate runs
+  //    again below on the current record. A category that still holds for an
+  //    adult (alcohol) is re-filed with the true reason; a coffee shop sends.
+  const ageNow = compliance.ageFrom(log.dob || null, opts.now, { over18, pro: athleteType === 'pro' });
+  if (ageNow.known) await compliance.autoClearAgeHolds(pool, log.id);
+
   // 1. Anything already open on this outreach stops it, whatever it is.
   const open = await compliance.openHoldsFor(pool, log.id);
   if (open.length) {
@@ -557,9 +578,6 @@ async function complianceGate(pool, log, opts = {}) {
   // today -- holding. It is loaded before evaluate() rather than inside it so a
   // lookup failure is visible here and holds, instead of being swallowed.
   const stateRule = {};
-  // College or pro. The column is authoritative when it says 'pro'; the data
-  // field is what the Add Client form writes, and either is enough.
-  const athleteType = (log.athlete_type === 'pro' || log.athlete_type_data === 'pro') ? 'pro' : 'college';
   // From the school for a college athlete, from the city for a pro -- and a
   // note saying which is missing when neither yields a state. evaluate() turns
   // that note into a block; it is never a quiet "no state rules applied".
@@ -577,10 +595,7 @@ async function complianceGate(pool, log, opts = {}) {
     brandName: log.brand_name,
     evidence: log.places_evidence || null,
     dob: log.dob || null,
-    // Used only when dob is absent. The agent attests their own client is 18+;
-    // a date of birth, when we have one, always wins over it.
-    over18: log.over18 === true || log.over18 === 'true' ? true
-      : (log.over18 === false || log.over18 === 'false' ? false : undefined),
+    over18,
     // Carried so the gate can tell "this athlete has no birthday on file" from
     // "this athlete does not exist". Different faults, different fixes, and they
     // must not both read as a hold.
@@ -620,6 +635,12 @@ async function complianceGate(pool, log, opts = {}) {
     agentId: log.agent_id, athleteId: log.athlete_id, outreachLogId: log.id,
     brandName: log.brand_name, brandKey: log.brand_key,
     evidence: log.places_evidence || null, dob: log.dob || null,
+    // THE CHECKBOX WAS NOT HANDED TO THE RECORD. evaluate() got over18 and
+    // decided correctly; recordFindings() did not, so every hold on an attested
+    // adult was written down as "age not known". That misfiled the missing-age
+    // worklist, and it would have made the auto-clear above re-clear the same
+    // hold every tick.
+    over18,
     schoolRestrictions: log.school_restrictions || [],
     school: log.school || null, stateCode, now: opts.now,
     athleteType, city: log.city || null, stateSource: st.source,

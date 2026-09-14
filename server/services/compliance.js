@@ -678,6 +678,27 @@ async function cancelHold(pool, holdId, { agentId, reason }) {
   return { ok: !!r.rowCount };
 }
 
+// ── HOLDS FILED ON AN UNKNOWN AGE, ONCE THE AGE IS KNOWN ─────────────────────
+// Resolves, as 'auto-cleared', every open hold on this outreach whose recorded
+// age fact was "not known". Called by the gate only after it has established
+// that the age IS known now (a date of birth, the over-18 box, or a pro), and
+// the gate re-evaluates immediately after, so a category that still holds for
+// an adult is re-filed with the reason that is actually true. Nothing filed on
+// a known age is touched: an agent's decision is not undone by a checkbox.
+// Returns the ids cleared, so the caller and the tests can see it happen.
+async function autoClearAgeHolds(pool, outreachLogId) {
+  if (!pool || !outreachLogId) return [];
+  const r = await pool.query(
+    `UPDATE compliance_holds
+        SET resolved_at = NOW(), resolved_by = 'system', resolution = 'auto-cleared',
+            resolution_reason = 'filed while the athlete''s age was unknown; the age is now on file and the gate re-ran'
+      WHERE outreach_log_id = $1 AND resolved_at IS NULL
+        AND facts->'age'->>'known' = 'false'
+      RETURNING id, rule_key`, [outreachLogId]);
+  if (r.rowCount) console.log(`[compliance] auto-cleared ${r.rowCount} age-unknown hold(s) on ${outreachLogId}: ${r.rows.map((x) => x.rule_key).join(', ')}`);
+  return r.rows.map((x) => x.id);
+}
+
 // Is this outreach clear to send RIGHT NOW? Reads the record rather than
 // re-deriving, so an override actually takes effect and a block cannot be walked
 // past by re-running the gate.
@@ -737,7 +758,7 @@ function prepareDisclosureFiling(deal, athlete, stateRef) {
 module.exports = {
   RULES_VERSION, UNCHECKED, CATEGORIES, CATEGORY_BY_KEY,
   classifyBusiness, ageFrom, severityFor, evaluate,
-  recordFindings, overrideHold, cancelHold, openHoldsFor, overriddenRulesFor,
+  recordFindings, overrideHold, cancelHold, openHoldsFor, overriddenRulesFor, autoClearAgeHolds,
   stateRuleFor, stateCodeForSchool, stateCodeFor,
   prepareDisclosureFiling,
 };
