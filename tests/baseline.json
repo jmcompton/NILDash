@@ -52,6 +52,11 @@
       "total": 35,
       "fault": null
     },
+    "aicost.js": {
+      "failed": 0,
+      "total": 35,
+      "fault": null
+    },
     "analyst.js": {
       "failed": 0,
       "total": 62,

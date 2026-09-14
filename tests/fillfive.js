@@ -126,7 +126,8 @@ const q = (n) => Array.from({ length: n }, (_, i) => ({ brand: 'Q' + i, result: 
   ok('  it refills when the slate drains', /if \(ci >= cands\.length\) \{\s*const added = await refillSlate\('slate drained'\)/.test(job), null);
   ok('  and widens once on the rate floor, then stops', /refillSlate\('rate floor'\)/.test(job) && /stop = 'rate'; break;/.test(job), null);
   ok('  the money check is still the first thing before a lookup', /const cand = cands\[ci\+\+\];[\s\S]{0,400}if \(!budget\.canSpend\(LOOKUP_CEILING_USD\)\)/.test(job), null);
-  ok('both scans run under the meter', (job.match(/scanMeter\.run\(\(\) =>\s*ai\.getDealRecommendations/g) || []).length === 1
+  // The discovery call is metered AND labelled 'discovery' for the call ledger.
+  ok('both scans run under the meter', (job.match(/scanMeter\.run\(\(\) =>\s*scanMeter\.label\(\{ site: 'discovery'[^\n]*\n\s*\(\) => ai\.getDealRecommendations/g) || []).length === 1
     && /async function discover\(/.test(job), null);
   ok('  and are booked to discovery, never the share', /budget\.spendDiscovery\(cost\)/.test(job) && !/budget\.spend\(cost\)/.test(job.slice(job.indexOf('async function discover('), job.indexOf('async function refillSlate('))), null);
   ok('  the pot is checked before spending', /budget\.canSpendDiscovery\(estimateUsd\)/.test(job), null);

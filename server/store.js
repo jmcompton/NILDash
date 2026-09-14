@@ -1929,6 +1929,30 @@ async function init() {
     ON compliance_holds (agent_id, resolved_at) WHERE resolved_at IS NULL`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_compliance_holds_log
     ON compliance_holds (outreach_log_id)`).catch(() => {});
+  // ── ONE ROW PER MODEL CALL ────────────────────────────────────────────────
+  // Written by services/aiLedger from the model entry points in ai.js. This is
+  // what answers "what did last night cost, by call site, per athlete, per
+  // agent": model, tokens, searches, and the site label the meter carried.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ai_call_ledger (
+      id                 BIGSERIAL PRIMARY KEY,
+      at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      site               TEXT NOT NULL,
+      model              TEXT NOT NULL,
+      agent_id           TEXT,
+      athlete_id         TEXT,
+      brand              TEXT,
+      input_tokens       INT NOT NULL DEFAULT 0,
+      output_tokens      INT NOT NULL DEFAULT 0,
+      cache_read_tokens  INT NOT NULL DEFAULT 0,
+      cache_write_tokens INT NOT NULL DEFAULT 0,
+      web_searches       INT NOT NULL DEFAULT 0,
+      est_usd            NUMERIC(10,6),
+      ms                 INT
+    )`).then(() => console.log('[init] ai_call_ledger table ready'))
+    .catch((e) => console.error('[init] ai_call_ledger:', e.message));
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_call_ledger_at ON ai_call_ledger (at)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_call_ledger_agent ON ai_call_ledger (agent_id, at)`).catch(() => {});
   // ONE OPEN ROW PER RULE PER OUTREACH. releaseDue re-evaluates every tick, and
   // without this a held draft would write a fresh identical row every fifteen
   // minutes until the log was unreadable.

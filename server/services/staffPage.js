@@ -525,7 +525,9 @@ ${text}`;
     // Capped for the same reason discoverStaffUrl is: oneShot retries up to four
     // times and each attempt inherits the SDK's ten-minute default, so an unbounded
     // call here can stall a bulk run just as surely as a hung search.
-    const call = ai.oneShot(prompt, sys, 3000, ai.MODEL_FAST);
+    const _meter = require('../scanMeter');
+    const call = _meter.label({ site: (_meter.ctx().site || 'contacts') + '.staffpage' },
+      () => ai.oneShot(prompt, sys, 3000, ai.MODEL_FAST));
     const raw = ai.withDeadline
       ? await ai.withDeadline(call, MODEL_EXTRACT_TIMEOUT_MS, `staff extraction for ${pageUrl}`)
       : await call;

@@ -8,6 +8,8 @@ const { getSeeds } = require('./dealScanSeeds');
 const { normalizeState, areaCodeState, stateName } = require('./areaCodes');
 const { canonicalRegion, marketPoolKey } = require('./services/regionKey');
 const scanMeter = require('./scanMeter');
+const Ledger = require('./services/aiLedger');
+Ledger.usePool(() => store.pool);
 const { lookupPlace } = require('./services/placesLookup');
 const { buildMarketPoolFromPlaces } = require('./services/placesMarket');
 const { isNoLocalAuthority, businessTier } = require('./services/dealScanRanking');
@@ -311,12 +313,16 @@ async function oneShot(prompt, system, maxTokens, model) {
   const useModel = model || MODEL_BALANCED;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
+      const _t0 = Date.now();
       const msg = await ai.messages.create({
         model: useModel,
         max_tokens: maxTokens || 2000,
         system: system || 'You are a precise NIL deal analyst.',
         messages: [{ role: 'user', content: prompt }],
       });
+      // One ledger row per call: model, tokens, and the call site from the
+      // meter's label. See services/aiLedger.
+      Ledger.record(msg, { model: useModel, ms: Date.now() - _t0, ctx: scanMeter.ctx() });
       return stripEmDashes(msg.content[0].text);
     } catch (err) {
       // If fast model fails, step up one tier — not straight to the most
@@ -363,6 +369,7 @@ async function toolLoop({ system, messages, tools, model, maxTokens, maxRounds, 
       break;
     }
     scanMeter.bumpAi();
+    const _t0 = Date.now();
     const msg = await withDeadline(
       client.messages.create({
         model: useModel,
@@ -372,6 +379,7 @@ async function toolLoop({ system, messages, tools, model, maxTokens, maxRounds, 
         ...(tools && tools.length ? { tools } : {}),
       }),
       Math.max(5000, deadline - Date.now()), 'assistant turn');
+    Ledger.record(msg, { model: useModel, ms: Date.now() - _t0, ctx: Object.assign({ site: 'assistant' }, scanMeter.ctx()) });
 
     const blocks = Array.isArray(msg.content) ? msg.content : [];
     text = blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n').trim();
@@ -407,6 +415,7 @@ async function toolLoop({ system, messages, tools, model, maxTokens, maxRounds, 
 async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
   const ai = getClient();
   scanMeter.bumpWeb(); // count this billable web-search call against the current scan
+  const _t0 = Date.now();
   const msg = await ai.messages.create({
     model: model || MODEL_BALANCED,
     max_tokens: maxTokens || 3000,
@@ -414,6 +423,7 @@ async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
     tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxSearches || 5 }],
     messages: [{ role: 'user', content: prompt }],
   });
+  Ledger.record(msg, { model: model || MODEL_BALANCED, ms: Date.now() - _t0, ctx: scanMeter.ctx() });
   // Collect all text blocks from the final assistant turn
   const text = (msg.content || [])
     .filter(b => b.type === 'text')
@@ -1663,7 +1673,7 @@ const CONTACT_SEARCH_MAX_TOKENS = parseInt(process.env.CONTACT_SEARCH_MAX_TOKENS
 // answered within a hair of the cap can still fall either side of it. That is now
 // the ONLY clock left in the path, it needs a near-exact coincidence to bite, and
 // removing it would mean a hung call could stall an overnight run indefinitely.
-async function runSourceWaves(sources, runOne, opts = {}) {
+async function runSourceWaves(sources, runOneRaw, opts = {}) {
   const waveSize = Math.max(1, opts.waveSize || parseInt(process.env.CONTACT_WAVE_SIZE, 10) || 3);
   const deterministic = opts.deterministic === true;
   const wallBudgetMs = opts.wallBudgetMs || 22000;
@@ -1694,6 +1704,11 @@ async function runSourceWaves(sources, runOne, opts = {}) {
     let cut = null;
     const cutP = new Promise((resolve) => { cut = resolve; });
     const maybeCut = () => { if (win && settled >= wave.length - 1 && cut) cut('cut'); };
+    // Each source runs under its own ledger label ('contacts.chamber', ...),
+    // nested in whatever the caller labelled, so a night's contact spend can
+    // be read per source and not only per business.
+    const _parentSite = scanMeter.ctx().site || 'contacts';
+    const runOne = (src) => scanMeter.label({ site: _parentSite + '.' + src }, () => runOneRaw(src));
     if (deterministic) {
       // EVERY MEMBER, EVERY TIME. Sources still run in parallel -- the wave costs
       // its slowest member, not the sum -- but none is dropped for finishing last,
@@ -1744,6 +1759,7 @@ async function _contactWebSearchRaw(prompt, sys) {
     messages: [{ role: 'user', content: prompt }],
   });
   const apiMs = Date.now() - _apiT0;
+  Ledger.record(msg, { model: MODEL_FAST, ms: apiMs, ctx: scanMeter.ctx() });
   const blocks = Array.isArray(msg.content) ? msg.content : [];
   const text = stripEmDashes(blocks.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n'));
   // How many web searches the model ACTUALLY ran, and how many tokens it generated.
@@ -2371,9 +2387,10 @@ async function getBrandContacts(brand, website, locationHint, ctx) {
       // brand + loc drive the ownership test on the scraped handle AND the
       // search fallback, which only runs when the scrape misses. webSearch is
       // injected rather than imported so instagramLookup never depends on ai.js.
-      _igPromise = findInstagram(effectiveWebsite || null, {
-        brand, loc: locationHint, webSearch: _contactWebSearchRaw,
-      }).catch(() => null);
+      _igPromise = scanMeter.label({ site: (scanMeter.ctx().site || 'contacts') + '.instagram' },
+        () => findInstagram(effectiveWebsite || null, {
+          brand, loc: locationHint, webSearch: _contactWebSearchRaw,
+        })).catch(() => null);
     } catch (_) { _igPromise = null; }
   }
   // Manual "Add a Business" passes sourceOrder (site first) and stopAtTier1, so the
@@ -4222,6 +4239,9 @@ module.exports = {
   // withTimeout. The contact ladder does so at 15s; discoverStaffUrl did not, and
   // that is exactly how the 135-school run hung.
   webSearchJson: _contactWebSearchRaw,
+  // TESTS ONLY: swap the SDK client for a stub so the entry points can be
+  // driven without a key or a network. Never called by product code.
+  _setClientForTests: (c) => { client = c; },
   rootDomain: _rootDomain,                     // injected for the cross-domain contact check
   TIER1_RANKS: _TIER1_RANKS,
   prewarmDealEvidence,

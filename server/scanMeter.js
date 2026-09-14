@@ -26,14 +26,50 @@ async function run(fn) {
   return { result, meter };
 }
 
-function _bump(key, n) {
+// ── WHO IS ASKING ────────────────────────────────────────────────────────────
+// label(fields, fn) runs fn with { site, agentId, athleteId, brand } attached
+// to the current meter, so the model entry points in ai.js can write a ledger
+// row that says which call site spent the tokens, for which athlete, for
+// which agent. Nested labels inherit: a 'contacts' label around the ladder and
+// a 'contacts.chamber' label around one source both count against the same
+// counters, and the ledger row carries the innermost site.
+//
+// The counters stay on the ROOT meter (the object run() created). The labelled
+// object is a child whose prototype is the parent, so reading a counter still
+// works anywhere, and _bump walks to the root before adding.
+function label(fields, fn) {
+  const outer = current();
+  const base = outer || { webSearches: 0, aiCalls: 0, placesCalls: 0, cacheHits: 0, cacheMisses: 0, cacheWrites: 0, cacheWriteFails: 0 };
+  const inner = Object.create(base);
+  inner.ctx = Object.assign({}, (outer && outer.ctx) || {}, fields || {});
+  return als.run(inner, fn);
+}
+
+// The innermost context, or {} when no label is in force.
+function ctx() {
   const m = current();
+  return (m && m.ctx) || {};
+}
+
+function _root(m) {
+  let r = m;
+  while (r) {
+    const p = Object.getPrototypeOf(r);
+    if (!p || typeof p.webSearches !== 'number') break;
+    r = p;
+  }
+  return r;
+}
+
+function _bump(key, n) {
+  const m = _root(current());
   if (m && typeof m[key] === 'number') m[key] += (n || 1);
 }
 
 module.exports = {
   run,
   current,
+  label, ctx,
   bumpWeb: (n) => _bump('webSearches', n),
   bumpAi: (n) => _bump('aiCalls', n),
   bumpHit: (n) => _bump('cacheHits', n),

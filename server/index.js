@@ -8630,7 +8630,8 @@ app.post('/api/athlete/deal-scan', verifyAthleteToken, requireAthleteSubscriptio
     // Per-athlete engagement ledger drives local selection (see agent endpoint).
     const scanLedger = lane === 'local' ? await _loadScanLedger(req.athlete.id) : null;
     const { result: _recs, meter: _meter } = await scanMeter.run(
-      () => ai.getDealRecommendations(athleteObj, 'athlete', effectiveExclude, lane, { ledger: scanLedger })
+      () => scanMeter.label({ site: 'dealscan.' + lane, athleteId: req.athlete.id },
+        () => ai.getDealRecommendations(athleteObj, 'athlete', effectiveExclude, lane, { ledger: scanLedger }))
     );
     const poolExhausted = !!(_recs && _recs._poolExhausted);
     let recommendations = _recs;
@@ -8775,7 +8776,8 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
     // page unseen by fit, backfill shown oldest-first). Loaded once and passed to
     // every pass (initial, manual deepen, auto-deepen) so they all agree.
     const scanLedger = validLane === 'local' ? await _loadScanLedger(athleteId) : null;
-    const { result: recommendationsRaw, meter: _meter } = await scanMeter.run(async () => {
+    const { result: recommendationsRaw, meter: _meter } = await scanMeter.run(() => scanMeter.label(
+      { site: 'dealscan.' + validLane, agentId: req.session.userId, athleteId }, async () => {
       let recs = await ai.getDealRecommendations(loaded.athleteObj, 'agent', effectiveExclude, validLane, { deepen: wantDeepen, ledger: scanLedger });
       // AUTO-DEEPEN: a thin local pool (fewer than 5 unseen candidates) recycles the
       // same businesses on refresh. Grow it automatically before returning, whether
@@ -8822,7 +8824,7 @@ app.post('/api/agent/deal-scan', requireAuth, requireAgentSubscription, aiLimite
         }
       }
       return recs;
-    });
+    }));
     // _poolExhausted is set by the local lane when this page shows the last of
     // the pooled businesses (or nothing new remains). Captured off the raw array
     // BEFORE the .map() below, which would drop the array-level property.

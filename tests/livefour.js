@@ -200,7 +200,7 @@ async function main() {
     ok('THE WIDEN KEEPS WHAT IT FOUND',
       /const widened = await discover\('widen', [0-9.]+, \{ deepen: true \}\)/.test(job), null);
     ok('  through a metered call that returns the result rather than swallowing it',
-      /const \{ result, meter \} = await scanMeter\.run\(\(\) =>\s*ai\.getDealRecommendations\(athObj, 'agent', \[\], 'local', opts\)\)/.test(job)
+      /const \{ result, meter \} = await scanMeter\.run\(\(\) =>\s*scanMeter\.label\([^\n]*\n\s*\(\) => ai\.getDealRecommendations\(athObj, 'agent', \[\], 'local', opts\)\)\)/.test(job)
       && /return Array\.isArray\(result\) \? result : \[\];/.test(job), null);
     ok('  and records it in the pool the Scout reads',
       /store\.markMarketNewcomers\(profile\.marketKey, brands\)/.test(job), null);

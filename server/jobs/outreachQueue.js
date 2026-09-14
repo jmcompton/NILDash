@@ -781,7 +781,8 @@ async function fillAthlete(pool, ctx) {
     }
     const scanMeter = require('../scanMeter');
     const { result, meter } = await scanMeter.run(() =>
-      ai.getDealRecommendations(athObj, 'agent', [], 'local', opts));
+      scanMeter.label({ site: 'discovery', agentId, athleteId, brand: '[' + label + ']' },
+        () => ai.getDealRecommendations(athObj, 'agent', [], 'local', opts)));
     const cost = Q.priceOf(meter);
     if (cost > 0) budget.spendDiscovery(cost);
     spendLog.push({ brand: `[${label}]`, lane: 'discovery', cost,
@@ -986,9 +987,11 @@ async function fillAthlete(pool, ctx) {
         // qualifier that was never going to be there.
         let pig = null, pmeter = null;
         try {
-          const m = await scanMeter.run(async () => findInstagram(cand.website || null, {
-            brand: cand.brand_name, loc: null, webSearch: ai.webSearchJson,
-          }));
+          const m = await scanMeter.run(() => scanMeter.label(
+            { site: 'instagram', agentId, athleteId, brand: cand.brand_name },
+            () => findInstagram(cand.website || null, {
+              brand: cand.brand_name, loc: null, webSearch: ai.webSearchJson,
+            })));
           pig = m.result; pmeter = m.meter;
         } catch (e) {
           say(`${cand.brand_name}: instagram lookup failed (${e.message})`);
@@ -1035,7 +1038,9 @@ async function fillAthlete(pool, ctx) {
             hasSchedulingLink: !!signature.hasLink,
             channel: 'dm',
             learnedAngles: await PW.learnedAngles(pool, PW.playbookFor(cand.category || null).key).catch(() => []),
-          }, { oneShot: (p2, sys, mt) => ai.oneShot(p2, sys, mt, ai.MODEL_GEN) });
+          }, { oneShot: (p2, sys, mt) => scanMeter.label(
+            { site: 'writer', agentId, athleteId, brand: cand.brand_name },
+            () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN)) });
         } catch (e) {
           say(`${cand.brand_name}: writer failed (${e.message}), using the plain fallback`);
           ppitch = null;
@@ -1097,9 +1102,11 @@ async function fillAthlete(pool, ctx) {
         // calls this lookup made; without it the only "cost" in the system was
         // the worst-case ceiling charged flat on every lookup, which is why
         // nobody could say what a night actually costs.
-        const m = await scanMeter.run(async () => ai.getBrandContacts(
-          cand.brand_name || cand.brand_key, null,
-          region || '', ai.deepContactCtx({ market: null, lean: true })));
+        const m = await scanMeter.run(() => scanMeter.label(
+          { site: 'contacts', agentId, athleteId, brand: cand.brand_name },
+          () => ai.getBrandContacts(
+            cand.brand_name || cand.brand_key, null,
+            region || '', ai.deepContactCtx({ market: null, lean: true }))));
         out = m.result;
         meter = m.meter;
       } catch (e) {
@@ -1266,7 +1273,9 @@ async function fillAthlete(pool, ctx) {
           channel: channel === 'email' ? 'email' : 'dm',
           learnedAngles: await PW.learnedAngles(pool,
             PW.playbookFor((place && place.primaryType) || null).key).catch(() => []),
-        }, { oneShot: (p2, sys, mt) => ai.oneShot(p2, sys, mt, ai.MODEL_GEN) });
+        }, { oneShot: (p2, sys, mt) => scanMeter.label(
+          { site: 'writer', agentId, athleteId, brand: cand.brand_name },
+          () => ai.oneShot(p2, sys, mt, ai.MODEL_GEN)) });
       } catch (e) {
         say(`${cand.brand_name}: writer failed (${e.message}), using the plain fallback`);
         pitch = null;
