@@ -258,11 +258,21 @@ async function main() {
   const dCol = PW.describeAthlete({ name: 'C', year: 'Junior', position: 'WR', sport: 'football', school: 'Auburn', partnershipCount: 2 });
   ok('the college variant is unchanged', /Plays: Junior WR football at Auburn/.test(dCol) && /several NIL partnerships/.test(dCol), dCol);
   ok('SYSTEM_PRO exists and differs from SYSTEM', PW.SYSTEM_PRO && PW.SYSTEM_PRO !== PW.SYSTEM);
-  ok('  it pitches a professional athlete', /partnering with a professional athlete/.test(PW.SYSTEM_PRO) && !/partnering with a college athlete/.test(PW.SYSTEM_PRO));
-  ok('  the open names the team', /\[position\] for the \[team\]/.test(PW.SYSTEM_PRO));
+  ok('  it pitches a professional athlete', /partnership between a professional athlete and a local business/.test(PW.SYSTEM_PRO) && !/partnering with a college athlete/.test(PW.SYSTEM_PRO));
+  // A FIRST APPROACH, NOT AN INTRODUCTION. The business may already follow the team.
+  ok('  it is a first approach, not an introduction', /This is not an introduction; it is a first approach/.test(PW.SYSTEM_PRO));
+  ok('  the open states the team and the role as a fact', /\[position\] for the \[team\], is looking at partners in \[city\] this season/.test(PW.SYSTEM_PRO));
+  ok('  known-for comes from the record only, and is left out when there is none', /leave this line out\. Do not fill it\s+from anything you remember/.test(PW.SYSTEM_PRO));
+  ok('  THE PROPOSAL IS ONE SHAPE, not a list', /THE PROPOSAL, IN ONE SHAPE/.test(PW.SYSTEM_PRO) && /Pick the ONE that fits this business\. Not a list, not a package, no counts,\s+no schedule, no price/.test(PW.SYSTEM_PRO));
+  ok('  and reads as a first approach, not a contract', /as a first approach and not a contract: a post\s+from the ballpark, or a night where the team's following meets their door/.test(PW.SYSTEM_PRO));
   ok('  the close is an endorsement opportunity', /endorsement opportunity with \[athlete\]/.test(PW.SYSTEM_PRO) && !/NIL opportunity/.test(PW.SYSTEM_PRO));
   ok('  and it forbids the college framing', /Never describe them as a college athlete/.test(PW.SYSTEM_PRO));
   ok('  every hard rule of the college prompt survives', /NEVER put a dollar amount/.test(PW.SYSTEM_PRO) && /No em dashes/.test(PW.SYSTEM_PRO) && /NEVER invent a fact/.test(PW.SYSTEM_PRO));
+  ok('  because the rules are one shared block, not two copies',
+    /const SYSTEM = SYSTEM_COLLEGE_HEAD \+ '\\n' \+ SHARED_RULES;/.test(src('server/services/pitchWriter.js'))
+    && /const SYSTEM_PRO = SYSTEM_PRO_HEAD \+ '\\n' \+ SHARED_RULES;/.test(src('server/services/pitchWriter.js')));
+  ok('  the college prompt is byte-for-byte what it was', /^You write short outreach messages for a sports agent pitching local businesses on partnering with a college athlete\./.test(PW.SYSTEM)
+    && /5\. The athlete's Instagram link on its own line, when one is given\.\n\nDO NOT WRITE ABOUT THE BRAND\./.test(PW.SYSTEM));
   ok('systemFor picks by type', PW.systemFor({ athleteType: 'pro' }) === PW.SYSTEM_PRO && PW.systemFor({}) === PW.SYSTEM && PW.systemFor(null) === PW.SYSTEM);
   // writePitch hands the pro prompt to the model.
   let seenSystem = null;
@@ -300,6 +310,15 @@ async function main() {
   ok('  and does not ask for a class year or a school tier on a pro', !/proSearchStage[\s\S]*?"year":[\s\S]*?flattenCandidate/.test(al));
   ok('the route passes the pro fields through', /const \{ name, school, sport, position, year, athleteType, team, city \} = req\.body;/.test(src('server/index.js')));
   ok('flattenCandidate carries the pro fields', /athleteType: c\.athleteType \|\| 'college'/.test(al) && /knownFor: c\.knownFor/.test(al));
+
+  // The probe that decides which leagues get a feed and which stay on search.
+  const probe = src('scripts/probe-roster-sources.js');
+  ok('the roster probe covers every level asked for',
+    /sportId=11/.test(probe) && /sportId=12/.test(probe) && /sportId=13/.test(probe) && /sportId=14/.test(probe)
+    && /football\/cfl/.test(probe) && /football\/ufl/.test(probe) && /client=ahl/.test(probe) && /client=echl/.test(probe)
+    && /LeagueID=20/.test(probe) && /soccer\/usa\.usl/.test(probe));
+  ok('  a 200 is never mistaken for usable: every source has a body check', !/url: [^\n]*\n[^\n]*(?!check)/.test('') && (probe.match(/check: /g) || []).length >= 20);
+  ok('  and it starts with exit code 1 until it has reported', /process\.exitCode = 1;/.test(probe) && /process\.exitCode = 0;/.test(probe));
 
   // ── 7. THE FORM AND THE HANDLERS ─────────────────────────────────────────
   OUT.push('', '-- the form: a College/Pro switch, city + team replace the school --');
