@@ -46,8 +46,13 @@
   "maxTurns": {
     "followups": 2,
     "news": 4,
-    "prospect": 5
+    "prospect": 5,
+    "strategy": 4
   },
   "callTimeoutMin": 6,
-  "claudeBin": "claude"
+  "claudeBin": "claude",
+  "strategyWatch": {
+    "lastSentAt": null,
+    "seen": {}
+  }
 }

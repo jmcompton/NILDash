@@ -1,5 +1,5 @@
 'use strict';
-// ── SHARED BY THE THREE OVERNIGHT BRIEFS ─────────────────────────────────────
+// ── SHARED BY THE FOUR OVERNIGHT BRIEFS ──────────────────────────────────────
 //
 // These run on a Mac, under cron, on the owner's Claude Code SUBSCRIPTION:
 // every model call goes through `claude -p`, never the API. Two guardrails
@@ -53,7 +53,9 @@ const DEFAULTS = {
   newsTerms: ['NIL platform', 'NIL agent software', 'Opendorse', 'Duffl', 'SponsorFlo', 'INFLCR', 'NIL collective technology'],
   newsLines: 10,
   // guardrails
-  maxTurns: { followups: 2, news: 4, prospect: 5 },
+  maxTurns: { followups: 2, news: 4, prospect: 5, strategy: 4 },
+  // strategy-watch: written back by the script itself after each send
+  strategyWatch: { lastSentAt: null, seen: {} },
   callTimeoutMin: 6,
   claudeBin: 'claude',
 };

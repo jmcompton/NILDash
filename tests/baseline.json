@@ -844,6 +844,11 @@
       "total": 89,
       "fault": null
     },
+    "strategywatch.js": {
+      "failed": 0,
+      "total": 38,
+      "fault": null
+    },
     "supplied.js": {
       "failed": 0,
       "total": 23,

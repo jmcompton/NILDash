@@ -20,3 +20,5 @@ SHELL=/bin/bash
 30 5 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/follow-ups.js  >> $HOME/nildash-briefs/logs/cron.log 2>&1
 45 5 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/news-watch.js  >> $HOME/nildash-briefs/logs/cron.log 2>&1
 0  6 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/prospecting.js >> $HOME/nildash-briefs/logs/cron.log 2>&1
+# strategy-watch emails ONLY when something meaningful changed since its last send (config.json: strategyWatch.lastSentAt).
+15 6 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/strategy-watch.js >> $HOME/nildash-briefs/logs/cron.log 2>&1

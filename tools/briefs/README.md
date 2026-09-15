@@ -1,14 +1,21 @@
 # Overnight briefs
 
-Three scripts that run on your Mac under cron, on your Claude Code subscription, and email you one brief each. Nothing here sends to anyone but you.
+Four scripts that run on your Mac under cron, on your Claude Code subscription, and email you one brief each. Nothing here sends to anyone but you.
 
 | Script | What it does | Subject |
 |---|---|---|
 | `follow-ups.js` | Sent-mail threads with no reply in 7+ days: who, what it was about, what you said you'd do, how long | `Follow-ups: 4 waiting` |
 | `news-watch.js` | Searches the term list, dedupes against the last 30 days, ten lines | `NIL watch: 6 items` |
 | `prospecting.js` | LinkedIn connections filtered to agents and NIL people, minus anyone in your sent mail, next 20 researched with an opener each | `Prospects: 20 drafted` |
+| `strategy-watch.js` | Legislation (S. 4668, agent regulation, NCAA rules), competitors, market signals. Haiku. **Emails only when something meaningful changed** since its last send; a quiet day sends nothing | `Strategy watch: 3 changes` |
 
-Every brief is also written to `~/nildash-briefs/YYYY-MM-DD-<name>.md` as the archive, whether or not the email goes out.
+Every brief is also written to `~/nildash-briefs/YYYY-MM-DD-<name>.md` as the archive, whether or not the email goes out. The exception is strategy-watch, which archives only on the days it sends.
+
+## Strategy watch: when it sends
+
+Three Haiku searches (`--model haiku`, `WebSearch`/`WebFetch`, `maxTurns.strategy`, default 4) look back to the date of the last send, or seven days on the first run. Each item comes back tagged `meaningful` true or false and with a fixed kind (a vote, an amendment, a committee step; a launch, a funding round; a deal, an agency move, a College Sports Commission report). Only meaningful items with a real URL survive, minus anything shown in the last 90 days. Legislation is written as one paragraph of at most 130 words with every source linked; the other two sections are one line per item, six at most each, so the email stays under a page.
+
+If nothing survives, the run writes one log line and sends nothing. When it sends, it writes `strategyWatch.lastSentAt` and the URLs it showed into `~/nildash-briefs/config.json` itself, so the next run looks back only to that date and never repeats an item. `--since YYYY-MM-DD` overrides the look-back, `--no-email --print` shows what it would send, `--force` sends even on a quiet day to test the pipe.
 
 ## Setup, once
 
@@ -37,10 +44,10 @@ For belt and braces on the first night, you can also rotate nothing and simply c
 
 ## Guardrails
 
-- `--max-turns` on every call: 2 for follow-ups (one summarising call), 4 per news term, 5 per prospect. Change them in `config.json` under `maxTurns`.
+- `--max-turns` on every call: 2 for follow-ups (one summarising call), 4 per news term, 5 per prospect, 4 per strategy-watch search plus 1 for its paragraph. Change them in `config.json` under `maxTurns`.
 - A wall-clock kill of 6 minutes per call (`callTimeoutMin`).
 - Tools are whitelisted per call: none for follow-ups, `WebSearch`/`WebFetch` for news and prospecting. Nothing can run a shell command or write a file.
-- The worst case for a night is bounded: 1 + 7 + 20 calls, each capped in turns and minutes.
+- The worst case for a night is bounded: 1 + 7 + 20 + 4 calls, each capped in turns and minutes.
 
 ## When every mailbox reads zero
 
@@ -71,7 +78,7 @@ It prints, in order: what osascript returned (length and the first 300 character
 
 Each mailbox line in the debug output reads `<total> total, <n> in window, <n> read, newest <date>`. If `total` is right but `in window` is 0, the date filter is wrong and `newest` shows why; if `total` is 0 on a mailbox you know is full, Mail is not handing the messages over, which is the Automation permission.
 
-`BRIEFS_DEBUG=1` on any of the three scripts turns the same output on inside a normal run.
+`BRIEFS_DEBUG=1` on any of the scripts turns the same output on inside a normal run.
 
 ## Running by hand
 
@@ -79,6 +86,7 @@ Each mailbox line in the debug output reads `<total> total, <n> in window, <n> r
 node tools/briefs/follow-ups.js
 node tools/briefs/news-watch.js
 node tools/briefs/prospecting.js
+node tools/briefs/strategy-watch.js --no-email --print
 ```
 
 Logs are in `~/nildash-briefs/logs/`. State (what has been shown or drafted) is in `~/nildash-briefs/state/`; delete `prospecting-done.json` to start the prospect queue over.
