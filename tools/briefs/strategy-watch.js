@@ -2,8 +2,8 @@
 'use strict';
 // ── STRATEGY WATCH: SEND ONLY WHEN SOMETHING MOVED ───────────────────────────
 //
-// Three things, watched with Haiku through `claude -p` (subscription, never
-// the API; see lib.js):
+// Three things, watched with Haiku through `claude -p` on the API key from
+// config.json or the environment (see lib.js):
 //
 //   1. Legislation   S. 4668 (Protect College Sports Act), NIL agent
 //                    regulation, NCAA NIL rule changes. A vote scheduled, an

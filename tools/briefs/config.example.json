@@ -2,6 +2,7 @@
   "to": "john@comptongroupllc.com",
   "from": "NILDash Briefs <noreply@mynildash.com>",
   "resendApiKey": "re_PASTE_THE_SAME_KEY_RAILWAY_USES",
+  "anthropicApiKey": "sk-ant-PASTE_YOUR_KEY_OR_LEAVE_EMPTY_TO_USE_ANTHROPIC_API_KEY_FROM_THE_ENVIRONMENT",
   "myAddresses": [
     "you@gmail.com",
     "you@yourcompany.com"

@@ -1,6 +1,6 @@
 # Overnight briefs
 
-Four scripts that run on your Mac under cron, on your Claude Code subscription, and email you one brief each. Nothing here sends to anyone but you.
+Four scripts that run on your Mac under cron, through `claude -p` on an Anthropic API key, and email you one brief each. Nothing here sends to anyone but you.
 
 | Script | What it does | Subject |
 |---|---|---|
@@ -19,28 +19,26 @@ If nothing survives, the run writes one log line and sends nothing. When it send
 
 ## Setup, once
 
-1. **Claude Code signed in on your subscription.** In a terminal: `claude` then `/status` should show your claude.ai account, not an API key. Then `claude -p "say ok" --max-turns 1` should print `ok`.
-2. **Config.** `mkdir -p ~/nildash-briefs/inbox` then copy `config.example.json` to `~/nildash-briefs/config.json` and fill in: `resendApiKey` (the same key Railway has), `myAddresses` (every address you send from), and `aboutMe` in your own words. `to` is already `john@comptongroupllc.com`.
+1. **The key.** `mkdir -p ~/nildash-briefs/inbox`, copy `config.example.json` to `~/nildash-briefs/config.json`, and set `anthropicApiKey` to an Anthropic API key (the one Railway uses, or a new one from console.anthropic.com). If you would rather not keep it in the file, leave it empty and export `ANTHROPIC_API_KEY` in the environment that runs the briefs; the file is read first, the environment second, and with neither a run stops before starting claude and says which to set. Then `node tools/briefs/lib.js --claude-test` must print `RESULT: PASS` and name where the key came from.
+2. **Config.** In the same file fill in `resendApiKey` (the same key Railway has), `myAddresses` (every address you send from), and `aboutMe` in your own words. `to` is already `john@comptongroupllc.com`.
 3. **Mail.app.** Both accounts must be set up in Mail on that Mac. The first run will ask for Automation permission (System Settings > Privacy & Security > Automation: allow the terminal, and cron, to control Mail). Run `node tools/briefs/follow-ups.js` by hand once so the prompt appears.
 4. **LinkedIn CSV.** Drop `Connections.csv` in `~/nildash-briefs/inbox/`. The export lives at LinkedIn > Settings > Data privacy > Get a copy of your data > Connections.
 5. **Cron.** `crontab -e`, paste `crontab.example`, fix `NODE` and `REPO`. The times are 5:30, 5:45 and 6:00 local, staggered so the runs never overlap.
 6. **Keep the Mac awake at 5:25**, or `sudo pmset repeat wakeorpoweron MTWRFSU 05:25:00`.
 
-## How to be certain the API was not used
+## How the briefs authenticate
 
-Three checks, from cheapest to definitive.
+The CLI's own login (the OAuth session from `claude` > sign in) is not used. It expired once and every brief failed with "OAuth access token is invalid", so the briefs run on an API key instead, and the CLI's other credential paths (bearer tokens, Bedrock, Vertex) are removed from the child's environment so the key is the only way it can authenticate.
 
-1. **The footer of every brief.** Each email ends with an audit line:
+1. **Where the key comes from.** `anthropicApiKey` in `~/nildash-briefs/config.json` first; `ANTHROPIC_API_KEY` in the environment second; with neither, the run fails before claude is started, with the message `No Anthropic API key. Set "anthropicApiKey" in ~/nildash-briefs/config.json, or export ANTHROPIC_API_KEY ...`. No key is written anywhere in the repository.
 
-   `auth: inherited API env absent; apiKeyHelper none; claude spawned with no API credential in its environment`
+2. **The footer of every brief** says which was used, masked:
 
-   "inherited API env absent" means cron handed the script no `ANTHROPIC_API_KEY`. If it ever says PRESENT, the cron line lost its `env -u`, and the script still removed the key before spawning claude, so the call was still on the subscription. `apiKeyHelper none` means `~/.claude/settings.json` does not route the CLI to a key. With neither, `claude -p` has exactly one way to authenticate: the session you logged in with.
+   `auth: API key sk-ant-…a1b2 from config.json; other credential env absent; apiKeyHelper none`
 
-2. **The CLI itself.** `claude` then `/status` shows which account the CLI is using. Do this once after setup, and again after the first night.
+3. **`node tools/briefs/lib.js --claude-test`** makes the exact spawn the briefs make and prints `RESULT: PASS. claude -p runs from here on the API key from config.json.` Run it from Terminal after setup, and once from cron (paste the line into the crontab for one minute) to see what cron sees. If it says the API refused the key, the key is wrong or revoked; if it says the CLI is still trying its own login, run `claude /logout` once.
 
-3. **The Console, which is the proof.** Open console.anthropic.com > Usage (or Logs), filter to the day and the key NILDash uses. The overnight window should show zero requests from your Mac; every request there is Railway's. This is the check that does not depend on anything the scripts say about themselves.
-
-For belt and braces on the first night, you can also rotate nothing and simply check the claude.ai usage meter in the morning: the subscription's usage will have moved, the API key's will not.
+4. **Spend shows in the Console.** Every call is a normal API request: console.anthropic.com > Usage shows the overnight window against the key. Haiku for strategy-watch, the default model for the other three.
 
 ## Guardrails
 

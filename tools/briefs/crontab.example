@@ -1,11 +1,12 @@
 # ~/nildash-briefs cron entries. Install with:  crontab -e   (paste, save)
 #
-# Every line starts with `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN`, so
-# even if a shell profile or a launchd env ever sets a key, claude -p never
-# sees one and falls through to the logged-in subscription session. The
-# scripts delete the same variables again before spawning claude (lib.js), so
-# this is belt and braces. --max-turns is set inside each script per call
-# (config.json: maxTurns) and every call also has a wall-clock kill.
+# claude -p runs on an Anthropic API key: anthropicApiKey in
+# ~/nildash-briefs/config.json first, ANTHROPIC_API_KEY in this crontab's
+# environment second. With neither, a run stops before spawning claude and
+# the log says which to set. Put the key in config.json rather than here:
+# crontab -l prints this file, and config.json is already private.
+# --max-turns is set inside each script per call (config.json: maxTurns) and
+# every call also has a wall-clock kill.
 #
 # cron does not fire on a sleeping Mac. Either leave it awake or schedule a
 # wake five minutes early:   sudo pmset repeat wakeorpoweron MTWRFSU 05:25:00
@@ -17,8 +18,8 @@ PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin
 SHELL=/bin/bash
 
 # min hour dom mon dow   command
-30 5 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/follow-ups.js  >> $HOME/nildash-briefs/logs/cron.log 2>&1
-45 5 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/news-watch.js  >> $HOME/nildash-briefs/logs/cron.log 2>&1
-0  6 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/prospecting.js >> $HOME/nildash-briefs/logs/cron.log 2>&1
+30 5 * * *  $NODE $REPO/tools/briefs/follow-ups.js     >> $HOME/nildash-briefs/logs/cron.log 2>&1
+45 5 * * *  $NODE $REPO/tools/briefs/news-watch.js     >> $HOME/nildash-briefs/logs/cron.log 2>&1
+0  6 * * *  $NODE $REPO/tools/briefs/prospecting.js    >> $HOME/nildash-briefs/logs/cron.log 2>&1
 # strategy-watch emails ONLY when something meaningful changed since its last send (config.json: strategyWatch.lastSentAt).
-15 6 * * *  env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN $NODE $REPO/tools/briefs/strategy-watch.js >> $HOME/nildash-briefs/logs/cron.log 2>&1
+15 6 * * *  $NODE $REPO/tools/briefs/strategy-watch.js >> $HOME/nildash-briefs/logs/cron.log 2>&1

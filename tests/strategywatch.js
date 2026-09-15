@@ -142,7 +142,7 @@ async function main() {
   // ── 6. THE WIRING ────────────────────────────────────────────────────────
   OUT.push('', '-- wiring --');
   const cron = fs.readFileSync(REPO + 'tools/briefs/crontab.example', 'utf8');
-  ok('the cron line strips the API keys like the other three', /env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \$NODE \$REPO\/tools\/briefs\/strategy-watch\.js/.test(cron));
+  ok('the cron line runs it like the other three', /^15 6 \* \* \*\s+\$NODE \$REPO\/tools\/briefs\/strategy-watch\.js/m.test(cron), cron.split('\n').filter((l) => /strategy-watch/.test(l)));
   ok('the library defaults carry maxTurns.strategy', L.loadConfig().maxTurns.strategy === 4);
   const ex = JSON.parse(fs.readFileSync(REPO + 'tools/briefs/config.example.json', 'utf8'));
   ok('the example config shows the state block', ex.strategyWatch && 'lastSentAt' in ex.strategyWatch && ex.maxTurns.strategy === 4);

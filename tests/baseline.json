@@ -117,6 +117,11 @@
       "total": 39,
       "fault": null
     },
+    "briefsauth.js": {
+      "failed": 0,
+      "total": 22,
+      "fault": null
+    },
     "cachefix.js": {
       "failed": 0,
       "total": 22,
