@@ -146,6 +146,24 @@ const EXTRA_SCHOOLS = {
   'Texas Southern University': { city: 'Houston', state: 'TX' },
   'Bethune-Cookman University': { city: 'Daytona Beach', state: 'FL' },
   'Virginia Military Institute': { city: 'Lexington', state: 'VA' },
+  // Added from the first school audit of live rosters: every one is a real
+  // school an agent typed, and the audit's fallback had offered three of them
+  // a wrong "correction" (Stonehill -> Boston College) at a 0.59 score. They
+  // resolve exactly now, and that fallback is gone (scripts/audit-schools.js).
+  'Stonehill College': { city: 'Easton', state: 'MA' },
+  'Nichols College': { city: 'Dudley', state: 'MA' },
+  'Bentley University': { city: 'Waltham', state: 'MA' },
+  'Brown University': { city: 'Providence', state: 'RI' },
+  'University of St. Thomas': { city: 'St. Paul', state: 'MN' },
+  'University of Denver': { city: 'Denver', state: 'CO' },
+  'Sacred Heart University': { city: 'Fairfield', state: 'CT' },
+  'University of Southern Maine': { city: 'Portland', state: 'ME' },
+  'Husson University': { city: 'Bangor', state: 'ME' },
+  'University of Maine at Augusta': { city: 'Augusta', state: 'ME' },
+  "Saint Michael's College": { city: 'Colchester', state: 'VT' },
+  'Manhattan University': { city: 'Riverdale', state: 'NY' },
+  'Wofford College': { city: 'Spartanburg', state: 'SC' },
+  'Southeastern University': { city: 'Lakeland', state: 'FL' },
 };
 
 // Abbreviations, nicknames and the misspellings that actually show up. An alias
@@ -224,6 +242,32 @@ const ALIASES = {
   'texas southern': 'Texas Southern University',
   'bethune cookman': 'Bethune-Cookman University',
   'vmi': 'Virginia Military Institute',
+  // The schools added from the first live audit, as agents actually type them.
+  'stonehill': 'Stonehill College',
+  'nichols': 'Nichols College',
+  'bentley': 'Bentley University',
+  'brown': 'Brown University',
+  'st thomas': 'University of St. Thomas',
+  'saint thomas': 'University of St. Thomas',
+  'university of saint thomas': 'University of St. Thomas',
+  'denver': 'University of Denver',
+  'sacred heart': 'Sacred Heart University',
+  'southern maine': 'University of Southern Maine',
+  'usm': null,                          // Southern Maine / Southern Miss
+  'husson': 'Husson University',
+  'umaine at augusta': 'University of Maine at Augusta',
+  'umaine augusta': 'University of Maine at Augusta',
+  'uma': 'University of Maine at Augusta',
+  'maine at augusta': 'University of Maine at Augusta',
+  'saint michaels': "Saint Michael's College",
+  'st michaels': "Saint Michael's College",
+  'st michaels college': "Saint Michael's College",
+  // Manhattan College became Manhattan University in 2024; a roster still
+  // says either, and one said "University of Manhattan".
+  'manhattan college': 'Manhattan University',
+  'university of manhattan': 'Manhattan University',
+  'wofford': 'Wofford College',
+  'southeastern': 'Southeastern University',
 };
 
 // Suffixes and prefixes that carry no identity. "Eastern Kentucky University"
@@ -310,6 +354,11 @@ function similarity(a, b) {
 // tie between two different schools resolves to nothing.
 const MIN_CONFIDENCE = 0.86;
 const MIN_MARGIN = 0.06;
+// THE HARD FLOOR. Nothing under this is ever used as a market, typo allowance
+// or not, and nothing under this is ever offered as a correction by the
+// school audit. A 0.6 "match" put Stonehill College in Boston once; it will
+// not again.
+const MARKET_FLOOR = 0.8;
 // A ratio alone is length-blind: one transposed letter in a six-character core
 // scores 0.83 and would be rejected, which is the "Auburm" case. A single edit
 // on a core this long is a typo, not a different school. Short cores stay on the
@@ -354,31 +403,50 @@ function resolveSchool(raw, opts = {}) {
     ? { city: loc.city, state: loc.state || null, matched: name, method, confidence }
     : null);
 
-  // 1. Exactly what the shipped map already does -- but ONLY for a string that
-  //    identifies a school. The shipped lookup falls back to a two-way substring
-  //    scan, so without this guard "State" resolves to Kennesaw with confidence
-  //    1, which is precisely the confident wrong answer that sends outreach to
-  //    the wrong town.
-  if (isIdentityLike(input)) {
-    const asIs = exact(input);
-    if (asIs && asIs.city) return hit(asIs, input, 'exact', 1);
-  }
-
-  // 2. An alias is a statement of intent. A DELIBERATELY ambiguous alias (msu)
-  //    maps to null and stops here rather than falling through to a fuzzy guess.
+  // 1. An alias is a statement of intent, and it goes first: a DELIBERATELY
+  //    ambiguous alias (msu, southern) maps to null and stops here rather
+  //    than falling through to any match at all. The curated list is
+  //    consulted before the shipped map for a target, because the shipped
+  //    map's substring scan can return a different school (see 3).
   const n = normalize(input);
   if (Object.prototype.hasOwnProperty.call(ALIASES, n)) {
     const target = ALIASES[n];
     if (target === null) return null;
-    const viaExact = exact(target);
-    if (viaExact && viaExact.city) return hit(viaExact, target, 'alias', 1);
     const viaExtra = fromExtra(target);
     if (viaExtra) return hit(viaExtra.loc, viaExtra.name, 'alias', 1);
+    const viaExact = exact(target);
+    if (viaExact && viaExact.city) return hit(viaExact, target, 'alias', 1);
   }
 
-  // 3. The added list, on the identity form. This is where the suffix problem
-  //    dies: "Eastern Kentucky University" and "Eastern Kentucky" share a core.
+  // 2. A shipped key typed as-is (case and spacing aside). A bare "Miami" is
+  //    a key, and it is Coral Gables, whatever else shares its core.
+  const foldKey = (x) => normalize(x);
+  const shippedNames = opts.mapNames || SHIPPED_NAMES;
+  if (shippedNames.some((k) => foldKey(k) === n)) {
+    const asIs = exact(input);
+    if (asIs && asIs.city) return hit(asIs, input, 'exact', 1);
+  }
+
+  // 3. The shipped map's scan and the curated list, and which wins when both
+  //    answer. The scan matches by substring in both directions, which is
+  //    right for "Miami" (inside "University of Miami": Coral Gables) and
+  //    wrong for "University of Maine at Augusta" (which CONTAINS the key
+  //    "University of Maine" and came back as Orono). So: when the shipped
+  //    key sits INSIDE a longer input and the curated list has that longer
+  //    name exactly, the curated entry wins; otherwise the scan keeps its old
+  //    precedence. The scan runs ONLY for a string that identifies a school:
+  //    without that guard "State" resolves to Kennesaw with confidence 1,
+  //    the confident wrong answer that sends outreach to the wrong town.
   const direct = fromExtra(input);
+  const asIs = isIdentityLike(input) ? exact(input) : null;
+  if (direct && asIs && asIs.city) {
+    const keyInsideInput = shippedNames.some((k) => { const fk = foldKey(k); return fk !== n && fk.length < n.length && n.includes(fk); });
+    if (keyInsideInput) return hit(direct.loc, direct.name, 'normalized', 1);
+    return hit(asIs, input, 'exact', 1);
+  }
+  if (asIs && asIs.city) return hit(asIs, input, 'exact', 1);
+  // The curated list on the identity form is also where the suffix problem
+  // dies: "Eastern Kentucky University" and "Eastern Kentucky" share a core.
   if (direct) return hit(direct.loc, direct.name, 'normalized', 1);
 
   // 4. Case and punctuation only, against the shipped map. "UNIVERSITY OF
@@ -416,7 +484,8 @@ function resolveSchool(raw, opts = {}) {
   const best = scored[0];
   const typo = best && inputCore.length >= TYPO_MIN_CORE
     && levenshtein(inputCore, core(best.name)) <= 1;
-  if (!best || (best.s < MIN_CONFIDENCE && !typo)) return null;
+  if (!best || best.s < MARKET_FLOOR) return null;
+  if (best.s < MIN_CONFIDENCE && !typo) return null;
   // Runner-up pointing at a DIFFERENT city too close behind means we do not know.
   const rival = scored.find((c) => (c.loc.city + '|' + c.loc.state) !== (best.loc.city + '|' + best.loc.state));
   if (rival && best.s - rival.s < MIN_MARGIN) return null;
@@ -439,7 +508,7 @@ try {
 
 module.exports = {
   resolveSchool, normalize, core, similarity, levenshtein,
-  EXTRA_SCHOOLS, ALIASES, MIN_CONFIDENCE, MIN_MARGIN, TYPO_MIN_CORE,
+  EXTRA_SCHOOLS, ALIASES, MIN_CONFIDENCE, MIN_MARGIN, TYPO_MIN_CORE, MARKET_FLOOR,
   GENERIC, isIdentityLike, SHIPPED_NAMES, splitParenthetical, US_STATES,
   INSTITUTION_WORDS,
 };

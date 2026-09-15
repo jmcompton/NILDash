@@ -15,8 +15,16 @@
 // "what the resolver makes of it" is one of
 //   FIX -> Virginia Tech (alias)          a correction, ready to apply
 //   FIX -> Auburn University (fuzzy 0.83) a correction, ready to apply
+//   ? Boston College 0.59                 a near miss, NOT a correction
 //   ? Miami University | University of Miami   two candidates; never guessed
 //   no match                              nothing close enough to offer
+//
+// A FIX comes ONLY from the resolver -- the same call the nightly fill makes,
+// with its floor (schoolResolver.MARKET_FLOOR, 0.8) and its refusal to pick
+// between two schools. The form's suggestion list (floor 0.55) is shown as
+// "?" so a human can judge it; it is never applied. The first live audit
+// labelled "Stonehill College -> Boston College (0.59)" a FIX from that list,
+// which is exactly the confident wrong answer this file exists to prevent.
 //
 // Dry run by default and writes nothing. With --commit, ONLY the athlete ids
 // in --approve are changed, and only when the audit has a single FIX for
@@ -27,7 +35,7 @@
 // Read-only otherwise. Safe to run against production.
 
 const store = require('../server/store');
-const { resolveSchool } = require('../server/services/schoolResolver');
+const { resolveSchool, MARKET_FLOOR } = require('../server/services/schoolResolver');
 const { suggestionsFor } = require('../server/services/schoolCheck');
 const INIT_WAIT_MS = parseInt(process.env.INIT_WAIT_MS, 10) || 4000;
 
@@ -58,7 +66,7 @@ function auditRow(row, opts = {}) {
   if (hit && hit.city && EXACT_METHODS.has(hit.method)) {
     out.exact = true; out.verdict = 'ok'; out.market = hit.state ? `${hit.city}, ${hit.state}` : hit.city; return out;
   }
-  if (hit && hit.city) {
+  if (hit && hit.city && (hit.confidence === undefined || hit.confidence >= MARKET_FLOOR)) {
     // An alias or a typo allowance: the resolver is sure enough to use it at
     // night, and correcting the stored text makes that permanent and visible.
     out.fix = { name: hit.matched, city: hit.city, state: hit.state, method: hit.method, confidence: hit.confidence };
@@ -67,14 +75,11 @@ function auditRow(row, opts = {}) {
     if (out.verdict === 'ok') out.exact = true;
     return out;
   }
-  // Nothing resolved. The near misses say whether it is one school badly
-  // typed (offer it) or two schools it could be (offer neither).
-  const sugs = suggest(school) || [];
-  if (sugs.length === 1 || (sugs.length > 1 && sugs[0].score - sugs[1].score >= 0.15)) {
-    out.fix = { name: sugs[0].name, city: sugs[0].city, state: sugs[0].state, method: 'suggested', confidence: sugs[0].score };
-    out.verdict = 'fix';
-  } else if (sugs.length > 1) {
-    out.candidates = sugs.map((s) => s.name);
+  // Nothing the nightly fill would use. The near misses are listed for a
+  // human to judge -- with their scores -- and are never a FIX.
+  const sugs = (suggest(school) || []).filter((x) => x && x.name);
+  if (sugs.length) {
+    out.candidates = sugs.map((x) => `${x.name} ${x.score}`);
     out.verdict = 'ambiguous';
   }
   return out;

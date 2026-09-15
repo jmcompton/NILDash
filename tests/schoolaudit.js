@@ -26,7 +26,8 @@ const fs = require('fs');
 const store = require(REPO + 'server/store.js');
 const ai = require(REPO + 'server/ai.js');
 const Audit = require(REPO + 'scripts/audit-schools.js');
-const { resolveSchool } = require(REPO + 'server/services/schoolResolver.js');
+const R = require(REPO + 'server/services/schoolResolver.js');
+const { resolveSchool } = R;
 
 let OUT = [], F = 0;
 const ok = (n, c, g) => { if (c) OUT.push('PASS ' + n); else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g) : '')); } };
@@ -110,7 +111,20 @@ async function main() {
     suggest: () => [{ name: 'Miami University', score: 0.9, city: 'Oxford', state: 'OH' }, { name: 'University of Miami', score: 0.88, city: 'Coral Gables', state: 'FL' }],
   });
   ok('two close candidates are listed as ambiguous, with no fix', amb.verdict === 'ambiguous' && !amb.fix && amb.candidates.length === 2, amb);
-  ok('  and described with both names', /^\? Miami University \| University of Miami/.test(Audit.describe(amb)));
+  ok('  and described with both names and scores', /^\? Miami University 0\.9 \| University of Miami 0\.88/.test(Audit.describe(amb)), Audit.describe(amb));
+  // THE FLOOR. A near miss from the form's suggestion list is never a FIX,
+  // whatever its score, and a resolver hit under 0.8 is never a FIX either.
+  const low = Audit.auditRow({ id: 'x', school: 'Stonehill College', agent_email: 'a' }, { resolve: () => null, suggest: () => [{ name: 'Boston College', score: 0.59, city: 'Chestnut Hill', state: 'MA' }] });
+  ok('a lone 0.59 suggestion is "?", not FIX', low.verdict === 'ambiguous' && !low.fix && /^\? Boston College 0\.59/.test(Audit.describe(low)), Audit.describe(low));
+  const under = Audit.auditRow({ id: 'x', school: 'Nichols Colege', agent_email: 'a' }, { resolve: () => ({ matched: 'Boston College', city: 'Chestnut Hill', state: 'MA', method: 'fuzzy', confidence: 0.79 }), suggest: () => [] });
+  ok('a resolver hit under the 0.8 floor is not a FIX', under.verdict !== 'fix' && !under.fix, under);
+  ok('the floor is 0.8 and the resolver refuses under it', R.MARKET_FLOOR === 0.8 && /best\.s < MARKET_FLOOR\) return null/.test(fs.readFileSync(REPO + 'server/services/schoolResolver.js', 'utf8')));
+  for (const [typed, city, st] of [['Stonehill College', 'Easton', 'MA'], ['Nichols College', 'Dudley', 'MA'], ['Bentley University', 'Waltham', 'MA'], ['Brown University', 'Providence', 'RI'], ['University of St. Thomas', 'St. Paul', 'MN'], ['University of Denver', 'Denver', 'CO'], ['Sacred Heart University', 'Fairfield', 'CT'], ['University of Southern Maine', 'Portland', 'ME'], ['Husson University', 'Bangor', 'ME'], ['University of Maine at Augusta', 'Augusta', 'ME'], ["Saint Michael's College", 'Colchester', 'VT'], ['Manhattan University', 'Riverdale', 'NY'], ['Wofford College', 'Spartanburg', 'SC'], ['Southeastern University', 'Lakeland', 'FL'], ['UMaine at Augusta', 'Augusta', 'ME'], ['University of Manhattan', 'Riverdale', 'NY']]) {
+    const h = resolveSchool(typed);
+    ok(`${typed} -> ${city}, ${st}`, !!(h && h.city === city && h.state === st && h.confidence === 1), h);
+  }
+  ok('North Yarmouth Academy resolves to nothing (not UNC)', resolveSchool('North Yarmouth Academy') === null);
+  ok('the three wrongly-corrected names are not FIX in the audit', ['Stonehill College', 'Nichols College', 'North Yarmouth Academy'].every((n) => { const a = Audit.auditRow({ id: 'x', school: n, agent_email: 'a' }); return a.verdict !== 'fix' || a.fix.name === n; }));
 
   // Apply: only the approved one, only when it has a single fix, old name kept.
   const r1 = await Audit.applyFix(P(), A['sa-vt']);

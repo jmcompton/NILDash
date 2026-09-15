@@ -3352,7 +3352,15 @@ tbody td{padding:11px 14px;vertical-align:middle}
         <div class="page-title">Add Client</div>
         <div class="page-sub">Add a new athlete to your roster</div>
         <div class="card" style="max-width:540px">
-          <div class="card-title">Client Details</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div class="card-title" style="margin-bottom:0">Client Details</div>
+            <!-- IMPORT FROM SPREADSHEET. A roster of forty is a file, not forty
+                 forms. Same rules as Add Client (services/rosterImport), same
+                 seat rule, same on-demand fill for each new athlete. -->
+            <button type="button" class="run-btn" onclick="impOpen()" title="Create several athletes from a CSV or Excel file"
+              style="white-space:nowrap;padding:7px 12px;font-size:11px;background:var(--surface2);color:var(--text);border:1px solid var(--border2)">&#8679; Import from spreadsheet</button>
+          </div>
+          <div style="height:12px"></div>
           <div class="form-group-sm"><label class="form-label-sm">Full Name *</label>
             <div style="display:flex;gap:8px">
               <input class="input-sm" id="a_name" placeholder="e.g. Paige Briggs" style="flex:1"
@@ -4826,6 +4834,62 @@ tbody td{padding:11px 14px;vertical-align:middle}
     <div id="arFooter" style="display:none;align-items:center;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:.5px solid #1e2a3a;flex-shrink:0">
       <button onclick="closeAthleteReport()" style="padding:8px 16px;background:transparent;border:1px solid #1e2a3a;color:var(--muted);border-radius:7px;font-size:12px;cursor:pointer">Cancel</button>
       <button id="arSendBtn" onclick="sendAthleteReport()" style="padding:8px 18px;background:#84CC16;border:0;color:#0A0E1A;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--head)">Send report</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Import from spreadsheet: upload -> map columns -> preview and fix -> confirm ── -->
+<div class="modal-overlay" id="importModal">
+  <div class="modal" style="max-width:960px;width:96%">
+    <button class="modal-close" onclick="impClose()">&times;</button>
+    <div class="modal-title">Import from spreadsheet</div>
+    <div class="modal-sub" id="imp-sub">Upload a CSV or Excel file of athletes. Nothing is created until you confirm.</div>
+    <div id="imp-steps" style="display:flex;gap:6px;margin:10px 0 16px;font-size:11px;color:var(--muted)">
+      <span data-step="1">1 Upload</span><span>&rsaquo;</span><span data-step="2">2 Match columns</span><span>&rsaquo;</span><span data-step="3">3 Preview</span><span>&rsaquo;</span><span data-step="4">4 Create</span>
+    </div>
+    <div id="imp-error" style="display:none;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.4);color:#fbbf24;font-size:12px;padding:8px 10px;border-radius:8px;margin-bottom:12px"></div>
+
+    <!-- step 1 -->
+    <div id="imp-step-1">
+      <div style="border:1px dashed var(--border2);border-radius:12px;padding:22px;text-align:center">
+        <input type="file" id="imp-file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="display:none" onchange="impFileChosen(this)">
+        <button type="button" class="run-btn" onclick="document.getElementById('imp-file').click()">Choose a CSV or Excel file</button>
+        <div id="imp-file-name" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:14px">
+          One athlete per row. Columns we read: first and last name (or full name), sport, school or team, city, Instagram handle and followers, TikTok handle and followers.
+          <br><a href="/api/athletes/import/template" style="color:var(--accent)">Download a blank template</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- step 2 -->
+    <div id="imp-step-2" style="display:none">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:10px">We matched your columns to ours. Fix any that are wrong. A name (first + last, or full name) and a sport are required.</div>
+      <div style="overflow-x:auto"><table id="imp-map" style="width:100%;border-collapse:collapse;font-size:12px"></table></div>
+      <div style="display:flex;justify-content:space-between;margin-top:14px">
+        <button type="button" class="run-btn" style="background:var(--surface2);color:var(--text)" onclick="impGo(1)">&lsaquo; Back</button>
+        <button type="button" class="run-btn" id="imp-preview-btn" onclick="impPreview()">Preview &rsaquo;</button>
+      </div>
+    </div>
+
+    <!-- step 3 -->
+    <div id="imp-step-3" style="display:none">
+      <div id="imp-preview"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;flex-wrap:wrap">
+        <button type="button" class="run-btn" style="background:var(--surface2);color:var(--text)" onclick="impGo(2)">&lsaquo; Columns</button>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="run-btn" id="imp-recheck-btn" style="background:var(--surface2);color:var(--text);display:none" onclick="impPreview()">Re-check fixes</button>
+          <button type="button" class="run-btn" id="imp-commit-btn" onclick="impCommit()">Create athletes</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- step 4 -->
+    <div id="imp-step-4" style="display:none">
+      <div id="imp-done"></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:14px">
+        <button type="button" class="run-btn" onclick="impClose(true)">Go to roster &rsaquo;</button>
+      </div>
     </div>
   </div>
 </div>
@@ -6707,6 +6771,203 @@ async function updateAthlete(id) {
   _editingAthleteId = null;
   showView('roster', document.querySelectorAll('.nav-item')[5]);
   showToast(name + ' updated!');
+}
+
+// ── IMPORT FROM SPREADSHEET ──────────────────────────────────────────────────
+// State lives here between the four steps: the parsed table, the column map
+// the agent approved, and the cell fixes they made in the preview. The server
+// re-places every row on commit from the same three things, so what is
+// created is what the last preview showed.
+var IMP = { table: null, header: [], fields: [], columns: {}, overrides: {}, preview: null, busy: false };
+
+function impOpen() {
+  IMP = { table: null, header: [], fields: [], columns: {}, overrides: {}, preview: null, busy: false };
+  var f = document.getElementById('imp-file'); if (f) f.value = '';
+  document.getElementById('imp-file-name').textContent = '';
+  impGo(1);
+  document.getElementById('importModal').classList.add('open');
+}
+function impClose(toRoster) {
+  document.getElementById('importModal').classList.remove('open');
+  if (toRoster) { loadAthletes(); showView('roster', document.querySelectorAll('.nav-item')[5]); }
+}
+function impError(msg) {
+  var el = document.getElementById('imp-error');
+  if (!msg) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'block'; el.textContent = msg;
+}
+function impGo(n) {
+  impError('');
+  for (var i = 1; i <= 4; i++) document.getElementById('imp-step-' + i).style.display = i === n ? 'block' : 'none';
+  document.querySelectorAll('#imp-steps [data-step]').forEach(function (el) {
+    var k = parseInt(el.getAttribute('data-step'), 10);
+    el.style.color = k === n ? 'var(--accent)' : (k < n ? 'var(--text)' : 'var(--muted)');
+    el.style.fontWeight = k === n ? '700' : '400';
+  });
+}
+async function impFileChosen(input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  document.getElementById('imp-file-name').textContent = 'Reading ' + file.name + '\u2026';
+  impError('');
+  var fd = new FormData(); fd.append('file', file);
+  try {
+    var r = await fetch(API_BASE + '/api/athletes/import/parse', { method: 'POST', body: fd, credentials: 'same-origin' });
+    var d = await r.json();
+    if (!r.ok) { impError(d.error || 'Could not read that file.'); document.getElementById('imp-file-name').textContent = ''; return; }
+    IMP.table = d.table; IMP.header = d.header; IMP.fields = d.fields; IMP.columns = d.columns || {}; IMP.overrides = {};
+    document.getElementById('imp-file-name').textContent = file.name + ': ' + d.rowCount + ' row' + (d.rowCount === 1 ? '' : 's');
+    impRenderMap();
+    impGo(2);
+  } catch (e) { impError('Could not upload that file: ' + e.message); }
+}
+// The column map: one line per column in the file, a select of our fields.
+function impRenderMap() {
+  var used = {};
+  Object.keys(IMP.columns).forEach(function (k) { if (IMP.columns[k] !== undefined && IMP.columns[k] !== null && IMP.columns[k] !== '') used[IMP.columns[k]] = k; });
+  var sample = IMP.table.slice(1, 3);
+  var html = '<tr style="color:var(--muted);text-align:left"><th style="padding:6px 8px;font-weight:600">Column in your file</th><th style="padding:6px 8px;font-weight:600">First rows</th><th style="padding:6px 8px;font-weight:600">Goes to</th></tr>';
+  IMP.header.forEach(function (h, idx) {
+    var opts = '<option value="">\u2014 skip \u2014</option>' + IMP.fields.map(function (f) {
+      return '<option value="' + f.key + '"' + (used[idx] === f.key ? ' selected' : '') + '>' + escHtml(f.label) + '</option>';
+    }).join('');
+    var ex = sample.map(function (r) { return escHtml(String(r[idx] === undefined ? '' : r[idx])); }).filter(Boolean).join(' &middot; ');
+    html += '<tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;font-weight:600">' + escHtml(h || '(blank header)') + '</td>'
+      + '<td style="padding:6px 8px;color:var(--muted);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + ex + '</td>'
+      + '<td style="padding:6px 8px"><select class="select-sm" data-col="' + idx + '" onchange="impMapChanged(this)">' + opts + '</select></td></tr>';
+  });
+  document.getElementById('imp-map').innerHTML = html;
+}
+function impMapChanged(sel) {
+  var idx = parseInt(sel.getAttribute('data-col'), 10), key = sel.value;
+  // One column per field: choosing a field here takes it away from any other column.
+  Object.keys(IMP.columns).forEach(function (k) { if (IMP.columns[k] === idx) delete IMP.columns[k]; });
+  if (key) {
+    if (IMP.columns[key] !== undefined) {
+      var other = document.querySelector('#imp-map select[data-col="' + IMP.columns[key] + '"]'); if (other) other.value = '';
+    }
+    IMP.columns[key] = idx;
+  }
+}
+function impMapOk() {
+  var c = IMP.columns;
+  var hasName = c.name !== undefined || (c.first !== undefined && c.last !== undefined);
+  if (!hasName) return 'Map a name: first + last, or a full name column.';
+  if (c.sport === undefined) return 'Map the sport column.';
+  return null;
+}
+async function impPreview() {
+  var why = impMapOk(); if (why) { impError(why); return; }
+  if (IMP.busy) return; IMP.busy = true;
+  var btn = document.getElementById('imp-preview-btn'); var was = btn.textContent; btn.textContent = 'Checking\u2026'; btn.disabled = true;
+  var rb = document.getElementById('imp-recheck-btn'); rb.disabled = true;
+  impError('');
+  try {
+    var r = await fetch(API_BASE + '/api/athletes/import/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ table: IMP.table, columns: IMP.columns, overrides: IMP.overrides }) });
+    var d = await r.json();
+    if (!r.ok) { impError(d.error || 'Preview failed.'); return; }
+    IMP.preview = d;
+    impRenderPreview(d);
+    impGo(3);
+  } catch (e) { impError('Preview failed: ' + e.message); }
+  finally { IMP.busy = false; btn.textContent = was; btn.disabled = false; rb.disabled = false; }
+}
+function impSportOptions(current) {
+  var sel = document.getElementById('a_sport');
+  var opts = sel ? Array.prototype.map.call(sel.options, function (o) { return [o.value, o.textContent]; }) : [];
+  return '<option value="">\u2014 pick a sport \u2014</option>' + opts.map(function (o) {
+    return '<option value="' + escHtml(o[0]) + '"' + (o[0] === current ? ' selected' : '') + '>' + escHtml(o[1]) + '</option>';
+  }).join('');
+}
+function impRenderPreview(d) {
+  var th = function (t) { return '<th style="padding:6px 8px;font-weight:600;text-align:left;color:var(--muted)">' + t + '</th>'; };
+  var td = function (t, extra) { return '<td style="padding:6px 8px;' + (extra || '') + '">' + t + '</td>'; };
+  var html = '';
+  // seats
+  var s = d.seats || {};
+  var seatLine = s.limit === null || s.limit === undefined
+    ? s.now + ' on the roster now, ' + s.adding + ' to add. No athlete limit on this account.'
+    : s.now + ' on the roster now, ' + s.adding + ' to add: ' + (s.now + s.adding) + ' of ' + s.description + '.';
+  html += '<div style="font-size:12px;color:' + (s.over > 0 ? '#fbbf24' : 'var(--muted)') + ';margin-bottom:12px">' + escHtml(seatLine)
+    + (s.over > 0 ? ' <b>' + s.over + ' over the limit.</b> Remove rows or raise the limit before creating.' : '') + '</div>';
+
+  // to create
+  html += '<div style="font-size:13px;font-weight:700;margin:6px 0">Will create ' + d.create.length + '</div>';
+  if (d.create.length) {
+    html += '<div style="overflow-x:auto;max-height:260px;overflow-y:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><tr>' + th('Athlete') + th('Sport') + th('Type') + th('School / team') + th('Market') + th('Instagram') + th('TikTok') + th('Notes') + '</tr>';
+    d.create.forEach(function (p) {
+      html += '<tr style="border-top:1px solid var(--border)">' + td('<b>' + escHtml(p.name) + '</b>') + td(escHtml(p.sport)) + td(p.athleteType === 'pro' ? 'Pro' : 'College')
+        + td(escHtml(p.athleteType === 'pro' ? (p.team || '(no team)') : p.school))
+        + td(escHtml(p.market || 'found on first run'), 'color:var(--muted)')
+        + td(p.instagramHandle ? '@' + escHtml(p.instagramHandle) + (p.instagram ? ' \u00b7 ' + p.instagram.toLocaleString() : '') : '\u2014')
+        + td(p.tiktokHandle ? '@' + escHtml(p.tiktokHandle) + (p.tiktok ? ' \u00b7 ' + p.tiktok.toLocaleString() : '') : '\u2014')
+        + td((p.notes || []).map(escHtml).join('<br>'), 'color:var(--muted);font-size:11px') + '</tr>';
+    });
+    html += '</table></div>';
+  } else html += '<div style="font-size:12px;color:var(--muted)">Nothing yet. Fix the rows below.</div>';
+
+  // needs a fix: editable
+  html += '<div style="font-size:13px;font-weight:700;margin:16px 0 6px;color:' + (d.needsFix.length ? '#fbbf24' : 'var(--text)') + '">Needs a fix ' + d.needsFix.length + '</div>';
+  if (d.needsFix.length) {
+    html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Edit the cells, then Re-check fixes. A row left unfixed is not created.</div>';
+    html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><tr>' + th('Row') + th('Athlete') + th('Sport') + th('School / team') + th('City, ST') + th('Why') + '</tr>';
+    d.needsFix.forEach(function (p) {
+      var ov = IMP.overrides[p.line] || {};
+      var needName = p.fix.indexOf('name') >= 0, needSport = p.fix.indexOf('sport') >= 0, needCity = p.fix.indexOf('city') >= 0;
+      var nameCell = needName
+        ? '<input class="input-sm" style="width:90px" placeholder="First" value="' + escHtml(ov.first !== undefined ? ov.first : p.first) + '" oninput="impFix(' + p.line + ',\'first\',this.value)"> <input class="input-sm" style="width:90px" placeholder="Last" value="' + escHtml(ov.last !== undefined ? ov.last : p.last) + '" oninput="impFix(' + p.line + ',\'last\',this.value)">'
+        : '<b>' + escHtml(p.name) + '</b>';
+      var sportCell = needSport
+        ? '<select class="select-sm" onchange="impFix(' + p.line + ',\'sport\',this.value)">' + impSportOptions(ov.sport || '') + '</select><div style="font-size:10px;color:var(--muted)">file says: ' + escHtml(p.sportRaw) + '</div>'
+        : escHtml(p.sport || p.sportRaw);
+      var affCell = '<input class="input-sm" style="width:170px" value="' + escHtml(ov.affiliation !== undefined ? ov.affiliation : p.affiliation) + '" oninput="impFix(' + p.line + ',\'affiliation\',this.value)">';
+      var cityCell = '<input class="input-sm" style="width:130px;' + (needCity ? 'border-color:#fbbf24' : '') + '" placeholder="e.g. Portland, ME" value="' + escHtml(ov.city !== undefined ? ov.city : (p.city || '')) + '" oninput="impFix(' + p.line + ',\'city\',this.value)">';
+      html += '<tr style="border-top:1px solid var(--border)">' + td(p.line) + td(nameCell) + td(sportCell) + td(affCell) + td(cityCell) + td(escHtml(p.skip || (p.problems || []).join('; ')), 'color:var(--muted);font-size:11px;max-width:260px') + '</tr>';
+    });
+    html += '</table></div>';
+  }
+
+  // skipped
+  html += '<div style="font-size:13px;font-weight:700;margin:16px 0 6px">Skipped ' + d.skipped.length + '</div>';
+  if (d.skipped.length) {
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    d.skipped.forEach(function (p) { html += '<tr style="border-top:1px solid var(--border)">' + td('<b>' + escHtml(p.name || '(no name)') + '</b>') + td(escHtml(p.skip), 'color:var(--muted)') + '</tr>'; });
+    html += '</table>';
+  } else html += '<div style="font-size:12px;color:var(--muted)">No duplicates.</div>';
+
+  document.getElementById('imp-preview').innerHTML = html;
+  document.getElementById('imp-recheck-btn').style.display = d.needsFix.length ? 'inline-block' : 'none';
+  var cb = document.getElementById('imp-commit-btn');
+  cb.disabled = !d.create.length || s.over > 0;
+  cb.textContent = d.create.length ? 'Create ' + d.create.length + ' athlete' + (d.create.length === 1 ? '' : 's') : 'Nothing to create';
+}
+function impFix(line, key, value) {
+  IMP.overrides[line] = IMP.overrides[line] || {};
+  IMP.overrides[line][key] = value;
+}
+async function impCommit() {
+  if (IMP.busy || !IMP.preview || !IMP.preview.create.length) return;
+  IMP.busy = true;
+  var btn = document.getElementById('imp-commit-btn'); var was = btn.textContent; btn.textContent = 'Creating\u2026'; btn.disabled = true;
+  impError('');
+  try {
+    var r = await fetch(API_BASE + '/api/athletes/import/commit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ table: IMP.table, columns: IMP.columns, overrides: IMP.overrides }) });
+    var d = await r.json();
+    if (!r.ok) { impError(d.error || 'Could not create the athletes.'); btn.textContent = was; btn.disabled = false; return; }
+    var html = '<div style="font-size:14px;font-weight:700;margin-bottom:8px">Created ' + d.created.length + ' athlete' + (d.created.length === 1 ? '' : 's') + '</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    d.created.forEach(function (c) { html += '<tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px"><b>' + escHtml(c.name) + '</b></td><td style="padding:6px 8px;color:var(--muted)">' + escHtml(c.sport) + ' \u00b7 ' + escHtml(c.athleteType === 'pro' ? (c.team ? c.team + ', ' : '') + c.city : c.school) + '</td></tr>'; });
+    html += '</table>';
+    if (d.filling) html += '<div style="font-size:12px;color:var(--muted);margin-top:12px">Finding businesses for each of them now, one at a time. Home shows each athlete as it fills; the nightly run takes it from there.</div>';
+    if (d.failed) html += '<div style="font-size:12px;color:#fbbf24;margin-top:8px">' + d.failed + ' could not be saved. Check the server log.</div>';
+    if (d.skipped) html += '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + d.skipped + ' skipped as duplicates' + (d.needsFix ? ', ' + d.needsFix + ' left unfixed' : '') + '.</div>';
+    document.getElementById('imp-done').innerHTML = html;
+    showToast(d.created.length + ' athletes added to roster');
+    impGo(4);
+  } catch (e) { impError('Could not create the athletes: ' + e.message); btn.textContent = was; btn.disabled = false; }
+  finally { IMP.busy = false; }
 }
 
 async function addAthlete() {

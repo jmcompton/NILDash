@@ -4358,6 +4358,194 @@ const { processContractUpload, analyzeContractUpload, confirmContract, writeAudi
   require('./services/contractExtraction');
 const { generateDates, toRRule, describeRRule } = require('./services/calendarRecurrence');
 
+// ── IMPORT FROM SPREADSHEET (Add Client) ─────────────────────────────────────
+// The agent-side roster import. Four calls, one per step of the screen:
+//   GET  /api/athletes/import/template   a blank CSV with the headers we read best
+//   POST /api/athletes/import/parse      the file -> a table + the auto-matched columns
+//   POST /api/athletes/import/preview    table + columns + fixes -> create / needs a fix / skipped
+//   POST /api/athletes/import/commit     the same, written; then an on-demand fill per athlete
+// Parsing, placement and the record shape are services/rosterImport, shared
+// with scripts/import-roster.js, so a file imports the same way from the CLI
+// and from the screen. University Mode's roster import is a different thing
+// (compliance officers, university_athletes) and is untouched.
+const RImport = require('./services/rosterImport');
+const rosterFileUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = /\.(csv|xlsx|xls|txt)$/i.test(file.originalname)
+      || ['text/csv', 'text/plain', 'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'].includes(file.mimetype);
+    cb(ok ? null : new Error('Upload a CSV or Excel file'), ok);
+  },
+});
+const importJson = express.json({ limit: '8mb' });
+
+// The pro lookup is a web search that costs a few cents; a preview is re-run
+// every time the agent fixes a cell, so an answer is kept for an hour.
+const _importLookupCache = new Map();
+async function importProLookup(q) {
+  const key = [q.name, q.team, q.sport].map((x) => String(x || '').toLowerCase().trim()).join('|');
+  const hit = _importLookupCache.get(key);
+  if (hit && Date.now() - hit.at < 3600000) return hit.res;
+  const res = await require('./services/athleteLookup').resolveAthlete(ai, q);
+  _importLookupCache.set(key, { at: Date.now(), res });
+  return res;
+}
+
+// Everything a preview or a commit needs about this agent's roster and the
+// lookups. One builder for both so a commit cannot place a row differently
+// from the preview the agent just approved.
+async function importContextFor(userId) {
+  const existingRows = (await store.pool.query(`SELECT data->>'name' AS name FROM athletes WHERE agent_id = $1`, [userId])).rows;
+  const existing = existingRows.map((r) => r.name || '');
+  const { resolveSchool } = require('./services/schoolResolver');
+  return {
+    existing,
+    existingName: (n) => existing.find((x) => RImport.sameName(x, n)) || n,
+    schoolLocation: resolveSchool,
+    proLookup: importProLookup,
+    nameScore: require('./services/athleteLookup').nameMatchScore,
+  };
+}
+
+// table + columns + overrides -> { create, needsFix, skipped } and the seat line.
+async function importPreview(user, body) {
+  const table = Array.isArray(body.table) ? body.table : [];
+  if (table.length < 2) throw Object.assign(new Error('The file has a header row but no athletes.'), { status: 400 });
+  if (table.length > 501) throw Object.assign(new Error('Up to 500 athletes per import.'), { status: 400 });
+  const columns = body.columns && typeof body.columns === 'object' ? body.columns : {};
+  const overrides = body.overrides && typeof body.overrides === 'object' ? body.overrides : {};
+  const parsed = RImport.parseTable(table, { columns, overrides });
+  const hasName = parsed.columns.name !== undefined || (parsed.columns.first !== undefined && parsed.columns.last !== undefined);
+  if (!hasName || parsed.columns.sport === undefined) {
+    throw Object.assign(new Error('Map a name (first + last, or full name) and a sport column first.'), { status: 400 });
+  }
+  const ctx = await importContextFor(user.id);
+  const create = [], needsFix = [], skipped = [];
+  const seen = [];
+  for (const row of parsed.rows) {
+    if (seen.some((n) => RImport.sameName(n, row.name)) && row.name) { skipped.push({ ...row, skip: 'listed twice in the file; the first row is used' }); continue; }
+    if (row.name) seen.push(row.name);
+    const p = await RImport.placeRow(row, ctx);
+    if (!p.skip) { create.push(p); continue; }
+    const fix = RImport.fixNeeded(row, p);
+    if (fix) needsFix.push({ ...p, fix }); else skipped.push(p);
+  }
+  const seats = Seats.seatLimitFor(user);
+  const now = ctx.existing.length;
+  return {
+    columns: parsed.columns,
+    create, needsFix, skipped,
+    seats: { now, adding: create.length, limit: seats.limit, source: seats.source, description: Seats.describeSeats(seats),
+             over: seats.limit === null ? 0 : Math.max(0, now + create.length - seats.limit) },
+  };
+}
+
+app.get('/api/athletes/import/template', requireAuth, (req, res) => {
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="nildash-roster-template.csv"');
+  res.send(RImport.templateCsv());
+});
+
+app.post('/api/athletes/import/parse', requireAuth, (req, res, next) => {
+  rosterFileUpload.single('file')(req, res, (err) => (err ? res.status(400).json({ error: err.message }) : next()));
+}, (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const fname = String(req.file.originalname || '').toLowerCase();
+    let text;
+    if (/\.(xlsx|xls)$/.test(fname) || /spreadsheet|ms-excel/.test(req.file.mimetype || '')) {
+      const XLSX = require('xlsx');
+      const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (!ws) return res.status(400).json({ error: 'The workbook has no sheets' });
+      text = XLSX.utils.sheet_to_csv(ws, { blankrows: false });
+    } else {
+      text = req.file.buffer.toString('utf8');
+    }
+    const table = RImport.parseCsv(text);
+    if (table.length < 2) return res.status(400).json({ error: 'The file has a header row but no athletes, or is empty.' });
+    if (table.length > 501) return res.status(400).json({ error: 'Up to 500 athletes per import.' });
+    const header = table[0].map((h) => String(h || '').trim());
+    res.json({
+      fileName: req.file.originalname, header, table, rowCount: table.length - 1,
+      columns: RImport.mapHeader(header), fields: RImport.FIELDS,
+      sample: table.slice(1, 4),
+    });
+  } catch (e) {
+    console.error('[import/parse]', e.message);
+    res.status(400).json({ error: 'Could not read that file: ' + e.message });
+  }
+});
+
+app.post('/api/athletes/import/preview', requireAuth, importJson, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not signed in' });
+    res.json(await importPreview(user, req.body || {}));
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    console.error('[import/preview]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/athletes/import/commit', requireAuth, importJson, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not signed in' });
+    // Placed again from the same table, columns and fixes: the server is the
+    // record of what a row becomes, not the preview the browser holds.
+    const pv = await importPreview(user, req.body || {});
+    if (!pv.create.length) return res.status(400).json({ error: 'Nothing to create. Fix or remove the rows that need a fix first.', preview: pv });
+    // The seat rule (services/seats): the plan's limit, or this account's override.
+    if (pv.seats.over > 0) {
+      const seats = Seats.seatLimitFor(user);
+      return res.status(403).json({
+        error: `${pv.seats.now} on the roster plus ${pv.create.length} new is ${pv.seats.over} over the limit (${pv.seats.description}). ` +
+          (seats.source === 'override' ? 'Contact support to raise it.' : 'Upgrade the plan, or import fewer.'),
+        code: 'SEAT_LIMIT_REACHED', seatLimit: seats.limit, seatSource: seats.source, currentCount: pv.seats.now, adding: pv.create.length,
+      });
+    }
+    const created = [];
+    const base = Date.now();
+    for (let i = 0; i < pv.create.length; i++) {
+      const p = pv.create[i];
+      const id = 'ath-' + (base + i);
+      try {
+        const rec = RImport.recordFor(p, user.id, id, { tier: 'mid-mid' });
+        await store.saveAthlete(id, rec);
+        created.push({ id, name: p.name, athleteType: rec.athleteType, school: rec.school, city: rec.city, team: rec.team, sport: rec.sport });
+      } catch (e) {
+        console.error(`[import/commit] ${p.name}: ${e.message}`);
+      }
+    }
+    checkOff(user.id, 'add_athlete');
+    // An import is the agent at work: the dormant clock resets so tonight's
+    // run does not skip them.
+    store.pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]).catch(() => {});
+    // Then the same fill a single Add Client starts, one athlete at a time in
+    // the background. Home shows "finding businesses" for each until it lands.
+    let filling = false;
+    if (created.length && OQfillOnDemandEnabled()) {
+      filling = true;
+      for (const c of created) { try { require('./services/outreachQueue').markFilling(c.id); } catch (_) {} }
+      setImmediate(async () => {
+        for (const c of created) {
+          await runOnDemandFills(user.id, c.id).catch((e) => console.error('[queue/ondemand] import', c.id, e.message));
+        }
+      });
+    }
+    console.log(`[import/commit] agent=${user.id} created=${created.length} of ${pv.create.length} skipped=${pv.skipped.length} needsFix=${pv.needsFix.length} filling=${filling}`);
+    res.status(201).json({ ok: true, created, failed: pv.create.length - created.length, skipped: pv.skipped.length, needsFix: pv.needsFix.length, filling });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    console.error('[import/commit]', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 const contractUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB

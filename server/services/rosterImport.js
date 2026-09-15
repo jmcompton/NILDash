@@ -236,14 +236,52 @@ function sameName(a, b) { return !!nameKey(a) && nameKey(a) === nameKey(b); }
 // `problems` (why it cannot be created from the file alone). A row with a
 // problem is still returned, so the dry run can list it with the reason.
 function parseRoster(text, opts = {}) {
+  return parseTable(parseCsv(text), opts);
+}
+
+// The importable fields, for a column-mapping step: key, what to call it,
+// and whether a file must have it. Order is display order.
+const FIELDS = [
+  { key: 'first', label: 'First name', required: 'name' },
+  { key: 'last', label: 'Last name', required: 'name' },
+  { key: 'name', label: 'Full name (instead of first + last)', required: 'name' },
+  { key: 'sport', label: 'Sport', required: true },
+  { key: 'affiliation', label: 'School / team', required: false },
+  { key: 'city', label: 'City (for a pro or an athlete with no school)', required: false },
+  { key: 'instagramHandle', label: 'Instagram handle', required: false },
+  { key: 'instagram', label: 'Instagram followers', required: false },
+  { key: 'tiktokHandle', label: 'TikTok handle', required: false },
+  { key: 'tiktok', label: 'TikTok followers', required: false },
+  { key: 'total', label: 'Total followers', required: false },
+  { key: 'position', label: 'Position', required: false },
+  { key: 'year', label: 'Class year', required: false },
+  { key: 'email', label: 'Email', required: false },
+];
+
+// A blank file with the headers the importer reads best, plus one example row.
+function templateCsv() {
+  const head = ['First', 'Last', 'Sport', 'School/Affiliation', 'City', 'Total followers', 'Instagram handle', 'Instagram followers', 'TikTok handle', 'TikTok followers'];
+  const ex = ['Jordan', 'Reyes', 'Basketball', 'Samford University', '', '12,400', '@jordanreyes', '9,800', '@jordan.reyes', '2,600'];
+  const ex2 = ['Taylor', 'Kim', 'Golf', 'Professional Golfer', 'Scottsdale, AZ', '4,100', 'taylorkimgolf', '4,100', '', ''];
+  const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+  return head.join(',') + '\n' + ex.map(q).join(',') + '\n' + ex2.map(q).join(',') + '\n';
+}
+
+// A table (header row first) -> rows. opts.columns replaces the auto-match
+// when the agent corrected it; opts.overrides is { [line]: { first, last,
+// sport, affiliation, city } } for cells fixed in a preview, applied before
+// any rule runs so a fixed row is read exactly as a typed one would be.
+function parseTable(table, opts = {}) {
   const cities = opts.cities || {};
-  const table = parseCsv(text);
-  if (!table.length) return { columns: {}, rows: [] };
-  const columns = mapHeader(table[0]);
-  const cell = (r, key) => (columns[key] === undefined ? '' : String(r[columns[key]] === undefined ? '' : r[columns[key]]).trim());
+  const overrides = opts.overrides || {};
+  if (!table || !table.length) return { columns: {}, rows: [] };
+  const columns = opts.columns && Object.keys(opts.columns).length ? opts.columns : mapHeader(table[0]);
+  const cellRaw = (r, key) => (columns[key] === undefined || columns[key] === null || columns[key] === '' ? '' : String(r[columns[key]] === undefined ? '' : r[columns[key]]).trim());
   const rows = [];
   for (let i = 1; i < table.length; i++) {
     const r = table[i];
+    const ov = overrides[i + 1] || overrides[String(i + 1)] || {};
+    const cell = (rw, key) => (ov[key] !== undefined && ov[key] !== null ? String(ov[key]).trim() : cellRaw(rw, key));
     const notes = [], problems = [];
     let first = cell(r, 'first'), last = cell(r, 'last');
     if (!first && !last && cell(r, 'name')) {
@@ -251,6 +289,7 @@ function parseRoster(text, opts = {}) {
       first = parts.shift(); last = parts.join(' ');
     }
     first = first.replace(/\s+/g, ' '); last = last.replace(/\s+/g, ' ');
+    if (ov.first !== undefined || ov.last !== undefined || ov.sport !== undefined || ov.affiliation !== undefined || ov.city !== undefined) notes.push('edited in the preview');
     const name = [first, last].filter(Boolean).join(' ');
     if (!first || !last) problems.push('needs a first and a last name');
 
@@ -413,8 +452,21 @@ function recordFor(p, agentId, id, opts = {}) {
   };
 }
 
+// Which fixable thing a skipped row needs, for a preview that lets the agent
+// fix it in place. null when the skip is not something a cell edit resolves
+// (a duplicate).
+function fixNeeded(row, placed) {
+  const skip = String((placed && placed.skip) || '');
+  if (/already on the roster|listed twice/.test(skip)) return null;
+  const needs = [];
+  if ((row.problems || []).some((p) => /first and a last name/.test(p))) needs.push('name');
+  if ((row.problems || []).some((p) => /not a sport|no sport/.test(p))) needs.push('sport');
+  if (/--cities|City column|no home city|lookup/.test(skip)) needs.push('city');
+  return needs.length ? needs : ['city'];
+}
+
 module.exports = {
-  placeRow, recordFor,
+  placeRow, recordFor, parseTable, fixNeeded, FIELDS, templateCsv,
   parseCsv, parseRoster, mapHeader, parseCount, splitPair, cleanHandle,
   normalizeSport, classifyAffiliation, parseCities, nameKey, sameName,
   SPORT_VALUES, SPORT_ALIASES,
