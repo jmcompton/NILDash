@@ -10,3 +10,7 @@ scripts/.line-type-cache.json
 # undo record for a live data change and belong wherever the operator ran it,
 # not in the repository.
 engagement-clear-*.json
+
+# Roster CSVs an agent hands over for scripts/import-roster.js. They hold
+# real athletes and stay on the machine that runs the import.
+*.csv
