@@ -1635,6 +1635,17 @@ async function fillAgent(pool, agent, opts) {
         WHERE agent_id = $1 AND run_date = $2`,
       [agent.id, runDate, filled, budget.spent(), JSON.stringify(details)]).catch((e) =>
         console.error('[queue] failed to persist run details:', e.message));
+    // ── THE NIGHTLY DIGEST, THE MOMENT THIS AGENT'S FILL IS DONE ──────────
+    // Only here: a dormant agent the run skipped never reaches this function,
+    // and the on-demand path goes through fillAthlete, not fillAgent. The
+    // digest itself skips an agent with no new cards, an unsubscribed agent,
+    // and a night already sent. A digest failure never fails the fill.
+    if (filled > 0 && !opts.noDigest) {
+      try {
+        const r = await require('../services/nightlyDigest').sendForRun(pool, { agentId: agent.id, runDate, details });
+        if (!r.sent) console.log(`[nightly-digest] agent=${agent.id} not sent: ${r.reason}`);
+      } catch (e) { console.error(`[nightly-digest] agent=${agent.id} failed: ${e.message}`); }
+    }
   }
   console.log(`[queue] agent=${agent.id} filled=${filled} spent=$${budget.spent().toFixed(2)} of $${CAP_USD.toFixed(2)}`);
   return { filled, spent: budget.spent(), claimed: true, details };

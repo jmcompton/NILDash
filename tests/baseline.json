@@ -564,6 +564,11 @@
       "total": 19,
       "fault": null
     },
+    "nightlydigest.js": {
+      "failed": 0,
+      "total": 31,
+      "fault": null
+    },
     "onboarding.js": {
       "failed": 0,
       "total": 67,

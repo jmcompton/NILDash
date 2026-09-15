@@ -896,6 +896,23 @@ async function init() {
   // rather than something application logic has to get right. The row is written
   // BEFORE the send, so a crash mid-send fails closed: nobody gets emailed twice.
   await pool.query(`
+    -- The nightly digest ("Your athletes have new pitches ready"): one row per
+    -- agent per night, claimed before the send so it can never go twice.
+    -- digest_sends above is the WEEKLY digest's table, keyed by week.
+    CREATE TABLE IF NOT EXISTS nightly_digest_sends (
+      id SERIAL PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      run_date DATE NOT NULL,
+      email TEXT,
+      athletes JSONB NOT NULL DEFAULT '[]'::jsonb,
+      cards INT NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'claimed',
+      provider_id TEXT,
+      error TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      sent_at TIMESTAMPTZ,
+      UNIQUE (agent_id, run_date)
+    );
     CREATE TABLE IF NOT EXISTS digest_sends (
       id SERIAL PRIMARY KEY,
       agent_id TEXT NOT NULL,
