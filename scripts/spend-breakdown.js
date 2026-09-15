@@ -212,6 +212,26 @@ async function main() {
       const why = new Map();
       for (const t of retried) for (const p of (t.writerFirstProblems || [])) { const k = String(p).replace(/"[^"]*"/g, '"..."').slice(0, 70); why.set(k, (why.get(k) || 0) + 1); }
       for (const [k, n] of [...why.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)) console.log(`        x${n}  ${k}`);
+      // --writer-examples N: the raw refusal strings, which carry BOTH what the
+      // model wrote and what is stored, beside the athlete's stored position
+      // as the database holds it right now.
+      const nEx = parseInt(arg('writer-examples', '0'), 10) || 0;
+      if (nEx) {
+        console.log(`     first ${nEx} refusal(s), verbatim:`);
+        let shown = 0;
+        for (const d of det) {
+          if (shown >= nEx) break;
+          const ath = await P.query(`SELECT data->>'position' AS position, data->>'sport' AS sport FROM athletes WHERE id = $1`, [d.athleteId]).then((r) => r.rows[0] || {}).catch(() => ({}));
+          for (const t of (Array.isArray(d.tried) ? d.tried : [])) {
+            if (shown >= nEx) break;
+            if (!t.writerRetried) continue;
+            const twiceRefused = /could not write it in voice|invented a fact/.test(t.reason || '');
+            console.log(`       ${++shown}. ${d.athleteName || d.athleteId} (stored position ${JSON.stringify(ath.position || null)}, ${ath.sport || '?'}) x ${t.brand}${twiceRefused ? '  [REFUSED TWICE, no card]' : '  [retry passed]'}`);
+            for (const p of (t.writerFirstProblems || [])) console.log(`            first draft: ${p}`);
+            if (twiceRefused) console.log(`            second draft: ${String(t.reason).replace(/^could not write it in voice: |^invented a fact about the athlete: /, '')}`);
+          }
+        }
+      }
     } else {
       console.log(`     writer retries: not recorded on this run (predates the flag); ${twice.length} of ${attempts.length} writes were refused twice, which is the lower bound on retries`);
     }
