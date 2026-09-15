@@ -1389,21 +1389,18 @@ app.get('/api/athletes', requireAuth, async (req, res) => {
 });
 
 // ── Seat limit helper ─────────────────────────────────────────────────────
-function getSeatLimit(plan) {
-  if (!plan) return 10;
-  const p = String(plan).toLowerCase();
-  if (p.includes('unlimited') || p.includes('enterprise') || p.includes('599')) return null;
-  if (p.includes('pro') || p.includes('499')) return 20;
-  return 10; // basic, beta, $299, etc.
-}
+// The plan rule and the per-account override live in services/seats.js, one
+// place for this route, seat-status, the admin page and the roster importer.
+const Seats = require('./services/seats');
 
 // ── Seat status endpoint ──────────────────────────────────────────────────
 app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);
     if (!user) return res.status(404).json({ error: 'Not found' });
-    const plan = user.plan_tier || user.plan || 'basic';
-    const seatLimit = getSeatLimit(plan);
+    const seats = Seats.seatLimitFor(user);
+    const plan = seats.plan;
+    const seatLimit = seats.limit;
     const countR = await store.pool.query(
       `SELECT COUNT(*) FROM athletes WHERE agent_id=$1`,
       [req.session.userId]
@@ -1411,6 +1408,8 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
     const currentCount = parseInt(countR.rows[0].count, 10);
     res.json({
       plan, seatLimit, currentCount,
+      // 'plan' or 'override': an admin-set limit is not something an upgrade changes.
+      seatSource: seats.source, seatOverride: seats.override,
       hasSeats: seatLimit === null || currentCount < seatLimit,
       seatsFull: seatLimit !== null && currentCount >= seatLimit,
     });
@@ -1513,8 +1512,9 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
   const isPro = athleteType === 'pro';
 
   // ── Seat limit check ─────────────────────────────────────────
-  const plan = user.plan_tier || user.plan || 'basic';
-  const seatLimit = getSeatLimit(plan);
+  // The plan's limit, unless an admin set one for this account (services/seats).
+  const seats = Seats.seatLimitFor(user);
+  const seatLimit = seats.limit;
   if (seatLimit !== null) {
     const countR = await store.pool.query(
       `SELECT COUNT(*) FROM athletes WHERE agent_id=$1`,
@@ -1523,9 +1523,10 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     const currentCount = parseInt(countR.rows[0].count, 10);
     if (currentCount >= seatLimit) {
       return res.status(403).json({
-        error: `You've reached your athlete limit (${seatLimit}) on your current plan. Upgrade to add more athletes.`,
+        error: Seats.limitMessage(seats),
         code: 'SEAT_LIMIT_REACHED',
         seatLimit,
+        seatSource: seats.source,
         currentCount,
       });
     }
@@ -5625,9 +5626,42 @@ app.get('/api/admin/users', async (req, res) => {
   try {
     const user = await store.getUser(req.session.userId);
     if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
-    const r = await store.pool.query('SELECT id, name, email, plan, comped, subscription_status, trial_ends_at, created_at FROM users ORDER BY created_at DESC');
-    res.json(r.rows);
+    // seat_override and the athlete count ride along so the page can show the
+    // seat rule beside the plan: "10 (plan)", "no limit (override)", and how
+    // many of those seats are taken.
+    const r = await store.pool.query(`SELECT id, name, email, plan, plan_tier, comped, subscription_status, trial_ends_at, created_at, seat_override,
+      (SELECT COUNT(*)::int FROM athletes a WHERE a.agent_id = users.id) AS athletes
+      FROM users ORDER BY created_at DESC`);
+    res.json(r.rows.map((u) => {
+      const seats = Seats.seatLimitFor(u);
+      return { ...u, seat_limit: seats.limit, seat_source: seats.source, seats: Seats.describeSeats(seats) };
+    }));
   } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Admin: per-account athlete limit ────────────────────────────────────────
+// Body: { userId, seatOverride } where seatOverride is null (the plan
+// decides), 0 (no limit) or a positive integer. Same admin check and same
+// shape as set-comp. Writes ONLY seat_override; the plan is untouched, so
+// clearing the override puts the account straight back on its plan's rule.
+app.post('/api/admin/set-seat-override', async (req, res) => {
+  try {
+    const { userId } = req.body || {};
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    const raw = req.body.seatOverride;
+    const override = (raw === null || raw === undefined || raw === '' || raw === 'plan') ? null : Seats.readOverride(raw);
+    if (raw !== null && raw !== undefined && raw !== '' && raw !== 'plan' && override === null) {
+      return res.status(400).json({ error: 'seatOverride must be null (plan decides), 0 (no limit) or a positive whole number' });
+    }
+    const target = (await store.pool.query('SELECT id, email, plan, plan_tier FROM users WHERE id = $1', [userId])).rows[0];
+    if (!target) return res.status(404).json({ error: 'No such user' });
+    await store.pool.query('UPDATE users SET seat_override = $1 WHERE id = $2', [override, userId]);
+    const seats = Seats.seatLimitFor({ ...target, seat_override: override });
+    console.log(`[admin] seat override for ${target.email}: ${override === null ? 'cleared (plan decides)' : override === 0 ? 'no limit' : override}`);
+    res.json({ ok: true, userId, seatOverride: override, seatLimit: seats.limit, seatSource: seats.source, seats: Seats.describeSeats(seats) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/admin/agent-activity', async (req, res) => {

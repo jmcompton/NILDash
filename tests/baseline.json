@@ -764,6 +764,11 @@
       "total": 11,
       "fault": null
     },
+    "seats.js": {
+      "failed": 0,
+      "total": 35,
+      "fault": null
+    },
     "seedmarker.js": {
       "failed": 0,
       "total": 38,

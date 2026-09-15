@@ -61,15 +61,10 @@ function target() {
 }
 const pad = (s, n) => String(s === null || s === undefined ? '' : s).padEnd(n);
 
-// Same rule as the server's getSeatLimit (server/index.js), which is not
-// exported. Kept identical so the import cannot seat what the form would not.
-function seatLimit(plan) {
-  if (!plan) return 10;
-  const p = String(plan).toLowerCase();
-  if (p.includes('unlimited') || p.includes('enterprise') || p.includes('599')) return null;
-  if (p.includes('pro') || p.includes('499')) return 20;
-  return 10;
-}
+// The seat rule is the server's (services/seats): the plan's limit unless an
+// admin set an override for this account, so the import cannot seat what the
+// form would not.
+const Seats = require('../server/services/seats');
 
 function printPlaced(p) {
   const who = `${p.name}`;
@@ -112,7 +107,7 @@ async function main() {
 
   let u;
   try {
-    u = (await P.query(`SELECT id, name, email, role, archived, last_login, plan, plan_tier FROM users
+    u = (await P.query(`SELECT id, name, email, role, archived, last_login, plan, plan_tier, seat_override FROM users
                          WHERE id = $1 OR LOWER(TRIM(email)) = LOWER(TRIM($1)) LIMIT 1`, [who])).rows[0];
   } catch (e) { return fail('user', e); }
   if (!u) return fail('user', new Error(`no user matches "${who}"`));
@@ -154,11 +149,12 @@ async function main() {
   console.log(`\nSKIPPED ${skipped.length}`);
   for (const s of skipped) console.log(`  line ${String(s.line).padStart(3)}  ${pad(s.name || '(no name)', 22)} ${s.skip}`);
 
-  const limit = seatLimit(u.plan_tier || u.plan);
+  const seats = Seats.seatLimitFor(u);
+  const limit = seats.limit;
   const after = existing.length + placed.length;
-  console.log(`\nSEATS  ${existing.length} now + ${placed.length} new = ${after}${limit === null ? ' (no limit on this plan)' : ' of ' + limit}`);
+  console.log(`\nSEATS  ${existing.length} now + ${placed.length} new = ${after}${limit === null ? ' (no limit: ' + seats.source + ')' : ' of ' + Seats.describeSeats(seats)}`);
   if (limit !== null && after > limit) {
-    console.log(`   over the plan's limit by ${after - limit}. The form would refuse these; so does this. Raise the plan or trim the file.`);
+    console.log(`   over the limit by ${after - limit}. The form would refuse these; so does this. ${seats.source === 'override' ? 'Raise the override on the admin page' : 'Raise the plan, or set a seat override on the admin page,'} or trim the file.`);
     if (commit) return done(1);
   }
 
@@ -212,5 +208,5 @@ async function main() {
   done(created.length === placed.length ? 0 : 1);
 }
 
-module.exports = { seatLimit };
+module.exports = {};
 if (require.main === module) main().catch((e) => fail('main', e));

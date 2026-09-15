@@ -97,6 +97,7 @@ a.back:hover{color:#C8F135}
         <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Email</th>
         <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Plan</th>
         <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Change Plan</th>
+        <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em" title="How many athletes this account may hold. The plan decides unless an override is set here.">Seats</th>
         <th style="padding:10px 12px;text-align:left;font-size:10px;color:rgba(240,237,230,0.4);text-transform:uppercase;letter-spacing:0.08em">Joined</th>
       </tr>
     </thead>
@@ -279,8 +280,51 @@ function userRowHtml(u) {
       '</select>' +
       '<button onclick="setComp(\'' + u.id + '\', ' + (comped ? 'false' : 'true') + ')" style="margin-left:8px;background:' + (comped ? '#a78bfa30' : '#1a1a18') + ';border:1px solid ' + (comped ? '#a78bfa' : 'rgba(255,255,255,0.1)') + ';border-radius:4px;color:' + (comped ? '#a78bfa' : '#f0ede6') + ';font-size:11px;padding:4px 8px;cursor:pointer">' + (comped ? 'Un-comp' : 'Comp') + '</button>' +
     '</td>' +
+    '<td style="padding:10px 12px;white-space:nowrap">' + seatCellHtml(u) + '</td>' +
     '<td style="padding:10px 12px;font-size:11px;color:rgba(240,237,230,0.4)">' + new Date(u.created_at).toLocaleDateString() + '</td>' +
   '</tr>';
+}
+
+// ── SEATS: the plan's limit, or an admin override for this one account ──────
+// seat_override NULL = the plan decides; 0 = no limit; N = that many. The
+// server computes seat_limit / seat_source / seats from it, and the cell
+// shows "taken / limit" with the source, so a comped agent on an unlimited
+// override reads as exactly that and not as a plan they never bought.
+var SEAT_CHOICES = [['plan', 'Plan default'], ['0', 'No limit'], ['10', '10'], ['20', '20'], ['30', '30'], ['50', '50'], ['100', '100']];
+function seatCellHtml(u) {
+  var isOverride = u.seat_source === 'override';
+  var taken = (u.athletes === null || u.athletes === undefined) ? '?' : u.athletes;
+  var limit = (u.seat_limit === null || u.seat_limit === undefined) ? '∞' : u.seat_limit;
+  var full = u.seat_limit !== null && u.seat_limit !== undefined && u.athletes >= u.seat_limit;
+  var color = isOverride ? '#a78bfa' : 'rgba(240,237,230,0.5)';
+  var current = u.seat_override === null || u.seat_override === undefined ? 'plan' : String(u.seat_override);
+  if (current !== 'plan' && !SEAT_CHOICES.some(function (c) { return c[0] === current; })) SEAT_CHOICES.push([current, current]);
+  return '<span style="font-size:12px;color:' + (full ? '#f59e0b' : '#f0ede6') + ';font-weight:600">' + taken + ' / ' + limit + '</span>' +
+    '<span style="font-size:9px;margin-left:6px;padding:1px 6px;border-radius:4px;background:' + color + '20;color:' + color + ';font-weight:700;text-transform:uppercase">' + (isOverride ? 'override' : 'plan') + '</span>' +
+    '<br><select onchange="setSeatOverride(\'' + u.id + '\', this.value)" title="Athlete limit for this account" style="margin-top:4px;background:#1a1a18;border:1px solid ' + (isOverride ? '#a78bfa' : 'rgba(255,255,255,0.1)') + ';border-radius:4px;color:#f0ede6;font-size:11px;padding:3px 6px">' +
+      SEAT_CHOICES.map(function (c) { return '<option value="' + c[0] + '"' + (current === c[0] ? ' selected' : '') + '>' + c[1] + '</option>'; }).join('') +
+    '</select>';
+}
+
+async function setSeatOverride(userId, value) {
+  var seatOverride = value === 'plan' ? null : parseInt(value, 10);
+  var r = await fetch('/api/admin/set-seat-override', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ userId: userId, seatOverride: seatOverride })
+  });
+  var data = await r.json();
+  if (data.ok) {
+    showToast('Seats: ' + data.seats);
+    var u = _usersById[userId];
+    var row = document.getElementById('urow-' + userId);
+    if (u && row) {
+      u.seat_override = data.seatOverride; u.seat_limit = data.seatLimit; u.seat_source = data.seatSource; u.seats = data.seats;
+      row.outerHTML = userRowHtml(u);
+    }
+  } else {
+    showToast('Error: ' + (data.error || 'seat override failed'));
+  }
 }
 
 async function setComp(userId, comped) {

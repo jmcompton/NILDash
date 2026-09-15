@@ -182,7 +182,7 @@ async function main() {
   ok('a commit stamps last_login, so the nightly skip lifts', /UPDATE users SET last_login = NOW\(\) WHERE id = \$1/.test(src));
   ok('  and fills each new athlete on demand, one at a time', /job\.fillOnDemand\(P, aths\[0\]\)/.test(src) && /loadAthletesForQueue\(P, u\.id, c\.id\)/.test(src));
   ok('  through saveAthlete, like the form', /store\.saveAthlete\(id, rec\)/.test(src));
-  ok('the seat rule is the server\'s', /function seatLimit\(plan\)/.test(src) && /'599'/.test(src) && /'499'/.test(src));
+  ok('the seat rule is the server\'s (services/seats), override included', /require\('\.\.\/server\/services\/seats'\)/.test(src) && /Seats\.seatLimitFor\(u\)/.test(src) && /seat_override/.test(src));
   const gi = fs.readFileSync(REPO + '.gitignore', 'utf8');
   ok('roster CSVs are ignored by git', /^\*\.csv$/m.test(gi));
   ok('no CSV is committed', !require('child_process').execSync('git ls-files', { cwd: REPO }).toString().split('\n').some((f) => /\.csv$/i.test(f)));

@@ -28,6 +28,9 @@ async function init() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS athlete_id TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_id TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS plan_tier TEXT DEFAULT 'basic';
+    -- Per-account athlete limit set by an admin. NULL: the plan decides.
+    -- 0: no limit. N: that many. See services/seats.js.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS seat_override INT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS gcal_refresh_token TEXT;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
