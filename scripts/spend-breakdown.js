@@ -203,7 +203,15 @@ async function main() {
     // A lint refusal buys a second Sonnet call. Since the flag shipped every
     // attempt says whether it fired; before that, the only trace is a pitch
     // refused TWICE (the retry failed too), which is a lower bound.
-    const attempts = det.flatMap((d) => (Array.isArray(d.tried) ? d.tried : []).filter((t) => t.result === 'queued' || t.result === 'no_angle'));
+    // ONE WRITE PER ATHLETE AND BUSINESS. The local lane records a 'queued'
+    // attempt before the writer runs and a 'no_angle' attempt after a refusal,
+    // so a refused business had two entries and the write count was inflated.
+    const seenWrite = new Set();
+    const attempts = det.flatMap((d) => (Array.isArray(d.tried) ? d.tried : [])
+      .filter((t) => t.result === 'queued' || t.result === 'no_angle')
+      // The later entry for a business wins (it carries the refusal).
+      .reverse()
+      .filter((t) => { const k = d.athleteId + '|' + String(t.brand || '').toLowerCase(); if (seenWrite.has(k)) return false; seenWrite.add(k); return true; }));
     const flagged = attempts.filter((t) => typeof t.writerRetried === 'boolean');
     const retried = flagged.filter((t) => t.writerRetried);
     const twice = attempts.filter((t) => /could not write it in voice|invented a fact about the athlete/.test(t.reason || ''));

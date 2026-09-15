@@ -1634,6 +1634,8 @@ async function init() {
     )
   `).then(() => console.log('[init] outreach_queue_ondemand table ready'))
     .catch(e => console.error('[init] outreach_queue_ondemand:', e.message));
+  // How long each on-demand fill took, so the answer is measured, not guessed.
+  await pool.query(`ALTER TABLE outreach_queue_ondemand ADD COLUMN IF NOT EXISTS ms INT`).catch(() => {});
 
   // ── Site-email backfill jobs ──────────────────────────────────────────────
   // PROGRESS LIVES IN THE DATABASE, NOT IN A MODULE VARIABLE. A run over

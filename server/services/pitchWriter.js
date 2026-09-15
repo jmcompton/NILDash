@@ -323,13 +323,16 @@ function autoRepair(msg) {
 // posts", "4.8 stars", "nine years on University Drive" are not athlete facts.
 const POSITION_WORDS = [
   'quarterback', 'qb', 'running back', 'runningback', 'rb', 'wide receiver', 'receiver', 'wr',
-  'tight end', 'te', 'offensive lineman', 'lineman', 'linebacker', 'lb', 'cornerback', 'corner',
-  'safety', 'defensive end', 'defensive back', 'kicker', 'punter', 'edge rusher',
-  'point guard', 'shooting guard', 'small forward', 'power forward', 'center', 'forward', 'guard',
+  'tight end', 'te', 'offensive lineman', 'offensive tackle', 'offensive guard', 'lineman', 'linebacker', 'lb',
+  'cornerback', 'corner', 'safety', 'free safety', 'strong safety', 'defensive end', 'defensive tackle',
+  'defensive lineman', 'nose tackle', 'defensive back', 'kicker', 'punter', 'edge rusher', 'long snapper', 'returner',
+  'point guard', 'shooting guard', 'small forward', 'power forward', 'center', 'forward', 'guard', 'wing',
   'pitcher', 'catcher', 'shortstop', 'outfielder', 'infielder', 'first baseman', 'second baseman',
-  'third baseman', 'designated hitter',
+  'third baseman', 'designated hitter', 'utility player', 'center fielder', 'left fielder', 'right fielder',
   'goalkeeper', 'keeper', 'goalie', 'midfielder', 'striker', 'winger', 'defender', 'fullback',
-  'setter', 'libero', 'outside hitter', 'middle blocker',
+  'center back', 'centre back', 'wing back', 'defenseman', 'defenceman',
+  'setter', 'libero', 'outside hitter', 'middle blocker', 'opposite hitter', 'defensive specialist',
+  'attackman', 'attacker', 'faceoff specialist',
   'sprinter', 'distance runner', 'thrower', 'jumper', 'swimmer', 'diver', 'wrestler', 'golfer',
 ];
 const SPORT_WORDS = [
@@ -360,39 +363,165 @@ const POSITION_GROUPS = [
   ['running back', 'runningback', 'rb', 'tailback', 'halfback'],
   ['wide receiver', 'receiver', 'wr', 'wideout'],
   ['tight end', 'te'],
-  ['offensive lineman', 'lineman'],
+  ['offensive lineman', 'lineman', 'offensive tackle', 'offensive guard'],
   ['linebacker', 'lb'],
   ['cornerback', 'corner'],
-  ['defensive back'], ['defensive end'], ['safety'], ['edge rusher'],
-  ['kicker'], ['punter'],
+  ['defensive back'], ['defensive end'], ['defensive tackle', 'nose tackle'], ['defensive lineman'],
+  ['safety', 'free safety', 'strong safety'], ['edge rusher'],
+  ['kicker'], ['punter'], ['long snapper'], ['returner'],
   ['point guard'], ['shooting guard'], ['small forward'], ['power forward'],
-  ['center'], ['forward'], ['guard'],
-  ['pitcher'], ['catcher'], ['shortstop'], ['outfielder'], ['infielder'],
-  ['first baseman'], ['second baseman'], ['third baseman'], ['designated hitter'],
+  ['center'], ['forward'], ['guard'], ['wing'],
+  ['pitcher'], ['catcher'], ['shortstop'], ['outfielder', 'center fielder', 'left fielder', 'right fielder'], ['infielder'],
+  ['first baseman'], ['second baseman'], ['third baseman'], ['designated hitter'], ['utility player'],
   ['goalkeeper', 'keeper', 'goalie'], ['midfielder'], ['striker'], ['winger'],
-  ['defender'], ['fullback'],
-  ['setter'], ['libero'], ['outside hitter'], ['middle blocker'],
+  ['defender', 'center back', 'centre back', 'wing back'], ['fullback'], ['defenseman', 'defenceman'],
+  ['setter'], ['libero'], ['outside hitter'], ['middle blocker'], ['opposite hitter'], ['defensive specialist'],
+  ['attackman', 'attacker'], ['faceoff specialist'],
   ['sprinter'], ['distance runner'], ['thrower'], ['jumper'], ['swimmer'],
   ['diver'], ['wrestler'], ['golfer'],
 ];
 const _POS_KEY = new Map();
 for (const g of POSITION_GROUPS) for (const w of g) _POS_KEY.set(w, g[0]);
 
+// ── ABBREVIATIONS, BY SPORT ─────────────────────────────────────────────────
+//
+// The roster lookup stores what ESPN stores: the ABBREVIATION. "CB", "S",
+// "OL", "PG". The model, handed "Junior CB football", writes "cornerback",
+// because that is the word -- and the check, knowing only QB/RB/WR/TE/LB,
+// called that a fabrication and bought a second Sonnet call on 71 of 73
+// writes one night. The same letters mean different things by sport: C is a
+// center in football and basketball and a catcher in baseball; P is a punter
+// or a pitcher; F and G are basketball or soccer or hockey; SS is a shortstop
+// or a strong safety; CB, RB and LB are football positions or soccer backs.
+// So the abbreviation is resolved THROUGH THE ATHLETE'S SPORT, and a letter
+// that means two things is left unresolved when the sport is unknown rather
+// than guessed.
+const POSITION_ABBR = {
+  football: {
+    qb: 'quarterback', rb: 'running back', hb: 'running back', tb: 'running back', fb: 'fullback',
+    wr: 'wide receiver', te: 'tight end',
+    ol: 'offensive lineman', ot: 'offensive lineman', og: 'offensive lineman', g: 'offensive lineman', t: 'offensive lineman', c: 'center',
+    dl: 'defensive lineman', de: 'defensive end', dt: 'defensive tackle', nt: 'defensive tackle',
+    lb: 'linebacker', olb: 'linebacker', ilb: 'linebacker', mlb: 'linebacker', edge: 'edge rusher',
+    cb: 'cornerback', db: 'defensive back', s: 'safety', fs: 'safety', ss: 'safety',
+    k: 'kicker', pk: 'kicker', p: 'punter', ls: 'long snapper', kr: 'returner', pr: 'returner', ath: null,
+  },
+  basketball: {
+    pg: 'point guard', sg: 'shooting guard', sf: 'small forward', pf: 'power forward', c: 'center',
+    g: 'guard', f: 'forward', w: 'wing', 'g/f': 'wing', 'f/c': 'forward',
+  },
+  baseball: {
+    p: 'pitcher', sp: 'pitcher', rp: 'pitcher', rhp: 'pitcher', lhp: 'pitcher', c: 'catcher',
+    '1b': 'first baseman', '2b': 'second baseman', '3b': 'third baseman', ss: 'shortstop',
+    if: 'infielder', inf: 'infielder', of: 'outfielder', lf: 'outfielder', cf: 'outfielder', rf: 'outfielder',
+    dh: 'designated hitter', ut: 'utility player', util: 'utility player',
+  },
+  soccer: {
+    gk: 'goalkeeper', g: 'goalkeeper', d: 'defender', def: 'defender', cb: 'defender', lb: 'defender', rb: 'defender',
+    fb: 'defender', wb: 'defender', m: 'midfielder', mf: 'midfielder', mid: 'midfielder', cm: 'midfielder',
+    cdm: 'midfielder', cam: 'midfielder', dm: 'midfielder', am: 'midfielder', lm: 'midfielder', rm: 'midfielder',
+    f: 'forward', fw: 'forward', fwd: 'forward', st: 'forward', w: 'winger', lw: 'winger', rw: 'winger',
+  },
+  volleyball: {
+    s: 'setter', oh: 'outside hitter', mb: 'middle blocker', mh: 'middle blocker', opp: 'opposite hitter',
+    rs: 'opposite hitter', l: 'libero', ds: 'defensive specialist', dsl: 'libero',
+  },
+  hockey: {
+    c: 'center', lw: 'winger', rw: 'winger', w: 'winger', f: 'forward', d: 'defenseman', g: 'goalkeeper', gk: 'goalkeeper',
+  },
+  lacrosse: {
+    a: 'attackman', att: 'attackman', m: 'midfielder', mid: 'midfielder', d: 'defender', lsm: 'defender',
+    g: 'goalkeeper', gk: 'goalkeeper', fo: 'faceoff specialist', fogo: 'faceoff specialist',
+  },
+};
+// Abbreviations that mean the same thing in every sport that uses them, for
+// the caller who does not know the sport. Anything that differs by sport is
+// deliberately absent, so "C" with no sport resolves to nothing rather than
+// to a guess.
+const _ABBR_ANY = (() => {
+  const seen = new Map();
+  for (const table of Object.values(POSITION_ABBR)) {
+    for (const [k, v] of Object.entries(table)) {
+      if (!seen.has(k)) seen.set(k, v);
+      else if (seen.get(k) !== v) seen.set(k, false);
+    }
+  }
+  const out = new Map();
+  for (const [k, v] of seen) if (v) out.set(k, v);
+  return out;
+})();
+
+// A sport string ("Football", "women's soccer", "Men's Ice Hockey") to the
+// family whose abbreviation table applies, or null.
+function sportFamily(sport) {
+  const s = _words(sport);
+  if (!s) return null;
+  if (/soccer|futbol/.test(s)) return 'soccer';
+  if (/football/.test(s)) return 'football';
+  if (/basketball/.test(s)) return 'basketball';
+  if (/baseball|softball/.test(s)) return 'baseball';
+  if (/volleyball/.test(s)) return 'volleyball';
+  if (/hockey/.test(s)) return 'hockey';
+  if (/lacrosse/.test(s)) return 'lacrosse';
+  return null;
+}
+
+// Sport-specific WORD overrides: in football a "guard" or a "tackle" is a
+// lineman, not a basketball guard; in soccer a "forward" and a "striker" are
+// the same job to a business owner.
+const _WORD_BY_SPORT = {
+  football: { guard: 'offensive lineman', tackle: 'offensive lineman', 'offensive guard': 'offensive lineman' },
+  soccer: { striker: 'forward', 'centre forward': 'forward', 'center forward': 'forward', fullback: 'defender', 'full back': 'defender' },
+};
+
 // The group name for a position however it is written, or null if we do not
 // recognise it -- in which case the caller falls back to comparing the strings,
 // so an unusual stored value still works rather than matching nothing.
-function positionKey(s) {
-  const t = _words(s).replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
+// `sport` picks the abbreviation table; without one, only abbreviations that
+// mean the same thing everywhere resolve.
+function positionKey(s, sport) {
+  const t = _words(s).replace(/[^a-z0-9/ ]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!t) return null;
-  if (_POS_KEY.has(t)) return _POS_KEY.get(t);
-  // "Jr WR" / "WR/KR" / "starting quarterback" -- try each token and each pair.
-  const parts = t.split(' ');
-  for (let i = 0; i < parts.length; i++) {
-    const two = parts.slice(i, i + 2).join(' ');
-    if (_POS_KEY.has(two)) return _POS_KEY.get(two);
+  const fam = sportFamily(sport);
+  const abbr = fam && POSITION_ABBR[fam] ? POSITION_ABBR[fam] : null;
+  const wordOverride = fam && _WORD_BY_SPORT[fam] ? _WORD_BY_SPORT[fam] : {};
+  // THE SPORT'S TABLE OUTRANKS THE WORD TABLE: "RB" is a running back in the
+  // word table and a right back in soccer, and the sport decides.
+  const lookup = (tok) => {
+    if (!tok) return null;
+    if (wordOverride[tok]) return wordOverride[tok];
+    if (abbr && Object.prototype.hasOwnProperty.call(abbr, tok)) return abbr[tok] || null;
+    if (_POS_KEY.has(tok)) return _POS_KEY.get(tok);
+    if (!abbr && _ABBR_ANY.has(tok)) return _ABBR_ANY.get(tok);
+    return null;
+  };
+  const whole = lookup(t);
+  if (whole) return whole;
+  // "WR/KR" -> the first job listed; "Jr WR" / "starting quarterback" -- try
+  // each token and each pair, in order.
+  const parts = t.split(/[ /]+/).filter(Boolean);
+  for (let i = 0; i + 1 < parts.length; i++) {
+    const k2 = lookup(parts[i] + ' ' + parts[i + 1]);
+    if (k2) return k2;
   }
-  for (const p of parts) if (_POS_KEY.has(p)) return _POS_KEY.get(p);
+  for (const p of parts) { const k = lookup(p); if (k) return k; }
   return null;
+}
+
+// What the athlete block SAYS the position is: the word, never the letters.
+// A stored "CB" on a football player reads "cornerback"; "WR/KR" reads "wide
+// receiver"; a value we cannot resolve is handed over exactly as stored, and
+// the model is told to use it verbatim.
+function positionLabel(s, sport) {
+  const raw = String(s || '').trim();
+  if (!raw) return null;
+  const key = positionKey(raw, sport);
+  if (!key) return raw;
+  // If the stored value already IS a word for that group, keep the agent's
+  // wording; only a letter code is replaced.
+  const t = _words(raw).replace(/[^a-z0-9/ ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (_POS_KEY.has(t) || /[a-z]{5,}/.test(t)) return raw;
+  return key;
 }
 
 // ── A WORD THAT IS ALSO AN ORDINARY WORD ────────────────────────────────────
@@ -536,10 +665,10 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
   // string comparison when we do not recognise the stored value, so an unusual
   // one still matches itself.
   const storedPos = _words(a.position);
-  const storedPosKey = positionKey(a.position);
+  const storedPosKey = positionKey(a.position, a.sport);
   for (const hit of _findVocab(t, POSITION_WORDS, a)) {
     if (!storedPos) { problems.push(`claims a position ("${hit}") and we hold none`); break; }
-    const hitKey = positionKey(hit);
+    const hitKey = positionKey(hit, a.sport);
     const same = storedPosKey && hitKey
       ? storedPosKey === hitKey
       : (storedPos.includes(hit) || hit.includes(storedPos));
@@ -692,6 +821,15 @@ function describeBusiness(b) {
   return L.join('\n');
 }
 
+// The position the model may name, spelled out once. The block used to hand
+// over the stored letters ("CB") and the model wrote the word; the check then
+// refused the word. Now the block hands over the word, and says so.
+function _positionRule(a) {
+  const label = positionLabel(a.position, a.sport);
+  if (!label) return '';
+  return ` (position: say "${label}" or nothing; do not rename or abbreviate it)`;
+}
+
 function describeAthlete(a) {
   const L = [];
   const isPro = a.athleteType === 'pro';
@@ -702,8 +840,8 @@ function describeAthlete(a) {
     // college must not reach the model, and there is no campus to name.
     L.push('This athlete is a PROFESSIONAL, not a college athlete. Never call them a '
       + 'student-athlete, never mention college, NCAA, a class year or NIL.');
-    const bits = [a.position, a.sport].filter(Boolean).join(' ');
-    if (bits) L.push('Plays: ' + bits + (a.team ? ' for the ' + a.team : ''));
+    const bits = [positionLabel(a.position, a.sport), a.sport].filter(Boolean).join(' ');
+    if (bits) L.push('Plays: ' + bits + (a.team ? ' for the ' + a.team : '') + _positionRule(a));
     else if (a.team) L.push('Team: ' + a.team);
     if (a.city) L.push('Based in: ' + a.city);
     // "Known for" is what the agent typed into stats or notes. It is offered as
@@ -713,8 +851,8 @@ function describeAthlete(a) {
     if (known) L.push('Known for: ' + known + ' (use this, and nothing you remember about them)');
     else L.push('Known for: nothing on file. Do not draw on what you may remember about this player; pitch on position, team and what they post.');
   } else {
-    const bits = [a.year, a.position, a.sport].filter(Boolean).join(' ');
-    if (bits) L.push('Plays: ' + bits + (a.school ? ' at ' + a.school : ''));
+    const bits = [a.year, positionLabel(a.position, a.sport), a.sport].filter(Boolean).join(' ');
+    if (bits) L.push('Plays: ' + bits + (a.school ? ' at ' + a.school : '') + _positionRule(a));
     else if (a.school) L.push('School: ' + a.school);
   }
   if (a.hometown) L.push('From: ' + a.hometown);
@@ -1070,5 +1208,5 @@ module.exports = {
   CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
   DELIVERABLE_RE, DELIVERABLE_NOUNS, DELIVERABLE_VERBS, SYSTEM, SYSTEM_PRO, systemFor, MIN_SAMPLE,
   POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
-  positionKey, POSITION_GROUPS, SOFT_WORDS,
+  positionKey, positionLabel, sportFamily, POSITION_GROUPS, POSITION_ABBR, SOFT_WORDS,
 };

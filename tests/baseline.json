@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-09-14",
+  "recordedAt": "2026-09-15",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_idx.js": {
@@ -429,6 +429,11 @@
       "total": 45,
       "fault": null
     },
+    "inactiveskip.js": {
+      "failed": 0,
+      "total": 28,
+      "fault": null
+    },
     "inbox.js": {
       "failed": 0,
       "total": 8,
@@ -607,6 +612,11 @@
     "poolrecord.js": {
       "failed": 0,
       "total": 18,
+      "fault": null
+    },
+    "positions.js": {
+      "failed": 0,
+      "total": 126,
       "fault": null
     },
     "prewarm.js": {

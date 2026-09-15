@@ -839,7 +839,21 @@ function waitingOnYou(rows, nowMs) {
     && r.sent_at && Date.parse(r.sent_at) <= cutoff);
 }
 
+// ── WHO IS BEING FILLED RIGHT NOW ────────────────────────────────────────────
+// An on-demand fill runs for a minute or three. Until it lands, an athlete
+// with no cards looks exactly like an athlete the night found nothing for, so
+// the page shows "finding businesses" for the ones that are actually being
+// worked. In-process state: the fill runs in this process, and a restart
+// clears it along with the fill it was describing.
+const _filling = new Map();
+function markFilling(athleteId) { if (athleteId) _filling.set(String(athleteId), Date.now()); }
+function unmarkFilling(athleteId) { _filling.delete(String(athleteId)); }
+function isFilling(athleteId) { return _filling.has(String(athleteId)); }
+function fillingIds() { return [..._filling.keys()]; }
+function fillingSince(athleteId) { return _filling.get(String(athleteId)) || null; }
+
 module.exports = {
+  markFilling, unmarkFilling, isFilling, fillingIds, fillingSince,
   passesBar, _whatWeGot, buildCard, sortCards, slotsToFill, newBudget, slotSkipReason,
   inboxOf, emailRowsOf, SENDABLE_EMAIL_KINDS, channelFor, subjectFor,
   priceOf, costSummary, USD_PER_WEB_SEARCH, USD_PER_AI_CALL, USD_PER_PLACES_REQUEST,

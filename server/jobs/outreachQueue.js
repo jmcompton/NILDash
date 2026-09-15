@@ -686,7 +686,10 @@ async function fillAthlete(pool, ctx) {
   // BEFORE THE SLOTS ARE COUNTED. Expiring after would free space tonight's run
   // could not use, and the agent would wait another day for a queue that was
   // already empty.
-  await expireStaleCards(pool, { agentId });
+  // keepStale: the fill that runs the moment a dormant agent signs back in.
+  // Their cards were preserved through the weeks they were away; expiring them
+  // in the same second they return would hand them an empty page.
+  if (!ctx.keepStale) await expireStaleCards(pool, { agentId });
 
   const heldRows = (await pool.query(
     `SELECT slot, state, channel FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`,
@@ -1591,19 +1594,58 @@ async function fillAgent(pool, agent, opts) {
   return { filled, spent: budget.spent(), claimed: true, details };
 }
 
+// ── AN AGENT WHO HAS NOT SIGNED IN FOR A FORTNIGHT IS NOT FILLED ─────────────
+// Their cards would expire unworked and the night's spend would buy nothing.
+// The skip is a run row with the reason in its note, so the shift report and
+// Home say "skipped, last login 21 days ago" rather than showing an empty
+// night. Their queued cards are NOT expired while they are skipped: the expiry
+// runs inside the fill, and a skipped agent is not filled. It lifts on its
+// own: users.last_login moves on their next sign-in, the login route runs an
+// on-demand fill for every athlete with an open slot right then (see
+// resumeAgent), and the next nightly run sees a fresh date. Only the scheduled
+// run skips; a run for one named agent (--agent, the admin fill) always fills.
+const INACTIVE_AFTER_DAYS = parseInt(process.env.OUTREACH_QUEUE_INACTIVE_DAYS, 10) || 14;
+function inactiveSkip(agent, now) {
+  const ref = now ? new Date(now) : new Date();
+  const last = agent && agent.last_login ? new Date(agent.last_login) : null;
+  if (last && !isNaN(last.getTime())) {
+    const days = Math.floor((ref.getTime() - last.getTime()) / 86400000);
+    if (days <= INACTIVE_AFTER_DAYS) return null;
+    return `skipped: last login ${days} days ago (${last.toISOString().slice(0, 10)}); the fill resumes the night after they next sign in`;
+  }
+  return 'skipped: this agent has never signed in; the fill starts the night after their first sign-in';
+}
+
 async function run(opts = {}) {
   const pool = store.pool;
   const agents = opts.agentId
     // signature_text / scheduling_url travel with the agent so fillAgent can read
     // them once rather than querying per business.
     ? (await pool.query(
-      `SELECT id, name, signature_text, scheduling_url FROM users WHERE id = $1`,
+      `SELECT id, name, signature_text, scheduling_url, last_login FROM users WHERE id = $1`,
       [opts.agentId])).rows
     : (await pool.query(
-      `SELECT id, name, signature_text, scheduling_url FROM users
+      `SELECT id, name, signature_text, scheduling_url, last_login FROM users
         WHERE role IN ('agent','admin') AND archived IS NOT TRUE ORDER BY created_at ASC`)).rows;
-  let filled = 0, spent = 0;
+  let filled = 0, spent = 0, skipped = 0;
   for (const a of agents) {
+    if (!opts.agentId && !opts.force) {
+      const why = inactiveSkip(a, opts.now);
+      if (why) {
+        skipped++;
+        console.log(`[queue] agent=${a.id} ${why}`);
+        if (!opts.dryRun) {
+          // The night is claimed with the reason on it, so nothing else fills
+          // this agent tonight and the row reads as a decision, not a gap.
+          await pool.query(
+            `INSERT INTO outreach_queue_runs (agent_id, run_date, filled, spent_usd, note, details, finished_at)
+             VALUES ($1, $2, 0, 0, $3, '[]'::jsonb, NOW())
+             ON CONFLICT (agent_id, run_date) DO NOTHING`, [a.id, opts.runDate || today(), why]).catch((e) =>
+            console.error('[queue] could not record the skip for ' + a.id + ': ' + e.message));
+        }
+        continue;
+      }
+    }
     const r = await fillAgent(pool, a, opts).catch(async (e) => {
       console.error(`[queue] agent=${a.id} failed: ${e.message}`);
       // A run that THREW is still a run that ended. Without this stamp the row
@@ -1618,8 +1660,8 @@ async function run(opts = {}) {
     });
     filled += r.filled; spent += r.spent;
   }
-  console.log(`[queue] run complete agents=${agents.length} filled=${filled} spent=$${spent.toFixed(2)}`);
-  return { agents: agents.length, filled, spent };
+  console.log(`[queue] run complete agents=${agents.length} skipped=${skipped} filled=${filled} spent=$${spent.toFixed(2)}`);
+  return { agents: agents.length, skipped, filled, spent };
 }
 
 // ── On demand, when the agent actually opens the queue ───────────────────────
@@ -1641,26 +1683,40 @@ async function fillOnDemand(pool, ath, opts = {}) {
      ON CONFLICT (athlete_id, run_date) DO NOTHING`, [ath.id, runDate]).catch(() => ({ rowCount: 0 }));
   if (!(claim.rowCount > 0)) return { filled: 0, spent: 0, claimed: false };
 
-  const budget = Q.newBudget(ONDEMAND_CAP_USD);
-  const _ctx = await localContextFor(ath);
-  const r = await fillAthlete(pool, {
-    agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
-    athleteProfile: _ctx.profile, agentFirstName: ath.agent_first_name || null,
-    signature: SIG.signatureOf(ath),
-    // The raw record, same as the nightly path. Without it the on-demand fill
-    // wrote pitches with no Instagram link and no content line -- a quietly
-    // different message depending on which path produced the card.
-    athleteRow: ath.data || null,
-    budget, region: _ctx.region,
-    // ON-DEMAND NEVER WIDENS. This runs while the agent is watching, on a $0.15
-    // cap; a deep search pass costs more than the whole on-demand budget and
-    // would stall the page. Widening is the night's job.
-    noWiden: true,
-    onProgress: (m) => console.log('[queue/ondemand] ' + m),
-  });
+  // opts.budget: a shared budget when several athletes are filled in one go
+  // (resumeAgent), so a roster of forty cannot spend forty on-demand caps.
+  const budget = opts.budget || Q.newBudget(ONDEMAND_CAP_USD);
+  const _t0 = Date.now();
+  Q.markFilling(ath.id);
+  let r;
+  try {
+    const _ctx = await localContextFor(ath);
+    r = await fillAthlete(pool, {
+      agentId: ath.agent_id, athleteId: ath.id, athleteName: ath.name,
+      athleteProfile: _ctx.profile, agentFirstName: ath.agent_first_name || null,
+      signature: SIG.signatureOf(ath),
+      // The raw record, same as the nightly path. Without it the on-demand fill
+      // wrote pitches with no Instagram link and no content line -- a quietly
+      // different message depending on which path produced the card.
+      athleteRow: ath.data || null,
+      budget, region: _ctx.region,
+      // ON-DEMAND NEVER WIDENS. This runs while the agent is watching, on a $0.15
+      // cap; a deep search pass costs more than the whole on-demand budget and
+      // would stall the page. Widening is the night's job.
+      noWiden: true,
+      // The resume-on-login fill keeps the cards that waited through the break.
+      keepStale: !!opts.keepStale,
+      onProgress: (m) => console.log('[queue/ondemand] ' + m),
+    });
+  } finally {
+    Q.unmarkFilling(ath.id);
+  }
+  const ms = Date.now() - _t0;
+  // HOW LONG IT TOOK, on the row, so "how long does an on-demand fill take"
+  // is a query over real fills rather than an estimate.
   await pool.query(
-    `UPDATE outreach_queue_ondemand SET filled = $3, spent_usd = $4 WHERE athlete_id = $1 AND run_date = $2`,
-    [ath.id, runDate, r.filled, budget.spent()]).catch(() => {});
+    `UPDATE outreach_queue_ondemand SET filled = $3, spent_usd = $4, ms = $5 WHERE athlete_id = $1 AND run_date = $2`,
+    [ath.id, runDate, r.filled, budget.spent(), ms]).catch(() => {});
   // An on-demand attempt that spent and placed nothing counts toward the same
   // backoff as a night: the athlete is equally unfillable either way.
   if (!r.paused) {
@@ -1669,8 +1725,52 @@ async function fillOnDemand(pool, ath, opts = {}) {
     await recordAttempt(pool, ath.id, { filled: r.filled, spent: budget.spent(), runDate,
       faults: r.faults || 0, tried: r.tried || [], systemic: false });
   }
-  console.log(`[queue/ondemand] athlete=${ath.id} filled=${r.filled} spent=$${budget.spent().toFixed(2)} of $${ONDEMAND_CAP_USD.toFixed(2)}`);
-  return { filled: r.filled, spent: budget.spent(), claimed: true, note: r.note, tried: r.tried, paused: !!r.paused };
+  console.log(`[queue/ondemand] athlete=${ath.id} filled=${r.filled} spent=$${budget.spent().toFixed(2)} of $${budget.cap().toFixed(2)} took=${(ms / 1000).toFixed(1)}s`);
+  return { filled: r.filled, spent: budget.spent(), claimed: true, note: r.note, tried: r.tried, paused: !!r.paused, ms };
+}
+
+// The athlete rows the on-demand path needs: the data, the agent's first name
+// for the sign-off, and the signature. One loader, used by the queue page, the
+// login resume and the add-athlete trigger, so a card built on any of the
+// three is signed the same way.
+async function loadAthletesForQueue(pool, agentId, athleteId) {
+  const r = await pool.query(
+    `SELECT a.id, a.agent_id, a.data, a.data->>'name' AS name,
+            a.data->>'hometown' AS hometown, a.data->>'school' AS school,
+            split_part(COALESCE(u.name,''), ' ', 1) AS agent_first_name,
+            u.signature_text, u.scheduling_url
+       FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
+      WHERE a.agent_id = $1 ${athleteId ? 'AND a.id = $2' : ''} ORDER BY a.created_at ASC`,
+    athleteId ? [agentId, athleteId] : [agentId]);
+  return r.rows || [];
+}
+
+// ── A DORMANT AGENT SIGNS BACK IN ────────────────────────────────────────────
+// The nightly run skipped them (inactiveSkip) and left their cards alone. Now
+// they are here, so every athlete with an open slot gets an on-demand fill at
+// once, under ONE shared budget the size of a night, with keepStale so the
+// cards that waited for them are not expired in the same second. The nightly
+// run resumes on its own tonight because last_login has moved.
+async function resumeAgent(pool, agentId, opts = {}) {
+  const t0 = Date.now();
+  const aths = await loadAthletesForQueue(pool, agentId);
+  const budget = opts.budget || Q.newBudget(CAP_USD);
+  const out = { athletes: aths.length, withOpenSlots: 0, filled: 0, spent: 0, ms: 0 };
+  for (const ath of aths) {
+    const held = (await pool.query(
+      `SELECT slot, state, channel FROM outreach_queue WHERE athlete_id = $1 AND state = 'queued'`, [ath.id]).catch(() => ({ rows: [] }))).rows;
+    if (!Q.slotsToFill(held).length) continue;
+    out.withOpenSlots++;
+    if (budget.remaining() <= 0) { console.log(`[queue/resume] agent=${agentId}: budget spent, ${ath.name} left for tonight`); continue; }
+    const r = await fillOnDemand(pool, ath, { keepStale: true, budget }).catch((e) => {
+      console.error(`[queue/resume] athlete=${ath.id} failed: ${e.message}`); return { filled: 0, spent: 0 };
+    });
+    out.filled += r.filled || 0;
+  }
+  out.spent = budget.spent();
+  out.ms = Date.now() - t0;
+  console.log(`[queue/resume] agent=${agentId} athletes=${out.athletes} openSlots=${out.withOpenSlots} filled=${out.filled} spent=$${out.spent.toFixed(2)} took=${(out.ms / 1000).toFixed(1)}s`);
+  return out;
 }
 
 async function status(pool) {
@@ -1683,7 +1783,8 @@ async function status(pool) {
 module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor,
   athleteState, recordAttempt, releasePause, expireStaleCards,
-  insertCard, textToParagraphs,
+  insertCard, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
+  loadAthletesForQueue, resumeAgent,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
 };

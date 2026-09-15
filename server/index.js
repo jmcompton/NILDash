@@ -915,7 +915,21 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   if (!ok) return res.status(401).json({ error: 'Invalid email or password' });
 
   req.session.userId = user.id;
+  // ── A DORMANT AGENT IS BACK ─────────────────────────────────────────────
+  // The nightly run skips an agent whose last login is over 14 days old and
+  // leaves their cards alone. Their sign-in is the signal: last_login moves
+  // (which lifts the nightly skip tonight), and every athlete with an open
+  // slot is filled on demand right now, in the background, so the page they
+  // are about to open says "finding businesses" and then fills.
+  const _wasDormant = (() => {
+    try { return ['agent', 'admin'].includes(user.role) && !!require('./jobs/outreachQueue').inactiveSkip(user); } catch (_) { return false; }
+  })();
   store.pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]).catch(() => {});
+  if (_wasDormant && OQfillOnDemandEnabled()) {
+    console.log(`[queue/resume] agent=${user.id} signed in after ${user.last_login ? Math.floor((Date.now() - new Date(user.last_login).getTime()) / 86400000) + ' days' : 'never having signed in'}; filling open slots now`);
+    setImmediate(() => { require('./jobs/outreachQueue').resumeAgent(store.pool, user.id).catch((e) =>
+      console.error('[queue/resume]', e.message)); });
+  }
   req.session.role   = user.role;
   res.json({
     id: user.id, name: user.name, email: user.email, role: user.role,
@@ -1603,6 +1617,17 @@ app.post('/api/athletes', requireAuth, async (req, res) => {
     createdAt: new Date().toISOString(),
   });
   checkOff(req.session.userId, 'add_athlete'); // Getting Started checklist
+  // ── A NEW ATHLETE IS FILLED NOW, NOT TONIGHT ────────────────────────────
+  // Adding an athlete did not start anything: their first cards arrived with
+  // the next nightly run, which could be twenty hours away. The on-demand fill
+  // (the same one the queue page runs) starts in the background the moment
+  // the row exists, and Home shows "finding businesses" for them until it
+  // lands. Claimed per athlete per day inside fillOnDemand, so opening the
+  // queue a minute later does not run it twice.
+  if (OQfillOnDemandEnabled()) {
+    try { require('./services/outreachQueue').markFilling(id); } catch (_) {}
+    setImmediate(() => { runOnDemandFills(user.id, id).catch((e) => console.error('[queue/ondemand] new athlete', e.message)); });
+  }
   res.status(201).json(athlete);
 });
 
@@ -2111,6 +2136,13 @@ app.get('/api/agent/home', requireAuth, async (req, res) => {
     // This is display only -- POST /api/agent/outreach-queue/fill re-checks.
     const _me = await store.getUser(req.session.userId).catch(() => null);
     out.canFill = canFillQueue(_me);
+    // Which athletes are being filled right now (an on-demand fill in flight),
+    // so an empty queue can say "finding businesses" instead of "nothing".
+    try {
+      const OQs = require('./services/outreachQueue');
+      out.filling = !!(out.selected && OQs.isFilling(out.selected));
+      out.fillingAthletes = OQs.fillingIds();
+    } catch (_) { out.filling = false; out.fillingAthletes = []; }
     res.json(out);
   } catch (e) {
     console.error('[home]', e.message);
@@ -9945,22 +9977,14 @@ function OQfillOnDemandEnabled() {
 // Fill the slots the night deliberately left empty, for every athlete on this
 // agent's roster that still has one. Each athlete is claimed per day inside
 // fillOnDemand, so this is safe to call on every single page load.
-async function runOnDemandFills(agentId) {
+async function runOnDemandFills(agentId, athleteId) {
   const job = require('./jobs/outreachQueue');
-  // data and the agent's name come along because the Writer sells THIS athlete
-  // and signs as THIS agent. Selecting three fields is what produced "a college
-  // athlete here in your area" on every pitch.
-  const aths = await store.pool.query(
-    `SELECT a.id, a.agent_id, a.data, a.data->>'name' AS name,
-            a.data->>'hometown' AS hometown, a.data->>'school' AS school,
-            split_part(COALESCE(u.name,''), ' ', 1) AS agent_first_name,
-            -- The signature travels with the on-demand row too, or a card built
-            -- while the agent watches goes out unsigned while the nightly ones
-            -- are signed.
-            u.signature_text, u.scheduling_url
-       FROM athletes a LEFT JOIN users u ON u.id = a.agent_id
-      WHERE a.agent_id = $1 ORDER BY a.created_at ASC`, [agentId]);
-  for (const ath of aths.rows || []) {
+  // The whole athlete and the agent's name come along because the Writer sells
+  // THIS athlete and signs as THIS agent. One loader for every on-demand caller
+  // (the queue page, the login resume, the add-athlete trigger): see
+  // jobs/outreachQueue.loadAthletesForQueue.
+  const aths = await job.loadAthletesForQueue(store.pool, agentId, athleteId || null);
+  for (const ath of aths) {
     await job.fillOnDemand(store.pool, ath).catch((e) =>
       console.error(`[queue/ondemand] athlete=${ath.id} failed: ${e.message}`));
   }

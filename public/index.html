@@ -1986,6 +1986,8 @@ tbody td{padding:11px 14px;vertical-align:middle}
   border:1px solid rgba(255,184,0,.28);border-radius:9px;padding:11px 14px;
   margin-bottom:20px;font-size:14.5px;color:var(--text,#F0EDE6)}
 .hq-block a{color:var(--gold,#FFB800);text-decoration:underline;text-underline-offset:2px}
+.hq-spin{display:inline-block;width:11px;height:11px;border:2px solid var(--accent,#C8F135);border-right-color:transparent;border-radius:50%;vertical-align:-1px;margin-right:6px;animation:hqspin .8s linear infinite}
+@keyframes hqspin{to{transform:rotate(360deg)}}
 .hq-name{font-family:'Syne',sans-serif;font-weight:700;font-size:27px;line-height:1.15;
   letter-spacing:-.015em;margin:0 0 3px;text-wrap:balance}
 .hq-sub{color:var(--muted,#9a9a8e);font-size:14.5px;margin:0 0 20px}
@@ -20090,6 +20092,21 @@ function hqRender() {
     panel.innerHTML = '<div class="hq-done"><p class="hq-why" style="margin:0">'
       + 'No athletes yet. Add one to start.</p></div>';
     bar.hidden = true;
+    return;
+  }
+
+  // ── FINDING BUSINESSES ──────────────────────────────────────────────────
+  // An on-demand fill is running for this athlete (a new athlete, or an agent
+  // back after a break). Empty is not the truth yet, so say what is
+  // happening and look again in a few seconds until the cards land.
+  if (d.filling && !(d.cards || []).length) {
+    panel.innerHTML = '<div class="hq-done"><p class="hq-why" style="margin:0 0 6px">'
+      + '<span class="hq-spin" aria-hidden="true"></span> Finding businesses for '
+      + hqEscape(String(d.athlete.name).split(' ')[0]) + '…</p>'
+      + '<p class="hq-why" style="margin:0;opacity:.75">Looking up the local market, checking each business, writing the pitch. Usually a minute or two.</p></div>';
+    bar.hidden = true;
+    clearTimeout(HQ._fillingTimer);
+    HQ._fillingTimer = setTimeout(function () { if (HQ.selected === d.selected) hqLoad(d.selected); }, 8000);
     return;
   }
 
