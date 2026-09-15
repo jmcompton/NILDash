@@ -20,7 +20,9 @@
 // tools); if that call fails the brief says so and why, in the footer.
 
 const L = require('./lib');
-const { dumpMail, addrOf, nameOf } = require('./mail-dump');
+const { addrOf, nameOf } = require('./mail-dump');
+// Mail.app on the Mac; Gmail over IMAP and Outlook over Graph on a server.
+const { readMail } = require('./mail-source');
 
 const KIND = 'follow-ups';
 const norm = (s) => String(s || '').replace(/^\s*((re|fw|fwd|aw|wg)\s*:\s*)+/i, '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -58,8 +60,10 @@ async function main() {
   const debug = process.argv.includes('--debug') || !!process.env.BRIEFS_DEBUG;
   const skipDomains = new Set((cfg.skipDomains || []).map((d) => String(d).toLowerCase()));
   const users = new Set((cfg.nildashUsers || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean));
-  const mail = dumpMail({ accounts: cfg.mailAccounts, myAddresses: cfg.myAddresses, lookbackDays: cfg.lookbackDays, debug });
-  if (!mail.sent.length) mail.warnings.push('0 sent messages were read. Run `node tools/briefs/mail-dump.js --debug` on the Mac to see what Mail returned.');
+  const mail = await readMail(cfg, { debug });
+  if (!mail.sent.length) mail.warnings.push(process.platform === 'darwin'
+    ? '0 sent messages were read. Run `node tools/briefs/mail-dump.js --debug` on the Mac to see what Mail returned.'
+    : '0 sent messages were read. Check BRIEFS_MAIL_SOURCES and the Gmail / Outlook variables (README: Running on Railway).');
   const mine = new Set(cfg.myAddresses.concat(...mail.accounts.map((a) => (a.addresses || []).map((x) => String(x).toLowerCase()))));
   const skip = (addr) => !addr || mine.has(addr) || skipDomains.has(domainOf(addr));
 

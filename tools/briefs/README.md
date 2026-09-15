@@ -40,6 +40,58 @@ The CLI's own login (the OAuth session from `claude` > sign in) is not used. It 
 
 4. **Spend shows in the Console.** Every call is a normal API request: console.anthropic.com > Usage shows the overnight window against the key. Haiku for strategy-watch, the default model for the other three.
 
+## Running on Railway
+
+The same four scripts, as one Railway service separate from the NILDash app. The NILDash service, its variables and its deploy are not touched: this is a second service in the same project, built from `tools/briefs/Dockerfile`, run on Railway's cron.
+
+**Why one service and one cron.** Railway gives a service a single cron schedule. The schedule `*/15 10-12 * * *` (UTC) fires every fifteen minutes across the hours that cover 5:30, 5:45, 6:00 and 6:15 Central in both offsets, and `run-slot.js` runs the brief whose Central slot is now, or exits at once. So the four keep their times, daylight saving is handled by the time zone rather than by editing the schedule, and a firing with nothing to do costs seconds.
+
+**Set it up.**
+
+1. Railway > the NILDash project > New > GitHub repo > this repository. Name the service `nildash-briefs`. Leave the root directory at `/`.
+2. Service settings > Config-as-code > set the path to `tools/briefs/railway.json`. That file selects the Dockerfile, the start command, the cron schedule and no restarts. Railway reads it on the next deploy.
+3. Service settings > Volumes > add a volume mounted at `/data/briefs`. State (what was shown, what was drafted, the last strategy send), the archives, the logs and the LinkedIn CSV live there. Without it every deploy starts from nothing and the briefs repeat themselves.
+4. Variables: the table below. `BRIEFS_HOME` is already set by the Dockerfile.
+5. Deploy. Then run `node tools/briefs/run-slot.js --brief news-watch` from the service's shell (or temporarily set the start command to it) to see one brief go out before the first morning.
+
+**Settings as variables.** Every key of `config.json` has a variable; a variable that is set wins over the file, and there is no file on Railway. Lists are comma-separated or JSON.
+
+| Variable | config.json key | Notes |
+|---|---|---|
+| `BRIEFS_TO` | `to` | defaults to john@comptongroupllc.com |
+| `BRIEFS_FROM` | `from` | defaults to NILDash Briefs <noreply@mynildash.com> |
+| `RESEND_API_KEY` | `resendApiKey` | **required**; the same key the app has |
+| `ANTHROPIC_API_KEY` | (fallback) | **required** unless `BRIEFS_ANTHROPIC_API_KEY`; what `claude -p` runs on |
+| `BRIEFS_ANTHROPIC_API_KEY` | `anthropicApiKey` | optional; wins over `ANTHROPIC_API_KEY` |
+| `BRIEFS_MY_ADDRESSES` | `myAddresses` | **required for follow-ups**; every address you send from |
+| `BRIEFS_LOOKBACK_DAYS` | `lookbackDays` | 60 |
+| `BRIEFS_SILENT_DAYS` | `silentDays` | 7 |
+| `BRIEFS_SKIP_DOMAINS` | `skipDomains` | defaults as before |
+| `BRIEFS_NILDASH_USERS` | `nildashUsers` | |
+| `BRIEFS_PROSPECT_KEYWORDS` | `prospectKeywords` | |
+| `BRIEFS_PROSPECTS_PER_RUN` | `prospectsPerRun` | 20 |
+| `BRIEFS_ABOUT_ME` | `aboutMe` | **set it**; the prospect openers read it |
+| `BRIEFS_NEWS_TERMS` | `newsTerms` | |
+| `BRIEFS_NEWS_LINES` | `newsLines` | 10 |
+| `BRIEFS_MAX_TURNS` | `maxTurns` | JSON, e.g. `{"followups":2,"news":4,"prospect":5,"strategy":4}` |
+| `BRIEFS_CALL_TIMEOUT_MIN` | `callTimeoutMin` | 6 |
+| `BRIEFS_CONFIG_JSON` | (all) | the whole config as one JSON value, if that is easier |
+| `BRIEFS_TZ` | | `America/Chicago` |
+| `BRIEFS_CONNECTIONS_URL` | `connectionsUrl` | **for prospecting**: a direct-download link to the LinkedIn `Connections.csv`, fetched into the volume's inbox each run |
+
+**Mail on a server.** Mail.app does not exist on Railway, and the two accounts need two different doors:
+
+| Account | How | Variables |
+|---|---|---|
+| Gmail | IMAP with a Google **app password** | `BRIEFS_GMAIL_USER` (the address), `BRIEFS_GMAIL_APP_PASSWORD` |
+| Outlook | Microsoft Graph, through the mailbox connection the NILDash app holds | `DATABASE_URL`, `EMAIL_ENCRYPTION_KEY` (or `SESSION_SECRET` if that is what the app uses), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET`, `OUTLOOK_TENANT_ID` if the app sets one: all the same values as the NILDash service |
+
+Why not Gmail OAuth: NILDash's Google consent is `gmail.send` only. Reading needs `gmail.readonly`, a restricted scope Google verifies with a security assessment, and an OAuth app left in testing expires its refresh tokens after seven days. An app password (Google Account > Security > 2-Step Verification > App passwords) is a 16-character secret for this one purpose and does not expire. Why Outlook works: the app's Outlook scopes include `Mail.ReadWrite`, so the refresh token it already stores can read Sent Items and Inbox. Connect the Outlook mailbox in NILDash once, under your own agent login, with the address in `BRIEFS_MY_ADDRESSES`; the briefs read the token with the app's cipher and never write it back. Nothing is read from anyone else's mailbox: only accounts whose address is in `BRIEFS_MY_ADDRESSES` are opened.
+
+`BRIEFS_MAIL_SOURCES` (`mac`, `gmail-imap`, `outlook-graph`) forces the choice; unset, it is Mail.app on macOS and whichever server door has its variables elsewhere. `node tools/briefs/mail-source.js --probe` reads through the chosen doors and prints counts and warnings.
+
+**The Mac keeps working.** Nothing above changes the Mac path: config.json, Mail.app and the crontab behave as before. Once Railway sends the four, remove the Mac crontab lines so each brief arrives once.
+
 ## Guardrails
 
 - `--max-turns` on every call: 2 for follow-ups (one summarising call), 4 per news term, 5 per prospect, 4 per strategy-watch search plus 1 for its paragraph. Change them in `config.json` under `maxTurns`.
@@ -79,6 +131,18 @@ Each mailbox line in the debug output reads `<total> total, <n> in window, <n> r
 `BRIEFS_DEBUG=1` on any of the scripts turns the same output on inside a normal run.
 
 ## Running by hand
+
+On Railway, from the service shell:
+
+```
+node tools/briefs/run-slot.js --dry            which brief this minute would run
+node tools/briefs/run-slot.js --brief news-watch
+node tools/briefs/run-slot.js --all            all four, in order
+node tools/briefs/lib.js --claude-test          the key and the CLI
+node tools/briefs/mail-source.js --probe        the mail doors
+```
+
+On the Mac:
 
 ```
 node tools/briefs/follow-ups.js

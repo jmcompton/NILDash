@@ -27,7 +27,11 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const HOME = os.homedir();
-const ROOT = path.join(HOME, 'nildash-briefs');
+// WHERE THE BRIEFS KEEP THINGS. ~/nildash-briefs on the Mac; on Railway there
+// is no home directory that survives a deploy, so BRIEFS_HOME points at the
+// mounted volume (/data/briefs) and everything -- state, archives, logs, the
+// inbox for the LinkedIn CSV -- lives there instead.
+const ROOT = process.env.BRIEFS_HOME ? path.resolve(process.env.BRIEFS_HOME) : path.join(HOME, 'nildash-briefs');
 const DIRS = {
   root: ROOT,
   inbox: path.join(ROOT, 'inbox'),
@@ -68,15 +72,63 @@ const DEFAULTS = {
   claudeBin: 'claude',
 };
 
+// ── THE SAME CONFIG FROM ENVIRONMENT VARIABLES ───────────────────────────────
+// Railway has no config.json, so every key can also arrive as BRIEFS_<KEY>:
+// lists as JSON or comma-separated, numbers as numbers, objects as JSON.
+// BRIEFS_CONFIG_JSON carries the whole object at once if that is easier. A
+// variable that is set wins over the file, so one Railway service and one Mac
+// read the same code with different sources.
+const ENV_MAP = {
+  BRIEFS_TO: 'to', BRIEFS_FROM: 'from', RESEND_API_KEY: 'resendApiKey', BRIEFS_ANTHROPIC_API_KEY: 'anthropicApiKey',
+  BRIEFS_MY_ADDRESSES: 'myAddresses', BRIEFS_MAIL_ACCOUNTS: 'mailAccounts',
+  BRIEFS_LOOKBACK_DAYS: 'lookbackDays', BRIEFS_SILENT_DAYS: 'silentDays',
+  BRIEFS_SKIP_DOMAINS: 'skipDomains', BRIEFS_NILDASH_USERS: 'nildashUsers',
+  BRIEFS_PROSPECT_KEYWORDS: 'prospectKeywords', BRIEFS_PROSPECTS_PER_RUN: 'prospectsPerRun', BRIEFS_ABOUT_ME: 'aboutMe',
+  BRIEFS_NEWS_TERMS: 'newsTerms', BRIEFS_NEWS_LINES: 'newsLines',
+  BRIEFS_MAX_TURNS: 'maxTurns', BRIEFS_CALL_TIMEOUT_MIN: 'callTimeoutMin', BRIEFS_CLAUDE_BIN: 'claudeBin',
+  BRIEFS_MAIL_SOURCES: 'mailSources', BRIEFS_CONNECTIONS_URL: 'connectionsUrl',
+};
+const LIST_KEYS = new Set(['myAddresses', 'mailAccounts', 'skipDomains', 'nildashUsers', 'prospectKeywords', 'newsTerms', 'mailSources']);
+const NUM_KEYS = new Set(['lookbackDays', 'silentDays', 'prospectsPerRun', 'newsLines', 'callTimeoutMin']);
+function parseEnvValue(key, raw) {
+  const s = String(raw).trim();
+  if (LIST_KEYS.has(key)) {
+    if (s[0] === '[') { try { return JSON.parse(s).map((x) => String(x).trim()).filter(Boolean); } catch (_) { /* fall through */ } }
+    return s.split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean);
+  }
+  if (NUM_KEYS.has(key)) { const n = parseInt(s, 10); return Number.isFinite(n) ? n : undefined; }
+  if (key === 'maxTurns') { try { return JSON.parse(s); } catch (_) { return undefined; } }
+  return s;
+}
+function configFromEnv(env) {
+  const e = env || process.env;
+  const out = {};
+  if (e.BRIEFS_CONFIG_JSON) {
+    try { Object.assign(out, JSON.parse(e.BRIEFS_CONFIG_JSON)); }
+    catch (err) { throw new Error(`BRIEFS_CONFIG_JSON is not valid JSON: ${err.message}`); }
+  }
+  for (const [name, key] of Object.entries(ENV_MAP)) {
+    if (e[name] === undefined || e[name] === '') continue;
+    const v = parseEnvValue(key, e[name]);
+    if (v !== undefined) out[key] = v;
+  }
+  return out;
+}
+
 function loadConfig() {
-  let cfg = {};
-  try { cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); }
+  let file = {};
+  let fromFile = false;
+  try { file = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); fromFile = true; }
   catch (e) {
     if (e.code !== 'ENOENT') throw new Error(`config.json is not valid JSON: ${e.message}`);
   }
-  const out = Object.assign({}, DEFAULTS, cfg);
-  out.maxTurns = Object.assign({}, DEFAULTS.maxTurns, cfg.maxTurns || {});
+  const env = configFromEnv();
+  const out = Object.assign({}, DEFAULTS, file, env);
+  out.maxTurns = Object.assign({}, DEFAULTS.maxTurns, file.maxTurns || {}, env.maxTurns || {});
   out.myAddresses = (out.myAddresses || []).map((a) => String(a).trim().toLowerCase()).filter(Boolean);
+  // Where the settings came from, for the log line and for strategy-watch,
+  // which writes its state back to config.json only when there is one.
+  out._source = { file: fromFile, env: Object.keys(env) };
   return out;
 }
 
@@ -111,9 +163,12 @@ function resolveApiKey(cfg) {
   const key = fromConfig || fromEnv;
   if (!key) {
     throw new Error('No Anthropic API key. Set "anthropicApiKey" in ' + CONFIG_PATH
-      + ', or export ANTHROPIC_API_KEY in the environment that runs the briefs. Neither is set, so claude was not started.');
+      + ' (or BRIEFS_ANTHROPIC_API_KEY), or export ANTHROPIC_API_KEY in the environment that runs the briefs. Neither is set, so claude was not started.');
   }
-  return { key, source: fromConfig ? 'config.json' : 'environment', masked: maskKey(key) };
+  // "config.json" also covers BRIEFS_ANTHROPIC_API_KEY, which lands in the
+  // same config field; the audit line says which of the two it really was.
+  const source = fromConfig ? (process.env.BRIEFS_ANTHROPIC_API_KEY && fromConfig === String(process.env.BRIEFS_ANTHROPIC_API_KEY).trim() ? 'BRIEFS_ANTHROPIC_API_KEY' : 'config.json') : 'environment';
+  return { key, source, masked: maskKey(key) };
 }
 function maskKey(k) {
   const s = String(k || '');
@@ -346,6 +401,6 @@ function footer(kind, calls, audit) {
 
 if (require.main === module && process.argv.includes('--claude-test')) { claudeTest().then(() => process.exit(0)); }
 
-module.exports = { DIRS, CONFIG_PATH, loadConfig, today, dateOffset, daysBetween, claudeP, firstJson, claudeTest,
+module.exports = { DIRS, ROOT, CONFIG_PATH, loadConfig, configFromEnv, ENV_MAP, today, dateOffset, daysBetween, claudeP, firstJson, claudeTest,
   readState, writeState, writeBrief, log, sendBrief, mdToHtml, footer, authAudit, API_ENV_KEYS, OTHER_AUTH_ENV,
   resolveApiKey, claudeEnv, strippedEnv, maskKey };

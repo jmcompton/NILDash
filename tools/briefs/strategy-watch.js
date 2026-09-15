@@ -162,7 +162,11 @@ async function run(opts = {}) {
   const cfg = opts.cfg || L.loadConfig();
   const claudeP = opts.claudeP || L.claudeP;
   const sendBrief = opts.sendBrief || L.sendBrief;
-  const configPath = opts.configPath || L.CONFIG_PATH;
+  // The last-send date and the URLs shown live in config.json on the Mac,
+  // where the file exists and the owner reads it. On Railway the settings are
+  // environment variables and there is no file, so the same record goes to
+  // the state directory on the volume instead.
+  const configPath = opts.configPath || (fs.existsSync(L.CONFIG_PATH) ? L.CONFIG_PATH : require('path').join(L.DIRS.state, 'strategy-watch.json'));
   const audit = L.authAudit();
   const calls = [];
   const errors = [];
@@ -218,7 +222,7 @@ async function run(opts = {}) {
   const seen = Object.assign({}, st.seen);
   for (const s of sections) for (const it of s.items) seen[canon(it.url)] = L.today();
   writeWatchState(configPath, st.raw, { lastSentAt: L.today(), seen });
-  L.log(KIND, `config.json: lastSentAt=${L.today()}, ${Object.keys(seen).length} url(s) remembered`);
+  L.log(KIND, `${require('path').basename(configPath)}: lastSentAt=${L.today()}, ${Object.keys(seen).length} url(s) remembered`);
   return { sent: true, total, counts, errors, since, text, file };
 }
 

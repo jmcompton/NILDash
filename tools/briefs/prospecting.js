@@ -46,6 +46,26 @@ function parseCsv(text) {
   }));
 }
 
+// On Railway nobody drops a file into an inbox. BRIEFS_CONNECTIONS_URL (a
+// direct-download link to the LinkedIn export, e.g. a Dropbox or Drive link
+// with the download flag) is fetched into the inbox at the start of a run and
+// then found like any other file. A failed fetch keeps the last copy.
+async function fetchConnectionsIfConfigured(cfg, warnings) {
+  const url = String(cfg.connectionsUrl || '').trim();
+  if (!url) return;
+  try {
+    const r = await fetch(url, { redirect: 'follow' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    if (!/first name/i.test(text.slice(0, 4000)) && !/,/.test(text.slice(0, 200))) throw new Error('the download is not a CSV (no header row); is the link a direct download?');
+    fs.writeFileSync(path.join(L.DIRS.inbox, 'Connections.csv'), text);
+    L.log(KIND, `fetched Connections.csv from BRIEFS_CONNECTIONS_URL (${text.length} chars)`);
+  } catch (e) {
+    warnings.push(`Could not fetch the connections CSV from BRIEFS_CONNECTIONS_URL: ${e.message}. Using the last copy if there is one.`);
+    L.log(KIND, `BRIEFS_CONNECTIONS_URL fetch failed: ${e.message}`);
+  }
+}
+
 function findCsv() {
   const dir = L.DIRS.inbox;
   const files = fs.readdirSync(dir).filter((f) => /\.csv$/i.test(f)).map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs })).sort((a, b) => b.t - a.t);
@@ -59,6 +79,7 @@ async function main() {
   const calls = [];
   const warnings = [];
 
+  await fetchConnectionsIfConfigured(cfg, warnings);
   const csvPath = findCsv();
   if (!csvPath) {
     const md = [`# Prospects: 0 drafted`, '', `No CSV in ${L.DIRS.inbox}. Export LinkedIn connections (Settings > Data privacy > Get a copy of your data > Connections) and drop Connections.csv there.`, L.footer(KIND, calls, audit)].join('\n');

@@ -122,6 +122,11 @@
       "total": 22,
       "fault": null
     },
+    "briefsrailway.js": {
+      "failed": 0,
+      "total": 60,
+      "fault": null
+    },
     "cachefix.js": {
       "failed": 0,
       "total": 22,
