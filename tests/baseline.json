@@ -574,6 +574,11 @@
       "total": 19,
       "fault": null
     },
+    "nightlydigest.js": {
+      "failed": 0,
+      "total": 31,
+      "fault": null
+    },
     "noname.js": {
       "failed": 0,
       "total": 31,
