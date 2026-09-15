@@ -40,6 +40,9 @@ const DEFAULTS = {
   // follow-ups
   lookbackDays: 60,
   silentDays: 7,
+  // follow-ups: never listed, and listed apart
+  skipDomains: ['comptonsales.com', 'comptongroupllc.com', 'mynildash.com', 'reply.mynildash.com', 'samford.edu'],
+  nildashUsers: [],
   // prospecting
   prospectKeywords: ['agent', 'agency', 'nil', 'collective', 'athlete representation',
     'sports marketing', 'player management', 'athletic department', 'sports management'],
@@ -83,13 +86,59 @@ const API_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BA
   'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY',
   'GOOGLE_APPLICATION_CREDENTIALS'];
 
+// ── CRON'S ENVIRONMENT IS NOT YOUR TERMINAL'S ──────────────────────────────
+// cron hands a job PATH=/usr/bin:/bin, no HOME sometimes, and none of the
+// shell profile. `claude` is a Node program installed under Homebrew, npm's
+// global prefix, or a version manager (nvm, fnm, volta), and its `node` must
+// be found too. Every one of those places is put on PATH here, so the same
+// script that works in Terminal works at 5:30am.
+function nodeBinDirs() {
+  const dirs = [];
+  const globs = [
+    path.join(HOME, '.nvm', 'versions', 'node'),
+    path.join(HOME, '.fnm', 'node-versions'),
+    path.join(HOME, 'Library', 'Application Support', 'fnm', 'node-versions'),
+  ];
+  for (const g of globs) {
+    try {
+      for (const v of fs.readdirSync(g).sort().reverse()) {
+        for (const sub of ['bin', path.join('installation', 'bin')]) {
+          const d = path.join(g, v, sub);
+          if (fs.existsSync(d)) dirs.push(d);
+        }
+      }
+    } catch (_) { /* that manager is not installed */ }
+  }
+  return dirs;
+}
+
 function strippedEnv() {
   const env = Object.assign({}, process.env);
   for (const k of API_ENV_KEYS) delete env[k];
-  // cron's PATH is /usr/bin:/bin; claude usually lives in one of these.
+  if (!env.HOME) env.HOME = HOME;
+  if (!env.USER) { try { env.USER = os.userInfo().username; } catch (_) {} }
   env.PATH = [env.PATH || '', '/opt/homebrew/bin', '/usr/local/bin', path.join(HOME, '.local/bin'),
-    path.join(HOME, '.npm-global/bin'), path.join(HOME, '.claude/local')].filter(Boolean).join(':');
+    path.join(HOME, '.npm-global/bin'), path.join(HOME, '.claude/local'), path.join(HOME, '.volta/bin'),
+    ...nodeBinDirs(), '/usr/bin', '/bin'].filter(Boolean).join(':');
   return env;
+}
+
+// `node tools/briefs/lib.js --claude-test`: the exact spawn the briefs make,
+// from whatever environment this is run in. Put it in cron once to see what
+// cron sees. Prints the resolved PATH, the answer, and the error verbatim.
+async function claudeTest() {
+  const cfg = loadConfig();
+  console.log('PATH the child will see:\n  ' + strippedEnv().PATH.split(':').join('\n  '));
+  console.log(authAudit().line);
+  try {
+    const r = await claudeP('Reply with the single word OK and nothing else.', { cfg, label: 'claude-test', maxTurns: 1, tools: [], timeoutMin: 2 });
+    console.log(`claude answered in ${r.ms}ms (session ${r.sessionId || '?'}, ${r.numTurns == null ? '?' : r.numTurns} turn): ${JSON.stringify(String(r.text).slice(0, 120))}`);
+    console.log(/\bOK\b/i.test(r.text) ? 'RESULT: the subscription session works from here.' : 'RESULT: claude ran but did not answer as expected; read the text above.');
+  } catch (e) {
+    console.log('RESULT: FAILED: ' + e.message);
+    if (/could not start/.test(e.message)) console.log('  `claude` was not found on the PATH above. Run `which claude` in Terminal and add its directory to PATH in the crontab, or set claudeBin in config.json to the full path.');
+    else if (/not logged in|login|authenticat|OAuth|keychain/i.test(e.message)) console.log('  The CLI could not read its login. From cron the macOS keychain may be locked: run `security unlock-keychain` once, or run the briefs from a launchd user agent instead of cron (see README).');
+  }
 }
 
 // What the audit line in every brief reports. The key check is done on the
@@ -133,7 +182,7 @@ async function claudeP(prompt, opts = {}) {
     child.on('close', (code, signal) => {
       clearTimeout(killer);
       if (signal === 'SIGKILL') return reject(new Error(`claude killed after ${timeoutMs / 60000} min (${opts.label || 'call'})`));
-      if (code !== 0) return reject(new Error(`claude exited ${code} (${opts.label || 'call'}): ${(stderr || stdout).slice(0, 400)}`));
+      if (code !== 0) return reject(new Error(`claude exited ${code} (${opts.label || 'call'}): ${(stderr.trim() || stdout.trim() || 'no output').slice(0, 400)}`));
       resolve(stdout);
     });
     child.stdin.end(prompt);
@@ -240,5 +289,7 @@ function footer(kind, calls, audit) {
   return L.join('\n');
 }
 
-module.exports = { DIRS, CONFIG_PATH, loadConfig, today, dateOffset, daysBetween, claudeP, firstJson,
+if (require.main === module && process.argv.includes('--claude-test')) { claudeTest().then(() => process.exit(0)); }
+
+module.exports = { DIRS, CONFIG_PATH, loadConfig, today, dateOffset, daysBetween, claudeP, firstJson, claudeTest,
   readState, writeState, writeBrief, log, sendBrief, mdToHtml, footer, authAudit, API_ENV_KEYS };

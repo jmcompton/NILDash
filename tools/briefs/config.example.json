@@ -2,21 +2,52 @@
   "to": "john@comptongroupllc.com",
   "from": "NILDash Briefs <noreply@mynildash.com>",
   "resendApiKey": "re_PASTE_THE_SAME_KEY_RAILWAY_USES",
-
-  "myAddresses": ["you@gmail.com", "you@yourcompany.com"],
+  "myAddresses": [
+    "you@gmail.com",
+    "you@yourcompany.com"
+  ],
   "mailAccounts": [],
-
   "lookbackDays": 60,
   "silentDays": 7,
-
-  "prospectKeywords": ["agent", "agency", "nil", "collective", "athlete representation", "sports marketing", "player management", "athletic department", "sports management"],
+  "skipDomains": [
+    "comptonsales.com",
+    "comptongroupllc.com",
+    "mynildash.com",
+    "reply.mynildash.com",
+    "samford.edu"
+  ],
+  "nildashUsers": [
+    "cs@9091sportsagency.com",
+    "agent@example.com"
+  ],
+  "prospectKeywords": [
+    "agent",
+    "agency",
+    "nil",
+    "collective",
+    "athlete representation",
+    "sports marketing",
+    "player management",
+    "athletic department",
+    "sports management"
+  ],
   "prospectsPerRun": 20,
   "aboutMe": "I am JohnMark Compton, founder of NILDash, software that runs local NIL outreach for sports agents: it finds businesses near an athlete, writes the pitch, and keeps the agent compliant.",
-
-  "newsTerms": ["NIL platform", "NIL agent software", "Opendorse", "Duffl", "SponsorFlo", "INFLCR", "NIL collective technology"],
+  "newsTerms": [
+    "NIL platform",
+    "NIL agent software",
+    "Opendorse",
+    "Duffl",
+    "SponsorFlo",
+    "INFLCR",
+    "NIL collective technology"
+  ],
   "newsLines": 10,
-
-  "maxTurns": { "followups": 2, "news": 4, "prospect": 5 },
+  "maxTurns": {
+    "followups": 2,
+    "news": 4,
+    "prospect": 5
+  },
   "callTimeoutMin": 6,
   "claudeBin": "claude"
 }
