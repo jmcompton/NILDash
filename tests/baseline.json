@@ -834,6 +834,11 @@
       "total": 26,
       "fault": null
     },
+    "slottaken.js": {
+      "failed": 0,
+      "total": 22,
+      "fault": null
+    },
     "socialstats.js": {
       "failed": 2,
       "total": 33,

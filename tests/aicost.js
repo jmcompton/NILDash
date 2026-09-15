@@ -167,7 +167,7 @@ async function main() {
   calls.length = 0;
   const p3 = await PW.writePitch({ athlete, business: biz, agentFirstName: 'Chad', channel: 'email' }, { oneShot: async () => { calls.push(1); return bad; } });
   ok('a draft refused twice is skipped, after exactly two calls, and says so', calls.length === 2 && p3.skipped === true && p3.retried === true && /could not write it in voice/.test(p3.reason), { calls: calls.length, p3 });
-  ok('the job records the flag on every attempt that reached the writer', (jobSrc.match(/writerRetried/g) || []).length === 4);
+  ok('the job records the flag on every attempt that reached the writer (four attempt sites, plus the slot-taken record)', (jobSrc.match(/writerRetried/g) || []).length === 5);
   ok('  and the breakdown counts it, with the lower bound for nights before the flag', /writer retries: /.test(src('scripts/spend-breakdown.js')) && /refused twice, which is the lower bound/.test(src('scripts/spend-breakdown.js')));
 
   await P().query(`DELETE FROM ai_call_ledger WHERE agent_id LIKE 'ledger-test%' OR site LIKE 'ledger-test%'`);

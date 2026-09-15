@@ -192,12 +192,28 @@ async function main() {
       // The writer was never metered: one call per candidate that reached it
       // (queued or refused), plus an unrecorded retry on a lint failure.
       const tried = Array.isArray(d.tried) ? d.tried : [];
-      const writer = tried.filter((t) => t.result === 'queued' || t.result === 'no_angle').length;
-      tot.discovery += disc; tot.instagram += ig; tot.contacts += con; tot.writer += writer; tot.unmetered += unm;
+      // A pitch written and then refused a slot (slotTaken, "slot taken after
+      // write") is a writer call too: it is not a tried business, but it was
+      // paid for.
+      const lost = Array.isArray(d.slotTaken) ? d.slotTaken : [];
+      const writer = tried.filter((t) => t.result === 'queued' || t.result === 'no_angle').length + lost.length;
+      tot.discovery += disc; tot.instagram += ig; tot.contacts += con; tot.writer += writer; tot.unmetered += unm; tot.slotTaken = (tot.slotTaken || 0) + lost.length;
       console.log(`     ${pad(d.athleteName || d.athleteId, 26)} ${pad(usd(disc), 10)} ${pad(usd(ig), 10)} ${pad(usd(con), 10)} ${pad(writer, 13)} ${pad(unm, 10)} ${tried.length}`);
     }
     console.log(`     ${pad('TOTAL', 26)} ${pad(usd(tot.discovery), 10)} ${pad(usd(tot.instagram), 10)} ${pad(usd(tot.contacts), 10)} ${pad(tot.writer, 13)} ${pad(tot.unmetered, 10)}`);
     console.log(`     writer calls x ~${usd(0.012)}-${usd(0.02)} each on Sonnet (2-3k tokens in, ~400 out) = roughly ${usd(tot.writer * 0.012)} to ${usd(tot.writer * 0.02)} that spent_usd does not contain`);
+    // ── SLOT TAKEN AFTER WRITE ───────────────────────────────────────────
+    // The slot was confirmed open before the writer ran and found taken right
+    // before the insert: the pitch was thrown away. Each one is a Sonnet call
+    // that bought nothing, and they are listed by athlete and business.
+    const lostAll = det.flatMap((d) => (Array.isArray(d.slotTaken) ? d.slotTaken : []).map((x) => ({ ...x, athlete: d.athleteName || d.athleteId })));
+    if (lostAll.length) {
+      console.log(`     slot taken after write: ${lostAll.length} pitch(es) written, then the slot was gone before the insert (~${usd(lostAll.length * 0.012)}-${usd(lostAll.length * 0.02)} spent for nothing)`);
+      for (const x of lostAll.slice(0, 12)) console.log(`        ${pad(x.athlete, 26)} slot ${x.slot}  ${x.brand}${x.lane ? '  (' + x.lane + ')' : ''}${x.writerRetried ? '  [writer retried]' : ''}`);
+      if (lostAll.length > 12) console.log(`        ... and ${lostAll.length - 12} more`);
+    } else if (det.some((d) => Array.isArray(d.slotTaken))) {
+      console.log('     slot taken after write: none');
+    }
 
     // ── THE WRITER RETRY ─────────────────────────────────────────────────
     // A lint refusal buys a second Sonnet call. Since the flag shipped every

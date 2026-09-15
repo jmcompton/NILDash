@@ -578,6 +578,24 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
   return wrote;
 }
 
+// ── THE SLOT, CHECKED AGAIN AFTER THE WRITER RETURNS ─────────────────────────
+// The open slots were listed once, before the candidates were worked. A slot
+// can be filled by someone else while the writer runs (the on-demand fill from
+// the queue page, a resume-on-login fill, the same athlete on another
+// worker), and then insertCard's unique index refused the row: Sonnet had
+// written a pitch that went straight in the bin, and the run row counted a
+// "tried" business that was never offered. So the slot is confirmed
+// IMMEDIATELY before the insert, after the writer, at both write sites. A
+// slot found taken here is recorded on the run row as "slot taken after
+// write" (fillAthlete's slotTaken list) and is NOT a tried business.
+async function slotStillOpen(pool, athleteId, slot) {
+  const r = await pool.query(
+    `SELECT 1 FROM outreach_queue WHERE athlete_id = $1 AND slot = $2 AND state = 'queued' LIMIT 1`,
+    [athleteId, slot]);
+  return (r.rowCount || 0) === 0;
+}
+const SLOT_TAKEN_REASON = 'slot taken after write';
+
 // Plain text to the paragraph HTML outreach_logs stores. Same shape the draft
 // writer produces, so a nightly draft and a Deal Scan draft render identically
 // and the editable-draft round trip (body_html -> text -> body_html) is stable.
@@ -602,6 +620,20 @@ async function fillAthlete(pool, ctx) {
   // queued. This is the answer to "which businesses and why" -- built once,
   // here, rather than reconstructed later from a log line nobody kept.
   const tried = [];
+  // Businesses whose pitch was written and then found no slot to land in
+  // (see slotStillOpen). Kept apart from `tried` on purpose: the run row shows
+  // them, spend-breakdown counts the writer call, and nothing treats them as
+  // a business that was offered and failed.
+  const slotTaken = [];
+  const loseSlot = (brand, slot, lane, pitchObj) => {
+    // The 'queued' entry for this business was pushed before the insert; it
+    // is withdrawn so the business is not counted as tried.
+    for (let i = tried.length - 1; i >= 0; i--) {
+      if (tried[i] && tried[i].brand === brand && tried[i].result === 'queued') { tried.splice(i, 1); break; }
+    }
+    slotTaken.push({ brand, slot, lane: lane || null, reason: SLOT_TAKEN_REASON,
+      writerRetried: !!(pitchObj && pitchObj.retried), at: new Date().toISOString() });
+  };
   // What each lookup really cost, so the run can report a measured per-athlete
   // figure instead of a ceiling multiplied by a count.
   const spendLog = [];
@@ -892,6 +924,7 @@ async function fillAthlete(pool, ctx) {
   let stop = null, rateWidened = false, rateInfo = null;
   for (const slot of open) {
     let placed = false;
+    let slotLost = false;
     for (let attempt = 0; !placed && !stop; attempt++) {
       // Rate floor, checked before drawing the next candidate.
       const rs = Q.passRateStop(tried);
@@ -1069,6 +1102,11 @@ async function fillAthlete(pool, ctx) {
           say(`slot ${slot}: ${pcard.brandName} (${pcard.channel})`);
           if (pcard.channel === 'program') { programsPlaced++; _tallyProgram(programBrandTally, pcard.brandName); }
           placed = true; filled++; break;
+        }
+        if (!(await slotStillOpen(pool, athleteId, slot))) {
+          say(`slot ${slot}: taken by another fill while the writer ran; ${pcard.brandName} not offered`);
+          loseSlot(cand.brand_name, slot, cand.lane, ppitch);
+          slotLost = true; break;
         }
         const pins = await insertCard(pool, { agentId, athleteId, slot, card: pcard });
         if (pins) {
@@ -1319,6 +1357,11 @@ async function fillAthlete(pool, ctx) {
       card.sponsorSignal = cand.sponsorSignal ? cand.sponsorSignal.kind : null;
       card.sponsorNote = cand.sponsorSignal ? cand.sponsorSignal.detail : null;
       if (dry) { say(`slot ${slot}: ${card.brandName} (${card.channel})`); placed = true; filled++; break; }
+      if (!(await slotStillOpen(pool, athleteId, slot))) {
+        say(`slot ${slot}: taken by another fill while the writer ran; ${card.brandName} not offered`);
+        loseSlot(cand.brand_name, slot, card.lane, pitch);
+        slotLost = true; break;
+      }
       if (await insertCard(pool, { agentId, athleteId, slot, card })) {
         placed = true; filled++;
         say(`slot ${slot}: ${card.brandName} — ${card.channel === 'dm' ? 'DM ready' : 'call'}`
@@ -1327,7 +1370,7 @@ async function fillAthlete(pool, ctx) {
       break;
     }
     if (stop) break;
-    if (!placed) say(`slot ${slot}: nothing passed the bar`);
+    if (!placed && !slotLost) say(`slot ${slot}: nothing passed the bar`);
   }
   if (stop) say(`${athleteName}: stopped (${stop === 'rate' ? 'pass rate under the floor after widening' : 'pool drawn, refill and widen found nothing new'}) with ${filled} of ${open.length} slot(s) filled`);
 
@@ -1376,7 +1419,7 @@ async function fillAthlete(pool, ctx) {
   const emptyReason = filled > 0 ? null
     : faults && faults >= tried.length && tried.length ? Scout.EMPTY.FAULT
       : tried.length ? Scout.EMPTY.BELOW_BAR : Scout.EMPTY.MARKET_EXHAUSTED;
-  return { filled, open: open.length, tried, note, spendLog, faults, emptyReason,
+  return { filled, open: open.length, tried, slotTaken, note, spendLog, faults, emptyReason,
     // What each lane returned and what was dropped before ranking, so the
     // morning-after question "why was the slate all social?" is answerable
     // from the run row rather than the process log.
@@ -1492,6 +1535,9 @@ async function fillAgent(pool, agent, opts) {
     details.push({
       athleteId: ath.id, athleteName: ath.name, filled: r.filled, open: r.open,
       note: r.note || null, tried: r.tried || [], paused: !!r.paused,
+      // Pitches written and then found no slot (slotStillOpen). Not tried
+      // businesses; listed so spend-breakdown can count the writer calls.
+      slotTaken: r.slotTaken || [],
       // ── THE STRUCTURED CAUSE, WHICH USED TO BE COMPUTED AND DROPPED ───────
       // The Scout returns a named emptyReason and fillAthlete passes it back;
       // this push listed neither, so every diagnosis had to pattern-match the
@@ -1783,7 +1829,7 @@ async function status(pool) {
 module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor,
   athleteState, recordAttempt, releasePause, expireStaleCards,
-  insertCard, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
+  insertCard, slotStillOpen, SLOT_TAKEN_REASON, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
   loadAthletesForQueue, resumeAgent,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,
