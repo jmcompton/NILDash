@@ -3377,6 +3377,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
                 <option value="basketball" selected>Basketball</option>
                 <option value="cheer">Cheer</option>
                 <option value="cross country">Cross Country</option>
+                <option value="dance">Dance</option>
                 <option value="field hockey">Field Hockey</option>
                 <option value="football">Football</option>
                 <option value="golf">Golf</option>
@@ -3386,11 +3387,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
                 <option value="mens golf">Men's Golf</option>
                 <option value="mens ice hockey">Men's Ice Hockey</option>
                 <option value="rowing">Rowing</option>
+                <option value="skiing">Skiing</option>
                 <option value="soccer">Soccer</option>
                 <option value="softball">Softball</option>
                 <option value="swimming">Swimming</option>
                 <option value="tennis">Tennis</option>
                 <option value="track">Track &amp; Field</option>
+                <option value="triathlon">Triathlon</option>
                 <option value="volleyball">Volleyball</option>
                 <option value="water polo">Water Polo</option>
                 <option value="womens basketball">Women's Basketball</option>
@@ -3413,7 +3416,14 @@ tbody td{padding:11px 14px;vertical-align:middle}
               <option value="pro">Pro</option>
             </select>
           </div>
-          <div class="form-group-sm" id="a_school_wrap"><label class="form-label-sm">School</label><input class="input-sm" id="a_school" placeholder="e.g. Duke University"></div>
+          <div class="form-group-sm" id="a_school_wrap"><label class="form-label-sm">School</label><input class="input-sm" id="a_school" placeholder="e.g. Duke University" oninput="aSchoolTyped()" onblur="aCheckSchool()">
+            <!-- THE SCHOOL IS CHECKED AS IT IS TYPED. An athlete whose school does
+                 not resolve gets no local businesses, and the form used to accept
+                 anything. Same check as onboarding (/api/onboarding/check-school):
+                 never blocks, always says what it costs, offers the near misses. -->
+            <div id="a_school_status" style="font-size:11px;margin-top:4px;min-height:14px"></div>
+            <div id="a_school_suggest" style="display:none;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
+          </div>
           <div id="a_pro_wrap" style="display:none">
             <div class="form-group-sm">
               <label class="form-label-sm">City</label>
@@ -4701,6 +4711,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <option value="basketball" selected>Basketball</option>
           <option value="cheer">Cheer</option>
           <option value="cross country">Cross Country</option>
+          <option value="dance">Dance</option>
           <option value="field hockey">Field Hockey</option>
           <option value="football">Football</option>
           <option value="golf">Golf</option>
@@ -4708,11 +4719,13 @@ tbody td{padding:11px 14px;vertical-align:middle}
           <option value="ice hockey">Ice Hockey</option>
           <option value="lacrosse">Lacrosse</option>
           <option value="rowing">Rowing</option>
+          <option value="skiing">Skiing</option>
           <option value="soccer">Soccer</option>
           <option value="softball">Softball</option>
           <option value="swimming">Swimming</option>
           <option value="tennis">Tennis</option>
           <option value="track">Track &amp; Field</option>
+          <option value="triathlon">Triathlon</option>
           <option value="volleyball">Volleyball</option>
           <option value="water polo">Water Polo</option>
           <option value="wrestling">Wrestling</option>
@@ -6490,6 +6503,7 @@ async function editAthlete(id) {
   document.getElementById('a_sport').value = a.sport || 'Basketball';
   document.getElementById('a_pos').value = a.position || '';
   document.getElementById('a_school').value = a.school || '';
+  aCheckSchool(); // an edit is the moment to notice a school that never resolved
   const typeEl = document.getElementById('a_type');
   if (typeEl) { typeEl.value = a.athleteType === 'pro' ? 'pro' : 'college'; acTypeChanged(); }
   const cityEl = document.getElementById('a_city'); if (cityEl) cityEl.value = a.city || '';
@@ -13834,6 +13848,44 @@ window.addEventListener('DOMContentLoaded', checkSession);
         out.textContent = 'Could not check that school just now.';
         obSchoolOk = null;
       }
+    }
+
+    // ── The same check on the Add Client / Edit form's school field ──────
+    var _aSchoolTimer = null;
+    function aSchoolTyped() { clearTimeout(_aSchoolTimer); _aSchoolTimer = setTimeout(aCheckSchool, 500); }
+    async function aCheckSchool() {
+      var el = document.getElementById('a_school');
+      var out = document.getElementById('a_school_status');
+      var sug = document.getElementById('a_school_suggest');
+      if (!el || !out || !sug) return;
+      var v = el.value.trim();
+      sug.style.display = 'none'; sug.innerHTML = '';
+      if (!v) { out.textContent = ''; return; }
+      out.style.color = 'var(--muted)'; out.textContent = 'Checking\u2026';
+      try {
+        var r = await fetch(API_BASE + '/api/onboarding/check-school?q=' + encodeURIComponent(v), { credentials: 'same-origin' });
+        var d = await r.json();
+        if (el.value.trim() !== v) return; // they kept typing; a later check answers
+        out.style.color = d.ok ? 'var(--accent)' : '#fbbf24';
+        out.textContent = d.message || '';
+        if (!d.ok && d.suggestions && d.suggestions.length) {
+          sug.style.display = 'flex';
+          sug.innerHTML = d.suggestions.map(function (x) {
+            return '<button type="button" onclick="aPickSchool(' + JSON.stringify(x.name).replace(/"/g, '&quot;') + ')" '
+              + 'title="' + escHtml((x.city || '') + (x.state ? ', ' + x.state : '')) + '" '
+              + 'style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);'
+              + 'font-size:11px;padding:5px 9px;border-radius:20px;cursor:pointer">'
+              + escHtml(x.name) + '</button>';
+          }).join('');
+        }
+      } catch (e) {
+        out.style.color = 'var(--muted)'; out.textContent = 'Could not check that school just now.';
+      }
+    }
+    function aPickSchool(name) {
+      var el = document.getElementById('a_school');
+      if (el) el.value = name;
+      aCheckSchool();
     }
 
     function obPickSchool(name) {

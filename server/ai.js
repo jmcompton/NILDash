@@ -575,11 +575,23 @@ const SCHOOL_LOCATIONS = {
 const _schoolLocationCache = new Map();
 
 // Synchronous map-only lookup. Returns null when the school isn't known.
+// CASE AND SPACING ARE NOT IDENTITY. "UNIVERSITY OF PITTSBURGH" and
+// "university  of pittsburgh" are the key "University of Pittsburgh"; both used
+// to miss because the compare was on the raw string. The map's keys are folded
+// once, on first use, and the substring scan runs on the folded forms. Typos
+// are NOT handled here -- that is services/schoolResolver, which has a floor
+// and refuses ambiguity; this is the exact layer it builds on.
+const _foldSchool = (s) => String(s || '').toLowerCase().replace(/[.,'\u2019]/g, '').replace(/\s+/g, ' ').trim();
+let _foldedSchoolKeys = null;
 function lookupSchoolLocation(school) {
   if (!school) return null;
   if (SCHOOL_LOCATIONS[school]) return SCHOOL_LOCATIONS[school];
-  for (const key of Object.keys(SCHOOL_LOCATIONS)) {
-    if (school.includes(key) || key.includes(school)) return SCHOOL_LOCATIONS[key];
+  const q = _foldSchool(school);
+  if (!q) return null;
+  if (!_foldedSchoolKeys) _foldedSchoolKeys = Object.keys(SCHOOL_LOCATIONS).map((k) => [_foldSchool(k), k]);
+  for (const [fk, key] of _foldedSchoolKeys) if (fk === q) return SCHOOL_LOCATIONS[key];
+  for (const [fk, key] of _foldedSchoolKeys) {
+    if (q.includes(fk) || fk.includes(q)) return SCHOOL_LOCATIONS[key];
   }
   return null;
 }

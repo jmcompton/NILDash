@@ -90,7 +90,7 @@ async function main() {
     const st = (await P.query(
       `SELECT consecutive_failures, last_attempt_date, paused_at, paused_reason FROM outreach_queue_athlete_state WHERE athlete_id = $1`, [a.id]).catch(() => ({ rows: [] }))).rows[0];
     let rec = null;
-    try { rec = AR.resolveAthlete(a, { schoolLocation: ai.lookupSchoolLocation }); } catch (_) {}
+    try { rec = AR.resolveAthlete(a, { schoolLocation: require('../server/services/schoolResolver').resolveSchool }); } catch (_) {}
     const entry = byAthlete.get(a.id);
 
     console.log(`── ${name}  (${a.id})  ${d.athleteType === 'pro' ? 'PRO ' + (d.team || '') + ' / ' + (d.city || '') : 'school: ' + (d.school || 'MISSING')}`);

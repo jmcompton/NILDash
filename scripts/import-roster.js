@@ -128,7 +128,9 @@ async function main() {
   const ctx = {
     existing,
     existingName: (n) => existing.find((x) => RI.sameName(x, n)) || n,
-    schoolLocation: ai && ai.lookupSchoolLocation ? ai.lookupSchoolLocation : null,
+    // The resolver the nightly job uses: case, spacing, aliases and one-typo
+    // matches with a floor, never a guess between two schools.
+    schoolLocation: (() => { try { return require('../server/services/schoolResolver').resolveSchool; } catch (_) { return ai && ai.lookupSchoolLocation ? ai.lookupSchoolLocation : null; } })(),
     proLookup: (!noLookup && AL && ai) ? (q) => AL.resolveAthlete(ai, q) : null,
     nameScore: AL ? AL.nameMatchScore : (a, b) => (RI.sameName(a, b) ? 35 : 0),
   };

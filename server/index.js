@@ -16224,7 +16224,7 @@ app.get('/api/agent/nil-compliance/:athleteId', requireAuth, async (req, res) =>
       if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
     }
     const homeCode = nilRules.stateCodeFromText(athlete.hometown || '');
-    const loc = ai.lookupSchoolLocation(athlete.school || '');
+    const loc = require('./services/schoolResolver').resolveSchool(athlete.school || '');
     const schoolCode = loc ? nilRules.stateCodeFromText(loc.state) : null;
     const payload = nilRules.rulesForStates(homeCode, schoolCode);
     res.json(Object.assign({

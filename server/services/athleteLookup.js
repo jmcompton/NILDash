@@ -359,12 +359,19 @@ function leagueFor(sport) {
   const s = String(sport || '').toLowerCase();
   if (!s) return null;
   if (/football/.test(s)) return 'NFL';
+  // A sport typed without a gender names BOTH leagues. "Soccer" used to be
+  // normalised to "women's soccer" (the college normaliser's default, where
+  // ESPN's women's pages are the common case) and searched as NWSL only, so
+  // a man on New York City FC was reported as not found.
   if (/women.*basketball|wnba/.test(s)) return 'WNBA';
-  if (/basketball/.test(s)) return 'NBA';
+  if (/men.*basketball|\bnba\b/.test(s)) return 'NBA';
+  if (/basketball/.test(s)) return 'NBA or WNBA';
   if (/baseball/.test(s)) return 'MLB';
-  if (/hockey/.test(s)) return 'NHL';
+  if (/women.*hockey|\bpwhl\b/.test(s)) return 'PWHL';
+  if (/hockey/.test(s)) return 'NHL or PWHL';
   if (/women.*soccer|nwsl/.test(s)) return 'NWSL';
-  if (/soccer/.test(s)) return 'MLS';
+  if (/men.*soccer|\bmls\b/.test(s)) return 'MLS';
+  if (/soccer/.test(s)) return 'MLS or NWSL';
   if (/golf/.test(s)) return 'PGA Tour or LPGA';
   if (/tennis/.test(s)) return 'ATP or WTA';
   if (/softball/.test(s)) return 'AUSL';
@@ -481,7 +488,13 @@ async function resolveAthlete(ai, { name, school, sport, position, year, athlete
   if (athleteType === 'pro') {
     const normTeam = String(team || '').trim() || null;
     const normCity = String(city || '').trim() || null;
-    const pro = await proSearchStage(normName, normTeam, normCity, normSport, normPosition);
+    // THE SPORT AS TYPED, not normalised. normalizeSport is the college
+    // normaliser: it turns "soccer" into "women's soccer" and "basketball"
+    // into "men's basketball" because that is what ESPN's college pages
+    // need. A pro search must not inherit that guess -- leagueFor names both
+    // leagues for a bare sport and the roster page says which.
+    const proSport = String(sport || '').trim().toLowerCase().replace(/\s+/g, ' ') || null;
+    const pro = await proSearchStage(normName, normTeam, normCity, proSport, normPosition);
     const candidates = [];
     if (pro && pro.found && Array.isArray(pro.athletes)) {
       const baseConf = pro.confidenceScore || 65;
@@ -491,10 +504,10 @@ async function resolveAthlete(ai, { name, school, sport, position, year, athlete
           athleteType:  'pro',
           name:         a.name,
           team:         a.team || normTeam,
-          league:       a.league || leagueFor(normSport),
+          league:       a.league || leagueFor(proSport),
           city:         a.city || normCity,
           school:       null, year: null, schoolTier: null,
-          sport:        a.sport || normSport || sport,
+          sport:        a.sport || proSport || sport,
           position:     a.position || normPosition || null,
           knownFor:     a.knownFor || null,
           stats:        a.knownFor || null,   // the form's stats box holds "known for" on a pro

@@ -527,8 +527,10 @@ function stateCodeForSchool(school) {
   if (!school) return null;
   try {
     const { stateCodeFromText } = require('../nilStateRules');
-    const ai = require('../ai');
-    const loc = ai.lookupSchoolLocation ? ai.lookupSchoolLocation(String(school)) : null;
+    // The resolver, not the bare map: case, spacing, aliases and a typo are
+    // the same school, and a state rule keyed on the school must find it.
+    const { resolveSchool } = require('./schoolResolver');
+    const loc = resolveSchool(String(school));
     if (loc && loc.state) return stateCodeFromText(loc.state);
     return stateCodeFromText(String(school));
   } catch (_) { return null; }
@@ -565,8 +567,8 @@ async function stateCodeFor(pool, athlete) {
   const school = String(a.school || '').trim();
   if (!school) return { stateCode: null, source: null, note: 'No school on file. Enter one on their profile.' };
   try {
-    const ai = require('../ai');
-    const loc = ai.lookupSchoolLocation ? ai.lookupSchoolLocation(school) : null;
+    const { resolveSchool } = require('./schoolResolver');
+    const loc = resolveSchool(school);
     const mapped = loc && loc.state ? stateCodeFromText(loc.state) : null;
     if (mapped) return { stateCode: mapped, source: 'school-map', note: null };
   } catch (_) { /* fall through to the text and the cache */ }

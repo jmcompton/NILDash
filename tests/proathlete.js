@@ -298,8 +298,8 @@ async function main() {
 
   // ── 6. THE LOOKUP ────────────────────────────────────────────────────────
   OUT.push('', '-- the lookup searches league rosters for a pro --');
-  ok('the league comes from the sport', AL.leagueFor('Football') === 'NFL' && AL.leagueFor('Basketball') === 'NBA'
-    && AL.leagueFor("women's basketball") === 'WNBA' && AL.leagueFor('Baseball') === 'MLB' && AL.leagueFor('womens ice hockey') === 'NHL'
+  ok('the league comes from the sport', AL.leagueFor('Football') === 'NFL' && AL.leagueFor('Basketball') === 'NBA or WNBA' && AL.leagueFor("Men's Basketball") === 'NBA' && AL.leagueFor('Soccer') === 'MLS or NWSL'
+    && AL.leagueFor("women's basketball") === 'WNBA' && AL.leagueFor('Baseball') === 'MLB' && AL.leagueFor('womens ice hockey') === 'PWHL' && AL.leagueFor('hockey') === 'NHL or PWHL'
     && AL.leagueFor('mens soccer') === 'MLS' && AL.leagueFor('womens soccer') === 'NWSL', [AL.leagueFor('Football'), AL.leagueFor('Basketball')]);
   ok('  and an unknown sport picks none rather than guessing', AL.leagueFor('curling') === null && AL.leagueFor('') === null);
   ok('resolveAthlete accepts the pro fields', /athleteType, team, city \}/.test(src('server/services/athleteLookup.js')));

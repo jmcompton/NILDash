@@ -128,9 +128,9 @@ function cleanHandle(raw) {
 // "Ice hockey" are one sport; the first of "Basketball and Softball" is taken
 // and the second is kept as a note the dry run prints.
 const SPORT_VALUES = [
-  'baseball', 'basketball', 'cheer', 'cross country', 'field hockey', 'football', 'golf',
-  'gymnastics', 'ice hockey', 'lacrosse', 'mens golf', 'mens ice hockey', 'rowing', 'soccer',
-  'softball', 'swimming', 'tennis', 'track', 'volleyball', 'water polo', 'womens basketball',
+  'baseball', 'basketball', 'cheer', 'cross country', 'dance', 'field hockey', 'football', 'golf',
+  'gymnastics', 'ice hockey', 'lacrosse', 'mens golf', 'mens ice hockey', 'rowing', 'skiing', 'soccer',
+  'softball', 'swimming', 'tennis', 'track', 'triathlon', 'volleyball', 'water polo', 'womens basketball',
   'womens golf', 'womens ice hockey', 'womens soccer', 'wrestling',
 ];
 const SPORT_ALIASES = {
@@ -146,6 +146,8 @@ const SPORT_ALIASES = {
   'swim': 'swimming', 'swimming and diving': 'swimming', 'swimming & diving': 'swimming', 'diving': 'swimming',
   'cheerleading': 'cheer', 'gym': 'gymnastics', 'lax': 'lacrosse', "men's lacrosse": 'lacrosse', "women's lacrosse": 'lacrosse',
   'crew': 'rowing', 'american football': 'football', 'water polo': 'water polo', 'waterpolo': 'water polo',
+  'ski': 'skiing', 'alpine skiing': 'skiing', 'nordic skiing': 'skiing', 'alpine': 'skiing', 'nordic': 'skiing', 'snowboarding': 'skiing',
+  'tri': 'triathlon', 'ironman': 'triathlon', 'dance team': 'dance', 'dancer': 'dance', 'ballet': 'dance',
   'fastpitch': 'softball', "women's volleyball": 'volleyball', 'womens volleyball': 'volleyball', "men's volleyball": 'volleyball', 'beach volleyball': 'volleyball',
 };
 function _sportKey(s) {
