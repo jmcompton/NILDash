@@ -581,7 +581,7 @@
     },
     "noname.js": {
       "failed": 0,
-      "total": 51,
+      "total": 52,
       "fault": null
     },
     "onboardchat.js": {
@@ -637,6 +637,11 @@
     "pitchvoice.js": {
       "failed": 0,
       "total": 31,
+      "fault": null
+    },
+    "placeholder.js": {
+      "failed": 0,
+      "total": 28,
       "fault": null
     },
     "pm.js": {

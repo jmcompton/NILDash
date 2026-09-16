@@ -75,16 +75,23 @@ async function findOwnerName({ brand, city, search, say }) {
   if (!b) return null;
   for (const q of QUERIES) {
     const prompt = `Search for: ${q.q(b, c)}\nBusiness: ${b}${c ? `\nCity: ${c}` : ''}\nWho is ${q.ask} of this business? Use only what the pages say.`;
-    let text = null;
-    try { text = await search(prompt, SYS); }
+    let out = null;
+    try { out = await search(prompt, SYS); }
     catch (e) { if (say) say(`${b}: owner search (${q.key}) failed: ${e.message}`); continue; }
+    // THE SEARCH RETURNS AN OBJECT, NOT A STRING. ai.webSearchJson (the
+    // primitive the job injects) returns { text, citations, searches, ... };
+    // this read it as a string, so every answer parsed as "[object Object]"
+    // and the last door never found anyone in production. The text is read
+    // off the object, and the first citation stands in for a missing sourceUrl.
+    const text = (out && typeof out === 'object') ? out.text : out;
+    const cited = (out && typeof out === 'object' && Array.isArray(out.citations) && out.citations[0]) || null;
     const j = parseJson(text);
     if (!j || !j.name) continue;
     if (!looksLikePerson(j.name, b)) { if (say) say(`${b}: owner search (${q.key}) returned "${j.name}", not a person's name; refused`); continue; }
     const fallback = q.key === 'owner' ? 'Owner' : 'Marketing Director';
     const title = acceptableTitle(j.title, fallback);
     if (!title) { if (say) say(`${b}: owner search (${q.key}) named ${j.name} as "${j.title}", not a decision maker; refused`); continue; }
-    return { name: String(j.name).trim().replace(/\s+/g, ' '), title, sourceUrl: j.sourceUrl || null, query: q.key, confidence: String(j.confidence || 'low') };
+    return { name: String(j.name).trim().replace(/\s+/g, ' '), title, sourceUrl: j.sourceUrl || cited || null, query: q.key, confidence: String(j.confidence || 'low') };
   }
   return null;
 }

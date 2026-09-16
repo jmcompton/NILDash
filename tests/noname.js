@@ -49,6 +49,12 @@ async function main() {
   ok('a failed search falls through to the next', f6 && f6.name === 'Lee Park', f6);
   ok('junk text is not a name', (await ONS.findOwnerName({ brand: 'M', city: 'A', search: stub(['I could not find anyone.', '```json\n{"name": null}\n```']) })) === null);
   ok('a fenced JSON answer is read', (await ONS.findOwnerName({ brand: 'M', city: 'A', search: stub(['```json\n{"name": "Ava Chen", "title": "Founder"}\n```']) })).name === 'Ava Chen');
+  // THE PRODUCTION SHAPE. ai.webSearchJson returns { text, citations, ... },
+  // not a string; read as a string it was "[object Object]" and the last door
+  // never found anyone. The text comes off the object, and the first citation
+  // stands in for a sourceUrl the model left out.
+  const f7 = await ONS.findOwnerName({ brand: 'Maxie Pizza', city: 'Auburn, AL', search: async () => ({ text: '{"name": "Dana Roberts", "title": "Owner"}', citations: ['https://maxiepizza.com/about', 'https://chamber.example/maxie'], searches: 2, outTokens: 40, apiMs: 900 }) });
+  ok('the object the real search returns is read, with the first citation as the source', f7 && f7.name === 'Dana Roberts' && f7.sourceUrl === 'https://maxiepizza.com/about', f7);
 
   // ── 2. ONTO THE LADDER, WHERE THE GREETING GUARD CAN SEE IT ──────────────
   OUT.push('', '-- the ladder --');
