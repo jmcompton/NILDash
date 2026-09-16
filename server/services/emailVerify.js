@@ -78,24 +78,75 @@ async function record(pool, email, result, detail, source) {
 // ── Step 1: MX ──────────────────────────────────────────────────────────────
 // Per DOMAIN, not per address, and memoised for the life of the call: a batch of
 // drafts for one business is one lookup, not five.
+//
+// RFC 5321 IMPLICIT MX. A domain with no MX record is not thereby dead: the
+// standard says a sender falls back to the domain's own A or AAAA address and
+// delivers there, and a few small businesses run mail exactly that way. So
+// "no MX" is not a verdict on its own. The answer comes in three parts:
+//   MX found            ok: true
+//   no MX, but A/AAAA   ok: null, implicit: true. Unverified, never undeliverable:
+//                       the address is still offered and the card says why.
+//   no MX, no A, no AAAA, or NXDOMAIN
+//                       ok: false. Nothing to deliver to.
+// RFC 7505 NULL MX. A single MX whose exchange is "." (Node reports the root as
+// "" or ".") is the domain saying, in the record itself, that it takes no
+// mail. That is a real NO.
+// A timeout or a resolver failure on any of the lookups is ok: null WITHOUT
+// implicit: it could not be checked, and it is checked again next time.
+const NOT_THERE = new Set(['ENOTFOUND', 'NXDOMAIN']);
+const NO_DATA = new Set(['ENODATA']);
+const codeOf = (e) => String(e && (e.code || e.message) || 'error');
+const withTimeout = (p) => Promise.race([
+  p, new Promise((_, rej) => setTimeout(() => rej(new Error('mx-timeout')), MX_TIMEOUT_MS)),
+]);
+
+function isNullMx(recs) {
+  const real = recs.filter((r) => r && String(r.exchange || '').trim() !== '' && String(r.exchange).trim() !== '.');
+  return recs.length > 0 && real.length === 0;
+}
+
+// Does the domain have an address record at all? 'yes' | 'no' | code (the
+// lookup did not complete).
+async function hasAddress(domain, resolve) {
+  try {
+    const recs = await withTimeout(resolve(domain));
+    return (recs && recs.length) ? 'yes' : 'no';
+  } catch (e) {
+    const code = codeOf(e);
+    return (NOT_THERE.has(code) || NO_DATA.has(code)) ? 'no' : code;
+  }
+}
+
+async function implicitMx(domain) {
+  const [a, aaaa] = await Promise.all([hasAddress(domain, (d) => dns.resolve4(d)), hasAddress(domain, (d) => dns.resolve6(d))]);
+  if (a === 'yes' || aaaa === 'yes') {
+    return { ok: null, implicit: true, why: 'the domain has no MX record but resolves, so it may still accept mail' };
+  }
+  if (a === 'no' && aaaa === 'no') return { ok: false, why: 'the domain publishes no mail server and no address (no MX, A or AAAA record)' };
+  const code = a !== 'no' ? a : aaaa;
+  return { ok: null, why: 'the address lookup did not complete (' + code + ')' };
+}
+
 async function hasMx(domain, memo) {
   if (!domain) return { ok: false, why: 'no domain' };
   if (memo && memo.has(domain)) return memo.get(domain);
   let out;
   try {
-    const recs = await Promise.race([
-      dns.resolveMx(domain),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('mx-timeout')), MX_TIMEOUT_MS)),
-    ]);
-    out = (recs && recs.length)
-      ? { ok: true }
-      // A domain with no MX at all publishes no route for mail. This is a real
-      // NO, not a "could not check".
-      : { ok: false, why: 'the domain publishes no mail server' };
+    const recs = await withTimeout(dns.resolveMx(domain));
+    if (recs && recs.length) {
+      out = isNullMx(recs)
+        ? { ok: false, why: 'the domain declines all mail (null MX record)' }
+        : { ok: true };
+    } else {
+      out = await implicitMx(domain);
+    }
   } catch (e) {
-    const code = e && (e.code || e.message);
-    if (code === 'ENOTFOUND' || code === 'ENODATA' || code === 'NXDOMAIN') {
+    const code = codeOf(e);
+    if (NOT_THERE.has(code)) {
       out = { ok: false, why: 'the domain does not exist' };
+    } else if (NO_DATA.has(code)) {
+      // The name exists and simply has no MX record: the implicit MX rule.
+      out = await implicitMx(domain);
     } else {
       // A timeout or a resolver failure says nothing about the domain.
       out = { ok: null, why: 'the MX lookup did not complete (' + code + ')' };
@@ -159,9 +210,12 @@ async function verifyMany(pool, emails, opts = {}) {
       return;
     }
     if (mx.ok === null) {
-      // Could not check. Not cached -- a resolver blip must not mark an address
-      // for ninety days.
-      out.set(email, { result: 'unknown', detail: mx.why, source: 'mx' });
+      // Could not check, or implicit MX (no MX record, but the domain resolves).
+      // Neither is cached: a resolver blip must not mark an address for ninety
+      // days, and an implicit-MX domain may publish an MX record next week.
+      // The verifier is not asked either way: with no MX there is no mailbox
+      // to verify against, and the card says unverified in plain words.
+      out.set(email, { result: 'unknown', detail: mx.why, source: 'mx', implicit: mx.implicit === true });
       return;
     }
 
@@ -222,4 +276,4 @@ async function verifyMany(pool, emails, opts = {}) {
   return out;
 }
 
-module.exports = { verifyMany, hasMx, mapHunter, domainOf, norm, CACHE_DAYS };
+module.exports = { verifyMany, hasMx, mapHunter, domainOf, norm, CACHE_DAYS, _isNullMx: isNullMx };

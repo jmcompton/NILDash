@@ -13,11 +13,16 @@
 // Three answers:
 //   deliverable: true    the domain takes mail (MX found), or a verifier
 //                        confirmed the mailbox
-//   deliverable: false   bad syntax, no MX, or the domain does not exist:
-//                        NOT offered as an email
-//   deliverable: null    the check could not run (resolver timeout). Not a
-//                        verdict: offered, marked unverified, checked again
-//                        next time
+//   deliverable: false   bad syntax, a null MX record (RFC 7505), or a domain
+//                        with no MX, no A and no AAAA record, or that does not
+//                        exist: NOT offered as an email
+//   deliverable: null    the check could not run (resolver timeout), OR the
+//                        domain has no MX record but resolves (RFC 5321
+//                        implicit MX: mail may still be delivered to its
+//                        address record). Not a verdict: offered, marked
+//                        unverified, checked again next time. The implicit
+//                        case carries a `note` in the exact words the card
+//                        shows.
 //
 // checkSyntax is a practical rule, not the full RFC: a local part, one @, a
 // dotted domain with a real top-level label, nothing that a mail server would
@@ -42,7 +47,12 @@ function checkSyntax(email) {
   return { ok: true, reason: null };
 }
 
-// validateMany(pool, emails, opts) -> Map(email -> { deliverable, reason, source })
+// The card's line for an implicit-MX address, word for word.
+function implicitNote(email) {
+  return `Email unverified: ${EV.domainOf(email) || email} has no MX record but resolves, may still accept mail.`;
+}
+
+// validateMany(pool, emails, opts) -> Map(email -> { deliverable, reason, source, note? })
 // opts.verifier is passed through to emailVerify (a mailbox verifier, when
 // one is configured); opts.deadlineMs bounds the whole batch.
 async function validateMany(pool, emails, opts = {}) {
@@ -63,6 +73,9 @@ async function validateMany(pool, emails, opts = {}) {
       if (!v) { out.set(e, { deliverable: null, reason: 'the check could not run', source: 'error' }); continue; }
       if (v.result === 'invalid') out.set(e, { deliverable: false, reason: v.detail || 'undeliverable', source: v.source || 'mx' });
       else if (v.result === 'valid') out.set(e, { deliverable: true, reason: v.detail || 'the mailbox was confirmed', source: v.source || 'verifier' });
+      else if (v.implicit === true) {
+        out.set(e, { deliverable: null, reason: v.detail || 'no MX record but the domain resolves', source: 'mx', note: implicitNote(e) });
+      }
       else if (v.source === 'mx' && /no mailbox verifier configured/.test(String(v.detail || ''))) {
         // MX cleared and there is nothing else to ask: the domain takes mail.
         out.set(e, { deliverable: true, reason: 'the domain accepts mail (MX record found)', source: 'mx' });
@@ -84,7 +97,7 @@ async function validateLadder(pool, ladder, opts = {}) {
   const checks = await validateMany(pool, rows.map((r) => r.email), opts);
   for (const r of rows) {
     const v = checks.get(EV.norm(r.email)) || { deliverable: null, reason: 'not checked', source: 'none' };
-    r.emailCheck = { ok: v.deliverable, reason: v.reason, source: v.source };
+    r.emailCheck = { ok: v.deliverable, reason: v.reason, source: v.source, ...(v.note ? { note: v.note } : {}) };
     summary.checked++;
     const entry = { email: EV.norm(r.email), reason: v.reason };
     if (v.deliverable === false) summary.undeliverable.push(entry);
@@ -95,4 +108,4 @@ async function validateLadder(pool, ladder, opts = {}) {
   return summary;
 }
 
-module.exports = { checkSyntax, validateMany, validateLadder, SYNTAX };
+module.exports = { checkSyntax, validateMany, validateLadder, implicitNote, SYNTAX };
