@@ -169,7 +169,12 @@ async function createAthlete(user, body, opts) {
   }
   const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa, over18,
           instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name, dob,
-          schoolRestrictions, athleteType, city, team } = b;
+          schoolRestrictions, athleteType, city, team,
+          // From the athlete lookup (services/athleteLookup): a handle, a
+          // jersey, a listed height and weight, and the URL each field was
+          // read from. All optional; the form does not send them.
+          tiktokHandle, jerseyNumber, height, weight, lookupSources } = b;
+  const lookupSrc = (lookupSources && typeof lookupSources === 'object') ? lookupSources : null;
   if (!name || !sport) return { ok: false, status: 400, error: 'name and sport required' };
   // ── COLLEGE OR PRO ──────────────────────────────────────────────────────
   // Stored in `data`, never in the athlete_type column: that column says who
@@ -271,9 +276,21 @@ async function createAthlete(user, body, opts) {
     // Additive social/onboarding fields — default cleanly so the normal Add
     // Client flow (which does not send these) is unchanged.
     instagramHandle: (instagramHandle ? String(instagramHandle).trim().replace(/^@+/, '').toLowerCase() : ''),
+    tiktokHandle: (tiktokHandle ? String(tiktokHandle).trim().replace(/^@+/, '').toLowerCase().slice(0, 40) : ''),
+    jerseyNumber: jerseyNumber ? String(jerseyNumber).trim().slice(0, 8) : '',
+    height: height ? String(height).trim().slice(0, 20) : '',
+    weight: weight ? String(weight).trim().slice(0, 20) : '',
     brandRestrictions: Array.isArray(brandRestrictions) ? brandRestrictions : [],
-    igStatsSource: ['web_estimate', 'manual', 'instagram_page'].includes(igStatsSource) ? igStatsSource : null,
-    igStatsFetchedAt: igStatsFetchedAt || null,
+    // A follower count that came from the lookup is a web estimate, dated
+    // (services/reachProvenance reads igStatsSource and the date); one the
+    // form typed is the agent's.
+    igStatsSource: ['web_estimate', 'manual', 'instagram_page'].includes(igStatsSource) ? igStatsSource
+      : (lookupSrc && (lookupSrc.instagram || lookupSrc.tiktok) && (parseInt(instagram) || parseInt(tiktok)) ? 'web_estimate' : null),
+    igStatsFetchedAt: igStatsFetchedAt || (lookupSrc && (lookupSrc.instagram || lookupSrc.tiktok) ? new Date().toISOString() : null),
+    // Where each looked-up field was read from, kept on the record so a
+    // number on a media kit can be traced to a page.
+    lookupSources: lookupSrc || null,
+    lookupAt: lookupSrc ? new Date().toISOString() : null,
     createdAt: new Date().toISOString(),
   });
   store.markChecklistItem(user.id, 'add_athlete').catch(() => {}); // Getting Started checklist

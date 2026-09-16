@@ -11117,6 +11117,10 @@ function _applyLookupCandidate(data) {
   if (data.instagram)document.getElementById('a_ig').value = data.instagram;
   if (data.tiktok)   document.getElementById('a_tt').value = data.tiktok;
   if (data.engagement)document.getElementById('a_eng').value = data.engagement;
+  // The handle, when the lookup read one off a page. Approximate counts are
+  // flagged beside the source line below, and every field is editable.
+  if (data.instagramHandle) { const h = document.getElementById('a_handle'); if (h && !h.value.trim()) h.value = data.instagramHandle; }
+  window._lookupSources = data.sources || null;
 
   if (data.year) {
     const s = document.getElementById('a_year');
@@ -11289,9 +11293,11 @@ async function lookupPlayer() {
   btn.disabled = true;
   btn.style.opacity = '0.7';
   btn.textContent = 'Searching...';
-  status.innerHTML = '<span style="color:var(--muted)">🔍 Searching '
-    + (_pro ? 'NFL, NBA and MLB rosters' + (team ? ' for the ' + team : '') : 'live athlete databases' + (school ? ' for ' + school : ''))
-    + '...</span>';
+  // The same lookup the assistant runs (services/athleteLookup): roster
+  // feeds, then a cited web search. Twenty seconds is what it takes.
+  status.innerHTML = '<span style="color:var(--muted)">Searching, this takes about 20 seconds'
+    + (_pro ? (team ? ' (' + team + ' rosters)' : '') : (school ? ' (' + school + ')' : ''))
+    + '</span>';
   candEl.style.display = 'none';
   candEl.innerHTML = '';
   _lookupCandidates = [];

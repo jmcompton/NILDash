@@ -184,7 +184,9 @@ async function main() {
   seen.length = 0; anthropicCalls = 0;
   const r5 = await meter.run(() => meter.label({ site: 'contacts', agentId: 'ds-test-ag', brand: 'X' }, () => ai.webSearchJson('who owns X', 'sys')));
   ok('  the same for a searched call, with the Anthropic shape back', seen.length === 1 && anthropicCalls === 1 && typeof r5.result.text === 'string' && Array.isArray(r5.result.citations), r5.result);
-  ok('  and the lookup stage says undefined so Haiku runs', (await AL._deepseekStage('lookup.pro', 'p', 's')) === undefined);
+  // The lookup has no Haiku to fall back to: a DeepSeek failure is null, and
+  // the lookup reports it as a note rather than answering from another model.
+  ok('  and the lookup stage says null: it reports the failure, it does not fall back', (await AL._deepseekStage('lookup.pro', 'p', 's')) === null);
   mode = 'ok';
   let thrown = null;
   const savedKey = process.env.DEEPSEEK_API_KEY; delete process.env.DEEPSEEK_API_KEY; seen.length = 0;
@@ -203,7 +205,9 @@ async function main() {
   ok('the writer is untouched: no deepseek in pitchWriter, MODEL_GEN on both writer sites', !/deepseek/i.test(src('server/services/pitchWriter.js')) && (src('server/jobs/outreachQueue.js').match(/site: 'writer'[\s\S]{0,300}?ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN\)/g) || []).length === 2);
   ok('oneShot routes only the fast model', /if \(useModel === MODEL_FAST\) \{\s*const rt = DS\.route\(scanMeter\.ctx\(\)\.site, \{ needsSearch: false \}\)/.test(src('server/ai.js')));
   ok('the routing is logged once at startup', /console\.log\('\[ai\] ' \+ DS\.describeRouting\(\)\)/.test(src('server/ai.js')));
-  ok('both lookup stages try DeepSeek first and keep the Haiku call', (src('server/services/athleteLookup.js').match(/await _deepseekStage\('lookup\.(college|pro)'/g) || []).length === 2 && (src('server/services/athleteLookup.js').match(/model: LOOKUP_MODEL,\s*max_tokens/g) || []).length === 2);
+  // The lookup is DeepSeek through the search loop and nothing else: no
+  // Anthropic client, no Haiku fallback (tests/lookup.js covers the engine).
+  ok('the lookup runs on DeepSeek only: no Anthropic SDK, no LOOKUP_MODEL', !/@anthropic-ai\/sdk/.test(src('server/services/athleteLookup.js')) && !/LOOKUP_MODEL/.test(src('server/services/athleteLookup.js')) && /DS\.route\('lookup', \{ needsSearch: true \}\)/.test(src('server/services/athleteLookup.js')));
 
   await P.query(`DELETE FROM ai_call_ledger WHERE agent_id LIKE 'ds-test%'`).catch(() => {});
   ds.close(); br.close();

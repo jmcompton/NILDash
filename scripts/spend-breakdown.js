@@ -154,6 +154,28 @@ async function main() {
     // Site, rolled up to its top level and then in full.
     table('BY CALL SITE (top level)', group(withProvider((r) => r.site.split('.')[0])), 34);
     table('BY CALL SITE (full label)', group(withProvider((r) => r.site)), 42);
+    // ── ATHLETE LOOKUPS: cost per lookup, by level ─────────────────────────
+    // A lookup is a few DeepSeek turns and a searches row, all under
+    // lookup.<level> with the athlete's name as the brand. Distinct names per
+    // level are the lookups; the average is what one costs.
+    {
+      const lk = rows.filter((r) => /^lookup\./.test(r.site));
+      if (lk.length) {
+        const byLevel = new Map();
+        for (const r of lk) {
+          const g = byLevel.get(r.site) || { names: new Set(), calls: 0, searches: 0, usd: 0 };
+          g.names.add(String(r.brand || '').toLowerCase()); g.calls++; g.searches += r.web_searches; g.usd += Number(r.est_usd) || 0;
+          byLevel.set(r.site, g);
+        }
+        console.log('\nATHLETE LOOKUPS (services/athleteLookup; a lookup is one athlete name under one level)');
+        console.log(`  ${pad('', 22)} ${pad('lookups', 8)} ${pad('calls', 6)} ${pad('searches', 9)} ${pad('usd', 9)} ${pad('per lookup', 11)}`);
+        for (const [k, g] of [...byLevel.entries()].sort((a, b) => b[1].usd - a[1].usd)) {
+          const n = g.names.size || 1;
+          console.log(`  ${pad(k, 22)} ${pad(n, 8)} ${pad(g.calls, 6)} ${pad(g.searches, 9)} ${pad(usd(g.usd), 9)} ${pad(usd(g.usd / n), 11)}`);
+        }
+      }
+    }
+
     table('BY AGENT', group((r) => r.agent_email || r.agent_id || '(no agent on the call)'), 34);
     table('BY ATHLETE', group((r) => (r.athlete_name || r.athlete_id || '(no athlete on the call)') + (r.agent_email ? '  ' + r.agent_email : '')), 46);
 

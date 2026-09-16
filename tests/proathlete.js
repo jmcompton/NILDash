@@ -302,14 +302,19 @@ async function main() {
     && AL.leagueFor("women's basketball") === 'WNBA' && AL.leagueFor('Baseball') === 'MLB' && AL.leagueFor('womens ice hockey') === 'PWHL' && AL.leagueFor('hockey') === 'NHL or PWHL'
     && AL.leagueFor('mens soccer') === 'MLS' && AL.leagueFor('womens soccer') === 'NWSL', [AL.leagueFor('Football'), AL.leagueFor('Basketball')]);
   ok('  and an unknown sport picks none rather than guessing', AL.leagueFor('curling') === null && AL.leagueFor('') === null);
-  ok('resolveAthlete accepts the pro fields', /athleteType, team, city \}/.test(src('server/services/athleteLookup.js')));
+  // The lookup is one engine for college, high school and pro now
+  // (tests/lookup.js covers it): a pro goes to the roster feeds first, then
+  // a cited web search; the prompt asks for a roster and refuses a college
+  // athlete; the pro candidate carries team, league, city and the highlight
+  // as knownFor; a pro has no class year.
   const al = src('server/services/athleteLookup.js');
-  ok('  a pro lookup skips the ESPN college stage', /if \(athleteType === 'pro'\) \{[\s\S]*?proSearchStage\(/.test(al) && al.indexOf("athleteType === 'pro'") < al.indexOf('await espnStage('));
-  ok('  and the prompt asks for a roster, not a school', /on a league or team roster/.test(al) && /A college athlete is NOT a match/.test(al));
-  ok('  it asks for position, team, city and what they are known for', /"team":/.test(al) && /"city":/.test(al) && /"knownFor":/.test(al));
-  ok('  and does not ask for a class year or a school tier on a pro', !/proSearchStage[\s\S]*?"year":[\s\S]*?flattenCandidate/.test(al));
+  ok('resolveAthlete accepts the pro fields', /if \(level === 'pro'\) \{[\s\S]*?Feeds\.searchFeeds\(\{ name, sport: proSport, team/.test(al) && /athleteType === 'pro'\) return 'pro'/.test(al));
+  ok('  a pro lookup skips the ESPN college stage', /else if \(level === 'college'\) \{[\s\S]*?espnCollegeStage\(/.test(al) && al.indexOf("level === 'pro'") < al.indexOf('espnCollegeStage(normName'));
+  ok('  and the prompt asks for a roster, not a school', /Search the league or team roster page first/.test(al) && /A college athlete is NOT a match/.test(al));
+  ok('  it asks for position, team, city and what they are known for', /"team":/.test(al) && /"city":/.test(al) && /"highlight":/.test(al) && /knownFor: isPro \? \(c\.highlight \|\| null\) : null/.test(al));
+  ok('  and does not carry a class year or a school tier on a pro', /year: isPro \? null : \(c\.year \|\| null\)/.test(al) && /schoolTier: isPro \? null : inferSchoolTier\(c\.school\)/.test(al));
   ok('the route passes the pro fields through', /const \{ name, school, sport, position, year, athleteType, team, city \} = req\.body;/.test(src('server/index.js')));
-  ok('flattenCandidate carries the pro fields', /athleteType: c\.athleteType \|\| 'college'/.test(al) && /knownFor: c\.knownFor/.test(al));
+  ok('the finished candidate carries the pro fields', /athleteType: isPro \? 'pro' : 'college', level,/.test(al) && /team: c\.team \|\| null, league: c\.league \|\| null, city: c\.city \|\| null/.test(al));
 
   // The probe that decides which leagues get a feed and which stay on search.
   const probe = src('scripts/probe-roster-sources.js');
