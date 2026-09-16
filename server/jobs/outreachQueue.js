@@ -49,6 +49,10 @@ const AR = require('../services/athleteRecord');
 const Scout = require('../services/scout');
 const Deepen = require('../services/marketDeepen');
 const { resolveSchool } = require('../services/schoolResolver');
+// The last door for a contact name (see the local write site).
+const ONS = require('../services/ownerNameSearch');
+// OUTREACH_NAME_REQUIRED=0 turns the requirement off; on by default.
+const NAME_REQUIRED = process.env.OUTREACH_NAME_REQUIRED !== '0';
 // One resolver for the job and the shared record, so a school that resolves
 // for the Writer resolves for the Scout too.
 const resolveSchoolLoc = (name) => resolveSchool(name);
@@ -1275,6 +1279,34 @@ async function fillAthlete(pool, ctx) {
           places: facts, risk: pre.risk, why: _why });
         continue;
       }
+      // ── A REAL PERSON'S NAME, OR THE BUSINESS IS NOT WRITTEN TO ─────────
+      // A pitch that greets nobody, or "Hi,", goes out under the athlete's
+      // name to a real business. So the writer only sees a business once the
+      // ladder holds a person the greeting guard would open with (owner,
+      // marketing director, manager). When it holds none after every source,
+      // one last door: two Haiku searches, "[business] [city] owner" and
+      // "[business] [city] marketing director" (services/ownerNameSearch).
+      // A person found there joins the ladder as a row; nothing found means
+      // the business is skipped, logged, and counted on the run row as
+      // result 'no_name' so the morning can read the rate.
+      if (NAME_REQUIRED && !Q.greetNameOf(ladder)) {
+        let found = null;
+        try {
+          found = await scanMeter.label({ site: 'contacts.finalname', agentId, athleteId, brand: cand.brand_name },
+            () => ONS.findOwnerName({ brand: cand.brand_name, city: region || (facts && facts.city) || '', search: ai.webSearchJson, say }));
+        } catch (e) { say(`${cand.brand_name}: owner search failed (${e.message})`); found = null; }
+        if (found) {
+          ONS.attachToLadder(ladder, found);
+          say(`${cand.brand_name}: no name from the ladder; the ${found.query} search found ${found.name} (${found.title})`);
+          _why.finalName = { name: found.name, title: found.title, query: found.query, sourceUrl: found.sourceUrl || null };
+        } else {
+          const reason = ONS.NO_NAME_REASON;
+          say(`${cand.brand_name}: skipped, ${reason}`);
+          console.log(`[queue] athlete=${athleteId} "${cand.brand_name}": skipped, no name found (ladder empty; owner and marketing-director searches returned nothing)`);
+          tried.push({ brand: cand.brand_name, result: 'no_name', reason, places: facts, risk: pre.risk, why: _why });
+          continue;
+        }
+      }
       tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
         places: facts, risk: pre.risk, why: _why });
 
@@ -1829,7 +1861,7 @@ async function status(pool) {
 module.exports = {
   run, fillAgent, fillAthlete, fillOnDemand, regionForAthlete, claimNight, candidatesFor,
   athleteState, recordAttempt, releasePause, expireStaleCards,
-  insertCard, slotStillOpen, SLOT_TAKEN_REASON, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
+  insertCard, slotStillOpen, SLOT_TAKEN_REASON, NAME_REQUIRED, textToParagraphs, inactiveSkip, INACTIVE_AFTER_DAYS,
   loadAthletesForQueue, resumeAgent,
   ENABLED, CAP_USD, LOOKUP_CEILING_USD, ONDEMAND_CAP_USD,
   today, nightlyWindowOpen, WINDOW_START_HOUR, WINDOW_END_HOUR, CENTRAL_TZ,

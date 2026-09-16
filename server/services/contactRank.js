@@ -112,7 +112,10 @@ function hedgeOf(title) {
 // same as how often it answers. The business's own site is its own statement
 // about itself. News is last among real sources: it is where the Adweek editor
 // came from, named in an article that merely mentioned the bakery.
-const SOURCE_ORDER = ['site', 'chamber', 'facebook', 'registry', 'linkedin', 'maps', 'news', 'instagram', 'hunter'];
+// 'owner_search' is the last door (services/ownerNameSearch): a person named
+// on a page the "[business] [city] owner" search returned. Below the sources
+// that publish a roster and above news, which merely mentions people.
+const SOURCE_ORDER = ['site', 'chamber', 'facebook', 'registry', 'linkedin', 'maps', 'owner_search', 'news', 'instagram', 'hunter'];
 const SOURCE_RANK = {};
 SOURCE_ORDER.forEach((s, i) => { SOURCE_RANK[s] = i; });
 
@@ -124,6 +127,7 @@ SOURCE_ORDER.forEach((s, i) => { SOURCE_RANK[s] = i; });
 // it every contact on the AI Outreach path has an unrecognised source, counts as
 // uncorroborated, and loses its first-name greeting.
 const SOURCE_ALIASES = {
+  'owner-search': 'owner_search',
   company_website: 'site',
   website: 'site',
   public_record: 'registry',

@@ -252,7 +252,10 @@ const MIN_EMAIL_CONFIDENCE = 0.6;
 //
 // An unrecognised source is a model guess with no provenance, which is the one
 // case the original bug was about, and it still gets "Hi,".
-const GREETABLE_SOURCES = new Set(['site', 'chamber', 'facebook', 'registry', 'linkedin', 'maps']);
+// owner_search: the last door (services/ownerNameSearch), which refuses role
+// words, the business's own name and placeholder titles before a name gets
+// this far, and records the page it came from.
+const GREETABLE_SOURCES = new Set(['site', 'chamber', 'facebook', 'registry', 'linkedin', 'maps', 'owner_search']);
 
 function _sourcesOf(c) {
   return Array.isArray(c.sources) && c.sources.length ? c.sources : (c.source ? [c.source] : []);

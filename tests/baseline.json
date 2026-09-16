@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-09-15",
+  "recordedAt": "2026-09-16",
   "note": "Expected state. A suite failing here is KNOWN, not accepted forever -- git diff this file to see what changed and why.",
   "suites": {
     "_idx.js": {
@@ -564,6 +564,11 @@
       "total": 19,
       "fault": null
     },
+    "noname.js": {
+      "failed": 0,
+      "total": 31,
+      "fault": null
+    },
     "onboarding.js": {
       "failed": 0,
       "total": 67,
@@ -631,7 +636,7 @@
     },
     "positions.js": {
       "failed": 0,
-      "total": 126,
+      "total": 158,
       "fault": null
     },
     "prewarm.js": {
@@ -712,6 +717,11 @@
     "rejects.js": {
       "failed": 0,
       "total": 46,
+      "fault": null
+    },
+    "removeathlete.js": {
+      "failed": 0,
+      "total": 12,
       "fault": null
     },
     "replycapture.js": {
@@ -878,6 +888,11 @@
       "failed": null,
       "total": null,
       "fault": "no result line"
+    },
+    "unlabelled.js": {
+      "failed": 0,
+      "total": 6,
+      "fault": null
     },
     "unreadable.js": {
       "failed": 0,
