@@ -65,7 +65,15 @@ const PW = require(ROOT + 'server/services/pitchWriter');
 
 // Nothing in this suite should reach a model or a paid lookup.
 ai.getBrandContacts = async () => ({ contacts: [], businessPhone: null, cached: true });
-ai.webSearchJson = async () => { throw new Error('the real web search must not be reached here'); };
+// The one search the program lane is allowed: the last door for a name
+// ("[brand] owner" / "[brand] marketing director"), answered in the shape the
+// real primitive returns. A card needs a person now; anything else is a bug.
+ai.webSearchJson = async (prompt) => {
+  if (/^Search for: .+ (owner|marketing director)\n/.test(String(prompt))) {
+    return { text: JSON.stringify({ name: 'Pat Program', title: 'Marketing Director', sourceUrl: 'https://pcap.example/team', confidence: 'high' }), citations: ['https://pcap.example/team'], searches: 1, outTokens: 30, apiMs: 10 };
+  }
+  throw new Error('the real web search must not be reached here');
+};
 PW.writePitch = async () => ({ message: 'Two feed posts and a code drop.',
   angle: 'campus traffic', angleKey: 'campus', categoryKey: 'retail', ask: '2 posts' });
 

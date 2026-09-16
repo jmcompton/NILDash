@@ -37,6 +37,15 @@ const store = require(ROOT + 'server/store');
 const ai = require(ROOT + 'server/ai');
 const PW = require(ROOT + 'server/services/pitchWriter');
 
+// The program lane's last door for a name, answered in the real primitive's
+// shape so a social or national card can carry a person; nothing else may
+// reach a search from here.
+ai.webSearchJson = async (prompt) => {
+  if (/^Search for: .+ (owner|marketing director)\n/.test(String(prompt))) {
+    return { text: JSON.stringify({ name: 'Pat Program', title: 'Marketing Director', confidence: 'high' }), citations: ['https://e2e.example/team'], searches: 1, outTokens: 30, apiMs: 10 };
+  }
+  throw new Error('the real web search must not be reached here');
+};
 ai.getBrandContacts = async (brand, site, region, ctx) => {
   stub.contactCalls.push({ brand, region, ctx });
   return { contacts: [{ name: 'Dana Reed', title: 'Owner', phone: '(334) 555-9999',

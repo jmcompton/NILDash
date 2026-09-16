@@ -285,9 +285,17 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
   const rows = [];
   const seenKeys = new Set();
   const laneless = [];
+  const placeholders = [];
+  // The ledger and the pool are gated at their writers now, but rows written
+  // before that are still in both tables; the slate refuses them by name so a
+  // description of a business ("Local Auburn Gym (independent)") cannot be
+  // handed a slot whatever table it came from.
+  let placeholderReason = null;
+  try { placeholderReason = require('../store').placeholderReason; } catch (_) { placeholderReason = null; }
   for (const r of shown.concat(seen)) {
     const k = normBrand(r.brand_name);
     if (!k || seenKeys.has(k)) continue;
+    if (placeholderReason && placeholderReason(r.brand_name)) { placeholders.push(r.brand_name); continue; }
     const lane = r.pool === 'market-pool' ? 'local' : (r.lane || null);
     if (lane !== 'local') { laneless.push(r.brand_name); continue; }
     seenKeys.add(k);
@@ -296,6 +304,10 @@ async function localCandidates(pool, { agentId, athlete, limit }) {
   if (laneless.length) {
     console.log(`[scout/local] athlete=${athlete.id} dropped ${laneless.length} candidate(s) with no `
       + `recorded lane: ${laneless.slice(0, 5).join(', ')}`);
+  }
+  if (placeholders.length) {
+    console.log(`[scout/local] athlete=${athlete.id} refused ${placeholders.length} placeholder name(s), not real businesses: `
+      + placeholders.slice(0, 5).map((s) => JSON.stringify(String(s).slice(0, 48))).join(', '));
   }
   // Exhausted means BOTH pools are dry, which is the signal to widen the radius
   // on the next market build rather than to give up.

@@ -483,6 +483,17 @@ async function matchFor(pool, agentId, athleteId, brandName) {
 // partial unique index on (athlete_id, slot) WHERE state='queued' is what makes
 // a double-fill a no-op rather than a duplicate.
 async function insertCard(pool, { agentId, athleteId, slot, card }) {
+  // THE LAST GATE ON THE NAME. Every path that builds a card refuses a
+  // placeholder before spending; this refuses one that somehow still arrives,
+  // on any lane, so a card can never say "Local ... (independent)" again.
+  {
+    const store = require('../store');
+    const ph = store.placeholderReason ? store.placeholderReason(card && card.brandName) : null;
+    if (ph) {
+      console.log(`[queue] athlete=${athleteId} slot=${slot} "${card && card.brandName}" not written: not a real business name (${ph})`);
+      return false;
+    }
+  }
   // ONE IDENTITY, WRITTEN TO BOTH COLUMNS. outreach_queue.brand_key is NOT NULL,
   // and the market pool now honestly reports that it has no key -- so without
   // this the fix for the lie would simply move the lie into a constraint
@@ -1180,6 +1191,20 @@ async function fillAthlete(pool, ctx) {
       // the deep lookup would call it anyway, so this costs nothing extra --
       // it just moves the call earlier, where its answer can still stop us
       // paying for a business that was never going to produce a contact.
+      // ── A REAL BUSINESS NAME, OR NOTHING IS SPENT ──────────────────────
+      // A candidate whose "name" is a description ("Local Harrisburg Barber/
+      // Salon (independent)") is not looked up, not researched, not written
+      // to. Refused by name before the Places call, and recorded so the
+      // morning shows the scan that produced it, not a mystery rejection.
+      {
+        const ph = store.placeholderReason ? store.placeholderReason(cand.brand_name) : null;
+        if (ph) {
+          const why = `not a real business name (${ph})`;
+          say(`${cand.brand_name}: skipped, ${why}`);
+          tried.push({ brand: cand.brand_name, result: 'rejected', reason: why, places: { found: false }, risk: 'normal' });
+          continue;
+        }
+      }
       let place = null;
       try {
         place = await lookupPlace(cand.brand_name || cand.brand_key, region || '');

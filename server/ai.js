@@ -3312,6 +3312,15 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
     // _brandKey so a business shown once is dropped no matter how it is re-phrased,
     // then page 10 at a time. When the filter empties the list, return an empty
     // page flagged exhausted so the UI shows the honest banner instead of repeats.
+    // REAL NAMES ONLY. This path is the model's memory, and when its memory of
+    // a town runs out it writes "Local Harrisburg Barber/Salon (independent)"
+    // in the name field. Those are refused here, logged with the reason, and
+    // an answer that was ALL placeholders is an empty answer.
+    const real = [], fake = [];
+    for (const d of parsed) { const why = store.placeholderReason(d && d.brand); if (why) fake.push({ brand: d && d.brand, why }); else real.push(d); }
+    if (fake.length) console.warn(`[dealScan] model-knowledge refused ${fake.length} placeholder name(s): ` + fake.map((f) => `"${String(f.brand).slice(0, 48)}" (${f.why})`).join('; '));
+    if (!real.length) throw new Error('model knowledge returned only placeholder names');
+    parsed.length = 0; parsed.push(...real);
     const PAGE = 10;
     const page = _localNextPage(parsed, excludeBrands, PAGE, (d) => (d.fitScore || 0), (d) => d.brand);
     console.log(`[dealScan] local shownSet=${new Set((excludeBrands || []).map(_brandKey).filter(Boolean)).size} excluded=${parsed.length - page.unseenTotal} poolAfterExclude=${page.unseenTotal} returned=${page.page.length} poolTotal=${parsed.length} source=knowledge`);
@@ -3375,6 +3384,7 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
 
     const found = [];
     const seen = new Set();
+    let _placeholdersDropped = 0;
     const addCandidate = (it, market) => {
       const nm = ((it && it.name) || '').trim();
       if (!nm) return;
@@ -3383,6 +3393,10 @@ Output ONLY a JSON array (no markdown, no preamble) of 8-10 objects sorted by fi
       // pool at ingest, so they never reach selection, caching, or the ledger. Covers
       // cache-served and web-search candidates; the Places builder drops them too.
       if (isNoLocalAuthority(nm)) return;
+      // A DESCRIPTION IS NOT A NAME. "Local Auburn Gym (independent)" is the
+      // model saying it could not name one. Refused at ingest, from every
+      // source, so it never reaches the pool, the cache, the ledger or a card.
+      if (store.placeholderReason(nm)) { _placeholdersDropped++; return; }
       // Dedup by _brandKey (not raw lowercase) so a suffix/case variant of a pool
       // business is not re-added, which is what keeps a deepen batch genuinely new.
       const key = _brandKey(nm);

@@ -3100,6 +3100,12 @@ async function upsertShownBrands(agentId, athleteId, lane, items) {
   for (const it of items) {
     const bk = it && it.brandKey;
     if (!bk) continue;
+    // A PLACEHOLDER NEVER ENTERS THE LEDGER. The market pool already refused
+    // these (markMarketNewcomers); this writer did not, and the Scout's "shown"
+    // pool reads the ledger, so a knowledge-path template the scan paged to
+    // the agent came back as a nightly card weeks later.
+    const ph = placeholderReason(it.brandName || '');
+    if (ph) { console.warn(`[brandLedger] refused placeholder "${String(it.brandName).slice(0, 60)}" (${ph})`); continue; }
     try {
       await pool.query(
         `INSERT INTO brand_engagement
@@ -4007,6 +4013,21 @@ const PLACEHOLDER_RULES = [
   { why: 'gives an example rather than a name', re: /\b(?:e\.?g\.?|i\.?e\.?|for example|such as|etc\.?)\b/i },
   { why: 'a category with a slash, not a business', re: /\w\/\w/ },
   { why: 'trailing slash', re: /\/\s*$/ },
+  // ── THE KNOWLEDGE PATH'S TEMPLATES ─────────────────────────────────────────
+  // "Local Harrisburg Barber/Salon (independent)" and "Local Virginia Tech Fan
+  // Business (independent)" reached cards. They are descriptions of a kind of
+  // business the model could not name, dressed as names. A real business is
+  // not called "Local anything", does not carry "(independent)" after its name,
+  // and is not a "fan business".
+  // "Local <town> <kind of business>": the template, and only the template.
+  // "Local Motion Fitness" and "The Local Taco" are names; "Local Auburn Gym"
+  // and "Local Harrisburg Restaurant" are descriptions, and what tells them
+  // apart is that the description ENDS on the kind of business.
+  { why: 'starts with "Local" and ends on a kind of business: a category, not a name',
+    re: /^(?:a |an |the |any |some )?local\b.*\b(?:business(?:es)?|gym|restaurant|caf[eé]|coffee shop|salon|barber(?:shop)?|boutique|store|shop|dealership|bank|clinic|studio|brewery|bar|pizzeria|bakery|retailer|services?|company|chiropractor|dentist|realtor|agency|market|grocer(?:y)?|spa|eatery|diner|venue|vendor|sponsor)\s*(?:\([^)]*\))?\s*$/i },
+  { why: 'a qualifier in brackets instead of a name', re: /\((?:independent|local|chain|franchise|locally[- ]owned|family[- ]owned|small business|various|any|tbd|unknown)\)/i },
+  { why: 'a generic business, not a named one', re: /\b(?:fan business|local business(?:es)?|small business(?:es)?|business owner|independent (?:shop|store|business|retailer)|area (?:business|shop|store)|neighborhood (?:business|shop|store))\b/i },
+  { why: 'a template, not a name', re: /[\[\]{}<>]|\b(?:insert|placeholder|example|sample|generic|tbd|n\/a)\b/i },
 ];
 function placeholderReason(name) {
   const s = String(name || '').trim();
@@ -4308,10 +4329,16 @@ function _socialBaseMatch(athlete) {
 async function getSocialBrandPool(athlete) {
   try {
     const { where, params } = _socialBaseMatch(athlete);
+    // ── SPREAD, NOT STACKED. Ordered by freshest proof, every athlete on every
+    // roster got the SAME brand first: the newest small brand in the index took
+    // the one program slot for nearly everyone within a week (Bfitamazing). The
+    // nightly per-brand cap only slows that down. Small brands still come first;
+    // within them the order is a stable per-athlete shuffle, so a roster of nine
+    // spreads across the index rather than lining up behind one row.
     const r = await pool.query(
       `SELECT * FROM social_brands WHERE ${where}
-        ORDER BY (brand_size = 'small') DESC NULLS LAST, proof_date DESC`,
-      params
+        ORDER BY (brand_size = 'small') DESC NULLS LAST, md5($${params.length + 1}::text || brand)`,
+      params.concat([String((athlete && athlete.id) || '')])
     );
     return (r.rows || []).map(_decorateSocialBrand);
   } catch (e) { console.error('[getSocialBrandPool]', e.message); return []; }
