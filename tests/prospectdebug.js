@@ -62,7 +62,7 @@ async function main() {
   ok('  and the total', /4 of 7 match at least one keyword/.test(outA));
   ok('  the exclusions, counted', /exclusions: 0 drafted on an earlier run \(0 in prospecting-done\.json\), 0 already in sent mail by address, 0 by name/.test(outA));
   ok('  the queue is listed', /next: Ann Lee \| NIL Agent @ Ridge Sports Agency/.test(outA) && /next: Gus Ott/.test(outA));
-  ok('--dry drafts and sends nothing', /--dry: 7 connections, 4 matches, 4 in the queue, would draft 4\. Nothing drafted or sent\./.test(outA) && !/turn\(s\)|FAILED|archived |EMAIL/.test(outA), outA.split('\n').filter((l) => /--dry|turn|FAILED|archived|EMAIL/.test(l)));
+  ok('--dry drafts and sends nothing', /--dry: 7 connections, 4 matches, 0 excluded by --exclude, 4 in the queue, would research 4\. Nothing drafted or sent\./.test(outA) && !/turn\(s\)|FAILED|archived |EMAIL/.test(outA), outA.split('\n').filter((l) => /--dry|turn|FAILED|archived|EMAIL/.test(l)));
   ok('  and writes no archive', !fs.readdirSync(a.root).some((f) => /prospecting\.md$/.test(f)));
 
   // ── 2. NO connectionsFile, THE FILE STILL AT THE ROOT ────────────────────
@@ -71,7 +71,7 @@ async function main() {
   const outB = run(b.home, ['--debug', '--dry']);
   ok('the inbox is looked at and found empty', /looked nothing .*[\\/]inbox[\\/]\*\.csv \(0 csv file\(s\)\)/.test(outB));
   ok('  then the root, where the file is', /looked FOUND\s+.*nildash-briefs[\\/]\*\.csv \(1 csv file\(s\): Connections\.csv\)/.test(outB));
-  ok('  and it drafts the same four', /would draft 4/.test(outB));
+  ok('  and it drafts the same four', /would research 4/.test(outB));
   const c = setup({}, _tp.join('inbox', 'Connections.csv'));
   ok('the inbox still wins when the file is there', /looked FOUND\s+.*[\\/]inbox[\\/]\*\.csv/.test(run(c.home, ['--debug', '--dry'])));
 

@@ -6,7 +6,7 @@ Four scripts that run on your Mac under cron, through `claude -p` on an Anthropi
 |---|---|---|
 | `follow-ups.js` | Sent-mail threads with no reply in 7+ days: who, what it was about, what you said you'd do, how long | `Follow-ups: 4 waiting` |
 | `news-watch.js` | Searches the term list, dedupes against the last 30 days, ten lines | `NIL watch: 6 items` |
-| `prospecting.js` | LinkedIn connections filtered to agents and NIL people, minus anyone in your sent mail, next 20 researched with an opener each | `Prospects: 20 drafted` |
+| `prospecting.js` | LinkedIn connections filtered to agents and NIL people, minus anyone in your sent mail, next 20 researched with an opener each; anyone the research finds outside the US or outside US sports, or who gets no opener, is filtered and listed with the reason | `Prospects: 17 drafted, 3 filtered` |
 | `strategy-watch.js` | Legislation (S. 4668, agent regulation, NCAA rules), competitors, market signals. Haiku. **Emails only when something meaningful changed** since its last send; a quiet day sends nothing | `Strategy watch: 3 changes` |
 
 Every brief is also written to `~/nildash-briefs/YYYY-MM-DD-<name>.md` as the archive, whether or not the email goes out. The exception is strategy-watch, which archives only on the days it sends.
@@ -160,4 +160,8 @@ Logs are in `~/nildash-briefs/logs/`. State (what has been shown or drafted) is 
 node tools/briefs/prospecting.js --debug --dry
 ```
 
-`--debug` prints the config it loaded (keys masked), every place it looked for the CSV and what it found there, the header line and the first five rows, the count per keyword, the exclusions (already drafted, already in sent mail), the next ten in the queue, and a `why 0:` line naming the reason. `--dry` stops there: nothing is researched, drafted, archived or sent. `--no-email` runs the whole thing and writes the archive without sending the email.
+`--debug` prints the config it loaded (keys masked), every place it looked for the CSV and what it found there, the header line and the first five rows, the count per keyword, the exclusions (already drafted, already in sent mail, `--exclude`), the next ten in the queue, and a `why 0:` line naming the reason. `--dry` stops there: nothing is researched, drafted, archived or sent. `--no-email` runs the whole thing and writes the archive without sending the email.
+
+**The quality filter.** Each researched person is drafted or filtered. Filtered means the research found them not US-based, or not working in US sports markets, or no opener came back. The brief's subject is `Prospects: N drafted, M filtered`, and a Filtered section lists each with the reason. Filtered people are recorded in `state/prospecting-done.json` with the reason so they are not researched again; a research call that failed outright is not recorded and is retried next run. The batch is still `prospectsPerRun` people researched, so a run with 3 filtered drafts 17.
+
+**Skipping people for one run.** `--exclude "Ann Lee,https://www.linkedin.com/in/bobray"` (or `--exclude=...`, repeatable) skips those connections on that run only, by full name, LinkedIn URL or the handle after `/in/`. Nothing is recorded; they are back in the queue next time. An item that matches nobody in the CSV is reported as a warning.
