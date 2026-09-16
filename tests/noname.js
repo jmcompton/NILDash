@@ -69,13 +69,51 @@ async function main() {
   const job = fs.readFileSync(REPO + 'server/jobs/outreachQueue.js', 'utf8');
   const site = job.slice(job.indexOf("if (!bar.ok) {"), job.indexOf('// ── THE WRITER ──'));
   ok('the name check sits after the bar and before the writer', /if \(NAME_REQUIRED && !Q\.greetNameOf\(ladder\)\)/.test(site) && site.indexOf('greetNameOf') < site.indexOf("result: 'queued'"));
-  ok('  the last door runs under the contacts.finalname label with the metered search', /site: 'contacts\.finalname'/.test(site) && /search: ai\.webSearchJson/.test(site));
+  ok('  the last door runs under the contacts.finalname label with the metered search', /found = await finalNameFor\(cand\.brand_name/.test(site) && /async function finalNameFor[\s\S]*?site: 'contacts\.finalname'[\s\S]*?search: ai\.webSearchJson/.test(job));
   ok('  a person found joins the ladder and is recorded on the attempt', /ONS\.attachToLadder\(ladder, found\)/.test(site) && /_why\.finalName = \{ name: found\.name/.test(site));
   ok('  nothing found: the business is skipped, logged, and counted as no_name', /result: 'no_name', reason/.test(site) && /skipped, no name found/.test(site) && /continue;\s*\}\s*\}\s*tried\.push\(\{ brand: cand\.brand_name, result: 'queued'/.test(site));
   ok('  the reason is one sentence, fixed', ONS.NO_NAME_REASON === 'no contact name found after all sources, including the final owner and marketing-director search');
   ok('on by default, OUTREACH_NAME_REQUIRED=0 turns it off', /const NAME_REQUIRED = process\.env\.OUTREACH_NAME_REQUIRED !== '0';/.test(job));
   const sb = fs.readFileSync(REPO + 'scripts/spend-breakdown.js', 'utf8');
   ok('spend-breakdown reports the skip rate and the rescues', /no name found: \$\{noName\.length\} of \$\{localTried\.length\} local businesses skipped/.test(sb) && /rescued  \$\{t\.brand\}: \$\{t\.why\.finalName\.name\}/.test(sb));
+
+  // ── 4. THE GREETING IS CHECKED AFTER THE WRITER ───────────────────────────
+  // The prompt asked for "Hi <name>," and nothing read what came back: a card
+  // for Deep Water Brazilian Jiu Jitsu opened "Hi," with an owner on file.
+  OUT.push('', '-- the greeting, after the writer --');
+  const E = (m, n) => Q.ensureGreeting(m, n);
+  ok('"Hi," under a verified name is rewritten to greet them', E('Hi,\n\nI work with Peyton.', 'Dana').message.startsWith('Hi Dana,\n') && E('Hi,\n\nx', 'Dana').repaired && E('Hi,\n\nx', 'Dana').was === 'Hi,');
+  ok('  so is "Hi there,"', E('Hi there,\nx', 'Dana').message.startsWith('Hi Dana,'));
+  ok('  and a greeting to somebody else', E('Hi Bob,\nx', 'Dana').message.startsWith('Hi Dana,') && E('Hi Bob,\nx', 'Dana').was === 'Hi Bob,');
+  ok('  a message with no greeting line gets one in front', E('I work with Peyton.\nThanks', 'Dana').message === 'Hi Dana,\n\nI work with Peyton.\nThanks');
+  ok('the right name is left alone, whatever the salutation word', !E('Hi Dana,\nx', 'Dana').repaired && !E('Hello Dana,\nx', 'Dana').repaired && !E('Hey Dana,\nx', 'Dana').repaired);
+  ok('  an honorific name matches by surname and is not "Dr.,"', !E('Hi Dr. Mercer,\nx', 'Dr. Mercer').repaired && !E('Hi Mercer,\nx', 'Dr. Mercer').repaired && E('Hi Dr.,\nx', 'Dr. Mercer').message.startsWith('Hi Dr. Mercer,'));
+  ok('  no name means nothing to enforce and says so', E('Hi,\nx', '').missingName === true && !E('Hi,\nx', '').repaired);
+  const lad = { tiers: [
+    { tier: 1, label: 'Owner', rows: [{ name: 'Front Desk', title: 'Company contact (not confirmed owner)', source: 'instagram' }] },
+    { tier: 2, label: 'Manager', rows: [{ name: 'Dana Roberts', title: 'Owner', source: 'chamber' }] },
+  ] };
+  ok('greetRowOf is the row the guard cleared, not the top-ranked row', Q.greetRowOf(lad) && Q.greetRowOf(lad).name === 'Dana Roberts' && Q.namedRows(lad)[0].name === 'Front Desk');
+  ok('  and the card names that person', Q.buildCard({ brand: 'X' }, lad, { instagram: null }).contactName === 'Dana Roberts' && Q.buildCard({ brand: 'X' }, lad, { instagram: null }).greetName === 'Dana');
+
+  // ── 5. THE PROGRAM LANE, WHICH HAD NO NAME CHECK AT ALL ───────────────────
+  OUT.push('', '-- the program lane --');
+  const plane = job.slice(job.indexOf('const pbar = Q.passesProgramBar(cand, pig);'), job.indexOf('const pcard = Q.buildProgramCard('));
+  ok('the last door runs before the writer on the program lane, and nothing found is no card', /pperson = await finalNameFor\(cand\.brand_name, ''/.test(plane) && /result: 'no_name', reason, lane: cand\.lane/.test(plane) && plane.indexOf('finalNameFor') < plane.indexOf('PW.writePitch'));
+  ok('  the writer is told the person and the greeting name', /ownerName: pperson \? pperson\.name : null/.test(plane) && /greetFirstName: pgreet \|\| null/.test(plane));
+  ok('  and the greeting is enforced after it', /Q\.ensureGreeting\(ppitch\.message, pgreet\)/.test(plane) && /ppitch\.greetingRepaired = true/.test(plane));
+  ok('  the card carries the person', /Q\.buildProgramCard\(cand, ppitch, athleteName, pig, pperson\)/.test(job));
+  const pc = Q.buildProgramCard({ brand_name: 'RYZE', why: 'w' }, { message: 'Hi Lee,\nx' }, 'Peyton', { handle: 'ryze' }, { name: 'Lee Park', title: 'Marketing Director', query: 'marketing', sourceUrl: 'https://ryze.com/team' });
+  ok('  named, titled, sourced, and greeted by first name', pc.contactName === 'Lee Park' && pc.contactTitle === 'Marketing Director' && /Named by a web search for "marketing director" at https:\/\/ryze\.com\/team/.test(pc.sourceNote) && pc.greetName === 'Lee');
+  ok('  the fallback DM greets them too', /^Hi Lee,/.test(Q.buildProgramCard({ brand_name: 'RYZE', why: 'w' }, null, 'Peyton', { handle: 'ryze' }, { name: 'Lee Park', title: 'Marketing Director', query: 'marketing' }).dmText));
+  const local = job.slice(job.indexOf('// ── THE GREETING IS CHECKED, NOT TRUSTED ──'), job.indexOf('const card = Q.buildCard({'));
+  ok('the local lane enforces the greeting after the writer and refuses a nameless card', /const greet = Q\.greetNameOf\(ladder\);\s*if \(!greet\) \{/.test(local) && /result: 'no_name'/.test(local) && /Q\.ensureGreeting\(pitch\.message, greet\)/.test(local) && /_te\.greetingRepaired = g\.was/.test(local));
+  ok('  the writer is told about the greetable person, not the top-ranked row', /ownerName: \(Q\.greetRowOf\(ladder\) \|\| Q\.namedRows\(ladder\)\[0\] \|\| \{\}\)\.name/.test(job));
+  ok('the last door is cached per business and city for the night', /const _finalNames = new Map\(\)/.test(job) && /FINAL_NAME_TTL_MS = 24 \* 3600000/.test(job) && /_finalNames\.set\(key, \{ found: found \|\| null, at: Date\.now\(\) \}\)/.test(job));
+  const c2 = []; const s2 = async (p) => { c2.push(p); return JSON.stringify({ name: 'Lee Park', title: 'Marketing Director' }); };
+  await ONS.findOwnerName({ brand: 'RYZE', city: '', search: s2 });
+  ok('a brand with no city is searched without a stray space', /Search for: RYZE owner\n/.test(c2[0]) && !/RYZE  owner/.test(c2[0]), c2[0].split('\n')[0]);
+  ok('the two scripts exist: inspect a card, retire the nameless ones', /GREETS NOBODY/.test(fs.readFileSync(REPO + 'scripts/inspect-card.js', 'utf8')) && /outcome = 'no_name'/.test(fs.readFileSync(REPO + 'scripts/retire-nameless-cards.js', 'utf8')) && /cadence_stop_reason = 'retired: no contact name to greet'/.test(fs.readFileSync(REPO + 'scripts/retire-nameless-cards.js', 'utf8')));
 
   OUT.push(''); OUT.push('failures: ' + F);
   console.log(OUT.join('\n'));

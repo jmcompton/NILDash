@@ -24,9 +24,12 @@ const SYS = 'You find the named person who runs or markets a specific local busi
   + 'Rules: the name must be a real person named ON A PAGE ABOUT THIS BUSINESS in this city; never a role word, never the business name, '
   + 'never a person at a different business with the same name, never a guess. If no page names a person, return {"name": null}. No text outside the JSON.';
 
+// The city is left out of the query when there is none: a national or DTC
+// brand (the program lane) is searched as "Brand marketing director", not
+// "Brand  marketing director".
 const QUERIES = [
-  { key: 'owner', q: (b, c) => `${b} ${c} owner`, ask: 'the owner, founder or proprietor' },
-  { key: 'marketing', q: (b, c) => `${b} ${c} marketing director`, ask: 'the marketing director, marketing manager or partnerships lead' },
+  { key: 'owner', q: (b, c) => [b, c, 'owner'].filter(Boolean).join(' '), ask: 'the owner, founder or proprietor' },
+  { key: 'marketing', q: (b, c) => [b, c, 'marketing director'].filter(Boolean).join(' '), ask: 'the marketing director, marketing manager or partnerships lead' },
 ];
 
 // Any of these words anywhere in the "name" means it is not a person: "The

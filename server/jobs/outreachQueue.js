@@ -53,6 +53,25 @@ const { resolveSchool } = require('../services/schoolResolver');
 const ONS = require('../services/ownerNameSearch');
 // OUTREACH_NAME_REQUIRED=0 turns the requirement off; on by default.
 const NAME_REQUIRED = process.env.OUTREACH_NAME_REQUIRED !== '0';
+
+// ── THE LAST DOOR, ONCE PER BUSINESS PER NIGHT ──────────────────────────────
+// services/ownerNameSearch, under the contacts.finalname label and the
+// metered search. Cached in the process by business and city for a day, so a
+// national brand that appears on every athlete's slate is searched once, not
+// once per athlete, and a local business tried twice in one run is not paid
+// for twice. A miss is cached too: asking again tonight will not find a name
+// that was not there an hour ago.
+const _finalNames = new Map();
+const FINAL_NAME_TTL_MS = 24 * 3600000;
+async function finalNameFor(brand, city, { agentId, athleteId, say }) {
+  const key = `${String(brand || '').trim().toLowerCase()}|${String(city || '').trim().toLowerCase()}`;
+  const hit = _finalNames.get(key);
+  if (hit && Date.now() - hit.at < FINAL_NAME_TTL_MS) return hit.found;
+  const found = await scanMeter.label({ site: 'contacts.finalname', agentId, athleteId, brand },
+    () => ONS.findOwnerName({ brand, city, search: ai.webSearchJson, say }));
+  _finalNames.set(key, { found: found || null, at: Date.now() });
+  return found || null;
+}
 // One resolver for the job and the shared record, so a school that resolves
 // for the Writer resolves for the Scout too.
 const resolveSchoolLoc = (name) => resolveSchool(name);
@@ -1059,6 +1078,28 @@ async function fillAthlete(pool, ctx) {
             lane: cand.lane, places: { found: false }, risk: 'normal' });
           continue;
         }
+        // ── A REAL PERSON'S NAME HERE TOO, OR NO CARD ───────────────────────
+        // This lane had no ladder and no name check at all: every DTC and
+        // national card was written to nobody and opened "Hi,". The same last
+        // door the local lane uses runs here, "[brand] owner" and "[brand]
+        // marketing director", cached per brand for the night so a brand
+        // that repeats across the roster is searched once. Nothing found means
+        // no card, counted on the run row as no_name like any local business.
+        let pperson = null;
+        if (NAME_REQUIRED) {
+          try {
+            pperson = await finalNameFor(cand.brand_name, '', { agentId, athleteId, say });
+          } catch (e) { say(`${cand.brand_name}: owner search failed (${e.message})`); pperson = null; }
+          if (!pperson) {
+            const reason = ONS.NO_NAME_REASON;
+            say(`${cand.brand_name}: skipped, ${reason}`);
+            console.log(`[queue] athlete=${athleteId} "${cand.brand_name}" (${cand.lane}): skipped, no name found (owner and marketing-director searches returned nothing)`);
+            tried.push({ brand: cand.brand_name, result: 'no_name', reason, lane: cand.lane, places: { found: false }, risk: 'normal' });
+            continue;
+          }
+          say(`${cand.brand_name}: the ${pperson.query} search found ${pperson.name} (${pperson.title})`);
+        }
+        const pgreet = pperson ? Q.greetNameOf(ONS.attachToLadder({ tiers: [] }, pperson)) : '';
         const pmatch = await matchFor(pool, agentId, athleteId, cand.brand_name);
         let ppitch = null;
         try {
@@ -1066,7 +1107,8 @@ async function fillAthlete(pool, ctx) {
             business: {
               name: cand.brand_name, category: cand.category || null,
               address: null, rating: null, userRatingCount: null,
-              ownerName: null, ownerTitle: null,
+              ownerName: pperson ? pperson.name : null, ownerTitle: pperson ? pperson.title : null,
+              greetFirstName: pgreet || null,
               siteSummary: cand.offerSummary || null,
               isFranchise: false, sponsorsLocal: null,
             },
@@ -1092,10 +1134,21 @@ async function fillAthlete(pool, ctx) {
             lane: cand.lane, places: { found: false }, risk: 'normal' });
           continue;
         }
+        // THE GREETING IS CHECKED, NOT TRUSTED. See ensureGreeting: a message the
+        // model opened "Hi," under a named person is rewritten to greet them.
+        if (ppitch && ppitch.message && NAME_REQUIRED) {
+          const g = Q.ensureGreeting(ppitch.message, pgreet);
+          if (g.missingName) {
+            say(`${cand.brand_name}: no greeting name after the writer; not offered`);
+            tried.push({ brand: cand.brand_name, result: 'no_name', reason: ONS.NO_NAME_REASON, lane: cand.lane, places: { found: false }, risk: 'normal' });
+            continue;
+          }
+          if (g.repaired) { say(`${cand.brand_name}: the writer opened "${g.was || '(no greeting)'}"; rewritten to "Hi ${pgreet},"`); ppitch.message = g.message; ppitch.greetingRepaired = true; }
+        }
         // The signature is APPENDED, never written by the model. Idempotent, so a
         // regenerated or re-saved draft cannot end up signed twice.
         if (ppitch && ppitch.message) ppitch.message = SIG.appendText(ppitch.message, signature);
-        const pcard = Q.buildProgramCard(cand, ppitch, athleteName, pig);
+        const pcard = Q.buildProgramCard(cand, ppitch, athleteName, pig, pperson);
         tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
           writerRetried: !!(ppitch && ppitch.retried), writerFirstProblems: (ppitch && ppitch.firstProblems) || null,
           lane: cand.lane, channel: pcard.channel, places: { found: false }, risk: 'normal' });
@@ -1292,8 +1345,7 @@ async function fillAthlete(pool, ctx) {
       if (NAME_REQUIRED && !Q.greetNameOf(ladder)) {
         let found = null;
         try {
-          found = await scanMeter.label({ site: 'contacts.finalname', agentId, athleteId, brand: cand.brand_name },
-            () => ONS.findOwnerName({ brand: cand.brand_name, city: region || (facts && facts.city) || '', search: ai.webSearchJson, say }));
+          found = await finalNameFor(cand.brand_name, region || (facts && facts.city) || '', { agentId, athleteId, say });
         } catch (e) { say(`${cand.brand_name}: owner search failed (${e.message})`); found = null; }
         if (found) {
           ONS.attachToLadder(ladder, found);
@@ -1325,8 +1377,13 @@ async function fillAthlete(pool, ctx) {
             address: (place && (place.address || place.formattedAddress)) || null,
             rating: place ? place.rating : null,
             userRatingCount: place ? place.userRatingCount : null,
-            ownerName: (Q.namedRows(ladder)[0] || {}).name || null,
-            ownerTitle: (Q.namedRows(ladder)[0] || {}).title || null,
+            // THE SAME PERSON IN BOTH LINES. The writer used to be handed the
+            // top-ranked named row as "Person to write to" beside a greeting
+            // name that could belong to a different, greetable row; shown two
+            // people, the model opened with neither. Both now come from the
+            // row the greeting guard cleared (Q.greetRowOf).
+            ownerName: (Q.greetRowOf(ladder) || Q.namedRows(ladder)[0] || {}).name || null,
+            ownerTitle: (Q.greetRowOf(ladder) || Q.namedRows(ladder)[0] || {}).title || null,
             // The verified first name, or ''. Only a contact the greeting guard
             // cleared gets here, so the prompt's instruction and the enforcement
             // that runs after the model cannot disagree.
@@ -1373,6 +1430,29 @@ async function fillAthlete(pool, ctx) {
         continue;
       }
 
+      // ── THE GREETING IS CHECKED, NOT TRUSTED ────────────────────────────
+      // The prompt asked for "Hi <name>,"; nothing read what came back, and a
+      // message the model opened "Hi," under a verified owner shipped as-is.
+      // Now the first line must address the verified person or it is rewritten
+      // to. And if, whatever the guard above said, there is no name to open
+      // with by the time the writer has returned, the business is not offered.
+      if (NAME_REQUIRED) {
+        const greet = Q.greetNameOf(ladder);
+        if (!greet) {
+          say(`${cand.brand_name}: no greeting name after the writer; not offered`);
+          tried.push({ brand: cand.brand_name, result: 'no_name', reason: ONS.NO_NAME_REASON, places: facts, risk: pre.risk, why: _why });
+          continue;
+        }
+        if (pitch && pitch.message) {
+          const g = Q.ensureGreeting(pitch.message, greet);
+          if (g.repaired) {
+            say(`${cand.brand_name}: the writer opened "${g.was || '(no greeting)'}"; rewritten to "Hi ${greet},"`);
+            pitch.message = g.message; pitch.greetingRepaired = true;
+            const _te = tried[tried.length - 1];
+            if (_te && _te.brand === cand.brand_name && _te.result === 'queued') _te.greetingRepaired = g.was || '(no greeting)';
+          }
+        }
+      }
       if (pitch && pitch.message) pitch.message = SIG.appendText(pitch.message, signature);
       const card = Q.buildCard({
         brandKey: cand.brand_key, brand: cand.brand_name,

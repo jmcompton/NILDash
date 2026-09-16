@@ -315,12 +315,61 @@ function passesBar(ladder, ig) {
 // business's own website, with a real role title and not model-invented. This
 // does not relax any of them; it just asks the question in one place.
 function greetNameOf(ladder) {
+  const row = greetRowOf(ladder);
+  try { return row ? require('./greetingGuard').salutationName(row.name) : ''; } catch (_) { return ''; }
+}
+
+// The ROW behind that name: the first person on the ladder the guard would
+// open with. The writer is told about THIS person and the card names THIS
+// person, so "Person to write to" and "open with Hi X" can never disagree.
+// They used to: the writer was handed the top-ranked named row (which could
+// be someone the guard refuses) beside a greeting name from a different row,
+// and a model shown two people opened with neither.
+function greetRowOf(ladder) {
   try {
     const GG = require('./greetingGuard');
-    const rows = namedRows(ladder);
-    const ok = GG.greetableContacts(rows);
-    return ok.length ? GG.salutationName(ok[0].name) : '';
-  } catch (_) { return ''; }
+    const ok = GG.greetableContacts(namedRows(ladder));
+    return ok.length ? ok[0] : null;
+  } catch (_) { return null; }
+}
+
+// ── THE GREETING, CHECKED AFTER THE WRITER, NOT ONLY ASKED FOR BEFORE ───────
+//
+// The prompt told the model to open with the verified name and nothing read
+// what it wrote back. A message that opened "Hi," or "Hi there," under a
+// verified owner shipped as-is, which is how a card for a business whose
+// owner we had named still greeted nobody. This is the enforcement: the
+// first greeting line must address the verified person, and when it does
+// not it is rewritten to "Hi <name>," (or one is put in front of a message
+// that has no greeting at all). Returns { message, repaired, was }.
+//
+// With no verified name there is nothing to enforce and nothing to write to:
+// the job never lets such a business reach the writer (NAME_REQUIRED), and
+// this says so with missingName rather than inventing a greeting.
+function ensureGreeting(message, greetName) {
+  const name = String(greetName || '').trim();
+  const text = String(message == null ? '' : message);
+  if (!name) return { message: text, repaired: false, was: null, missingName: true };
+  const GG = require('./greetingGuard');
+  const want = `Hi ${name},`;
+  const lines = text.split('\n');
+  let i = 0;
+  while (i < lines.length && !lines[i].trim()) i++;
+  if (i >= lines.length) return { message: want, repaired: true, was: '' };
+  const who = GG.addresseeOf(lines[i]);
+  const allowed = GG.allowedGreetingNames([{ name }]);
+  const norm = (s) => String(s || '').trim().toLowerCase().replace(/[‘’ʼ]/g, "'");
+  if (who !== null && who !== '' && !GG.isHonorificOnly(who) && allowed.has(norm(who))) {
+    return { message: text, repaired: false, was: null };
+  }
+  if (who === null) {
+    // No greeting line at all: the message opens on prose. Put one in front.
+    lines.splice(i, 0, want, '');
+    return { message: lines.join('\n'), repaired: true, was: null };
+  }
+  const was = lines[i].trim();
+  lines[i] = want;
+  return { message: lines.join('\n'), repaired: true, was };
 }
 
 // Who to ask for on a shared line. Mirrors askName in contactLadder: keep an
@@ -451,7 +500,10 @@ function subjectFor(brandName) {
 function buildCard(cand, ladder, ig) {
   const c = cand || {};
   const rows = namedRows(ladder);
-  const top = rows[0] || {};
+  // THE PERSON THE PITCH OPENS TO IS THE PERSON ON THE CARD. The top-ranked
+  // named row wins only when nobody on the ladder is greetable, which the job
+  // no longer lets through to a card at all.
+  const top = greetRowOf(ladder) || rows[0] || {};
   const handle = (ig && ig.instagram) || null;
   const scope = (ig && ig.instagramScope) || null;
   // A brand account is a real channel but it is not a route to this location, so
@@ -577,17 +629,25 @@ function programBrandKey(name) {
     .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim() || null;
 }
 
-function buildProgramCard(cand, pitch, athleteName, ig) {
+// `person` is the named decision maker the last door found for this brand
+// (services/ownerNameSearch): the card names them and the DM opens with
+// them. The job does not build this card without one (NAME_REQUIRED).
+function buildProgramCard(cand, pitch, athleteName, ig, person) {
   const c = cand || {};
   const handle = (ig && ig.handle) ? ig.handle : null;
+  const p = person && person.name ? person : null;
+  const greet = p ? (() => { try { return require('./greetingGuard').salutationName(p.name); } catch (_) { return ''; } })() : '';
   return {
     brandKey: c.brand_key || null,
     brandName: c.brand_name || null,
     why: c.why || null,
-    contactName: null,
-    contactTitle: null,
-    sourceNote: c.offerSummary || null,
-    affiliationScope: null,
+    contactName: p ? p.name : null,
+    contactTitle: p ? (p.title || null) : null,
+    sourceNote: p
+      ? `Named by a web search for "${p.query === 'owner' ? 'owner' : 'marketing director'}"${p.sourceUrl ? ' at ' + p.sourceUrl : ''}${c.offerSummary ? '. ' + c.offerSummary : ''}`
+      : (c.offerSummary || null),
+    affiliationScope: p ? 'search' : null,
+    greetName: greet || null,
     // ON THE PROGRAM CARD TOO, not just on the ones the handle rescued. An agent
     // filling in a brand's form has nowhere to follow up; with the handle on the
     // card they can send the DM as well, from the same card, in the same minute.
@@ -602,7 +662,7 @@ function buildProgramCard(cand, pitch, athleteName, ig) {
     // Written the same way a DM is, by the same writer, under the same lint --
     // the ban on naming a price and the ban on inventing an athlete fact do not
     // relax because the lane changed.
-    dmText: (pitch && pitch.message) ? pitch.message : writeDm(athleteName, c.brand_name, c.why),
+    dmText: (pitch && pitch.message) ? pitch.message : writeDm(athleteName, c.brand_name, c.why, greet),
     angle: (pitch && pitch.angle) || null,
     angleKey: (pitch && pitch.angleKey) || null,
     categoryKey: (pitch && pitch.categoryKey) || null,
@@ -860,7 +920,7 @@ module.exports = {
   passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,
-  waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf,
+  waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf, greetRowOf, ensureGreeting,
   pauseRelease, pausedUntilNote, PAUSE_RETRY_DAYS,
   prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,

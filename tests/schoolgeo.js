@@ -49,7 +49,9 @@ async function main() {
   ok('the shipped map is ~200 names, not a national list',
     R.SHIPPED_NAMES.length + Object.keys(R.EXTRA_SCHOOLS).length < 400,
     R.SHIPPED_NAMES.length + Object.keys(R.EXTRA_SCHOOLS).length);
-  ok('BENTLEY IS NOT ON IT, and that is the point', R.resolveSchool('Bentley University') === null);
+  // Bentley was added to the shipped map later (one of the fourteen schools
+  // with towns), so a name that is genuinely not on it stands in.
+  ok('AN UNMAPPED SCHOOL IS NOT ON IT, and that is the point', R.resolveSchool('Pinecrest Valley College') === null);
   ok('  while a mapped school still resolves instantly',
     (R.resolveSchool('Auburn University') || {}).city === 'Auburn');
 
