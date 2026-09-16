@@ -22,9 +22,15 @@ const ctxSvc = require('../services/assistantContext');
 const { systemPrompt } = require('../services/assistantPrompt');
 const assistantData = require('../services/assistantData');
 const { hasKnowledge } = require('../services/assistantKnowledge');
+const Onb = require('../services/assistantOnboarding');
 
 const MODEL = 'claude-sonnet-4-6';   // Sonnet, named. Never Opus.
 const TURN_TIMEOUT_MS = 45000;
+// An onboarding turn may run a web lookup for the athlete inside the loop,
+// which is the same 10-30s search the Add Client button makes, so it gets
+// more room than a chat turn. The agent is watching the dots the whole time.
+const ONBOARDING_TURN_TIMEOUT_MS = 90000;
+const ONBOARDING_OPENER = '(The agent has just signed in for the first time, with no athletes. Your opening message follows; continue from their answer.)';
 const MAX_HISTORY = 20;              // messages replayed into a turn
 const MAX_INPUT_CHARS = 4000;
 // Four sentences at the outside, per the prompt. 900 was the reply budget applied to
@@ -101,8 +107,15 @@ async function record(sessionId, agentId, role, content) {
 // It used to take a separate `userText` and push it on top of the transcript it had
 // just read -- and /message records that same text BEFORE calling, so it was already
 // in there. The model saw every agent message twice.
-async function runTurn({ agentId, principal, session, ctx, state, toolsEnabled, msgs }) {
-  const brief = ctxSvc.STATE_BRIEFS[state] || ctxSvc.STATE_BRIEFS.returning;
+async function runTurn({ agentId, principal, session, ctx, state, toolsEnabled, msgs, mode }) {
+  const onboarding = mode === 'onboarding';
+  // THE ONBOARDING BRIEF REPLACES THE STATE BRIEF. The state is still
+  // no_athletes, but the situation is not "offer to add one": the screen is
+  // the assistant and the job is the whole first-athlete flow, with the three
+  // ways and the rules for questions in between (services/assistantOnboarding).
+  const brief = onboarding
+    ? { suggestionKey: null, brief: Onb.BRIEF }
+    : (ctxSvc.STATE_BRIEFS[state] || ctxSvc.STATE_BRIEFS.returning);
   const suppressed = Array.isArray(session.suppressed) ? session.suppressed : [];
 
   // NEVER-NAG, ENFORCED BY OMISSION. If this state's suggestion has already been
@@ -138,7 +151,7 @@ async function runTurn({ agentId, principal, session, ctx, state, toolsEnabled, 
   // instruction, it is simply not stored. Copied rather than shifted in place,
   // because the caller's array is not ours to edit.
   const convo = (msgs || []).slice();
-  if (!convo.length || convo[0].role !== 'user') convo.unshift({ role: 'user', content: OPENER });
+  if (!convo.length || convo[0].role !== 'user') convo.unshift({ role: 'user', content: onboarding ? ONBOARDING_OPENER : OPENER });
 
   const directives = [];
   const confirms = [];
@@ -149,12 +162,13 @@ async function runTurn({ agentId, principal, session, ctx, state, toolsEnabled, 
     messages: convo,
     // The action tools DO things; look_up_data ANSWERS things. Both are on the
     // same loop because the assistant should be able to check a fact and then act
-    // on it in one turn, which is most of what an agent actually asks for.
-    tools: toolsEnabled ? actions.toolDefs().concat([assistantData.toolDef()]) : [],
+    // on it in one turn, which is most of what an agent actually asks for. The
+    // onboarding-only tools are offered on onboarding turns and nowhere else.
+    tools: toolsEnabled ? actions.toolDefsFor(onboarding ? 'onboarding' : 'chat').concat([assistantData.toolDef()]) : [],
     model: MODEL,
     maxTokens: lean ? GREETING_MAX_TOKENS : 900,
-    maxRounds: lean ? 1 : 3,
-    timeoutMs: TURN_TIMEOUT_MS,
+    maxRounds: lean ? 1 : (onboarding ? 4 : 3),
+    timeoutMs: onboarding ? ONBOARDING_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS,
     runTool: async (name, input) => {
       // READ-ONLY, AND IT NEVER STOPS THE TURN. A lookup is not an action: there
       // is nothing to confirm and nothing to undo, and the model needs the rows
@@ -173,6 +187,14 @@ async function runTurn({ agentId, principal, session, ctx, state, toolsEnabled, 
       if (res.confirm) {
         confirms.push(res.confirm);
         return { result: { pending: true, asked: res.confirm.text }, stop: true };
+      }
+      // A read tool (lookup_athlete) answers the model and the turn goes on: the
+      // candidates are what it needs to ask "add them?".
+      if (res.data !== undefined) return { result: res.data, isError: false };
+      // The finish carries the overnight plan for the page to show, written
+      // from the roster as it stands on this turn.
+      if (res.directive && res.directive.kind === 'finish_onboarding') {
+        res.directive.summary = Onb.summaryFor((ctx.roster || []).map((a) => a.name));
       }
       directives.push(res.directive);
       return { result: { done: true, note: res.say || 'done' } };
@@ -222,9 +244,28 @@ router.post('/session', async (req, res) => {
     const tH = Date.now();
     const existing = await history(session.id);
     const tHist = Date.now() - tH;
+    // ── THE FIRST LOGIN ──────────────────────────────────────────────────────
+    // The page asked for the onboarding assistant and this agent has no
+    // athletes: the opening is the fixed script, stored as the assistant's
+    // first message so every later turn reads it, and no model is called. An
+    // agent who HAS athletes is never onboarded, whatever the page asked for.
+    const wantsOnboarding = !!(req.body && req.body.mode === 'onboarding');
+    const onboarding = wantsOnboarding && Onb.applies(principal, ctx);
+    if (onboarding && !existing.length) {
+      await record(session.id, agentId, 'assistant', Onb.OPENING);
+      await saveSession(session);
+      console.log(`[assistant] agent=${agentId} session=${session.id} ONBOARDING opening (no athletes)`);
+      return res.json({
+        sessionId: session.id, state, autoOpen: true, resumed: false, onboarding: true,
+        choices: Onb.CHOICES,
+        messages: [{ role: 'assistant', content: Onb.OPENING }],
+        context: { athletes: 0, scans: ctx.scans, sent: ctx.sent, gmailConnected: ctx.gmailConnected },
+      });
+    }
     if (existing.length) {
       return res.json({
-        sessionId: session.id, state, autoOpen,
+        sessionId: session.id, state, autoOpen, onboarding,
+        choices: onboarding ? Onb.CHOICES : undefined,
         messages: existing, resumed: true,
         context: { athletes: ctx.athletes, scans: ctx.scans, sent: ctx.sent, gmailConnected: ctx.gmailConnected },
       });
@@ -248,7 +289,7 @@ router.post('/session', async (req, res) => {
     console.log(`[assistant] TIMING /session agent=${agentId} db=${tDb}ms (ctx=${ctx._ms}ms) `
       + `history=${tHist}ms model=${tModel}ms total=${Date.now() - tAll}ms`);
     res.json({
-      sessionId: session.id, state, autoOpen, resumed: false,
+      sessionId: session.id, state, autoOpen, resumed: false, onboarding: false,
       messages: [{ role: 'assistant', content: turn.text }],
       context: { athletes: ctx.athletes, scans: ctx.scans, sent: ctx.sent, gmailConnected: ctx.gmailConnected },
     });
@@ -292,11 +333,20 @@ router.post('/message', async (req, res) => {
     const convo = await history(session.id);
     const tHist = Date.now() - tH;
 
+    // Onboarding is decided by the roster on EVERY turn, not by what the page
+    // asked at the start: once the first athlete is saved the next turn is an
+    // ordinary one, and the page is told so.
+    const onboarding = !!(req.body && req.body.mode === 'onboarding') && Onb.applies(principal, ctx);
+    // The first athlete has been added mid-onboarding: the roster is no longer
+    // empty, but the flow is not finished (the agent may add another, and the
+    // finish is what opens the dashboard). Keep the onboarding brief and tools
+    // for the rest of THIS conversation while the page still says so.
+    const stillOnboarding = onboarding || (!!(req.body && req.body.mode === 'onboarding') && principal.kind === 'agent' && (ctx.role || 'agent') === 'agent');
     const tM = Date.now();
-    const turn = await runTurn({ agentId, principal, session, ctx, state, toolsEnabled: true, msgs: convo });
+    const turn = await runTurn({ agentId, principal, session, ctx, state, toolsEnabled: true, msgs: convo, mode: stillOnboarding ? 'onboarding' : 'chat' });
     const tModel = Date.now() - tM;
     console.log(`[assistant] TIMING /message agent=${agentId} db=${tDb}ms (ctx=${ctx._ms}ms) `
-      + `history=${tHist}ms model=${tModel}ms total=${Date.now() - tAll}ms`);
+      + `history=${tHist}ms model=${tModel}ms total=${Date.now() - tAll}ms${stillOnboarding ? ' onboarding' : ''}`);
     await record(session.id, agentId, 'assistant', turn.text);
     await saveSession(session);
 
@@ -305,6 +355,8 @@ router.post('/message', async (req, res) => {
       reply: turn.text,
       directives: turn.directives,
       confirms: turn.confirms,
+      onboarding: stillOnboarding,
+      athletes: ctx.athletes,
     });
   } catch (e) {
     console.error('[assistant/message]', e.message);

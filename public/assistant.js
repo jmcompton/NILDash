@@ -21,6 +21,16 @@ var NA = {
   autoOpen: false,
   replied: false,     // did the agent say anything this open
   el: null,
+  // ── FIRST LOGIN ──
+  // An agent with no athletes gets the assistant full screen instead of an
+  // empty dashboard, and it stays until the first athlete exists. Same
+  // component, same endpoints: the server sends the fixed opening and the
+  // three choices, and the page hides everything else until finish_onboarding
+  // arrives (or the agent chooses to open the dashboard once they have one).
+  onboarding: false,
+  athleteCount: 0,
+  importWatch: null,  // the timer polling for a spreadsheet import to land
+  importTold: false,  // the model has been told about the import
 };
 
 var NA_SESSION_KEY = 'nildash.assistant.opened';
@@ -177,6 +187,37 @@ function naStyles() {
     '  #na-panel{width:100vw;}',
     '  body.na-open #na-tab{right:0;}',
     '  body.na-open .main{margin-right:0;}}',
+
+    // ── first login: the panel IS the screen ──
+    // The same panel, stretched over the whole viewport and centred, no tab,
+    // no page shift. z-index sits BELOW the app's modals (.modal-overlay is
+    // 200) so the spreadsheet import opens on top of it, and above the
+    // sidebar and main content, which stay in the DOM untouched underneath.
+    'body.na-onboarding #na-tab{display:none !important;}',
+    'body.na-onboarding #na-panel{transform:none;width:100vw;left:0;right:0;z-index:150;',
+    '  background:var(--bg,#0A0E1A);border-left:none;box-shadow:none;transition:none;}',
+    'body.na-onboarding #na-panel .na-head{background:transparent;border-bottom:none;padding:28px 24px 8px;}',
+    'body.na-onboarding #na-panel .na-title{font-size:20px;}',
+    'body.na-onboarding #na-panel .na-sub{font-size:13px;margin-top:6px;}',
+    'body.na-onboarding #na-panel .na-head,body.na-onboarding #na-log,body.na-onboarding #na-panel .na-foot{',
+    '  width:100%;max-width:720px;margin:0 auto;box-sizing:border-box;}',
+    'body.na-onboarding #na-log{padding:16px 24px 24px;gap:14px;}',
+    'body.na-onboarding .na-msg{font-size:15px;line-height:1.6;max-width:92%;padding:12px 16px;}',
+    'body.na-onboarding #na-panel .na-foot{border-top:none;padding:12px 24px 28px;}',
+    'body.na-onboarding #na-input{min-height:46px;font-size:15px;}',
+    'body.na-onboarding .main{margin-right:0 !important;}',
+    // The three choices under the opening, and any later chip: buttons that
+    // send a plain sentence as the agent's own words.
+    '.na-choices{display:flex;flex-wrap:wrap;gap:8px;align-self:flex-start;max-width:92%;}',
+    '.na-chip{padding:10px 14px;border-radius:20px;border:1px solid var(--accent,#84CC16);',
+    '  background:transparent;color:var(--accent,#84CC16);font-family:inherit;font-size:13.5px;',
+    '  font-weight:600;cursor:pointer;line-height:1;}',
+    '.na-chip:hover{background:var(--accent,#84CC16);color:#0b0f0a;}',
+    '.na-chip.na-chip-ghost{border-color:var(--border2,rgba(255,255,255,0.14));color:var(--muted,rgba(240,244,255,0.45));}',
+    '.na-chip.na-chip-ghost:hover{background:var(--surface2,#1E2540);color:var(--text,#F0F4FF);}',
+    // A note: something the page did (an import landed), not something either
+    // side said. Small, centred, no tail.
+    '.na-note{align-self:center;font-size:12px;color:var(--muted,rgba(240,244,255,0.45));text-align:center;}',
   ].join('\n');
   document.head.appendChild(st);
 }
@@ -219,6 +260,46 @@ function naSay(role, text) {
   if (!log) return null;
   var d = document.createElement('div');
   d.className = 'na-msg ' + (role === 'user' ? 'na-u' : 'na-a');
+  d.textContent = text;
+  log.appendChild(d);
+  naScroll();
+  return d;
+}
+
+// A row of chips. Each sends its sentence as the agent's own message and the
+// row goes away, so a choice is made once. `opts.ghost` draws a quieter chip;
+// `opts.onClick` replaces the send (the dashboard button).
+function naChips(items, opts) {
+  var log = document.getElementById('na-log');
+  if (!log || !items || !items.length) return null;
+  naClearChips();
+  var row = document.createElement('div');
+  row.className = 'na-choices';
+  items.forEach(function (it) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'na-chip' + (it.ghost ? ' na-chip-ghost' : '');
+    b.textContent = it.label;
+    b.addEventListener('click', function () {
+      row.remove();
+      if (it.onClick) it.onClick(); else naSendText(it.text || it.label);
+    });
+    row.appendChild(b);
+  });
+  log.appendChild(row);
+  naScroll();
+  return row;
+}
+function naClearChips() {
+  var log = document.getElementById('na-log');
+  if (!log) return;
+  Array.prototype.forEach.call(log.querySelectorAll('.na-choices'), function (n) { n.remove(); });
+}
+function naNote(text) {
+  var log = document.getElementById('na-log');
+  if (!log) return null;
+  var d = document.createElement('div');
+  d.className = 'na-note';
   d.textContent = text;
   log.appendChild(d);
   naScroll();
@@ -363,7 +444,15 @@ async function naPerform(directives) {
         var j = await r.json().catch(function () { return {}; });
         if (!r.ok) { naSay('assistant', 'That did not work: ' + ((j && j.error) || ('error ' + r.status))); continue; }
         if (d.then === 'reload_athletes' && typeof loadAthletes === 'function') { try { await loadAthletes(); } catch (_) {} }
+        if (d.then === 'reload_athletes') naRosterChanged();
         if (d.then === 'media_kit_built') naSay('assistant', 'Media kit built.');
+      } else if (d.kind === 'open_import') {
+        // The same import window the Add Client page opens. It sits above the
+        // takeover; the page watches for the athletes to land (naWatchImport).
+        if (typeof impOpen === 'function') { impOpen(); naWatchImport(); }
+        else naSay('assistant', 'The import window is not available on this page. Open Add Client and press Import from spreadsheet.');
+      } else if (d.kind === 'finish_onboarding') {
+        naFinishOnboarding(d.summary || '');
       } else if (d.kind === 'send_outreach' || d.kind === 'update_deal' || d.kind === 'delete_athlete') {
         // These only ever arrive from /confirm, which means a human already clicked.
         await naPerformConfirmed(d);
@@ -413,6 +502,105 @@ function naUnsavedOutreach() {
   return (String(body ? body.value : '') + ' ' + String(subj ? subj.value : '')) !== window._naOutreachSnapshot;
 }
 
+// ── First login ──────────────────────────────────────────────────────────────
+// The takeover is a body class and nothing else: the panel's own styles do
+// the rest, and removing the class gives the ordinary docked assistant back.
+function naEnterOnboarding() {
+  NA.onboarding = true;
+  document.body.classList.add('na-onboarding');
+  var t = document.querySelector('#na-panel .na-title');
+  var s = document.querySelector('#na-panel .na-sub');
+  if (t) t.textContent = "Let's get you set up";
+  if (s) s.textContent = 'A few minutes, and your first pitches are on the way. Ask me anything about NILDash at any point.';
+  NA.open = true;
+}
+
+// Back to the ordinary assistant, closed. `toHome` opens the dashboard, where
+// Home shows "Finding businesses" for the new athlete until the cards land.
+function naLeaveOnboarding(toHome) {
+  NA.onboarding = false;
+  document.body.classList.remove('na-onboarding');
+  if (NA.importWatch) { clearInterval(NA.importWatch); NA.importWatch = null; }
+  var t = document.querySelector('#na-panel .na-title');
+  var s = document.querySelector('#na-panel .na-sub');
+  if (t) t.textContent = 'NILDash assistant';
+  if (s) s.textContent = 'Ask about the product, or tell me what to do';
+  naClose();
+  // The ordinary assistant does not auto-open on top of the dashboard the
+  // agent has just been handed; the tab is there when they want it.
+  try { sessionStorage.setItem(NA_SESSION_KEY, '1'); } catch (_) {}
+  if (toHome) {
+    try { if (typeof loadAthletes === 'function') loadAthletes(); } catch (_) {}
+    try { if (typeof showView === 'function') showView('home', document.getElementById('homeNavBtn')); } catch (_) {}
+  }
+}
+
+// The finish: the overnight plan in the assistant's words, then the dashboard.
+// A button opens it at once; otherwise it opens by itself after a few seconds,
+// long enough to read the summary.
+function naFinishOnboarding(summary) {
+  if (summary) naSay('assistant', summary);
+  naChips([{ label: 'Open my dashboard', onClick: function () { naLeaveOnboarding(true); } }]);
+  clearTimeout(NA._finishTimer);
+  NA._finishTimer = setTimeout(function () { if (NA.onboarding) naLeaveOnboarding(true); }, 9000);
+}
+
+// The roster changed under the takeover (an athlete was added, by any path).
+// Once there is one, the agent can leave whenever they like; the assistant
+// keeps offering to add another until they say they are done.
+function naRosterChanged() {
+  var n = 0;
+  try { n = (window.athletes || []).length; } catch (_) { n = 0; }
+  NA.athleteCount = n;
+  if (NA.onboarding && n > 0) naDashboardChip();
+}
+function naDashboardChip() {
+  var log = document.getElementById('na-log');
+  if (!log || log.querySelector('.na-dash')) return;
+  var row = document.createElement('div');
+  row.className = 'na-choices na-dash';
+  var b = document.createElement('button');
+  b.type = 'button'; b.className = 'na-chip na-chip-ghost'; b.textContent = 'Open my dashboard';
+  b.addEventListener('click', function () { naLeaveOnboarding(true); });
+  row.appendChild(b);
+  var foot = document.querySelector('#na-panel .na-foot');
+  if (foot) foot.parentNode.insertBefore(row, foot); else log.appendChild(row);
+}
+
+// A spreadsheet import lands inside the app's own modal, which knows nothing
+// about the assistant. So while the modal is open the roster is polled, and
+// the first time it is not empty the modal is closed, the model is told (as a
+// user turn, shown here as a note rather than as words the agent typed), and
+// it finishes the flow.
+function naWatchImport() {
+  if (NA.importWatch) clearInterval(NA.importWatch);
+  var started = Date.now();
+  NA.importWatch = setInterval(async function () {
+    if (!NA.onboarding || NA.importTold) { clearInterval(NA.importWatch); NA.importWatch = null; return; }
+    if (Date.now() - started > 20 * 60000) { clearInterval(NA.importWatch); NA.importWatch = null; return; }
+    var modal = document.getElementById('importModal');
+    var open = !!(modal && modal.classList.contains('open'));
+    var list = [];
+    try {
+      var r = await fetch(naBase() + '/api/athletes', { credentials: 'include' });
+      list = r.ok ? await r.json() : [];
+    } catch (_) { list = []; }
+    if (!Array.isArray(list) || !list.length) {
+      if (!open) { clearInterval(NA.importWatch); NA.importWatch = null; }   // closed without importing
+      return;
+    }
+    clearInterval(NA.importWatch); NA.importWatch = null;
+    NA.importTold = true;
+    window.athletes = list;
+    NA.athleteCount = list.length;
+    if (open && typeof impClose === 'function') { try { impClose(false); } catch (_) {} }
+    var names = list.slice(0, 6).map(function (a) { return a.name; }).filter(Boolean);
+    naNote('Spreadsheet import landed: ' + list.length + ' athlete' + (list.length === 1 ? '' : 's') + '.');
+    naSendText('(The spreadsheet import has landed: ' + list.length + ' athlete' + (list.length === 1 ? '' : 's') + ' on the roster now'
+      + (names.length ? ': ' + names.join(', ') + (list.length > names.length ? ' and more' : '') : '') + '.)', { silent: true });
+  }, 4000);
+}
+
 // ── Conversation ─────────────────────────────────────────────────────────────
 // NA.greeted is only set on SUCCESS. The first version set it before the request and
 // swallowed every failure with `if (!r.ok) return;`, so one 500 left the panel empty
@@ -426,19 +614,19 @@ async function naStart(autoOpenAllowed) {
   // THE PANEL OPENS NOW, NOT WHEN THE GREETING ARRIVES. naOpen() used to be called
   // after the round trip, so for the whole time the server was working there was
   // nothing on screen at all and the assistant read as broken rather than as busy.
-  var eager = autoOpenAllowed && NA.autoOpen && !sessionStorage.getItem(NA_SESSION_KEY);
+  var eager = !NA.onboarding && autoOpenAllowed && NA.autoOpen && !sessionStorage.getItem(NA_SESSION_KEY);
   if (eager) {
     try { sessionStorage.setItem(NA_SESSION_KEY, '1'); } catch (_) {}
     naOpen();
   }
   // Always drawn, even if the panel is shut: an agent who opens the tab while the
   // greeting is still in flight finds the indicator rather than an empty log.
-  var thinking = naRunning('Reading your dashboard');
+  var thinking = naRunning(NA.onboarding ? 'One moment' : 'Reading your dashboard');
 
   try {
     var r = await fetch(naBase() + '/api/assistant/session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ sessionId: NA.sessionId }),
+      body: JSON.stringify({ sessionId: NA.sessionId, mode: NA.onboarding ? 'onboarding' : undefined }),
     });
     NA.greeting = false;
     if (r.status === 401) {
@@ -473,6 +661,18 @@ async function naStart(autoOpenAllowed) {
     }
     msgs.forEach(function (m) { naSay(m.role, m.content); });
 
+    // THE SERVER DECIDES WHETHER THIS IS A FIRST LOGIN. The page asked because the
+    // roster count said so; if the server disagrees (an athlete appeared from
+    // another tab, or this is not an agent), the takeover comes down and the
+    // ordinary assistant carries on.
+    if (NA.onboarding && !j.onboarding) {
+      naLeaveOnboarding(false);
+    } else if (NA.onboarding && j.onboarding) {
+      naChips((j.choices || []).map(function (c) { return { label: c.label, text: c.text }; }));
+      var i2 = document.getElementById('na-input');
+      if (i2 && window.innerWidth > NA_MOBILE) i2.focus();
+    }
+
     // A RESUMED conversation does not re-open by itself, and that is the one thing
     // only the greeting response can tell us. Everything else was decided before the
     // request went out. naClose, never naDismiss: the agent did not close this, so it
@@ -499,6 +699,18 @@ function naFailed(msg) {
     log.innerHTML = '';
     naStart(false);
   });
+  // A first login must never be a dead end: if the assistant cannot start, the
+  // ordinary Add Client form is one click away.
+  if (NA.onboarding) {
+    var alt = document.createElement('button');
+    alt.type = 'button'; alt.className = 'na-btn na-ghost'; alt.style.cssText = 'margin-top:10px;margin-left:8px';
+    alt.textContent = 'Add an athlete the usual way instead';
+    alt.addEventListener('click', function () {
+      naLeaveOnboarding(false);
+      try { if (typeof showView === 'function') showView('add-athlete', document.getElementById('addAthleteNavBtn')); } catch (_) {}
+    });
+    d.appendChild(alt);
+  }
   log.appendChild(d);
 }
 
@@ -537,19 +749,26 @@ function naDismiss() {
 }
 
 async function naSend() {
-  if (NA.busy) return;
   var input = document.getElementById('na-input');
   var text = input ? input.value.trim() : '';
   if (!text) return;
   if (input) input.value = '';
+  await naSendText(text);
+}
+
+// One turn. `opts.silent` sends the text without drawing it as the agent's
+// bubble (the page speaking for an import that landed).
+async function naSendText(text, opts) {
+  if (NA.busy || !text) return;
   NA.replied = true;
-  naSay('user', text);
+  naClearChips();
+  if (!(opts && opts.silent)) naSay('user', text);
   NA.busy = true;
-  var thinking = naRunning('Thinking');
+  var thinking = naRunning(NA.onboarding ? 'One moment' : 'Thinking');
   try {
     var r = await fetch(naBase() + '/api/assistant/message', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-      body: JSON.stringify({ sessionId: NA.sessionId, text: text }),
+      body: JSON.stringify({ sessionId: NA.sessionId, text: text, mode: NA.onboarding ? 'onboarding' : undefined }),
     });
     var j = await r.json().catch(function () { return {}; });
     if (thinking) thinking.remove();
@@ -558,6 +777,9 @@ async function naSend() {
     if (j.reply) naSay('assistant', j.reply);
     (j.confirms || []).forEach(naConfirm);
     if (j.directives && j.directives.length) await naPerform(j.directives);
+    // The roster count rides on every onboarding reply, so the dashboard
+    // button appears as soon as there is a roster to open.
+    if (NA.onboarding && typeof j.athletes === 'number' && j.athletes > 0) { NA.athleteCount = j.athletes; naDashboardChip(); }
   } catch (e) {
     if (thinking) thinking.remove();
     naSay('assistant', 'Something went wrong. Try again?');
@@ -580,19 +802,25 @@ function naToggle() {
 // opts.autoOpen is the server's real answer, carried on /api/auth/me. Defaults to
 // TRUE when absent so an older cached index.html still greets rather than going
 // silent -- the failure mode of a missing flag should be a panel too many, not none.
+// opts.onboarding: the page has confirmed (from /api/auth/me) that this is an
+// agent with no athletes. The takeover goes up BEFORE the request so nothing of
+// the empty dashboard shows; the server confirms or the takeover comes down.
 function naInit(opts) {
   naBuild();
   NA.autoOpen = !(opts && opts.autoOpen === false);
+  if (opts && opts.onboarding === true) naEnterOnboarding();
   naStart(true);
 }
 
 window.nilAssistant = {
   init: naInit, open: naOpen, close: naClose, dismiss: naDismiss,
-  send: naSend, toggle: naToggle, perform: naPerform,
+  send: naSend, sendText: naSendText, toggle: naToggle, perform: naPerform,
+  rosterChanged: naRosterChanged, leaveOnboarding: naLeaveOnboarding,
   _state: NA, _unsavedOutreach: naUnsavedOutreach,
   // Render helpers, exposed so the shell can be driven into each visual state
   // without a server. They only draw; nothing here performs an action.
   _say: naSay, _running: naRunning, _confirm: naConfirm, _scanLabel: naScanLabel,
+  _chips: naChips, _note: naNote, _enterOnboarding: naEnterOnboarding, _finish: naFinishOnboarding,
 };
 
 // Deliberately NOT auto-initialised. index.html calls nilAssistant.init() from

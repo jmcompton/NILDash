@@ -38,11 +38,11 @@ console.log('-- WHY THE PANEL OPENED LATE: the decision was a guess --');
 
   // The flag now rides on a request the page ALREADY awaits before bootApp.
   ok('/api/auth/me carries the flag', /assistantAutoOpen: !\(user\.assistant_autoopen_off === true\)/.test(SRV));
-  ok('bootApp passes it into init', /nilAssistant\.init\(\{ autoOpen: currentUser\.assistantAutoOpen \}\)/.test(IDX));
+  ok('bootApp passes it into init', /nilAssistant\.init\(\{ autoOpen: currentUser\.assistantAutoOpen,\s*onboarding:/.test(IDX));
   ok('init stores it before starting', /NA\.autoOpen = !\(opts && opts\.autoOpen === false\);/.test(CL));
   ok('and stores it BEFORE naStart runs',
     CLC.indexOf('NA.autoOpen = !(opts') < CLC.indexOf('naStart(true);'), null);
-  ok('the eager gate reads the real flag, not a cache', /var eager = autoOpenAllowed && NA\.autoOpen &&/.test(CLC));
+  ok('the eager gate reads the real flag, not a cache (and never during first-login onboarding)', /var eager = !NA\.onboarding && autoOpenAllowed && NA\.autoOpen &&/.test(CLC));
 
   // The late-open fallback is GONE. There is now no path that opens the panel after
   // the response, so the bug cannot come back through a stale guess.
@@ -78,7 +78,7 @@ console.log('\n-- THE TYPING INDICATOR WAS NEVER THE PROBLEM --');
     /\}\s*var thinking = naRunning\(/.test(st), null);
   ok('and before the request goes out', st.indexOf('naRunning(') < st.indexOf('await fetch'), null);
   ok('it is not inside the eager branch', st.indexOf('naRunning(') > st.indexOf('naOpen();'), null);
-  ok('and it says what it is doing, not "Working"', /naRunning\('Reading your dashboard'\)/.test(st));
+  ok('and it says what it is doing, not "Working"', /naRunning\(NA\.onboarding \? 'One moment' : 'Reading your dashboard'\)/.test(st));
 }
 
 console.log('\n-- THE GREETING PROMPT --');
@@ -129,7 +129,7 @@ console.log('\n-- and the turn is bounded to match --');
   ok('lean is derived from the greeting, not passed by hand', /const lean = !toolsEnabled;/.test(RTEC));
   ok('a lean turn gets a small token ceiling', /maxTokens: lean \? GREETING_MAX_TOKENS : 900/.test(RTEC));
   ok('which is well under the reply budget', /const GREETING_MAX_TOKENS = 220;/.test(RTE));
-  ok('and one round, because it cannot call a tool anyway', /maxRounds: lean \? 1 : 3/.test(RTEC));
+  ok('and one round, because it cannot call a tool anyway', /maxRounds: lean \? 1 : \(onboarding \? 4 : 3\)/.test(RTEC));
   ok('the greeting still runs with tools disabled', /toolsEnabled: false, msgs: existing/.test(RTEC));
   ok('so lean is true exactly on the greeting path', /toolsEnabled: true, msgs: convo/.test(RTEC));
 }

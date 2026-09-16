@@ -988,6 +988,11 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
     // WITH the greeting -- the exact round trip the panel is trying not to wait for --
     // so the client guessed from a cached copy and opened late whenever it guessed no.
     assistantAutoOpen: !(user.assistant_autoopen_off === true),
+    // How many athletes are on the roster, so the page can decide BEFORE it
+    // draws anything whether this is a first login: an agent with none gets
+    // the onboarding assistant instead of an empty dashboard (assistant.js).
+    athleteCount: await store.pool.query('SELECT COUNT(*)::int AS n FROM athletes WHERE agent_id=$1', [user.id])
+      .then((r) => (r.rows[0] && r.rows[0].n) || 0).catch(() => 0),
   });
 
 // ── Admin seed + university link endpoint ─────────────────────────
