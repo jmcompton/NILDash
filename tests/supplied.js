@@ -25,6 +25,9 @@ const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
 // The SHIPPED discoverContacts is executed against a real Postgres, with
 // getBrandContacts stubbed so this test can see exactly whether it was called.
 const fs = require('fs'), cp = require('child_process'), Module = require('module');
+// The fixture's domain must resolve: contactDiscovery now checks every
+// address (syntax, then MX) before it is stored, and this box has no DNS.
+require('dns').promises.resolveMx = async () => [{ exchange: 'mx.example.net', priority: 10 }];
 let f = 0;
 const ok = (n, c, got) => { if (!c) { f++; console.log(`  FAIL ${n}${got !== undefined ? '  got=' + JSON.stringify(got) : ''}`); } else console.log('  PASS ' + n); };
 const DB = 'supplied';
@@ -78,7 +81,7 @@ psql(`CREATE DATABASE ${DB};`, false, 'postgres');
 psql(`CREATE TABLE brand_contacts (id TEXT PRIMARY KEY, enrichment_id TEXT, agent_id TEXT,
         brand_name TEXT, name TEXT, title TEXT, email TEXT, phone TEXT, linkedin TEXT,
         contact_type TEXT, confidence_score NUMERIC, source TEXT, priority_rank INT,
-        created_at TIMESTAMPTZ DEFAULT NOW());
+        email_check TEXT, created_at TIMESTAMPTZ DEFAULT NOW());
       CREATE TABLE workflow_events (id SERIAL PRIMARY KEY, run_id TEXT, agent_id TEXT,
         event_type TEXT, payload JSONB, created_at TIMESTAMPTZ DEFAULT NOW());`);
 

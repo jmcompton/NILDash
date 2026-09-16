@@ -292,6 +292,9 @@ function buildContactLadder(res, opts = {}) {
       // and nothing else, so the default was handing the strongest label to the
       // two weakest sources.
       emailKind: c.email ? (EMAIL_KIND[c.emailSource] || 'unverified') : null,
+      // The deliverability check made when the contact was stored (ai.js
+      // getBrandContacts, services/emailValidation); re-checked by the job.
+      emailCheck: c.email ? (c.emailCheck || null) : null,
       emailDomainNote: c.email ? _xdom(c.email) : null,
       phone: isOwnLine ? c.phone : null,
       phoneKind: isOwnLine ? 'direct' : null,
@@ -387,6 +390,7 @@ function buildContactLadder(res, opts = {}) {
       title: 'Named mailbox',
       email: r.personalInbox,
       emailKind: 'published',
+      emailCheck: r.personalInboxCheck || null,
       emailDomainNote: _xdom(r.personalInbox),
       channel: 'email',
       phone: null,
@@ -448,6 +452,7 @@ function buildContactLadder(res, opts = {}) {
       phone: null,
       email: r.genericInbox,
       emailKind: 'published',
+      emailCheck: r.genericInboxCheck || null,
       emailDomainNote: _xdom(r.genericInbox),
       channel: 'email',
       confidence: 'Fallback',

@@ -51,6 +51,7 @@ const Deepen = require('../services/marketDeepen');
 const { resolveSchool } = require('../services/schoolResolver');
 // The last door for a contact name (see the local write site).
 const ONS = require('../services/ownerNameSearch');
+const EVAL = require('../services/emailValidation');
 // OUTREACH_NAME_REQUIRED=0 turns the requirement off; on by default.
 const NAME_REQUIRED = process.env.OUTREACH_NAME_REQUIRED !== '0';
 
@@ -571,9 +572,9 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
        (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
         source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
         dm_text, channel, state, angle, angle_key, category_key, ask, lane, program_url,
-        sponsor_signal, sponsor_note, identity_key, email, email_kind, outreach_log_id)
+        sponsor_signal, sponsor_note, identity_key, email, email_kind, outreach_log_id, email_note)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',$17,$18,$19,$20,
-             $21,$22,$23,$24,$25,$26,$27,$28)
+             $21,$22,$23,$24,$25,$26,$27,$28,$29)
      ON CONFLICT DO NOTHING RETURNING id`,
     [agentId, athleteId, slot, card.brandKey || identity, card.brandName, card.why, card.contactName,
      card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
@@ -589,7 +590,9 @@ async function insertCard(pool, { agentId, athleteId, slot, card }) {
      // covers the slot index, so a duplicate business now lands on
      // uq_outreach_queue_identity and returns no row -- the caller sees `false`
      // and reports it, exactly as it does for a taken slot.
-     identity, card.email || null, card.emailKind || null, logId]);
+     identity, card.email || null, card.emailKind || null, logId,
+     // Why email was or was not offered, for the agent (services/emailValidation).
+     card.emailNote ? String(card.emailNote).slice(0, 400) : null]);
   const wrote = (ins.rowCount || 0) > 0;
   if (!wrote) {
     console.log(`[queue] athlete=${athleteId} slot=${slot} "${card.brandName}" not written `
@@ -1297,6 +1300,18 @@ async function fillAthlete(pool, ctx) {
         rankOf: ai.contactAuthorityRank, rootDomain: ai.rootDomain,
         category: null, brand: cand.brand_name, instagramScope: out.instagramScope || null,
       });
+      // ── DOES THE ADDRESS TAKE MAIL? ─────────────────────────────────────
+      // Syntax, then an MX lookup, on every address the ladder holds
+      // (services/emailValidation). An undeliverable address is marked on
+      // its row: the bar and the channel decision below no longer count it,
+      // so the business becomes a DM or a call if it has one and is rejected
+      // if it has nothing else -- and the card says which address failed and
+      // why. Cached per address; a resolver blip is "unverified", not a no.
+      try {
+        const ev = await EVAL.validateLadder(pool, ladder);
+        for (const u of ev.undeliverable) say(`${cand.brand_name}: ${u.email} is undeliverable (${u.reason}); not offered as an email`);
+        for (const u of ev.unverified) say(`${cand.brand_name}: ${u.email} could not be checked (${u.reason}); offered, marked unverified`);
+      } catch (e) { say(`${cand.brand_name}: email check failed (${e.message}); addresses left unverified`); }
       const ig = { instagram: out.instagram || null, instagramScope: out.instagramScope || null };
       // DECIDED BEFORE THE WRITER RUNS, because the writer is told the channel and
       // writes differently for one. buildCard reaches the same answer from the
@@ -1354,7 +1369,7 @@ async function fillAthlete(pool, ctx) {
       if (!bar.ok) {
         say(`${cand.brand_name}: skipped, ${bar.reason}`);
         tried.push({ brand: cand.brand_name, result: 'rejected', reason: bar.reason,
-          places: facts, risk: pre.risk, why: _why });
+          places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
         continue;
       }
       // ── A REAL PERSON'S NAME, OR THE BUSINESS IS NOT WRITTEN TO ─────────
@@ -1385,7 +1400,7 @@ async function fillAthlete(pool, ctx) {
         }
       }
       tried.push({ brand: cand.brand_name, result: 'queued', reason: null,
-        places: facts, risk: pre.risk, why: _why });
+        places: facts, risk: pre.risk, why: _why, emailCheck: ladder.emailCheck || null });
 
       // ── THE WRITER ──────────────────────────────────────────────────────
       // Reads the business and the athlete, decides the angle, then writes. It

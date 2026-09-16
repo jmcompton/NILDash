@@ -3936,6 +3936,11 @@ async function ensureMarketSightings() {
     )
   `).then(() => console.log('[init] email_verification table ready'))
     .catch(e => console.error('[init] email_verification:', e.message));
+  // Why email was or was not offered on a card, in the agent's words
+  // (services/emailValidation via services/outreachQueue.emailNoteOf), and the
+  // deliverability verdict on a stored contact (services/contactDiscovery).
+  await pool.query(`ALTER TABLE outreach_queue ADD COLUMN IF NOT EXISTS email_note TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE brand_contacts ADD COLUMN IF NOT EXISTS email_check TEXT`).catch(() => {});
 
   // ── WHERE VERIFICATION CREDITS ACTUALLY WENT ──────────────────────────────
   //

@@ -2110,7 +2110,9 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
     const cphone = ev.businessPhone || null;
     const cunconf = !!ev.phoneUnconfirmed;
     if (via) console.log(`[dealScan] contacts brand=${brand} served from the DEEP row (${(ev.contacts || []).length} named)`);
-    return { contacts: ev.contacts || [], notAffiliated: ev.notAffiliated || [], genericInbox: ev.genericInbox || null, personalInbox: ev.personalInbox || null, businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
+    return { contacts: ev.contacts || [], notAffiliated: ev.notAffiliated || [], genericInbox: ev.genericInbox || null, personalInbox: ev.personalInbox || null,
+      genericInboxCheck: ev.genericInboxCheck || null, personalInboxCheck: ev.personalInboxCheck || null,
+      businessPhone: cphone, phoneUnconfirmed: cunconf, outcome: cached.outcome || 'NONE', cached: true };
   };
 
   if (!force) {
@@ -2332,6 +2334,26 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
     }
   }
 
+  // ── DOES THE ADDRESS TAKE MAIL? CHECKED BEFORE THE CONTACT IS STORED ────
+  // Syntax, then an MX lookup on the domain (services/emailValidation). The
+  // verdict travels with the contact into the evidence cache and onto the
+  // ladder (contactLadder copies emailCheck), so an undeliverable address is
+  // never offered as the email channel and the card can say why.
+  let genericInboxCheck = null, personalInboxCheck = null;
+  try {
+    const EVAL = require('./services/emailValidation');
+    const addrs = named.map((c) => c.email).concat([genericInbox, personalInbox]).filter(Boolean);
+    if (addrs.length) {
+      const checks = await EVAL.validateMany(store.pool, addrs);
+      const chk = (e) => { const v = e ? checks.get(String(e).trim().toLowerCase()) : null; return v ? { ok: v.deliverable, reason: v.reason, source: v.source } : null; };
+      for (const c of named) if (c.email) c.emailCheck = chk(c.email);
+      genericInboxCheck = chk(genericInbox);
+      personalInboxCheck = chk(personalInbox);
+      const bad = addrs.filter((e) => { const v = chk(e); return v && v.ok === false; });
+      if (bad.length) console.log(`[dealScan] contacts brand=${brand} undeliverable: ${bad.map((e) => `${e} (${chk(e).reason})`).join(', ')}; not offered as email`);
+    }
+  } catch (e) { console.warn(`[dealScan] contacts brand=${brand} email validation failed: ${e.message}`); }
+
   // Business phone: gather every published number (maps first, it carries a
   // confirmed city/state), then take the first that passes the locality check.
   const phoneCandidates = [];
@@ -2350,7 +2372,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   const anyTimeout = results.some((r) => r.status === 'timeout');
   const anyError = results.some((r) => r.status === 'error');
 
-  const evidence = { kind: 'contacts', v: _CONTACTS_CACHE_VERSION, contacts: named, notAffiliated, genericInbox, personalInbox, businessPhone, phoneUnconfirmed };
+  const evidence = { kind: 'contacts', v: _CONTACTS_CACHE_VERSION, contacts: named, notAffiliated, genericInbox, personalInbox, genericInboxCheck, personalInboxCheck, businessPhone, phoneUnconfirmed };
   // Cache whenever we have a usable affordance OR a definitive empty (all sources
   // ran and found nothing). Never cache a pure transient failure.
   let outcome;
@@ -2363,7 +2385,7 @@ async function _fetchBrandContacts(brand, website, force = false, locationHint =
   if (hasAffordance || outcome === 'NONE') {
     await store.saveBrandEvidence(cacheKey, 'contacts', brand, website, evidence, outcome);
   }
-  return { contacts: named, notAffiliated, genericInbox, personalInbox, businessPhone, phoneUnconfirmed, outcome, cached: false };
+  return { contacts: named, notAffiliated, genericInbox, personalInbox, genericInboxCheck, personalInboxCheck, businessPhone, phoneUnconfirmed, outcome, cached: false };
 }
 
 // Public wrapper used by the lazy per-brand contacts endpoint. Fetches (cache

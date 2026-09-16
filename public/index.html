@@ -20737,7 +20737,12 @@ function hqRenderCard(c, i) {
     // Evidence of a tie to the school is the most useful line on a card when we
     // hold it, so it is not buried behind the fold with the message.
     + (c.sponsorNote ? '<p class="hq-why"><b>' + hqEscape(c.sponsorNote) + '</b></p>' : '')
-    + (c.sourceNote ? '<p class="hq-note">' + hqEscape(c.sourceNote) + '</p>' : '');
+    + (c.sourceNote ? '<p class="hq-note">' + hqEscape(c.sourceNote) + '</p>' : '')
+    // Why email was or was not offered: "Email not offered: info@x.com is
+    // undeliverable (the domain publishes no mail server)" on a DM or call
+    // card, "Email checked: ..." on an email card. From the server, never
+    // worded here.
+    + (c.emailNote ? '<p class="hq-note">' + hqEscape(c.emailNote) + '</p>' : '');
 
   if (c.channel === 'email') return head + hqEmailBody(c, i) + '</div>';
   if (c.channel === 'dm') return head + hqDmBody(c, i) + '</div>';
