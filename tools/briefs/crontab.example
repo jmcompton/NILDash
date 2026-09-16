@@ -1,11 +1,12 @@
 # ~/nildash-briefs cron entries. Install with:  crontab -e   (paste, save)
 #
-# claude -p runs on an Anthropic API key: anthropicApiKey in
-# ~/nildash-briefs/config.json first, ANTHROPIC_API_KEY in this crontab's
-# environment second. With neither, a run stops before spawning claude and
-# the log says which to set. Put the key in config.json rather than here:
-# crontab -l prints this file, and config.json is already private.
-# --max-turns is set inside each script per call (config.json: maxTurns) and
+# The briefs call DeepSeek directly on an API key: deepseekApiKey in
+# ~/nildash-briefs/config.json first, DEEPSEEK_API_KEY in this crontab's
+# environment second. With neither, a run stops before any call is made and
+# the log says which to set. Web search (news, prospecting, strategy) needs
+# braveSearchApiKey, serperApiKey or tavilyApiKey too. Put the keys in
+# config.json rather than here: crontab -l prints this file, and config.json
+# is already private. The search cap per call is config.json: maxTurns, and
 # every call also has a wall-clock kill.
 #
 # cron does not fire on a sleeping Mac. Either leave it awake or schedule a

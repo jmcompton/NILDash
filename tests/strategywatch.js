@@ -69,7 +69,7 @@ async function main() {
   const quiet = makeStub((label) => (label.startsWith('strategy:') && !label.includes('paragraph') ? [{ title: 'Explainer', url: 'https://example.com/e', source: 'Blog', published: today, kind: 'other', meaningful: false, line: 'nothing moved' }] : ''));
   const r1 = await SW.run({ claudeP: quiet.claudeP, sendBrief: quiet.sendBrief, configPath: CONFIG });
   ok('nothing meaningful: not sent', r1.sent === false && r1.total === 0 && quiet.sent.length === 0, r1);
-  ok('  three searches ran, on Haiku, with web tools, capped in turns', quiet.calls.length === 3 && quiet.calls.every((c) => c.opts.model === 'haiku' && c.opts.tools.includes('WebSearch') && c.opts.maxTurns === 4), quiet.calls.map((c) => c.opts));
+  ok('  three searches ran, on the configured DeepSeek model, with web tools, capped in turns', quiet.calls.length === 3 && quiet.calls.every((c) => c.opts.model === null && c.opts.tools.includes('WebSearch') && c.opts.maxTurns === 4), quiet.calls.map((c) => c.opts.label));
   ok('  looking back 7 days on a first run', quiet.calls.every((c) => c.prompt.includes('since ' + L.dateOffset(-7))));
   ok('  each search asks for the meaningful flag and the fixed kinds', quiet.calls.every((c) => /"meaningful": true or false/.test(c.prompt)) && /"vote","amendment","committee"/.test(quiet.calls[0].prompt));
   const cfgAfter1 = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
@@ -92,7 +92,7 @@ async function main() {
   ok('  the counts line says what was dropped', /1 not meaningful/.test(m.markdown) && /0 already shown/.test(m.markdown), m.markdown.match(/_\d+ found[^\n]*/));
   const body = m.markdown.split('\n---')[0];
   ok('  under one page', body.split('\n').length <= 30 && body.length <= 3500, [body.split('\n').length, body.length]);
-  ok('  the paragraph call ran on Haiku with no tools and one turn', live.calls.some((c) => c.opts.label === 'strategy:legislation-paragraph' && c.opts.model === 'haiku' && !c.opts.tools && c.opts.maxTurns === 1));
+  ok('  the paragraph call ran on the configured model with no tools and one turn', live.calls.some((c) => c.opts.label === 'strategy:legislation-paragraph' && c.opts.model === null && !c.opts.tools && c.opts.maxTurns === 1));
   const cfgAfter2 = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
   ok('config.json now carries lastSentAt = today', cfgAfter2.strategyWatch && cfgAfter2.strategyWatch.lastSentAt === today, cfgAfter2.strategyWatch);
   ok('  and the five urls, canonical (no utm, no hash, lower-case host)', cfgAfter2.strategyWatch.seen['https://example.com/leg/markup'] === today && cfgAfter2.strategyWatch.seen['https://example.com/comp/agentdesk'] === today && Object.keys(cfgAfter2.strategyWatch.seen).length === 5, Object.keys(cfgAfter2.strategyWatch.seen));

@@ -55,7 +55,7 @@ function meetingDateFrom(subject, content) {
 
 async function main() {
   const cfg = L.loadConfig();
-  const audit = L.authAudit();
+  const audit = L.modelAudit();
   const calls = [];
   const debug = process.argv.includes('--debug') || !!process.env.BRIEFS_DEBUG;
   const skipDomains = new Set((cfg.skipDomains || []).map((d) => String(d).toLowerCase()));
@@ -148,7 +148,7 @@ async function main() {
     }));
     const prompt = `Below are email threads where I wrote last and have heard nothing back. For EACH item, read my last message and return a JSON array of objects {"i": <index>, "about": "<what the thread is about, one short line>", "promised": "<what I said I would do or send, one short line, or 'nothing specific'>"}. Use only what is in the message. Return ONLY the JSON array.\n\n${JSON.stringify(items, null, 1)}`;
     try {
-      const r = await L.claudeP(prompt, { cfg, label: 'follow-ups', maxTurns: cfg.maxTurns.followups, tools: [] });
+      const r = await L.askModel(prompt, { cfg, label: 'follow-ups', maxTurns: cfg.maxTurns.followups, tools: [] });
       calls.push(r);
       const arr = Array.isArray(r.json) ? r.json : [];
       for (const n of arr) if (n && Number.isInteger(n.i)) notes.set(toSummarise[n.i] && toSummarise[n.i].p.addr, n);

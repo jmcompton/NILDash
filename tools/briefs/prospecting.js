@@ -6,15 +6,16 @@
 // people whose title or company matches the prospect keywords, drops anyone
 // already in my sent mail (by address, or by name when LinkedIn withheld the
 // address) and anyone drafted on an earlier run, then researches the next
-// twenty with one `claude -p` each (WebSearch allowed, --max-turns capped) and
-// drafts a personalised opener. Emailed and archived. Nothing is sent to any
-// of them: the openers are for me to read, edit and send by hand.
+// twenty with one DeepSeek call each (web search through the loop in lib.js
+// askModel, maxTurns.prospect searches at most) and drafts a personalised
+// opener. Emailed and archived. Nothing is sent to any of them: the openers
+// are for me to read, edit and send by hand.
 //
 // THE QUALITY FILTER. A researched person is FILTERED, not drafted, when the
 // research says they are not US-based, or not working in US sports markets,
 // or when no opener came back. Filtered people are recorded in the state file
 // with the reason so they are not researched again; a research call that
-// failed outright (timeout, claude error) is not recorded and is retried on
+// failed outright (timeout, API error) is not recorded and is retried on
 // the next run. The brief reports "N drafted, M filtered" with each reason.
 //
 // --exclude "Ann Lee,https://www.linkedin.com/in/bobray"  skips those people
@@ -153,7 +154,7 @@ function describeConfig(cfg) {
 
 async function main() {
   const cfg = L.loadConfig();
-  const audit = L.authAudit();
+  const audit = L.modelAudit();
   const calls = [];
   const warnings = [];
 
@@ -239,7 +240,7 @@ ME: ${cfg.aboutMe}
 
 Return ONLY JSON: {"summary": "two lines on who they are and what they do, from what you found", "location": "the city, state or country they are based in, from what you found, or null", "usBased": true or false, or null when you could not tell, "usSportsMarket": true when their work touches US college or pro sports, athletes, NIL, athletic departments, or sports business in the US; false when it clearly does not; null when you could not tell, "hook": "the one thing about them that makes NILDash relevant, or null if nothing real", "opener": "3-4 sentences, first person, plain, no flattery, no em dashes, no exclamation marks, ends with one easy question; if hook is null write an honest short opener that does not pretend to know them; null when usBased or usSportsMarket is false"}. Never invent facts about them; if you found nothing, say so in summary and leave usBased and usSportsMarket null.`;
     try {
-      const r = await L.claudeP(prompt, { cfg, label: `prospect:${name}`, maxTurns: cfg.maxTurns.prospect, tools: ['WebSearch', 'WebFetch'] });
+      const r = await L.askModel(prompt, { cfg, label: `prospect:${name}`, maxTurns: cfg.maxTurns.prospect, tools: ['WebSearch', 'WebFetch'] });
       calls.push(r);
       const j = r.json && !Array.isArray(r.json) ? r.json : {};
       const summary = String(j.summary || '(no research returned)');

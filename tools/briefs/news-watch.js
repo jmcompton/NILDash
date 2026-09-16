@@ -2,8 +2,9 @@
 'use strict';
 // ── NIL WATCH: TEN LINES ON THE MARKET ───────────────────────────────────────
 //
-// One `claude -p` call per term, with WebSearch allowed and --max-turns as the
-// guardrail, asking for items from the last few days as JSON. Everything ever
+// One DeepSeek call per term through lib.js askModel, with web search through
+// the search provider and maxTurns.news searches as the guardrail, asking for
+// items from the last few days as JSON. Everything ever
 // shown is remembered by URL in state/news-seen.json (30 days), so today's
 // brief never repeats yesterday's. Ten newest lines, emailed and archived.
 
@@ -23,7 +24,7 @@ function canon(url) {
 
 async function main() {
   const cfg = L.loadConfig();
-  const audit = L.authAudit();
+  const audit = L.modelAudit();
   const calls = [];
   const seen = L.readState(STATE, {});
   const cutoff = L.dateOffset(-30);
@@ -34,7 +35,7 @@ async function main() {
   for (const term of cfg.newsTerms) {
     const prompt = `Search the web for news from the last 7 days about: "${term}" (context: the NIL market, name-image-likeness for college athletes, and the software companies serving agents, athletes and collectives). Return ONLY a JSON array of up to 5 items: [{"title": "...", "url": "https://...", "source": "publication", "published": "YYYY-MM-DD or null", "line": "one plain sentence on what happened and why it matters to a company selling NIL outreach software to agents"}]. Only include items you actually found with a real URL. No commentary outside the JSON.`;
     try {
-      const r = await L.claudeP(prompt, { cfg, label: `news:${term}`, maxTurns: cfg.maxTurns.news, tools: ['WebSearch', 'WebFetch'] });
+      const r = await L.askModel(prompt, { cfg, label: `news:${term}`, maxTurns: cfg.maxTurns.news, tools: ['WebSearch', 'WebFetch'] });
       calls.push(r);
       const items = Array.isArray(r.json) ? r.json : [];
       for (const it of items) {

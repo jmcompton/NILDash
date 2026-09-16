@@ -11,18 +11,29 @@
 // oneShotWebSearch, _contactWebSearchRaw) plus the tool loop, with:
 //   site        what asked -- 'writer', 'contacts.chamber', 'instagram',
 //               'discovery', 'dealscan' -- from the meter's context (scanMeter.label)
+//   provider    who answered: 'anthropic' or 'deepseek' (services/deepseek)
 //   model, tokens in/out, cache read/write tokens, web searches actually run
 //   agent_id, athlete_id, brand   from the same context
-//   est_usd     priced from the model's list price and the search price
+//   est_usd     priced from the model's list price and the provider's search price
 //
 // It never throws and never blocks a call: a ledger write that fails is logged
 // once a minute and the call's result is returned exactly as before. The
 // price table is the estimate's assumption and is printed by the breakdown
 // script so a number is never read without the rate behind it.
 
+// DeepSeek's rates are NOT verified from here (the docs host is unreachable
+// from this build box). These defaults are DeepSeek's published V3.2-era
+// list prices, per million tokens: $0.28 in (cache miss), $0.028 in (cache
+// hit), $0.42 out. Set DEEPSEEK_PRICE_IN / DEEPSEEK_PRICE_OUT /
+// DEEPSEEK_PRICE_CACHE_HIT to the V4.1 Flash rates from
+// api-docs.deepseek.com/quick_start/pricing and every estimate follows.
+function _envNum(name, dflt) { const n = parseFloat(process.env[name]); return Number.isFinite(n) ? n : dflt; }
+const DEEPSEEK_PRICE = [_envNum('DEEPSEEK_PRICE_IN', 0.28), _envNum('DEEPSEEK_PRICE_OUT', 0.42), _envNum('DEEPSEEK_PRICE_CACHE_HIT', 0.028)];
+
 const PRICES = {
-  // USD per million tokens: [input, output]. Cache reads bill at a tenth of
-  // input, cache writes at a quarter over. Web search is per request.
+  // USD per million tokens: [input, output, cache read]. When the third is
+  // absent a cache read bills at a tenth of input (Anthropic); cache writes
+  // at a quarter over input. Web search is per request, by provider.
   'claude-haiku-4-5': [1, 5],
   'claude-sonnet-4-6': [3, 15],
   'claude-sonnet-4-5': [3, 15],
@@ -30,13 +41,23 @@ const PRICES = {
   'claude-opus-4-7': [5, 25],
   'claude-opus-4-6': [5, 25],
   'claude-opus-4-1': [15, 75],
+  'deepseek-v4-flash': DEEPSEEK_PRICE,
+  'deepseek': DEEPSEEK_PRICE,          // any other DeepSeek model id, same assumption
 };
+// Anthropic bills $10 per thousand searches. A search we run ourselves for
+// DeepSeek costs whatever the search provider charges: Brave's list price is
+// $5 per thousand; SEARCH_USD_PER_QUERY overrides.
 const USD_PER_WEB_SEARCH = 0.01;
+const USD_PER_SEARCH = { anthropic: USD_PER_WEB_SEARCH, deepseek: _envNum('SEARCH_USD_PER_QUERY', 0.005) };
 
 function priceKey(model) {
   const m = String(model || '').toLowerCase();
   const k = Object.keys(PRICES).find((p) => m.startsWith(p));
   return k || null;
+}
+function providerOf(model, provider) {
+  if (provider) return String(provider).toLowerCase();
+  return /^deepseek/i.test(String(model || '')) ? 'deepseek' : 'anthropic';
 }
 
 // Extracted from an SDK response. Zero, never undefined, so arithmetic on
@@ -56,13 +77,15 @@ function usageOf(msg) {
   };
 }
 
-function estimateUsd(model, usage) {
+function estimateUsd(model, usage, provider) {
   const k = priceKey(model);
   if (!k) return null;   // an unpriced model is reported as unknown, not as free
-  const [inP, outP] = PRICES[k];
+  const [inP, outP, cacheP] = PRICES[k];
+  const p = providerOf(model, provider);
+  const searchP = USD_PER_SEARCH[p] !== undefined ? USD_PER_SEARCH[p] : USD_PER_WEB_SEARCH;
   const usd = (usage.inputTokens * inP + usage.outputTokens * outP
-    + usage.cacheReadTokens * inP * 0.1 + usage.cacheWriteTokens * inP * 1.25) / 1e6
-    + usage.webSearches * USD_PER_WEB_SEARCH;
+    + usage.cacheReadTokens * (cacheP !== undefined ? cacheP : inP * 0.1) + usage.cacheWriteTokens * inP * 1.25) / 1e6
+    + usage.webSearches * searchP;
   return Math.round(usd * 1e6) / 1e6;
 }
 
@@ -83,14 +106,14 @@ async function _flush() {
   const batch = _queue.splice(0, 200);
   try {
     const cols = ['site', 'model', 'agent_id', 'athlete_id', 'brand', 'input_tokens', 'output_tokens',
-      'cache_read_tokens', 'cache_write_tokens', 'web_searches', 'est_usd', 'ms', 'caller'];
+      'cache_read_tokens', 'cache_write_tokens', 'web_searches', 'est_usd', 'ms', 'caller', 'provider'];
     const values = [];
     const params = [];
     batch.forEach((r, i) => {
       const base = i * cols.length;
       values.push('(' + cols.map((_, j) => '$' + (base + j + 1)).join(',') + ')');
       params.push(r.site, r.model, r.agentId, r.athleteId, r.brand, r.inputTokens, r.outputTokens,
-        r.cacheReadTokens, r.cacheWriteTokens, r.webSearches, r.estUsd, r.ms, r.caller || null);
+        r.cacheReadTokens, r.cacheWriteTokens, r.webSearches, r.estUsd, r.ms, r.caller || null, r.provider || 'anthropic');
     });
     await pool.query(`INSERT INTO ai_call_ledger (${cols.join(',')}) VALUES ${values.join(',')}`, params);
   } catch (e) {
@@ -109,7 +132,7 @@ async function _flush() {
 // about where it came from. Now an unlabelled row carries the first stack
 // frame outside the AI plumbing -- "services/draftPrewarm.js:304" -- so the
 // site can be named from the ledger instead of guessed from the code.
-const _PLUMBING = /[\\/](ai|aiLedger|scanMeter)\.js|node:internal|node_modules[\\/]/;
+const _PLUMBING = /[\\/](ai|aiLedger|scanMeter|deepseek|webSearchTool)\.js|node:internal|node_modules[\\/]/;
 function callerOf() {
   try {
     const lines = String(new Error().stack || '').split('\n').slice(1);
@@ -123,29 +146,47 @@ function callerOf() {
   return null;
 }
 
-// record(msg, { model, ms, ctx }) -> the row it queued (for tests), or null.
-// ctx is the meter context: { site, agentId, athleteId, brand }.
-function record(msg, info) {
+// The row, from already-normalised usage. Every entry point ends here.
+//   recordUsage({ provider, model, usage, ms, ctx }) -> the row queued, or null.
+function recordUsage(info) {
   try {
-    const usage = usageOf(msg);
+    const usage = Object.assign({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, webSearches: 0 }, (info && info.usage) || {});
     const ctx = (info && info.ctx) || {};
-    const site = String(ctx.site || info.site || 'unlabelled').slice(0, 60);
+    const site = String(ctx.site || (info && info.site) || 'unlabelled').slice(0, 60);
+    const model = String((info && info.model) || 'unknown').slice(0, 80);
+    const provider = providerOf(model, info && info.provider);
     const row = {
       site,
+      provider,
       caller: site === 'unlabelled' ? callerOf() : null,
-      model: String((info && info.model) || (msg && msg.model) || 'unknown').slice(0, 80),
+      model,
       agentId: ctx.agentId ? String(ctx.agentId).slice(0, 120) : null,
       athleteId: ctx.athleteId ? String(ctx.athleteId).slice(0, 120) : null,
       brand: ctx.brand ? String(ctx.brand).slice(0, 200) : null,
       inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens, cacheWriteTokens: usage.cacheWriteTokens,
       webSearches: usage.webSearches,
-      estUsd: estimateUsd((info && info.model) || (msg && msg.model), usage),
+      estUsd: estimateUsd(model, usage, provider),
       ms: Number(info && info.ms) || null,
     };
     _queue.push(row);
     setImmediate(_flush);
     return row;
+  } catch (e) {
+    return null;
+  }
+}
+
+// record(msg, { model, ms, ctx }) -> the row it queued (for tests), or null.
+// msg is an Anthropic SDK response; ctx is the meter context
+// { site, agentId, athleteId, brand }.
+function record(msg, info) {
+  try {
+    return recordUsage({
+      provider: (info && info.provider) || 'anthropic',
+      model: (info && info.model) || (msg && msg.model) || 'unknown',
+      usage: usageOf(msg), ms: info && info.ms, ctx: (info && info.ctx) || {}, site: info && info.site,
+    });
   } catch (e) {
     return null;
   }
@@ -159,4 +200,4 @@ async function drain() {
   }
 }
 
-module.exports = { callerOf, record, usageOf, estimateUsd, priceKey, usePool, drain, PRICES, USD_PER_WEB_SEARCH };
+module.exports = { callerOf, record, recordUsage, usageOf, estimateUsd, priceKey, providerOf, usePool, drain, PRICES, USD_PER_WEB_SEARCH, USD_PER_SEARCH, DEEPSEEK_PRICE };

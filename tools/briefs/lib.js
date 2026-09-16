@@ -71,6 +71,17 @@ const DEFAULTS = {
   strategyWatch: { lastSentAt: null, seen: {} },
   callTimeoutMin: 6,
   claudeBin: 'claude',
+  // The model the four briefs call: DeepSeek, direct, over its
+  // OpenAI-compatible endpoint (see askModel). The key comes from here first,
+  // DEEPSEEK_API_KEY in the environment second.
+  deepseekApiKey: '',
+  deepseekModel: 'deepseek-v4-flash',
+  deepseekBaseUrl: 'https://api.deepseek.com',
+  // DeepSeek has no web search of its own; news, prospecting and strategy
+  // searches run through one of these (the first with a key).
+  braveSearchApiKey: '',
+  serperApiKey: '',
+  tavilyApiKey: '',
 };
 
 // ── THE SAME CONFIG FROM ENVIRONMENT VARIABLES ───────────────────────────────
@@ -88,6 +99,12 @@ const ENV_MAP = {
   BRIEFS_NEWS_TERMS: 'newsTerms', BRIEFS_NEWS_LINES: 'newsLines',
   BRIEFS_MAX_TURNS: 'maxTurns', BRIEFS_CALL_TIMEOUT_MIN: 'callTimeoutMin', BRIEFS_CLAUDE_BIN: 'claudeBin',
   BRIEFS_MAIL_SOURCES: 'mailSources', BRIEFS_CONNECTIONS_URL: 'connectionsUrl', BRIEFS_CONNECTIONS_FILE: 'connectionsFile',
+  // DEEPSEEK_API_KEY itself is the environment fallback read by
+  // resolveDeepseekKey, like ANTHROPIC_API_KEY; only the BRIEFS_ form lands
+  // in the config field.
+  BRIEFS_DEEPSEEK_API_KEY: 'deepseekApiKey',
+  BRIEFS_DEEPSEEK_MODEL: 'deepseekModel', BRIEFS_DEEPSEEK_BASE_URL: 'deepseekBaseUrl',
+  BRAVE_SEARCH_API_KEY: 'braveSearchApiKey', SERPER_API_KEY: 'serperApiKey', TAVILY_API_KEY: 'tavilyApiKey',
 };
 const LIST_KEYS = new Set(['myAddresses', 'mailAccounts', 'skipDomains', 'nildashUsers', 'prospectKeywords', 'newsTerms', 'mailSources']);
 const NUM_KEYS = new Set(['lookbackDays', 'silentDays', 'prospectsPerRun', 'newsLines', 'callTimeoutMin']);
@@ -312,6 +329,116 @@ async function claudeP(prompt, opts = {}) {
   };
 }
 
+// ── THE ONE WAY THE BRIEFS CALL A MODEL NOW: DEEPSEEK, DIRECT ───────────────
+// askModel(prompt, { cfg, label, maxTurns, tools, timeoutMin, model, system, temperature })
+//   -> { text, json, numTurns, searches, usage, costUsd, ms, model, keySource }
+//
+// No CLI, no spawn: one HTTPS call to DeepSeek's chat endpoint through
+// server/services/deepseek (the same client the nightly pipeline uses). When
+// the call asks for WebSearch/WebFetch, it is the function-calling loop in
+// server/services/webSearchTool instead, with `maxTurns` as the search cap,
+// and the searches go through Brave, Serper or Tavily, whichever key is in
+// config.json or the environment. `json` is the first JSON value in the
+// text, as before. `costUsd` is the ledger's estimate at the assumed rates.
+const SERVER_SERVICES = path.join(__dirname, '..', '..', 'server', 'services');
+
+// config.json first, the environment second, a clear failure third; the key
+// itself goes to the request and nowhere else.
+function resolveDeepseekKey(cfg) {
+  const c = cfg || loadConfig();
+  const fromConfig = String(c.deepseekApiKey || '').trim();
+  const fromEnv = String(process.env.DEEPSEEK_API_KEY || '').trim();
+  const key = fromConfig || fromEnv;
+  if (!key) {
+    throw new Error('No DeepSeek API key. Set "deepseekApiKey" in ' + CONFIG_PATH
+      + ' (or BRIEFS_DEEPSEEK_API_KEY), or export DEEPSEEK_API_KEY in the environment that runs the briefs. Neither is set, so no model was called.');
+  }
+  const source = fromConfig ? (process.env.BRIEFS_DEEPSEEK_API_KEY && fromConfig === String(process.env.BRIEFS_DEEPSEEK_API_KEY).trim() ? 'BRIEFS_DEEPSEEK_API_KEY' : 'config.json') : 'environment';
+  return { key, source, masked: maskKey(key) };
+}
+
+// The search provider module reads its keys from the environment; a key kept
+// in config.json is put there for this process only.
+function applySearchKeys(cfg) {
+  const map = { braveSearchApiKey: 'BRAVE_SEARCH_API_KEY', serperApiKey: 'SERPER_API_KEY', tavilyApiKey: 'TAVILY_API_KEY' };
+  for (const [k, env] of Object.entries(map)) {
+    const v = String((cfg && cfg[k]) || '').trim();
+    if (v && !String(process.env[env] || '').trim()) process.env[env] = v;
+  }
+  return require(path.join(SERVER_SERVICES, 'webSearchTool')).provider();
+}
+
+async function askModel(prompt, opts = {}) {
+  const cfg = opts.cfg || loadConfig();
+  const k = resolveDeepseekKey(cfg);
+  const DS = require(path.join(SERVER_SERVICES, 'deepseek'));
+  const Ledger = require(path.join(SERVER_SERVICES, 'aiLedger'));
+  // An old-style tier name ("haiku") means the configured model; a real
+  // model id is used as given.
+  const useModel = opts.model && !/^(haiku|sonnet|opus)$/i.test(opts.model) ? opts.model : (cfg.deepseekModel || DS.DEFAULT_MODEL);
+  const timeoutMs = Math.max(60000, (opts.timeoutMin || cfg.callTimeoutMin) * 60000);
+  const wantsSearch = (opts.tools || []).some((t) => /websearch|webfetch|web_search|fetch_page/i.test(String(t)));
+  const t0 = Date.now();
+  if (wantsSearch) {
+    const sp = applySearchKeys(cfg);
+    if (!sp) throw new Error('This brief searches the web, and no search provider key is set. Put braveSearchApiKey, serperApiKey or tavilyApiKey in ' + CONFIG_PATH + ' (or BRAVE_SEARCH_API_KEY / SERPER_API_KEY / TAVILY_API_KEY in the environment).');
+    const WST = require(path.join(SERVER_SERVICES, 'webSearchTool'));
+    const maxSearches = Math.max(1, parseInt(opts.maxTurns, 10) || 3);
+    const r = await WST.searchLoop({ prompt, system: opts.system, maxSearches, maxFetches: maxSearches, maxTokens: opts.maxTokens || 2500,
+      temperature: opts.temperature, model: useModel, apiKey: k.key, baseUrl: cfg.deepseekBaseUrl, timeoutMs, ledger: false, provider: sp });
+    return { text: r.text, json: firstJson(r.text), numTurns: r.rounds, searches: r.searches, fetches: r.fetches, usage: r.usage,
+      costUsd: Ledger.estimateUsd(useModel, r.usage, 'deepseek'), ms: Date.now() - t0, model: useModel, keySource: k.source, searchProvider: sp.name };
+  }
+  const r = await DS.chat({ system: opts.system, messages: [{ role: 'user', content: prompt }], maxTokens: opts.maxTokens || 2500,
+    temperature: opts.temperature, model: useModel, apiKey: k.key, baseUrl: cfg.deepseekBaseUrl, timeoutMs, ledger: false });
+  return { text: r.text, json: firstJson(r.text), numTurns: 1, searches: 0, fetches: 0, usage: r.usage,
+    costUsd: Ledger.estimateUsd(useModel, r.usage, 'deepseek'), ms: Date.now() - t0, model: useModel, keySource: k.source, searchProvider: null };
+}
+
+// What the footer of every brief reports about the model: which one, on
+// which key (masked) from where, and which search door. With no key the
+// line says so; the run itself has already failed by then.
+function modelAudit(cfg) {
+  const c = cfg || loadConfig();
+  let key = null;
+  try { key = resolveDeepseekKey(c); } catch (_) { key = null; }
+  let sp = null;
+  try { sp = applySearchKeys(c); } catch (_) { sp = null; }
+  return {
+    keySource: key ? key.source : null, keyMasked: key ? key.masked : null, model: c.deepseekModel, searchProvider: sp ? sp.name : null,
+    line: (key ? `model: DeepSeek ${c.deepseekModel} on API key ${key.masked} from ${key.source}` : 'model: NO DEEPSEEK API KEY (config.json deepseekApiKey and DEEPSEEK_API_KEY both unset)')
+      + `; web search via ${sp ? sp.name : 'NONE (set braveSearchApiKey, serperApiKey or tavilyApiKey; news, prospecting and strategy searches fail without one)'}`,
+  };
+}
+
+// `node tools/briefs/lib.js --api-test`: one plain DeepSeek call on the key
+// the briefs will use, and with --search one searched call through the
+// provider. Prints where the key came from (never the key) and the answer.
+async function apiTest() {
+  const cfg = loadConfig();
+  console.log(modelAudit(cfg).line);
+  try {
+    const r = await askModel('Reply with the single word OK and nothing else.', { cfg, label: 'api-test', maxTurns: 1, tools: [], timeoutMin: 2 });
+    console.log(`DeepSeek ${r.model} answered in ${r.ms}ms (${r.usage.inputTokens} in, ${r.usage.outputTokens} out, est $${(r.costUsd || 0).toFixed(5)}): ${JSON.stringify(String(r.text).slice(0, 120))}`);
+    console.log(/\bOK\b/i.test(r.text) ? `RESULT: PASS. DeepSeek answers from here on the API key from ${r.keySource}.` : 'RESULT: DeepSeek answered but not as expected; read the text above.');
+  } catch (e) {
+    console.log('RESULT: FAILED: ' + e.message);
+    if (/No DeepSeek API key/.test(e.message)) console.log('  Add "deepseekApiKey": "<your key>" to config.json (platform.deepseek.com > API keys), or export DEEPSEEK_API_KEY.');
+    else if (/401|invalid|authentication/i.test(e.message)) console.log('  DeepSeek refused the key. It is wrong, revoked, or from another account: check it at platform.deepseek.com.');
+    else if (/402|insufficient|balance/i.test(e.message)) console.log('  DeepSeek says the account has no balance. Top it up at platform.deepseek.com.');
+    return;
+  }
+  if (process.argv.includes('--search')) {
+    try {
+      const r = await askModel('Search the web for the official NCAA website and return ONLY JSON: {"url": "..."}', { cfg, label: 'api-test-search', maxTurns: 1, tools: ['WebSearch'], timeoutMin: 2 });
+      console.log(`searched call: ${r.searches} search(es) via ${r.searchProvider}, ${r.numTurns} turn(s), ${r.ms}ms: ${JSON.stringify(String(r.text).slice(0, 120))}`);
+      console.log(r.searches ? 'RESULT: PASS. Web search works through ' + r.searchProvider + '.' : 'RESULT: the model did not search; read the text above.');
+    } catch (e) {
+      console.log('SEARCH RESULT: FAILED: ' + e.message);
+    }
+  }
+}
+
 function firstJson(text) {
   const s = String(text || '').replace(/```json/gi, '').replace(/```/g, '');
   const starts = [s.indexOf('['), s.indexOf('{')].filter((i) => i >= 0);
@@ -389,19 +516,28 @@ function mdToHtml(md) {
   return out.join('\n');
 }
 
-// The footer every brief ends with: the audit line and the calls it made.
+// The footer every brief ends with: the audit line and the calls it made,
+// with what they read, wrote, searched and are estimated to have cost.
 function footer(kind, calls, audit) {
   const L = ['', '---', `_${kind} · ${new Date().toString()}_`, `_${audit.line}_`];
   if (calls.length) {
-    L.push(`_claude -p calls: ${calls.length}; sessions: ${calls.map((c) => c.sessionId || '?').join(', ')}; turns: ${calls.map((c) => c.numTurns == null ? '?' : c.numTurns).join(', ')}_`);
+    const sum = (k) => calls.reduce((n, c) => n + Number((c.usage && c.usage[k]) || 0), 0);
+    const searches = calls.reduce((n, c) => n + (Number(c.searches) || 0), 0);
+    const cost = calls.reduce((n, c) => n + (Number(c.costUsd) || 0), 0);
+    const models = [...new Set(calls.map((c) => c.model).filter(Boolean))];
+    L.push(`_DeepSeek calls: ${calls.length}${models.length ? ' (' + models.join(', ') + ')' : ''}; turns: ${calls.map((c) => c.numTurns == null ? '?' : c.numTurns).join(', ')}; tokens in/out: ${sum('inputTokens')}/${sum('outputTokens')}; searches: ${searches}; est $${cost.toFixed(4)}_`);
   } else {
-    L.push('_claude -p calls: none_');
+    L.push('_DeepSeek calls: none_');
   }
   return L.join('\n');
 }
 
 if (require.main === module && process.argv.includes('--claude-test')) { claudeTest().then(() => process.exit(0)); }
+// stdout is a pipe under cron and in tests, where writes are asynchronous:
+// the exit waits for the last line to land.
+if (require.main === module && process.argv.includes('--api-test')) { apiTest().then(() => process.stdout.write('', () => process.exit(0))); }
 
 module.exports = { DIRS, ROOT, CONFIG_PATH, loadConfig, configFromEnv, ENV_MAP, today, dateOffset, daysBetween, claudeP, firstJson, claudeTest,
   readState, writeState, writeBrief, log, sendBrief, mdToHtml, footer, authAudit, API_ENV_KEYS, OTHER_AUTH_ENV,
-  resolveApiKey, claudeEnv, strippedEnv, maskKey };
+  resolveApiKey, claudeEnv, strippedEnv, maskKey,
+  askModel, resolveDeepseekKey, modelAudit, applySearchKeys, apiTest };

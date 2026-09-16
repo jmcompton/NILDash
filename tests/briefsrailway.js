@@ -88,7 +88,7 @@ async function main() {
   ok('a firing between slots runs nothing', RS.pickSlot(RS.localHM(new Date('2026-07-01T12:45:00Z'), 'America/Chicago')) === null);
   ok('the start command is the slot runner and a run never restarts', rj.deploy.startCommand === 'node tools/briefs/run-slot.js' && rj.deploy.restartPolicyType === 'NEVER' && rj.build.dockerfilePath === 'tools/briefs/Dockerfile');
   const df = fs.readFileSync(REPO + 'tools/briefs/Dockerfile', 'utf8');
-  ok('the Dockerfile installs the Claude CLI, sets BRIEFS_HOME on the volume, copies only what the briefs need', /npm install -g @anthropic-ai\/claude-code/.test(df) && /BRIEFS_HOME=\/data\/briefs/.test(df) && /COPY server \.\/server/.test(df) && /COPY tools\/briefs \.\/tools\/briefs/.test(df) && !/COPY \. /.test(df) && /CMD \["node", "tools\/briefs\/run-slot\.js"\]/.test(df));
+  ok('the Dockerfile installs no CLI (DeepSeek is called directly), sets BRIEFS_HOME on the volume, copies only what the briefs need', !/claude-code/.test(df) && /DEEPSEEK_API_KEY/.test(df) && /BRIEFS_HOME=\/data\/briefs/.test(df) && /COPY server \.\/server/.test(df) && /COPY tools\/briefs \.\/tools\/briefs/.test(df) && !/COPY \. /.test(df) && /CMD \["node", "tools\/briefs\/run-slot\.js"\]/.test(df));
   ok('  no key in it', !/sk-ant/.test(df) && !/sk-ant/.test(JSON.stringify(rj)));
 
   // ── 4. THE MAIL DOORS ────────────────────────────────────────────────────

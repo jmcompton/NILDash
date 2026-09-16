@@ -31,6 +31,25 @@ const { getRoster, resolveESPNSportPath } = require('./university/ESPNRosterServ
 // Overridable without a deploy so a bad night can be pinned back.
 const LOOKUP_MODEL = process.env.LOOKUP_MODEL || 'claude-haiku-4-5-20251001';
 const Ledger = require('./aiLedger');
+// The same two stages on DeepSeek when services/deepseek.route says so
+// (DEEPSEEK_API_KEY plus a search provider key; see describeRouting). The
+// searches are run by the loop in services/webSearchTool; the prompt, the
+// JSON and the "only what the search returned" rule are the same. A DeepSeek
+// failure falls back to the Haiku call below for that lookup.
+const DS = require('./deepseek');
+async function _deepseekStage(site, userPrompt, system) {
+  const rt = DS.route(site, { needsSearch: true });
+  if (rt.provider !== 'deepseek') return undefined;
+  try {
+    const WST = require('./webSearchTool');
+    const r = await WST.searchLoop({ prompt: userPrompt, system, maxSearches: 3, maxTokens: 1500, temperature: 0, ctx: { site } });
+    const jsonMatch = String(r.text || '').match(/\{[\s\S]*\}/);
+    return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+  } catch (e) {
+    console.warn(`[lookup] DeepSeek search failed (${e.message}); falling back to ${LOOKUP_MODEL}`);
+    return undefined;
+  }
+}
 
 const ESPN_SUPPORTED_SPORTS = new Set([
   'football',
@@ -318,15 +337,19 @@ RULES:
 - If nothing found, return found: false with empty athletes array
 - confidenceScore: 85-100 if confirmed on ESPN/official site, 60-84 if found on recruiting site, 40-59 if limited info, below 40 if very uncertain`;
 
+  const collegeSystem = `You are an athlete data lookup assistant. Search for real, verified information about college athletes.
+Only return information confirmed by actual search results. Never hallucinate athlete data.
+Prefer ESPN, 247Sports, On3, Rivals, and official school athletic department websites as sources.`;
+  const viaDeepseek = await _deepseekStage('lookup.college', userPrompt, collegeSystem);
+  if (viaDeepseek !== undefined) return viaDeepseek;
+
   try {
     const _t0 = Date.now();
     const response = await client.messages.create({
       model: LOOKUP_MODEL,
       max_tokens: 1500,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      system: `You are an athlete data lookup assistant. Search for real, verified information about college athletes.
-Only return information confirmed by actual search results. Never hallucinate athlete data.
-Prefer ESPN, 247Sports, On3, Rivals, and official school athletic department websites as sources.`,
+      system: collegeSystem,
       messages: [{ role: 'user', content: userPrompt }],
     });
 
@@ -432,15 +455,19 @@ RULES:
 - If nothing found, return found: false with empty athletes array
 - confidenceScore: 85-100 if confirmed on a league or team site, 60-84 if found on ESPN or a major outlet, 40-59 if limited info, below 40 if very uncertain`;
 
+  const proSystem = `You are an athlete data lookup assistant. Search for real, verified information about professional athletes.
+Only return information confirmed by actual search results. Never hallucinate athlete data.
+Prefer NFL.com, NBA.com, WNBA.com, MLB.com, NHL.com, MLSsoccer.com, official team sites and ESPN as sources.`;
+  const viaDeepseek = await _deepseekStage('lookup.pro', userPrompt, proSystem);
+  if (viaDeepseek !== undefined) return viaDeepseek;
+
   try {
     const _t0 = Date.now();
     const response = await client.messages.create({
       model: LOOKUP_MODEL,
       max_tokens: 1500,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      system: `You are an athlete data lookup assistant. Search for real, verified information about professional athletes.
-Only return information confirmed by actual search results. Never hallucinate athlete data.
-Prefer NFL.com, NBA.com, WNBA.com, MLB.com, NHL.com, MLSsoccer.com, official team sites and ESPN as sources.`,
+      system: proSystem,
       messages: [{ role: 'user', content: userPrompt }],
     });
     Ledger.record(response, { model: LOOKUP_MODEL, ms: Date.now() - _t0, ctx: { site: 'lookup.pro' } });
@@ -627,4 +654,4 @@ async function resolveAthlete(ai, { name, school, sport, position, year, athlete
   };
 }
 
-module.exports = { resolveAthlete, normalizeName, normalizeSchool, normalizeSport, nameMatchScore, ESPN_SUPPORTED_SPORTS, leagueFor, proSearchStage };
+module.exports = { resolveAthlete, normalizeName, normalizeSchool, normalizeSport, nameMatchScore, ESPN_SUPPORTED_SPORTS, leagueFor, proSearchStage, _deepseekStage };
