@@ -338,7 +338,9 @@ async function main() {
   ok('  the lookup sends the pro fields', /body: JSON\.stringify\(\{ name, school, sport, position, year, athleteType: _pro \? 'pro' : 'college', team, city \}\)/.test(html));
   ok('  and a pro candidate fills team, city and known-for, not the school', /if \(_proLookup\) \{[\s\S]*?teamEl\.value = data\.team[\s\S]*?cityEl\.value = data\.city[\s\S]*?st\.value = data\.knownFor/.test(html));
   ok('  the roster card shows the team for a pro', /a\.athleteType === 'pro' \? \(a\.team \|\| 'Team not set'\) : \(a\.school \|\| 'School not set'\)/.test(html));
-  const idx = src('server/index.js');
+  // The create handler is services/athleteCreate now (shared with the assistant's
+  // add_athlete); the update handler is still in index.js. Read as one text.
+  const idx = src('server/index.js') + '\n' + src('server/services/athleteCreate.js');
   ok('the create handler stores the type in data, never the athlete_type column',
     /athleteType: isPro \? 'pro' : 'college',/.test(idx) && !/SET athlete_type\s*=\s*'pro'/.test(idx));
   ok('  clears the school and year on a pro', /school: isPro \? '' : \(school \|\| ''\)/.test(idx) && /year: isPro \? '' : \(year \|\| ''\)/.test(idx));

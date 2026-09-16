@@ -62,6 +62,7 @@ function lanesText() {
   return `- Local (${label('local')}): businesses near the athlete's school, and their hometown when it is set.
   This is the lane most deals come from. It needs the school to resolve to a town -- an athlete
   whose school does not resolve has NO local lane and will quietly get nothing every night.
+  A pro's local lane is the city they play in. A high school athlete's is their school's town.
 - DTC (${label('social')}): brands running athlete or affiliate programmes. Usually product or
   commission rather than cash, and often the better fit for a smaller following.
 - National (${label('national')}): larger brands with a real NIL history. Lowest hit rate, and
@@ -184,6 +185,12 @@ searches.
 
 It is built for the athletes nobody is chasing yet. An athlete with brands already
 coming to them does not need this.
+
+It is not college-only. An athlete can be a college athlete, a professional, or a high
+school athlete. A college athlete is placed by their school, a pro by the city they play
+in and their team, a high school athlete by their school. For a high school athlete the
+date of birth matters most: without it their age is unknown and every age-restricted
+category is held, so the assistant asks for it when adding one, and skipping is allowed.
 
 The whole product runs on one rhythm: the team works at night, the agent reviews in
 the morning, approved pitches go out during the day when the recipient is most likely
