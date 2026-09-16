@@ -79,7 +79,7 @@ async function main() {
   let rows;
   try {
     rows = (await P.query(
-      `SELECT l.site, l.model, l.agent_id, l.athlete_id, l.brand, l.input_tokens, l.output_tokens,
+      `SELECT l.site, l.model, COALESCE(l.provider, 'anthropic') AS provider, l.agent_id, l.athlete_id, l.brand, l.input_tokens, l.output_tokens,
               l.cache_read_tokens, l.cache_write_tokens, l.web_searches, l.est_usd, l.ms, l.at,
               u.email AS agent_email, a.data->>'name' AS athlete_name
          FROM ai_call_ledger l
@@ -88,7 +88,18 @@ async function main() {
         WHERE l.at >= $1 AND l.at < $2 ${agentFilter ? 'AND l.agent_id = ANY($3)' : ''}
         ORDER BY l.at ASC`, agentFilter ? [w.from, w.to, agentFilter] : [w.from, w.to])).rows;
   } catch (e) {
-    if (/does not exist/.test(e.message)) { rows = []; console.log('spend-breakdown: ai_call_ledger does not exist yet (the deploy that creates it has not started).'); }
+    if (/column l\.provider does not exist/.test(e.message)) {
+      // A ledger from before the provider column: every row is Anthropic.
+      try {
+        rows = (await P.query(
+          `SELECT l.site, l.model, 'anthropic' AS provider, l.agent_id, l.athlete_id, l.brand, l.input_tokens, l.output_tokens,
+                  l.cache_read_tokens, l.cache_write_tokens, l.web_searches, l.est_usd, l.ms, l.at,
+                  u.email AS agent_email, a.data->>'name' AS athlete_name
+             FROM ai_call_ledger l LEFT JOIN users u ON u.id = l.agent_id LEFT JOIN athletes a ON a.id = l.athlete_id
+            WHERE l.at >= $1 AND l.at < $2 ${agentFilter ? 'AND l.agent_id = ANY($3)' : ''} ORDER BY l.at ASC`,
+          agentFilter ? [w.from, w.to, agentFilter] : [w.from, w.to])).rows;
+      } catch (e2) { return fail('ledger', e2); }
+    } else if (/does not exist/.test(e.message)) { rows = []; console.log('spend-breakdown: ai_call_ledger does not exist yet (the deploy that creates it has not started).'); }
     else return fail('ledger', e);
   }
   console.log(`spend-breakdown: connected. ${rows.length} ledger row(s) in the window.`);
@@ -98,8 +109,25 @@ async function main() {
     const unpriced = rows.filter((r) => r.est_usd === null).length;
     console.log(`\nTOTAL (estimated from list prices): ${usd(total)} across ${rows.length} call(s)`
       + (unpriced ? `  -- ${unpriced} call(s) on a model with no price on file, counted at $0` : ''));
-    console.log('Prices assumed, USD per million tokens [in, out]: ' + Object.entries(Ledger.PRICES).map(([k, v]) => `${k}=${v.join('/')}`).join('  ')
-      + `; web search ${usd(Ledger.USD_PER_WEB_SEARCH)} each.`);
+    console.log('Prices assumed, USD per million tokens [in, out, cache read]: ' + Object.entries(Ledger.PRICES).filter(([k]) => k !== 'deepseek').map(([k, v]) => `${k}=${v.join('/')}`).join('  ')
+      + `; web search ${usd(Ledger.USD_PER_SEARCH.anthropic)} each on Anthropic, ${usd(Ledger.USD_PER_SEARCH.deepseek)} each through the search provider on DeepSeek.`);
+    console.log('DeepSeek rates are the DEEPSEEK_PRICE_IN / _OUT / _CACHE_HIT assumptions (defaults are the V3.2-era list prices; set the V4.1 Flash rates from api-docs.deepseek.com to correct every estimate).');
+
+    // ── BY PROVIDER: the Anthropic bill beside the DeepSeek bill ──────────
+    {
+      const byP = new Map();
+      for (const r of rows) {
+        const g = byP.get(r.provider) || { calls: 0, inTok: 0, outTok: 0, cacheTok: 0, searches: 0, usd: 0, models: new Set() };
+        g.calls++; g.inTok += r.input_tokens; g.outTok += r.output_tokens; g.cacheTok += r.cache_read_tokens; g.searches += r.web_searches;
+        g.usd += Number(r.est_usd) || 0; g.models.add(r.model); byP.set(r.provider, g);
+      }
+      console.log('\nBY PROVIDER');
+      console.log(`  ${pad('', 12)} ${pad('calls', 6)} ${pad('searches', 9)} ${pad('tokens in', 11)} ${pad('cache read', 11)} ${pad('tokens out', 11)} ${pad('usd', 9)} model(s)`);
+      for (const [k, g] of [...byP.entries()].sort((a, b) => b[1].usd - a[1].usd)) {
+        console.log(`  ${pad(k, 12)} ${pad(g.calls, 6)} ${pad(g.searches, 9)} ${pad(g.inTok, 11)} ${pad(g.cacheTok, 11)} ${pad(g.outTok, 11)} ${pad(usd(g.usd), 9)} ${[...g.models].map((m) => m.replace(/-\d{8}$/, '')).join(', ')}`);
+      }
+      if (!byP.has('deepseek')) console.log('  (no DeepSeek rows: the fast tier ran on Anthropic in this window; node scripts/deepseek-savings.js estimates what it would have cost)');
+    }
 
     const group = (key) => {
       const m = new Map();
@@ -119,10 +147,13 @@ async function main() {
         console.log(`  ${pad(k, keyWidth)} ${pad(g.calls, 6)} ${pad(g.searches, 9)} ${pad(g.inTok, 11)} ${pad(g.outTok, 11)} ${pad(usd(g.usd), 9)} ${[...g.models].map((m) => m.replace(/-\d{8}$/, '')).join(', ')}`);
       }
     };
+    // Group keys carry the provider when both appear, so a site split across
+    // the two bills reads as two lines rather than one blended number.
+    const withProvider = (key) => (r) => key(r) + (rows.some((x) => x.provider !== rows[0].provider) ? `  [${r.provider}]` : '');
 
     // Site, rolled up to its top level and then in full.
-    table('BY CALL SITE (top level)', group((r) => r.site.split('.')[0]), 22);
-    table('BY CALL SITE (full label)', group((r) => r.site), 30);
+    table('BY CALL SITE (top level)', group(withProvider((r) => r.site.split('.')[0])), 34);
+    table('BY CALL SITE (full label)', group(withProvider((r) => r.site)), 42);
     table('BY AGENT', group((r) => r.agent_email || r.agent_id || '(no agent on the call)'), 34);
     table('BY ATHLETE', group((r) => (r.athlete_name || r.athlete_id || '(no athlete on the call)') + (r.agent_email ? '  ' + r.agent_email : '')), 46);
 

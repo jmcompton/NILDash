@@ -2,8 +2,8 @@
 'use strict';
 // ── STRATEGY WATCH: SEND ONLY WHEN SOMETHING MOVED ───────────────────────────
 //
-// Three things, watched with Haiku through `claude -p` on the API key from
-// config.json or the environment (see lib.js):
+// Three things, watched with DeepSeek through lib.js askModel on the API key
+// from config.json or the environment (web search through the provider):
 //
 //   1. Legislation   S. 4668 (Protect College Sports Act), NIL agent
 //                    regulation, NCAA NIL rule changes. A vote scheduled, an
@@ -31,7 +31,7 @@ const fs = require('fs');
 const L = require('./lib');
 
 const KIND = 'strategy-watch';
-const MODEL = 'haiku';
+const MODEL = null;              // the configured DeepSeek model (deepseekModel in config.json); 'haiku' was the claude -p tier
 const SEEN_DAYS = 90;
 const MAX_LINES = 6;              // per list section; the whole email stays under a page
 const MAX_PARAGRAPH_WORDS = 130;
@@ -119,9 +119,9 @@ function itemLine(it) {
   return `- **${it.title || it.source || 'Item'}** — ${it.line}${meta ? ` _(${meta})_` : ''} ${it.url}`;
 }
 
-// The legislation paragraph: one Haiku call with no tools over the fresh
-// items, falling back to the items' own sentences joined. Every source is
-// linked whichever way it is written.
+// The legislation paragraph: one plain DeepSeek call (no search) over the
+// fresh items, falling back to the items' own sentences joined. Every source
+// is linked whichever way it is written.
 async function legislationParagraph(items, claudeP, cfg, calls) {
   if (!items.length) return '';
   const links = items.map((it) => `[${it.source || it.title || 'source'}](${it.url})`).join(', ');
@@ -160,14 +160,14 @@ function renderBrief({ sections, since, counts, errors, footer }) {
 // opts: { cfg, claudeP, sendBrief, configPath, force, noEmail, since, print }
 async function run(opts = {}) {
   const cfg = opts.cfg || L.loadConfig();
-  const claudeP = opts.claudeP || L.claudeP;
+  const claudeP = opts.ask || opts.claudeP || L.askModel;
   const sendBrief = opts.sendBrief || L.sendBrief;
   // The last-send date and the URLs shown live in config.json on the Mac,
   // where the file exists and the owner reads it. On Railway the settings are
   // environment variables and there is no file, so the same record goes to
   // the state directory on the volume instead.
   const configPath = opts.configPath || (fs.existsSync(L.CONFIG_PATH) ? L.CONFIG_PATH : require('path').join(L.DIRS.state, 'strategy-watch.json'));
-  const audit = L.authAudit();
+  const audit = L.modelAudit();
   const calls = [];
   const errors = [];
 

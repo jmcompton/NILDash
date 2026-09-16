@@ -1,44 +1,47 @@
 # Overnight briefs
 
-Four scripts that run on your Mac under cron, through `claude -p` on an Anthropic API key, and email you one brief each. Nothing here sends to anyone but you.
+Four scripts that run on your Mac under cron, calling DeepSeek directly on an API key (web search through Brave, Serper or Tavily), and email you one brief each. Nothing here sends to anyone but you.
 
 | Script | What it does | Subject |
 |---|---|---|
 | `follow-ups.js` | Sent-mail threads with no reply in 7+ days: who, what it was about, what you said you'd do, how long | `Follow-ups: 4 waiting` |
 | `news-watch.js` | Searches the term list, dedupes against the last 30 days, ten lines | `NIL watch: 6 items` |
 | `prospecting.js` | LinkedIn connections filtered to agents and NIL people, minus anyone in your sent mail, next 20 researched with an opener each; anyone the research finds outside the US or outside US sports, or who gets no opener, is filtered and listed with the reason | `Prospects: 17 drafted, 3 filtered` |
-| `strategy-watch.js` | Legislation (S. 4668, agent regulation, NCAA rules), competitors, market signals. Haiku. **Emails only when something meaningful changed** since its last send; a quiet day sends nothing | `Strategy watch: 3 changes` |
+| `strategy-watch.js` | Legislation (S. 4668, agent regulation, NCAA rules), competitors, market signals. **Emails only when something meaningful changed** since its last send; a quiet day sends nothing | `Strategy watch: 3 changes` |
 
 Every brief is also written to `~/nildash-briefs/YYYY-MM-DD-<name>.md` as the archive, whether or not the email goes out. The exception is strategy-watch, which archives only on the days it sends.
 
 ## Strategy watch: when it sends
 
-Three Haiku searches (`--model haiku`, `WebSearch`/`WebFetch`, `maxTurns.strategy`, default 4) look back to the date of the last send, or seven days on the first run. Each item comes back tagged `meaningful` true or false and with a fixed kind (a vote, an amendment, a committee step; a launch, a funding round; a deal, an agency move, a College Sports Commission report). Only meaningful items with a real URL survive, minus anything shown in the last 90 days. Legislation is written as one paragraph of at most 130 words with every source linked; the other two sections are one line per item, six at most each, so the email stays under a page.
+Three searched DeepSeek calls (`maxTurns.strategy` searches each, default 4) look back to the date of the last send, or seven days on the first run. Each item comes back tagged `meaningful` true or false and with a fixed kind (a vote, an amendment, a committee step; a launch, a funding round; a deal, an agency move, a College Sports Commission report). Only meaningful items with a real URL survive, minus anything shown in the last 90 days. Legislation is written as one paragraph of at most 130 words with every source linked; the other two sections are one line per item, six at most each, so the email stays under a page.
 
 If nothing survives, the run writes one log line and sends nothing. When it sends, it writes `strategyWatch.lastSentAt` and the URLs it showed into `~/nildash-briefs/config.json` itself, so the next run looks back only to that date and never repeats an item. `--since YYYY-MM-DD` overrides the look-back, `--no-email --print` shows what it would send, `--force` sends even on a quiet day to test the pipe.
 
 ## Setup, once
 
-1. **The key.** `mkdir -p ~/nildash-briefs/inbox`, copy `config.example.json` to `~/nildash-briefs/config.json`, and set `anthropicApiKey` to an Anthropic API key (the one Railway uses, or a new one from console.anthropic.com). If you would rather not keep it in the file, leave it empty and export `ANTHROPIC_API_KEY` in the environment that runs the briefs; the file is read first, the environment second, and with neither a run stops before starting claude and says which to set. Then `node tools/briefs/lib.js --claude-test` must print `RESULT: PASS` and name where the key came from.
+1. **The keys.** `mkdir -p ~/nildash-briefs/inbox`, copy `config.example.json` to `~/nildash-briefs/config.json`, and set `deepseekApiKey` to a DeepSeek API key (platform.deepseek.com > API keys). If you would rather not keep it in the file, leave it empty and export `DEEPSEEK_API_KEY` in the environment that runs the briefs; the file is read first, the environment second, and with neither a run stops before any call is made and says which to set. News, prospecting and strategy-watch search the web, and DeepSeek has no search of its own, so also set one of `braveSearchApiKey` (api.search.brave.com), `serperApiKey` (serper.dev) or `tavilyApiKey` (tavily.com); follow-ups needs none. Then `node tools/briefs/lib.js --api-test` must print `RESULT: PASS` and name where the key came from, and `--api-test --search` must show a search going through the provider.
 2. **Config.** In the same file fill in `resendApiKey` (the same key Railway has), `myAddresses` (every address you send from), and `aboutMe` in your own words. `to` is already `john@comptongroupllc.com`.
 3. **Mail.app.** Both accounts must be set up in Mail on that Mac. The first run will ask for Automation permission (System Settings > Privacy & Security > Automation: allow the terminal, and cron, to control Mail). Run `node tools/briefs/follow-ups.js` by hand once so the prompt appears.
 4. **LinkedIn CSV.** Drop `Connections.csv` in `~/nildash-briefs/inbox/`, or set `connectionsFile` in the config to wherever it is (`~` is expanded). The export lives at LinkedIn > Settings > Data privacy > Get a copy of your data > Connections. Prospecting looks at `connectionsFile` first, then `inbox/*.csv`, then `~/nildash-briefs/*.csv`.
 5. **Cron.** `crontab -e`, paste `crontab.example`, fix `NODE` and `REPO`. The times are 5:30, 5:45 and 6:00 local, staggered so the runs never overlap.
 6. **Keep the Mac awake at 5:25**, or `sudo pmset repeat wakeorpoweron MTWRFSU 05:25:00`.
 
-## How the briefs authenticate
+## How the briefs call the model
 
-The CLI's own login (the OAuth session from `claude` > sign in) is not used. It expired once and every brief failed with "OAuth access token is invalid", so the briefs run on an API key instead, and the CLI's other credential paths (bearer tokens, Bedrock, Vertex) are removed from the child's environment so the key is the only way it can authenticate.
+The briefs used to spawn `claude -p`. They now make direct HTTPS calls to DeepSeek's OpenAI-compatible endpoint (`deepseekBaseUrl`, model `deepseekModel`, default `deepseek-v4-flash`) through `server/services/deepseek.js`, the same client the nightly pipeline uses. There is no CLI on the path any more, and no login to expire.
 
-1. **Where the key comes from.** `anthropicApiKey` in `~/nildash-briefs/config.json` first; `ANTHROPIC_API_KEY` in the environment second; with neither, the run fails before claude is started, with the message `No Anthropic API key. Set "anthropicApiKey" in ~/nildash-briefs/config.json, or export ANTHROPIC_API_KEY ...`. No key is written anywhere in the repository.
+1. **Where the key comes from.** `deepseekApiKey` in `~/nildash-briefs/config.json` first; `DEEPSEEK_API_KEY` in the environment second; with neither, the run fails before any call, with the message `No DeepSeek API key. Set "deepseekApiKey" in ~/nildash-briefs/config.json, or export DEEPSEEK_API_KEY ...`. No key is written anywhere in the repository.
 
-2. **The footer of every brief** says which was used, masked:
+2. **Web search.** DeepSeek's API has no search tool, so a searched call is a function-calling loop (`server/services/webSearchTool.js`): the model asks for `web_search` and `fetch_page`, the searches go to Brave, Serper or Tavily on the key in config.json (`braveSearchApiKey`, `serperApiKey`, `tavilyApiKey`) or the environment (`BRAVE_SEARCH_API_KEY`, `SERPER_API_KEY`, `TAVILY_API_KEY`), and `maxTurns` is the cap on searches per call. A searched brief with no search key fails with a message naming the keys; follow-ups never searches.
 
-   `auth: API key sk-ant-…a1b2 from config.json; other credential env absent; apiKeyHelper none`
+3. **The footer of every brief** says which model and key were used, masked, which search door, and what the calls read, wrote, searched and are estimated to have cost:
 
-3. **`node tools/briefs/lib.js --claude-test`** makes the exact spawn the briefs make and prints `RESULT: PASS. claude -p runs from here on the API key from config.json.` Run it from Terminal after setup, and once from cron (paste the line into the crontab for one minute) to see what cron sees. If it says the API refused the key, the key is wrong or revoked; if it says the CLI is still trying its own login, run `claude /logout` once.
+   `model: DeepSeek deepseek-v4-flash on API key sk-…a1b2 from config.json; web search via brave`
+   `DeepSeek calls: 7 (deepseek-v4-flash); turns: 3, 2, ...; tokens in/out: 41200/3900; searches: 14; est $0.0850`
 
-4. **Spend shows in the Console.** Every call is a normal API request: console.anthropic.com > Usage shows the overnight window against the key. Haiku for strategy-watch, the default model for the other three.
+4. **`node tools/briefs/lib.js --api-test`** makes one plain call on the key the briefs use and prints `RESULT: PASS. DeepSeek answers from here on the API key from config.json.`; with `--search` it also runs one searched call and names the provider. Run it from Terminal after setup, and once from cron (paste the line into the crontab for one minute) to see what cron sees. `--claude-test` still exists for the old `claude -p` path and is not used by any brief.
+
+5. **Spend shows at platform.deepseek.com > Usage**, and the search provider's own dashboard shows the queries. The footer's estimate uses the rates in `server/services/aiLedger.js` (`DEEPSEEK_PRICE_IN`, `DEEPSEEK_PRICE_OUT`, `DEEPSEEK_PRICE_CACHE_HIT`, `SEARCH_USD_PER_QUERY` override them).
 
 ## Running on Railway
 
@@ -61,8 +64,12 @@ The same four scripts, as one Railway service separate from the NILDash app. The
 | `BRIEFS_TO` | `to` | defaults to john@comptongroupllc.com |
 | `BRIEFS_FROM` | `from` | defaults to NILDash Briefs <noreply@mynildash.com> |
 | `RESEND_API_KEY` | `resendApiKey` | **required**; the same key the app has |
-| `ANTHROPIC_API_KEY` | (fallback) | **required** unless `BRIEFS_ANTHROPIC_API_KEY`; what `claude -p` runs on |
-| `BRIEFS_ANTHROPIC_API_KEY` | `anthropicApiKey` | optional; wins over `ANTHROPIC_API_KEY` |
+| `DEEPSEEK_API_KEY` | (fallback) | **required** unless `BRIEFS_DEEPSEEK_API_KEY`; the same key the NILDash service has |
+| `BRIEFS_DEEPSEEK_API_KEY` | `deepseekApiKey` | optional; wins over `DEEPSEEK_API_KEY` |
+| `BRIEFS_DEEPSEEK_MODEL` | `deepseekModel` | `deepseek-v4-flash` |
+| `BRIEFS_DEEPSEEK_BASE_URL` | `deepseekBaseUrl` | `https://api.deepseek.com` |
+| `BRAVE_SEARCH_API_KEY` / `SERPER_API_KEY` / `TAVILY_API_KEY` | `braveSearchApiKey` / `serperApiKey` / `tavilyApiKey` | **one required** for news, prospecting and strategy-watch; the same key the NILDash service has |
+| `ANTHROPIC_API_KEY` / `BRIEFS_ANTHROPIC_API_KEY` | `anthropicApiKey` | no longer used by any brief; only `--claude-test` reads it |
 | `BRIEFS_MY_ADDRESSES` | `myAddresses` | **required for follow-ups**; every address you send from |
 | `BRIEFS_LOOKBACK_DAYS` | `lookbackDays` | 60 |
 | `BRIEFS_SILENT_DAYS` | `silentDays` | 7 |
@@ -95,9 +102,9 @@ Why not Gmail OAuth: NILDash's Google consent is `gmail.send` only. Reading need
 
 ## Guardrails
 
-- `--max-turns` on every call: 2 for follow-ups (one summarising call), 4 per news term, 5 per prospect, 4 per strategy-watch search plus 1 for its paragraph. Change them in `config.json` under `maxTurns`.
+- A search cap on every searched call (`maxTurns`): 4 per news term, 5 per prospect, 4 per strategy-watch search; follow-ups and the strategy paragraph make one plain call each. Change them in `config.json` under `maxTurns`.
 - A wall-clock kill of 6 minutes per call (`callTimeoutMin`).
-- Tools are whitelisted per call: none for follow-ups, `WebSearch`/`WebFetch` for news and prospecting. Nothing can run a shell command or write a file.
+- The model has two functions and nothing else: `web_search` (the provider) and `fetch_page` (one page, text only, capped). Nothing can run a shell command or write a file.
 - The worst case for a night is bounded: 1 + 7 + 20 + 4 calls, each capped in turns and minutes.
 
 ## When every mailbox reads zero
@@ -139,7 +146,9 @@ On Railway, from the service shell:
 node tools/briefs/run-slot.js --dry            which brief this minute would run
 node tools/briefs/run-slot.js --brief news-watch
 node tools/briefs/run-slot.js --all            all four, in order
-node tools/briefs/lib.js --claude-test          the key and the CLI
+node tools/briefs/lib.js --api-test             the DeepSeek key, one call
+node tools/briefs/lib.js --api-test --search    and one searched call through the provider
+node tools/briefs/lib.js --claude-test          the old claude -p path only (anthropicApiKey; fails with "No Anthropic API key" when unset); no brief uses it
 node tools/briefs/mail-source.js --probe        the mail doors
 ```
 

@@ -122,6 +122,11 @@
       "total": 22,
       "fault": null
     },
+    "briefsdeepseek.js": {
+      "failed": 0,
+      "total": 32,
+      "fault": null
+    },
     "briefsrailway.js": {
       "failed": 0,
       "total": 60,
@@ -220,6 +225,11 @@
     "deeprow.js": {
       "failed": 0,
       "total": 16,
+      "fault": null
+    },
+    "deepseek.js": {
+      "failed": 0,
+      "total": 48,
       "fault": null
     },
     "deliverables.js": {

@@ -3,8 +3,9 @@
 # (tools/briefs/railway.json points at it), run on Railway's cron. It copies
 # only what the briefs need: the package manifest (for resend, imap,
 # mailparser, pg, msal and the Graph client), server/services (the Outlook
-# provider and the token cipher the briefs reuse), and tools/briefs itself.
-# The Claude Code CLI is installed globally so `claude -p` exists on PATH.
+# provider, the token cipher, and the DeepSeek client and search loop the
+# briefs call directly), and tools/briefs itself. No CLI: the briefs make
+# HTTPS calls to DeepSeek on DEEPSEEK_API_KEY.
 #
 # State, archives, logs and the LinkedIn CSV live under BRIEFS_HOME, which
 # must be a mounted Railway volume (/data/briefs) or they vanish on redeploy.
@@ -17,7 +18,6 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts \
- && npm install -g @anthropic-ai/claude-code \
  && npm cache clean --force
 
 COPY server ./server

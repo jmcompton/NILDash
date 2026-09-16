@@ -10,6 +10,13 @@ const { canonicalRegion, marketPoolKey } = require('./services/regionKey');
 const scanMeter = require('./scanMeter');
 const Ledger = require('./services/aiLedger');
 Ledger.usePool(() => store.pool);
+// The fast tier's other provider (discovery, contacts, lookup), and the
+// search loop that stands in for Anthropic's web_search tool on it. Which
+// calls go where is decided in services/deepseek.route; the decision is
+// logged once here so a night on the wrong provider is visible at startup.
+const DS = require('./services/deepseek');
+const WST = require('./services/webSearchTool');
+console.log('[ai] ' + DS.describeRouting());
 const { lookupPlace } = require('./services/placesLookup');
 const { buildMarketPoolFromPlaces } = require('./services/placesMarket');
 const { isNoLocalAuthority, businessTier } = require('./services/dealScanRanking');
@@ -307,10 +314,28 @@ const MODEL_GEN = MODEL_BALANCED;
 const FEATURE_EMAIL_V2 = true;
 
 async function oneShot(prompt, system, maxTokens, model) {
+  const useModel = model || MODEL_BALANCED;
+  // THE FAST TIER ON DEEPSEEK. Only a Haiku call, and only under a routed
+  // site (discovery, contacts, lookup): the writer names Sonnet and never
+  // comes here; an app call with no label does not either. A DeepSeek
+  // failure falls back to Haiku for THIS call, so a bad hour at the other
+  // provider costs money, not the night.
+  if (useModel === MODEL_FAST) {
+    const rt = DS.route(scanMeter.ctx().site, { needsSearch: false });
+    if (rt.provider === 'deepseek') {
+      scanMeter.bumpAi();
+      try {
+        const r = await DS.chat({ system: system || 'You are a precise NIL deal analyst.', messages: [{ role: 'user', content: prompt }],
+          maxTokens: maxTokens || 2000, ledger: { ctx: scanMeter.ctx() } });
+        return stripEmDashes(r.text);
+      } catch (e) {
+        console.warn(`[oneShot] DeepSeek failed (${e.message}); this call falls back to ${MODEL_FAST}`);
+      }
+    }
+  }
   const ai = getClient();
   scanMeter.bumpAi(); // count this billable AI call against the current scan
   const delays = [2000, 5000, 10000];
-  const useModel = model || MODEL_BALANCED;
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     try {
       const _t0 = Date.now();
@@ -413,6 +438,22 @@ async function toolLoop({ system, messages, tools, model, maxTokens, maxRounds, 
 // brand discovery returns REAL, verifiable local businesses. Falls back to the
 // caller's error handling on timeout/failure.
 async function oneShotWebSearch(prompt, system, maxTokens, maxSearches, model) {
+  // The fast tier on DeepSeek: the same searches, run by the loop in
+  // services/webSearchTool through the search provider. One meter bump per
+  // call, as below, whichever provider answers.
+  if ((model || MODEL_BALANCED) === MODEL_FAST) {
+    const rt = DS.route(scanMeter.ctx().site, { needsSearch: true });
+    if (rt.provider === 'deepseek') {
+      scanMeter.bumpWeb();
+      try {
+        const r = await WST.searchLoop({ prompt, system: system || 'You are a precise research assistant.',
+          maxSearches: maxSearches || 5, maxTokens: maxTokens || 3000, ctx: scanMeter.ctx() });
+        return stripEmDashes(r.text);
+      } catch (e) {
+        console.warn(`[oneShotWebSearch] DeepSeek search failed (${e.message}); this call falls back to ${MODEL_FAST}`);
+      }
+    }
+  }
   const ai = getClient();
   scanMeter.bumpWeb(); // count this billable web-search call against the current scan
   const _t0 = Date.now();
@@ -1753,6 +1794,22 @@ async function runSourceWaves(sources, runOneRaw, opts = {}) {
 }
 
 async function _contactWebSearchRaw(prompt, sys) {
+  // The contact ladder on DeepSeek: the same extraction at temperature 0,
+  // the searches run by the loop, the citations being the URLs the searches
+  // returned. Same return shape, so every source reads it unchanged.
+  {
+    const rt = DS.route(scanMeter.ctx().site, { needsSearch: true });
+    if (rt.provider === 'deepseek') {
+      scanMeter.bumpWeb();
+      try {
+        const r = await WST.searchLoop({ prompt, system: sys, temperature: 0,
+          maxSearches: CONTACT_SEARCH_MAX_USES, maxTokens: CONTACT_SEARCH_MAX_TOKENS, ctx: scanMeter.ctx() });
+        return { text: stripEmDashes(r.text), citations: r.citations, searches: r.searches, outTokens: r.outTokens, apiMs: r.apiMs };
+      } catch (e) {
+        console.warn(`[contacts] DeepSeek search failed (${e.message}); this call falls back to ${MODEL_FAST}`);
+      }
+    }
+  }
   const client = getClient();
   scanMeter.bumpWeb();
   const _apiT0 = Date.now();
