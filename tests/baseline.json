@@ -674,6 +674,11 @@
       "total": 14,
       "fault": null
     },
+    "prospectdebug.js": {
+      "failed": 0,
+      "total": 23,
+      "fault": null
+    },
     "pwreset.js": {
       "failed": 0,
       "total": 49,

@@ -22,7 +22,7 @@ If nothing survives, the run writes one log line and sends nothing. When it send
 1. **The key.** `mkdir -p ~/nildash-briefs/inbox`, copy `config.example.json` to `~/nildash-briefs/config.json`, and set `anthropicApiKey` to an Anthropic API key (the one Railway uses, or a new one from console.anthropic.com). If you would rather not keep it in the file, leave it empty and export `ANTHROPIC_API_KEY` in the environment that runs the briefs; the file is read first, the environment second, and with neither a run stops before starting claude and says which to set. Then `node tools/briefs/lib.js --claude-test` must print `RESULT: PASS` and name where the key came from.
 2. **Config.** In the same file fill in `resendApiKey` (the same key Railway has), `myAddresses` (every address you send from), and `aboutMe` in your own words. `to` is already `john@comptongroupllc.com`.
 3. **Mail.app.** Both accounts must be set up in Mail on that Mac. The first run will ask for Automation permission (System Settings > Privacy & Security > Automation: allow the terminal, and cron, to control Mail). Run `node tools/briefs/follow-ups.js` by hand once so the prompt appears.
-4. **LinkedIn CSV.** Drop `Connections.csv` in `~/nildash-briefs/inbox/`. The export lives at LinkedIn > Settings > Data privacy > Get a copy of your data > Connections.
+4. **LinkedIn CSV.** Drop `Connections.csv` in `~/nildash-briefs/inbox/`, or set `connectionsFile` in the config to wherever it is (`~` is expanded). The export lives at LinkedIn > Settings > Data privacy > Get a copy of your data > Connections. Prospecting looks at `connectionsFile` first, then `inbox/*.csv`, then `~/nildash-briefs/*.csv`.
 5. **Cron.** `crontab -e`, paste `crontab.example`, fix `NODE` and `REPO`. The times are 5:30, 5:45 and 6:00 local, staggered so the runs never overlap.
 6. **Keep the Mac awake at 5:25**, or `sudo pmset repeat wakeorpoweron MTWRFSU 05:25:00`.
 
@@ -78,6 +78,7 @@ The same four scripts, as one Railway service separate from the NILDash app. The
 | `BRIEFS_CONFIG_JSON` | (all) | the whole config as one JSON value, if that is easier |
 | `BRIEFS_TZ` | | `America/Chicago` |
 | `BRIEFS_CONNECTIONS_URL` | `connectionsUrl` | **for prospecting**: a direct-download link to the LinkedIn `Connections.csv`, fetched into the volume's inbox each run |
+| `BRIEFS_CONNECTIONS_FILE` | `connectionsFile` | **for prospecting**: the path of the LinkedIn CSV when it is not in the inbox, e.g. `~/nildash-briefs/Connections.csv` |
 
 **Mail on a server.** Mail.app does not exist on Railway, and the two accounts need two different doors:
 
@@ -152,3 +153,11 @@ node tools/briefs/strategy-watch.js --no-email --print
 ```
 
 Logs are in `~/nildash-briefs/logs/`. State (what has been shown or drafted) is in `~/nildash-briefs/state/`; delete `prospecting-done.json` to start the prospect queue over.
+
+**Prospecting drafted 0?** Run it with the two flags and read the `[prospecting:debug]` lines:
+
+```
+node tools/briefs/prospecting.js --debug --dry
+```
+
+`--debug` prints the config it loaded (keys masked), every place it looked for the CSV and what it found there, the header line and the first five rows, the count per keyword, the exclusions (already drafted, already in sent mail), the next ten in the queue, and a `why 0:` line naming the reason. `--dry` stops there: nothing is researched, drafted, archived or sent. `--no-email` runs the whole thing and writes the archive without sending the email.

@@ -13,7 +13,15 @@
 const fs = require('fs');
 const path = require('path');
 const L = require('./lib');
-const { dumpMail, addrOf, nameOf } = require('./mail-dump');
+const { addrOf, nameOf } = require('./mail-dump');
+const { readMail } = require('./mail-source');
+const os = require('os');
+
+const DEBUG = process.argv.includes('--debug') || !!process.env.BRIEFS_DEBUG;
+const DRY = process.argv.includes('--dry');          // count and list, draft nothing, send nothing
+const NO_EMAIL = process.argv.includes('--no-email');
+const dbg = (...a) => { if (DEBUG) console.log('[prospecting:debug]', ...a); };
+const expandHome = (p) => String(p || '').replace(/^~(?=$|[\/\\])/, os.homedir());
 
 const KIND = 'prospecting';
 const STATE = 'prospecting-done.json';
@@ -66,11 +74,39 @@ async function fetchConnectionsIfConfigured(cfg, warnings) {
   }
 }
 
-function findCsv() {
-  const dir = L.DIRS.inbox;
-  const files = fs.readdirSync(dir).filter((f) => /\.csv$/i.test(f)).map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs })).sort((a, b) => b.t - a.t);
-  const pick = files.find((x) => /connections/i.test(x.f)) || files[0];
-  return pick ? path.join(dir, pick.f) : null;
+// WHERE THE FILE IS LOOKED FOR, IN ORDER, and every place is reported in
+// --debug. config.json's connectionsFile first (the first live run had it set
+// to ~/nildash-briefs/Connections.csv, and the script only ever looked in
+// inbox/, so 1,741 connections produced "No CSV"). Then the inbox. Then the
+// briefs root itself, where a file dropped beside config.json lands.
+function findCsv(cfg, tried) {
+  const note = (where, found) => { if (tried) tried.push({ where, found }); };
+  const explicit = expandHome(cfg.connectionsFile || '');
+  if (explicit) {
+    const p = path.isAbsolute(explicit) ? explicit : path.join(L.ROOT, explicit);
+    const ok = fs.existsSync(p) && fs.statSync(p).isFile();
+    note(`config connectionsFile: ${p}`, ok);
+    if (ok) return p;
+  }
+  for (const dir of [L.DIRS.inbox, L.ROOT]) {
+    let files = [];
+    try { files = fs.readdirSync(dir).filter((f) => /\.csv$/i.test(f)).map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs })).sort((a, b) => b.t - a.t); } catch (_) { files = []; }
+    const pick = files.find((x) => /connections/i.test(x.f)) || files[0];
+    note(`${dir}/*.csv (${files.length} csv file(s)${files.length ? ': ' + files.map((x) => x.f).join(', ') : ''})`, !!pick);
+    if (pick) return path.join(dir, pick.f);
+  }
+  return null;
+}
+
+// What --debug prints about the config: every key, secrets masked.
+function describeConfig(cfg) {
+  const mask = (v) => (v ? String(v).slice(0, 6) + '…' + String(v).slice(-3) : '(unset)');
+  const out = {};
+  for (const [k, v] of Object.entries(cfg)) {
+    if (k === '_source') continue;
+    out[k] = /apikey|password|secret|token/i.test(k) ? mask(v) : v;
+  }
+  return out;
 }
 
 async function main() {
@@ -79,21 +115,44 @@ async function main() {
   const calls = [];
   const warnings = [];
 
+  if (DEBUG) {
+    dbg('config loaded from', cfg._source && cfg._source.file ? L.CONFIG_PATH : '(no config.json)', 'with', (cfg._source && cfg._source.env.length) ? 'environment overrides: ' + cfg._source.env.join(', ') : 'no environment overrides');
+    dbg('config:', JSON.stringify(describeConfig(cfg), null, 2));
+    dbg('briefs root:', L.ROOT, ' inbox:', L.DIRS.inbox, ' state:', L.DIRS.state);
+  }
   await fetchConnectionsIfConfigured(cfg, warnings);
-  const csvPath = findCsv();
+  const tried = [];
+  const csvPath = findCsv(cfg, tried);
+  if (DEBUG) for (const t of tried) dbg(`looked ${t.found ? 'FOUND  ' : 'nothing'} ${t.where}`);
   if (!csvPath) {
-    const md = [`# Prospects: 0 drafted`, '', `No CSV in ${L.DIRS.inbox}. Export LinkedIn connections (Settings > Data privacy > Get a copy of your data > Connections) and drop Connections.csv there.`, L.footer(KIND, calls, audit)].join('\n');
+    dbg('why 0: no CSV was found in any of the places above; nothing to filter');
+    const md = [`# Prospects: 0 drafted`, '', `No connections CSV. Looked for: ${tried.map((t) => t.where).join('; ')}. Set connectionsFile in config.json (or BRIEFS_CONNECTIONS_FILE) to the LinkedIn export, or drop Connections.csv in ${L.DIRS.inbox}.`, L.footer(KIND, calls, audit)].join('\n');
     L.writeBrief(KIND, md);
-    await L.sendBrief(cfg, { subject: 'Prospects: 0 drafted', markdown: md, kind: KIND }).catch((e) => L.log(KIND, 'EMAIL FAILED: ' + e.message));
+    if (!NO_EMAIL && !DRY) await L.sendBrief(cfg, { subject: 'Prospects: 0 drafted', markdown: md, kind: KIND }).catch((e) => L.log(KIND, 'EMAIL FAILED: ' + e.message));
     return;
   }
-  const people = parseCsv(fs.readFileSync(csvPath, 'utf8'));
+  dbg('reading', csvPath);
+  const csvText = fs.readFileSync(csvPath, 'utf8');
+  const rawLines = csvText.split(/\r?\n/);
+  const headerLine = rawLines.findIndex((l) => /first name/i.test(l));
+  dbg(`file: ${csvText.length} chars, ${rawLines.filter((l) => l.trim()).length} non-empty lines; header row at line ${headerLine + 1}${headerLine > 0 ? ` (after ${headerLine} line(s) of LinkedIn preamble)` : ''}${headerLine < 0 ? ' -- NO "First Name" HEADER FOUND, the file is not a LinkedIn Connections export' : ''}`);
+  if (DEBUG && headerLine >= 0) dbg('header:', rawLines[headerLine]);
+  const people = parseCsv(csvText);
+  dbg(`parsed ${people.length} connection(s)`);
+  if (DEBUG) for (const p of people.slice(0, 5)) dbg('  row:', JSON.stringify({ first: p.first, last: p.last, company: p.company, position: p.position, email: p.email || '(withheld)', connectedOn: p.connectedOn }));
   const kw = cfg.prospectKeywords.map((k) => String(k).toLowerCase());
-  const matches = people.filter((p) => { const hay = `${p.position} ${p.company}`.toLowerCase(); return kw.some((k) => hay.includes(k)); });
+  const hayOf = (p) => `${p.position} ${p.company}`.toLowerCase();
+  const matches = people.filter((p) => kw.some((k) => hayOf(p).includes(k)));
+  if (DEBUG) {
+    dbg(`keywords (${kw.length}): ${kw.join(', ')}`);
+    for (const k of kw) dbg(`  "${k}": ${people.filter((p) => hayOf(p).includes(k)).length} match(es) in position or company`);
+    dbg(`${matches.length} of ${people.length} match at least one keyword`);
+    if (!people.length) dbg('why 0: the parser returned no rows (see the header line above)');
+    else if (!matches.length) dbg('why 0: no position or company contains any keyword; sample positions: ' + people.slice(0, 8).map((p) => JSON.stringify(p.position || '(blank)')).join(', '));
+  }
 
   // Exclusions: sent mail (address or name) and earlier runs.
-  const mail = dumpMail({ accounts: cfg.mailAccounts, myAddresses: cfg.myAddresses, lookbackDays: Math.max(cfg.lookbackDays, 365),
-    debug: process.argv.includes('--debug') || !!process.env.BRIEFS_DEBUG });
+  const mail = await readMail({ ...cfg, lookbackDays: Math.max(cfg.lookbackDays, 365) }, { debug: DEBUG });
   if (mail.warnings.length) warnings.push(...mail.warnings.map((w) => 'mail: ' + w));
   const sentAddr = new Set(), sentNames = new Set();
   for (const m of mail.sent) {
@@ -102,14 +161,22 @@ async function main() {
   if (!mail.sent.length) warnings.push('sent mail was empty or unreadable, so nobody was excluded on that basis');
   const done = L.readState(STATE, {});
   const keyOf = (p) => (p.url || `${p.first} ${p.last}|${p.company}`).toLowerCase();
+  const dropped = { drafted: 0, sentAddress: 0, sentName: 0 };
   const queue = matches.filter((p) => {
-    if (done[keyOf(p)]) return false;
-    if (p.email && sentAddr.has(p.email)) return false;
-    if (sentNames.has(`${p.first} ${p.last}`.toLowerCase())) return false;
+    if (done[keyOf(p)]) { dropped.drafted++; return false; }
+    if (p.email && sentAddr.has(p.email)) { dropped.sentAddress++; return false; }
+    if (sentNames.has(`${p.first} ${p.last}`.toLowerCase())) { dropped.sentName++; return false; }
     return true;
   });
   const batch = queue.slice(0, cfg.prospectsPerRun);
   L.log(KIND, `${people.length} connections, ${matches.length} match keywords, ${queue.length} not yet contacted or drafted, drafting ${batch.length}`);
+  if (DEBUG) {
+    dbg(`exclusions: ${dropped.drafted} drafted on an earlier run (${Object.keys(done).length} in ${STATE}), ${dropped.sentAddress} already in sent mail by address, ${dropped.sentName} by name (${mail.sent.length} sent message(s) read, ${sentAddr.size} address(es))`);
+    dbg(`queue: ${queue.length}; this run drafts up to ${cfg.prospectsPerRun}`);
+    if (matches.length && !queue.length) dbg('why 0: every keyword match was excluded, by the reasons above. Delete state/' + STATE + ' to draft them again.');
+    for (const p of queue.slice(0, 10)) dbg('  next:', `${p.first} ${p.last}`, '|', p.position, '@', p.company);
+  }
+  if (DRY) { console.log(`[prospecting] --dry: ${people.length} connections, ${matches.length} matches, ${queue.length} in the queue, would draft ${batch.length}. Nothing drafted or sent.`); return; }
 
   const drafted = [];
   for (const p of batch) {
@@ -152,6 +219,7 @@ Return ONLY JSON: {"summary": "two lines on who they are and what they do, from 
   L.log(KIND, `archived ${file}`);
 
   const subject = `Prospects: ${n} drafted`;
+  if (NO_EMAIL) { L.log(KIND, `--no-email: "${subject}" archived, not sent`); return; }
   try { await L.sendBrief(cfg, { subject, markdown: text, kind: KIND }); }
   catch (e) { L.log(KIND, `EMAIL FAILED: ${e.message}. The archive at ${file} is complete.`); process.exitCode = 2; }
 }
