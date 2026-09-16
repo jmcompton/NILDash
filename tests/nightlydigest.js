@@ -95,6 +95,20 @@ async function main() {
   const r5 = await D.sendForRun(P(), { agentId: AG2, runDate: NIGHT, details: [{ athleteId: 'nd-b1', filled: 2 }] }, { send });
   ok('an unsubscribed agent: not sent, nothing logged', r5.sent === false && r5.reason === 'unsubscribed' && sent.length === 2 && (await P().query(`SELECT COUNT(*)::int n FROM nightly_digest_sends WHERE agent_id = $1`, [AG2])).rows[0].n === 0, r5);
   const failing = async () => { throw new Error('Resend down'); };
+  // ── THE ALLOWLIST: one inbox verifies a night before customers see it ──
+  process.env.NIGHTLY_DIGEST_ALLOWLIST = ' JohnMarkCompton@gmail.com , other@x.com ';
+  const before = sent.length;
+  const r5a = await D.sendForRun(P(), { agentId: AG, runDate: '2099-03-10', details }, { send });
+  ok('an agent not on NIGHTLY_DIGEST_ALLOWLIST: held, not sent, nothing recorded', r5a.sent === false && r5a.reason === 'not on NIGHTLY_DIGEST_ALLOWLIST' && sent.length === before && (await P().query(`SELECT COUNT(*)::int n FROM nightly_digest_sends WHERE agent_id = $1 AND run_date = '2099-03-10'`, [AG])).rows[0].n === 0, r5a);
+  ok('  the list is case- and space-insensitive', D.allowed('johnmarkcompton@gmail.com') && D.allowed('OTHER@X.COM') && !D.allowed('nd-agent@x.com'));
+  process.env.NIGHTLY_DIGEST_ALLOWLIST = 'nd-agent@x.com';
+  const r5b = await D.sendForRun(P(), { agentId: AG, runDate: '2099-03-10', details }, { send });
+  ok('  an agent on the list is sent to, and the held night sends once the list allows it', r5b.sent === true && sent.length === before + 1 && sent[sent.length - 1].to === 'nd-agent@x.com', r5b);
+  process.env.NIGHTLY_DIGEST_ALLOWLIST = '  ';
+  ok('  a blank list means everyone', D.allowlist() === null && D.allowed('anyone@x.com'));
+  delete process.env.NIGHTLY_DIGEST_ALLOWLIST;
+  ok('  unset means everyone', D.allowlist() === null && D.allowed('anyone@x.com'));
+
   const r6 = await D.sendForRun(P(), { agentId: AG, runDate: '2099-03-04', details }, { send: failing });
   const flog = (await P().query(`SELECT status, error FROM nightly_digest_sends WHERE agent_id = $1 AND run_date = '2099-03-04'`, [AG])).rows[0];
   ok('a failed send is logged as failed with the error, and the fill is not affected', r6.sent === false && flog && flog.status === 'failed' && /Resend down/.test(flog.error), flog);

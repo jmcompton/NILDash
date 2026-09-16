@@ -18,6 +18,22 @@
 
 const APP_URL = () => process.env.APP_URL || 'https://mynildash.com';
 const FROM = () => process.env.NIGHTLY_DIGEST_FROM || 'NILDash <noreply@mynildash.com>';
+
+// NIGHTLY_DIGEST_ALLOWLIST: when set, a comma-separated list of the only
+// addresses the digest may go to, so a night can be verified in one inbox
+// before customers see it. An agent not on it is skipped BEFORE the claim,
+// so nothing is recorded and the send happens on the first night the list
+// is lifted. Unset or empty means everyone. Case and spaces do not matter.
+function allowlist() {
+  const raw = String(process.env.NIGHTLY_DIGEST_ALLOWLIST || '').trim();
+  if (!raw) return null;
+  const set = new Set(raw.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+  return set.size ? set : null;
+}
+function allowed(email) {
+  const set = allowlist();
+  return !set || set.has(String(email || '').trim().toLowerCase());
+}
 const SUBJECT = 'Your athletes have new pitches ready';
 const INTRO = "NILDash found new opportunities for your athletes last night. Here's what's ready.";
 const FOOTER = 'Pitches expire in 14 days. NILDash refills automatically each night.';
@@ -112,6 +128,10 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
   if (!u || !u.email) return { sent: false, reason: 'no such agent, or no email', athletes: rows.length, cards };
   if (u.archived === true) return { sent: false, reason: 'archived', athletes: rows.length, cards };
   if (u.digest_unsubscribed === true) return { sent: false, reason: 'unsubscribed', athletes: rows.length, cards };
+  if (!allowed(u.email)) {
+    console.log(`[nightly-digest] HELD ${u.email} night=${runDate} athletes=${rows.length} cards=${cards}: not on NIGHTLY_DIGEST_ALLOWLIST (nothing recorded; sends when the list is lifted)`);
+    return { sent: false, reason: 'not on NIGHTLY_DIGEST_ALLOWLIST', athletes: rows.length, cards };
+  }
 
   // The claim: one row per agent per night, taken before anything is sent.
   const claim = await pool.query(
@@ -147,4 +167,4 @@ async function sendForRun(pool, { agentId, runDate, details }, opts = {}) {
   }
 }
 
-module.exports = { render, rowsFor, placeOf, sendForRun, SUBJECT, INTRO, FOOTER, FROM };
+module.exports = { render, rowsFor, placeOf, sendForRun, allowlist, allowed, SUBJECT, INTRO, FOOTER, FROM };
