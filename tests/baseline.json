@@ -679,6 +679,11 @@
       "total": 23,
       "fault": null
     },
+    "prospectfilter.js": {
+      "failed": 0,
+      "total": 27,
+      "fault": null
+    },
     "pwreset.js": {
       "failed": 0,
       "total": 49,

@@ -9,6 +9,16 @@
 // twenty with one `claude -p` each (WebSearch allowed, --max-turns capped) and
 // drafts a personalised opener. Emailed and archived. Nothing is sent to any
 // of them: the openers are for me to read, edit and send by hand.
+//
+// THE QUALITY FILTER. A researched person is FILTERED, not drafted, when the
+// research says they are not US-based, or not working in US sports markets,
+// or when no opener came back. Filtered people are recorded in the state file
+// with the reason so they are not researched again; a research call that
+// failed outright (timeout, claude error) is not recorded and is retried on
+// the next run. The brief reports "N drafted, M filtered" with each reason.
+//
+// --exclude "Ann Lee,https://www.linkedin.com/in/bobray"  skips those people
+// on this run only: nothing is recorded, they are back in the queue next time.
 
 const fs = require('fs');
 const path = require('path');
@@ -25,6 +35,38 @@ const expandHome = (p) => String(p || '').replace(/^~(?=$|[\/\\])/, os.homedir()
 
 const KIND = 'prospecting';
 const STATE = 'prospecting-done.json';
+
+// ── --exclude: NAMES OR LINKEDIN URLS TO SKIP THIS RUN ──────────────────────
+// `--exclude a,b` or `--exclude=a,b`, repeatable. Each item is a full name
+// ("Ann Lee"), a LinkedIn URL (with or without https://www.), or the handle
+// after /in/. Case does not matter.
+function excludeList(argv) {
+  const raw = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--exclude') { if (argv[i + 1] != null) raw.push(argv[++i]); }
+    else if (argv[i].startsWith('--exclude=')) raw.push(argv[i].slice('--exclude='.length));
+  }
+  return raw.join(',').split(',').map((s) => s.trim()).filter(Boolean);
+}
+const normName = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+const normUrl = (u) => String(u || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+const handleOf = (u) => { const m = normUrl(u).match(/\/in\/([^\/]+)$/); return m ? m[1] : ''; };
+// Returns the exclude item that names this person, or null.
+function excludedBy(items, p) {
+  const mine = new Set([normName(`${p.first} ${p.last}`), normUrl(p.url), handleOf(p.url)].filter(Boolean));
+  return items.find((t) => mine.has(normName(t)) || mine.has(normUrl(t)) || mine.has(handleOf(t)) || (/^[a-z0-9_-]+$/i.test(t) && mine.has(t.toLowerCase()))) || null;
+}
+
+// ── THE QUALITY FILTER: why a researched person is not drafted ──────────────
+// null means draft them. The research JSON carries usBased and
+// usSportsMarket as true / false / null (unknown); only a clear false skips,
+// so a person the web knows nothing about still gets an honest opener.
+function filterReason(j) {
+  if (j.usBased === false) return 'not US-based' + (j.location ? ` (${j.location})` : '');
+  if (j.usSportsMarket === false) return 'not working in US sports markets' + (j.location ? ` (${j.location})` : '');
+  if (!String(j.opener || '').trim()) return 'no opener generated';
+  return null;
+}
 
 // LinkedIn's export starts with a few lines of notes before the real header.
 function parseCsv(text) {
@@ -161,24 +203,33 @@ async function main() {
   if (!mail.sent.length) warnings.push('sent mail was empty or unreadable, so nobody was excluded on that basis');
   const done = L.readState(STATE, {});
   const keyOf = (p) => (p.url || `${p.first} ${p.last}|${p.company}`).toLowerCase();
-  const dropped = { drafted: 0, sentAddress: 0, sentName: 0 };
+  const exclude = excludeList(process.argv.slice(2));
+  const excludedNames = [];
+  const dropped = { drafted: 0, sentAddress: 0, sentName: 0, excluded: 0 };
   const queue = matches.filter((p) => {
     if (done[keyOf(p)]) { dropped.drafted++; return false; }
     if (p.email && sentAddr.has(p.email)) { dropped.sentAddress++; return false; }
     if (sentNames.has(`${p.first} ${p.last}`.toLowerCase())) { dropped.sentName++; return false; }
+    const by = exclude.length ? excludedBy(exclude, p) : null;
+    if (by) { dropped.excluded++; excludedNames.push(`${p.first} ${p.last}`.trim()); dbg(`excluded this run: ${p.first} ${p.last} (--exclude "${by}")`); return false; }
     return true;
   });
+  if (exclude.length) {
+    const unmatched = exclude.filter((t) => !people.some((p) => excludedBy([t], p)));
+    if (unmatched.length) warnings.push(`--exclude did not match any connection in the CSV: ${unmatched.map((t) => `"${t}"`).join(', ')}`);
+    L.log(KIND, `--exclude: ${exclude.length} item(s), ${dropped.excluded} skipped this run${unmatched.length ? `, ${unmatched.length} matched nobody` : ''}`);
+  }
   const batch = queue.slice(0, cfg.prospectsPerRun);
   L.log(KIND, `${people.length} connections, ${matches.length} match keywords, ${queue.length} not yet contacted or drafted, drafting ${batch.length}`);
   if (DEBUG) {
-    dbg(`exclusions: ${dropped.drafted} drafted on an earlier run (${Object.keys(done).length} in ${STATE}), ${dropped.sentAddress} already in sent mail by address, ${dropped.sentName} by name (${mail.sent.length} sent message(s) read, ${sentAddr.size} address(es))`);
+    dbg(`exclusions: ${dropped.drafted} drafted on an earlier run (${Object.keys(done).length} in ${STATE}), ${dropped.sentAddress} already in sent mail by address, ${dropped.sentName} by name (${mail.sent.length} sent message(s) read, ${sentAddr.size} address(es)), ${dropped.excluded} by --exclude`);
     dbg(`queue: ${queue.length}; this run drafts up to ${cfg.prospectsPerRun}`);
     if (matches.length && !queue.length) dbg('why 0: every keyword match was excluded, by the reasons above. Delete state/' + STATE + ' to draft them again.');
     for (const p of queue.slice(0, 10)) dbg('  next:', `${p.first} ${p.last}`, '|', p.position, '@', p.company);
   }
-  if (DRY) { console.log(`[prospecting] --dry: ${people.length} connections, ${matches.length} matches, ${queue.length} in the queue, would draft ${batch.length}. Nothing drafted or sent.`); return; }
+  if (DRY) { console.log(`[prospecting] --dry: ${people.length} connections, ${matches.length} matches, ${dropped.excluded} excluded by --exclude, ${queue.length} in the queue, would research ${batch.length}. Nothing drafted or sent.`); return; }
 
-  const drafted = [];
+  const drafted = [], filtered = [];
   for (const p of batch) {
     const name = `${p.first} ${p.last}`.trim();
     const prompt = `Research this person briefly on the web and draft a LinkedIn opener from me.
@@ -186,39 +237,59 @@ async function main() {
 PERSON: ${name}, ${p.position || 'unknown title'} at ${p.company || 'unknown company'}${p.url ? ' (' + p.url + ')' : ''}. We are connected on LinkedIn.
 ME: ${cfg.aboutMe}
 
-Return ONLY JSON: {"summary": "two lines on who they are and what they do, from what you found", "hook": "the one thing about them that makes NILDash relevant, or null if nothing real", "opener": "3-4 sentences, first person, plain, no flattery, no em dashes, no exclamation marks, ends with one easy question; if hook is null write an honest short opener that does not pretend to know them"}. Never invent facts about them; if you found nothing, say so in summary.`;
+Return ONLY JSON: {"summary": "two lines on who they are and what they do, from what you found", "location": "the city, state or country they are based in, from what you found, or null", "usBased": true or false, or null when you could not tell, "usSportsMarket": true when their work touches US college or pro sports, athletes, NIL, athletic departments, or sports business in the US; false when it clearly does not; null when you could not tell, "hook": "the one thing about them that makes NILDash relevant, or null if nothing real", "opener": "3-4 sentences, first person, plain, no flattery, no em dashes, no exclamation marks, ends with one easy question; if hook is null write an honest short opener that does not pretend to know them; null when usBased or usSportsMarket is false"}. Never invent facts about them; if you found nothing, say so in summary and leave usBased and usSportsMarket null.`;
     try {
       const r = await L.claudeP(prompt, { cfg, label: `prospect:${name}`, maxTurns: cfg.maxTurns.prospect, tools: ['WebSearch', 'WebFetch'] });
       calls.push(r);
       const j = r.json && !Array.isArray(r.json) ? r.json : {};
-      drafted.push({ p, name, summary: String(j.summary || '(no research returned)'), hook: j.hook || null, opener: String(j.opener || '(no opener returned)') });
-      L.log(KIND, `${name}: ${r.numTurns == null ? '?' : r.numTurns} turn(s), ${Math.round(r.ms / 1000)}s`);
+      const summary = String(j.summary || '(no research returned)');
+      const reason = filterReason(j);
+      if (reason) {
+        filtered.push({ p, name, reason, summary, retry: false });
+        done[keyOf(p)] = `${L.today()} filtered: ${reason}`;
+        L.log(KIND, `${name}: filtered (${reason}), ${r.numTurns == null ? '?' : r.numTurns} turn(s), ${Math.round(r.ms / 1000)}s`);
+      } else {
+        drafted.push({ p, name, summary, location: j.location || null, hook: j.hook || null, opener: String(j.opener).trim() });
+        done[keyOf(p)] = L.today();
+        L.log(KIND, `${name}: drafted, ${r.numTurns == null ? '?' : r.numTurns} turn(s), ${Math.round(r.ms / 1000)}s`);
+      }
     } catch (e) {
-      drafted.push({ p, name, summary: 'research failed: ' + e.message, hook: null, opener: null });
-      L.log(KIND, `${name}: FAILED ${e.message}`);
+      // Not recorded: a failed call says nothing about the person, so they are
+      // researched again on the next run.
+      filtered.push({ p, name, reason: 'research failed: ' + e.message, summary: null, retry: true });
+      L.log(KIND, `${name}: FAILED ${e.message} (not recorded, retried next run)`);
     }
-    done[keyOf(p)] = L.today();
   }
   L.writeState(STATE, done);
 
+  const n = drafted.length;
+  const reasons = {};
+  for (const f of filtered) { const k = f.retry ? 'research failed' : f.reason.replace(/ \(.*\)$/, ''); reasons[k] = (reasons[k] || 0) + 1; }
+  const breakdown = Object.entries(reasons).map(([k, v]) => `${v} ${k}`).join(', ');
+  L.log(KIND, `drafted ${n}, filtered ${filtered.length}${breakdown ? ` (${breakdown})` : ''}, excluded by --exclude ${dropped.excluded}`);
+
   const md = [];
-  const n = drafted.filter((d) => d.opener).length;
-  md.push(`# Prospects: ${n} drafted`, '');
-  md.push(`${people.length} connections in ${path.basename(csvPath)}; ${matches.length} match the keywords; ${queue.length - batch.length} more in the queue for the next runs. Nothing has been sent.`, '');
+  md.push(`# Prospects: ${n} drafted, ${filtered.length} filtered`, '');
+  md.push(`${people.length} connections in ${path.basename(csvPath)}; ${matches.length} match the keywords; ${batch.length} researched this run: ${n} drafted, ${filtered.length} filtered${breakdown ? ` (${breakdown})` : ''}${dropped.excluded ? `; ${dropped.excluded} skipped by --exclude (${excludedNames.join(', ')})` : ''}; ${queue.length - batch.length} more in the queue for the next runs. Nothing has been sent.`, '');
   if (warnings.length) { md.push('**Warnings**'); for (const w of warnings) md.push(`- ${w}`); md.push(''); }
+  if (filtered.length) {
+    md.push(`## Filtered (${filtered.length})`, '');
+    for (const f of filtered) md.push(`- **${f.name}** · ${[f.p.position, f.p.company].filter(Boolean).join(', ')}${f.p.url ? ` · ${f.p.url}` : ''}: ${f.reason}${f.retry ? ' (will be retried next run)' : ''}${f.summary && !f.retry ? ` | ${f.summary}` : ''}`);
+    md.push('');
+  }
   for (const d of drafted) {
     md.push(`## ${d.name} · ${[d.p.position, d.p.company].filter(Boolean).join(', ')}`);
     if (d.p.url) md.push(d.p.url);
-    md.push(`- **Who:** ${d.summary}`);
+    md.push(`- **Who:** ${d.summary}${d.location ? ` (${d.location})` : ''}`);
     md.push(`- **Hook:** ${d.hook || 'none found; the opener does not pretend otherwise'}`);
-    md.push('', '```', d.opener || '(no opener)', '```', '');
+    md.push('', '```', d.opener, '```', '');
   }
   md.push(L.footer(KIND, calls, audit));
   const text = md.join('\n');
   const file = L.writeBrief(KIND, text);
   L.log(KIND, `archived ${file}`);
 
-  const subject = `Prospects: ${n} drafted`;
+  const subject = `Prospects: ${n} drafted, ${filtered.length} filtered`;
   if (NO_EMAIL) { L.log(KIND, `--no-email: "${subject}" archived, not sent`); return; }
   try { await L.sendBrief(cfg, { subject, markdown: text, kind: KIND }); }
   catch (e) { L.log(KIND, `EMAIL FAILED: ${e.message}. The archive at ${file} is complete.`); process.exitCode = 2; }
