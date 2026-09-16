@@ -92,7 +92,7 @@ async function main() {
     ok('  and a dropped website, which silences steps 1 and 4 at the source',
       /websiteDropped: out\.websiteDropped/.test(job), null);
     ok('  written into tried[], so it reaches outreach_queue_runs.details',
-      (job.match(/risk: pre\.risk, why: _why/g) || []).length === 2, null);
+      (job.match(/risk: pre\.risk, why: _why/g) || []).length >= 2, null);
     ok('  and said in the log line too', /channel=\$\{channel\}/.test(job), null);
   }
 

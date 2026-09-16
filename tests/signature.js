@@ -116,8 +116,10 @@ async function main() {
     /app\.get\('\/api\/agent\/signature'/.test(idx) && /app\.post\('\/api\/agent\/signature'/.test(idx), null);
   ok('  A BAD LINK IS REFUSED, NOT SILENTLY DROPPED',
     /if \(rawUrl && !url\)/.test(idx) && /not a web address we can link to/.test(idx), null);
+  // The on-demand loader moved into the job (loadAthletesForQueue), so the
+  // columns travel from there now.
   ok('  and the on-demand path carries it too',
-    /u\.signature_text, u\.scheduling_url/.test(idx), null);
+    /u\.signature_text, u\.scheduling_url/.test(fs.readFileSync(ROOT + 'server/jobs/outreachQueue.js', 'utf8')) || /u\.signature_text, u\.scheduling_url/.test(idx), null);
 
   const pw = fs.readFileSync(ROOT + 'server/services/pitchWriter.js', 'utf8');
   ok('THE MODEL IS TOLD NOT TO WRITE A SIGNATURE',
@@ -141,7 +143,7 @@ async function main() {
     (job.match(/hasSchedulingLink: !!signature\.hasLink/g) || []).length === 2
       && (job.match(/PW\.writePitch\(/g) || []).length === 2, null);
   ok('the agent query loads the columns it needs',
-    (job.match(/signature_text, scheduling_url FROM users/g) || []).length >= 1, null);
+    (job.match(/signature_text, scheduling_url(?:, last_login)? FROM users/g) || []).length >= 1, null);
 
   const html2 = fs.readFileSync(ROOT + 'public/index.html', 'utf8');
   ok('SETTINGS HAS A PLACE TO SET IT',
