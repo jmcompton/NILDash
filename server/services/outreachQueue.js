@@ -484,7 +484,10 @@ function emailNoteOf(ladder) {
   const offered = emailRowsOf(ladder)[0] || null;
   if (offered) {
     const c = offered.row.emailCheck;
+    // An implicit-MX address (RFC 5321: no MX record, but the domain resolves)
+    // carries its line word for word from services/emailValidation.
     const head = c && c.ok === true ? `Email checked: ${offered.email} (${c.reason})`
+      : c && c.ok === null && c.note ? c.note
       : c && c.ok === null ? `Email unverified: ${offered.email} (${c.reason})`
       : `Email: ${offered.email} (not checked)`;
     const bad = all.filter((a) => a.check && a.check.ok === false);
