@@ -112,6 +112,14 @@ const ACTIONS = {
         athleteType: { type: 'string', enum: ['college', 'pro'], description: 'college (default, includes high school) or pro' },
         city: { type: 'string', description: 'Pro only: the city they play in, as "City, ST"' },
         team: { type: 'string', description: 'Pro only: the team' },
+        jersey: { type: 'string', description: 'Optional: jersey number, from the lookup' },
+        height: { type: 'string', description: 'Optional: height as listed' },
+        weight: { type: 'string', description: 'Optional: weight as listed' },
+        instagramHandle: { type: 'string', description: 'Optional: Instagram handle without @' },
+        tiktokHandle: { type: 'string', description: 'Optional: TikTok handle without @' },
+        tiktok: { type: 'integer', description: 'Optional: TikTok follower count' },
+        highlight: { type: 'string', description: 'Optional: the one-line highlight from the lookup' },
+        sources: { type: 'object', description: 'Optional: the per-field source URLs from the lookup, passed through as returned', additionalProperties: { type: 'string' } },
         dob: { type: 'string', description: 'Date of birth as YYYY-MM-DD. Asked for when the school is a high school; optional otherwise.' },
         dobUnknown: { type: 'boolean', description: 'true when the agent was asked for a high school athlete\'s date of birth and chose to skip it: add them with age unknown.' },
         confirmDuplicate: { type: 'boolean', description: 'true only after the agent was told an athlete with this name is already on the roster and said to add a second one anyway.' },
@@ -140,6 +148,18 @@ const ACTIONS = {
       if (hometown) args.hometown = hometown;
       const ig = parseInt(a.instagram, 10);
       if (Number.isFinite(ig) && ig >= 0) args.instagram = ig;
+      const tt = parseInt(a.tiktok, 10);
+      if (Number.isFinite(tt) && tt >= 0) args.tiktok = tt;
+      for (const [k, max] of [['jersey', 8], ['height', 20], ['weight', 20], ['highlight', 240]]) { const v = _str(a[k], max); if (v) args[k] = v; }
+      for (const k of ['instagramHandle', 'tiktokHandle']) {
+        const h = String(a[k] || '').trim().replace(/^@+/, '').toLowerCase();
+        if (/^[a-z0-9._]{1,40}$/.test(h)) args[k] = h;
+      }
+      if (a.sources && typeof a.sources === 'object') {
+        const s = {};
+        for (const [k, v] of Object.entries(a.sources)) if (/^https?:\/\//i.test(String(v || '')) || v === 'agent') s[String(k).slice(0, 30)] = String(v).slice(0, 500);
+        if (Object.keys(s).length) args.sources = s;
+      }
       if (a.dob != null && String(a.dob).trim()) {
         const AC = require('./athleteCreate');
         const dob = AC._validDob(String(a.dob).trim());
@@ -175,7 +195,9 @@ const ACTIONS = {
       if (!user) return { data: { added: false, error: 'Your account could not be read just now. Try again in a moment.' } };
       const body = { name: args.name, sport: args.sport, athleteType: args.athleteType, school: args.school,
         city: args.city, team: args.team, position: args.position, year: args.year, hometown: args.hometown,
-        instagram: args.instagram, dob: args.dob };
+        instagram: args.instagram, tiktok: args.tiktok, instagramHandle: args.instagramHandle, tiktokHandle: args.tiktokHandle,
+        jerseyNumber: args.jersey, height: args.height, weight: args.weight, stats: args.highlight,
+        lookupSources: args.sources, dob: args.dob };
       let r;
       try { r = await AC.createAthlete(user, body, { allowDuplicate: args.confirmDuplicate === true }); }
       catch (e) {
@@ -212,39 +234,73 @@ const ACTIONS = {
   // lookup_athlete READS: it runs the same lookup the Add Client form's AI
   // Lookup button runs and hands the candidates to the model, which then asks
   // the agent to confirm before add_athlete is ever called. It creates nothing.
+  // lookup_athlete finds the whole profile from a name and a school (or a
+  // team for a pro): sport, position, class year, jersey, hometown, height
+  // and weight, social handles with approximate follower counts, and a
+  // one-line highlight, every field with the URL it was read from
+  // (services/athleteLookup). Several athletes in one call run in parallel.
+  // The page draws one profile card per athlete with an Add button; the
+  // model reports the same fields in words. It creates nothing.
   lookup_athlete: {
     tier: 'direct',
     read: true,
-    description: 'Look an athlete up by name and school (and sport if known). Returns up to three candidates with school, sport, position and class year for the agent to confirm. Creates nothing.',
+    description: 'Look one or more athletes up. Give a name and a school (or a team for a pro); the lookup finds sport, position, class year, jersey number, hometown, height and weight, Instagram and TikTok handles with approximate follower counts, and a one-line highlight, each field with its source. Pass several athletes in `athletes` to look them all up at once. Returns up to three candidates per athlete; `needsSport` is true only when the candidates are in different sports or nothing matched. Creates nothing.',
     input: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Full name' },
-        school: { type: 'string', description: 'School, if known' },
-        sport: { type: 'string', description: 'Sport, if known' },
+        name: { type: 'string', description: 'Full name (single lookup)' },
+        school: { type: 'string', description: 'School, if known (college or high school)' },
+        sport: { type: 'string', description: 'Sport, only if the agent said it' },
         athleteType: { type: 'string', enum: ['college', 'pro'] },
-        team: { type: 'string', description: 'Pro only: team, if known' },
+        team: { type: 'string', description: 'Pro only: team' },
         city: { type: 'string', description: 'Pro only: city, if known' },
+        athletes: { type: 'array', description: 'Several athletes at once, each { name, school, sport, athleteType, team }', items: { type: 'object',
+          properties: { name: { type: 'string' }, school: { type: 'string' }, sport: { type: 'string' }, athleteType: { type: 'string', enum: ['college', 'pro'] }, team: { type: 'string' }, city: { type: 'string' } }, required: ['name'] } },
       },
-      required: ['name'],
     },
     check: (a) => {
-      const name = _str(a.name, 120);
-      if (!name) return { error: 'Whose name should I look up?' };
-      return { args: { name, school: _str(a.school, 120) || '', sport: _str(a.sport, 60) || '',
-        athleteType: a.athleteType === 'pro' ? 'pro' : 'college', team: _str(a.team, 120) || '', city: _str(a.city, 120) || '' } };
+      const one = (x) => {
+        const name = _str(x && x.name, 120);
+        if (!name) return null;
+        return { name, school: _str(x.school, 120) || '', sport: _str(x.sport, 60) || '',
+          athleteType: x.athleteType === 'pro' ? 'pro' : 'college', team: _str(x.team, 120) || '', city: _str(x.city, 120) || '' };
+      };
+      const list = Array.isArray(a.athletes) ? a.athletes.map(one).filter(Boolean).slice(0, 8) : [];
+      const single = one(a);
+      if (!list.length && !single) return { error: 'Whose name should I look up?' };
+      return { args: single && !list.length ? single : { athletes: list.length ? list : [single] } };
     },
-    run: async (args) => {
+    run: async (args, ctx) => {
       const ai = require('../ai');
-      const { resolveAthlete } = _lookupImpl();
-      const r = await resolveAthlete(ai, args);
-      const cands = (r && Array.isArray(r.candidates) ? r.candidates : []).slice(0, 3).map((c) => ({
-        name: c.name, school: c.school || null, sport: c.sport || null, position: c.position || null,
-        year: c.year || null, hometown: c.hometown || null, instagram: c.instagram || 0,
-        athleteType: c.athleteType || args.athleteType, team: c.team || null, city: c.city || null,
-        confidence: c.confidence == null ? null : c.confidence, source: c.sourceLabel || null,
-      }));
-      return { found: cands.length > 0, candidates: cands, note: r && r.searchNote ? String(r.searchNote).slice(0, 300) : null };
+      const L = _lookupImpl();
+      const opts = { agentId: ctx && ctx.agentId };
+      const queries = args.athletes || [args];
+      const results = args.athletes
+        ? (L.resolveMany ? await L.resolveMany(ai, queries, opts) : await Promise.all(queries.map((q) => L.resolveAthlete(ai, q, opts))))
+        : [await L.resolveAthlete(ai, args, opts)];
+      const cards = [];
+      const shaped = results.map((r, i) => {
+        const q = queries[i];
+        const cands = (r && Array.isArray(r.candidates) ? r.candidates : []).slice(0, 3).map((c) => {
+          const card = {
+            name: c.name, level: c.level || r.level || (q.athleteType === 'pro' ? 'pro' : 'college'),
+            athleteType: c.athleteType || q.athleteType, school: c.school || null, team: c.team || null, league: c.league || null, city: c.city || null,
+            sport: c.sport || null, position: c.position || null, year: c.year || null, jersey: c.jersey || null,
+            hometown: c.hometown || null, height: c.height || null, weight: c.weight || null,
+            instagramHandle: c.instagramHandle || null, instagram: c.instagram || 0, tiktokHandle: c.tiktokHandle || null, tiktok: c.tiktok || 0,
+            followersAsOf: c.followersAsOf || null, followersApprox: c.followersApprox === true,
+            highlight: c.highlight || null, sources: c.sources || {}, sourceLabel: c.sourceLabel || null,
+            confidence: c.confidence == null ? null : c.confidence,
+          };
+          cards.push(card);
+          return card;
+        });
+        return { query: { name: q.name, school: q.school || null, team: q.team || null }, found: cands.length > 0, level: r && r.level,
+          candidates: cands, needsSport: !!(r && r.needsSport), cached: !!(r && r.cached),
+          note: r && (r.message || r.searchNote) ? String(r.message || r.searchNote).slice(0, 300) : null };
+      });
+      const data = args.athletes ? { results: shaped } : shaped[0];
+      return { data, directive: cards.length ? { kind: 'profile_cards', cards } : null };
     },
   },
 
@@ -589,9 +645,14 @@ async function resolveCall(name, rawArgs, ctx) {
   // its result goes back to the model. No directive, nothing for the browser.
   if (action.read && action.run) {
     try {
-      const data = await action.run(args, { agentId, principal });
+      const out = await action.run(args, { agentId, principal });
       console.log(`[assistant] agent=${agentId} read=${name} ok`);
-      return { ok: true, data };
+      // A read may also hand the page something to draw (the lookup's
+      // profile cards): { data, directive }. A bare answer is just data.
+      if (out && typeof out === 'object' && out.data !== undefined && Object.prototype.hasOwnProperty.call(out, 'directive')) {
+        return { ok: true, data: out.data, directive: out.directive || null };
+      }
+      return { ok: true, data: out };
     } catch (e) {
       console.warn(`[assistant] agent=${agentId} read=${name} failed: ${e.message}`);
       return { ok: false, message: 'The lookup did not work just now. We can enter the details by hand instead.' };

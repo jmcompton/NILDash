@@ -3926,6 +3926,23 @@ async function ensureMarketSightings() {
   //            small businesses sit on catch-all Workspace/365 domains and no
   //            verifier can answer for them. The card shows it and the agent
   //            decides, which is the same stance the compliance gate takes.
+  // ── THE ATHLETE LOOKUP CACHE ──────────────────────────────────────────────
+  // One row per level + name + school (or team), the whole result as JSON
+  // (services/athleteLookup). A found lookup is good for LOOKUP_CACHE_DAYS
+  // (30); a miss for a day. The Add Client button, the chat and the import
+  // all read here before they spend a search.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS athlete_lookup_cache (
+      cache_key  TEXT PRIMARY KEY,
+      level      TEXT NOT NULL,
+      query      JSONB,
+      result     JSONB NOT NULL,
+      cost_usd   NUMERIC(10,6),
+      found      BOOLEAN NOT NULL DEFAULT FALSE,
+      checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `).then(() => console.log('[init] athlete_lookup_cache table ready'))
+    .catch(e => console.error('[init] athlete_lookup_cache:', e.message));
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_verification (
       email       TEXT PRIMARY KEY,

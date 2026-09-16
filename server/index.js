@@ -3662,7 +3662,7 @@ app.post('/api/ai/player-lookup', requireAuth, aiLimiter, async (req, res) => {
     const { resolveAthlete } = require('./services/athleteLookup');
     // A pro lookup searches league rosters (NFL, NBA, MLB and the rest) rather
     // than ESPN's college pages; see athleteLookup.proSearchStage.
-    const result = await resolveAthlete(ai, { name, school, sport, position, year, athleteType, team, city });
+    const result = await resolveAthlete(ai, { name, school, sport, position, year, athleteType, team, city }, { agentId: req.session.userId });
     res.json(result);
   } catch (err) {
     console.error('[player-lookup]', err.message);
@@ -4223,6 +4223,13 @@ async function importContextFor(userId) {
   };
 }
 
+// After the rows are saved, the lookup fills what the sheet left blank, in
+// the background, each filled field with its source on the record
+// (services/importEnrich).
+const ImportEnrich = require('./services/importEnrich');
+const IMPORT_ENRICH_MAX = ImportEnrich.MAX;
+const enrichImportedAthletes = (agentId, created) => ImportEnrich.enrichImportedAthletes(agentId, created);
+
 // table + columns + overrides -> { create, needsFix, skipped } and the seat line.
 async function importPreview(user, body) {
   const table = Array.isArray(body.table) ? body.table : [];
@@ -4351,8 +4358,14 @@ app.post('/api/athletes/import/commit', requireAuth, importJson, async (req, res
         }
       });
     }
-    console.log(`[import/commit] agent=${user.id} created=${created.length} of ${pv.create.length} skipped=${pv.skipped.length} needsFix=${pv.needsFix.length} filling=${filling}`);
-    res.status(201).json({ ok: true, created, failed: pv.create.length - created.length, skipped: pv.skipped.length, needsFix: pv.needsFix.length, filling });
+    // Then the lookup fills what the sheet left blank (position, class year,
+    // hometown, handles, follower counts, jersey, height, weight, a
+    // highlight), in the background, each filled field with its source on the
+    // record. The sheet's own values are never overwritten.
+    const enriching = created.length ? Math.min(created.length, IMPORT_ENRICH_MAX) : 0;
+    if (enriching) setImmediate(() => { enrichImportedAthletes(user.id, created.slice(0, IMPORT_ENRICH_MAX)).catch((e) => console.error('[import/enrich]', e.message)); });
+    console.log(`[import/commit] agent=${user.id} created=${created.length} of ${pv.create.length} skipped=${pv.skipped.length} needsFix=${pv.needsFix.length} filling=${filling} enriching=${enriching}`);
+    res.status(201).json({ ok: true, created, failed: pv.create.length - created.length, skipped: pv.skipped.length, needsFix: pv.needsFix.length, filling, enriching });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: e.message });
     console.error('[import/commit]', e.message);

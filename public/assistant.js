@@ -220,6 +220,14 @@ function naStyles() {
     // A note: something the page did (an import landed), not something either
     // side said. Small, centred, no tail.
     '.na-note{align-self:center;font-size:12px;color:var(--muted,rgba(240,244,255,0.45));text-align:center;}',
+    // A profile card: what the lookup found, each line plain, sources as links.
+    '.na-card{align-self:flex-start;max-width:92%;border:1px solid var(--border2,rgba(240,244,255,0.14));border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;font-size:13px;line-height:1.45;}',
+    '.na-card-name{font-weight:700;font-size:14px;}',
+    '.na-card-where{color:var(--muted,rgba(240,244,255,0.6));}',
+    '.na-card-line{}',
+    '.na-card-src{font-size:11px;color:var(--muted,rgba(240,244,255,0.45));}',
+    '.na-card-src a{color:inherit;text-decoration:underline;text-underline-offset:2px;}',
+    '.na-card-actions{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;}',
   ].join('\n');
   document.head.appendChild(st);
 }
@@ -459,6 +467,8 @@ async function naPerform(directives) {
         // takeover; the page watches for the athletes to land (naWatchImport).
         if (typeof impOpen === 'function') { NA.importClosedTold = false; impOpen(); naWatchImport(); }
         else naSay('assistant', 'The import window is not available on this page. Open Add Client and press Import from spreadsheet.');
+      } else if (d.kind === 'profile_cards') {
+        naProfileCards(Array.isArray(d.cards) ? d.cards : []);
       } else if (d.kind === 'finish_onboarding') {
         naFinishOnboarding(d.summary || '');
       } else if (d.kind === 'send_outreach' || d.kind === 'update_deal' || d.kind === 'delete_athlete') {
@@ -508,6 +518,68 @@ function naUnsavedOutreach() {
   if (!body && !subj) return false;
   if (typeof window._naOutreachSnapshot !== 'string') return true;  // cannot tell: assume unsaved
   return (String(body ? body.value : '') + ' ' + String(subj ? subj.value : '')) !== window._naOutreachSnapshot;
+}
+
+// ── Profile cards ────────────────────────────────────────────────────────────
+// One card per candidate the lookup returned: everything it found, each
+// field traceable to its source, and an Add button that sends the agent's
+// own words ("Add Ann Lee as shown") so the model saves exactly the card.
+// A correction is typed in plain words; the model applies it and saves.
+function naFmtCount(n) {
+  n = Number(n) || 0;
+  if (!n) return '';
+  if (n >= 1000000) return (Math.round(n / 100000) / 10) + 'M';
+  if (n >= 1000) return (Math.round(n / 100) / 10) + 'K';
+  return String(n);
+}
+function naDomain(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (_) { return ''; } }
+function naProfileCards(cards) {
+  var log = document.getElementById('na-log');
+  if (!log || !cards.length) return;
+  cards.forEach(function (c) {
+    var d = document.createElement('div');
+    d.className = 'na-card';
+    var where = c.athleteType === 'pro' ? [c.team, c.league, c.city].filter(Boolean).join(' · ') : (c.school || '');
+    var line2 = [c.sport, c.position, c.year, c.jersey ? '#' + c.jersey : ''].filter(Boolean).join(' · ');
+    var line3 = [c.hometown, [c.height, c.weight].filter(Boolean).join(', ')].filter(Boolean).join(' · ');
+    var socials = [];
+    if (c.instagramHandle) socials.push('IG @' + c.instagramHandle + (c.instagram ? ' ~' + naFmtCount(c.instagram) : ''));
+    if (c.tiktokHandle) socials.push('TikTok @' + c.tiktokHandle + (c.tiktok ? ' ~' + naFmtCount(c.tiktok) : ''));
+    var socialLine = socials.join(' · ') + ((c.instagram || c.tiktok) && c.followersAsOf ? ' (approx., checked ' + c.followersAsOf + ')' : '');
+    var srcs = {};
+    Object.keys(c.sources || {}).forEach(function (k) { var u = c.sources[k]; if (/^https?:/.test(u)) srcs[naDomain(u)] = u; });
+    var levelLabel = c.level === 'high_school' ? 'High school' : (c.level === 'pro' ? 'Pro' : 'College');
+    var html = '<div class="na-card-name"></div><div class="na-card-where"></div>';
+    d.innerHTML = html;
+    d.querySelector('.na-card-name').textContent = c.name + (c.confidence != null ? '  ·  ' + levelLabel + ', ' + c.confidence + '% match' : '  ·  ' + levelLabel);
+    d.querySelector('.na-card-where').textContent = where;
+    [line2, line3, socialLine, c.highlight].forEach(function (t) {
+      if (!t) return;
+      var p = document.createElement('div'); p.className = 'na-card-line'; p.textContent = t; d.appendChild(p);
+    });
+    var keys = Object.keys(srcs);
+    if (keys.length) {
+      var s = document.createElement('div'); s.className = 'na-card-src'; s.textContent = 'Sources: ';
+      keys.forEach(function (k, i) {
+        var a = document.createElement('a'); a.href = srcs[k]; a.target = '_blank'; a.rel = 'noopener'; a.textContent = k;
+        if (i) s.appendChild(document.createTextNode(', '));
+        s.appendChild(a);
+      });
+      d.appendChild(s);
+    }
+    var row = document.createElement('div'); row.className = 'na-card-actions';
+    var add = document.createElement('button'); add.type = 'button'; add.className = 'na-chip';
+    add.textContent = 'Add ' + (String(c.name || '').split(' ')[0] || 'them');
+    add.addEventListener('click', function () { naSendText('Add ' + c.name + ' as shown.'); });
+    row.appendChild(add);
+    var no = document.createElement('button'); no.type = 'button'; no.className = 'na-chip na-chip-ghost';
+    no.textContent = 'Not them';
+    no.addEventListener('click', function () { naSendText('That is not the right ' + c.name + '.'); });
+    row.appendChild(no);
+    d.appendChild(row);
+    log.appendChild(d);
+  });
+  naScroll();
 }
 
 // ── First login ──────────────────────────────────────────────────────────────

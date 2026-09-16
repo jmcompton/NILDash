@@ -144,8 +144,10 @@ async function main() {
   const cd = src('server/services/contactDiscovery.js'), ce = src('server/services/companyEnrichment.js'), al = src('server/services/athleteLookup.js');
   ok('contact discovery: both the search and the fallback are on MODEL_FAST', /oneShotWebSearch\(prompt, system, 3000, 4, MODEL_FAST\)/.test(cd) && /oneShot\(prompt, system, 2500, MODEL_FAST\)/.test(cd) && !/sonnet/.test(cd));
   ok('company enrichment: both on MODEL_FAST', /oneShotWebSearch\(researchPrompt, researchSystem, 2500, 3, MODEL_FAST\)/.test(ce) && /oneShot\(prompt, system, 2000, MODEL_FAST\)/.test(ce) && !/sonnet/.test(ce));
-  ok('the athlete lookup: both stages on the Haiku default, overridable by env', /const LOOKUP_MODEL = process\.env\.LOOKUP_MODEL \|\| 'claude-haiku-4-5-20251001';/.test(al) && (al.match(/model: LOOKUP_MODEL,\s*max_tokens/g) || []).length === 2 && !/model: 'claude-sonnet/.test(al));
-  ok('  and its direct client calls are on the ledger too', /site: 'lookup\.college'/.test(al) && /site: 'lookup\.pro'/.test(al));
+  // The athlete lookup moved off Anthropic entirely: DeepSeek through the
+  // search loop (services/webSearchTool), never Haiku, never Sonnet.
+  ok('the athlete lookup runs on DeepSeek through the search loop, on no Anthropic model', !/LOOKUP_MODEL/.test(al) && !/claude-/.test(al) && !/@anthropic-ai\/sdk/.test(al) && /WST\.searchLoop/.test(al));
+  ok('  and every turn and search is on the ledger under lookup.<level> with the athlete as the brand', /const site = `lookup\.\$\{level\}`;/.test(al) && /ctx: \{ site, brand: q\.name, agentId: ctx && ctx\.agentId \}/.test(al));
   const jobSrc = src('server/jobs/outreachQueue.js');
   ok('THE WRITER IS UNTOUCHED: still MODEL_GEN at both sites', (jobSrc.match(/ai\.oneShot\(p2, sys, mt, ai\.MODEL_GEN\)/g) || []).length === 2 && /const MODEL_GEN = MODEL_BALANCED;/.test(aiSrc) && /const MODEL_BALANCED = 'claude-sonnet-4-6';/.test(aiSrc));
 

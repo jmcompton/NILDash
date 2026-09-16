@@ -524,6 +524,11 @@
       "total": 23,
       "fault": null
     },
+    "lookup.js": {
+      "failed": 0,
+      "total": 63,
+      "fault": null
+    },
     "mailbox.js": {
       "failed": 0,
       "total": 33,

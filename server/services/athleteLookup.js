@@ -1,56 +1,52 @@
-// server/services/athleteLookup.js  v2
-// Multi-stage NCAA athlete entity resolution engine
-//
-// PIPELINE:
-//   Stage 1  — Input normalization (school aliases, sport variants)
-//   Stage 2A — ESPN Live Roster (football, basketball, baseball, volleyball only)
-//   Stage 2B — AI Lookup (primary source for softball/soccer/unsupported sports)
-//   Stage 3  — Merge, rank, return ≤3 candidates with confidence scores
-//
-// CASE MATRIX:
-//   School known + ESPN sport  → ESPN roster match  + AI enrichment
-//   School known + non-ESPN    → AI school-specific  (high precision prompt)
-//   No school + any sport      → AI multi-candidate  (returns top 3 schools)
-//
-// CONFIDENCE SCALE:
-//   95-100  auto-select (ESPN confirmed + AI verified, exact name match)
-//   80-94   strong match — show picker, first pre-selected
-//   60-79   possible match — show picker for user to confirm
-//   < 60    no reliable match
-
 'use strict';
+// ── THE ATHLETE LOOKUP: A NAME AND A SCHOOL, AND THE REST IS FOUND ──────────
+//
+// The agent gives a name and a school (or a team for a pro). This finds the
+// rest: sport, position, class year, jersey number, hometown, height and
+// weight when listed, Instagram and TikTok handles with approximate follower
+// counts, and a one-line highlight. Three levels, decided from what was given:
+//
+//   college       ESPN's live roster feed first (football, basketball,
+//                 baseball, volleyball), then a cited web search over the
+//                 school's athletics site, ESPN, the recruiting sites, and the
+//                 NAIA, NJCAA and Division III roster pages.
+//   high_school   a cited web search over MaxPreps, the state athletic
+//                 association and the school's athletics page. NEVER a birth
+//                 date or an age: the record is a minor's, and the date of
+//                 birth comes from the agent or not at all.
+//   pro           the roster feeds (services/proRosterFeeds: ESPN's leagues,
+//                 MLB StatsAPI, the NHL API, HockeyTech, the G League) first,
+//                 then a cited web search for whatever they did not settle.
+//
+// EVERY FIELD COMES FROM A SOURCE. A feed field carries the feed URL. A web
+// field carries the page it was read from, and that page must be one the
+// search actually returned or fetched: a URL the model did not get from the
+// search is not a source, and the field is blanked. A field with no source
+// is blank. Nothing is guessed. Follower counts are approximate and dated.
+//
+// THE MODEL IS DEEPSEEK AND THE SEARCH IS SERPER (services/webSearchTool),
+// never Anthropic. With no DeepSeek key or no search key the feeds still run
+// and the web stage is skipped with a note that says why.
+//
+// CACHED for LOOKUP_CACHE_DAYS (30) by level, name and school or team, so
+// the same athlete on the Add Client button, the chat and the import costs
+// one search. A miss is cached for a day. `force` reads past the cache.
+//
+// COST. Every DeepSeek turn and the searches go on the ledger under
+// lookup.<level> with the athlete's name as the brand, so spend-breakdown
+// shows cost per lookup; the result carries costUsd too.
 
 const { getRoster, resolveESPNSportPath } = require('./university/ESPNRosterService');
-
-// ── Sports ESPN API actually supports (verified 2025) ──────────────────────
-// Other sports (softball, soccer, lacrosse, track, etc.) return 404 from ESPN.
-// ── THE LOOKUP MODEL ─────────────────────────────────────────────────────────
-// Extraction: read a roster or a recruiting page the search returned and copy
-// the fields off it. The same job the contact ladder's sources do on Haiku,
-// and it ran on Sonnet only because it was written before the ladder was.
-// Overridable without a deploy so a bad night can be pinned back.
-const LOOKUP_MODEL = process.env.LOOKUP_MODEL || 'claude-haiku-4-5-20251001';
-const Ledger = require('./aiLedger');
-// The same two stages on DeepSeek when services/deepseek.route says so
-// (DEEPSEEK_API_KEY plus a search provider key; see describeRouting). The
-// searches are run by the loop in services/webSearchTool; the prompt, the
-// JSON and the "only what the search returned" rule are the same. A DeepSeek
-// failure falls back to the Haiku call below for that lookup.
 const DS = require('./deepseek');
-async function _deepseekStage(site, userPrompt, system) {
-  const rt = DS.route(site, { needsSearch: true });
-  if (rt.provider !== 'deepseek') return undefined;
-  try {
-    const WST = require('./webSearchTool');
-    const r = await WST.searchLoop({ prompt: userPrompt, system, maxSearches: 3, maxTokens: 1500, temperature: 0, ctx: { site } });
-    const jsonMatch = String(r.text || '').match(/\{[\s\S]*\}/);
-    return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-  } catch (e) {
-    console.warn(`[lookup] DeepSeek search failed (${e.message}); falling back to ${LOOKUP_MODEL}`);
-    return undefined;
-  }
-}
+const Ledger = require('./aiLedger');
 
+const CACHE_DAYS = parseInt(process.env.LOOKUP_CACHE_DAYS, 10) || 30;
+const MISS_CACHE_HOURS = parseInt(process.env.LOOKUP_MISS_CACHE_HOURS, 10) || 24;
+const MAX_SEARCHES = parseInt(process.env.LOOKUP_MAX_SEARCHES, 10) || 4;
+const MAX_FETCHES = parseInt(process.env.LOOKUP_MAX_FETCHES, 10) || 2;
+const BATCH_CONCURRENCY = parseInt(process.env.LOOKUP_CONCURRENCY, 10) || 4;
+
+// ── Sports ESPN's college feed actually supports ─────────────────────────────
 const ESPN_SUPPORTED_SPORTS = new Set([
   'football',
   "men's basketball",
@@ -59,7 +55,6 @@ const ESPN_SUPPORTED_SPORTS = new Set([
   "women's volleyball",
 ]);
 
-// ── School Name Aliases → ESPN-recognizable names ─────────────────────────
 const SCHOOL_ALIASES = {
   'uconn': 'Connecticut',
   'university of connecticut': 'Connecticut',
@@ -229,163 +224,402 @@ function nameMatchScore(query, candidate) {
 function schoolsMatch(a, b) {
   if (!a || !b) return false;
   const clean = s => s.toLowerCase()
-    .replace(/\b(university of|university|college|state university|the )\b/g, '')
+    .replace(/\b(university of|university|college|state university|high school|the )\b/g, '')
     .replace(/[^a-z0-9]/g, '').trim();
   const ca = clean(a), cb = clean(b);
   return ca === cb || ca.includes(cb) || cb.includes(ca);
 }
 
-// ── Stage 2A: ESPN Roster (football/basketball/baseball/volleyball only) ──
-async function espnStage(normName, normSchool, normSport) {
-  if (!normSchool || !normSport) return [];
-  if (!ESPN_SUPPORTED_SPORTS.has(normSport)) return []; // skip silently
+// ── WHICH LEVEL ──────────────────────────────────────────────────────────
+// A pro is a pro when the caller says so. A high school is read off the
+// school's name (services/athleteCreate.isHighSchool). Everything else is
+// college, which includes NAIA, JUCO and Division III: the web stage names
+// those roster sites.
+function levelOf(q) {
+  if (q.level && ['college', 'high_school', 'pro'].includes(q.level)) return q.level;
+  if (q.athleteType === 'pro') return 'pro';
+  try { if (require('./athleteCreate').isHighSchool(q.school)) return 'high_school'; } catch (_) {}
+  return 'college';
+}
 
+// ── THE CACHE ────────────────────────────────────────────────────────────
+const fold = (s) => String(s || '').trim().toLowerCase().replace(/[’'`.\-]/g, '').replace(/\s+/g, ' ');
+function cacheKey(level, q) {
+  return `${level}|${fold(q.name)}|${fold(level === 'pro' ? (q.team || q.city) : q.school)}`;
+}
+function _pool() { try { return require('../store').pool; } catch (_) { return null; } }
+async function cacheGet(key) {
+  const pool = _pool();
+  if (!pool) return null;
+  try {
+    const r = await pool.query(
+      `SELECT result, checked_at, found FROM athlete_lookup_cache
+        WHERE cache_key = $1
+          AND checked_at > NOW() - (CASE WHEN found THEN ($2 || ' days') ELSE ($3 || ' hours') END)::interval`,
+      [key, String(CACHE_DAYS), String(MISS_CACHE_HOURS)]);
+    const row = r.rows[0];
+    if (!row) return null;
+    return Object.assign({}, row.result, { cached: true, checkedAt: row.checked_at });
+  } catch (e) {
+    if (!/does not exist/.test(e.message)) console.warn('[lookup] cache read:', e.message);
+    return null;
+  }
+}
+async function cachePut(key, level, q, result) {
+  const pool = _pool();
+  if (!pool) return;
+  try {
+    await pool.query(
+      `INSERT INTO athlete_lookup_cache (cache_key, level, query, result, cost_usd, found, checked_at)
+       VALUES ($1,$2,$3::jsonb,$4::jsonb,$5,$6,NOW())
+       ON CONFLICT (cache_key) DO UPDATE SET level = EXCLUDED.level, query = EXCLUDED.query, result = EXCLUDED.result,
+         cost_usd = EXCLUDED.cost_usd, found = EXCLUDED.found, checked_at = NOW()`,
+      [key, level, JSON.stringify(q), JSON.stringify(result), result.costUsd == null ? null : result.costUsd, !!result.found]);
+  } catch (e) {
+    if (!/does not exist/.test(e.message)) console.warn('[lookup] cache write:', e.message);
+  }
+}
+
+// ── THE FIELDS, AND THE SOURCE RULE ──────────────────────────────────────
+// Every field the profile can carry. A candidate keeps a field only when
+// `sources[field]` is a URL the search returned or fetched (or a profile
+// URL that is, which the other fields inherit). Anything about a birth date
+// or an age is dropped whatever the level: the rule is one rule.
+const FIELDS = ['name', 'school', 'team', 'league', 'city', 'sport', 'position', 'year', 'jersey', 'hometown', 'hometownState',
+  'height', 'weight', 'instagramHandle', 'instagram', 'tiktokHandle', 'tiktok', 'highlight', 'college'];
+const NEVER = /birth|dob|\bage\b|born/i;
+const cleanHandle = (h) => { const s = String(h || '').trim().replace(/^https?:\/\/(www\.)?(instagram|tiktok)\.com\/@?/i, '').replace(/^@+/, '').replace(/[/?#].*$/, '').toLowerCase(); return /^[a-z0-9._]{1,40}$/.test(s) ? s : null; };
+function parseCount(v) {
+  if (v === null || v === undefined || v === '') return null;
+  if (typeof v === 'number') return Number.isFinite(v) && v >= 0 ? Math.round(v) : null;
+  const m = String(v).trim().toLowerCase().match(/^([\d.,]+)\s*([km])?\b/);
+  if (!m) return null;
+  let n = parseFloat(m[1].replace(/,/g, ''));
+  if (!Number.isFinite(n)) return null;
+  if (m[2] === 'k') n *= 1000; if (m[2] === 'm') n *= 1000000;
+  return Math.round(n);
+}
+function todayIso() { return new Date().toISOString().slice(0, 10); }
+
+// sanitize(raw, citations) -> a candidate with only sourced fields, or null.
+function sanitizeWeb(raw, citations, level) {
+  if (!raw || typeof raw !== 'object') return null;
+  const cited = new Set((citations || []).map((u) => String(u).trim()));
+  const srcIn = (raw.sources && typeof raw.sources === 'object') ? raw.sources : {};
+  const profile = [srcIn.profile, srcIn._all, raw.source, raw.sourceUrl].map((u) => String(u || '').trim()).find((u) => cited.has(u)) || null;
+  const sources = {};
+  const out = {};
+  for (const f of FIELDS) {
+    let v = raw[f];
+    if (v === undefined && f === 'jersey') v = raw.jersey_number;
+    if (v === undefined && f === 'instagram') v = raw.instagramFollowers;
+    if (v === undefined && f === 'tiktok') v = raw.tiktokFollowers;
+    if (v === null || v === undefined || v === '' || NEVER.test(f)) continue;
+    if (f === 'instagramHandle' || f === 'tiktokHandle') v = cleanHandle(v);
+    else if (f === 'instagram' || f === 'tiktok') v = parseCount(v);
+    else v = String(v).trim().slice(0, f === 'highlight' ? 240 : 120);
+    if (v === null || v === '') continue;
+    // A field with its own source keeps it only if that page was searched
+    // or fetched; a source the search never returned blanks the field. A
+    // field with no source of its own inherits the profile page.
+    const s = String(srcIn[f] || '').trim();
+    const url = s ? (cited.has(s) ? s : null) : profile;
+    if (!url) continue;                 // no source, no field
+    out[f] = v; sources[f] = url;
+  }
+  // The name is the query itself, not a finding: it rides on whatever page
+  // the other fields came from, so a candidate that only carries the
+  // socials (an enrichment of a feed hit) is not thrown away for it.
+  if (!out.name && raw.name && Object.keys(sources).length) {
+    out.name = String(raw.name).trim().slice(0, 120);
+    sources.name = profile || sources[Object.keys(sources)[0]];
+  }
+  if (!out.name) return null;
+  for (const k of Object.keys(out)) if (NEVER.test(k)) { delete out[k]; delete sources[k]; }
+  if (out.instagram !== undefined || out.tiktok !== undefined) { out.followersAsOf = todayIso(); out.followersApprox = true; }
+  out.sources = sources;
+  out.sourceUrl = profile || sources.name || null;
+  out.sourceLabel = String(raw.sourceLabel || (level === 'high_school' ? 'MaxPreps / school site' : 'Web search')).slice(0, 60);
+  out.confidence = Math.max(0, Math.min(100, parseInt(raw.confidence, 10) || 60));
+  out.source = 'web-search';
+  return out;
+}
+
+// ── THE PROMPTS, ONE PER LEVEL ───────────────────────────────────────────
+const SHAPE = `Return ONLY a JSON object, no markdown:
+{
+  "found": true or false,
+  "athletes": [
+    {
+      "name": "full name as the source prints it",
+      "school": "school (college or high school) or null", "team": "pro team or null", "league": "league or null", "city": "team's home city as 'City, ST' or null",
+      "sport": "sport or null", "position": "position or null", "year": "class year (Freshman/Sophomore/Junior/Senior/Grad, or 'Class of 2027' for high school) or null",
+      "jersey": "jersey number or null", "hometown": "'City, ST' or null", "hometownState": "two-letter state or null",
+      "height": "as listed or null", "weight": "as listed or null",
+      "instagramHandle": "handle without @ or null", "instagram": approximate follower count as a number or null,
+      "tiktokHandle": "handle without @ or null", "tiktok": approximate follower count as a number or null,
+      "highlight": "one line: an award, a stat line, or recent news, or null",
+      "sources": { "profile": "the roster or profile URL most fields came from", "<field>": "the URL that field was read from, for every field not from the profile URL" },
+      "sourceLabel": "the site the profile came from", "confidence": 0-100
+    }
+  ],
+  "searchNote": "one sentence about what you found or why nothing matched"
+}`;
+const RULES = `RULES:
+- Every field must be read from a page the search returned or you fetched, and its URL must be in "sources". A field you cannot point at a URL for is null. Never guess, never fill from memory.
+- Follower counts: read the number off the instagram.com or tiktok.com result snippet ("12.3K followers") for the exact handle; approximate is fine; null when no snippet shows one.
+- If more than one athlete could match, list each (up to three) with sport, position and class year so the agent can choose.
+- Never report a birth date, a birthday or an age, under any field name.
+- If nothing matched, return found: false with an empty list.`;
+
+function promptFor(level, q, feedTop) {
+  const nm = q.name;
+  if (level === 'high_school') {
+    return `Find this HIGH SCHOOL athlete.
+Name: ${nm}
+School: ${q.school || 'unknown'}${q.sport ? '\nSport: ' + q.sport : ''}
+Search MaxPreps (site:maxpreps.com), the state high school athletic association, and the school's own athletics page. Useful queries: "${nm}" ${q.school || ''} maxpreps; "${nm}" ${q.school || ''} ${q.sport || ''} roster; "${nm}" instagram.
+${SHAPE}
+${RULES}
+- This athlete is a minor. Do not look for, and do not return, any birth date or age.`;
+  }
+  if (level === 'pro') {
+    const known = feedTop ? `A roster feed already confirmed: ${feedTop.name}, ${feedTop.team || ''} (${feedTop.league || ''})${feedTop.position ? ', ' + feedTop.position : ''}. Find what the feed does not carry: Instagram and TikTok handles with approximate follower counts, and a one-line highlight. Do not re-report fields the feed carries unless a page shows them.\n` : '';
+    return `Find this PROFESSIONAL athlete.
+Name: ${nm}
+Sport: ${q.sport || 'unknown'}
+Team: ${q.team || 'unknown'}${q.city ? '\nCity: ' + q.city : ''}
+${known}Search the league or team roster page first, then "${nm}" instagram and "${nm}" tiktok.
+${SHAPE}
+${RULES}
+- A college athlete is NOT a match; if the only person by this name is on a college roster, return found: false and say so.`;
+  }
+  const known = feedTop ? `ESPN's roster feed already confirmed: ${feedTop.name}, ${feedTop.school} ${feedTop.sport}${feedTop.position ? ', ' + feedTop.position : ''}${feedTop.year ? ', ' + feedTop.year : ''}. Find what the feed does not carry: Instagram and TikTok handles with approximate follower counts, and a one-line highlight (an award, a stat line, recent news).\n` : '';
+  return `Find this COLLEGE athlete.
+Name: ${nm}
+School: ${q.school || 'unknown'}${q.sport ? '\nSport: ' + q.sport : ''}
+${known}Search the school's athletics site roster first (the official roster page lists position, class year, jersey number, hometown, height and weight), then ESPN, 247Sports, On3 and Rivals. For a small school also try naia.org, njcaa.org and the Division III roster pages (site:prestosports.com, site:sidearmsports.com). Then "${nm}" ${q.school || ''} instagram and tiktok.
+${SHAPE}
+${RULES}`;
+}
+const SYSTEM = 'You are an athlete data lookup assistant. You report only what the pages the search returned actually say, with the URL of the page for every field. You never fabricate athlete data and you never report a birth date or an age.';
+
+// ── THE WEB STAGE ────────────────────────────────────────────────────────
+// DeepSeek through the search loop, Serper preferred. Never Anthropic.
+let _searchLoopOverride = null;
+function _setSearchLoopForTests(fn) { _searchLoopOverride = fn || null; }
+function searchProvider() {
+  const WST = require('./webSearchTool');
+  const serper = WST.PROVIDERS.serper;
+  return serper.key() ? serper : WST.provider();
+}
+async function webStage(level, q, feedTop, ctx) {
+  const rt = DS.route('lookup', { needsSearch: true });
+  if (rt.provider !== 'deepseek' && !_searchLoopOverride) {
+    return { skipped: `web search unavailable: ${rt.reason}`, candidates: [], citations: [], usage: null, ms: 0 };
+  }
+  const WST = require('./webSearchTool');
+  const site = `lookup.${level}`;
+  const t0 = Date.now();
+  let r;
+  try {
+    const run = _searchLoopOverride || WST.searchLoop;
+    r = await run({ prompt: promptFor(level, q, feedTop), system: SYSTEM, maxSearches: MAX_SEARCHES, maxFetches: MAX_FETCHES,
+      maxTokens: 1800, temperature: 0, provider: _searchLoopOverride ? undefined : searchProvider(),
+      ctx: { site, brand: q.name, agentId: ctx && ctx.agentId } });
+  } catch (e) {
+    return { skipped: `web search failed: ${e.message}`, candidates: [], citations: [], usage: null, ms: Date.now() - t0 };
+  }
+  let parsed = null;
+  try { const m = String(r.text || '').match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : null; } catch (_) { parsed = null; }
+  const citations = Array.isArray(r.citations) ? r.citations : [];
+  const list = (parsed && Array.isArray(parsed.athletes)) ? parsed.athletes : [];
+  const candidates = list.map((a) => sanitizeWeb(a, citations, level)).filter(Boolean);
+  return { candidates, citations, usage: r.usage || null, searches: r.searches || 0, ms: Date.now() - t0,
+    searchNote: parsed && parsed.searchNote ? String(parsed.searchNote).slice(0, 300) : null, parsedFound: !!(parsed && parsed.found) };
+}
+
+// ── THE FEED STAGES ──────────────────────────────────────────────────────
+// ESPN's college roster: every field it lists is sourced to the roster URL.
+async function espnCollegeStage(normName, normSchool, normSport, notes) {
+  if (!normSchool || !normSport || !ESPN_SUPPORTED_SPORTS.has(normSport)) return [];
   try {
     const result = await getRoster(normSchool, normSport);
-    if (!result.athletes?.length) return [];
-
-    const teamName = result.team?.name || normSchool;
-    return result.athletes
-      .map(a => {
-        const ns = nameMatchScore(normName, a.name);
-        if (ns === 0) return null;
-        return {
-          name: a.name, school: teamName,
-          sport: normSport, position: a.position || null,
-          year: espnYearToEligibility(a.year),
-          height: a.height || null, weight: a.weight || null,
-          hometown: a.hometown || null, espn_id: a.espn_id || null,
-          source: 'espn-roster', sourceLabel: 'ESPN Live Roster',
-          confidence: Math.min(96, 60 + ns), _ns: ns,
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b._ns - a._ns)
-      .slice(0, 5);
+    if (!result.athletes || !result.athletes.length) { if (result.error) notes.push('ESPN: ' + result.error); return []; }
+    const teamName = (result.team && result.team.name) || normSchool;
+    const url = `https://site.api.espn.com/apis/site/v2/sports/${result.sportPath}/teams/${result.team && result.team.id}/roster`;
+    return result.athletes.map((a) => {
+      const ns = nameMatchScore(normName, a.name);
+      if (ns < 12) return null;
+      const fields = { name: a.name, school: teamName, sport: normSport, position: a.position || null, year: espnYearToEligibility(a.year),
+        jersey: a.number || null, height: a.height || null, weight: a.weight ? `${a.weight} lbs` : null, hometown: a.hometown || null };
+      const sources = {};
+      for (const [k, v] of Object.entries(fields)) if (v && k !== 'sport') sources[k] = url;
+      return Object.assign(fields, { sources, espn_id: a.espn_id || null, source: 'espn-roster', sourceLabel: 'ESPN Live Roster', sourceUrl: url,
+        confidence: Math.min(96, 60 + ns), _ns: ns });
+    }).filter(Boolean).sort((a, b) => b._ns - a._ns).slice(0, 5);
   } catch (e) {
-    console.warn('[lookup] ESPN error:', e.message);
+    notes.push('ESPN: ' + e.message);
     return [];
   }
 }
 
-// ── Stage 2B: Web Search + Claude lookup ─────────────────────────────────
-// Uses the web_search_20250305 tool so Claude reads live, real pages rather
-// than recalling potentially-stale training data.  Falls back to null (never
-// crashes) when search is unavailable.
-async function webSearchStage(normName, normSchool, normSport, normPosition, normYear, espnTop) {
-  const Anthropic = require('@anthropic-ai/sdk');
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-  // Build a targeted search query
-  let searchContext;
-  if (espnTop) {
-    // Enrich a confirmed ESPN athlete — look for social media, stats, career notes
-    searchContext =
-      `${espnTop.name} ${espnTop.school} ${espnTop.sport} athlete stats social media NIL`;
-  } else if (normSchool && normSport) {
-    searchContext =
-      `"${normName}" ${normSchool} ${normSport} athlete site:espn.com OR site:247sports.com OR site:on3.com OR site:rivals.com`;
-  } else if (normSchool) {
-    searchContext = `"${normName}" ${normSchool} college athlete`;
-  } else if (normSport) {
-    searchContext = `"${normName}" ${normSport} college athlete 2024 2025`;
-  } else {
-    searchContext = `"${normName}" NCAA college athlete`;
+// ── MERGE: a feed candidate takes the web fields it lacks ────────────────
+function mergeInto(feed, web) {
+  if (!web) return feed;
+  const out = Object.assign({}, feed);
+  out.sources = Object.assign({}, feed.sources || {});
+  for (const f of FIELDS) {
+    if ((out[f] === null || out[f] === undefined || out[f] === '') && web[f] !== undefined) { out[f] = web[f]; out.sources[f] = web.sources[f]; }
   }
-  if (normYear && !espnTop) searchContext += ` ${normYear}`;
-
-  const athleteContext = espnTop
-    ? `Confirmed athlete on ESPN roster:\nName: ${espnTop.name} | School: ${espnTop.school} | Sport: ${espnTop.sport} | Position: ${espnTop.position || '?'} | Year: ${espnTop.year || '?'}\n\nSearch for their stats, social media following, awards, and career notes.`
-    : `Search for this college athlete:\nName: ${normName}\nSport: ${normSport || 'unknown'}\nSchool: ${normSchool || 'unknown'}${normPosition ? '\nPosition: ' + normPosition : ''}${normYear ? '\nYear: ' + normYear : ''}`;
-
-  const userPrompt = `${athleteContext}
-
-Search query to use: ${searchContext}
-
-After searching, return ONLY a valid JSON object — no markdown, no explanation:
-{
-  "found": true or false,
-  "confidenceScore": 0-100,
-  "athletes": [
-    {
-      "name": "full name",
-      "school": "school name",
-      "sport": "sport",
-      "position": "position or null",
-      "year": "Fr/So/Jr/Sr/Grad Transfer or null",
-      "hometown": "city, state or null",
-      "jersey_number": "number or null",
-      "instagram": 0,
-      "tiktok": 0,
-      "engagement": 0,
-      "schoolTier": "p4-top10/p4-mid/mid-mid/etc or null",
-      "stats": "career stats string or null",
-      "notes": "awards, transfer history, recruiting rank or null",
-      "interest_tags": ["only when their bio/socials clearly show an interest, choose from exactly: supplements, creatine, protein, apparel, gyms, coffee, pizza, smoothies, energy drinks, snacks, restaurants, skincare, haircare, makeup, fragrance, streetwear, sneakers, accessories, dealerships, detailing, tires, chiropractic, physical therapy, mental health, recovery, gaming, apps, hunting, fishing, camping, banks, credit unions, insurance, local events, nonprofits, youth sports. Empty array when unsure, never guess"],
-      "previousSchool": "transfer source school or null",
-      "source": "full URL of the page you found this on",
-      "sourceLabel": "ESPN or 247Sports or On3 or Rivals or School Site"
-    }
-  ],
-  "searchNote": "one sentence about what you found or why nothing matched"
+  if (web.followersAsOf && (out.instagram !== undefined || out.tiktok !== undefined)) { out.followersAsOf = web.followersAsOf; out.followersApprox = true; }
+  out.source = feed.source + '+web';
+  out.sourceLabel = feed.sourceLabel + ' + web';
+  out.confidence = Math.min(99, (feed.confidence || 60) + 3);
+  return out;
 }
 
-RULES:
-- Only include athletes you can verify from actual search results
-- Never fabricate or guess athlete data — use null for anything not found in search results
-- If multiple athletes share this name at different schools, list all of them
-- If nothing found, return found: false with empty athletes array
-- confidenceScore: 85-100 if confirmed on ESPN/official site, 60-84 if found on recruiting site, 40-59 if limited info, below 40 if very uncertain`;
+// The flat shape every caller has read since the first version, plus the
+// new fields. `stats` and `knownFor` carry the highlight for the form and
+// the writer; `notes` is empty rather than a guess.
+function finish(c, level) {
+  const isPro = level === 'pro';
+  return {
+    athleteType: isPro ? 'pro' : 'college', level,
+    name: c.name, school: isPro ? null : (c.school || null), team: c.team || null, league: c.league || null, city: c.city || null,
+    sport: c.sport || null, position: c.position || null, year: isPro ? null : (c.year || null),
+    jersey: c.jersey || null, hometown: c.hometown || null, hometownState: c.hometownState || null,
+    height: c.height || null, weight: c.weight || null,
+    instagramHandle: c.instagramHandle || null, instagram: c.instagram || 0,
+    tiktokHandle: c.tiktokHandle || null, tiktok: c.tiktok || 0,
+    followersAsOf: c.followersAsOf || null, followersApprox: c.followersApprox === true,
+    highlight: c.highlight || null, stats: c.highlight || null, knownFor: isPro ? (c.highlight || null) : null,
+    engagement: 0, notes: null, previousSchool: null, interestTags: [],
+    schoolTier: isPro ? null : inferSchoolTier(c.school),
+    college: c.college || null,
+    sources: c.sources || {}, sourceUrl: c.sourceUrl || null, source: c.source || null, sourceLabel: c.sourceLabel || null,
+    confidence: c.confidence || 0,
+  };
+}
 
-  const collegeSystem = `You are an athlete data lookup assistant. Search for real, verified information about college athletes.
-Only return information confirmed by actual search results. Never hallucinate athlete data.
-Prefer ESPN, 247Sports, On3, Rivals, and official school athletic department websites as sources.`;
-  const viaDeepseek = await _deepseekStage('lookup.college', userPrompt, collegeSystem);
-  if (viaDeepseek !== undefined) return viaDeepseek;
+function flattenCandidate(c) { return Object.assign({ found: true }, c); }
 
+// ── THE ENTRY POINT ──────────────────────────────────────────────────────
+// resolveAthlete(ai, { name, school, sport, position, year, athleteType, team, city, level }, { agentId, force })
+//   -> { found, candidates (<=3), autoSelect, level, needsSport, message, notes,
+//        cached, checkedAt, costUsd, ms, ...(the best candidate flattened when autoSelect) }
+// `ai` is accepted for the callers that pass it and not used: the model is
+// DeepSeek through the search loop.
+async function resolveAthlete(ai, q, opts = {}) {
+  const t0 = Date.now();
+  const name = String((q && q.name) || '').trim();
+  if (!name) return { found: false, candidates: [], level: 'college', message: 'A name is needed.', notes: [], costUsd: 0, ms: 0 };
+  const level = levelOf(q);
+  const key = cacheKey(level, q);
+  if (!opts.force) {
+    const hit = await cacheGet(key);
+    if (hit) { hit.ms = Date.now() - t0; return hit; }
+  }
+  const notes = [];
+  const normName = normalizeName(name);
+  let feedCands = [];
+  let normSchool = null, normSport = null;
+  if (level === 'pro') {
+    const Feeds = require('./proRosterFeeds');
+    const proSport = String(q.sport || '').trim().toLowerCase().replace(/\s+/g, ' ') || null;
+    const f = await Feeds.searchFeeds({ name, sport: proSport, team: String(q.team || '').trim() || null });
+    notes.push(...f.notes);
+    feedCands = f.candidates;
+  } else if (level === 'college') {
+    normSchool = normalizeSchool(q.school);
+    normSport = normalizeSport(q.sport);
+    feedCands = await espnCollegeStage(normName, normSchool, normSport, notes);
+  }
+  const feedTop = feedCands[0] || null;
+
+  // The web stage: the whole profile when no feed answered, the rest of it
+  // (socials, highlight) when one did.
+  const web = await webStage(level, { name, school: q.school, sport: q.sport, team: q.team, city: q.city }, feedTop, { agentId: opts.agentId });
+  if (web.skipped) notes.push(web.skipped);
+  const costUsd = web.usage ? (Ledger.estimateUsd(DS.model(), web.usage, 'deepseek') || 0) : 0;
+
+  let candidates = [];
+  if (feedTop) {
+    const enrich = web.candidates.find((w) => nameMatchScore(feedTop.name, w.name) >= 25) || null;
+    candidates.push(mergeInto(feedTop, enrich));
+    for (const c of feedCands.slice(1)) if ((c._ns || 0) >= 15) candidates.push(c);
+  } else {
+    for (const w of web.candidates) {
+      if (level === 'college' && normSchool && w.school && !schoolsMatch(w.school, normSchool)) continue;
+      if (level === 'high_school' && q.school && w.school && !schoolsMatch(w.school, q.school)) continue;
+      if (nameMatchScore(name, w.name) < 12) continue;
+      candidates.push(Object.assign({}, w, { school: w.school || (level === 'pro' ? null : q.school) || null, team: w.team || q.team || null, city: w.city || q.city || null }));
+    }
+  }
+  candidates = candidates.map((c) => finish(c, level)).sort((a, b) => (b.confidence || 0) - (a.confidence || 0)).slice(0, 3);
+  // A field the agent supplied is not guessed: it is theirs, and it is kept
+  // when the sources did not contradict it (sourced 'agent').
+  for (const c of candidates) {
+    for (const [f, v] of [['sport', q.sport], ['position', q.position], ['year', q.year]]) {
+      if (!c[f] && v && String(v).trim()) { c[f] = String(v).trim(); c.sources[f] = 'agent'; }
+    }
+  }
+  const sports = new Set(candidates.map((c) => String(c.sport || '').toLowerCase()).filter(Boolean));
+  const needsSport = !candidates.length || sports.size > 1;
+  // The best candidate's flat fields ride on the result when it auto-selects
+  // (the form reads them there), but the result's own keys win: `notes` here
+  // is the lookup's notes, never the candidate's.
+  const result = Object.assign({}, (candidates.length === 1 && candidates[0].confidence >= 95) ? flattenCandidate(candidates[0]) : {}, {
+    found: candidates.length > 0, level, candidates, needsSport,
+    autoSelect: candidates.length === 1 && candidates[0].confidence >= 95,
+    espnSupported: level === 'college' && !!(normSport && ESPN_SUPPORTED_SPORTS.has(normSport)),
+    message: candidates.length ? null : (web.searchNote || notes.filter((n) => /unavailable|failed/.test(n))[0] || 'No verified athlete found. Please fill in details manually.'),
+    searchNote: web.searchNote || null, notes, citations: web.citations || [],
+    costUsd, searches: web.searches || 0, ms: Date.now() - t0, cached: false, checkedAt: new Date().toISOString(),
+  });
+  if (candidates.length) candidates[0].best = true;
+  console.log(`[lookup] ${level} "${name}"${q.school ? ' @ ' + q.school : ''}${q.team ? ' / ' + q.team : ''}: ${candidates.length} candidate(s), ${result.searches} search(es), $${costUsd.toFixed(4)}, ${result.ms}ms${notes.length ? ' [' + notes.join('; ') + ']' : ''}`);
+  // A skipped web stage with no feed answer is not a fact about the athlete: not cached.
+  if (candidates.length || !web.skipped) await cachePut(key, level, { name, school: q.school || null, team: q.team || null, sport: q.sport || null }, result);
+  return result;
+}
+
+// Several at once, in parallel, a few at a time. Order is preserved.
+async function resolveMany(ai, list, opts = {}) {
+  const items = Array.isArray(list) ? list : [];
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      try { out[i] = await resolveAthlete(ai, items[i] || {}, opts); }
+      catch (e) { out[i] = { found: false, candidates: [], level: levelOf(items[i] || {}), message: 'The lookup failed: ' + e.message, notes: [e.message], costUsd: 0, ms: 0 }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(BATCH_CONCURRENCY, items.length)) }, worker));
+  return out;
+}
+
+// Kept for the callers and tests that read them. The Anthropic-backed
+// stages are gone: this is the DeepSeek web stage under the old names.
+async function _deepseekStage(site, userPrompt, system) {
+  const rt = DS.route(site, { needsSearch: true });
+  if (rt.provider !== 'deepseek') return undefined;
   try {
-    const _t0 = Date.now();
-    const response = await client.messages.create({
-      model: LOOKUP_MODEL,
-      max_tokens: 1500,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      system: collegeSystem,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
-
-    // This client bypasses ai.js, so the ledger row is written here.
-    Ledger.record(response, { model: LOOKUP_MODEL, ms: Date.now() - _t0, ctx: { site: 'lookup.college' } });
-    // Extract text from all text-type content blocks
-    const textContent = response.content
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
-      .join('');
-
-    if (!textContent) return null;
-
-    const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    return parsed;
+    const WST = require('./webSearchTool');
+    const r = await WST.searchLoop({ prompt: userPrompt, system, maxSearches: 3, maxTokens: 1500, temperature: 0, ctx: { site }, provider: searchProvider() });
+    const jsonMatch = String(r.text || '').match(/\{[\s\S]*\}/);
+    return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
   } catch (e) {
-    console.warn('[lookup] Web search failed:', e.message);
+    console.warn(`[lookup] DeepSeek search failed (${e.message})`);
     return null;
   }
 }
-
-// ── PRO: which league to search, from the sport ──────────────────────────
-// The lookup for a pro searches league rosters, not ESPN's college pages and
-// not the recruiting sites. The sport picks the league; an unknown sport
-// searches "professional" and lets the roster page say which league.
 function leagueFor(sport) {
   const s = String(sport || '').toLowerCase();
   if (!s) return null;
   if (/football/.test(s)) return 'NFL';
-  // A sport typed without a gender names BOTH leagues. "Soccer" used to be
-  // normalised to "women's soccer" (the college normaliser's default, where
-  // ESPN's women's pages are the common case) and searched as NWSL only, so
-  // a man on New York City FC was reported as not found.
   if (/women.*basketball|wnba/.test(s)) return 'WNBA';
   if (/men.*basketball|\bnba\b/.test(s)) return 'NBA';
   if (/basketball/.test(s)) return 'NBA or WNBA';
@@ -401,257 +635,14 @@ function leagueFor(sport) {
   if (/volleyball/.test(s)) return 'Pro Volleyball Federation or LOVB';
   return null;
 }
-
-// ── Stage P: Web search for a PROFESSIONAL athlete ───────────────────────
-// Same tool, same "only what the search actually returned" rule as the
-// college stage, but the query is the roster and the answer is what a pitch
-// needs about a pro: position, team, city and what they are known for.
-// Numeric stats are not requested as structured fields. Nothing in this
-// codebase reads pro stats from anywhere; a one-line "known for" is what the
-// writer uses, and it is editable on the form.
 async function proSearchStage(normName, team, city, normSport, normPosition) {
-  const Anthropic = require('@anthropic-ai/sdk');
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const league = leagueFor(normSport);
-  const searchContext = [`"${normName}"`, team || '', league || 'professional', 'roster'].filter(Boolean).join(' ');
-  const userPrompt = `Search for this PROFESSIONAL athlete on a league or team roster:
-Name: ${normName}
-Sport: ${normSport || 'unknown'}${league ? ' (' + league + ')' : ''}
-Team: ${team || 'unknown'}${city ? '\nCity: ' + city : ''}${normPosition ? '\nPosition: ' + normPosition : ''}
-
-Search query to use: ${searchContext}
-
-After searching, return ONLY a valid JSON object — no markdown, no explanation:
-{
-  "found": true or false,
-  "confidenceScore": 0-100,
-  "athletes": [
-    {
-      "name": "full name",
-      "team": "current team, as the roster names it",
-      "league": "NFL, NBA, WNBA, MLB, NHL, MLS, NWSL or other",
-      "city": "the team's home city as 'City, ST' or null",
-      "sport": "sport",
-      "position": "position or null",
-      "knownFor": "one line on what they are known for — awards, a signature season, a role — only from what you found, or null",
-      "hometown": "city, state or null",
-      "instagram": 0,
-      "tiktok": 0,
-      "engagement": 0,
-      "notes": "career notes, previous teams, draft year or null",
-      "interest_tags": ["only when their bio/socials clearly show an interest, choose from exactly: supplements, creatine, protein, apparel, gyms, coffee, pizza, smoothies, energy drinks, snacks, restaurants, skincare, haircare, makeup, fragrance, streetwear, sneakers, accessories, dealerships, detailing, tires, chiropractic, physical therapy, mental health, recovery, gaming, apps, hunting, fishing, camping, banks, credit unions, insurance, local events, nonprofits, youth sports. Empty array when unsure, never guess"],
-      "source": "full URL of the page you found this on",
-      "sourceLabel": "NFL.com or NBA.com or MLB.com or NHL.com or MLSsoccer.com or ESPN or Team Site or Other"
-    }
-  ],
-  "searchNote": "one sentence about what you found or why nothing matched"
+  const r = await resolveAthlete(null, { name: normName, team, city, sport: normSport, position: normPosition, athleteType: 'pro' });
+  return { found: r.found, confidenceScore: r.candidates[0] ? r.candidates[0].confidence : 0, athletes: r.candidates, searchNote: r.message || r.searchNote };
 }
 
-RULES:
-- Only include athletes you can verify from actual search results
-- Never fabricate or guess athlete data — use null for anything not found in search results
-- If multiple professional athletes share this name, list all of them
-- A college athlete is NOT a match. If the only person by this name is on a college roster, return found: false and say so in searchNote
-- If nothing found, return found: false with empty athletes array
-- confidenceScore: 85-100 if confirmed on a league or team site, 60-84 if found on ESPN or a major outlet, 40-59 if limited info, below 40 if very uncertain`;
-
-  const proSystem = `You are an athlete data lookup assistant. Search for real, verified information about professional athletes.
-Only return information confirmed by actual search results. Never hallucinate athlete data.
-Prefer NFL.com, NBA.com, WNBA.com, MLB.com, NHL.com, MLSsoccer.com, official team sites and ESPN as sources.`;
-  const viaDeepseek = await _deepseekStage('lookup.pro', userPrompt, proSystem);
-  if (viaDeepseek !== undefined) return viaDeepseek;
-
-  try {
-    const _t0 = Date.now();
-    const response = await client.messages.create({
-      model: LOOKUP_MODEL,
-      max_tokens: 1500,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-      system: proSystem,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
-    Ledger.record(response, { model: LOOKUP_MODEL, ms: Date.now() - _t0, ctx: { site: 'lookup.pro' } });
-    const textContent = response.content.filter(b => b.type === 'text').map(b => b.text).join('');
-    if (!textContent) return null;
-    const jsonMatch = textContent.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    return JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    console.warn('[lookup] Pro web search failed:', e.message);
-    return null;
-  }
-}
-
-// ── Flatten a candidate to legacy flat fields ────────────────────────────
-function flattenCandidate(c) {
-  return {
-    found: true,
-    name: c.name, school: c.school, sport: c.sport,
-    position: c.position, year: c.year, stats: c.stats,
-    height: c.height, weight: c.weight, hometown: c.hometown,
-    instagram: c.instagram || 0, tiktok: c.tiktok || 0,
-    engagement: c.engagement || 0,
-    schoolTier: c.schoolTier || null,
-    notes: c.notes || null, previousSchool: c.previousSchool || null,
-    interestTags: c.interestTags || [],
-    confidence: c.confidence, source: c.source, sourceLabel: c.sourceLabel,
-    // Pro fields, null on a college candidate.
-    athleteType: c.athleteType || 'college',
-    team: c.team || null, city: c.city || null, league: c.league || null,
-    knownFor: c.knownFor || null,
-  };
-}
-
-// ── Main ────────────────────────────────────────────────────────────────────
-async function resolveAthlete(ai, { name, school, sport, position, year, athleteType, team, city }) {
-  const normName     = normalizeName(name);
-  const normSchool   = normalizeSchool(school);
-  const normSport    = normalizeSport(sport);
-  const normPosition = (position || '').trim() || null;
-  const normYear     = (year || '').trim() || null;
-  const espnOk       = normSport && ESPN_SUPPORTED_SPORTS.has(normSport);
-
-  // ── A PRO: league rosters, no ESPN college stage, no school constraint ──
-  if (athleteType === 'pro') {
-    const normTeam = String(team || '').trim() || null;
-    const normCity = String(city || '').trim() || null;
-    // THE SPORT AS TYPED, not normalised. normalizeSport is the college
-    // normaliser: it turns "soccer" into "women's soccer" and "basketball"
-    // into "men's basketball" because that is what ESPN's college pages
-    // need. A pro search must not inherit that guess -- leagueFor names both
-    // leagues for a bare sport and the roster page says which.
-    const proSport = String(sport || '').trim().toLowerCase().replace(/\s+/g, ' ') || null;
-    const pro = await proSearchStage(normName, normTeam, normCity, proSport, normPosition);
-    const candidates = [];
-    if (pro && pro.found && Array.isArray(pro.athletes)) {
-      const baseConf = pro.confidenceScore || 65;
-      for (const a of pro.athletes) {
-        if (!a || !a.name) continue;
-        candidates.push({
-          athleteType:  'pro',
-          name:         a.name,
-          team:         a.team || normTeam,
-          league:       a.league || leagueFor(proSport),
-          city:         a.city || normCity,
-          school:       null, year: null, schoolTier: null,
-          sport:        a.sport || proSport || sport,
-          position:     a.position || normPosition || null,
-          knownFor:     a.knownFor || null,
-          stats:        a.knownFor || null,   // the form's stats box holds "known for" on a pro
-          hometown:     a.hometown || null,
-          instagram:    a.instagram || 0,
-          tiktok:       a.tiktok || 0,
-          engagement:   a.engagement || 0,
-          notes:        a.notes || null,
-          interestTags: Array.isArray(a.interest_tags) ? a.interest_tags.filter(t => typeof t === 'string').slice(0, 10) : [],
-          sourceUrl:    a.source || null,
-          source:       'web-search',
-          sourceLabel:  a.sourceLabel || 'Web Search',
-          confidence:   baseConf,
-        });
-      }
-    }
-    if (!candidates.length) {
-      return { found: false, candidates: [],
-        message: (pro && pro.searchNote) || 'No verified professional athlete found. Please fill in details manually.' };
-    }
-    candidates.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-    candidates[0].best = true;
-    const autoSelect = candidates[0].confidence >= 95 && candidates.length === 1;
-    return { found: true, candidates: candidates.slice(0, 3), autoSelect, espnSupported: false,
-      ...(autoSelect ? flattenCandidate(candidates[0]) : {}) };
-  }
-
-  // Stage 2A — ESPN live roster (football/basketball/baseball/volleyball + known school)
-  const espnCandidates = await espnStage(normName, normSchool, normSport);
-  const topESPN = espnCandidates[0] || null;
-
-  // Stage 2B — Web search + Claude (always runs; enriches ESPN or finds athletes independently)
-  const searchResult = await webSearchStage(normName, normSchool, normSport, normPosition, normYear, topESPN);
-
-  // ── Merge candidates ───────────────────────────────────────────────────
-  let candidates = [];
-
-  if (topESPN) {
-    // ESPN confirmed — try to enrich with web search data (social, stats, notes)
-    const merged = { ...topESPN };
-    const enriched = searchResult?.athletes?.[0];
-    if (enriched) {
-      merged.stats          = enriched.stats || null;
-      merged.instagram      = enriched.instagram || 0;
-      merged.tiktok         = enriched.tiktok || 0;
-      merged.engagement     = enriched.engagement || 0;
-      merged.schoolTier     = enriched.schoolTier || inferSchoolTier(topESPN.school);
-      merged.notes          = enriched.notes || null;
-      merged.previousSchool = enriched.previousSchool || null;
-      merged.sourceUrl      = enriched.source || null;
-      merged.year           = topESPN.year    || enriched.year;
-      merged.position       = topESPN.position || enriched.position;
-      merged.confidence     = Math.min(99, topESPN.confidence + 4);
-      merged.source         = 'espn-roster+web';
-      merged.sourceLabel    = 'ESPN Live Roster + Web Verified';
-    } else {
-      merged.schoolTier = inferSchoolTier(topESPN.school);
-    }
-    candidates.push(merged);
-    // Additional ESPN candidates (lower-ranked name matches)
-    for (const c of espnCandidates.slice(1)) {
-      if (c._ns >= 15) candidates.push({ ...c, schoolTier: inferSchoolTier(c.school) });
-    }
-
-  } else if (searchResult?.found && searchResult.athletes?.length) {
-    // Web search is the primary source
-    const baseConf = searchResult.confidenceScore || 65;
-    for (const a of searchResult.athletes) {
-      // Validate school constraint when we know the school
-      if (normSchool && a.school && !schoolsMatch(a.school, normSchool)) continue;
-
-      const conf = baseConf;
-      candidates.push({
-        name:          a.name,
-        school:        a.school || normSchool,
-        sport:         a.sport  || normSport || sport,
-        position:      a.position     || normPosition || null,
-        year:          a.year         || normYear || null,
-        stats:         a.stats        || null,
-        hometown:      a.hometown     || null,
-        instagram:     a.instagram    || 0,
-        tiktok:        a.tiktok       || 0,
-        engagement:    a.engagement   || 0,
-        schoolTier:    a.schoolTier   || inferSchoolTier(a.school || normSchool),
-        notes:         a.notes        || null,
-        interestTags:  Array.isArray(a.interest_tags) ? a.interest_tags.filter(t => typeof t === 'string').slice(0, 10) : [],
-        previousSchool: a.previousSchool || null,
-        sourceUrl:     a.source       || null,
-        source:        'web-search',
-        sourceLabel:   a.sourceLabel  || 'Web Search',
-        confidence:    conf,
-      });
-    }
-  }
-
-  if (!candidates.length) {
-    return {
-      found: false,
-      candidates: [],
-      message: searchResult?.searchNote || 'No verified athlete found. Please fill in details manually.',
-    };
-  }
-
-  // Sort by confidence descending, mark the best
-  candidates.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-  candidates[0].best = true;
-
-  // autoSelect: ESPN match ≥95 confidence with single result → fill form directly
-  const autoSelect = candidates[0].confidence >= 95 && candidates.length === 1;
-
-  return {
-    found: true,
-    candidates: candidates.slice(0, 3),
-    autoSelect,
-    espnSupported: espnOk,
-    ...(autoSelect ? flattenCandidate(candidates[0]) : {}),
-  };
-}
-
-module.exports = { resolveAthlete, normalizeName, normalizeSchool, normalizeSport, nameMatchScore, ESPN_SUPPORTED_SPORTS, leagueFor, proSearchStage, _deepseekStage };
+module.exports = {
+  resolveAthlete, resolveMany, levelOf, cacheKey, sanitizeWeb, promptFor, FIELDS,
+  normalizeName, normalizeSchool, normalizeSport, nameMatchScore, schoolsMatch, ESPN_SUPPORTED_SPORTS,
+  leagueFor, proSearchStage, _deepseekStage, _setSearchLoopForTests,
+  CACHE_DAYS, MISS_CACHE_HOURS,
+};
