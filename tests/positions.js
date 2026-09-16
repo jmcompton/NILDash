@@ -132,6 +132,36 @@ ok('a stored position we do not know still matches itself', probs('Amari Allen i
 const src = require('fs').readFileSync(REPO + 'server/services/university/ESPNRosterService.js', 'utf8');
 ok('the roster lookup still stores the abbreviation first, which is why the resolver exists', /position: a\.position\?\.abbreviation \|\| a\.position\?\.name/.test(src));
 
+// ── 6. SPORT: THE SAME FIX AS POSITIONS ─────────────────────────────────────
+OUT.push('', '-- sport abbreviations expand, and the check compares by sport --');
+{
+  const SP = [['MBB', 'basketball'], ['WBB', 'basketball'], ["Women's Soccer", 'soccer'], ['WSOC', 'soccer'], ['Ice Hockey', 'ice hockey'], ['hockey', 'ice hockey'],
+    ['T&F', 'track and field'], ['track', 'track and field'], ['XC', 'cross country'], ['BSB', 'baseball'], ['SB', 'softball'], ['Softball', 'softball'],
+    ['FB', 'football'], ['cfb', 'football'], ['mens golf', 'golf'], ['womens ice hockey', 'ice hockey'], ['D1 Softball', 'softball'], ['VB', 'volleyball'], ['LAX', 'lacrosse']];
+  for (const [raw, want] of SP) ok(`${raw} -> ${want}`, PW.sportKey(raw) === want, PW.sportKey(raw));
+  ok('an unknown sport is not guessed: key null, label as typed', PW.sportKey('Esports') === null && PW.sportLabel('Esports') === 'Esports');
+  ok('baseball and softball are different sports', PW.sportKey('BSB') !== PW.sportKey('SB'));
+  ok('"basketball" against a stored MBB passes the fact check', PW.verifyAthleteFacts('As a basketball player at Auburn, Jo brings', { name: 'Jo', sport: 'MBB', position: 'G', school: 'Auburn' }).problems.length === 0);
+  ok('"hockey" against a stored "womens ice hockey" passes', PW.verifyAthleteFacts('Jo plays hockey at St. Thomas', { name: 'Jo', sport: 'womens ice hockey', school: 'St. Thomas' }).problems.length === 0);
+  ok('"soccer" against a stored WSOC passes', PW.verifyAthleteFacts('Jo, a soccer player', { name: 'Jo', sport: 'WSOC' }).problems.length === 0);
+  const sb = PW.verifyAthleteFacts('As a softball player, Jo', { name: 'Jo', sport: 'Baseball', position: 'P' }).problems;
+  ok('"softball" against a stored Baseball is still refused', sb.length === 1 && /says "softball" but the stored sport is "Baseball"/.test(sb[0]), sb);
+  const d1 = PW.describeAthlete({ name: 'Jo', sport: 'MBB', school: 'Auburn' });
+  ok('the writer is handed the expanded sport and told what to say', /Plays: basketball at Auburn/.test(d1) && /sport: say "basketball" or nothing/.test(d1), d1.split('\n')[1]);
+  const d2 = PW.describeAthlete({ name: 'Max', sport: 'WSOC', position: 'F', team: 'New York City FC', athleteType: 'pro' });
+  ok('  a pro too', /Plays: forward soccer for the New York City FC/.test(d2) && /sport: say "soccer"/.test(d2), d2.split('\n')[2]);
+
+  // ── 7. NO POSITION ON FILE: THE WRITER IS TOLD, NOT LEFT TO GUESS ──────────
+  OUT.push('', '-- no position on file --');
+  const noPos = PW.describeAthlete({ name: 'Jo', sport: 'football', school: 'Auburn' });
+  ok('with no position the prompt says so', /\(no position on file: do not name, guess or imply one\)/.test(noPos), noPos.split('\n')[1]);
+  ok('  and with only a school on file, still says so', /no position on file/.test(PW.describeAthlete({ name: 'Jo', school: 'Auburn' })));
+  ok('an unrecognised stored position is still the only one allowed', /position: say "Xyzzy" or nothing/.test(PW.describeAthlete({ name: 'Jo', sport: 'football', position: 'Xyzzy', school: 'Auburn' })));
+  ok('a recognised one is still the expanded label', /position: say "cornerback" or nothing/.test(PW.describeAthlete({ name: 'Jo', sport: 'football', position: 'CB', school: 'Auburn' })));
+  const np = PW.verifyAthleteFacts('As a quarterback at Auburn, Jo', { name: 'Jo', sport: 'football', school: 'Auburn' }).problems;
+  ok('the check still refuses a position we do not hold', np.length === 1 && /claims a position \("quarterback"\) and we hold none/.test(np[0]), np);
+}
+
 OUT.push(''); OUT.push('failures: ' + F);
 console.log(OUT.join('\n'));
 process.exit(F ? 1 : 0);

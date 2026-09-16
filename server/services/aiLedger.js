@@ -83,14 +83,14 @@ async function _flush() {
   const batch = _queue.splice(0, 200);
   try {
     const cols = ['site', 'model', 'agent_id', 'athlete_id', 'brand', 'input_tokens', 'output_tokens',
-      'cache_read_tokens', 'cache_write_tokens', 'web_searches', 'est_usd', 'ms'];
+      'cache_read_tokens', 'cache_write_tokens', 'web_searches', 'est_usd', 'ms', 'caller'];
     const values = [];
     const params = [];
     batch.forEach((r, i) => {
       const base = i * cols.length;
       values.push('(' + cols.map((_, j) => '$' + (base + j + 1)).join(',') + ')');
       params.push(r.site, r.model, r.agentId, r.athleteId, r.brand, r.inputTokens, r.outputTokens,
-        r.cacheReadTokens, r.cacheWriteTokens, r.webSearches, r.estUsd, r.ms);
+        r.cacheReadTokens, r.cacheWriteTokens, r.webSearches, r.estUsd, r.ms, r.caller || null);
     });
     await pool.query(`INSERT INTO ai_call_ledger (${cols.join(',')}) VALUES ${values.join(',')}`, params);
   } catch (e) {
@@ -104,14 +104,35 @@ async function _flush() {
   }
 }
 
+// WHO CALLED, when nobody labelled the call. "unlabelled" was the second
+// biggest line on the breakdown two nights running, and the row said nothing
+// about where it came from. Now an unlabelled row carries the first stack
+// frame outside the AI plumbing -- "services/draftPrewarm.js:304" -- so the
+// site can be named from the ledger instead of guessed from the code.
+const _PLUMBING = /[\\/](ai|aiLedger|scanMeter)\.js|node:internal|node_modules[\\/]/;
+function callerOf() {
+  try {
+    const lines = String(new Error().stack || '').split('\n').slice(1);
+    for (const l of lines) {
+      const m = l.match(/\(?([^()\s]+\.js):(\d+):\d+\)?\s*$/);
+      if (!m || _PLUMBING.test(m[1])) continue;
+      const file = m[1].replace(/^.*[\\/]server[\\/]/, '').replace(/^.*[\\/]scripts[\\/]/, 'scripts/');
+      return `${file}:${m[2]}`.slice(0, 160);
+    }
+  } catch (_) { /* a stack we cannot read is not worth a failed row */ }
+  return null;
+}
+
 // record(msg, { model, ms, ctx }) -> the row it queued (for tests), or null.
 // ctx is the meter context: { site, agentId, athleteId, brand }.
 function record(msg, info) {
   try {
     const usage = usageOf(msg);
     const ctx = (info && info.ctx) || {};
+    const site = String(ctx.site || info.site || 'unlabelled').slice(0, 60);
     const row = {
-      site: String(ctx.site || info.site || 'unlabelled').slice(0, 60),
+      site,
+      caller: site === 'unlabelled' ? callerOf() : null,
       model: String((info && info.model) || (msg && msg.model) || 'unknown').slice(0, 80),
       agentId: ctx.agentId ? String(ctx.agentId).slice(0, 120) : null,
       athleteId: ctx.athleteId ? String(ctx.athleteId).slice(0, 120) : null,
@@ -138,4 +159,4 @@ async function drain() {
   }
 }
 
-module.exports = { record, usageOf, estimateUsd, priceKey, usePool, drain, PRICES, USD_PER_WEB_SEARCH };
+module.exports = { callerOf, record, usageOf, estimateUsd, priceKey, usePool, drain, PRICES, USD_PER_WEB_SEARCH };

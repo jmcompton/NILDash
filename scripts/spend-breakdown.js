@@ -202,6 +202,21 @@ async function main() {
     }
     console.log(`     ${pad('TOTAL', 26)} ${pad(usd(tot.discovery), 10)} ${pad(usd(tot.instagram), 10)} ${pad(usd(tot.contacts), 10)} ${pad(tot.writer, 13)} ${pad(tot.unmetered, 10)}`);
     console.log(`     writer calls x ~${usd(0.012)}-${usd(0.02)} each on Sonnet (2-3k tokens in, ~400 out) = roughly ${usd(tot.writer * 0.012)} to ${usd(tot.writer * 0.02)} that spent_usd does not contain`);
+    // ── NO NAME FOUND ────────────────────────────────────────────────────
+    // A business the ladder could not name, whose final owner / marketing
+    // searches also came back empty, is skipped rather than written to (see
+    // services/ownerNameSearch). The rate is what decides whether the bar is
+    // right; the names are what decides whether the searches are.
+    const localTried = det.flatMap((d) => (Array.isArray(d.tried) ? d.tried : []).filter((t) => t && t.result !== 'prescreen_skip' && t.lane !== 'social' && t.lane !== 'program' && t.lane !== 'pro'));
+    const noName = localTried.filter((t) => t.result === 'no_name');
+    const rescued = det.flatMap((d) => (Array.isArray(d.tried) ? d.tried : []).filter((t) => t && t.why && t.why.finalName));
+    if (noName.length || rescued.length || localTried.some((t) => t.result === 'queued')) {
+      const denom = localTried.length || 1;
+      console.log(`     no name found: ${noName.length} of ${localTried.length} local businesses skipped (${Math.round(100 * noName.length / denom)}%); ${rescued.length} named only by the final owner/marketing search`);
+      for (const t of noName.slice(0, 10)) console.log(`        skipped  ${t.brand}`);
+      for (const t of rescued.slice(0, 10)) console.log(`        rescued  ${t.brand}: ${t.why.finalName.name} (${t.why.finalName.title}, ${t.why.finalName.query} search)`);
+    }
+
     // ── SLOT TAKEN AFTER WRITE ───────────────────────────────────────────
     // The slot was confirmed open before the writer ran and found taken right
     // before the insert: the pitch was thrown away. Each one is a Sonnet call
@@ -214,6 +229,21 @@ async function main() {
     } else if (det.some((d) => Array.isArray(d.slotTaken))) {
       console.log('     slot taken after write: none');
     }
+
+    // ── WHO MADE THE UNLABELLED CALLS ────────────────────────────────────
+    // Rows with no site carry the first stack frame outside the AI plumbing
+    // (aiLedger.callerOf), so the mystery line names its file and line.
+    try {
+      const uc = await P.query(
+        `SELECT COALESCE(caller, '(no caller recorded: row predates the column)') AS caller, model,
+                COUNT(*)::int AS calls, SUM(web_searches)::int AS searches, SUM(est_usd)::float AS usd
+           FROM ai_call_ledger WHERE site = 'unlabelled' AND at >= NOW() - INTERVAL '36 hours'
+          GROUP BY 1, 2 ORDER BY usd DESC NULLS LAST LIMIT 12`);
+      if (uc.rows.length) {
+        console.log(`     unlabelled calls, by caller (last 36h):`);
+        for (const r of uc.rows) console.log(`        ${pad(usd(r.usd || 0), 9)} ${pad(r.calls + ' call(s)', 12)} ${pad((r.searches || 0) + ' search(es)', 14)} ${pad(r.model, 30)} ${r.caller}`);
+      }
+    } catch (_) { /* older ledger without the column: the section is skipped */ }
 
     // ── THE WRITER RETRY ─────────────────────────────────────────────────
     // A lint refusal buys a second Sonnet call. Since the flag shipped every

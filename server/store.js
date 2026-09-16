@@ -1975,6 +1975,8 @@ async function init() {
     .catch((e) => console.error('[init] ai_call_ledger:', e.message));
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_call_ledger_at ON ai_call_ledger (at)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_call_ledger_agent ON ai_call_ledger (agent_id, at)`).catch(() => {});
+  // The first stack frame outside the AI plumbing, kept only on unlabelled rows.
+  await pool.query(`ALTER TABLE ai_call_ledger ADD COLUMN IF NOT EXISTS caller TEXT`).catch(() => {});
   // ONE OPEN ROW PER RULE PER OUTREACH. releaseDue re-evaluates every tick, and
   // without this a held draft would write a fresh identical row every fifteen
   // minutes until the log was unreadable.

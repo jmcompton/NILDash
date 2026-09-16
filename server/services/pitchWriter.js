@@ -466,6 +466,68 @@ function sportFamily(sport) {
   return null;
 }
 
+// ── ONE SPORT, SEVERAL NAMES ────────────────────────────────────────────────
+// The same problem as positions: a roster feed or an agent stores "MBB",
+// "WSOC", "T&F" or "Ice Hockey", the model says "basketball", "soccer",
+// "track" or "hockey", and the fact check refused it as a different sport
+// ("says X but the stored sport is Y"). The stored value is EXPANDED before it
+// reaches the model, the prompt says what word to use, and the check compares
+// by canonical sport. Gender prefixes are not identity: "women's soccer" and
+// "soccer" are the same sport to a business owner. Baseball and softball are
+// NOT the same sport.
+const SPORT_ABBR = {
+  fb: 'football', cfb: 'football', 'american football': 'football',
+  mbb: 'basketball', wbb: 'basketball', bb: 'basketball', bball: 'basketball', hoops: 'basketball',
+  bsb: 'baseball', sb: 'softball', fastpitch: 'softball',
+  soc: 'soccer', msoc: 'soccer', wsoc: 'soccer', futbol: 'soccer',
+  vb: 'volleyball', mvb: 'volleyball', wvb: 'volleyball', 'beach vb': 'beach volleyball',
+  xc: 'cross country', 'cross-country': 'cross country',
+  tf: 'track and field', 't&f': 'track and field', track: 'track and field', 'track & field': 'track and field',
+  lax: 'lacrosse', mlax: 'lacrosse', wlax: 'lacrosse',
+  hky: 'ice hockey', ih: 'ice hockey', mhky: 'ice hockey', whky: 'ice hockey', hockey: 'ice hockey',
+  fh: 'field hockey',
+  mgolf: 'golf', wgolf: 'golf', ten: 'tennis', swim: 'swimming', 'swimming and diving': 'swimming', 'swim & dive': 'swimming', sd: 'swimming',
+  gym: 'gymnastics', wr: 'wrestling', wres: 'wrestling', row: 'rowing', crew: 'rowing', wp: 'water polo', 'water polo': 'water polo',
+  cheer: 'cheer', cheerleading: 'cheer', dance: 'dance', ski: 'skiing', tri: 'triathlon',
+};
+const SPORT_CANON = new Set(['football', 'basketball', 'baseball', 'softball', 'soccer', 'volleyball', 'beach volleyball',
+  'cross country', 'track and field', 'lacrosse', 'ice hockey', 'field hockey', 'golf', 'tennis', 'swimming', 'diving',
+  'gymnastics', 'wrestling', 'rowing', 'water polo', 'bowling', 'cheer', 'dance', 'skiing', 'triathlon']);
+// The canonical sport for a stored value or a word the model wrote, or null
+// when it is not one we know (the caller then compares strings).
+function sportKey(s) {
+  let k = _words(s).replace(/[’']/g, '').replace(/[.]/g, '').replace(/\s+/g, ' ').trim();
+  if (!k) return null;
+  // Gender is not identity.
+  k = k.replace(/^(mens|womens|men|women|m|w|boys|girls)\s+/, '').replace(/\s*\((?:m|w|men|women|mens|womens)\)\s*$/, '').trim();
+  if (SPORT_ABBR[k]) return SPORT_ABBR[k];
+  if (SPORT_CANON.has(k)) return k;
+  // "D1 Softball", "Football (P4)": exactly one known sport inside a phrase.
+  const hits = [...SPORT_CANON].filter((c) => new RegExp('\\b' + c.replace(/ /g, '\\s+') + '\\b').test(k));
+  if (hits.length === 1) return hits[0];
+  const ab = Object.keys(SPORT_ABBR).filter((a) => /^[a-z&]+$/.test(a) && new RegExp('\\b' + a.replace(/[&]/g, '\\$&') + '\\b').test(k));
+  if (ab.length === 1) return SPORT_ABBR[ab[0]];
+  return null;
+}
+// What the model is told to say: the canonical name, or the stored value
+// itself when we do not recognise it (so an unusual sport still reaches the
+// model as typed rather than being dropped).
+function sportLabel(s) {
+  const raw = String(s || '').trim();
+  const k = sportKey(s);
+  if (!k) return raw || null;
+  // A stored value that already IS the sport, however capitalised
+  // ("Football", "Women's Soccer"), reaches the model as typed; only an
+  // abbreviation or a variant ("MBB", "hockey", "T&F") is expanded.
+  const bare = _words(raw).replace(/[\u2019']/g, '').replace(/^(mens|womens|men|women|boys|girls)\s+/, '').trim();
+  return bare === k ? raw : k;
+}
+function _sportRule(a) {
+  const label = sportLabel(a.sport);
+  if (!label) return '';
+  return ` (sport: say "${label}" or nothing; do not rename or abbreviate it)`;
+}
+
 // Sport-specific WORD overrides: in football a "guard" or a "tackle" is a
 // lineman, not a basketball guard; in soccer a "forward" and a "striker" are
 // the same job to a business owner.
@@ -677,10 +739,18 @@ function verifyAthleteFacts(message, athlete, opts = {}) {
     }
   }
   // ── sport ─────────────────────────────────────────────────────────────────
+  // Compared BY SPORT, so "basketball" and a stored "MBB" are the same, and
+  // "hockey" and a stored "Ice Hockey" are the same. Falls back to the string
+  // comparison when we do not recognise the stored value.
   const storedSport = _words(a.sport);
+  const storedSportKey = sportKey(a.sport);
   for (const hit of _findVocab(t, SPORT_WORDS, a)) {
     if (!storedSport) { problems.push(`names a sport ("${hit}") and we hold none`); break; }
-    if (!storedSport.includes(hit) && !hit.includes(storedSport)) {
+    const hitKey = sportKey(hit);
+    const same = storedSportKey && hitKey
+      ? storedSportKey === hitKey
+      : (storedSport.includes(hit) || hit.includes(storedSport));
+    if (!same) {
       problems.push(`says "${hit}" but the stored sport is "${a.sport}"`); break;
     }
   }
@@ -826,8 +896,13 @@ function describeBusiness(b) {
 // refused the word. Now the block hands over the word, and says so.
 function _positionRule(a) {
   const label = positionLabel(a.position, a.sport);
-  if (!label) return '';
-  return ` (position: say "${label}" or nothing; do not rename or abbreviate it)`;
+  // positionLabel returns the stored value itself when it is not one we
+  // recognise, so a stored position is always named here, expanded or not.
+  if (label) return ` (position: say "${label}" or nothing; do not rename or abbreviate it)`;
+  // NOTHING ON FILE. This was silent, and the model filled the gap: nineteen
+  // pitches in one night named a position for an athlete whose record holds
+  // none, and every one was refused and rewritten. Now it is told.
+  return ' (no position on file: do not name, guess or imply one)';
 }
 
 function describeAthlete(a) {
@@ -840,9 +915,9 @@ function describeAthlete(a) {
     // college must not reach the model, and there is no campus to name.
     L.push('This athlete is a PROFESSIONAL, not a college athlete. Never call them a '
       + 'student-athlete, never mention college, NCAA, a class year or NIL.');
-    const bits = [positionLabel(a.position, a.sport), a.sport].filter(Boolean).join(' ');
-    if (bits) L.push('Plays: ' + bits + (a.team ? ' for the ' + a.team : '') + _positionRule(a));
-    else if (a.team) L.push('Team: ' + a.team);
+    const bits = [positionLabel(a.position, a.sport), sportLabel(a.sport)].filter(Boolean).join(' ');
+    if (bits) L.push('Plays: ' + bits + (a.team ? ' for the ' + a.team : '') + _positionRule(a) + _sportRule(a));
+    else if (a.team) L.push('Team: ' + a.team + _positionRule(a));
     if (a.city) L.push('Based in: ' + a.city);
     // "Known for" is what the agent typed into stats or notes. It is offered as
     // the hook, and only what is listed may be said -- the model is not asked to
@@ -851,9 +926,9 @@ function describeAthlete(a) {
     if (known) L.push('Known for: ' + known + ' (use this, and nothing you remember about them)');
     else L.push('Known for: nothing on file. Do not draw on what you may remember about this player; pitch on position, team and what they post.');
   } else {
-    const bits = [a.year, positionLabel(a.position, a.sport), a.sport].filter(Boolean).join(' ');
-    if (bits) L.push('Plays: ' + bits + (a.school ? ' at ' + a.school : '') + _positionRule(a));
-    else if (a.school) L.push('School: ' + a.school);
+    const bits = [a.year, positionLabel(a.position, a.sport), sportLabel(a.sport)].filter(Boolean).join(' ');
+    if (bits) L.push('Plays: ' + bits + (a.school ? ' at ' + a.school : '') + _positionRule(a) + _sportRule(a));
+    else if (a.school) L.push('School: ' + a.school + _positionRule(a));
   }
   if (a.hometown) L.push('From: ' + a.hometown);
   const ig = Number(a.instagram) || 0, tt = Number(a.tiktok) || 0;
@@ -1208,5 +1283,5 @@ module.exports = {
   CATEGORY_PLAYBOOK, DEFAULT_PLAY, BANNED_OPENERS, CORPORATE_FILLER, PRICE_PATTERNS,
   DELIVERABLE_RE, DELIVERABLE_NOUNS, DELIVERABLE_VERBS, SYSTEM, SYSTEM_PRO, systemFor, MIN_SAMPLE,
   POSITION_WORDS, SPORT_WORDS, YEAR_WORDS,
-  positionKey, positionLabel, sportFamily, POSITION_GROUPS, POSITION_ABBR, SOFT_WORDS,
+  positionKey, sportKey, sportLabel, SPORT_ABBR, positionLabel, sportFamily, POSITION_GROUPS, POSITION_ABBR, SOFT_WORDS,
 };
