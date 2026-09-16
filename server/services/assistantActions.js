@@ -58,34 +58,144 @@ function _str(v, max) {
   return (s && s.length <= max) ? s : null;
 }
 
+// The town a school resolves to, from the same resolver the pipeline uses
+// (services/schoolCheck over services/schoolResolver). Null when it does not
+// resolve, so the caller says "near their school" rather than guessing.
+function _townOf(school) {
+  try {
+    const { checkSchool } = require('./schoolCheck');
+    const r = checkSchool(school || '');
+    return (r && r.market) || 'their school';
+  } catch (_) { return 'their school'; }
+}
+
+// The athlete lookup, replaceable for tests (the real one searches the web).
+let _lookupOverride = null;
+function _lookupImpl() { return _lookupOverride || require('./athleteLookup'); }
+function _setLookupForTests(impl) { _lookupOverride = impl; }
+
 // ── The registry ─────────────────────────────────────────────────────────────
 // `input` is the JSON Schema handed to the model. `check` re-validates server side:
 // the schema is a hint to the model, never a guarantee about what arrives.
 const ACTIONS = {
   add_athlete: {
     tier: 'direct',
-    description: 'Add a new athlete to the agent\'s roster. Requires name, sport and school.',
+    description: 'Add a new athlete to the agent\'s roster. Requires name, sport and school (or, for a pro, the city they play in and the team). Position, class year, hometown and Instagram followers are optional.',
     input: {
       type: 'object',
       properties: {
         name:   { type: 'string', description: 'Full name of the athlete' },
         sport:  { type: 'string', description: 'Their sport. Required: it drives fit scoring.' },
-        school: { type: 'string', description: 'The school they compete for' },
+        school: { type: 'string', description: 'The school they compete for (college athlete)' },
+        position: { type: 'string', description: 'Optional: their position' },
+        year: { type: 'string', description: 'Optional: class year, e.g. Freshman, Sophomore, Junior, Senior' },
+        hometown: { type: 'string', description: 'Optional: hometown as "City, ST"' },
+        instagram: { type: 'integer', description: 'Optional: Instagram follower count' },
+        athleteType: { type: 'string', enum: ['college', 'pro'], description: 'college (default) or pro' },
+        city: { type: 'string', description: 'Pro only: the city they play in, as "City, ST"' },
+        team: { type: 'string', description: 'Pro only: the team' },
       },
-      required: ['name', 'sport', 'school'],
+      required: ['name', 'sport'],
     },
     // Sport is required by POST /api/athletes and the validation is NOT loosened
     // here: sport drives fit scoring, so an athlete without one scores wrong rather
-    // than scoring not at all, which is worse.
+    // than scoring not at all, which is worse. A school (or a pro's city) is
+    // required for the same reason the endpoint requires it: it is the local
+    // lane's town, and an athlete without one gets no cards.
     check: (a) => {
       const name = _str(a.name, 120), sport = _str(a.sport, 60), school = _str(a.school, 120);
+      const pro = a.athleteType === 'pro';
+      const city = _str(a.city, 120), team = _str(a.team, 120);
       if (!name) return { error: 'A full name is needed.' };
       if (!sport) return { error: 'A sport is needed. It drives the fit scoring, so it cannot be left out.' };
-      if (!school) return { error: 'A school is needed.' };
-      return { args: { name, sport, school } };
+      if (!pro && !school) return { error: 'A school is needed. The nightly run uses it to find local businesses.' };
+      if (pro && !city) return { error: 'A pro needs the city they play in, as "City, ST". The nightly run finds local businesses there.' };
+      const args = { name, sport, athleteType: pro ? 'pro' : 'college' };
+      if (pro) { args.city = city; if (team) args.team = team; args.school = ''; }
+      else args.school = school;
+      const position = _str(a.position, 60), year = _str(a.year, 30), hometown = _str(a.hometown, 120);
+      if (position) args.position = position;
+      if (year) args.year = year;
+      if (hometown) args.hometown = hometown;
+      const ig = parseInt(a.instagram, 10);
+      if (Number.isFinite(ig) && ig >= 0) args.instagram = ig;
+      return { args };
     },
     directive: (args) => ({ kind: 'post', url: '/api/athletes', body: args, then: 'reload_athletes' }),
-    say: (args) => `Adding ${args.name} (${args.sport}, ${args.school}).`,
+    // The town the local lane will search, named in the note so the assistant
+    // can say "already finding businesses near Auburn, AL" rather than "near
+    // their school". Resolved the same way the pipeline resolves it; a school
+    // that does not resolve gets the honest "near their school".
+    say: (args) => {
+      const where = args.athleteType === 'pro' ? args.city : _townOf(args.school);
+      return `Adding ${args.name} (${args.sport}, ${args.athleteType === 'pro' ? args.city : args.school}). `
+        + `NILDash is already finding businesses near ${where}. They will have 5 pitches ready tomorrow morning.`;
+    },
+  },
+
+  // ── ONBOARDING TOOLS ───────────────────────────────────────────────────────
+  // lookup_athlete READS: it runs the same lookup the Add Client form's AI
+  // Lookup button runs and hands the candidates to the model, which then asks
+  // the agent to confirm before add_athlete is ever called. It creates nothing.
+  lookup_athlete: {
+    tier: 'direct',
+    read: true,
+    description: 'Look an athlete up by name and school (and sport if known). Returns up to three candidates with school, sport, position and class year for the agent to confirm. Creates nothing.',
+    input: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Full name' },
+        school: { type: 'string', description: 'School, if known' },
+        sport: { type: 'string', description: 'Sport, if known' },
+        athleteType: { type: 'string', enum: ['college', 'pro'] },
+        team: { type: 'string', description: 'Pro only: team, if known' },
+        city: { type: 'string', description: 'Pro only: city, if known' },
+      },
+      required: ['name'],
+    },
+    check: (a) => {
+      const name = _str(a.name, 120);
+      if (!name) return { error: 'Whose name should I look up?' };
+      return { args: { name, school: _str(a.school, 120) || '', sport: _str(a.sport, 60) || '',
+        athleteType: a.athleteType === 'pro' ? 'pro' : 'college', team: _str(a.team, 120) || '', city: _str(a.city, 120) || '' } };
+    },
+    run: async (args) => {
+      const ai = require('../ai');
+      const { resolveAthlete } = _lookupImpl();
+      const r = await resolveAthlete(ai, args);
+      const cands = (r && Array.isArray(r.candidates) ? r.candidates : []).slice(0, 3).map((c) => ({
+        name: c.name, school: c.school || null, sport: c.sport || null, position: c.position || null,
+        year: c.year || null, hometown: c.hometown || null, instagram: c.instagram || 0,
+        athleteType: c.athleteType || args.athleteType, team: c.team || null, city: c.city || null,
+        confidence: c.confidence == null ? null : c.confidence, source: c.sourceLabel || null,
+      }));
+      return { found: cands.length > 0, candidates: cands, note: r && r.searchNote ? String(r.searchNote).slice(0, 300) : null };
+    },
+  },
+
+  open_import: {
+    tier: 'direct',
+    description: 'Open the spreadsheet import window, where the agent uploads a CSV or Excel roster. Use it the moment they choose the spreadsheet way.',
+    input: { type: 'object', properties: {} },
+    check: () => ({ args: {} }),
+    directive: () => ({ kind: 'open_import' }),
+    say: () => 'The import window is open. Upload a CSV or Excel file with one athlete per row, and I will be right here when it is done.',
+  },
+
+  finish_onboarding: {
+    tier: 'direct',
+    description: 'Finish onboarding once at least one athlete is on the roster: shows the overnight plan and opens the dashboard. Never call it while the roster is empty.',
+    input: { type: 'object', properties: {} },
+    check: () => ({ args: {} }),
+    // Guarded on the real roster, not on the model's belief about it.
+    limit: async (session, args, ctx) => {
+      const agentId = ctx && ctx.agentId;
+      const r = await pool.query('SELECT COUNT(*)::int AS n FROM athletes WHERE agent_id=$1', [agentId]).catch(() => ({ rows: [{ n: 0 }] }));
+      if (!(r.rows[0] && r.rows[0].n > 0)) return 'There is no athlete on the roster yet, so there is nothing to finish. Add one first.';
+      return null;
+    },
+    directive: () => ({ kind: 'finish_onboarding' }),
+    say: () => 'Opening your dashboard.',
   },
 
   run_deal_scan: {
@@ -393,10 +503,23 @@ async function resolveCall(name, rawArgs, ctx) {
   }
 
   if (action.limit) {
-    const blocked = await action.limit(session, args);
+    const blocked = await action.limit(session, args, { agentId, principal });
     if (blocked) {
       console.log(`[assistant] agent=${agentId} action=${name} hit its session cap`);
       return { ok: false, message: blocked, capped: true };
+    }
+  }
+
+  // A READ tool answers rather than acts: it runs here, on the server, and
+  // its result goes back to the model. No directive, nothing for the browser.
+  if (action.read && action.run) {
+    try {
+      const data = await action.run(args, { agentId, principal });
+      console.log(`[assistant] agent=${agentId} read=${name} ok`);
+      return { ok: true, data };
+    } catch (e) {
+      console.warn(`[assistant] agent=${agentId} read=${name} failed: ${e.message}`);
+      return { ok: false, message: 'The lookup did not work just now. We can enter the details by hand instead.' };
     }
   }
 
@@ -482,7 +605,16 @@ async function redeemPending(agentId, token, principal) {
   return { ok: true, action: row.action, directive: action.directive(args) };
 }
 
+// The onboarding tools are offered only on onboarding turns: an agent with a
+// roster has an import button and a dashboard already, and "finish
+// onboarding" means nothing to them.
+const ONBOARDING_ONLY = new Set(['lookup_athlete', 'open_import', 'finish_onboarding']);
+function toolDefsFor(mode) {
+  const all = toolDefs();
+  return mode === 'onboarding' ? all : all.filter((t) => !ONBOARDING_ONLY.has(t.name));
+}
+
 module.exports = {
-  ACTIONS, toolDefs, isKnownAction, resolveCall, mintPending, redeemPending,
-  FORBIDDEN_TOPICS, PENDING_TTL_MS, SCANS_PER_ATHLETE_PER_SESSION,
+  ACTIONS, toolDefs, toolDefsFor, ONBOARDING_ONLY, isKnownAction, resolveCall, mintPending, redeemPending,
+  FORBIDDEN_TOPICS, PENDING_TTL_MS, SCANS_PER_ATHLETE_PER_SESSION, _setLookupForTests, _townOf,
 };

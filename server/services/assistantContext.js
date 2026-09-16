@@ -94,7 +94,8 @@ async function readContext(agentId, principal) {
       (SELECT email_address FROM email_accounts WHERE user_id = $1
         ORDER BY (provider = 'gmail') DESC, created_at LIMIT 1) AS mailbox_address,
       (SELECT last_login FROM users WHERE id = $1) AS last_login,
-      (SELECT name FROM users WHERE id = $1) AS agent_name
+      (SELECT name FROM users WHERE id = $1) AS agent_name,
+      (SELECT role FROM users WHERE id = $1) AS role
   `, [agentId]),
 
     // A few athletes by name, so the assistant can say "Fixture Alvarez" rather than
@@ -122,6 +123,7 @@ async function readContext(agentId, principal) {
 
   return {
     agentName: c.agent_name || null,
+    role: c.role || null,
     athletes: c.athletes || 0,
     scans: c.scans || 0,
     sent: c.sent || 0,

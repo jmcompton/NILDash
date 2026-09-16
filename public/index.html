@@ -5939,7 +5939,12 @@ async function bootApp() {
   // /api/auth/me has confirmed a session.
   // autoOpen comes from /api/auth/me, which has already resolved by now, so the panel
   // can open on the true answer rather than on a cached guess.
-  try { if (window.nilAssistant) window.nilAssistant.init({ autoOpen: currentUser.assistantAutoOpen }); }
+  // FIRST LOGIN. An agent with no athletes gets the assistant full screen in
+  // place of the empty dashboard, until their first athlete exists (assistant.js,
+  // services/assistantOnboarding). athleteCount rides on /api/auth/me so the
+  // decision is made before anything is drawn. Once they have one, never again.
+  try { if (window.nilAssistant) window.nilAssistant.init({ autoOpen: currentUser.assistantAutoOpen,
+    onboarding: currentUser.role === 'agent' && currentUser.athleteCount === 0 }); }
   catch (e) { console.warn('[assistant]', e.message); }
   document.getElementById('userRole').textContent = currentUser.role;
   (function(){
@@ -6789,7 +6794,15 @@ function impOpen() {
 }
 function impClose(toRoster) {
   document.getElementById('importModal').classList.remove('open');
-  if (toRoster) { loadAthletes(); showView('roster', document.querySelectorAll('.nav-item')[5]); }
+  if (toRoster) {
+    // During first-login onboarding the assistant owns the screen: the roster
+    // reloads and the assistant is told, and it takes it from there.
+    if (document.body.classList.contains('na-onboarding')) {
+      loadAthletes().then(function () { try { window.nilAssistant.rosterChanged(); } catch (e) {} });
+      return;
+    }
+    loadAthletes(); showView('roster', document.querySelectorAll('.nav-item')[5]);
+  }
 }
 function impError(msg) {
   var el = document.getElementById('imp-error');

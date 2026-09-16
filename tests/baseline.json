@@ -584,6 +584,11 @@
       "total": 31,
       "fault": null
     },
+    "onboardchat.js": {
+      "failed": 0,
+      "total": 41,
+      "fault": null
+    },
     "onboarding.js": {
       "failed": 0,
       "total": 67,

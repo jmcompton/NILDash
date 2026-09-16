@@ -126,7 +126,7 @@ console.log('\n-- 4. THE PANEL OPENS BEFORE THE GREETING, NOT AFTER --');
     /if \(log\) log\.innerHTML = '';/.test(stc) || /thinking\.remove\(\)/.test(stc));
   // Was a cached guess; now the server's real answer, read from /api/auth/me before
   // the greeting request. lean.js owns the detail.
-  ok('the eager open is gated on the real server decision', /var eager = autoOpenAllowed && NA\.autoOpen &&/.test(stc));
+  ok('the eager open is gated on the real server decision', /var eager = !NA\.onboarding && autoOpenAllowed && NA\.autoOpen &&/.test(stc));
   ok('and on the once-per-browser-session flag', /!sessionStorage\.getItem\(NA_SESSION_KEY\)/.test(stc));
   ok('a resumed conversation is closed again', /if \(eager && j\.resumed\) naClose\(\)/.test(stc));
   ok('with naClose, NOT naDismiss: the agent did not close it',
@@ -160,7 +160,7 @@ console.log('\n-- 5. THE QUERIES RUN AT ONCE, AND THE SPLIT IS LOGGED --');
   // userText, and no longer falls back to reading history itself. msgs IS the
   // conversation, and both routes read it. turns.js owns the detail.
   ok('runTurn takes the conversation and nothing else',
-    /async function runTurn\(\{ agentId, principal, session, ctx, state, toolsEnabled, msgs \}\)/.test(RTE));
+    /async function runTurn\(\{ agentId, principal, session, ctx, state, toolsEnabled, msgs, mode \}\)/.test(RTE));
   ok('and copies rather than mutating the caller\'s array',
     /const convo = \(msgs \|\| \[\]\)\.slice\(\)/.test(RTEC));
   ok('runTurn never reads history itself, so there is one source of truth',
