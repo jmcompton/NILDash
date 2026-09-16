@@ -33,6 +33,7 @@
     "sports management"
   ],
   "prospectsPerRun": 20,
+  "connectionsFile": "",
   "aboutMe": "I am JohnMark Compton, founder of NILDash, software that runs local NIL outreach for sports agents: it finds businesses near an athlete, writes the pitch, and keeps the agent compliant.",
   "newsTerms": [
     "NIL platform",

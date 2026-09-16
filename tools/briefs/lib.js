@@ -59,6 +59,7 @@ const DEFAULTS = {
   prospectKeywords: ['agent', 'agency', 'nil', 'collective', 'athlete representation',
     'sports marketing', 'player management', 'athletic department', 'sports management'],
   prospectsPerRun: 20,
+  connectionsFile: '',             // the LinkedIn export, if it is not in ~/nildash-briefs/inbox ("~" allowed)
   aboutMe: 'I am JohnMark Compton, founder of NILDash, software that runs local NIL outreach for sports agents: '
     + 'it finds businesses near an athlete, writes the pitch, and keeps the agent compliant.',
   // news
@@ -86,7 +87,7 @@ const ENV_MAP = {
   BRIEFS_PROSPECT_KEYWORDS: 'prospectKeywords', BRIEFS_PROSPECTS_PER_RUN: 'prospectsPerRun', BRIEFS_ABOUT_ME: 'aboutMe',
   BRIEFS_NEWS_TERMS: 'newsTerms', BRIEFS_NEWS_LINES: 'newsLines',
   BRIEFS_MAX_TURNS: 'maxTurns', BRIEFS_CALL_TIMEOUT_MIN: 'callTimeoutMin', BRIEFS_CLAUDE_BIN: 'claudeBin',
-  BRIEFS_MAIL_SOURCES: 'mailSources', BRIEFS_CONNECTIONS_URL: 'connectionsUrl',
+  BRIEFS_MAIL_SOURCES: 'mailSources', BRIEFS_CONNECTIONS_URL: 'connectionsUrl', BRIEFS_CONNECTIONS_FILE: 'connectionsFile',
 };
 const LIST_KEYS = new Set(['myAddresses', 'mailAccounts', 'skipDomains', 'nildashUsers', 'prospectKeywords', 'newsTerms', 'mailSources']);
 const NUM_KEYS = new Set(['lookbackDays', 'silentDays', 'prospectsPerRun', 'newsLines', 'callTimeoutMin']);
