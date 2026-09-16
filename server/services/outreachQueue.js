@@ -279,9 +279,11 @@ function passesBar(ladder, ig) {
   // we have an address.
   const inbox = emailRowsOf(ladder).length > 0
     // The title test stays: tier 3's floor row and some older shapes announce a
-    // mailbox in words without carrying the address itself.
+    // mailbox in words without carrying the address itself. A row whose
+    // address was checked and found undeliverable is not a way in, whatever
+    // its title says.
     || (((ladder && ladder.tiers) || []).find((t) => t.tier === 3) || { rows: [] })
-      .rows.some((r) => r && /inbox|mailbox|email/i.test(r.title || ''));
+      .rows.some((r) => r && /inbox|mailbox|email/i.test(r.title || '') && !(r.emailCheck && r.emailCheck.ok === false));
 
   const reachable = !!(handle || phone || inbox);
   if (!reachable) {
@@ -453,10 +455,48 @@ function emailRowsOf(ladder) {
       // the field existed -- treated as published, which is what they were.
       const kind = r.emailKind || 'published';
       if (!SENDABLE_EMAIL_KINDS.has(kind)) continue;
+      // UNDELIVERABLE IS NOT OFFERED. services/emailValidation marked the row:
+      // bad syntax, no mail exchanger, or a domain that does not exist. The
+      // address stays on the row so the card can say why; it never becomes
+      // the channel. An unchecked or unverified address (ok null) still is.
+      if (r.emailCheck && r.emailCheck.ok === false) continue;
       out.push({ email: String(r.email).trim().toLowerCase(), kind, tier: t.tier, row: r });
     }
   }
   return out;
+}
+
+// ── WHAT THE CARD SAYS ABOUT EMAIL, IN ONE LINE ─────────────────────────────
+// Read by the agent on Home: why this business is a DM or a call rather than
+// an email, or that the address it carries was checked. Null when the ladder
+// holds no address at all (nothing to explain). Every address on the ladder
+// is considered, not only the sendable kinds, so an address that was refused
+// for provenance is explained too.
+function emailNoteOf(ladder) {
+  const all = [];
+  for (const t of ((ladder && ladder.tiers) || [])) {
+    for (const r of (t.rows || [])) {
+      if (!r || !r.email) continue;
+      all.push({ email: String(r.email).trim().toLowerCase(), kind: r.emailKind || 'published', check: r.emailCheck || null });
+    }
+  }
+  if (!all.length) return null;
+  const offered = emailRowsOf(ladder)[0] || null;
+  if (offered) {
+    const c = offered.row.emailCheck;
+    const head = c && c.ok === true ? `Email checked: ${offered.email} (${c.reason})`
+      : c && c.ok === null ? `Email unverified: ${offered.email} (${c.reason})`
+      : `Email: ${offered.email} (not checked)`;
+    const bad = all.filter((a) => a.check && a.check.ok === false);
+    return head + (bad.length ? `; ${bad.length} other address${bad.length === 1 ? '' : 'es'} undeliverable` : '');
+  }
+  const parts = [];
+  for (const a of all) {
+    if (a.check && a.check.ok === false) parts.push(`${a.email} is undeliverable (${a.check.reason})`);
+    else if (!SENDABLE_EMAIL_KINDS.has(a.kind)) parts.push(`${a.email} was not published by a source we send to (${a.kind})`);
+    else parts.push(`${a.email} could not be used`);
+  }
+  return 'Email not offered: ' + parts.join('; ');
 }
 
 function inboxOf(ladder) {
@@ -540,6 +580,8 @@ function buildCard(cand, ladder, ig) {
     greetName: _greet || null,
     email: inbox ? inbox.email : null,
     emailKind: inbox ? inbox.kind : null,
+    // Why email was or was not offered, for the agent (services/emailValidation).
+    emailNote: emailNoteOf(ladder),
     subject: channel === 'email' ? subjectFor(c.brand || c.brandName) : null,
     channel,
     // Only written when it can actually be sent. A DM drafted for a corporate
@@ -920,7 +962,7 @@ module.exports = {
   passRateStop, workedOutNote, RATE_FLOOR, RATE_WINDOW, DISCOVERY_CAP_USD,
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,
-  waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf, greetRowOf, ensureGreeting,
+  waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf, greetRowOf, ensureGreeting, emailNoteOf,
   pauseRelease, pausedUntilNote, PAUSE_RETRY_DAYS,
   prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,

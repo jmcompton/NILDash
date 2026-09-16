@@ -164,6 +164,27 @@ async function discoverContacts(agentId, enrichmentRecord, knownContacts) {
     rows.push({ name: null, title: 'Generic inbox (no named contact)', email: shared.genericInbox, phone: null, linkedin: null, contact_type: 'general', confidence_score: 0.2, source: 'published', priority: 99 });
   }
 
+  // ── DOES THE ADDRESS TAKE MAIL? CHECKED BEFORE IT IS STORED ──────────────
+  // Syntax, then an MX lookup on the domain (services/emailValidation). An
+  // address that fails is stored WITHOUT the address: the row keeps the
+  // person, the phone and the reason in email_check, and can never be picked
+  // as an email contact. A pass or a could-not-check is recorded too.
+  try {
+    const EVAL = require('./emailValidation');
+    const checks = await EVAL.validateMany(pool, rows.map((r) => r.email).filter(Boolean));
+    for (const r of rows) {
+      if (!r.email) continue;
+      const v = checks.get(String(r.email).trim().toLowerCase());
+      if (v && v.deliverable === false) {
+        console.log(`[contactDiscovery] brand="${enrichmentRecord.brand_name}" ${r.email} is undeliverable (${v.reason}); stored without the address`);
+        r.email_check = `undeliverable: ${v.reason} (${r.email})`;
+        r.email = null;
+        r.confidence_score = r.phone ? 0.6 : 0.5;
+      } else if (v && v.deliverable === true) r.email_check = `deliverable: ${v.reason}`;
+      else r.email_check = `unverified: ${(v && v.reason) || 'not checked'}`;
+    }
+  } catch (e) { console.warn('[contactDiscovery] email validation failed: ' + e.message); }
+
   const saved = [];
   for (const contact of rows) {
     const id = 'con_' + crypto.randomBytes(8).toString('hex');
@@ -171,14 +192,15 @@ async function discoverContacts(agentId, enrichmentRecord, knownContacts) {
       const r = await pool.query(
         `INSERT INTO brand_contacts (
            id, enrichment_id, agent_id, brand_name, name, title, email,
-           phone, linkedin, contact_type, confidence_score, source, priority_rank, created_at
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())
+           phone, linkedin, contact_type, confidence_score, source, priority_rank, email_check, created_at
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
          RETURNING *`,
         [
           id, enrichmentRecord.id, agentId, enrichmentRecord.brand_name,
           contact.name, contact.title, contact.email, contact.phone,
           contact.linkedin, contact.contact_type,
           contact.confidence_score, contact.source, contact.priority,
+          contact.email_check || null,
         ]
       );
       saved.push(r.rows[0]);

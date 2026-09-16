@@ -477,6 +477,10 @@ async function buildHome(pool, agentId, opts = {}) {
         // Said in words why an owner is only a probable match, rather than
         // leaving the agent to wonder why a confident-looking card ranks low.
         sourceNote: (c.affiliationScope === 'unclear' && c.sourceNote) || null,
+        // Why email was or was not offered for this business, on EVERY card:
+        // a DM or call card explains the address it is not using, an email
+        // card says the address was checked (services/emailValidation).
+        emailNote: c.emailNote || null,
       };
 
       if (c.channel === 'email') {
