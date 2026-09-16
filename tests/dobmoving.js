@@ -28,7 +28,8 @@ const compliance = require(ROOT + 'server/services/compliance.js');
 const out = [];
 const check = (n, c, d) => { out.push({ n, ok: !!c }); console.log((c ? '  PASS  ' : '  FAIL  ') + n + (d ? '   ' + d : '')); };
 
-// _validDob is not exported; lift it from index.js so the test runs the real one.
+// _validDob lives in services/athleteCreate (shared by POST /api/athletes and the
+// assistant's add_athlete); lifted from the source so the test runs the real one.
 function liftFn(src, name) {
   const i = src.indexOf('function ' + name + '(');
   let d = 0, j = src.indexOf('{', i);
@@ -38,7 +39,7 @@ function liftFn(src, name) {
   }
   throw new Error('could not lift ' + name);
 }
-const _validDob = eval('(' + liftFn(fs.readFileSync(ROOT + 'server/index.js', 'utf8'), '_validDob') + ')');
+const _validDob = eval('(' + liftFn(fs.readFileSync(ROOT + 'server/services/athleteCreate.js', 'utf8'), '_validDob') + ')');
 
 const AG = 'dob-agent', A1 = 'dob-with', A2 = 'dob-without';
 

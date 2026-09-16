@@ -39,7 +39,10 @@ const ok = (n, c, g) => {
   else { F++; OUT.push('FAIL ' + n + (g !== undefined ? '  got=' + JSON.stringify(g) : '')); }
 };
 
-const idx = fs.readFileSync(ROOT + 'server/index.js', 'utf8');
+// The create path (and the validator) moved to services/athleteCreate, shared
+// with the assistant's add_athlete; the update path is still in index.js. The
+// wiring checks below read both as one text.
+const idx = fs.readFileSync(ROOT + 'server/index.js', 'utf8') + '\n' + fs.readFileSync(ROOT + 'server/services/athleteCreate.js', 'utf8');
 const html = fs.readFileSync(ROOT + 'public/index.html', 'utf8');
 
 // The server helper, exercised through its own source since index.js boots a

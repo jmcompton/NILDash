@@ -129,7 +129,7 @@ console.log('\n-- and the turn is bounded to match --');
   ok('lean is derived from the greeting, not passed by hand', /const lean = !toolsEnabled;/.test(RTEC));
   ok('a lean turn gets a small token ceiling', /maxTokens: lean \? GREETING_MAX_TOKENS : 900/.test(RTEC));
   ok('which is well under the reply budget', /const GREETING_MAX_TOKENS = 220;/.test(RTE));
-  ok('and one round, because it cannot call a tool anyway', /maxRounds: lean \? 1 : \(onboarding \? 4 : 3\)/.test(RTEC));
+  ok('and one round, because it cannot call a tool anyway', /maxRounds: lean \? 1 : \(onboarding \? 6 : 3\)/.test(RTEC));
   ok('the greeting still runs with tools disabled', /toolsEnabled: false, msgs: existing/.test(RTEC));
   ok('so lean is true exactly on the greeting path', /toolsEnabled: true, msgs: convo/.test(RTEC));
 }

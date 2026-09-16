@@ -78,26 +78,47 @@ function _setLookupForTests(impl) { _lookupOverride = impl; }
 // `input` is the JSON Schema handed to the model. `check` re-validates server side:
 // the schema is a hint to the model, never a guarantee about what arrives.
 const ACTIONS = {
+  // ── add_athlete RUNS ON THE SERVER AND ANSWERS WITH WHAT HAPPENED ─────────
+  // It used to hand the browser a directive to POST /api/athletes and tell the
+  // model "done" before anything was saved, so a seat limit or a missing
+  // school failed where the model could not see it and the agent was told an
+  // athlete existed who did not. Now the tool calls the same function the
+  // route calls (services/athleteCreate) and returns one of:
+  //   { added: true,  id, name, note }                 the row exists
+  //   { added: false, needs: 'dob', ask }              a high school athlete: ask
+  //                                                    for the date of birth, or
+  //                                                    call again with dobUnknown
+  //   { added: false, needs: 'duplicate_confirmation', existing, ask }
+  //                                                    a same-named athlete is on
+  //                                                    the roster: ask, then call
+  //                                                    again with confirmDuplicate
+  //   { added: false, error }                          the real reason, in words
+  // None of these stops the turn: with several athletes in one message the
+  // rest are still added and every answer is reported together. The browser
+  // is told to reload the roster on a real add.
   add_athlete: {
     tier: 'direct',
-    description: 'Add a new athlete to the agent\'s roster. Requires name, sport and school (or, for a pro, the city they play in and the team). Position, class year, hometown and Instagram followers are optional.',
+    description: 'Add a new athlete to the agent\'s roster. Requires name, sport and school (or, for a pro, the city they play in and the team). Position, class year, hometown and Instagram followers are optional. College, pro and high school athletes are all fine. Returns added:true only once the athlete is saved; otherwise it returns a question to put to the agent (needs: dob or duplicate_confirmation) or the reason it could not be saved.',
     input: {
       type: 'object',
       properties: {
         name:   { type: 'string', description: 'Full name of the athlete' },
         sport:  { type: 'string', description: 'Their sport. Required: it drives fit scoring.' },
-        school: { type: 'string', description: 'The school they compete for (college athlete)' },
+        school: { type: 'string', description: 'The school they compete for (college or high school athlete)' },
         position: { type: 'string', description: 'Optional: their position' },
         year: { type: 'string', description: 'Optional: class year, e.g. Freshman, Sophomore, Junior, Senior' },
         hometown: { type: 'string', description: 'Optional: hometown as "City, ST"' },
         instagram: { type: 'integer', description: 'Optional: Instagram follower count' },
-        athleteType: { type: 'string', enum: ['college', 'pro'], description: 'college (default) or pro' },
+        athleteType: { type: 'string', enum: ['college', 'pro'], description: 'college (default, includes high school) or pro' },
         city: { type: 'string', description: 'Pro only: the city they play in, as "City, ST"' },
         team: { type: 'string', description: 'Pro only: the team' },
+        dob: { type: 'string', description: 'Date of birth as YYYY-MM-DD. Asked for when the school is a high school; optional otherwise.' },
+        dobUnknown: { type: 'boolean', description: 'true when the agent was asked for a high school athlete\'s date of birth and chose to skip it: add them with age unknown.' },
+        confirmDuplicate: { type: 'boolean', description: 'true only after the agent was told an athlete with this name is already on the roster and said to add a second one anyway.' },
       },
       required: ['name', 'sport'],
     },
-    // Sport is required by POST /api/athletes and the validation is NOT loosened
+    // Sport is required by the create path and the validation is NOT loosened
     // here: sport drives fit scoring, so an athlete without one scores wrong rather
     // than scoring not at all, which is worse. A school (or a pro's city) is
     // required for the same reason the endpoint requires it: it is the local
@@ -119,17 +140,71 @@ const ACTIONS = {
       if (hometown) args.hometown = hometown;
       const ig = parseInt(a.instagram, 10);
       if (Number.isFinite(ig) && ig >= 0) args.instagram = ig;
+      if (a.dob != null && String(a.dob).trim()) {
+        const AC = require('./athleteCreate');
+        const dob = AC._validDob(String(a.dob).trim());
+        if (!dob) return { error: 'That date of birth did not read as a real past date. Give it as YYYY-MM-DD, or say skip.' };
+        args.dob = dob;
+      }
+      if (a.dobUnknown === true) args.dobUnknown = true;
+      if (a.confirmDuplicate === true) args.confirmDuplicate = true;
       return { args };
     },
-    directive: (args) => ({ kind: 'post', url: '/api/athletes', body: args, then: 'reload_athletes' }),
+    run: async (args, ctx) => {
+      const AC = require('./athleteCreate');
+      const agentId = ctx && ctx.agentId;
+      // A high school athlete's age is what the compliance gate needs most, so
+      // the date of birth is asked for once. Skipping is allowed and honest:
+      // they are added with age unknown, which holds restricted categories.
+      if (args.athleteType !== 'pro' && !args.dob && !args.dobUnknown && AC.isHighSchool(args.school)) {
+        return { data: { added: false, needs: 'dob', name: args.name, school: args.school,
+          ask: `${args.school} looks like a high school. What is ${args.name}'s date of birth? It goes on the record so the compliance gate can rule on age-restricted businesses. If you do not have it, say skip and they are added with age unknown.` } };
+      }
+      // The roster is checked by name the way the spreadsheet import checks it
+      // (case, spacing and punctuation folded). A match is a question, not a
+      // refusal: two athletes can share a name.
+      if (!args.confirmDuplicate) {
+        const dup = await AC.findDuplicate(agentId, args.name);
+        if (dup) {
+          const where = dup.athlete_type === 'pro' ? (dup.city || 'pro') : (dup.school || 'school unknown');
+          return { data: { added: false, needs: 'duplicate_confirmation', existing: { id: dup.id, name: dup.name, sport: dup.sport, school: dup.school, city: dup.city },
+            ask: `${dup.name} is already on the roster (${dup.sport || 'sport unknown'}, ${where}). Add a second ${args.name} anyway?` } };
+        }
+      }
+      const user = await require('../store').getUser(agentId);
+      if (!user) return { data: { added: false, error: 'Your account could not be read just now. Try again in a moment.' } };
+      const body = { name: args.name, sport: args.sport, athleteType: args.athleteType, school: args.school,
+        city: args.city, team: args.team, position: args.position, year: args.year, hometown: args.hometown,
+        instagram: args.instagram, dob: args.dob };
+      let r;
+      try { r = await AC.createAthlete(user, body, { allowDuplicate: args.confirmDuplicate === true }); }
+      catch (e) {
+        console.error(`[assistant] agent=${agentId} add_athlete save failed: ${e.message}`);
+        return { data: { added: false, error: 'The save failed on our side (' + e.message + '). Nothing was added. Try again, or add them from the Add Client page.' } };
+      }
+      if (!r.ok) return { data: { added: false, error: r.error, code: r.code || null } };
+      console.log(`[assistant] agent=${agentId} add_athlete saved ${r.athlete.id} (${args.name})${r.created ? '' : ' (already saved a moment ago)'}`);
+      return {
+        data: { added: true, id: r.athlete.id, name: args.name, note: ACTIONS.add_athlete.say(args) },
+        directive: { kind: 'reload_athletes', athleteId: r.athlete.id },
+        say: ACTIONS.add_athlete.say(args),
+      };
+    },
     // The town the local lane will search, named in the note so the assistant
     // can say "already finding businesses near Auburn, AL" rather than "near
     // their school". Resolved the same way the pipeline resolves it; a school
-    // that does not resolve gets the honest "near their school".
+    // that does not resolve gets the honest "near their school". When the
+    // on-demand fill is off, the businesses are found tonight, and the note
+    // says that instead of claiming work that has not started.
     say: (args) => {
+      const AC = require('./athleteCreate');
       const where = args.athleteType === 'pro' ? args.city : _townOf(args.school);
-      return `Adding ${args.name} (${args.sport}, ${args.athleteType === 'pro' ? args.city : args.school}). `
-        + `NILDash is already finding businesses near ${where}. They will have 5 pitches ready tomorrow morning.`;
+      const head = `Added ${args.name} (${args.sport}, ${args.athleteType === 'pro' ? args.city : args.school}). `;
+      const plan = AC.fillOnDemandEnabled()
+        ? `NILDash is already finding businesses near ${where}. They will have 5 pitches ready tomorrow morning.`
+        : `Their pitches will be ready tomorrow morning: NILDash finds businesses near ${where} tonight.`;
+      const age = args.dobUnknown ? ' Age is unknown, so age-restricted businesses are held until a date of birth is on file.' : '';
+      return head + plan + age;
     },
   },
 
@@ -521,6 +596,22 @@ async function resolveCall(name, rawArgs, ctx) {
       console.warn(`[assistant] agent=${agentId} read=${name} failed: ${e.message}`);
       return { ok: false, message: 'The lookup did not work just now. We can enter the details by hand instead.' };
     }
+  }
+
+  // A tool that DOES its work on the server (add_athlete) answers the model
+  // with what happened, and may also hand the browser a directive (reload the
+  // roster). Its questions and failures are answers too, not refusals, so a
+  // message naming several athletes is worked through to the end.
+  if (action.run) {
+    let r;
+    try { r = await action.run(args, { agentId, principal, session }); }
+    catch (e) {
+      console.warn(`[assistant] agent=${agentId} action=${name} failed: ${e.message}`);
+      return { ok: false, message: 'That did not work just now (' + e.message + '). Nothing was changed.' };
+    }
+    if (r && r.refused) return { ok: false, message: r.refused };
+    console.log(`[assistant] agent=${agentId} action=${name} ran`);
+    return { ok: true, data: r ? r.data : undefined, directive: (r && r.directive) || null, say: (r && r.say) || null };
   }
 
   if (action.tier === 'confirm') {

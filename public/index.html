@@ -14615,6 +14615,12 @@ window.addEventListener('DOMContentLoaded', checkSession);
       // an athlete's JWT cannot reach anyway, so its unauthenticated reply would
       // otherwise be read as "brand new user, start the wizard".
       if (typeof isAthleteMode === 'function' && isAthleteMode()) return;
+      // AN AGENT WITH NO ATHLETES IS ONBOARDED BY THE ASSISTANT, and only by
+      // it. This overlay sits above the assistant's takeover, so on a first
+      // login both used to show, the wizard on top of the chatbot. The
+      // Getting Started checklist (onboarding.js) is separate and unchanged.
+      if (document.body.classList.contains('na-onboarding')) return;
+      if (currentUser && currentUser.role === 'agent' && currentUser.athleteCount === 0) return;
       try {
         let state = null;
         try { state = await fetch(`${API_BASE}/api/onboarding`).then(r => r.ok ? r.json() : null); } catch(_) {}

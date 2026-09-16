@@ -114,17 +114,20 @@ function main() {
     C.severityFor('alcohol', C.ageFrom('', NOW, { over18: false })) === 'block');
 
   // ── THE WIRING ────────────────────────────────────────────────────────────
-  const idx = fs.readFileSync(ROOT + 'server/index.js', 'utf8');
+  // The create path lives in services/athleteCreate (shared with the assistant's
+  // add_athlete); the update path is still in index.js. Read as one text.
+  const idx = fs.readFileSync(ROOT + 'server/index.js', 'utf8') + '\n' + fs.readFileSync(ROOT + 'server/services/athleteCreate.js', 'utf8');
   ok('the create path validates and stores the answer', /over18: _validOver18\(over18\)/.test(idx), null);
   ok('  reading it off the request body', /transferReason, gpa, over18,/.test(idx), null);
   ok('  AND AN UNANSWERED PATCH NEVER OVERWRITES AN ANSWER ON FILE',
     /if \(o === undefined\) delete patch\.over18;/.test(idx), null);
   const closer = fs.readFileSync(ROOT + 'server/services/closer.js', 'utf8');
-  ok('the gate is handed the answer at send time', /over18: log\.over18 === true/.test(closer), null);
+  // Read as three states now (true / false / unanswered), and a pro is told apart.
+  ok('the gate is handed the answer at send time', /const over18 = log\.over18 === true \|\| log\.over18 === 'true' \? true/.test(closer) && /compliance\.ageFrom\(log\.dob \|\| null, opts\.now, \{ over18, pro:/.test(closer), null);
   ok('  loaded from the athlete row', /a\.data->>'over18' AS over18/.test(closer), null);
   const comp = fs.readFileSync(ROOT + 'server/services/compliance.js', 'utf8');
   ok('  and the compliance log records WHICH evidence decided it',
-    /age: ageFrom\(ctx\.dob, ctx\.now, \{ over18: ctx\.over18 \}\)/.test(comp), null);
+    /age: ageFrom\(ctx\.dob, ctx\.now, \{ over18: ctx\.over18, pro: ctx\.athleteType === 'pro' \}\)/.test(comp), null);
 
   // ── THE FORM ──────────────────────────────────────────────────────────────
   const html = fs.readFileSync(ROOT + 'public/index.html', 'utf8');
@@ -132,7 +135,8 @@ function main() {
   ok('  defaulted from class year', /function acOver18Default/.test(html)
     && /onchange="acYearChanged\(\)"/.test(html), null);
   ok('  and sent on both the create and the update path',
-    (html.match(/over18: document\.getElementById\('a_over18'\)/g) || []).length === 2, null);
+    // Not sent for a pro (tests/proathlete), so the box is read behind the type switch.
+    (html.match(/over18: !_pro && document\.getElementById\('a_over18'\)/g) || []).length === 2, null);
   ok('THE SCHOOL-RESTRICTIONS SECTION IS GONE FROM THE FORM',
     !/a_school_restrictions/.test(html) && !/Categories this school restricts/.test(html), null);
   ok('  but the server still reads anything already stored, rather than wiping it',

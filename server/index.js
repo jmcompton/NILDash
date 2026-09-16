@@ -1425,216 +1425,25 @@ app.get('/api/agent/seat-status', requireAuth, async (req, res) => {
 // else is stored as '' -- NOT as a guess and not as today. The compliance gate
 // treats '' as unknown and holds restricted categories on it, so an honest blank
 // is safe and a wrong date is not.
-// Only the seven keys the compliance gate has rules for. Anything else is
-// dropped rather than stored: an unrecognised key would sit in the record
-// looking like a restriction while matching no category the gate can see.
-function _validRestrictions(v) {
-  if (!Array.isArray(v)) return [];
-  const known = new Set(require('./services/compliance').CATEGORIES.map((c) => c.key));
-  return v.map((x) => String(x || '').trim().toLowerCase()).filter((x) => known.has(x));
-}
-
-// ── THE OVER-18 ANSWER ──────────────────────────────────────────────────────
-// Three states, and the third is not a "no". An athlete nobody has answered for
-// is UNKNOWN, which is what the gate has always held on; only an explicit tick
-// or untick is a fact. Coercing undefined to false would mark every existing
-// athlete on every roster a minor overnight.
-function _validOver18(v) {
-  if (v === true || v === 'true') return true;
-  if (v === false || v === 'false') return false;
-  return undefined;
-}
-
-function _validDob(v) {
-  if (!v) return '';
-  const s = String(v).trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
-  const d = new Date(s + 'T00:00:00Z');
-  if (isNaN(d.getTime())) return '';
-  const now = Date.now();
-  if (d.getTime() > now) return '';
-  if (now - d.getTime() > 120 * 365.25 * 864e5) return '';
-  return s;
-}
-
-// ── AN ENGAGEMENT RATE WE DO NOT HAVE IS NOT 3% ─────────────────────────────
-//
-// Both the form and this route read `parseFloat(v) || 3.0`, so a BLANK FIELD was
-// stored as 3.0 -- and so was a real 0, because `0 || 3.0` is 3.0. Every athlete
-// added without an engagement rate carries an invented one that is
-// indistinguishable from a measured one: igStatsSource says 'manual' either way.
-// That number then reaches media kits, the older pitch path, draftPrewarm, and
-// deal_comps, where other athletes are benchmarked against it.
-//
-// null means absent, and absent is a thing every reader already handles:
-// analyst.pct returns null for it and the kit omits the row.
-//
-//   undefined  the key was not sent -- leave whatever is on file alone
-//   null       sent and empty, or junk -> ABSENT
-//   0..100     a real answer, INCLUDING 0
-function _validEngagement(v) {
-  if (v === undefined) return undefined;
-  if (v === null || v === '') return null;
-  // THE MINUS SURVIVES THE STRIP. Removing every non-digit turned "-4" into 4 --
-  // a rejected value silently becoming an accepted one, which is the same class
-  // of bug as the default it replaces.
-  const x = typeof v === 'string'
-    ? parseFloat(String(v).replace(/[^0-9.\-]/g, '')) : Number(v);
-  // Out of range is junk, not a claim. A stored 0 is kept: an agent who types 0
-  // means 0, and conflating that with "we never asked" is the bug above.
-  if (!Number.isFinite(x) || x < 0 || x > 100) return null;
-  return Math.round(x * 10) / 10;
-}
+// The field validators and the create path live in services/athleteCreate,
+// shared with the assistant's add_athlete tool so the two paths cannot drift.
+const AthleteCreate = require('./services/athleteCreate');
+const { _validRestrictions, _validOver18, _validDob, _validEngagement } = AthleteCreate;
 
 app.post('/api/athletes', requireAuth, async (req, res) => {
+  // The whole of this route is services/athleteCreate.createAthlete: the
+  // school rule, the seat rule, the double-click guard, the save and the
+  // on-demand fill. The assistant's add_athlete tool calls the same function,
+  // so what the model is told happened is what happened.
   const user = await store.getUser(req.session.userId);
-  // ── AN ATHLETE WITHOUT A SCHOOL IS A RECORD THE PIPELINE CANNOT USE ──────
-  // Enforced HERE and not only in the form, because the form is not the
-  // boundary. Cooper Farrall saved with school:'' when AI Lookup came back
-  // without one, and every nightly run since has reported no local market and
-  // produced zero cards for him. Nothing at the point of saving said a word.
-  //
-  // The school need not be one we RECOGNISE -- an unmapped school is geocoded to
-  // its town (services/schoolGeocode) and the local lane runs there. It must
-  // exist, because there is nothing to geocode otherwise.
-  if (!String((req.body && req.body.school) || '').trim()) {
-    return res.status(400).json({
-      error: 'A school is required. The nightly run uses it to find local businesses, '
-        + 'so an athlete saved without one gets no cards.',
-      field: 'school',
-    });
+  const r = await AthleteCreate.createAthlete(user, req.body || {});
+  if (!r.ok) {
+    const { status, ...body } = r;
+    delete body.ok;
+    return res.status(status || 400).json(body);
   }
-  const { name, sport, position, school, schoolTier, instagram, tiktok, engagement, notes, year, stats, transferReason, gpa, over18,
-          instagramHandle, brandRestrictions, igStatsSource, igStatsFetchedAt, hometown, tags, productWants, email, legal_name, dob,
-          schoolRestrictions, athleteType, city, team } = req.body;
-  if (!name || !sport) return res.status(400).json({ error: 'name and sport required' });
-  // ── COLLEGE OR PRO ──────────────────────────────────────────────────────
-  // Stored in `data`, never in the athlete_type column: that column says who
-  // manages and pays for the athlete (agent_managed / self_managed) and a pro
-  // can be either. A pro has no school and no class year, and those are
-  // cleared here whatever the form sent, so a pro cannot carry a stale school
-  // into the local lane or a stale "junior" into a pitch.
-  const isPro = athleteType === 'pro';
-
-  // ── Seat limit check ─────────────────────────────────────────
-  // The plan's limit, unless an admin set one for this account (services/seats).
-  const seats = Seats.seatLimitFor(user);
-  const seatLimit = seats.limit;
-  if (seatLimit !== null) {
-    const countR = await store.pool.query(
-      `SELECT COUNT(*) FROM athletes WHERE agent_id=$1`,
-      [req.session.userId]
-    );
-    const currentCount = parseInt(countR.rows[0].count, 10);
-    if (currentCount >= seatLimit) {
-      return res.status(403).json({
-        error: Seats.limitMessage(seats),
-        code: 'SEAT_LIMIT_REACHED',
-        seatLimit,
-        seatSource: seats.source,
-        currentCount,
-      });
-    }
-  }
-
-  // ── Duplicate-submit guard ───────────────────────────────────
-  // A slow save can let a double-click through and create two identical clients.
-  // If this agent already created an athlete with the same name in the last 10
-  // seconds, treat it as the same submission and return that existing row instead
-  // of inserting a duplicate. A guard failure must never block a legitimate save,
-  // so any error here just falls through to the normal insert below.
-  try {
-    const dupR = await store.pool.query(
-      `SELECT id FROM athletes
-         WHERE agent_id=$1 AND data->>'name'=$2 AND created_at > NOW() - INTERVAL '10 seconds'
-         ORDER BY created_at DESC LIMIT 1`,
-      [req.session.userId, name]
-    );
-    if (dupR.rows.length > 0) {
-      const existing = await store.getAthlete(dupR.rows[0].id);
-      if (existing) return res.status(200).json(existing);
-    }
-  } catch (e) {
-    console.error('[create-athlete] duplicate guard failed:', e.message);
-  }
-
-  const id = 'ath-' + Date.now();
-  const athlete = await store.saveAthlete(id, {
-    id, agentId: user.id, name, sport, position: position || '',
-    athleteType: isPro ? 'pro' : 'college',
-    school: isPro ? '' : (school || ''), schoolTier: schoolTier || 'p4-mid',
-    // The pro's city ("Denver, CO") is the local lane's town and the state
-    // the compliance gate rules on; the team is what the pitch names.
-    city: isPro ? String(city || '').trim().slice(0, 120) : '',
-    team: isPro ? String(team || '').trim().slice(0, 120) : '',
-    instagram: parseInt(instagram) || 0,
-    tiktok: parseInt(tiktok) || 0,
-    // null when blank or junk. See _validEngagement: 3.0 was an invented number
-    // that reached media kits and deal_comps as though it were measured.
-    engagement: _validEngagement(engagement) === undefined ? null : _validEngagement(engagement),
-    // DATED, like the follower count. reachProvenance.engagementProvenance reads
-    // these, and nothing may cite an undated rate.
-    engagementSource: _validEngagement(engagement) === null
-      || _validEngagement(engagement) === undefined ? null : 'agent',
-    engagementAsOf: _validEngagement(engagement) === null
-      || _validEngagement(engagement) === undefined ? null : new Date().toISOString().slice(0, 10),
-    notes: notes || '',
-    year: isPro ? '' : (year || ''),
-    stats: stats || '',
-    transferReason: transferReason || '',
-    gpa: gpa || '',
-    // Optional athlete contact email, stored in the athlete data (not the login
-    // email column). Used to email the portal invite link. Kept only when it
-    // looks like an email so it never becomes an ID-like placeholder.
-    email: (email && String(email).includes('@')) ? String(email).trim() : '',
-    // Optional full legal name, used only on contracts. Falls back to the display
-    // name when blank. Stored in the athlete data, same pattern as email.
-    legal_name: (legal_name ? String(legal_name).trim() : ''),
-    // Hometown powers the Deal Scan second market ("hometown hero" angle).
-    hometown: (hometown ? String(hometown).trim() : ''),
-    // DATE OF BIRTH, for the compliance gate and nothing else. Stored ONLY when
-    // it parses to a real past date -- a junk value here would resolve minor
-    // status wrongly, and a wrong answer is worse than the honest unknown the
-    // gate already handles. Empty means not on file, which HOLDS restricted
-    // categories rather than assuming an adult.
-    dob: _validDob(dob),
-    // WHETHER THE AGENT SAYS THIS ATHLETE IS 18+. Requiring a date of birth meant
-    // every new athlete was held on every restricted category until somebody went
-    // and found a birthday -- a wall between signing a client and working for
-    // them. The agent knows whether their own client is eighteen; they do not
-    // always know the date. A real dob still wins over this wherever both exist.
-    over18: _validOver18(over18),
-    // AGENT-SUPPLIED SCHOOL RESTRICTIONS. Filtered to the categories the gate
-    // actually knows, so a typo cannot create a rule that blocks everything and
-    // matches nothing. This is what the agent says their school restricts; it is
-    // never checked with the school and the record says so wherever it appears.
-    // The Add Client form no longer collects these -- the compliance agent owns
-    // category policy -- but anything already stored is preserved and still read.
-    schoolRestrictions: _validRestrictions(schoolRestrictions),
-    // Interest tags ("industry:sub" strings) and product wants feed Deal Scan.
-    tags: Array.isArray(tags) ? tags.filter(t => typeof t === 'string').slice(0, 40) : [],
-    productWants: (productWants ? String(productWants).trim().slice(0, 300) : ''),
-    // Additive social/onboarding fields — default cleanly so the normal Add
-    // Client flow (which does not send these) is unchanged.
-    instagramHandle: (instagramHandle ? String(instagramHandle).trim().replace(/^@+/, '').toLowerCase() : ''),
-    brandRestrictions: Array.isArray(brandRestrictions) ? brandRestrictions : [],
-    igStatsSource: ['web_estimate', 'manual', 'instagram_page'].includes(igStatsSource) ? igStatsSource : null,
-    igStatsFetchedAt: igStatsFetchedAt || null,
-    createdAt: new Date().toISOString(),
-  });
-  checkOff(req.session.userId, 'add_athlete'); // Getting Started checklist
-  // ── A NEW ATHLETE IS FILLED NOW, NOT TONIGHT ────────────────────────────
-  // Adding an athlete did not start anything: their first cards arrived with
-  // the next nightly run, which could be twenty hours away. The on-demand fill
-  // (the same one the queue page runs) starts in the background the moment
-  // the row exists, and Home shows "finding businesses" for them until it
-  // lands. Claimed per athlete per day inside fillOnDemand, so opening the
-  // queue a minute later does not run it twice.
-  if (OQfillOnDemandEnabled()) {
-    try { require('./services/outreachQueue').markFilling(id); } catch (_) {}
-    setImmediate(() => { runOnDemandFills(user.id, id).catch((e) => console.error('[queue/ondemand] new athlete', e.message)); });
-  }
-  res.status(201).json(athlete);
+  if (!r.created) return res.status(200).json(r.athlete);
+  res.status(201).json(r.athlete);
 });
 
 // ── Agent-initiated athlete account creation ──────────────────────────────

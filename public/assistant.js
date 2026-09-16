@@ -31,6 +31,8 @@ var NA = {
   athleteCount: 0,
   importWatch: null,  // the timer polling for a spreadsheet import to land
   importTold: false,  // the model has been told about the import
+  importClosedTold: false,  // the model has been told the import window closed empty
+  lookupPath: false,  // the agent chose "look them up": turns may run a web search
 };
 
 var NA_SESSION_KEY = 'nildash.assistant.opened';
@@ -446,10 +448,16 @@ async function naPerform(directives) {
         if (d.then === 'reload_athletes' && typeof loadAthletes === 'function') { try { await loadAthletes(); } catch (_) {} }
         if (d.then === 'reload_athletes') naRosterChanged();
         if (d.then === 'media_kit_built') naSay('assistant', 'Media kit built.');
+      } else if (d.kind === 'reload_athletes') {
+        // add_athlete saved the row on the server and said so to the model;
+        // the page only has to catch up. Nothing is said here: the model's
+        // sentence already reports what the tool returned.
+        if (typeof loadAthletes === 'function') { try { await loadAthletes(); } catch (_) {} }
+        naRosterChanged();
       } else if (d.kind === 'open_import') {
         // The same import window the Add Client page opens. It sits above the
         // takeover; the page watches for the athletes to land (naWatchImport).
-        if (typeof impOpen === 'function') { impOpen(); naWatchImport(); }
+        if (typeof impOpen === 'function') { NA.importClosedTold = false; impOpen(); naWatchImport(); }
         else naSay('assistant', 'The import window is not available on this page. Open Add Client and press Import from spreadsheet.');
       } else if (d.kind === 'finish_onboarding') {
         naFinishOnboarding(d.summary || '');
@@ -540,6 +548,10 @@ function naLeaveOnboarding(toHome) {
 // long enough to read the summary.
 function naFinishOnboarding(summary) {
   if (summary) naSay('assistant', summary);
+  // The first-run flow is over for this agent: recorded on the account so it
+  // is never shown as unfinished (the server records it too when it issues
+  // the finish, so a tab closed on this summary still counts).
+  fetch(naBase() + '/api/agent/onboarding-complete', { method: 'POST', credentials: 'include' }).catch(function () {});
   naChips([{ label: 'Open my dashboard', onClick: function () { naLeaveOnboarding(true); } }]);
   clearTimeout(NA._finishTimer);
   NA._finishTimer = setTimeout(function () { if (NA.onboarding) naLeaveOnboarding(true); }, 9000);
@@ -586,7 +598,17 @@ function naWatchImport() {
       list = r.ok ? await r.json() : [];
     } catch (_) { list = []; }
     if (!Array.isArray(list) || !list.length) {
-      if (!open) { clearInterval(NA.importWatch); NA.importWatch = null; }   // closed without importing
+      if (!open) {
+        // Closed without importing. The model is told, once, so it can ask
+        // what they want to do instead of waiting for an import that is not
+        // coming. Said as a note here, not as words the agent typed.
+        clearInterval(NA.importWatch); NA.importWatch = null;
+        if (!NA.importClosedTold && NA.onboarding) {
+          NA.importClosedTold = true;
+          naNote('The import window was closed with nothing imported.');
+          naSendText('(The import window was closed without importing anything.)', { silent: true });
+        }
+      }
       return;
     }
     clearInterval(NA.importWatch); NA.importWatch = null;
@@ -599,6 +621,14 @@ function naWatchImport() {
     naSendText('(The spreadsheet import has landed: ' + list.length + ' athlete' + (list.length === 1 ? '' : 's') + ' on the roster now'
       + (names.length ? ': ' + names.join(', ') + (list.length > names.length ? ' and more' : '') : '') + '.)', { silent: true });
   }, 4000);
+}
+
+// The one greeting that opens the panel AFTER the response: the overnight plan
+// owed to an agent who added an athlete and left before finishing. Every other
+// open happens before the fetch (see naStart); this is deliberately the
+// exception, and it is not a dismissal-counted auto-open.
+function naRevealOwed() {
+  if (!NA.open) naOpen();
 }
 
 // ── Conversation ─────────────────────────────────────────────────────────────
@@ -667,6 +697,11 @@ async function naStart(autoOpenAllowed) {
     // ordinary assistant carries on.
     if (NA.onboarding && !j.onboarding) {
       naLeaveOnboarding(false);
+    } else if (j.finishSummary) {
+      // They added an athlete and left before finishing. The overnight plan
+      // they never saw is this greeting, and it is shown even when the panel
+      // would otherwise stay shut: it is the one message they are owed.
+      naRevealOwed();
     } else if (NA.onboarding && j.onboarding) {
       naChips((j.choices || []).map(function (c) { return { label: c.label, text: c.text }; }));
       var i2 = document.getElementById('na-input');
@@ -764,7 +799,18 @@ async function naSendText(text, opts) {
   naClearChips();
   if (!(opts && opts.silent)) naSay('user', text);
   NA.busy = true;
+  // THE INDICATOR SAYS WHAT IS SLOW. On the lookup path a turn may run the
+  // same web search the Add Client button runs, 10 to 30 seconds, and dots
+  // that say "one moment" for that long read as a hang. The page cannot see
+  // inside the turn, so it goes by the path the agent chose: once they have
+  // asked to be looked up, a turn still running after a couple of seconds is
+  // almost certainly the search, and the line says so.
+  if (NA.onboarding && /\blook(?:ing)? (?:them|her|him|it|the athletes?|(?:my )?athletes?)? ?up\b/i.test(text)) NA.lookupPath = true;
   var thinking = naRunning(NA.onboarding ? 'One moment' : 'Thinking');
+  var searching = (NA.onboarding && NA.lookupPath) ? setTimeout(function () {
+    var w = thinking && thinking.querySelector('.na-what');
+    if (w && thinking.parentNode) w.textContent = 'Searching, this takes about 20 seconds';
+  }, 2500) : null;
   try {
     var r = await fetch(naBase() + '/api/assistant/message', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -784,6 +830,7 @@ async function naSendText(text, opts) {
     if (thinking) thinking.remove();
     naSay('assistant', 'Something went wrong. Try again?');
   } finally {
+    if (searching) clearTimeout(searching);
     NA.busy = false;
   }
 }

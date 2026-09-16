@@ -23,6 +23,7 @@ const { systemPrompt } = require('../services/assistantPrompt');
 const assistantData = require('../services/assistantData');
 const { hasKnowledge } = require('../services/assistantKnowledge');
 const Onb = require('../services/assistantOnboarding');
+const AthleteCreate = require('../services/athleteCreate');
 
 const MODEL = 'claude-sonnet-4-6';   // Sonnet, named. Never Opus.
 const TURN_TIMEOUT_MS = 45000;
@@ -167,7 +168,10 @@ async function runTurn({ agentId, principal, session, ctx, state, toolsEnabled, 
     tools: toolsEnabled ? actions.toolDefsFor(onboarding ? 'onboarding' : 'chat').concat([assistantData.toolDef()]) : [],
     model: MODEL,
     maxTokens: lean ? GREETING_MAX_TOKENS : 900,
-    maxRounds: lean ? 1 : (onboarding ? 4 : 3),
+    // Six on an onboarding turn: "Ann Lee, softball, Auburn; Bob Ray, golf,
+    // Alabama; Cam Doe, tennis, Troy" is three adds and a reply, with room
+    // for a question one of them raises.
+    maxRounds: lean ? 1 : (onboarding ? 6 : 3),
     timeoutMs: onboarding ? ONBOARDING_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS,
     runTool: async (name, input) => {
       // READ-ONLY, AND IT NEVER STOPS THE TURN. A lookup is not an action: there
@@ -188,13 +192,24 @@ async function runTurn({ agentId, principal, session, ctx, state, toolsEnabled, 
         confirms.push(res.confirm);
         return { result: { pending: true, asked: res.confirm.text }, stop: true };
       }
-      // A read tool (lookup_athlete) answers the model and the turn goes on: the
-      // candidates are what it needs to ask "add them?".
-      if (res.data !== undefined) return { result: res.data, isError: false };
+      // A tool that answers (lookup_athlete's candidates, add_athlete's real
+      // outcome) hands its data to the model and the turn goes on. add_athlete
+      // also tells the page to reload the roster once a row really exists.
+      if (res.data !== undefined) {
+        if (res.directive) directives.push(res.directive);
+        return { result: res.data, isError: false };
+      }
       // The finish carries the overnight plan for the page to show, written
-      // from the roster as it stands on this turn.
+      // from the roster as it stands on this turn. The roster is read again
+      // here: an athlete added earlier in THIS turn is not in ctx yet.
       if (res.directive && res.directive.kind === 'finish_onboarding') {
-        res.directive.summary = Onb.summaryFor((ctx.roster || []).map((a) => a.name));
+        const names = await pool.query(`SELECT data->>'name' AS name FROM athletes WHERE agent_id=$1 ORDER BY created_at ASC LIMIT 8`, [agentId])
+          .then((r) => r.rows.map((a) => a.name)).catch(() => (ctx.roster || []).map((a) => a.name));
+        res.directive.summary = Onb.summaryFor(names, { fillingNow: AthleteCreate.fillOnDemandEnabled() });
+        // The first-run flow is over for this agent. Recorded here as well as
+        // by the page (POST /api/agent/onboarding-complete), so a tab closed
+        // on the summary still counts as finished.
+        pool.query('UPDATE users SET onboarding_completed = true, updated_at = NOW() WHERE id=$1', [agentId]).catch(() => {});
       }
       directives.push(res.directive);
       return { result: { done: true, note: res.say || 'done' } };
@@ -233,7 +248,7 @@ router.post('/session', async (req, res) => {
       loadSession(agentId, req.body && req.body.sessionId),
       ctxSvc.readContext(agentId, principal),
       pool.query(
-        'SELECT COALESCE(assistant_dismissals,0) AS d, COALESCE(assistant_autoopen_off,false) AS off FROM users WHERE id=$1',
+        'SELECT COALESCE(assistant_dismissals,0) AS d, COALESCE(assistant_autoopen_off,false) AS off, COALESCE(onboarding_completed,false) AS done FROM users WHERE id=$1',
         [agentId]),
     ]);
     const tDb = Date.now() - tAll;
@@ -261,6 +276,32 @@ router.post('/session', async (req, res) => {
         messages: [{ role: 'assistant', content: Onb.OPENING }],
         context: { athletes: 0, scans: ctx.scans, sent: ctx.sent, gmailConnected: ctx.gmailConnected },
       });
+    }
+    // ── ADDED AN ATHLETE, THEN LEFT BEFORE FINISHING ─────────────────────
+    // The roster is no longer empty, so the takeover does not return; but the
+    // agent never saw the overnight plan, and the ordinary greeting would now
+    // offer them a Deal Scan as if the last conversation had not happened.
+    // Known by the opening script in their transcript and the finish never
+    // recorded: the plan is shown once, as this session's greeting, and the
+    // flow is marked finished. An agent from before the chatbot has no
+    // opening on file and is never shown it.
+    if (!existing.length && principal.kind === 'agent' && (ctx.role || 'agent') === 'agent'
+        && ctx.athletes > 0 && !(u.rows[0] && u.rows[0].done)) {
+      const began = await pool.query(
+        `SELECT 1 FROM assistant_messages WHERE agent_id=$1 AND role='assistant' AND content=$2 LIMIT 1`,
+        [agentId, Onb.OPENING]).catch(() => ({ rows: [] }));
+      if (began.rows.length) {
+        const summary = Onb.summaryFor((ctx.roster || []).map((a) => a.name), { fillingNow: AthleteCreate.fillOnDemandEnabled() });
+        await pool.query('UPDATE users SET onboarding_completed = true, updated_at = NOW() WHERE id=$1', [agentId]).catch(() => {});
+        await record(session.id, agentId, 'assistant', summary);
+        await saveSession(session);
+        console.log(`[assistant] agent=${agentId} session=${session.id} ONBOARDING resumed after an add: the plan, once`);
+        return res.json({
+          sessionId: session.id, state, autoOpen: true, resumed: false, onboarding: false, finishSummary: true,
+          messages: [{ role: 'assistant', content: summary }],
+          context: { athletes: ctx.athletes, scans: ctx.scans, sent: ctx.sent, gmailConnected: ctx.gmailConnected },
+        });
+      }
     }
     if (existing.length) {
       return res.json({
@@ -350,13 +391,20 @@ router.post('/message', async (req, res) => {
     await record(session.id, agentId, 'assistant', turn.text);
     await saveSession(session);
 
+    // The count the page gets is the count AFTER this turn: add_athlete saves
+    // during the turn, and the dashboard button keys off this number.
+    let athletesNow = ctx.athletes;
+    if ((turn.directives || []).some((d) => d && d.kind === 'reload_athletes')) {
+      athletesNow = await pool.query('SELECT COUNT(*)::int AS n FROM athletes WHERE agent_id=$1', [agentId])
+        .then((r) => (r.rows[0] && r.rows[0].n) || 0).catch(() => ctx.athletes);
+    }
     res.json({
       sessionId: session.id,
       reply: turn.text,
       directives: turn.directives,
       confirms: turn.confirms,
       onboarding: stillOnboarding,
-      athletes: ctx.athletes,
+      athletes: athletesNow,
     });
   } catch (e) {
     console.error('[assistant/message]', e.message);
