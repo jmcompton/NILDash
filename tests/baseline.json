@@ -584,6 +584,11 @@
       "total": 22,
       "fault": null
     },
+    "namelesscards.js": {
+      "failed": 0,
+      "total": 47,
+      "fault": null
+    },
     "natindex.js": {
       "failed": 0,
       "total": 21,

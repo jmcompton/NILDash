@@ -123,17 +123,13 @@ async function main() {
       + `${card.contactName || 'no name'}${card.instagram ? ' @' + card.instagram : ''}`
       + `${card.instagramScope === 'brand' ? ' (brand acct)' : ''}`);
     if (!DRY) {
-      const ins = await pool.query(
-        `INSERT INTO outreach_queue
-           (agent_id, athlete_id, slot, brand_key, brand_name, why, contact_name, contact_title,
-            source_note, affiliation_scope, instagram, instagram_scope, phone, phone_ask_for,
-            dm_text, channel, state)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued')
-         ON CONFLICT DO NOTHING RETURNING id`,
-        [ath.agent_id, ath.id, slot, card.brandKey, card.brandName, card.why, card.contactName,
-         card.contactTitle, card.sourceNote, card.affiliationScope, card.instagram,
-         card.instagramScope, card.phone, card.phoneAskFor, card.dmText, card.channel]);
-      if (!ins.rowCount) { console.log('        (slot taken by a concurrent write, skipped)'); continue; }
+      // THE SAME SAVE AS THE NIGHTLY JOB (jobs/outreachQueue.insertCard), so
+      // the no-name rule, the placeholder rule and the identity index hold
+      // here too. This script used to write its own INSERT and could seed a
+      // card that greeted nobody.
+      const wrote = await require('../server/jobs/outreachQueue').insertCard(pool,
+        { agentId: ath.agent_id, athleteId: ath.id, slot, card: { ...card, athleteName: ath.name } });
+      if (!wrote) { console.log('        (not written: refused by insertCard, see the [queue] line above)'); continue; }
     }
     placed++;
   }

@@ -229,6 +229,13 @@ function lintMessage(msg, opts = {}) {
   if (opts.signOff && !signsOffAs(t, opts.signOff)) {
     problems.push('does not sign off as ' + opts.signOff);
   }
+  // THE FIRST LINE NAMES THE READER. "Hi," "Hi there," "Hello," or no greeting
+  // at all is a rejected draft when we know who we are writing to.
+  if (opts.greetFirstName) {
+    const first = t.split('\n').map((x) => x.trim()).find(Boolean) || '';
+    const want = new RegExp('^(hi|hello|hey|dear|good (morning|afternoon|evening))\\s+' + opts.greetFirstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[,!.:—-]', 'i');
+    if (!want.test(first)) problems.push('does not open with "Hi ' + opts.greetFirstName + ',"');
+  }
   return { ok: problems.length === 0, problems };
 }
 
@@ -882,13 +889,16 @@ function describeBusiness(b) {
   // disagree. Absent means we could not verify who they are, and the model is
   // told to open "Hi," rather than left to guess.
   if (b.ownerName) L.push('Person to write to: ' + b.ownerName + (b.ownerTitle ? ', ' + b.ownerTitle : ''));
+  // THE MESSAGE OPENS WITH THE PERSON'S FIRST NAME, ALWAYS. A business with no
+  // named person never reaches the writer any more (the queue refuses the
+  // card), so "Open with 'Hi,'" is no longer an instruction this prompt gives:
+  // a draft that opens "Hi," is rejected by lintMessage below and rewritten.
   if (b.greetFirstName) {
-    L.push('OPEN THE MESSAGE WITH: "Hi ' + b.greetFirstName + ',"  — this name is verified, use it.');
+    L.push('OPEN THE MESSAGE WITH: "Hi ' + b.greetFirstName + ',"  — this name is verified, use it. '
+      + 'Never open "Hi," or "Hi there," or any greeting without the name.');
   } else if (b.ownerName) {
-    L.push('We could not verify this person well enough to greet them by name. Open with "Hi," '
-      + 'and do not use their name anywhere in the message.');
-  } else {
-    L.push('No verified name. Open with "Hi," exactly.');
+    const fn = firstNameOf(b.ownerName);
+    L.push('OPEN THE MESSAGE WITH: "Hi ' + fn + '," — the person to write to. Never open with a greeting that has no name.');
   }
   if (b.siteSummary) L.push('What their own website says: ' + b.siteSummary);
   if (b.sponsorsLocal) L.push('They already sponsor local teams or events.');
@@ -1183,7 +1193,12 @@ async function writePitch(ctx, opts = {}) {
   const oneShot = opts.oneShot;
   if (typeof oneShot !== 'function') throw new Error('writePitch requires opts.oneShot');
   const agentFirst = String(ctx.agentFirstName || 'JohnMark').trim().split(/\s+/)[0];
-  const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable === true };
+  // The greeting is linted like the sign-off: the first line must be
+  // "Hi <first name>," for the person the card is to. A draft that opens
+  // "Hi," is rejected and rewritten once, then refused.
+  const _biz = ctx.business || {};
+  const greetFirstName = _biz.greetFirstName || (_biz.ownerName ? firstNameOf(_biz.ownerName) : null) || null;
+  const lintOpts = { signOff: agentFirst, requireDeliverable: opts.requireDeliverable === true, greetFirstName };
 
   const attempt = async (extra) => {
     const raw = await oneShot(buildPrompt(ctx) + (extra || ''), systemFor(ctx.athlete), 900, opts.model);

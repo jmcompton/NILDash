@@ -375,6 +375,94 @@ function ensureGreeting(message, greetName) {
   return { message: lines.join('\n'), repaired: true, was };
 }
 
+// ── NO NAME, NO CARD: THE ONE RULE, IN ONE PLACE ────────────────────────────
+//
+// A card for Legion Hair Studio reached an agent saying "Hi," to nobody. The
+// nightly job had a name check before the writer and another after it, the
+// seed script had none, and an edited DM had none: three doors, three rules.
+// Now there is one rule and it sits where the card is SAVED
+// (jobs/outreachQueue.insertCard calls this first; the DM edit route calls it
+// on the edited card; the audits and the spend report call it on live rows).
+//
+//   cardNameProblem(card) -> null, or one sentence saying why the card must
+//                            not be saved
+//
+// A card passes only when BOTH hold:
+//   - contact_name is a real person: not blank, not a role ("Owner",
+//     "Marketing Director", "Team"), not an honorific alone, not the business
+//     name, and it yields a name to open with
+//   - the message it carries (dm_text for a DM or program card, the email body
+//     for an email card) opens by greeting that person: "Hi <first name>,".
+//     "Hi," "Hi there," "Hello," a message with no greeting line, or a
+//     greeting to someone else all fail. A call card carries no message, so
+//     only the name is checked.
+// Reads either the builder's camelCase card or a database row.
+const ROLE_NAMES = new RegExp('^(the\\s+)?(owner|owners|co-?owner|proprietor|manager|management|team|staff|crew|front\\s*desk|reception|receptionist|'
+  + 'hiring\\s+manager|marketing|marketing\\s+(director|manager|team|lead)|general\\s+manager|gm|director|coach|coaches|coaching\\s+staff|admin|'
+  + 'administrator|office|info|sales|support|customer\\s+service|hello|hi|hey|there|everyone|all|whom\\s+it\\s+may\\s+concern|sir|madam|sir/madam|'
+  + 'friend|friends|folks|guys|business|company|store|shop|salon|studio|restaurant|bar|gym|clinic|office|department|dept|n/?a|none|unknown|tbd|test)$', 'i');
+const NOT_A_PERSON = /\b(team|staff|department|dept|office|desk|inbox|support|sales|info|hiring|hr|customer|service|group|llc|inc|corp|company|studio|salon|shop|store)\b/i;
+function personNameProblem(name, brandName) {
+  const GG = require('./greetingGuard');
+  const n = String(name || '').trim().replace(/\s+/g, ' ');
+  if (!n) return 'no contact name on the card';
+  if (!/[a-z]/i.test(n)) return `contact name "${n}" has no letters`;
+  if (GG.isHonorificOnly(n)) return `contact name "${n}" is an honorific with no name`;
+  const bare = n.replace(/^(dr|mr|mrs|ms|miss|prof|professor|doctor|coach)\.?\s+/i, '').trim();
+  if (!bare) return `contact name "${n}" is an honorific with no name`;
+  if (ROLE_NAMES.test(bare)) return `contact name "${n}" is a role, not a person`;
+  if (NOT_A_PERSON.test(bare)) return `contact name "${n}" is not a person`;
+  const fold = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  if (brandName && fold(bare) === fold(brandName)) return `contact name "${n}" is the business name`;
+  if (!GG.salutationName(n)) return `contact name "${n}" gives no name to open with`;
+  return null;
+}
+const _htmlToText = (html) => String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>|<\/div>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+// The greeting at the head of the first line, whether it stands alone ("Hi
+// Dana,") or runs into the sentence ("Hi Dana, I work with..."). null when the
+// line is not a greeting at all; '' when it greets nobody ("Hi," "Hi there,").
+const GREETING_WORD = '(hi|hello|hey|dear|good\\s+(?:morning|afternoon|evening))';
+const GREETING_BARE = new RegExp('^' + GREETING_WORD + '\\s*(?:[,!?:;—–-]|\\.\\s|\\.$|$)', 'i');            // "Hi," "Hello." "Hey"
+const GREETING_TO_COMMA = new RegExp('^' + GREETING_WORD + '\\s+([^,!?:;\\n—–-]{1,60}?)\\s*[,!?:;—–-]', 'i'); // "Hi Dr. Park," "Hi Dana, I work"
+const GREETING_TO_STOP = new RegExp('^' + GREETING_WORD + '\\s+([^,.!?:;\\n—–-]{1,60}?)\\s*(?:\\.\\s|\\.$|$)', 'i'); // "Hi Dana. I work"
+function greetingWho(line) {
+  const s = String(line || '').trim();
+  if (GREETING_BARE.test(s)) return '';
+  const m = s.match(GREETING_TO_COMMA) || s.match(GREETING_TO_STOP);
+  if (!m) return null;
+  const who = String(m[2] || '').trim();
+  if (/^(there|all|everyone|team|folks|friends?|guys|y'all|you)$/i.test(who)) return '';
+  return who;
+}
+function greetingProblem(text, contactName) {
+  const GG = require('./greetingGuard');
+  const line = String(text || '').split('\n').map((x) => x.trim()).find(Boolean) || '';
+  if (!line) return 'the card carries no message';
+  const who = greetingWho(line);
+  if (who === null) return `the message has no greeting line (opens "${line.slice(0, 40)}")`;
+  if (who === '' || GG.isHonorificOnly(who)) return `the message greets nobody ("${line.slice(0, 40)}")`;
+  const norm = (s) => String(s || '').trim().toLowerCase().replace(/[‘’ʼ]/g, "'").replace(/\./g, '').replace(/\s+/g, ' ');
+  const allowed = new Set([...GG.allowedGreetingNames([{ name: contactName }])].map(norm));
+  allowed.add(norm(GG.salutationName(contactName)));   // "Dr. Park" for "Dr. Lee Park"
+  if (!allowed.has(norm(who))) return `the message greets "${who}", not the contact on the card (${contactName})`;
+  return null;
+}
+function cardNameProblem(card) {
+  const c = card || {};
+  const name = c.contactName !== undefined ? c.contactName : c.contact_name;
+  const brand = c.brandName !== undefined ? c.brandName : c.brand_name;
+  const p = personNameProblem(name, brand);
+  if (p) return p;
+  const channel = String(c.channel || '');
+  if (channel === 'email') {
+    const body = c.emailBody !== undefined && c.emailBody !== null ? c.emailBody : _htmlToText(c.draft_body !== undefined ? c.draft_body : c.body_html);
+    return greetingProblem(body, name);
+  }
+  if (channel === 'call') return null;
+  const text = c.dmText !== undefined ? c.dmText : c.dm_text;
+  return greetingProblem(text, name);
+}
+
 // Who to ask for on a shared line. Mirrors askName in contactLadder: keep an
 // honorific with the surname, otherwise the first name.
 function askFirstName(fullName) {
@@ -967,6 +1055,7 @@ module.exports = {
   passesProgramBar, buildProgramCard, programCapReached, PROGRAM_SLOT_CAP,
   programBrandCapReached, programBrandKey, PROGRAM_BRAND_NIGHTLY_MAX,
   waitingOnYou, writeDm, askFirstName, namedRows, greetNameOf, greetRowOf, ensureGreeting, emailNoteOf,
+  cardNameProblem, personNameProblem, greetingProblem,
   pauseRelease, pausedUntilNote, PAUSE_RETRY_DAYS,
   prescreen, placesFacts, pausedNote,
   DEFAULT_AGENT_NIGHTLY_USD, MAX_ATTEMPTS_PER_SLOT, SLOTS_PER_ATHLETE,

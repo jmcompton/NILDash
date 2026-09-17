@@ -10279,10 +10279,21 @@ app.get('/api/agent/outreach-queue/fill/:runId', requireAuth, async (req, res) =
 // PATCH /api/agent/outreach-queue/:id — edit the DM before sending it.
 app.patch('/api/agent/outreach-queue/:id', requireAuth, async (req, res) => {
   try {
+    const dmText = String(req.body.dmText || '').slice(0, 4000);
+    // THE SAME RULE THE SAVE PATH KEEPS (services/outreachQueue.cardNameProblem):
+    // an edit cannot turn a card into one that greets nobody.
+    const cur = (await store.pool.query(
+      `SELECT * FROM outreach_queue WHERE id = $1 AND agent_id = $2 AND state = 'queued'`,
+      [req.params.id, req.session.userId])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'Card not found' });
+    if (cur.channel !== 'email') {
+      const problem = require('./services/outreachQueue').cardNameProblem({ ...cur, dm_text: dmText });
+      if (problem) return res.status(400).json({ error: `Keep the greeting to ${cur.contact_name}: ${problem}.` });
+    }
     const r = await store.pool.query(
       `UPDATE outreach_queue SET dm_text = $3, updated_at = NOW()
         WHERE id = $1 AND agent_id = $2 AND state = 'queued' RETURNING *`,
-      [req.params.id, req.session.userId, String(req.body.dmText || '').slice(0, 4000)]);
+      [req.params.id, req.session.userId, dmText]);
     if (!r.rows[0]) return res.status(404).json({ error: 'Card not found' });
     res.json(r.rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -11277,6 +11288,54 @@ function _inboundAdminOk(user) {
 // via search OR via the nightly job. So "how many rows" is really "how many
 // national brands happen to publish a signup form", which is a much smaller
 // population than "how many national brands are pitchable".
+// ── THE LIVE QUEUE AGAINST THE ONE RULE (services/queueAudit) ───────────────
+// GET /api/admin/nameless-cards[?apply=1]
+//   Every queued card with no named contact person or a message that does not
+//   open to them (services/outreachQueue.cardNameProblem), counted per agent.
+//   apply=1 retires them (state retired, outcome no_name) and stops the linked
+//   email drafts. Admin only.
+// GET /api/admin/check-card-emails[?apply=1]
+//   Every queued email card whose address shows "Not checked yet" (no
+//   email_verification row). apply=1 runs the verifier over them, in the
+//   background, and the same URL returns the tally when it is done.
+app.get('/api/admin/nameless-cards', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    const QA = require('./services/queueAudit');
+    const { total, bad, perAgent } = await QA.namelessCards(store.pool);
+    const rows = bad.map((c) => ({ id: c.id, agent: c.agent_email || c.agent_id, athlete: c.athlete_name, brand: c.brand_name, lane: c.lane, channel: c.channel,
+      contact: c.contact_name, email: c.email, emailNote: c.email_note, draftSource: c.draft_source, created: c.created_at, problem: c.problem }));
+    let applied = null;
+    if (req.query.apply && bad.length) {
+      applied = await QA.retireNameless(store.pool, bad.map((c) => c.id));
+      console.log(`[nameless-cards] admin retired ${applied.retired} card(s), stopped ${applied.stopped} draft(s): ${JSON.stringify(perAgent)}`);
+    }
+    res.json({ live: total, nameless: bad.length, perAgent, applied, rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+let _cardEmailCheckJob = null;
+app.get('/api/admin/check-card-emails', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!_inboundAdminOk(user)) return res.status(403).json({ error: 'Forbidden' });
+    const QA = require('./services/queueAudit');
+    if (!req.query.apply) return res.json({ running: false, ...(await QA.checkQueuedEmails(store.pool, { apply: false })) });
+    const finished = _cardEmailCheckJob && (_cardEmailCheckJob.result || _cardEmailCheckJob.error);
+    if (!_cardEmailCheckJob || (finished && req.query.restart)) {
+      const job = { startedAt: new Date().toISOString(), result: null, error: null };
+      _cardEmailCheckJob = job;
+      QA.checkQueuedEmails(store.pool, { apply: true, deadlineMs: 10 * 60 * 1000 })
+        .then((r) => { job.result = r; job.finishedAt = new Date().toISOString(); })
+        .catch((e) => { job.error = e.message; job.finishedAt = new Date().toISOString(); });
+      return res.json({ running: true, startedAt: job.startedAt, message: 'Checking. Open this URL again in a minute.' });
+    }
+    const job = _cardEmailCheckJob;
+    if (!job.result && !job.error) return res.json({ running: true, startedAt: job.startedAt, message: 'Still checking. Open this URL again in a minute.' });
+    res.json({ running: false, startedAt: job.startedAt, finishedAt: job.finishedAt, error: job.error, ...(job.result || {}) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // POST /api/admin/retire-stale-queue — clear the wrong-city rows the hometown
 // fallback left behind.
 //
