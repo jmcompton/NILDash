@@ -3424,7 +3424,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
                      onkeydown="if(event.key==='Enter'){event.preventDefault();lookupPlayer();}">
               <button class="run-btn" onclick="lookupPlayer()" id="lookup-btn" style="white-space:nowrap;padding:9px 14px;font-size:11px">AI Lookup</button>
             </div>
-            <div style="font-size:10px;color:var(--muted);margin-top:3px;opacity:0.7">💡 Enter school &amp; sport first for best results · Press Enter to search</div>
+            <div id="a_lookup_hint" style="font-size:10px;color:var(--muted);margin-top:3px;opacity:0.7">💡 Enter school &amp; sport first for best results · Press Enter to search</div>
             <div id="lookup-status" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
             <!-- Candidate picker — shown when lookup returns multiple matches -->
             <div id="lookup-candidates" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden"></div>
@@ -3505,7 +3505,7 @@ tbody td{padding:11px 14px;vertical-align:middle}
             <input class="input-sm" id="a_email" type="email" placeholder="athlete@email.com">
             <div style="font-size:10px;color:var(--muted);margin-top:2px">If set, you can email them their portal invite link directly.</div>
           </div>
-          <div class="form-group-sm">
+          <div class="form-group-sm" id="a_parent_wrap">
             <label class="form-label-sm">Parent or guardian email <span style="color:var(--muted);font-weight:400">(optional)</span></label>
             <input class="input-sm" id="a_parent_email" type="email" placeholder="parent@email.com">
             <div style="font-size:10px;color:var(--muted);margin-top:2px">Gets copied on the weekly report. Parents who see the work stay out of your inbox.</div>
@@ -6715,6 +6715,13 @@ function acTypeChanged() {
   show('a_year_wrap', !pro);
   show('a_tier_wrap', !pro);
   show('a_age_wrap', !pro);
+  // A pro has no parent or guardian on the report, and the lookup wants the
+  // team or the city rather than a school.
+  show('a_parent_wrap', !pro);
+  const hint = document.getElementById('a_lookup_hint');
+  if (hint) hint.innerHTML = pro
+    ? '💡 Enter their team or city for best results · Press Enter to search'
+    : '💡 Enter school &amp; sport first for best results · Press Enter to search';
   const st = document.getElementById('a_stats');
   if (st) st.placeholder = pro
     ? 'What they are known for, in a line (e.g. 2024 Pro Bowl, 1,200 receiving yards). The pitch uses this and nothing else.'

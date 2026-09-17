@@ -41,7 +41,23 @@ async function getJson(url, headers) {
     return JSON.parse(text);
   } finally { clearTimeout(killer); }
 }
-function _setFetchForTests(fn) { _fetchJson = fn || null; }
+function _setFetchForTests(fn) { _fetchJson = fn || null; _rosterCache.clear(); }
+
+// ── ONE HOUR OF ROSTERS, PER PROCESS ─────────────────────────────────────
+// Searching a league by name means reading every roster (32 requests for the
+// NFL). Read once and kept an hour, so the second pro lookup of the night is
+// free and the hit-rate script does not hammer ESPN.
+const ROSTER_CACHE_MS = 60 * 60 * 1000;
+const _rosterCache = new Map();
+async function cachedJson(url) {
+  const hit = _rosterCache.get(url);
+  if (hit && Date.now() - hit.at < ROSTER_CACHE_MS) return hit.json;
+  const json = await getJson(url);
+  _rosterCache.set(url, { at: Date.now(), json });
+  return json;
+}
+// How many rosters a league-wide read may cost. Every major league fits.
+const LEAGUE_READ_MAX_TEAMS = 40;
 
 // ── WHICH FEEDS FOR WHICH SPORT ──────────────────────────────────────────────
 // ESPN paths are the league's slug on the site API. A bare sport names every
@@ -120,22 +136,42 @@ async function espnLeague(league, q, notes) {
   const teamsUrl = `${ESPN}/${def.path}/teams?limit=100`;
   let teams;
   try {
-    const j = await getJson(teamsUrl);
+    const j = await cachedJson(teamsUrl);
     teams = ((((j.sports || [])[0] || {}).leagues || [])[0] || {}).teams || [];
   } catch (e) { notes.push(`${league}: teams feed did not answer (${e.message})`); return []; }
   if (!teams.length) { notes.push(`${league}: teams feed answered with no teams`); return []; }
-  // With a team named, one roster. Without one, the feed cannot be searched
-  // by player without a request per team, so it is left to web search.
-  if (!q.team) { notes.push(`${league}: no team given, so the roster feed was not read`); return []; }
-  let best = null, bestScore = 0;
-  for (const { team } of teams) { const s = espnTeamScore(q.team, team || {}); if (s > bestScore) { bestScore = s; best = team; } }
-  if (!best || bestScore < 65) { notes.push(`${league}: no team matches "${q.team}"`); return []; }
-  const rosterUrl = `${ESPN}/${def.path}/teams/${best.id}/roster`;
-  let j;
-  try { j = await getJson(rosterUrl); } catch (e) { notes.push(`${league}: roster feed for ${best.displayName} did not answer (${e.message})`); return []; }
+  // WITH A TEAM, ONE ROSTER. The team may be a nickname ("Broncos") or a
+  // full name; services/proTeams settles it to the club before the feed's
+  // own matcher runs. WITHOUT A TEAM, EVERY ROSTER IN THE LEAGUE: this used
+  // to give up here ("no team given, so the roster feed was not read"), which
+  // is why "Bo Nix", Pro, Football, no team, found nobody. Rosters are read
+  // in parallel and cached an hour.
+  let wanted = q.team ? String(q.team).trim() : '';
+  if (wanted) { try { const t = require('./proTeams').findTeam(wanted); if (t && t.league === league) wanted = t.name; } catch (_) { /* the feed's matcher still runs */ } }
+  let rosterTeams = [];
+  if (wanted) {
+    let best = null, bestScore = 0;
+    for (const { team } of teams) { const s = espnTeamScore(wanted, team || {}); if (s > bestScore) { bestScore = s; best = team; } }
+    if (!best || bestScore < 65) { notes.push(`${league}: no team matches "${q.team}"`); return []; }
+    rosterTeams = [best];
+  } else {
+    rosterTeams = teams.map((x) => x.team).filter(Boolean).slice(0, LEAGUE_READ_MAX_TEAMS);
+  }
+  const rosters = await Promise.all(rosterTeams.map(async (t) => {
+    const rosterUrl = `${ESPN}/${def.path}/teams/${t.id}/roster`;
+    try { return { team: t, url: rosterUrl, json: await cachedJson(rosterUrl) }; }
+    catch (e) { return { team: t, url: rosterUrl, error: e.message }; }
+  }));
+  const failed = rosters.filter((r) => r.error);
+  if (failed.length) notes.push(`${league}: ${failed.length} of ${rosters.length} roster feed(s) did not answer (${failed[0].team.displayName}: ${failed[0].error})`);
+  const out = [];
+  let playersRead = 0;
+  for (const r of rosters) {
+    if (r.error) continue;
+    const best = r.team, rosterUrl = r.url, j = r.json;
   const groups = Array.isArray(j.athletes) ? j.athletes : [];
   const players = groups.flatMap((g) => (g && Array.isArray(g.items)) ? g.items : (g && g.fullName ? [g] : []));
-  const out = [];
+  playersRead += players.length;
   for (const p of players) {
     const name = p.fullName || [p.firstName, p.lastName].filter(Boolean).join(' ');
     const ns = nameScore(q.name, name);
@@ -151,7 +187,10 @@ async function espnLeague(league, q, notes) {
       _ns: ns,
     }, league, (page && page.href) || rosterUrl, `ESPN ${league} roster`, Math.min(96, 60 + ns)));
   }
-  if (!out.length) notes.push(`${league}: ${best.displayName} roster has nobody named like "${q.name}"`);
+  }
+  const where = wanted ? `${rosterTeams[0].displayName} roster` : `${rosters.length - failed.length} rosters, ${playersRead} players`;
+  if (!out.length) notes.push(`${league}: ${where} read, nobody named like "${q.name}"`);
+  else notes.push(`${league}: ${where} read, ${out.length} match(es) for "${q.name}"`);
   return out;
 }
 

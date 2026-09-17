@@ -404,6 +404,31 @@ ${RULES}`;
 }
 const SYSTEM = 'You are an athlete data lookup assistant. You report only what the pages the search returned actually say, with the URL of the page for every field. You never fabricate athlete data and you never report a birth date or an age.';
 
+// A search result that names the player, their team and their position, in
+// its own title or snippet. The evidence a pro web candidate must have.
+function proWebEvidence(cand, results) {
+  const norm = (s) => String(s || '').toLowerCase().replace(/[’'`.\-]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const nameParts = norm(cand.name).split(' ').filter((x) => x.length > 1);
+  const last = nameParts[nameParts.length - 1];
+  const team = norm(cand.team);
+  const teamWords = team.split(' ').filter((x) => x.length > 2);
+  const pos = norm(cand.position);
+  if (!last || !teamWords.length || !pos) return null;
+  const POS_WORDS = { qb: ['qb', 'quarterback'], rb: ['rb', 'running back'], wr: ['wr', 'wide receiver'], te: ['te', 'tight end'], ol: ['ol', 'offensive line'], lb: ['lb', 'linebacker'], db: ['db', 'cornerback', 'safety'], cb: ['cb', 'cornerback'], s: ['safety'], k: ['kicker'], p: ['punter', 'pitcher'], de: ['de', 'defensive end'], dt: ['dt', 'defensive tackle'],
+    pg: ['pg', 'point guard', 'guard'], sg: ['sg', 'shooting guard', 'guard'], sf: ['sf', 'small forward', 'forward'], pf: ['pf', 'power forward', 'forward'], c: ['center', 'centre', 'c'], g: ['guard'], f: ['forward'],
+    sp: ['pitcher', 'starting pitcher'], rp: ['pitcher', 'reliever'], '1b': ['first base', 'first baseman', '1b'], '2b': ['second base', 'second baseman', '2b'], '3b': ['third base', 'third baseman', '3b'], ss: ['shortstop', 'ss'], lf: ['left field', 'outfield', 'lf'], cf: ['center field', 'outfield', 'cf'], rf: ['right field', 'outfield', 'rf'], of: ['outfield', 'outfielder', 'of'], dh: ['designated hitter', 'dh'],
+    lw: ['left wing', 'winger', 'lw'], rw: ['right wing', 'winger', 'rw'], d: ['defenseman', 'defence', 'defense'], gk: ['goalkeeper', 'goalie'] };
+  const posWords = [pos, ...(POS_WORDS[pos] || [])].filter(Boolean);
+  for (const r of results) {
+    const text = norm(`${r.title || ''} ${r.snippet || ''}`);
+    if (!new RegExp('(^| )' + last + '( |$)').test(text)) continue;
+    if (!teamWords.some((w) => new RegExp('(^| )' + w + '( |$)').test(text))) continue;
+    if (!posWords.some((w) => new RegExp('(^| )' + w + '( |$)').test(text))) continue;
+    return { url: r.url, title: r.title || '' };
+  }
+  return null;
+}
+
 // ── THE WEB STAGE ────────────────────────────────────────────────────────
 // DeepSeek through the search loop, Serper preferred. Never Anthropic.
 let _searchLoopOverride = null;
@@ -436,6 +461,7 @@ async function webStage(level, q, feedTop, ctx) {
   const list = (parsed && Array.isArray(parsed.athletes)) ? parsed.athletes : [];
   const candidates = list.map((a) => sanitizeWeb(a, citations, level)).filter(Boolean);
   return { candidates, citations, usage: r.usage || null, searches: r.searches || 0, ms: Date.now() - t0,
+    results: Array.isArray(r.results) ? r.results : [], rawCount: list.length,
     searchNote: parsed && parsed.searchNote ? String(parsed.searchNote).slice(0, 300) : null, parsedFound: !!(parsed && parsed.found) };
 }
 
@@ -536,12 +562,34 @@ async function resolveAthlete(ai, q, opts = {}) {
     feedCands = await espnCollegeStage(normName, normSchool, normSport, notes);
   }
   const feedTop = feedCands[0] || null;
+  // THE TRACE: which sources were asked, what each answered, where it gave
+  // up. Logged line by line and returned on the result, so "No verified
+  // athlete found" is never the whole story again.
+  const trace = [];
+  if (level === 'pro') trace.push(`roster feeds (${notes.length ? notes.join('; ') : 'none tried'}) -> ${feedCands.length} candidate(s)`);
+  else if (level === 'college') trace.push(`ESPN college roster${normSchool ? ' for ' + normSchool : ''}${normSport ? ' ' + normSport : ''} -> ${feedCands.length} candidate(s)${notes.length ? ' (' + notes.join('; ') + ')' : ''}`);
+  else trace.push('no roster feed for a high school athlete');
 
   // The web stage: the whole profile when no feed answered, the rest of it
   // (socials, highlight) when one did.
   const web = await webStage(level, { name, school: q.school, sport: q.sport, team: q.team, city: q.city }, feedTop, { agentId: opts.agentId });
   if (web.skipped) notes.push(web.skipped);
   const costUsd = web.usage ? (Ledger.estimateUsd(DS.model(), web.usage, 'deepseek') || 0) : 0;
+  trace.push(web.skipped ? `web search: ${web.skipped}` : `web search: ${web.searches || 0} search(es), ${(web.results || []).length} result(s) seen, model returned ${web.rawCount || 0} athlete(s), ${web.candidates.length} kept with a cited source${web.searchNote ? ' (' + web.searchNote + ')' : ''}`);
+  // ── A PRO FROM THE WEB IS ACCEPTED ONLY WHEN A SOURCE NAMES THE PLAYER,
+  //    THEIR TEAM AND THEIR POSITION. The model's JSON is a claim; a search
+  //    result's title or snippet is the evidence. With no such result the
+  //    candidate is dropped and the trace says so.
+  if (level === 'pro' && !feedTop && web.candidates.length) {
+    const before = web.candidates.length;
+    web.candidates = web.candidates.filter((w) => {
+      const ev = proWebEvidence(w, web.results || []);
+      if (!ev) trace.push(`web candidate "${w.name}" dropped: no search result names the player, the team (${w.team || '?'}) and the position (${w.position || '?'}) together`);
+      else { w.sources = Object.assign({}, w.sources, { team: w.sources.team || ev.url, position: w.sources.position || ev.url }); w.evidenceUrl = ev.url; trace.push(`web candidate "${w.name}" accepted: ${ev.url} names the player, ${w.team} and ${w.position}`); }
+      return !!ev;
+    });
+    if (before && !web.candidates.length) trace.push('web search gave up: every candidate lacked a source naming player, team and position');
+  }
 
   let candidates = [];
   if (feedTop) {
@@ -578,7 +626,10 @@ async function resolveAthlete(ai, q, opts = {}) {
     costUsd, searches: web.searches || 0, ms: Date.now() - t0, cached: false, checkedAt: new Date().toISOString(),
   });
   if (candidates.length) candidates[0].best = true;
-  console.log(`[lookup] ${level} "${name}"${q.school ? ' @ ' + q.school : ''}${q.team ? ' / ' + q.team : ''}: ${candidates.length} candidate(s), ${result.searches} search(es), $${costUsd.toFixed(4)}, ${result.ms}ms${notes.length ? ' [' + notes.join('; ') + ']' : ''}`);
+  result.trace = trace;
+  if (!candidates.length) result.message = `${result.message} Checked: ${trace.join(' | ')}`.slice(0, 900);
+  for (const line of trace) console.log(`[lookup] ${level} "${name}": ${line}`);
+  console.log(`[lookup] ${level} "${name}"${q.school ? ' @ ' + q.school : ''}${q.team ? ' / ' + q.team : ''}: ${candidates.length} candidate(s), ${result.searches} search(es), ${costUsd.toFixed(4)}, ${result.ms}ms${notes.length ? ' [' + notes.join('; ') + ']' : ''}`);
   // A skipped web stage with no feed answer is not a fact about the athlete: not cached.
   if (candidates.length || !web.skipped) await cachePut(key, level, { name, school: q.school || null, team: q.team || null, sport: q.sport || null }, result);
   return result;
@@ -641,7 +692,7 @@ async function proSearchStage(normName, team, city, normSport, normPosition) {
 }
 
 module.exports = {
-  resolveAthlete, resolveMany, levelOf, cacheKey, sanitizeWeb, promptFor, FIELDS,
+  resolveAthlete, resolveMany, levelOf, cacheKey, sanitizeWeb, promptFor, FIELDS, proWebEvidence,
   normalizeName, normalizeSchool, normalizeSport, nameMatchScore, schoolsMatch, ESPN_SUPPORTED_SPORTS,
   leagueFor, proSearchStage, _deepseekStage, _setSearchLoopForTests,
   CACHE_DAYS, MISS_CACHE_HOURS,
