@@ -5379,6 +5379,51 @@ app.post('/api/admin/social-brands/reverify', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── ONE-TIME ADMIN RUNS OF A DIAGNOSTIC SCRIPT, FROM THE BROWSER ────────────
+// GET /api/admin/scripts/probe-roster-sources[?only=mlb][&restart=1][&text=1]
+// GET /api/admin/scripts/lookup-pro-hitrate[?league=NFL][&noTeam=1][&restart=1][&text=1]
+// The two scripts read the roster feeds, which the build box cannot reach and
+// Railway can. The first open starts the script as a child process and says
+// so; open the same URL again for its output (text=1 for the plain lines).
+// Only the two names below run, with only the arguments below; nothing from
+// the query reaches a shell. Admin only.
+const ADMIN_SCRIPTS = {
+  'probe-roster-sources': { file: 'scripts/probe-roster-sources.js', args: (q) => (q.only ? ['--only', String(q.only).replace(/[^a-z0-9-]/gi, '').slice(0, 20)] : []) },
+  'lookup-pro-hitrate': { file: 'scripts/lookup-pro-hitrate.js', args: (q) => [].concat(q.league ? ['--league', String(q.league).replace(/[^a-z]/gi, '').slice(0, 10)] : [], q.noTeam ? ['--no-team'] : [], q.force ? ['--force'] : []) },
+};
+const _adminScriptJobs = new Map();
+app.get('/api/admin/scripts/:name', requireAuth, async (req, res) => {
+  try {
+    const user = await store.getUser(req.session.userId);
+    if (!user || user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
+    const def = ADMIN_SCRIPTS[req.params.name];
+    if (!def) return res.status(404).json({ error: 'No such script', scripts: Object.keys(ADMIN_SCRIPTS) });
+    const q = req.query || {};
+    let job = _adminScriptJobs.get(req.params.name);
+    const finished = job && job.done;
+    if (!job || (finished && q.restart)) {
+      const args = def.args(q);
+      job = { name: req.params.name, args, startedAt: new Date().toISOString(), done: false, output: '', code: null, error: null };
+      _adminScriptJobs.set(req.params.name, job);
+      const { execFile } = require('child_process');
+      const child = execFile(process.execPath, [require('path').join(__dirname, '..', def.file), ...args],
+        { cwd: require('path').join(__dirname, '..'), env: process.env, timeout: 15 * 60 * 1000, maxBuffer: 8 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          job.output = String(stdout || '') + (stderr ? '\n--- stderr ---\n' + String(stderr) : '');
+          job.code = err && typeof err.code === 'number' ? err.code : (err ? -1 : 0);
+          job.error = err && err.killed ? 'timed out after 15 minutes' : null;
+          job.done = true; job.finishedAt = new Date().toISOString();
+          console.log(`[admin-script] ${job.name} ${job.args.join(' ')} exit=${job.code}${job.error ? ' ' + job.error : ''}`);
+        });
+      child.on('error', (e) => { job.error = e.message; job.done = true; job.finishedAt = new Date().toISOString(); });
+      return res.json({ running: true, name: job.name, args, startedAt: job.startedAt, message: 'Started. Open this URL again in a minute or two for the output.' });
+    }
+    if (!job.done) return res.json({ running: true, name: job.name, args: job.args, startedAt: job.startedAt, message: 'Still running. Open this URL again in a minute.' });
+    if (q.text) { res.type('text/plain'); return res.send(`# ${job.name} ${job.args.join(' ')}  started ${job.startedAt}  finished ${job.finishedAt}  exit ${job.code}${job.error ? '  ' + job.error : ''}\n\n${job.output}`); }
+    res.json({ running: false, name: job.name, args: job.args, startedAt: job.startedAt, finishedAt: job.finishedAt, exitCode: job.code, error: job.error, output: job.output });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // GET /api/admin/verify-school-map[?state=NM][&limit=50][&restart=1]
 // One-time check of the memory-written D2/D3/NAIA school list against Places
 // (services/schoolMapVerify), run here because the Places key lives on
